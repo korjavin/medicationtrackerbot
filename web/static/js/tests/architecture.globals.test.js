@@ -62,6 +62,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.ModalManager',              // core/modal-manager.js — modal lifecycle façade
     'window.AppStore',                  // core/store.js — ephemeral UI state
     'window.CacheKeys',                 // core/cache-keys.js — centralized registry of api_cache keys, tags, and freshness windows; registerAll() is invoked at boot so tag-based invalidation works regardless of which feature loader has executed
+    'window.BackupCrypto',              // core/backup-crypto.js — thin wrapper over vendored typage (age-encryption): isAgeFile/encryptBackup/decryptBackup for passphrase (scrypt) encryption of the Settings → Import/Export vault file, browser-side in both bot and cloud modes; lazily dynamic-imports /static/vendor/age.min.js on first use (C2e Task 4)
     'window.MessengerAdapter',          // core/messenger-adapter.js — the only file allowed to reach into window.Telegram.WebApp; exposes a thin interface (init, identityToken, authHeaderName, alert, confirm, showPopup, startParam, onBack/showBack/hideBack, isPresent) selected to TelegramAdapter or BrowserAdapter at boot so the same client code can serve a Telegram Mini App or a non-Telegram browser PWA
     'window.MessengerAdapterReady',     // core/messenger-adapter.js — Promise that resolves once loadTelegramSdk() finishes and the adapter has been (re-)picked; consumers that need the upgraded TelegramAdapter (rather than the sync BrowserAdapter default) can await this on the web build
 
@@ -178,6 +179,7 @@ const ALLOWED_GLOBALS = new Set([
 
     // Settings → Integrations section (local-only mode foundation, Task 3).
     'window.SettingsIntegrations',      // features/settings/integrations.js — load + save handlers for the Integrations card (OpenAI / Food / ElevenLabs credentials); routes the save through DataStore.applyOptimistic so the masked GET view repaints immediately on commit and rolls back on failure.
+    'window.SettingsImportExport',      // features/settings/importexport.js — Settings → Import/Export section (C2e Task 6). One shared screen for both runtimes: export via CloudVault.exportAll() (cloud) or GET /api/export (bot) with optional browser-side age (BackupCrypto) encryption + Blob download; import reads a .json/.age file, optional decrypt, destructive replace-confirm, then CloudVault.importAll() (cloud) or POST /api/import mode:replace (bot), then reloads. Cloud branch never fetches /api/export|/api/import.
 
     // Backend logs diagnostics — embedded-Go shell (mobile Phase 2a, Task 5).
     'window.BackendLogs',               // features/backend-logs.js — Settings → About → "Backend logs" debug screen. Detects window.MedtrackerNative (Capacitor shell's addJavascriptInterface bridge); reveals a "View logs" row that opens a modal showing the last 200 stdout+stderr lines from the embedded Go binary. No-op in browser PWA + server-mode where MedtrackerNative is absent.
@@ -198,6 +200,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.CloudMCPDispatcher',        // apishim.js (installApiShim) — { handle(method, params) } over the same bp/weight/notes instances as the shim (createDispatcher from mcp-responder.js, no relay); elevenlabs-call.js registers mcp_help/mcp_call clientTools in cloud mode that dispatch straight in-tab through this (voice PoC Task 2/3)
     'window.CloudElevenLabsAgent',      // apishim.js (installApiShim) — { provision(), ensureTools(), ensureAgent() } from elevenlabs-agent.js; creates the ElevenLabs client tools + a MedTracker agent from code (browser-direct with the vault key, idempotent by TOOLSET_VERSION) so the user configures only the API key; elevenlabs-call.js calls provision() before minting the signed URL (auto-provision Task 1)
     'window.MedTrackerCloud',           // cloud-boot.js — published once warmUnlock() resolves a non-null ctx ({ accountId, dek }); features/settings.js's cloud Notifications branch reads window.MedTrackerCloud.ctx to call the DOM-free subscribe()/sendTestPush(ctx) helpers without re-deriving the vault key
+    'window.CloudVault',                // cloud-boot.js — { exportAll, importAll } for the Settings → Import/Export screen (C2e Task 5): fully client-side full-vault export/import against the unlocked vault via web/domain/vault.js; exportAll reads unmasked integrations module-to-module (never across the /api shim), importAll wipes+relays the record store (preserving nk/reminder prefs) then forces one snapshot upload
 
     // Native platform abstractions — mobile Phase 2b, Task 1 (foundation).
     // The four globals below are the seam between feature code and platform

@@ -15,7 +15,7 @@ import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
 import { createWorkoutDomain } from '../../domain/workout.js';
 import { recordsPort } from './sync.js';
-import { scheduleReminderRecompute } from './reminders.js';
+import { scheduleReminderRecompute, sendTestPush } from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
@@ -51,6 +51,18 @@ function intParam(params, name, fallback) {
   if (raw === null || raw === '') return fallback;
   const n = parseInt(raw, 10);
   return Number.isNaN(n) ? fallback : n;
+}
+
+// Some Go handlers guard their `days` parse with `err == nil && d > 0`, so a
+// non-positive value falls back to the default window rather than being used
+// (handleListSleepLogs, handleGetFoodLogs, handleGetFoodStats). Left to
+// intParam, `days=0` would reach the domain module and yield an empty (or, for
+// negative days, a future) window — silently no data where bot mode returns the
+// default window. Others (bp, weight, intake history) deliberately let
+// non-positive through to mean "unbounded"; those keep intParam.
+function positiveIntParam(params, name, fallback) {
+  const n = intParam(params, name, fallback);
+  return n > 0 ? n : fallback;
 }
 
 // Mirrors apiCallDirect's error shape (Error with .status) so apiCall's
@@ -194,17 +206,21 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // flag is simply omitted, which applyBootstrapPayload already treats as
   // "leave that cache alone".
   async function bootstrapPayload() {
-    const [readings, goal, stats, logs, weightGoal, settingsPart] = await Promise.all([
+    const [readings, goal, stats, logs, weightGoal, settingsPart, firstRunComplete] = await Promise.all([
       bp.list({ days: 60, limit: 0 }),
       bp.getGoal(),
       bp.getStats(),
       weight.list({ days: 35, limit: 0 }),
       weight.getGoal(),
       settingsResponse(),
+      settings.getFirstRunComplete(),
     ]);
     return {
       cursor: 0,
-      needs_first_run: false,
+      // Read from the vault on every call, never cached: WGFirstRun's _mounted
+      // latch is module state lost on reload, so only a fresh `false` here keeps
+      // the overlay from re-opening on the next page load.
+      needs_first_run: !firstRunComplete,
       features: settingsPart.features,
       bp: { readings, goal, stats },
       weight: { logs, goal: weightGoal },
@@ -257,6 +273,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       if (m) { await weight.remove(m[1]); return true; }
     }
     if (path === '/api/weight/goal' && method === 'GET') return weight.getGoal();
+    if (path === '/api/weight/goal' && method === 'POST') return weight.setGoal(body);
 
     if (path === '/api/notes') {
       if (method === 'POST') return notes.create(body);
@@ -317,6 +334,11 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       }
     }
 
+    if (path === '/api/firstrun/complete' && method === 'POST') {
+      await settings.setFirstRunComplete(true);
+      return { success: true };
+    }
+
     if (path === '/api/settings/tab-order' && method === 'POST') {
       await settings.setTabOrder(body && body.order);
       return true;
@@ -337,7 +359,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       return vitals.sleep({
         from: params.get('from') || undefined,
         to: params.get('to') || undefined,
-        days: intParam(params, 'days', 90),
+        days: positiveIntParam(params, 'days', 90),
         limit: intParam(params, 'limit', 0),
       });
     }
@@ -428,7 +450,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     if (path === '/api/food/log') {
       if (method === 'POST') return food.create(body);
       if (method === 'GET') {
-        return food.listGrouped({ date: params.get('date') || undefined, days: intParam(params, 'days', 1) });
+        return food.listGrouped({ date: params.get('date') || undefined, days: positiveIntParam(params, 'days', 1) });
       }
     }
     if (method === 'PUT') {
@@ -440,7 +462,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       if (m) { await food.remove(m[1]); return true; }
     }
     if (path === '/api/food/stats' && method === 'GET') {
-      return food.stats({ date: params.get('date') || undefined, days: intParam(params, 'days', 7) });
+      return food.stats({ date: params.get('date') || undefined, days: positiveIntParam(params, 'days', 7) });
     }
     if (path === '/api/food/products/from-logs' && method === 'POST') {
       return food.createMealFromLogs(body && body.name, (body && body.log_ids) || []);
@@ -592,6 +614,39 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       return status;
     }
 
+    // Snooze (2h) / don't-bug (24h) mute the schedule without touching the
+    // enable flag, mirroring bp_handlers.go + weight_handlers.go. In cloud mode
+    // the horizon is precomputed and already sitting in the relay's queue, so
+    // the mute only takes effect once a horizon omitting the muted targets is
+    // re-uploaded. That re-upload is fired undebounced but NOT awaited: the mute
+    // is already durable in the vault, and a snooze tapped on a flaky connection
+    // must still succeed — the next unlock re-uploads the horizon anyway.
+    // Response bodies match bot mode so shared callers can't tell them apart.
+    if (method === 'POST') {
+      const reminderActions = {
+        '/api/bp/reminder/snooze': [reminders.snoozeBPReminder, 'BP reminder snoozed for 2 hours'],
+        '/api/bp/reminder/dontbug': [reminders.dontBugBPReminder, 'BP reminders disabled for 24 hours'],
+        '/api/weight/reminder/snooze': [reminders.snoozeWeightReminder, 'Weight reminder snoozed for 2 hours'],
+        '/api/weight/reminder/dontbug': [reminders.dontBugWeightReminder, 'Weight reminders disabled for 24 hours'],
+      };
+      const action = reminderActions[path];
+      if (action) {
+        const [mutate, message] = action;
+        await mutate();
+        scheduleReminderRecompute(ctx, { records, timeZone }, 0);
+        return { status: 'success', message };
+      }
+    }
+
+    // Bot mode fans a BP test card out through every notifier; cloud has no
+    // server-side notifier and no way to compose a payload it can read, so the
+    // honest equivalent is the encrypted this-device-only push the Settings
+    // test button already uses.
+    if (path === '/api/bp/reminder/test' && method === 'POST') {
+      await sendTestPush(ctx);
+      return { status: 'sent' };
+    }
+
     // Medication reminders are functionally wired in cloud mode (Task 5): the
     // toggle actually gates whether computeReminderHorizon's med portion gets
     // uploaded to the blind push relay, unlike the bp/weight stubs above.
@@ -610,14 +665,10 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     }
 
     console.warn(`[cloud shim] unmapped route (C2 discovery): ${method} ${path}`);
-    // A thrown non-GET is turned into a blocking "Error:" alert by api.js
-    // (apiCall catch → safeAlert). Writes the always-visible Settings surface
-    // can still reach an unmapped route from — the Test-BP button
-    // (POST /api/bp/reminder/test), journey targets (unported, C2d) — guard a
-    // falsy result and revert or no-op honestly. So resolve null for writes to
-    // a not-yet-wired route instead of alerting the user; reads keep throwing
-    // so apiCall's offline/empty-state handling is unchanged.
-    if (method !== 'GET') return null;
+    // Unmapped writes throw like unmapped reads. Resolving null here used to
+    // make every unshimmed write (Test-BP, journey targets) look like it
+    // succeeded while doing nothing; a thrown error routes into the caller's
+    // existing failure path (api.js apiCall → safeAlert / toast) instead.
     throw apiError(404, `Not found: ${method} ${path}`);
   }
 

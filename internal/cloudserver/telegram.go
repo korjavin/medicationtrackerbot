@@ -10,11 +10,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
@@ -47,12 +51,19 @@ type TelegramAPI struct {
 	manager         *tgclient.Client
 	managerSecret   string // per-deployment webhook path/secret-token
 	managerUsername string // resolved by Bootstrap via getMe
+	claimTTL        time.Duration
+
+	// mintMu serializes the count-then-insert when the managebot mints an
+	// invite; without it concurrent updates all read a sub-quota count and all
+	// insert. ponytail: one global lock — cmd/cloud is a single process and
+	// minting is rare. Same rationale as InviteAPI.mintMu.
+	mintMu sync.Mutex
 }
 
 // NewTelegramAPI builds the Telegram surface for a manager bot token. apiBaseURL
 // overrides the Telegram API root (tests inject an httptest fake); "" uses the
 // real api.telegram.org.
-func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDomain, apiBaseURL string) *TelegramAPI {
+func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDomain, apiBaseURL string, claimTTL time.Duration) *TelegramAPI {
 	return &TelegramAPI{
 		store:         store,
 		sessionSecret: sessionSecret,
@@ -60,6 +71,7 @@ func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDom
 		apiBaseURL:    apiBaseURL,
 		manager:       tgclient.New(managerToken, apiBaseURL),
 		managerSecret: deriveWebhookSecret(sessionSecret, "mt/tg-manager-webhook/v1"),
+		claimTTL:      claimTTL,
 	}
 }
 
@@ -251,7 +263,11 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	botID, botUsername, userID, ok := upd.ManagedBotCreatedInfo()
 	if !ok {
-		slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID)
+		if upd.Message != nil {
+			t.handleManagerMessage(r.Context(), upd.Message)
+		} else {
+			slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID)
+		}
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -288,6 +304,12 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+		// Transient: 5xx, network, or a 429 rate limit. Answer non-2xx so
+		// Telegram redelivers — managed_bot_created is never re-sent on demand,
+		// so dropping it here would strand the account unbound forever.
+		if wait, ok := tgclient.RetryAfter(err); ok {
+			slog.Warn("telegram manager webhook: rate limited by telegram", "retry_after", wait, "bot_id", botID)
+		}
 		slog.Error("telegram manager webhook: get managed token", "error", err, "bot_id", botID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -307,6 +329,25 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	// anchor in the window before a SetWebhook failure, stranding a bot_created
 	// row whose webhook was never set with no pending row left to retry against.
 	child := tgclient.New(token, t.apiBaseURL)
+
+	// Best-effort profile setup
+	if err := child.SetMyName(r.Context(), "Med Tracker"); err != nil {
+		slog.Warn("telegram manager webhook: set name failed", "error", err, "account", accountID)
+	}
+	if err := child.SetMyShortDescription(r.Context(), "Your personal medication and health tracker."); err != nil {
+		slog.Warn("telegram manager webhook: set short description failed", "error", err, "account", accountID)
+	}
+	if err := child.SetMyDescription(r.Context(), "Welcome to Med Tracker! I can help you track your medications, log your blood pressure, and keep a journal of your health."); err != nil {
+		slog.Warn("telegram manager webhook: set description failed", "error", err, "account", accountID)
+	}
+
+	// If logo exists, best-effort set it as well
+	if logo, err := os.ReadFile("docs/logo.jpg"); err == nil {
+		if err := child.SetMyProfilePhoto(r.Context(), logo); err != nil {
+			slog.Warn("telegram manager webhook: set profile photo failed", "error", err, "account", accountID)
+		}
+	}
+
 	if err := child.SetWebhook(r.Context(), t.childWebhookURL(accountID, botSecret), botSecret); err != nil {
 		slog.Error("telegram manager webhook: set child webhook", "error", err, "account", accountID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -344,6 +385,133 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("telegram managed bot provisioned", "account", accountID, "bot_username", botUsername)
 	w.WriteHeader(http.StatusOK)
+}
+
+// Onboarding copy the managebot sends in a private chat. Server constants, like
+// welcomeMessage/testMessage.
+const (
+	onboardingOfferMessage = "👋 I help you set up your own personal health-tracking bot — medications, " +
+		"blood pressure, weight, food and vitals, all yours.\n\n" +
+		"Want me to create an account for you? Just reply “yes”."
+	onboardingNudgeMessage   = "Reply “yes” and I'll send you a link to set up your personal health-tracking bot."
+	onboardingClaimedMessage = "You already have a Med Tracker account. Open your subdomain and unlock it with your passkey — " +
+		"I can't create a second one for you."
+	onboardingMintFailMessage = "Sorry, I couldn't create your account just now. Please try again in a few minutes."
+)
+
+// onboardingQuotaMessage is built from the cap so the copy can't drift from it.
+var onboardingQuotaMessage = fmt.Sprintf(
+	"You already have %d setup links waiting — that's my limit per person. "+
+		"Open one of them, or wait for them to expire and message me again.",
+	managerInviteQuota)
+
+// managerInviteQuota caps how many *live* invites one Telegram user may hold at
+// once — unclaimed accounts whose claim has not expired, counted directly (see
+// CountLiveInvitesCreatedBy). Not a per-day cap: that would let an abuser stack
+// quota × (claimTTL/day) claim links.
+// ponytail: hardcoded — env-var knob only if someone asks. Same posture as
+// inviteMonthlyQuota.
+const managerInviteQuota = 3
+
+// affirmatives / greetings classify the one-word replies this conversation
+// expects. Anything else gets the nudge.
+var (
+	affirmatives = map[string]bool{"yes": true, "y": true, "yeah": true, "yep": true, "sure": true, "ok": true, "okay": true}
+	greetings    = map[string]bool{"/start": true, "hi": true, "hello": true, "help": true}
+)
+
+// handleManagerMessage runs the onboarding conversation for an ordinary private
+// message to the managebot: explain, offer, and on agreement mint an invite.
+// Every failure is logged and swallowed — the caller always answers 200, because
+// a non-200 makes Telegram retry the update (and retrying a mint is worse than
+// dropping a reply).
+func (t *TelegramAPI) handleManagerMessage(ctx context.Context, msg *tgclient.Message) {
+	if msg.Chat.Type != "private" || msg.From == nil || msg.From.IsBot {
+		return
+	}
+	// ponytail: accounts.created_by_account_id is overloaded — it is TEXT with no
+	// FK, so a "tg:"-prefixed Telegram user id cannot collide with a real account
+	// id (never prefixed) nor with admin-CLI mints (NULL). One column then carries
+	// provenance, the live-invite cap, and the already-connected check, with no new
+	// table. Promote to a tg_invite_mints table if a second non-account minter
+	// ever needs provenance.
+	creator := "tg:" + strconv.FormatInt(msg.From.ID, 10)
+
+	claimed, err := t.store.HasClaimedAccountCreatedBy(ctx, creator)
+	if err != nil {
+		slog.Error("telegram manager message: claimed check", "error", err)
+		return
+	}
+	if claimed {
+		t.reply(ctx, msg.Chat.ID, onboardingClaimedMessage)
+		return
+	}
+
+	switch text := strings.TrimSpace(strings.ToLower(msg.Text)); {
+	case affirmatives[text]:
+		t.mintInvite(ctx, msg.Chat.ID, creator)
+	case greetings[text]:
+		t.reply(ctx, msg.Chat.ID, onboardingOfferMessage)
+	default:
+		t.reply(ctx, msg.Chat.ID, onboardingNudgeMessage)
+	}
+}
+
+// mintInvite provisions a fresh unclaimed account attributed to creator and
+// replies with its claim link, refusing once creator holds managerInviteQuota
+// live invites.
+func (t *TelegramAPI) mintInvite(ctx context.Context, chatID int64, creator string) {
+	t.reply(ctx, chatID, t.mintInviteLocked(ctx, creator))
+}
+
+// mintInviteLocked does the count-then-insert under mintMu and returns the text
+// to reply with. The reply itself is sent by the caller, outside the lock: it is
+// an HTTP round-trip to Telegram, and mintMu is global across every user.
+func (t *TelegramAPI) mintInviteLocked(ctx context.Context, creator string) string {
+	t.mintMu.Lock()
+	defer t.mintMu.Unlock()
+
+	// ponytail: no update_id dedupe anywhere in this codebase, so a Telegram
+	// retry of a "yes" mints again. The already-connected gate above plus the
+	// live-invite cap bound a replay to managerInviteQuota empty accounts; a
+	// dedupe table isn't worth it. We also can't re-send a pending invite's link
+	// — the token is hash-only at rest — so a user with a live unclaimed invite
+	// who asks again just gets a fresh one, up to the cap.
+	now := time.Now().UTC()
+	// Sweep before counting, same as InviteAPI.CreateInvite: a user sitting at
+	// the cap never reaches Provision, so without this their own expired
+	// unclaimed invites would occupy slots forever.
+	if _, err := t.store.SweepExpiredClaims(ctx, now); err != nil {
+		slog.Error("telegram manager message: sweep expired claims", "error", err)
+		return onboardingMintFailMessage
+	}
+	// Count liveness from the rows themselves (unclaimed, expiry in the future)
+	// rather than from a created_at window: shortening CLOUD_CLAIM_TTL, or a
+	// ResetClaim that moves an expiry without touching created_at, would put a
+	// still-claimable link outside any TTL-derived window and hand back quota.
+	minted, err := t.store.CountLiveInvitesCreatedBy(ctx, creator, now)
+	if err != nil {
+		slog.Error("telegram manager message: count mints", "error", err, "creator", creator)
+		return onboardingMintFailMessage
+	}
+	if minted >= managerInviteQuota {
+		return onboardingQuotaMessage
+	}
+
+	inv, err := Provision(ctx, t.store, t.claimTTL, now, creator)
+	if err != nil {
+		slog.Error("telegram manager message: provision invite", "error", err, "creator", creator)
+		return onboardingMintFailMessage
+	}
+	return "🎉 Your account is ready. Open this link and set it up with a passkey:\n\n" +
+		inv.ClaimURL(t.baseDomain) + "\n\nThe link is personal and expires — open it on the device you'll use."
+}
+
+// reply sends a managebot message, logging and swallowing failures.
+func (t *TelegramAPI) reply(ctx context.Context, chatID int64, text string) {
+	if err := t.manager.SendMessage(ctx, chatID, text); err != nil {
+		slog.Error("telegram manager message: send reply", "error", err, "chat_id", chatID)
+	}
 }
 
 // ChildWebhook receives a linked bot's updates. It loads the bot addressed by
@@ -399,6 +567,11 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
+	if upd.CallbackQuery != nil {
+		t.handleCallbackQuery(w, r, ref, bot, upd.CallbackQuery)
+		return
+	}
+
 	if upd.Message == nil || !strings.HasPrefix(upd.Message.Text, "/start") {
 		w.WriteHeader(http.StatusOK)
 		return
@@ -416,6 +589,15 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// Automatically configure the bot's command menu
+	commands := []tgclient.BotCommand{
+		{Command: "start", Description: "Start the bot and open the App"},
+	}
+	if err := client.SetMyCommands(r.Context(), commands); err != nil {
+		slog.Warn("telegram child webhook: set commands", "error", err, "ref", ref)
+		// Non-fatal, just missing autocomplete
+	}
+
 	if err := client.SendMessage(r.Context(), upd.Message.Chat.ID, welcomeMessage); err != nil {
 		slog.Error("telegram child webhook: send welcome", "error", err, "ref", ref)
 		// chat is linked; a failed welcome send is not fatal — reply 200 so
@@ -565,6 +747,149 @@ func (t *TelegramAPI) Test(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"sent": true})
+}
+
+// inboxEventKindIntakeSlot is the sealed-event kind a Confirm/Snooze tap
+// produces. The client's drain switches on it. AtUnix is the SERVER's timestamp
+// for the tap, not the drain's — a Confirm tapped at 09:00 records taken-at
+// 09:00 even if the app first opens at noon.
+const inboxEventKindIntakeSlot = "intake_slot_action"
+
+type intakeSlotEvent struct {
+	Kind     string `json:"kind"`
+	SlotUnix int64  `json:"slot_unix"`
+	Action   string `json:"action"`
+	AtUnix   int64  `json:"at_unix"`
+}
+
+// Replies to a button tap. Telegram spins the button until answerCallbackQuery
+// lands, so every path answers — including the ones that discard the tap.
+const (
+	callbackAckConfirm = "✅ Saved — it will be recorded when you next open the app."
+	callbackAckSnooze  = "⏰ Snoozed — it will apply when you next open the app."
+	callbackAckDropped = "Open the app once to finish setting up, then try again."
+	callbackAckUnknown = "Sorry — this button is no longer valid."
+)
+
+// handleCallbackQuery turns an inline Confirm/Snooze tap into a sealed mailbox
+// event. The server cannot apply the tap itself (it cannot write ciphertext it
+// cannot produce), so it seals the intent to the account's inbox key and lets an
+// unlocked client apply it through the domain layer at drain time.
+//
+// It always replies 200: a tap is not worth re-driving. Telegram redelivers a
+// non-2xx webhook, which for an already-sealed event would queue a duplicate —
+// harmless (the apply is idempotent) but pointless. The one thing we never do is
+// store the tap in the clear when no inbox key exists: that plaintext is exactly
+// what this design withholds.
+func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request, ref string, bot *cloudstore.TGBot, cq *tgclient.CallbackQuery) {
+	// Best-effort ack helper: a failure to answer only leaves a spinner.
+	answer := func(text string) {
+		if cq.ID == "" {
+			return
+		}
+		client, err := t.botClient(bot)
+		if err != nil {
+			slog.Error("telegram callback: open token", "error", err, "ref", ref)
+			return
+		}
+		if err := client.AnswerCallbackQuery(r.Context(), cq.ID, text); err != nil {
+			slog.Warn("telegram callback: answer failed", "error", err, "ref", ref)
+		}
+	}
+
+	// A callback from a chat other than the linked one is not this account's
+	// user. Telegram omits Message for old messages, so this can only be
+	// enforced when it is present.
+	if cq.Message != nil && bot.ChatID != nil && cq.Message.Chat.ID != *bot.ChatID {
+		slog.Warn("telegram callback: chat mismatch, ignoring", "ref", ref)
+		answer(callbackAckUnknown)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	slotUnix, action, ok := tgclient.ParseCallbackData(cq.Data)
+	if !ok {
+		slog.Warn("telegram callback: unparseable callback_data", "ref", ref)
+		answer(callbackAckUnknown)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	now := time.Now().UTC()
+	plaintext, err := json.Marshal(intakeSlotEvent{
+		Kind:     inboxEventKindIntakeSlot,
+		SlotUnix: slotUnix,
+		Action:   action,
+		AtUnix:   now.Unix(),
+	})
+	if err != nil {
+		slog.Error("telegram callback: marshal event", "error", err, "ref", ref)
+		answer(callbackAckUnknown)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// ref IS the account id (see BotByWebhookRef).
+	switch err := SealAndQueue(r.Context(), t.store, ref, plaintext, now); {
+	case errors.Is(err, ErrNoInboxKey):
+		// The account has never unlocked a client, so there is no key to seal
+		// to. Drop the tap rather than store it readable.
+		slog.Warn("telegram callback: no inbox key, dropping tap", "ref", ref)
+		answer(callbackAckDropped)
+	case err != nil:
+		slog.Error("telegram callback: seal and queue", "error", err, "ref", ref)
+		answer(callbackAckUnknown)
+	case action == tgclient.CallbackActionSnooze:
+		answer(callbackAckSnooze)
+	default:
+		answer(callbackAckConfirm)
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// ErrNoLinkedChat means the account has a bot row but the user never tapped
+// /start, so there is no chat to deliver to. The relay treats this as terminal
+// for that entry rather than retrying it forever.
+var ErrNoLinkedChat = errors.New("telegram: bot has no linked chat")
+
+// SendReminder forwards a client-composed reminder to the account's linked bot
+// (the relay's TelegramSender). text arrives as plaintext because the relay
+// cannot decrypt the vault — the client chose this exact string at its chosen
+// verbosity and handed it over knowing the relay reads it. Nothing here derives
+// text from account data.
+//
+// callbackStem is "s:<slotUnix>" for a medication dose reminder and "" for
+// everything else. When set, Confirm/Snooze buttons ride along; a tap comes back
+// to ChildWebhook, is sealed to the account's inbox key, and is applied by an
+// unlocked client at drain time.
+func (t *TelegramAPI) SendReminder(ctx context.Context, accountID, text, callbackStem string) error {
+	bot, err := t.store.BotByAccount(ctx, accountID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNoLinkedChat
+	}
+	if err != nil {
+		return err
+	}
+	if bot.ChatID == nil {
+		return ErrNoLinkedChat
+	}
+	client, err := t.botClient(bot)
+	if err != nil {
+		return err
+	}
+	// A stem the client never should have sent (or a tampered row) would become
+	// callback_data we cannot parse back. Drop the buttons, keep the reminder.
+	if callbackStem != "" && !tgclient.ValidCallbackStem(callbackStem) {
+		slog.Warn("telegram send reminder: invalid callback stem, sending without buttons", "accountID", accountID)
+		callbackStem = ""
+	}
+	if callbackStem == "" {
+		return client.SendMessage(ctx, *bot.ChatID, text)
+	}
+	return client.SendMessageWithButtons(ctx, *bot.ChatID, text, []tgclient.InlineKeyboardButton{
+		{Text: "✅ Confirm", CallbackData: callbackStem + ":" + tgclient.CallbackActionConfirm},
+		{Text: "⏰ Snooze", CallbackData: callbackStem + ":" + tgclient.CallbackActionSnooze},
+	})
 }
 
 // Delete unlinks the account's bot: it deletes the Telegram webhook (best

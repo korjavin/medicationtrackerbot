@@ -484,3 +484,48 @@ func TestHandleListWeightGoals_EmptyHistoryReturnsEmptyList(t *testing.T) {
 		t.Errorf("expected empty goals array in body, got %s", body)
 	}
 }
+
+func TestHandleSetWeightGoal_NoDate(t *testing.T) {
+	srv, db := createWeightTestServer(t)
+	defer db.Close()
+
+	const userID = int64(12345)
+
+	// Create request with NO target_date (which simulates what the UI sends)
+	payload := `{"target_weight": 70.0}`
+	req := httptest.NewRequest("POST", "/api/weight/goal", bytes.NewBufferString(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req = weightReqWithUser(req, userID)
+	w := httptest.NewRecorder()
+
+	srv.handleSetWeightGoal(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200; body=%s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	// Make sure the goal is set
+	if goal, ok := resp["goal"].(float64); !ok || goal != 70.0 {
+		t.Errorf("goal mismatch: %v", resp["goal"])
+	}
+
+	// Make sure goal_date is omitted
+	if _, ok := resp["goal_date"]; ok {
+		t.Errorf("expected goal_date to be omitted, got %v", resp["goal_date"])
+	}
+
+	// Check DB manually to make sure no 0001-01-01 was written
+	var targetDate *string
+	err := db.DB().QueryRowContext(context.Background(), "SELECT target_date FROM weight_goals WHERE user_id = ? ORDER BY set_at_unix DESC LIMIT 1", userID).Scan(&targetDate)
+	if err != nil {
+		t.Fatalf("query history: %v", err)
+	}
+	if targetDate != nil {
+		t.Errorf("expected target_date in history table to be NULL, got %s", *targetDate)
+	}
+}

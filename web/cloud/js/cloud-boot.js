@@ -11,6 +11,46 @@
 // for the Telegram SDK upgrade.
 window.__MEDTRACKER_CLOUD__ = true;
 
+// Routes the service worker considers safe to replay from a notification tap.
+// Kept as an allowlist so a compromised/stale SW message can't drive arbitrary
+// shim writes (the SW is same-origin, but the page is the only holder of the DEK
+// and should decide what a notification button is allowed to do).
+const REMINDER_ACTION_ROUTES = {
+    bp_snooze: '/api/bp/reminder/snooze',
+    bp_dontbug: '/api/bp/reminder/dontbug',
+    weight_snooze: '/api/weight/reminder/snooze',
+    weight_dontbug: '/api/weight/reminder/dontbug',
+};
+
+function installReminderActionHandler(shimCall) {
+    const allowed = new Set(Object.values(REMINDER_ACTION_ROUTES));
+    const apply = (route) => {
+        if (!allowed.has(route)) return;
+        shimCall(route, 'POST').catch((e) => console.error('[cloud-boot] reminder action failed', e));
+    };
+
+    // Cold start: the SW opened us with ?reminder_action=<action>. Strip it so a
+    // refresh (or a shared link) can't replay the mute.
+    try {
+        const url = new URL(window.location.href);
+        const action = url.searchParams.get('reminder_action');
+        if (action) {
+            url.searchParams.delete('reminder_action');
+            window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+            apply(REMINDER_ACTION_ROUTES[action]);
+        }
+    } catch (e) {
+        console.error('[cloud-boot] reminder action url parse failed', e);
+    }
+
+    // Warm tab: the SW postMessages the route it resolved.
+    if (navigator.serviceWorker) {
+        navigator.serviceWorker.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'reminder-action') apply(event.data.route);
+        });
+    }
+}
+
 window.MedTrackerCloudReady = (async function boot() {
     // Invite/claim links (https://<acct>.cloud…/#claim=<token>) resolve to '/',
     // which serves web/static + this shim — not the passkey shell. Hand off to
@@ -54,6 +94,73 @@ window.MedTrackerCloudReady = (async function boot() {
     // set — must not throw or block the try/catch below that guards the rest
     // of post-unlock boot.
     window.MedTrackerCloud = { ctx };
+
+    // C2e full-vault export/import (Settings → Import/Export, Task 6). Both
+    // sides are entirely client-side against the unlocked vault — zero-knowledge
+    // forbids the server ever seeing plaintext. exportAll reads every live
+    // record (including the unmasked integrations keys, module-to-module, never
+    // across the /api shim) and regroups via web/domain/vault.js; importAll
+    // wipes+relays the whole record store (preserving device/crypto state the
+    // vault never carries — nk, voice provisioning) and forces one snapshot upload
+    // so other devices re-bootstrap. Lazy dynamic imports keep this off the
+    // boot critical path.
+    window.CloudVault = {
+        async exportAll({ includeSecrets = true } = {}) {
+            const [{ readAllLiveRecords }, { recordsToVault }] = await Promise.all([
+                import('/js/sync.js'),
+                import('/domain/vault.js'),
+            ]);
+            const records = await readAllLiveRecords(ctx);
+            return JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);
+        },
+        async importAll(json) {
+            const [{ replaceAllRecords, forceSnapshot, markForceSnapshotPending, readAllLiveRecords, isBootstrapped, dropPendingForTypes }, { vaultToRecords, managedTypesForImport }] = await Promise.all([
+                import('/js/sync.js'),
+                import('/domain/vault.js'),
+            ]);
+            const vault = typeof json === 'string' ? JSON.parse(json) : json;
+            const records = vaultToRecords(vault, { now: Date.now() });
+            // Managed set is narrowed per-file: a secrets-free vault must not
+            // wipe the destination's integrations keys / api tokens.
+            const VAULT_MANAGED_TYPES = managedTypesForImport(vault);
+            // Preserve records the vault never manages (nk push key, voice
+            // provisioning, un-carried secrets) across the wholesale replace.
+            // readAllLiveRecords bootstraps first, so isBootstrapped below
+            // reflects whether that bootstrap actually reached the server.
+            const survive = (await readAllLiveRecords(ctx))
+                .filter((r) => !VAULT_MANAGED_TYPES.has(r.recordType));
+            // Refuse to wipe until the account cursor exists. Without it,
+            // forceSnapshot can't propagate the import (null cursor → nothing to
+            // snapshot at) and the next open re-bootstraps the stale server
+            // snapshot over the imported records. Throwing here surfaces the
+            // error in importexport.js and skips the reload — no destructive
+            // replace happens, so local data is untouched.
+            if (!(await isBootstrapped())) {
+                throw new Error('Sync not ready — connect to the internet and reopen the app before importing.');
+            }
+            // Replace-only: discard any not-yet-flushed managed writes first, or
+            // replaceAllRecords' pending overlay resurrects them over the backup
+            // (and they later flush over it). Non-managed pending (nk, reminder
+            // prefs) stays queued — those records are in `survive`.
+            // Mark before the wipe: a crash between replaceAllRecords and the
+            // marker would let the next open re-bootstrap the stale server
+            // snapshot over the import (and the old data is already gone).
+            await markForceSnapshotPending();
+            await dropPendingForTypes(VAULT_MANAGED_TYPES);
+            await replaceAllRecords([...records, ...survive]);
+            // Past this line the import HAS happened locally. Propagation to the
+            // server is retryable (forceSnapshotPending stays set, next pullOnOpen
+            // retries), so a throw here must not reach importexport.js — it would
+            // report "Import failed" and skip the reload while the old data is
+            // already gone, leaving the user staring at pre-import UI over
+            // post-import data.
+            try {
+                await forceSnapshot(ctx);
+            } catch (err) {
+                console.warn('[cloud] import applied locally; sync to other devices deferred', err);
+            }
+        },
+    };
 
     // --- Post-unlock boot. The vault is unlocked; from here on any failure
     // degrades the app in place and is logged — it must NOT redirect to /unlock
@@ -127,6 +234,34 @@ window.MedTrackerCloudReady = (async function boot() {
         import('/js/mcp-responder.js')
             .then(({ refreshResponder }) => refreshResponder(ctx))
             .catch((e) => console.error('[cloud-boot] mcp responder failed', e));
+
+        // Publish this account's inbox public key so the relay can seal inbound
+        // Telegram events to it (bd med-76c.2). Generates the keypair on the
+        // first unlock that finds none. Best-effort: a failure here means
+        // inbound events are refused server-side, not that the app degrades.
+        //
+        // Then drain whatever the relay sealed while we were away: a Confirm
+        // tapped in Telegram at 09:00 is applied here, backdated to 09:00, on
+        // the first unlock after it. Key publish must land first — draining
+        // needs the private key it reads from the vault. Reminders are recomputed
+        // afterwards because a confirmed dose removes its own re-reminders.
+        import('/js/inbox.js')
+            .then(async ({ ensureInboxKey, drainInbox }) => {
+                await ensureInboxKey(ctx);
+                const { createInboxApplier } = await import('/js/inbox-apply.js');
+                const result = await drainInbox(ctx, { apply: createInboxApplier(ctx) });
+                if (result.applied > 0) {
+                    const { scheduleReminderRecompute } = await import('/js/reminders.js');
+                    scheduleReminderRecompute(ctx);
+                }
+            })
+            .catch((e) => console.error('[cloud-boot] inbox key publish/drain failed', e));
+
+        // Snooze / don't-bug taps from a push notification (med-9b8.3). The
+        // service worker has no DEK, so it hands the action here instead of
+        // POSTing it itself: warm tab → postMessage, cold start → ?reminder_action.
+        // Runs only after unlock, which is exactly when shimCall can serve it.
+        installReminderActionHandler(shimCall);
     } catch (e) {
         // Boot the app degraded rather than redirecting — the vault is already
         // unlocked, so /unlock would just bounce straight back to / (med-eas.16).

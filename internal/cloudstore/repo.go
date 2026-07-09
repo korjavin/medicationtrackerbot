@@ -117,11 +117,12 @@ func New(d *storedb.DB) (*Repo, error) {
 // CreateAccount inserts a new (unclaimed) account row. vapidPublicKey/
 // vapidPrivateKey are the account's own VAPID keypair generated at
 // provisioning; pass "" for both on the (unsupported) legacy path — stored as
-// NULL, picked up later by the startup backfill.
-func (r *Repo) CreateAccount(ctx context.Context, id, subdomain string, claimTokenHash []byte, claimExpiresAt, createdAt time.Time, vapidPublicKey, vapidPrivateKey string) (*Account, error) {
+// NULL, picked up later by the startup backfill. createdBy is the account that
+// minted this invite ("" for admin-CLI invites — stored as NULL).
+func (r *Repo) CreateAccount(ctx context.Context, id, subdomain string, claimTokenHash []byte, claimExpiresAt, createdAt time.Time, vapidPublicKey, vapidPrivateKey, createdBy string) (*Account, error) {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO accounts (id, subdomain, created_at_unix, claim_token_hash, claim_expires_unix, vapid_public_key, vapid_private_key) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id, subdomain, storedb.TimeToUnix(createdAt), claimTokenHash, storedb.TimeToUnix(claimExpiresAt), nullString(vapidPublicKey), nullString(vapidPrivateKey))
+		`INSERT INTO accounts (id, subdomain, created_at_unix, claim_token_hash, claim_expires_unix, vapid_public_key, vapid_private_key, created_by_account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, subdomain, storedb.TimeToUnix(createdAt), claimTokenHash, storedb.TimeToUnix(claimExpiresAt), nullString(vapidPublicKey), nullString(vapidPrivateKey), nullString(createdBy))
 	if err != nil {
 		return nil, err
 	}
@@ -135,6 +136,49 @@ func (r *Repo) CreateAccount(ctx context.Context, id, subdomain string, claimTok
 		VAPIDPublicKey:  nullStringPtr(vapidPublicKey),
 		VAPIDPrivateKey: nullStringPtr(vapidPrivateKey),
 	}, nil
+}
+
+// CountAccountsCreatedBy returns how many accounts accountID has minted since
+// the given instant — the rolling-window invite quota counter. Expired
+// unclaimed invites swept by SweepExpiredClaims free quota, by design.
+func (r *Repo) CountAccountsCreatedBy(ctx context.Context, accountID string, since time.Time) (int, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM accounts WHERE created_by_account_id = ? AND created_at_unix >= ?`,
+		accountID, storedb.TimeToUnix(since)).Scan(&n)
+	return n, err
+}
+
+// CountLiveInvitesCreatedBy returns how many still-claimable invites createdBy
+// holds at the given instant: unclaimed (claim_token_hash NOT NULL, see
+// consumeClaimTx) with a claim expiry in the future. Unlike a created_at
+// window, this reads liveness from the row itself, so it stays correct when the
+// deployment's claim TTL changes or ResetClaim moves an expiry.
+func (r *Repo) CountLiveInvitesCreatedBy(ctx context.Context, createdBy string, now time.Time) (int, error) {
+	if createdBy == "" {
+		return 0, nil
+	}
+	var n int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM accounts WHERE created_by_account_id = ? AND claim_token_hash IS NOT NULL AND claim_expires_unix IS NOT NULL AND claim_expires_unix >= ?`,
+		createdBy, storedb.TimeToUnix(now)).Scan(&n)
+	return n, err
+}
+
+// HasClaimedAccountCreatedBy reports whether createdBy has minted an account
+// that was actually claimed. A claimed account has a NULL claim_token_hash (see
+// consumeClaimTx) and survives SweepExpiredClaims, so this — unlike a plain
+// count — distinguishes "owns an account" from "has a pending invite".
+// An empty createdBy never matches: admin-CLI mints store NULL provenance.
+func (r *Repo) HasClaimedAccountCreatedBy(ctx context.Context, createdBy string) (bool, error) {
+	if createdBy == "" {
+		return false, nil
+	}
+	var exists bool
+	err := r.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM accounts WHERE created_by_account_id = ? AND claim_token_hash IS NULL)`,
+		createdBy).Scan(&exists)
+	return exists, err
 }
 
 // nullString turns "" into a driver NULL so an unset VAPID key never gets

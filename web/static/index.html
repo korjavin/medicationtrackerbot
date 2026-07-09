@@ -270,6 +270,9 @@
                 <button id="add-food-photo-btn" class="wg-toolbar-btn wg-toolbar-btn--primary" type="button" aria-label="Log food from photo or gallery" title="Log food from photo or gallery">
                     <span class="wg-toolbar-btn__label">Photo</span>
                 </button>
+                <button id="scan-food-inline-btn" class="wg-toolbar-btn wg-toolbar-btn--primary" type="button" aria-label="Scan food barcode" title="Scan food barcode">
+                    <span class="wg-toolbar-btn__label">Scan</span>
+                </button>
             </div>
             <input type="file" id="food-photo-input" accept="image/*" class="hidden" aria-hidden="true">
 
@@ -447,6 +450,22 @@
                 </div>
             </section>
 
+            <section class="wg-card wg-settings-section wg-settings-cloud-invite wg-settings-hidden">
+                <h3 class="wg-settings-section__title">Invite a friend</h3>
+                <p class="wg-settings-section__desc">Create a personal account for someone you know</p>
+                <div class="wg-settings-row-list">
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Invite a friend</div>
+                            <div class="wg-settings-row__desc">Up to 100 invites per month</div>
+                        </div>
+                        <div class="wg-settings-row__control">
+                            <button type="button" id="settings-invite-btn" class="wg-gloss wg-settings-action-btn">Invite</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <section id="oidc-setup-container" class="wg-card wg-settings-section wg-settings-oidc"></section>
 
             <section class="wg-card wg-settings-section">
@@ -516,6 +535,32 @@
                             <button id="cloud-push-test-btn" class="wg-gloss wg-settings-action-btn">Send test push</button>
                         </div>
                     </div>
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Reminder Delivery</div>
+                            <div class="wg-settings-row__desc">Where scheduled reminders are sent. Telegram needs a linked bot.</div>
+                        </div>
+                        <div class="wg-settings-row__control wg-settings-action-row">
+                            <select id="cloud-reminder-delivery" class="wg-gloss wg-settings-action-btn" aria-label="Reminder delivery channel">
+                                <option value="webpush">Web push only</option>
+                                <option value="telegram">Telegram only</option>
+                                <option value="both">Web push and Telegram</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Telegram Reminder Detail</div>
+                            <div class="wg-settings-row__desc">Telegram reminders pass through the server as readable text. "Detailed" includes medication names; "Generic" says only that a reminder is due.</div>
+                        </div>
+                        <div class="wg-settings-row__control wg-settings-action-row">
+                            <select id="cloud-reminder-verbosity" class="wg-gloss wg-settings-action-btn" aria-label="Telegram reminder detail level">
+                                <option value="detailed">Detailed (includes names)</option>
+                                <option value="generic">Generic (no names)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="cloud-reminder-delivery-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
                 </div>
             </section>
 
@@ -861,6 +906,49 @@
                 <button id="save-integrations-btn" type="button" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Save Integrations</button>
             </section>
 
+            <section id="settings-importexport" class="wg-card wg-settings-section wg-settings-importexport">
+                <h3 class="wg-settings-section__title">Import / Export</h3>
+                <p class="wg-settings-section__desc">Download all your data as one file, or restore from a backup. Importing replaces everything currently stored.</p>
+
+                <div class="wg-settings-integrations__group">
+                    <h4 class="wg-settings-integrations__group-title wg-mono-display">Export</h4>
+                    <div class="wg-settings-integrations__field">
+                        <label class="checkbox-label" for="importexport-include-secrets">
+                            <input type="checkbox" id="importexport-include-secrets" checked>
+                            Include API keys and external provider settings
+                        </label>
+                        <p class="wg-settings-integrations__note">The backup will contain secrets — encrypt it with a passphrase, or uncheck to leave them out.</p>
+                    </div>
+                    <div class="wg-settings-integrations__field">
+                        <label for="importexport-export-passphrase" class="wg-settings-integrations__label">Passphrase (optional)</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <input type="password" id="importexport-export-passphrase" class="wg-settings-integrations__input" autocomplete="off" placeholder="Encrypt the backup">
+                        </div>
+                        <p id="importexport-passphrase-nudge" class="wg-settings-integrations__note" hidden>The backup contains your provider API keys — consider a passphrase.</p>
+                    </div>
+                    <button id="importexport-export-btn" type="button" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Download backup</button>
+                </div>
+
+                <div class="wg-settings-integrations__group">
+                    <h4 class="wg-settings-integrations__group-title wg-mono-display">Import</h4>
+                    <div class="wg-settings-integrations__field">
+                        <label for="importexport-import-file" class="wg-settings-integrations__label">Backup file (.json.gz, .json.gz.age, .json, .age)</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <!-- Import sniffs magic bytes, not the extension; this list only shapes the OS
+                                 file picker. .gz first: that is what export writes now. -->
+                            <input type="file" id="importexport-import-file" class="wg-settings-integrations__input" accept=".gz,.age,.json,application/gzip,application/json">
+                        </div>
+                    </div>
+                    <div id="importexport-import-passphrase-field" class="wg-settings-integrations__field" hidden>
+                        <label for="importexport-import-passphrase" class="wg-settings-integrations__label">Passphrase</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <input type="password" id="importexport-import-passphrase" class="wg-settings-integrations__input" autocomplete="off" placeholder="Decrypt the backup">
+                        </div>
+                    </div>
+                    <button id="importexport-import-btn" type="button" class="wg-gloss wg-settings-save-btn">Import backup (replace)</button>
+                </div>
+            </section>
+
             <section id="settings-about" class="wg-card wg-settings-section wg-settings-about">
                 <h3 class="wg-settings-section__title">About</h3>
                 <p class="wg-settings-section__desc">Diagnostics for the embedded server</p>
@@ -898,6 +986,29 @@
         </div>
         <div class="wg-backend-logs-modal__body">
             <pre id="backend-logs-output" class="wg-mono-display wg-backend-logs-modal__output"></pre>
+        </div>
+    </mt-modal>
+
+    <!-- Cloud-mode invite claim link (minted by POST /api/invite). The claim
+         token lives only in the URL fragment shown here — never persisted. -->
+    <mt-modal id="invite-modal" class="hidden wg-modal wg-invite-modal">
+        <div class="wg-invite-modal__header">
+            <div class="wg-invite-modal__heading">
+                <span class="wg-section-label wg-invite-modal__eyebrow">Invite</span>
+                <span class="wg-mono-display wg-invite-modal__title">Share this link</span>
+            </div>
+            <div class="wg-invite-modal__header-actions">
+                <button type="button" id="invite-close-btn"
+                    class="wg-gloss wg-invite-modal__header-btn">Close</button>
+            </div>
+        </div>
+        <div class="wg-invite-modal__body">
+            <div id="invite-qr" class="wg-invite-modal__qr"></div>
+            <div class="wg-gloss--inset wg-invite-modal__url-wrap">
+                <span id="invite-claim-url" class="wg-mono-display wg-invite-modal__url"></span>
+            </div>
+            <button type="button" id="invite-copy-btn" class="wg-gloss wg-settings-action-btn">Copy link</button>
+            <p class="wg-invite-modal__note">The link works once and expires — send it directly to your friend.</p>
         </div>
     </mt-modal>
 
@@ -1905,6 +2016,7 @@
     <script src="/static/js/core/modal-controller.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/core/chart-utils.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/core/cache-keys.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/core/backup-crypto.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/db.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/sync.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/data-store.js?v=TIMESTAMP_PLACEHOLDER"></script>
@@ -1974,6 +2086,7 @@
     <script src="/static/js/features/call-indicator.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/settings.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/settings/integrations.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/settings/importexport.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/backend-logs.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/today.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/journey.js?v=TIMESTAMP_PLACEHOLDER"></script>

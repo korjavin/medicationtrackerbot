@@ -67,6 +67,43 @@ describe('cloud shim contract — food log flows (features/food/log.js over web/
         env = null;
     });
 
+    // med-9z3.9 — the Go handlers guard `days` with `err == nil && d > 0`
+    // (food_handlers.go handleGetFoodLogs/handleGetFoodStats), so a non-positive
+    // value falls back to the default window. The shim's intParam let 0/-5 reach
+    // the domain module, which turned it into an empty window: no data where bot
+    // mode returns the default.
+    describe('non-positive `days` falls back to the default window (bot-mode parity)', () => {
+        const seedOneLog = async (window, document) => {
+            fillFoodLogForm(document, {
+                name: 'Apple', dateStr: atTime(today, 8, 0), weight: 180, carbs: 25, protein: 0, fat: 0, calories: 95
+            });
+            await window.saveFoodLog();
+        };
+
+        for (const days of ['0', '-5']) {
+            it(`GET /api/food/log?days=${days} behaves like the default days=1`, async () => {
+                const { window, document } = env;
+                await seedOneLog(window, document);
+
+                const withDays = await window.apiCall(`/api/food/log?date=${today}&days=${days}`);
+                const withDefault = await window.apiCall(`/api/food/log?date=${today}`);
+
+                expect(withDays.flatMap((g) => g.logs).map((l) => l.name)).toEqual(['Apple']);
+                expect(withDays).toEqual(withDefault);
+            });
+
+            it(`GET /api/food/stats?days=${days} behaves like the default days=7`, async () => {
+                const { window, document } = env;
+                await seedOneLog(window, document);
+
+                const withDays = await window.apiCall(`/api/food/stats?date=${today}&days=${days}`);
+                const withDefault = await window.apiCall(`/api/food/stats?date=${today}`);
+
+                expect(withDays).toEqual(withDefault);
+            });
+        }
+    });
+
     it('saveFoodLog (create/edit) round-trips through the shim, deleteFoodLog removes it', async () => {
         const { window, document } = env;
         fillFoodLogForm(document, {

@@ -30,6 +30,7 @@ const WG_TOGGLE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-toggle.js
 const WG_SETTINGS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-settings.js');
 const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
 const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
+const BACKUP_CRYPTO_JS = path.join(REPO_ROOT, 'web/static/js/core/backup-crypto.js');
 const APP_KERNEL_JS = path.join(REPO_ROOT, 'web/static/js/core/app-kernel.js');
 const STORE_JS = path.join(REPO_ROOT, 'web/static/js/core/store.js');
 const MODAL_CONTROLLER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-controller.js');
@@ -86,6 +87,7 @@ const WORKOUT_STATS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/st
 const WORKOUT_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/index.js');
 const SETTINGS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings.js');
 const SETTINGS_INTEGRATIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings/integrations.js');
+const SETTINGS_IMPORTEXPORT_JS = path.join(REPO_ROOT, 'web/static/js/features/settings/importexport.js');
 const WORKOUT_MODALS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/modals.js');
 
 // Native platform abstraction layer (Phase 2b). Must load before feature
@@ -165,6 +167,14 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   const { window } = dom;
 
+  // jsdom ships no Streams/Fetch primitives, but every browser (and Capacitor
+  // WebView) has them; core/backup-crypto.js gzips through Response +
+  // Compression/DecompressionStream. Borrow Node's rather than reshaping the
+  // module around a test-env gap.
+  for (const g of ['Response', 'CompressionStream', 'DecompressionStream']) {
+    if (!window[g] && globalThis[g]) window[g] = globalThis[g];
+  }
+
   const backButtonState = {
     showCalls: 0,
     hideCalls: 0,
@@ -239,6 +249,9 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalFileCached(window, WG_SETTINGS_JS);
   evalFileCached(window, MODAL_MANAGER_JS);
   evalFileCached(window, CORE_API_JS);
+  // Real gzip/sniff helpers for the vault import/export screen; the age crypto
+  // inside is lazily imported and never touched unless a passphrase is used.
+  evalFileCached(window, BACKUP_CRYPTO_JS);
   evalFileCached(window, APP_KERNEL_JS);
   evalFileCached(window, STORE_JS);
   evalFileCached(window, MODAL_CONTROLLER_JS);
@@ -359,6 +372,11 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // its DOMContentLoaded bind sees the same DOM tree the rest of the
   // harness uses.
   evalFileCached(window, SETTINGS_INTEGRATIONS_JS);
+
+  // settings/importexport.js — Settings → Import/Export section (C2e Task 6).
+  // Static section (no server prefill); binds its export/import/file-change
+  // handlers on eval. Loaded alongside the other settings sub-modules.
+  evalFileCached(window, SETTINGS_IMPORTEXPORT_JS);
 
   // workout/modals.js — the workout-start push-notification modal flow
   // (showWorkoutStartModal / closeWorkoutStartModal / startWorkoutFromModal /

@@ -20,9 +20,9 @@ import (
 // with commandSpecs.
 var routedCommands = []string{
 	"start", "help",
-	"log", "download", "bp", "bphistory", "bpstats",
-	"weight", "weighthistory", "goal", "bpgoal", "stock",
-	"workout", "startnext", "workoutstatus", "workouthistory",
+	"log", "bp", "bpstats",
+	"weight", "goal", "bpgoal", "stock",
+	"workout",
 	"next", "intake", "food", "activity", "note", "tz", "week",
 }
 
@@ -86,25 +86,25 @@ func TestEnabledSpecs_FiltersByFlag(t *testing.T) {
 		{
 			name:        "Medication off hides medication commands",
 			flags:       featureFlags{BP: true, Weight: true, Workout: true, Food: true, HasActivityAI: true, HasFoodAI: true},
-			wantAbsent:  []string{"log", "next", "stock", "download"},
+			wantAbsent:  []string{"log", "next", "stock"},
 			wantPresent: []string{"start", "help", "bp", "weight", "workout", "intake", "note", "tz"},
 		},
 		{
 			name:        "BP off hides BP commands but keeps weight",
 			flags:       featureFlags{Medication: true, Weight: true, Workout: true, Food: true, HasActivityAI: true, HasFoodAI: true},
-			wantAbsent:  []string{"bp", "bphistory", "bpstats", "bpgoal"},
-			wantPresent: []string{"weight", "weighthistory", "goal", "log", "workout"},
+			wantAbsent:  []string{"bp", "bpstats", "bpgoal"},
+			wantPresent: []string{"weight", "goal", "log", "workout"},
 		},
 		{
 			name:        "Weight off hides weight commands but keeps BP",
 			flags:       featureFlags{Medication: true, BP: true, Workout: true, Food: true, HasActivityAI: true, HasFoodAI: true},
-			wantAbsent:  []string{"weight", "weighthistory", "goal"},
-			wantPresent: []string{"bp", "bphistory", "bpstats", "bpgoal", "log"},
+			wantAbsent:  []string{"weight", "goal"},
+			wantPresent: []string{"bp", "bpstats", "bpgoal", "log"},
 		},
 		{
 			name:        "Workout off hides workout commands including activity",
 			flags:       featureFlags{Medication: true, BP: true, Weight: true, Food: true, HasActivityAI: true, HasFoodAI: true},
-			wantAbsent:  []string{"workout", "startnext", "workoutstatus", "workouthistory", "activity"},
+			wantAbsent:  []string{"workout", "activity"},
 			wantPresent: []string{"log", "bp", "weight", "intake", "food"},
 		},
 		{
@@ -124,10 +124,10 @@ func TestEnabledSpecs_FiltersByFlag(t *testing.T) {
 			flags:       featureFlags{},
 			wantPresent: []string{"start", "help", "note", "tz"},
 			wantAbsent: []string{
-				"log", "next", "stock", "download",
-				"bp", "bphistory", "bpstats", "bpgoal",
-				"weight", "weighthistory", "goal",
-				"workout", "startnext", "workoutstatus", "workouthistory", "activity",
+				"log", "next", "stock",
+				"bp", "bpstats", "bpgoal",
+				"weight", "goal",
+				"workout", "activity",
 				"intake", "food",
 			},
 		},
@@ -223,13 +223,13 @@ func TestBuildHelpText_OmitsDisabledSections(t *testing.T) {
 			name:              "workout off omits workout section and commands",
 			flags:             featureFlags{Medication: true, BP: true, Weight: true, Food: true, HasActivityAI: true, HasFoodAI: true},
 			wantHeaderAbsent:  []string{"**Workout Commands:**"},
-			wantCommandAbsent: []string{"/workout ", "/startnext ", "/workoutstatus ", "/workouthistory ", "/activity "},
+			wantCommandAbsent: []string{"/workout ", "/activity "},
 		},
 		{
 			name:              "BP and Weight off omits combined section header",
 			flags:             featureFlags{Medication: true, Workout: true, Food: true, HasActivityAI: true, HasFoodAI: true},
 			wantHeaderAbsent:  []string{"**Blood Pressure & Weight:**"},
-			wantCommandAbsent: []string{"/bp ", "/bphistory ", "/bpstats ", "/bpgoal ", "/weight ", "/weighthistory ", "/goal "},
+			wantCommandAbsent: []string{"/bp ", "/bpstats ", "/bpgoal ", "/weight ", "/goal "},
 		},
 		{
 			name:              "food off omits food section and commands",
@@ -241,7 +241,7 @@ func TestBuildHelpText_OmitsDisabledSections(t *testing.T) {
 			name:              "medication off omits medication section and commands",
 			flags:             featureFlags{BP: true, Weight: true, Workout: true, Food: true, HasActivityAI: true, HasFoodAI: true},
 			wantHeaderAbsent:  []string{"**Medication Commands:**"},
-			wantCommandAbsent: []string{"/log ", "/next ", "/stock ", "/download "},
+			wantCommandAbsent: []string{"/log ", "/next ", "/stock "},
 		},
 		{
 			name:              "AI off hides /food and /activity even when sections on",
@@ -351,12 +351,12 @@ func TestBot_RegisterCommands_PostsEnabledCommands(t *testing.T) {
 	for _, c := range cmds {
 		got[c.Command] = c.Description
 	}
-	for _, name := range []string{"bp", "bphistory", "bpstats", "bpgoal"} {
+	for _, name := range []string{"bp", "bpstats", "bpgoal"} {
 		if _, ok := got[name]; ok {
 			t.Errorf("expected %q absent from setMyCommands body with BP disabled", name)
 		}
 	}
-	for _, name := range []string{"weight", "weighthistory", "goal", "start", "help"} {
+	for _, name := range []string{"weight", "goal", "start", "help"} {
 		if _, ok := got[name]; !ok {
 			t.Errorf("expected %q present in setMyCommands body with BP disabled", name)
 		}
@@ -552,12 +552,12 @@ func TestBot_WatchSettingsChanges_ReregistersOnFlagToggle(t *testing.T) {
 	for _, c := range cmds {
 		got[c.Command] = c.Description
 	}
-	for _, name := range []string{"bp", "bphistory", "bpstats", "bpgoal"} {
+	for _, name := range []string{"bp", "bpstats", "bpgoal"} {
 		if _, ok := got[name]; ok {
 			t.Errorf("expected %q absent from setMyCommands body after BP toggle off, got: %v", name, sortedKeys(boolMap(got)))
 		}
 	}
-	for _, name := range []string{"weight", "weighthistory", "goal", "start", "help"} {
+	for _, name := range []string{"weight", "goal", "start", "help"} {
 		if _, ok := got[name]; !ok {
 			t.Errorf("expected %q present in setMyCommands body after BP toggle off, got: %v", name, sortedKeys(boolMap(got)))
 		}

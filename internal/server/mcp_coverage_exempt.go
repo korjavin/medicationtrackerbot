@@ -49,6 +49,7 @@ var mcpCoverageExempt = []routeExemption{
 	{Method: "", Path: "/auth/telegram/callback", Reason: "Telegram login callback; browser-only"},
 
 	// --- Internal MCP plumbing & external integrations ---
+	{Method: "POST", Path: "/api/weight/goal", Reason: "UI weight goal setter; agents lack weight.goal.set tool for now"},
 	{Method: "POST", Path: "/internal/mcp/bridge", Reason: "internal MCP→HTTP bridge; the proxy talks to itself, agents must not"},
 	{Method: "POST", Path: "/api/mcp-audit", Reason: "internal audit hook for the MCP server"},
 	{Method: "POST", Path: "/api/mcp-food-log", Reason: "HMAC-signed write-through for the legacy log_food_intake atomic tool; will be removed alongside that tool"},
@@ -92,6 +93,8 @@ var mcpCoverageExempt = []routeExemption{
 	{Method: "POST", Path: "/api/food/log/from-photo", Reason: "multipart image upload routed through OpenAI Vision; agents log food via the JSON /api/food/log endpoint"},
 	{Method: "GET", Path: "/api/bp/export", Reason: "CSV download; agent uses health.bp.list instead"},
 	{Method: "GET", Path: "/api/weight/export", Reason: "CSV download; agent uses health.weight.list instead"},
+	{Method: "GET", Path: "/api/export", Reason: "Full-vault backup download (all domains, one file); user-facing no-lock-in export, not an agent read path"},
+	{Method: "POST", Path: "/api/import", Reason: "Full-vault restore (replace-all, wipe + re-insert every domain); destructive user-facing migration, not an agent write path"},
 
 	// --- Legacy compat shims, superseded ---
 	{Method: "POST", Path: "/api/workout/session/snooze", Reason: "legacy compat shim, superseded by /sessions/{id}/snooze"},

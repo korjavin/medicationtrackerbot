@@ -21,6 +21,11 @@ const BP_REMINDERPREF_RECORD_TYPE = 'bpreminderpref';
 const BP_REMINDERPREF_RECORD_ID = 'bpreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_TYPE = 'weightreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_ID = 'weightreminderpref';
+const DELIVERYPREF_RECORD_TYPE = 'reminderdeliverypref';
+const DELIVERYPREF_RECORD_ID = 'reminderdeliverypref';
+
+export const DELIVERY_CHANNELS = ['webpush', 'telegram', 'both'];
+export const VERBOSITIES = ['detailed', 'generic'];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FORECAST_DAYS = 7;
@@ -58,6 +63,29 @@ function doseSlotText(names) {
     ? `\u{1F48A} Time to take: ${names[0]}`
     : `\u{1F48A} Time to take (${names.length} medications): ${names.join(', ')}`;
 }
+
+// Mute windows, ported from internal/store/{bp,weight}/reminders.go's
+// SnoozeReminder (2h) and DontBugMeReminder (24h). Both are "mute until"
+// instants, not flags: `enabled` stays true and the schedule resumes on its own.
+export const SNOOZE_MS = 2 * 60 * 60 * 1000;
+export const DONT_BUG_MS = 24 * 60 * 60 * 1000;
+
+// mutedUntil collapses a pref record's two independent mute instants into the
+// later of the two — the same OR-gate the Go scheduler applies
+// (internal/scheduler/bp_reminders.go: skip while now < snoozed_until OR
+// now < dont_remind_until).
+function mutedUntil(status) {
+  return Math.max(status.snoozed_until || 0, status.dont_remind_until || 0);
+}
+
+// Every entry carries a name-free twin of its `text`. Cloud mode forwards
+// Telegram reminders to the relay in plaintext, so a user who doesn't want
+// medication names leaving the vault picks `generic` verbosity and we send
+// these instead (see docs/cloud-mode.md, bd med-76c.1).
+const GENERIC_DOSE_TEXT = '\u{1F48A} Medication time';
+const GENERIC_REREMIND_TEXT = '\u{1F514} You have an unconfirmed medication';
+const GENERIC_BP_TEXT = '\u{1F4CA} Time for a scheduled measurement';
+const GENERIC_WEIGHT_TEXT = '\u{2696}\u{FE0F} Time for a scheduled measurement';
 
 // computeReminderHorizon is pure: medications/intakes are raw records
 // (server field names), timeZone is an IANA string, now is ms epoch, tzPlan
@@ -130,7 +158,11 @@ export function computeReminderHorizon({
     bySlot.set(t.scheduledAtMs, list);
   }
   for (const [slotMs, names] of bySlot) {
-    entries.push({ fireAtUnix: Math.floor(slotMs / 1000), text: doseSlotText(names) });
+    const slotUnix = Math.floor(slotMs / 1000);
+    // callback carries the SLOT, not a medication: one Telegram message covers
+    // every med due at this instant, so one Confirm tap covers all of them.
+    // The relay appends ":confirm"/":snooze" to build the two buttons.
+    entries.push({ fireAtUnix: slotUnix, kind: 'medication', text: doseSlotText(names), genericText: GENERIC_DOSE_TEXT, callback: `s:${slotUnix}` });
   }
 
   // Ported from medication_reminder.go's Check: re-remind a still-PENDING
@@ -145,13 +177,18 @@ export function computeReminderHorizon({
     let fireMs = snoozedUntilMs !== null ? snoozedUntilMs : scheduledMs + REREMIND_GRACE_MS;
     if (fireMs < now) fireMs = now;
     const text = `\u{1F514} REMINDER: You haven't confirmed taking ${medDisplayName(med)} yet on ${formatHHMM(scheduledMs, timeZone)}!`;
+    // A re-reminder nags about one med, but its buttons act on the dose slot it
+    // was scheduled in — same stem as the original reminder, so confirming from
+    // either message converges on the same intakes.
+    const callback = `s:${Math.floor(scheduledMs / 1000)}`;
     for (let i = 0; i < MAX_REREMINDS_PER_INTAKE; i++) {
-      entries.push({ fireAtUnix: Math.floor(fireMs / 1000), text });
+      entries.push({ fireAtUnix: Math.floor(fireMs / 1000), kind: 'medication', text, genericText: GENERIC_REREMIND_TEXT, callback });
       fireMs += REREMIND_INTERVAL_MS;
     }
   }
 
   // BP reminders logic
+  const bpMutedUntil = mutedUntil(bpStatus);
   if (bpStatus.enabled) {
     const sortedBPs = [...bps].sort((a, b) => new Date(b.measured_at || b.measuredAt) - new Date(a.measured_at || a.measuredAt));
     const lastBP = sortedBPs[0];
@@ -164,14 +201,16 @@ export function computeReminderHorizon({
       const wallAsUtc = Date.UTC(year, month - 1, day + d, preferredHour, 0);
       const targetMs = localWallToUtcMs(wallAsUtc, timeZone);
 
-      // Fire if no reading within 12h before target
-      if (targetMs > now && targetMs - lastBPMs > 12 * 60 * 60 * 1000) {
-        entries.push({ fireAtUnix: Math.floor(targetMs / 1000), text: "📊 **Time to measure your blood pressure**\n\nPlease take a moment to measure and record your BP." });
+      // Fire if no reading within 12h before target, and the target lands
+      // outside any active snooze / don't-bug window.
+      if (targetMs > now && targetMs > bpMutedUntil && targetMs - lastBPMs > 12 * 60 * 60 * 1000) {
+        entries.push({ fireAtUnix: Math.floor(targetMs / 1000), kind: 'bp', text: "📊 **Time to measure your blood pressure**\n\nPlease take a moment to measure and record your BP.", genericText: GENERIC_BP_TEXT });
       }
     }
   }
 
   // Weight reminders logic
+  const weightMutedUntil = mutedUntil(weightStatus);
   if (weightStatus.enabled) {
     const sortedWeights = [...weights].sort((a, b) => new Date(b.measured_at || b.measuredAt) - new Date(a.measured_at || a.measuredAt));
     const lastWeight = sortedWeights[0];
@@ -185,8 +224,9 @@ export function computeReminderHorizon({
       const targetMs = localWallToUtcMs(wallAsUtc, timeZone);
 
       // Fire if no reading within 7 days before target
-      if (targetMs > now && targetMs - lastWeightMs > 7 * 24 * 60 * 60 * 1000) {
-        entries.push({ fireAtUnix: Math.floor(targetMs / 1000), text: "⚖️ **Time to track your weight**\n\nIt's been about a week since your last measurement. Regular tracking helps you stay on top of your goals!" });
+      // Same mute gate as BP: skip targets inside an active snooze / don't-bug window.
+      if (targetMs > now && targetMs > weightMutedUntil && targetMs - lastWeightMs > 7 * 24 * 60 * 60 * 1000) {
+        entries.push({ fireAtUnix: Math.floor(targetMs / 1000), kind: 'weight', text: "⚖️ **Time to track your weight**\n\nIt's been about a week since your last measurement. Regular tracking helps you stay on top of your goals!", genericText: GENERIC_WEIGHT_TEXT });
       }
     }
   }
@@ -225,17 +265,37 @@ export function createRemindersDomain({ records, now }) {
     const rec = findSingleton(all, BP_REMINDERPREF_RECORD_ID);
     return {
       enabled: rec ? !!rec.enabled : false,
-      preferred_reminder_hour: rec && rec.preferred_reminder_hour !== undefined ? rec.preferred_reminder_hour : 20
+      preferred_reminder_hour: rec && rec.preferred_reminder_hour !== undefined ? rec.preferred_reminder_hour : 20,
+      snoozed_until: (rec && rec.snoozed_until) || 0,
+      dont_remind_until: (rec && rec.dont_remind_until) || 0,
     };
   }
 
-  async function setBPEnabled(enabled, preferred_reminder_hour) {
+  // Writing a pref always carries the mute instants forward — a toggle must not
+  // silently clear an active snooze, and a snooze must not clear `enabled`.
+  async function putBPPref(patch) {
     const current = await getBPStatus();
-    const hour = preferred_reminder_hour !== undefined ? preferred_reminder_hour : current.preferred_reminder_hour;
     await records.put(BP_REMINDERPREF_RECORD_TYPE, {
-      recordId: BP_REMINDERPREF_RECORD_ID, clientTs: now(), deleted: false, enabled: !!enabled, preferred_reminder_hour: hour,
+      recordId: BP_REMINDERPREF_RECORD_ID, clientTs: now(), deleted: false, ...current, ...patch,
     });
     return getBPStatus();
+  }
+
+  async function setBPEnabled(enabled, preferred_reminder_hour) {
+    const patch = { enabled: !!enabled };
+    if (preferred_reminder_hour !== undefined) patch.preferred_reminder_hour = preferred_reminder_hour;
+    return putBPPref(patch);
+  }
+
+  // Mirrors bp.SnoozeReminder / bp.DontBugMeReminder: mute until an instant,
+  // leaving `enabled` alone. computeReminderHorizon then drops every target
+  // inside the window, and the caller re-uploads the shortened horizon.
+  async function snoozeBPReminder() {
+    return putBPPref({ snoozed_until: now() + SNOOZE_MS });
+  }
+
+  async function dontBugBPReminder() {
+    return putBPPref({ dont_remind_until: now() + DONT_BUG_MS });
   }
 
   async function getWeightStatus() {
@@ -243,17 +303,56 @@ export function createRemindersDomain({ records, now }) {
     const rec = findSingleton(all, WEIGHT_REMINDERPREF_RECORD_ID);
     return {
       enabled: rec ? !!rec.enabled : false,
-      preferred_reminder_hour: rec && rec.preferred_reminder_hour !== undefined ? rec.preferred_reminder_hour : 9
+      preferred_reminder_hour: rec && rec.preferred_reminder_hour !== undefined ? rec.preferred_reminder_hour : 9,
+      snoozed_until: (rec && rec.snoozed_until) || 0,
+      dont_remind_until: (rec && rec.dont_remind_until) || 0,
     };
   }
 
-  async function setWeightEnabled(enabled, preferred_reminder_hour) {
+  async function putWeightPref(patch) {
     const current = await getWeightStatus();
-    const hour = preferred_reminder_hour !== undefined ? preferred_reminder_hour : current.preferred_reminder_hour;
     await records.put(WEIGHT_REMINDERPREF_RECORD_TYPE, {
-      recordId: WEIGHT_REMINDERPREF_RECORD_ID, clientTs: now(), deleted: false, enabled: !!enabled, preferred_reminder_hour: hour,
+      recordId: WEIGHT_REMINDERPREF_RECORD_ID, clientTs: now(), deleted: false, ...current, ...patch,
     });
     return getWeightStatus();
+  }
+
+  async function setWeightEnabled(enabled, preferred_reminder_hour) {
+    const patch = { enabled: !!enabled };
+    if (preferred_reminder_hour !== undefined) patch.preferred_reminder_hour = preferred_reminder_hour;
+    return putWeightPref(patch);
+  }
+
+  async function snoozeWeightReminder() {
+    return putWeightPref({ snoozed_until: now() + SNOOZE_MS });
+  }
+
+  async function dontBugWeightReminder() {
+    return putWeightPref({ dont_remind_until: now() + DONT_BUG_MS });
+  }
+
+  // Where reminders are delivered, and how much they say. Telegram reminders
+  // transit the relay as plaintext, so `verbosity` is the user's control over
+  // what leaves the vault: 'detailed' (default) sends medication names,
+  // 'generic' sends only "Medication time".
+  async function getDeliveryPref() {
+    const all = await records.list(DELIVERYPREF_RECORD_TYPE);
+    const rec = findSingleton(all, DELIVERYPREF_RECORD_ID);
+    const delivery = rec && DELIVERY_CHANNELS.includes(rec.delivery) ? rec.delivery : 'webpush';
+    const verbosity = rec && VERBOSITIES.includes(rec.verbosity) ? rec.verbosity : 'detailed';
+    return { delivery, verbosity };
+  }
+
+  async function setDeliveryPref({ delivery, verbosity } = {}) {
+    const current = await getDeliveryPref();
+    const next = {
+      delivery: DELIVERY_CHANNELS.includes(delivery) ? delivery : current.delivery,
+      verbosity: VERBOSITIES.includes(verbosity) ? verbosity : current.verbosity,
+    };
+    await records.put(DELIVERYPREF_RECORD_TYPE, {
+      recordId: DELIVERYPREF_RECORD_ID, clientTs: now(), deleted: false, ...next,
+    });
+    return getDeliveryPref();
   }
 
   // buildHorizon returns [] when reminders are disabled — the caller uploads
@@ -291,5 +390,9 @@ export function createRemindersDomain({ records, now }) {
     });
   }
 
-  return { getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled, buildHorizon };
+  return {
+    getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled,
+    snoozeBPReminder, dontBugBPReminder, snoozeWeightReminder, dontBugWeightReminder,
+    getDeliveryPref, setDeliveryPref, buildHorizon,
+  };
 }

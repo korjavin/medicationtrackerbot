@@ -590,3 +590,80 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         }
     });
 });
+
+// Cloud-only "Invite a friend" row (plan 20260707-user-mintable-invites, Task 4).
+// settings.js reaches the QR generator through the bare global loadQrcodeModule(),
+// so the test overrides window.loadQrcodeModule instead of making jsdom resolve
+// a real import('/vendor/qrcode.mjs') — same seam as the cloud push modules.
+describe('Settings → Invite a friend (cloud mode)', () => {
+    const CLAIM_URL = 'https://sunny-vole-abc123.cloud.example/#claim=deadbeef';
+
+    function enterCloudMode(window) {
+        window.__MEDTRACKER_CLOUD__ = true;
+        window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+        window.loadCloudPushModule = () => Promise.resolve({
+            subscribe: vi.fn(), unsubscribe: vi.fn(), getSubscription: vi.fn().mockResolvedValue(null)
+        });
+        window.loadCloudRemindersModule = () => Promise.resolve({ sendTestPush: vi.fn() });
+        window.loadQrcodeModule = () => Promise.resolve({
+            qrcode: () => ({ addData() {}, make() {}, createSvgTag: () => '<svg data-qr="1"></svg>' })
+        });
+        window.SyncManager = { showToast: vi.fn() };
+    }
+
+    it('hides the invite row outside cloud mode', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            await window.loadSettings();
+            expect(document.querySelector('.wg-settings-cloud-invite').classList.contains('wg-settings-hidden')).toBe(true);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('mints an invite and shows the claim URL + QR in the modal', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            enterCloudMode(window);
+            window.fetch = vi.fn().mockResolvedValue({
+                ok: true, status: 200, json: async () => ({ claim_url: CLAIM_URL })
+            });
+
+            await window.loadSettings();
+            expect(document.querySelector('.wg-settings-cloud-invite').classList.contains('wg-settings-hidden')).toBe(false);
+
+            await window.SettingsView.mintInvite();
+
+            expect(window.fetch).toHaveBeenCalledWith('/api/invite', { method: 'POST' });
+            expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(false);
+            expect(document.getElementById('invite-claim-url').textContent).toBe(CLAIM_URL);
+            expect(document.querySelector('#invite-qr svg[data-qr]')).not.toBeNull();
+        } finally {
+            delete window.__MEDTRACKER_CLOUD__;
+            cleanup();
+        }
+    });
+
+    it('shows the limit toast on 429 and leaves the modal closed', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            enterCloudMode(window);
+            window.fetch = vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) });
+
+            await window.loadSettings();
+            await window.SettingsView.mintInvite();
+
+            expect(window.SyncManager.showToast).toHaveBeenCalledWith(
+                expect.stringContaining('Monthly invite limit reached'), 'info'
+            );
+            expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(true);
+        } finally {
+            delete window.__MEDTRACKER_CLOUD__;
+            cleanup();
+        }
+    });
+});

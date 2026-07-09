@@ -15,7 +15,7 @@ func TestProvision_InviteClaimSingleUse(t *testing.T) {
 	ctx := t.Context()
 	now := time.Now().UTC()
 
-	inv, err := Provision(ctx, store, 14*24*time.Hour, now)
+	inv, err := Provision(ctx, store, 14*24*time.Hour, now, "")
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestProvision_ExpiredClaimRejected(t *testing.T) {
 	ctx := t.Context()
 	now := time.Now().UTC()
 
-	inv, err := Provision(ctx, store, time.Hour, now)
+	inv, err := Provision(ctx, store, time.Hour, now, "")
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestProvision_ResetClaimInvalidatesOldToken(t *testing.T) {
 	ctx := t.Context()
 	now := time.Now().UTC()
 
-	inv, err := Provision(ctx, store, 14*24*time.Hour, now)
+	inv, err := Provision(ctx, store, 14*24*time.Hour, now, "")
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestProvision_GeneratesDistinctVAPIDKeypair(t *testing.T) {
 	ctx := t.Context()
 	now := time.Now().UTC()
 
-	inv1, err := Provision(ctx, store, 14*24*time.Hour, now)
+	inv1, err := Provision(ctx, store, 14*24*time.Hour, now, "")
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestProvision_GeneratesDistinctVAPIDKeypair(t *testing.T) {
 		t.Fatalf("expected non-empty VAPID private key, got %+v", inv1.Account.VAPIDPrivateKey)
 	}
 
-	inv2, err := Provision(ctx, store, 14*24*time.Hour, now)
+	inv2, err := Provision(ctx, store, 14*24*time.Hour, now, "")
 	if err != nil {
 		t.Fatalf("Provision (second): %v", err)
 	}
@@ -133,7 +133,7 @@ func TestBackfillVAPIDKeys(t *testing.T) {
 
 	// A pre-existing account with no keys (simulates a row created before
 	// per-account keys shipped).
-	legacy, err := store.CreateAccount(ctx, "legacy-account", "legacy-sub", []byte("hash"), now.Add(time.Hour), now, "", "")
+	legacy, err := store.CreateAccount(ctx, "legacy-account", "legacy-sub", []byte("hash"), now.Add(time.Hour), now, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateAccount (legacy): %v", err)
 	}
@@ -142,7 +142,7 @@ func TestBackfillVAPIDKeys(t *testing.T) {
 	}
 
 	// A freshly-provisioned account already has keys and must be left alone.
-	inv, err := Provision(ctx, store, 14*24*time.Hour, now)
+	inv, err := Provision(ctx, store, 14*24*time.Hour, now, "")
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}

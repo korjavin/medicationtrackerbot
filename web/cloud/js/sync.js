@@ -5,7 +5,7 @@
 // are { recordId, clientTs, deleted, ...body }, merged by last-write-wins on
 // clientTs; recordsPort() below exposes the generic list/put/del trio that
 // web/domain/'s domain modules are built on.
-import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64 } from './crypto.js';
+import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
 import { openDb } from './localdb.js';
 
 // Task 6: the NK (push notification key) is itself a vault record so every
@@ -90,17 +90,21 @@ async function readMeta() {
   try {
     const tx = db.transaction('sync_meta', 'readonly');
     const store = tx.objectStore('sync_meta');
-    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors] = await Promise.all([
+    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, forceSnapshotError] = await Promise.all([
       reqToPromise(store.get('localLastSeq')),
       reqToPromise(store.get('lastSnapshotSeq')),
       reqToPromise(store.get('lastSyncedAt')),
       reqToPromise(store.get('integrityErrors')),
+      reqToPromise(store.get('forceSnapshotPending')),
+      reqToPromise(store.get('forceSnapshotError')),
     ]);
     return {
       localLastSeq: localLastSeq ?? null,
       lastSnapshotSeq: lastSnapshotSeq ?? 0,
       lastSyncedAt: lastSyncedAt ?? null,
       integrityErrors: integrityErrors ?? 0,
+      forceSnapshotPending: forceSnapshotPending ?? false,
+      forceSnapshotError: forceSnapshotError ?? null,
     };
   } finally {
     db.close();
@@ -125,7 +129,7 @@ async function readAllRecords() {
   return withStore('records', 'readonly', (store) => reqToPromise(store.getAll()));
 }
 
-async function replaceAllRecords(records) {
+export async function replaceAllRecords(records) {
   // Preserve optimistic copies of not-yet-flushed writes: a snapshot bootstrap
   // (or a compaction re-bootstrap from pullTail) clears the whole store, but
   // pending writes are unsynced local truth the snapshot doesn't contain yet —
@@ -144,6 +148,22 @@ async function replaceAllRecords(records) {
       for (const record of records) store.put(record);
       for (const record of overlay) store.put(record);
     });
+  });
+}
+
+// Drop not-yet-flushed writes for the given record types. A destructive
+// full-vault import is replace-only: it supersedes every managed record, so a
+// pending managed write (create/update/delete) must NOT survive the replace —
+// replaceAllRecords re-overlays all pending after its clear (correct for a
+// bootstrap, wrong here: it would resurrect a pending create, override a backup
+// value with a pending update, or re-tombstone a record the backup restored),
+// and the row would later flush over the imported backup. importAll calls this
+// before replaceAllRecords so only non-managed pending (nk, reminder prefs)
+// stays queued. Held under withRecordsLock so it's atomic w.r.t. writeRecord.
+export async function dropPendingForTypes(types) {
+  await withRecordsLock(async () => {
+    const stale = (await readPending()).filter((p) => types.has(p.recordType));
+    await clearPending(stale.map((p) => p.recordId));
   });
 }
 
@@ -186,14 +206,23 @@ async function applyIncoming(recordType, record) {
   }
 }
 
+// Returns true once the local mirror is at a known cursor. False means "did not
+// bootstrap" — callers that would otherwise proceed on a stale cursor must bail.
 async function bootstrap(ctx) {
+  // A stranded full-vault import (forceSnapshotPending) means the LOCAL store is
+  // authoritative and has not been pushed yet. Replacing it with the server's
+  // stale snapshot would destroy the import. pullOnOpen also guards this, but
+  // bootstrap is reachable from pullTail's compaction branch — which flushPending
+  // reaches on any write — so the guard has to live here, at the one place that
+  // calls replaceAllRecords.
+  if ((await readMeta()).forceSnapshotPending) return false;
   const kData = await getKData(ctx);
   let snapRes;
   try {
     snapRes = await fetch('/api/sync/snapshot');
   } catch {
     offline = true;
-    return; // leave localLastSeq null so bootstrapIfNeeded retries next open
+    return false; // leave localLastSeq null so bootstrapIfNeeded retries next open
   }
   // 204 = fresh account with no snapshot (a legit cursor-0 bootstrap); anything
   // other than 200/204 (5xx behind a proxy, transient error) must NOT poison
@@ -201,7 +230,7 @@ async function bootstrap(ctx) {
   // compaction would silently skip all snapshotted state. Stay null → retry.
   if (snapRes.status !== 200 && snapRes.status !== 204) {
     offline = true;
-    return;
+    return false;
   }
   offline = false;
   let lastSnapshotSeq = 0;
@@ -215,7 +244,10 @@ async function bootstrap(ctx) {
         nonce: fromBase64(body.nonce),
         ct: fromBase64(body.ct),
       });
-      const records = JSON.parse(new TextDecoder().decode(plaintext));
+      // Snapshots are gzip-then-encrypt (magic 0x1f 0x8b); legacy uncompressed
+      // ones start with raw JSON, so sniff and gunzip only when compressed.
+      const json = isGzip(plaintext) ? await gunzip(plaintext) : plaintext;
+      const records = JSON.parse(new TextDecoder().decode(json));
       await replaceAllRecords(records);
       lastSnapshotSeq = body.snapshot_seq;
     } catch {
@@ -229,6 +261,7 @@ async function bootstrap(ctx) {
     }
   }
   await writeMeta({ localLastSeq: lastSnapshotSeq, lastSnapshotSeq });
+  return true;
 }
 
 async function bootstrapIfNeeded(ctx) {
@@ -262,8 +295,9 @@ async function pullTail(ctx) {
     // so an incremental tail would silently skip them. Re-bootstrap from the
     // snapshot, then resume the tail above it.
     if (typeof body.snapshot_seq === 'number' && body.snapshot_seq > meta.localLastSeq) {
-      await bootstrap(ctx);
-      if (offline) return; // bootstrap failed transiently — retry next open
+      // Transient failure, or a stranded import that must be pushed first: either
+      // way the cursor didn't move, so looping would spin. Retry next open.
+      if (!(await bootstrap(ctx))) return;
       continue;
     }
     for (const op of body.ops || []) {
@@ -294,33 +328,219 @@ async function pullTail(ctx) {
   }
 }
 
-async function maybeSnapshot(ctx) {
-  const meta = await readMeta();
-  if (meta.localLastSeq === null || meta.localLastSeq - meta.lastSnapshotSeq < SNAPSHOT_THRESHOLD) return;
+// snapshotAt encrypts the whole local record store and POSTs it as the
+// compaction floor at `snapshotSeq`. Shared by the threshold-gated
+// maybeSnapshot and the C2e forced snapshot after a full-vault import. Returns
+// whether the snapshot landed; a rejected body (oversized, seq ahead of the
+// server) is only "offline" for the forced path, where it strands the import —
+// maybeSnapshot runs after a successful pull+flush, so failing it must not flip
+// a healthy app to offline for good.
+async function snapshotAt(ctx, snapshotSeq) {
   const kData = await getKData(ctx);
   const records = await readAllRecords();
-  const plaintext = new TextEncoder().encode(JSON.stringify(records));
-  const { nonce, ct } = await encryptSnapshot({ kData, accountId: ctx.accountId, snapshotSeq: meta.localLastSeq, plaintext });
+  // gzip the JSON before encryption so the ciphertext (POST body) shrinks ~10x;
+  // bootstrap sniffs the gzip magic bytes on decrypt. AAD/nonce unchanged.
+  const plaintext = await gzip(new TextEncoder().encode(JSON.stringify(records)));
+  const { nonce, ct } = await encryptSnapshot({ kData, accountId: ctx.accountId, snapshotSeq, plaintext });
   let res;
   try {
     res = await fetch('/api/sync/snapshot', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ snapshot_seq: meta.localLastSeq, nonce: toBase64(nonce), ct: toBase64(ct) }),
+      body: JSON.stringify({ snapshot_seq: snapshotSeq, nonce: toBase64(nonce), ct: toBase64(ct) }),
     });
   } catch {
     offline = true;
+    return { ok: false, status: 0 }; // network error — retryable
+  }
+  if (!res.ok) return { ok: false, status: res.status }; // 4xx=won't-fit, 5xx=retryable; caller decides offline
+  offline = false;
+  // A successful snapshot means the store now fits the server cap, so clear any
+  // stale "too large" error a prior oversized import recorded. Covers both the
+  // forced path and the threshold-gated maybeSnapshot (e.g. the store shrank, or
+  // a peer re-bootstrap healed this device) — otherwise the banner sticks forever.
+  await writeMeta({ lastSnapshotSeq: snapshotSeq, forceSnapshotError: null });
+  return { ok: true, status: res.status };
+}
+
+async function maybeSnapshot(ctx) {
+  const meta = await readMeta();
+  if (meta.localLastSeq === null || meta.localLastSeq - meta.lastSnapshotSeq < SNAPSHOT_THRESHOLD) return;
+  await snapshotAt(ctx, meta.localLastSeq);
+}
+
+// A throwaway tombstone whose only purpose is to advance the account seq below.
+// Not vault-managed, always deleted, so it never renders, exports, or survives.
+const IMPORT_BUMP_RECORD_ID = '__vault_import_bump__';
+
+// forceSnapshot propagates a C2e full-vault import to the account's other
+// devices. The import lands its whole record set via replaceAllRecords (not the
+// oplog), so last_seq hasn't moved — but the ONLY "re-bootstrap" signal a peer
+// gets is snapshot_seq > its cursor (pullTail), and the server rejects
+// snapshot_seq <= 0. Snapshotting at the unchanged cursor therefore reaches
+// neither a fully-synced peer (same seq) nor a fresh account (seq 0), leaving
+// the import stranded on this one browser. So append one throwaway tombstone op
+// first: it advances last_seq by >=1, so the snapshot below lands strictly above
+// every peer cursor (and above 0) and they re-bootstrap from it. That op is
+// compacted away by the very snapshot that supersedes it. No-op if the device
+// never bootstrapped.
+//
+// Both steps (bump post, snapshot upload) can fail transiently offline, and
+// their swallow-and-return error handling would otherwise leave the import
+// stranded on this device until the threshold-gated maybeSnapshot eventually
+// fired (peers stuck on stale data for up to SNAPSHOT_THRESHOLD ops). So set a
+// durable forceSnapshotPending marker first and drive the actual work through
+// tryForceSnapshot, which pullOnOpen also re-runs (before any pull) every open
+// until the snapshot lands.
+export async function forceSnapshot(ctx) {
+  await markForceSnapshotPending();
+  await tryForceSnapshot(ctx);
+}
+
+// Set the durable marker BEFORE the destructive replaceAllRecords. Between the
+// replace landing and the marker being written, bootstrap()/pullOnOpen() see no
+// marker and re-bootstrap the stale server snapshot over the fresh import — and
+// the pre-import data is already gone. Marking first makes that window safe: a
+// crash leaves a pending forced snapshot, which the next open retries.
+export async function markForceSnapshotPending() {
+  // Clear any stale error from a previous oversized import so this fresh
+  // attempt doesn't inherit a "too large" banner while it's merely pending.
+  await writeMeta({ forceSnapshotPending: true, forceSnapshotError: null });
+}
+
+// A permanent 4xx means the request reached a server that refused it and will
+// keep refusing (oversized body → 400, quota exceeded → 413). Retrying wedges
+// the app forever, so the force-snapshot path records a durable error instead.
+// 401/403/408/429 are transient (auth expiry / proxy timeout / rate-limit — a
+// reverse proxy in front of cmd/cloud can return these even though the Go server
+// didn't); mirrors web/static/js/sync.js isPermanentSyncError.
+function isPermanentSyncStatus(status) {
+  return status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status);
+}
+
+// Drives (or retries) a pending forced snapshot to completion: advance last_seq
+// with one throwaway op, then upload the snapshot at the server-assigned seq.
+// Clears the marker only once the snapshot upload actually succeeds
+// (lastSnapshotSeq caught up); any transient failure along the way leaves it set
+// for the next pullOnOpen to retry. No-op when nothing is pending.
+//
+// The bump is posted DIRECTLY to /api/sync/ops, NOT through writeRecord/
+// flushPending. The imported records live only in the 'records' store, never in
+// 'pending', so flushPending's mis-predict handling — which re-pulls the tail
+// and, if the server compacted while we were away, re-bootstraps the stale
+// server snapshot straight over the just-imported records — would silently wipe
+// the import and then snapshot that loss as success. Posting the op ourselves
+// and snapshotting at the server-assigned seq keeps last_seq moving above every
+// peer cursor and compaction floor without any pull touching the local store.
+// The op's AAD-bound seq is irrelevant (its prediction may be wrong after a
+// compaction): it's a tombstone the snapshot below compacts away, never
+// decrypted by anyone.
+async function tryForceSnapshot(ctx) {
+  const meta = await readMeta();
+  if (!meta.forceSnapshotPending || meta.localLastSeq === null) return;
+  const kData = await getKData(ctx);
+  const bumpBody = new TextEncoder().encode(
+    JSON.stringify({ recordId: IMPORT_BUMP_RECORD_ID, clientTs: Date.now(), deleted: true }),
+  );
+  const { nonce, ct } = await encryptRecord({
+    kData,
+    accountId: ctx.accountId,
+    recordType: 'importbump',
+    recordId: IMPORT_BUMP_RECORD_ID,
+    seq: meta.localLastSeq + 1,
+    plaintext: bumpBody,
+  });
+  let res;
+  try {
+    res = await fetch('/api/sync/ops', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ops: [{ record_type_tag: makeTag('importbump', IMPORT_BUMP_RECORD_ID), nonce: toBase64(nonce), ct: toBase64(ct) }] }),
+    });
+  } catch {
+    offline = true;
+    return; // couldn't reach the server — marker stays set, retried next open
+  }
+  if (!res.ok) {
+    // A permanent 4xx on the bump (e.g. 413 quota exceeded) will keep failing.
+    // Unlike the snapshot leg below — which advances localLastSeq to the
+    // server-assigned seq before its upload, keeping this device's cursor at/above
+    // the compaction floor — the bump was REJECTED, so we have no assigned seq and
+    // the cursor stays where bootstrap left it, below the floor. Clearing the
+    // marker here would let pullOnOpen fall through to pullTail, which re-bootstraps
+    // the stale server snapshot straight over the just-imported records (the exact
+    // silent wipe the header comment guards against). So surface the error for the
+    // status line but KEEP the marker set: pullOnOpen returns early (no pull, no
+    // wipe), and re-attempting the tiny bump op each open is cheap (not the
+    // oversized-snapshot re-encrypt wedge). The user must free account quota for
+    // the import to sync.
+    if (isPermanentSyncStatus(res.status)) {
+      await writeMeta({ forceSnapshotError: { status: res.status, at: Date.now() } });
+      offline = false;
+      return;
+    }
+    offline = true;
     return;
   }
-  if (res.ok) {
-    offline = false;
-    await writeMeta({ lastSnapshotSeq: meta.localLastSeq });
+  offline = false;
+  const { assigned } = await res.json();
+  if (!Array.isArray(assigned) || assigned.length === 0) {
+    offline = true; // malformed response — don't poison the cursor with -Infinity
+    return;
   }
+  const snapshotSeq = Math.max(...assigned);
+  // Advance our cursor to the bump so a subsequent pull sees our own snapshot as
+  // the floor (no re-bootstrap) once the marker clears.
+  await writeMeta({ localLastSeq: snapshotSeq });
+  // A rejected snapshot leaves forceSnapshotPending set, which blocks every later
+  // pull/flush. A permanent 4xx means the snapshot is larger than the server cap
+  // and will NEVER fit, so re-encrypting it every open wedges the app forever and
+  // blocks all pulls. Record a durable error, clear the pending marker so the
+  // pull/flush path proceeds, and surface it in the status line. A 5xx/offline
+  // failure is transient: leave the marker set and retry next open.
+  const snap = await snapshotAt(ctx, snapshotSeq);
+  if (!snap.ok) {
+    if (isPermanentSyncStatus(snap.status)) {
+      await writeMeta({ forceSnapshotPending: false, forceSnapshotError: { status: snap.status, at: Date.now() } });
+      offline = false;
+      return;
+    }
+    offline = true;
+    return;
+  }
+  if ((await readMeta()).lastSnapshotSeq >= snapshotSeq) {
+    await writeMeta({ forceSnapshotPending: false, forceSnapshotError: null });
+  }
+}
+
+// readAllLiveRecords returns every non-tombstoned record (with its recordType)
+// — the flat input recordsToVault regroups for a full-vault export. Bootstraps
+// first so a just-unlocked device exports the synced set, not an empty store.
+export async function readAllLiveRecords(ctx) {
+  await bootstrapIfNeeded(ctx);
+  return (await readAllRecords()).filter((r) => !r.deleted);
+}
+
+// True once bootstrap has established the account cursor. A full-vault import
+// MUST NOT wipe local records before this: with a null cursor forceSnapshot
+// no-ops (nothing propagates, no durable retry marker), and the next open's
+// bootstrap re-bootstraps the (stale) server snapshot straight over the just-
+// imported records — silent data loss the UI reports as success. importAll
+// guards on this and fails visibly instead.
+export async function isBootstrapped() {
+  return (await readMeta()).localLastSeq !== null;
 }
 
 // Max re-post attempts when a concurrent writer keeps interleaving (below).
 const FLUSH_MAX_ATTEMPTS = 5;
 
+// Returns true only when every pending op is CONFIRMED persisted server-side
+// (the contiguous-assignment branch below), and false when writes were left in
+// 'pending' for a later retry — offline, un-bootstrapped, or a concurrent-writer
+// collision we couldn't resolve within FLUSH_MAX_ATTEMPTS. The mailbox drain
+// (bd med-76c.2) relies on this distinction: it may only ack an inbound event
+// once the ops it produced are durably on the server. Every other caller
+// ignores the value, exactly as before.
 async function flushPending(ctx) {
   const kData = await getKData(ctx);
   // Convergence under concurrent writers. Each record's AAD binds account_seq
@@ -338,13 +558,13 @@ async function flushPending(ctx) {
   // junk (rare for the toy note set); snapshot compaction eventually drops them.
   for (let attempt = 0; attempt < FLUSH_MAX_ATTEMPTS; attempt++) {
     const pending = await readPending();
-    if (pending.length === 0) return;
+    if (pending.length === 0) return true; // nothing to flush — vacuously confirmed
     const meta = await readMeta();
     // Not bootstrapped yet (bootstrap failed transiently): localLastSeq is null,
     // so `seq += 1` would predict seqs from 1 and AAD-bind every op to the wrong
     // seq. Keep the writes safely in 'pending' until a real bootstrap sets the
     // cursor.
-    if (meta.localLastSeq === null) return;
+    if (meta.localLastSeq === null) return false;
     let seq = meta.localLastSeq;
     const ops = [];
     const includedIds = [];
@@ -367,7 +587,7 @@ async function flushPending(ctx) {
       ops.push({ record_type_tag: makeTag(recordType, recordId), nonce: toBase64(nonce), ct: toBase64(ct) });
       includedIds.push(recordId);
     }
-    if (ops.length === 0) return;
+    if (ops.length === 0) return true; // pending rows referenced deleted records
     let res;
     try {
       res = await fetch('/api/sync/ops', {
@@ -377,11 +597,11 @@ async function flushPending(ctx) {
       });
     } catch {
       offline = true;
-      return; // left in 'pending' — retried on the next pullOnOpen/write
+      return false; // left in 'pending' — retried on the next pullOnOpen/write
     }
     if (!res.ok) {
       offline = true;
-      return;
+      return false;
     }
     offline = false;
     const { assigned } = await res.json();
@@ -393,15 +613,16 @@ async function flushPending(ctx) {
       await clearPending(includedIds);
       await writeMeta({ localLastSeq: Math.max(...assigned) });
       await maybeSnapshot(ctx);
-      return;
+      return true;
     }
     // Mis-predicted: a concurrent device interleaved. Re-pull to advance past
     // the peer ops (and our own now-dead ops — pullTail skips those unreadable
     // rows; our optimistic local copies survive since 'pending' is kept),
     // then loop to re-post these records under fresh seqs.
     await pullTail(ctx);
-    if (offline) return; // couldn't advance — retry next open
+    if (offline) return false; // couldn't advance — retry next open
   }
+  return false; // attempts exhausted; writes stay pending
 }
 
 // --- public API ------------------------------------------------------------
@@ -410,6 +631,18 @@ async function flushPending(ctx) {
 // pull otherwise, then retry any writes a previous session couldn't push.
 export async function pullOnOpen(ctx) {
   await bootstrapIfNeeded(ctx);
+  // A pending forced snapshot (a C2e full-vault import a prior session couldn't
+  // complete offline) means the LOCAL store is authoritative and must be PUSHED
+  // before anything is pulled. The imported records live only in 'records',
+  // never in 'pending', so pullTail's compaction re-bootstrap (or flushPending's
+  // mis-predict re-pull) would wipe them with the stale server snapshot and then
+  // snapshot that loss as success. Land the forced snapshot first; if it can't
+  // land (offline), skip the pull entirely and retry next open — never let a
+  // pull run while the import is still stranded on this device.
+  if ((await readMeta()).forceSnapshotPending) {
+    await tryForceSnapshot(ctx);
+    if ((await readMeta()).forceSnapshotPending) return;
+  }
   await pullTail(ctx);
   await flushPending(ctx);
   await maybeSnapshot(ctx);
@@ -420,10 +653,42 @@ export async function pullOnOpen(ctx) {
 // (web/domain/'s storage port).
 export async function listRecords(ctx, recordType) {
   await bootstrapIfNeeded(ctx);
-  const records = await readAllRecords();
+  // Via the 'recordType' index, not getAll()+filter: a full-store scan
+  // structured-clones every record of every domain (a real vault is hundreds of
+  // MiB of vitals samples), so the clone cost dwarfed the read itself.
+  const records = await withStore('records', 'readonly', (store) => (
+    reqToPromise(store.index('recordType').getAll(recordType))
+  ));
+  return records
+    .filter((r) => !r.deleted)
+    .sort((a, b) => b.clientTs - a.clientTs);
+}
+
+// Bounded record-store read over the PRIMARY key, for types whose recordId
+// embeds a lexicographically-chronological suffix (the vitals day-batches:
+// 'hrsample-2026-07-08'). Reading a 30-day window then costs 30 clones instead
+// of one per stored day — a multi-year account would otherwise re-expand every
+// day of history on every overview() call. Bot mode never loads those rows
+// either (SQL `date_time >=`, internal/store/vitals/repo.go).
+//
+// fromId/toId are INCLUSIVE. No index is needed: the store's keyPath is
+// recordId, and IDBKeyRange.bound over it is the primary-key range.
+export async function listRecordsInRange(ctx, recordType, fromId, toId) {
+  await bootstrapIfNeeded(ctx);
+  const records = await withStore('records', 'readonly', (store) => (
+    reqToPromise(store.getAll(IDBKeyRange.bound(fromId, toId)))
+  ));
   return records
     .filter((r) => r.recordType === recordType && !r.deleted)
     .sort((a, b) => b.clientTs - a.clientTs);
+}
+
+// flushConfirmed is the ack barrier for the inbound mailbox drain: it resolves
+// true only once every locally-pending op is durably on the server. Callers that
+// must not ack until their writes are safe (drainInbox) await this AFTER the
+// domain write and only delete the mailbox event when it returns true.
+export async function flushConfirmed(ctx) {
+  return flushPending(ctx);
 }
 
 export async function writeRecord(ctx, recordType, record) {
@@ -440,13 +705,14 @@ export async function writeRecord(ctx, recordType, record) {
 }
 
 // Storage port handed to web/domain/'s createXDomain() factories: the generic
-// list/put/del trio, closed over ctx so domain code stays free of sync
-// internals (crypto, seq prediction, IndexedDB). del writes a tombstone via
+// list/listRange/put/del quartet, closed over ctx so domain code stays free of
+// sync internals (crypto, seq prediction, IndexedDB). del writes a tombstone via
 // writeRecord — same convergence semantics (LWW on clientTs) as every other
 // write.
 export function recordsPort(ctx) {
   return {
     list: (recordType) => listRecords(ctx, recordType),
+    listRange: (recordType, fromId, toId) => listRecordsInRange(ctx, recordType, fromId, toId),
     put: (recordType, record) => writeRecord(ctx, recordType, record),
     del: (recordType, recordId) => writeRecord(ctx, recordType, { recordId, clientTs: Date.now(), deleted: true }),
   };
@@ -508,6 +774,7 @@ export async function getSyncStatus(ctx) {
     pendingCount,
     offline,
     integrityErrors: meta.integrityErrors,
+    forceSnapshotError: meta.forceSnapshotError || null,
   };
 }
 
@@ -517,5 +784,6 @@ export async function describeSyncStatus(ctx) {
   parts.push(status.offline ? 'Offline' : status.lastSyncedAt ? `Synced ${new Date(status.lastSyncedAt).toLocaleTimeString()}` : 'Not yet synced');
   if (status.pendingCount > 0) parts.push(`${status.pendingCount} pending`);
   if (status.integrityErrors > 0) parts.push(`${status.integrityErrors} sync-integrity warning(s)`);
+  if (status.forceSnapshotError) parts.push('Import too large to sync');
   return parts.join(' · ');
 }

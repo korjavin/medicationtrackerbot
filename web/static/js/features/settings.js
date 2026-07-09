@@ -202,7 +202,141 @@ function bindCloudNotifications() {
         }
         setTimeout(() => hideWebpushStatus(status), 3000);
     });
+    bindCloudReminderDelivery();
     return ready;
+}
+
+// Reminder delivery channel + Telegram verbosity (bd med-76c.1). Both live in
+// the vault (reminderdeliverypref), so they round-trip through the cloud
+// reminders domain rather than an /api route. Changing either re-uploads the
+// horizon immediately — the relay holds precomputed entries, so a pref change
+// that isn't re-pushed wouldn't take effect until the next mutation.
+let _cloudReminderDeliveryBound = false; // module-state: bind the selects once across repeated loadSettings() calls
+function bindCloudReminderDelivery() {
+    const deliverySel = document.getElementById('cloud-reminder-delivery');
+    const verbositySel = document.getElementById('cloud-reminder-verbosity');
+    const status = document.getElementById('cloud-reminder-delivery-status');
+    if (!deliverySel || !verbositySel || !status) return;
+
+    const ctx = window.MedTrackerCloud?.ctx;
+    if (ctx) {
+        loadCloudRemindersModule()
+            .then(({ remindersDomain }) => remindersDomain(ctx).getDeliveryPref())
+            .then((pref) => {
+                deliverySel.value = pref.delivery;
+                verbositySel.value = pref.verbosity;
+            })
+            .catch(() => { /* leave the HTML defaults (webpush/detailed) */ });
+    }
+
+    if (_cloudReminderDeliveryBound) return;
+    _cloudReminderDeliveryBound = true;
+
+    const save = async () => {
+        const cloudCtx = window.MedTrackerCloud?.ctx;
+        if (!cloudCtx) {
+            applyWebpushStatus(status, 'Unlock the vault to change reminder delivery.', 'error');
+            setTimeout(() => hideWebpushStatus(status), 3000);
+            return;
+        }
+        deliverySel.disabled = true;
+        verbositySel.disabled = true;
+        try {
+            const { remindersDomain, recomputeAndPush } = await loadCloudRemindersModule();
+            await remindersDomain(cloudCtx).setDeliveryPref({
+                delivery: deliverySel.value,
+                verbosity: verbositySel.value,
+            });
+            await recomputeAndPush(cloudCtx);
+            applyWebpushStatus(status, 'Reminder delivery updated.', 'success');
+        } catch (err) {
+            applyWebpushStatus(status, err.message || 'Failed to update reminder delivery', 'error');
+        }
+        deliverySel.disabled = false;
+        verbositySel.disabled = false;
+        setTimeout(() => hideWebpushStatus(status), 3000);
+    };
+
+    deliverySel.addEventListener('change', save);
+    verbositySel.addEventListener('change', save);
+}
+
+// Cloud-mode "Invite a friend": POST /api/invite mints a subdomain + claim
+// token for someone else and returns the claim URL. Plain fetch(), not
+// apiCall() — the cloud apiCall shim only knows the domain-backed /api/* routes
+// and 404s anything else; this one is a real server call on the account
+// subdomain. Same test seam as the notification modules: a bare global fn.
+let _inviteBound = false; // module-state: one-time guard so the invite click listeners bind once across repeated loadSettings() calls
+function loadQrcodeModule() { return import('/vendor/qrcode.mjs'); }
+
+function inviteToast(message) {
+    if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
+        window.SyncManager.showToast(message, 'info');
+    } else {
+        safeAlert(message);
+    }
+}
+
+async function showInviteModal(claimUrl) {
+    const modal = document.getElementById('invite-modal');
+    const urlEl = document.getElementById('invite-claim-url');
+    const qrEl = document.getElementById('invite-qr');
+    if (!modal || !urlEl || !qrEl) return;
+    urlEl.textContent = claimUrl;
+    qrEl.replaceChildren();
+    try {
+        const { qrcode } = await loadQrcodeModule();
+        const qr = qrcode(0, 'M');
+        qr.addData(claimUrl);
+        qr.make();
+        qrEl.innerHTML = qr.createSvgTag(4);
+    } catch (e) {
+        // The QR is a convenience; the copyable URL is the actual payload.
+        console.warn('invite QR render failed', e);
+    }
+    if (typeof modal.open === 'function') modal.open();
+    else modal.classList.remove('hidden');
+}
+
+async function mintInvite() {
+    const btn = document.getElementById('settings-invite-btn');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch('/api/invite', { method: 'POST' });
+        if (res.status === 429) {
+            inviteToast('Monthly invite limit reached — try again later.');
+            return;
+        }
+        if (!res.ok) throw new Error('Could not create an invite.');
+        const payload = await res.json();
+        await showInviteModal(payload.claim_url);
+    } catch (e) {
+        inviteToast(e.message || 'Could not create an invite.');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+function bindCloudInvite() {
+    document.querySelector('.wg-settings-cloud-invite')?.classList.remove('wg-settings-hidden');
+    if (_inviteBound) return;
+    _inviteBound = true;
+    document.getElementById('settings-invite-btn')?.addEventListener('click', mintInvite);
+    document.getElementById('invite-close-btn')?.addEventListener('click', () => {
+        const modal = document.getElementById('invite-modal');
+        if (!modal) return;
+        if (typeof modal.close === 'function') modal.close();
+        else modal.classList.add('hidden');
+    });
+    document.getElementById('invite-copy-btn')?.addEventListener('click', async () => {
+        const url = document.getElementById('invite-claim-url')?.textContent || '';
+        try {
+            await navigator.clipboard.writeText(url);
+            inviteToast('Invite link copied.');
+        } catch (e) {
+            inviteToast('Copy failed — select the link and copy it manually.');
+        }
+    });
 }
 
 // Load settings (BP reminders status, etc.)
@@ -214,6 +348,7 @@ async function loadSettings() {
         // Devices row (add/manage a second device) only makes sense in cloud
         // mode — server/mobile builds have no /devices shell route.
         document.querySelector('.wg-settings-cloud-devices')?.classList.remove('wg-settings-hidden');
+        bindCloudInvite();
     }
     const applyBundle = async (rawBundle) => {
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
@@ -351,6 +486,11 @@ async function loadSettings() {
     // returns. Best-effort: never blocks the rest of Settings.
     if (window.SettingsIntegrations && typeof window.SettingsIntegrations.load === 'function') {
         try { await window.SettingsIntegrations.load(); } catch (_) { /* no-op */ }
+    }
+    // Import/Export section (C2e Task 6) — static, so load() just (re)binds its
+    // controls; safe in both bot and cloud modes.
+    if (window.SettingsImportExport && typeof window.SettingsImportExport.load === 'function') {
+        try { window.SettingsImportExport.load(); } catch (_) { /* no-op */ }
     }
     // Journey targets editor — loaded lazily off its own endpoint (best-effort;
     // internally gated on the gamification flag).
@@ -570,6 +710,7 @@ window.initOIDCSetupBanner = initOIDCSetupBanner;
 window.SettingsView = {
     initOIDCSetupBanner,
     loadSettings,
+    mintInvite,
     renderSettingsStaleBadge,
     updateFeatureToggles,
     updateFoodTargetsVisibility,

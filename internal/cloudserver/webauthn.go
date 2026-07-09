@@ -255,6 +255,22 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 	case req.ClaimToken != "":
 		hash, valid := validClaimToken(account, req.ClaimToken, time.Now().UTC())
 		if !valid {
+			// A NULL claim hash means either "already claimed" or "expired and
+			// swept" — consumeClaimTx NULLs it in both cases. Registered
+			// credentials are what tell the two apart, and the client needs the
+			// difference: a claimed link must prompt unlock, not passkey creation.
+			if account.ClaimTokenHash == nil {
+				creds, err := a.store.CredentialsByAccount(r.Context(), account.ID)
+				if err != nil {
+					slog.Error("register begin: credential lookup", "error", err, "account_id", account.ID)
+					http.Error(w, "server error", http.StatusInternalServerError)
+					return
+				}
+				if len(creds) > 0 {
+					writeJSON(w, http.StatusConflict, map[string]string{"error": "already_claimed"})
+					return
+				}
+			}
 			http.Error(w, "invalid or expired claim", http.StatusForbidden)
 			return
 		}

@@ -519,27 +519,6 @@ func (p *IntegrationElevenLabsPatch) sqlSet() ([]string, []any) {
 	return sets, args
 }
 
-// GetLastDownload returns the timestamp of the last drug-database download,
-// or the zero time if nothing has ever been downloaded.
-func (r *Repo) GetLastDownload() (time.Time, error) {
-	var lastDownload time.Time
-	err := r.db.QueryRow("SELECT last_download FROM settings WHERE id = 1").Scan(&lastDownload)
-	if err == sql.ErrNoRows {
-		return time.Time{}, nil
-	}
-	if err != nil {
-		return time.Time{}, err
-	}
-	return lastDownload, nil
-}
-
-// UpdateLastDownload records the timestamp of the most recent successful
-// drug-database download.
-func (r *Repo) UpdateLastDownload(t time.Time) error {
-	_, err := r.db.Exec("UPDATE settings SET last_download = ? WHERE id = 1", t)
-	return err
-}
-
 // GetLatestChangeCursor returns the highest change_events.id, or 0 when the
 // stream is empty. Callers use this as the cursor they pass back to
 // ListChangedTagsSince on the next poll.

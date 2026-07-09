@@ -1,9 +1,10 @@
 // Claim/registration wizard: the passkey signup ceremony described in
 // docs/cloud-crypto.md "Signup (first device)". Drives the account shell
 // (signup.html's #app) through create-passkey -> loss-protection ack ->
-// Emergency Kit. Each screen is rendered fresh from the outcome of the
-// previous step rather than a stored step counter, per docs/cloud-mode.md
-// Onboarding ("the wizard is stateless").
+// Emergency Kit -> optional Telegram link, then enters the app itself. Each
+// screen is rendered fresh from the outcome of the previous step rather than a
+// stored step counter, per docs/cloud-mode.md Onboarding ("the wizard is
+// stateless").
 import {
   saltKek,
   generateDEK,
@@ -15,9 +16,71 @@ import {
   deriveVerifier,
   toBase64,
 } from './crypto.js';
+import { establishLdkCache } from './unlock.js';
 
+const EXPIRED_LINK_MESSAGE = 'Could not start passkey registration — the invite link may be expired.';
+
+// Probe register/begin before rendering: a claimed link must never show
+// "Create your passkey". The probe's challenge cookie is harmlessly overwritten
+// when the user clicks through and startRegistration calls begin again.
 export async function runSignupWizard(claimToken) {
-  renderWelcome(document.getElementById('app'), claimToken);
+  const app = document.getElementById('app');
+  // The probe is a network round-trip; without this #app would be blank until
+  // it resolves (and forever on a hung connection).
+  renderChecking(app);
+  let res;
+  try {
+    res = await beginRegistration(claimToken);
+  } catch (err) {
+    renderWelcome(app, claimToken, err.message || String(err));
+    return;
+  }
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}));
+    if (body.error === 'already_claimed') {
+      renderAlreadyClaimed(app);
+      return;
+    }
+  }
+  renderWelcome(app, claimToken, res.ok ? undefined : EXPIRED_LINK_MESSAGE);
+}
+
+function beginRegistration(claimToken) {
+  return fetch('/api/webauthn/register/begin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ claim_token: claimToken }),
+  });
+}
+
+function renderChecking(app) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>Checking your invite…</h1>
+    </section>`;
+}
+
+function renderAlreadyClaimed(app) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>This invite has already been claimed</h1>
+      <p>Unlock your vault with the passkey you already created.</p>
+      <p>If this is a new device, open Med Tracker on your former device and
+         share access from there.</p>
+      <button id="unlock-instead">Unlock with your passkey</button>
+    </section>`;
+  app.querySelector('#unlock-instead').addEventListener('click', () => {
+    // Same module app.js dispatches to for a returning device, so a claimed
+    // link converges on the normal unlock path.
+    import('./unlock.js')
+      .then(({ runUnlockFlow }) => runUnlockFlow())
+      .catch((err) => {
+        const p = document.createElement('p');
+        p.className = 'wizard-error';
+        p.textContent = err.message || String(err);
+        app.querySelector('section').appendChild(p);
+      });
+  });
 }
 
 function renderWelcome(app, claimToken, errorText) {
@@ -44,12 +107,15 @@ function renderWelcome(app, claimToken, errorText) {
 }
 
 async function startRegistration(app, claimToken) {
-  const beginRes = await fetch('/api/webauthn/register/begin', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ claim_token: claimToken }),
-  });
-  if (!beginRes.ok) throw new Error('Could not start passkey registration — the invite link may be expired.');
+  const beginRes = await beginRegistration(claimToken);
+  // The probe said "pending", but another tab/device may have claimed the invite
+  // between then and this click. 409 is register/begin's only conflict status and
+  // it always means already_claimed — route to unlock, not back to the welcome screen.
+  if (beginRes.status === 409) {
+    renderAlreadyClaimed(app);
+    return;
+  }
+  if (!beginRes.ok) throw new Error(EXPIRED_LINK_MESSAGE);
   const { publicKey } = await beginRes.json();
   const creationOptions = PublicKeyCredential.parseCreationOptionsFromJSON(publicKey);
 
@@ -108,6 +174,12 @@ async function startRegistration(app, claimToken) {
       },
     }),
   });
+  // Losing the claim race between begin and finish rolls the registration back
+  // server-side ("claim already used or expired"); the winner owns the account.
+  if (finishRes.status === 409) {
+    renderAlreadyClaimed(app);
+    return;
+  }
   if (!finishRes.ok) throw new Error('Passkey registration failed. Please try again.');
 
   renderLossProtection(app, { accountId, dek });
@@ -170,8 +242,8 @@ function renderLossProtectionError(app, err) {
 // Exported so recover.js re-renders the identical Emergency Kit screen for
 // the forced code rotation after a successful recovery redemption, rather
 // than a second copy of this ceremony. ctx.onKitSaved, if given, replaces the
-// default "You're set up" done screen (recover.js redirects to the unlocked
-// vault instead).
+// default telegram-step-then-enter-app tail (recover.js redirects to the
+// already-unlocked vault itself).
 export async function renderEmergencyKit(app, ctx) {
   const { codeBytes, formatted } = await generateRecoveryCode();
   const kekRec = await deriveKEKRec(codeBytes, ctx.accountId);
@@ -229,28 +301,33 @@ export async function renderEmergencyKit(app, ctx) {
   const checkbox = app.querySelector('#kit-saved-checkbox');
   const button = app.querySelector('#kit-continue');
   checkbox.addEventListener('change', () => { button.disabled = !checkbox.checked; });
-  button.addEventListener('click', () => (ctx.onKitSaved ? ctx.onKitSaved() : renderTelegramStep(app)));
+  button.addEventListener('click', () => (ctx.onKitSaved ? ctx.onKitSaved() : renderTelegramStep(app, ctx)));
 }
 
 // Wizard step 5: optional Telegram linking. mountTelegram self-gates on the
 // server's status (enabled + state === 'none'); when Telegram is disabled or
 // already resolved it calls onDone immediately, so the wizard falls straight
-// through to the done screen with no dead step.
-async function renderTelegramStep(app) {
+// through into the app with no dead step.
+async function renderTelegramStep(app, ctx) {
   try {
     const { mountTelegram } = await import('./telegram.js');
-    await mountTelegram(app, { onDone: () => renderDone(app) });
+    await mountTelegram(app, { onDone: () => enterApp(ctx) });
   } catch (e) {
     console.error('[signup] telegram step failed', e);
-    renderDone(app);
+    enterApp(ctx);
   }
 }
 
-function renderDone(app) {
-  app.innerHTML = `
-    <section class="wizard-step">
-      <h1>You're set up</h1>
-      <p>Your vault is unlocked on this device. The full app arrives with
-         the next update.</p>
-    </section>`;
+// The wizard's last step is the app itself: warm the LDK cache so cloud-boot's
+// warmUnlock succeeds on '/', then go there. There is no confirmation screen —
+// the app, with the first-run overlay on top, is the confirmation.
+async function enterApp(ctx) {
+  try {
+    await establishLdkCache(ctx.dek, ctx.accountId);
+  } catch {
+    // Warm-cache is an optimization; a storage-blocked browser must still
+    // reach the vault after a successful enrollment — cloud-boot routes it to
+    // /unlock, where it signs in with the passkey it just created.
+  }
+  location.href = '/';
 }

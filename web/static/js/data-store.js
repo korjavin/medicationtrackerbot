@@ -737,6 +737,8 @@
         },
 
         async verifyAuthSession() {
+            // No /api/changes in cloud mode — see startChangePolling().
+            if (window.__MEDTRACKER_CLOUD__) return;
             if (changeAuthProbeInFlight || !window.apiCallDirect) return;
             changeAuthProbeInFlight = true;
             try {
@@ -819,6 +821,10 @@
         // tag explicitly; cross-client changes are picked up by the next
         // scheduled poll.
         async advanceCursorSilently() {
+            // Fired after every write by api.js. In cloud mode there is no
+            // change endpoint (startChangePolling() is a no-op there), so this
+            // only produced "unmapped route: GET /api/changes" shim warnings.
+            if (window.__MEDTRACKER_CLOUD__) return;
             if (!window.apiCallDirect) return;
             try {
                 const since = this.getChangeCursor();

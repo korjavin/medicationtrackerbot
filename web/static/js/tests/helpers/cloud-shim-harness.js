@@ -9,8 +9,8 @@ import { installApiShim } from '../../../../cloud/js/apishim.js';
 import { loadFrontendEnv } from './frontend-harness.js';
 
 // In-memory stand-in for web/cloud/js/sync.js's recordsPort(ctx): same
-// list/put/del contract (list returns only live/non-tombstoned records),
-// no crypto or IndexedDB involved.
+// list/listRange/put/del contract (list returns only live/non-tombstoned
+// records), no crypto or IndexedDB involved.
 export function createInMemoryRecordsPort(seed = {}) {
     const store = new Map(); // recordType -> Map<recordId, record>
 
@@ -32,6 +32,12 @@ export function createInMemoryRecordsPort(seed = {}) {
         async list(recordType) {
             return [...bucket(recordType).values()].filter((r) => !r.deleted);
         },
+        // Mirrors listRecordsInRange: an INCLUSIVE range over the primary key
+        // (recordId), which is what IDBKeyRange.bound gives on the real store.
+        async listRange(recordType, fromId, toId) {
+            return [...bucket(recordType).values()]
+                .filter((r) => !r.deleted && r.recordId >= fromId && r.recordId <= toId);
+        },
         async put(recordType, record) {
             bucket(recordType).set(record.recordId, record);
             return record;
@@ -47,7 +53,11 @@ export function createInMemoryRecordsPort(seed = {}) {
 export function loadCloudShimFrontendEnv(opts = {}) {
     const { seedRecords, wrapApiCallDirect, ...frontendOpts } = opts;
     const env = loadFrontendEnv(frontendOpts);
-    const shimCall = installApiShim({}, { records: createInMemoryRecordsPort(seedRecords), win: env.window });
+    // Exposed on env so a suite can assert HOW the domain layer read (e.g. that
+    // vitals bounds its window via listRange rather than listing every batch).
+    const records = createInMemoryRecordsPort(seedRecords);
+    env.records = records;
+    const shimCall = installApiShim({}, { records, win: env.window });
     if (wrapApiCallDirect) {
         // Workout's groups.js/next-card.js/stats.js call window.apiCallDirect
         // directly, bypassing offlineAwareApiCall (Decision 3, C2d plan) —

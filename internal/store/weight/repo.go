@@ -351,7 +351,7 @@ func (r *Repo) BatchGetLastLogs(ctx context.Context, userIDs []int64) (map[int64
 func (r *Repo) GetGoal(ctx context.Context, userID int64) (*WeightGoal, error) {
 	var setAtUnix int64
 	var target float64
-	var targetDateStr string
+	var targetDateStr sql.NullString
 	var startWeight sql.NullFloat64
 
 	err := r.db.QueryRowContext(ctx,
@@ -369,8 +369,10 @@ func (r *Repo) GetGoal(ctx context.Context, userID int64) (*WeightGoal, error) {
 		result := &WeightGoal{
 			Goal: &target,
 		}
-		if t, perr := time.Parse("2006-01-02", targetDateStr); perr == nil {
-			result.GoalDate = &t
+		if targetDateStr.Valid {
+			if t, perr := time.Parse("2006-01-02", targetDateStr.String); perr == nil {
+				result.GoalDate = &t
+			}
 		}
 		setAt := storedb.UnixToTime(setAtUnix)
 		result.GoalSetAt = &setAt
@@ -449,9 +451,13 @@ func (r *Repo) ListGoals(ctx context.Context, userID int64, limit int) ([]Weight
 	for rows.Next() {
 		var g WeightGoalHistory
 		var setAtUnix int64
+		var targetDate sql.NullString
 		var startWeight sql.NullFloat64
-		if err := rows.Scan(&g.ID, &g.UserID, &setAtUnix, &g.TargetWeight, &g.TargetDate, &startWeight); err != nil {
+		if err := rows.Scan(&g.ID, &g.UserID, &setAtUnix, &g.TargetWeight, &targetDate, &startWeight); err != nil {
 			return nil, err
+		}
+		if targetDate.Valid {
+			g.TargetDate = targetDate.String
 		}
 		g.SetAt = storedb.UnixToTime(setAtUnix)
 		if startWeight.Valid {
@@ -475,7 +481,10 @@ func (r *Repo) ListGoals(ctx context.Context, userID int64, limit int) ([]Weight
 // older clients (and the legacy fallback in GetGoal) continue to read the
 // most recent goal.
 func (r *Repo) SetGoal(ctx context.Context, userID int64, weight float64, targetDate time.Time) error {
-	dateStr := targetDate.Format("2006-01-02")
+	var dateStr sql.NullString
+	if !targetDate.IsZero() {
+		dateStr = sql.NullString{String: targetDate.Format("2006-01-02"), Valid: true}
+	}
 	setAtUnix := time.Now().UTC().Unix()
 
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {

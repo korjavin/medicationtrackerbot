@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,7 +80,7 @@ func TestRelay_DueSelection_ReplaceAll_DisablesGone(t *testing.T) {
 	}})
 
 	sender := &fakeSender{goneFor: map[string]bool{"https://push.example/gone": true}}
-	relay := NewRelay(store, sender, 0)
+	relay := NewRelay(store, sender, nil, 0)
 	relay.Tick(ctx)
 
 	if len(sender.sent) != 2 {
@@ -106,7 +107,7 @@ func TestRelay_DueSelection_ReplaceAll_DisablesGone(t *testing.T) {
 	}})
 
 	sender2 := &fakeSender{goneFor: map[string]bool{}}
-	relay2 := NewRelay(store, sender2, 0)
+	relay2 := NewRelay(store, sender2, nil, 0)
 	relay2.Tick(ctx)
 
 	if len(sender2.sent) != 1 || string(sender2.sent[0].ct) != "second-due-ct" {
@@ -148,7 +149,7 @@ func TestRelay_StaleSyncSweep(t *testing.T) {
 	}
 
 	sender := &fakeSender{goneFor: map[string]bool{}}
-	relay := NewRelay(store, sender, 120*time.Hour)
+	relay := NewRelay(store, sender, nil, 120*time.Hour)
 	relay.StaleSyncSweep(ctx)
 
 	if len(sender.sent) != 1 {
@@ -168,7 +169,7 @@ func TestRelay_StaleSyncSweep(t *testing.T) {
 
 	// A second sweep right away must not re-warn within the cooldown.
 	sender2 := &fakeSender{goneFor: map[string]bool{}}
-	relay2 := NewRelay(store, sender2, 120*time.Hour)
+	relay2 := NewRelay(store, sender2, nil, 120*time.Hour)
 	relay2.StaleSyncSweep(ctx)
 	if len(sender2.sent) != 0 {
 		t.Fatalf("expected no re-warn within cooldown, got %+v", sender2.sent)
@@ -212,7 +213,7 @@ func TestRelay_SendsWithPerAccountVAPIDKeys(t *testing.T) {
 	}})
 
 	sender := &fakeSender{goneFor: map[string]bool{}}
-	relay := NewRelay(store, sender, 0)
+	relay := NewRelay(store, sender, nil, 0)
 	relay.Tick(ctx)
 
 	if len(sender.sent) != 2 {
@@ -272,5 +273,216 @@ func TestVAPIDSubjectFor(t *testing.T) {
 				t.Errorf("vapidSubjectFor(%q) = %q, want %q", c.endpoint, got, c.want)
 			}
 		})
+	}
+}
+
+// fakeTGSender records every reminder the relay forwards to Telegram, and can
+// fail on demand so the "never wedge the queue" contract is observable.
+type fakeTGSender struct {
+	sent      []string
+	callbacks []string
+	err       error
+}
+
+func (f *fakeTGSender) SendReminder(ctx context.Context, accountID, text, callbackStem string) error {
+	f.sent = append(f.sent, text)
+	f.callbacks = append(f.callbacks, callbackStem)
+	return f.err
+}
+
+// TestRelay_DeliveryChannelRouting guards the C3b outbound contract: each due
+// entry fires on exactly the channels its delivery flag names, and no others.
+func TestRelay_DeliveryChannelRouting(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	ctx := context.Background()
+	if err := store.UpsertPushSubscription(ctx, account.ID, "https://push.example/ok", "p256dh", "auth", time.Now().UTC()); err != nil {
+		t.Fatalf("UpsertPushSubscription: %v", err)
+	}
+
+	past := time.Now().Add(-time.Minute).Unix()
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{
+		{FireAtUnix: past, CT: []byte("web-only"), Delivery: "webpush"},
+		{FireAtUnix: past, Delivery: "telegram", TGText: "tg-only"},
+		{FireAtUnix: past, CT: []byte("both-ct"), Delivery: "both", TGText: "both-text"},
+	}})
+
+	sender := &fakeSender{goneFor: map[string]bool{}}
+	tg := &fakeTGSender{}
+	NewRelay(store, sender, tg, 0).Tick(ctx)
+
+	var webCTs []string
+	for _, s := range sender.sent {
+		webCTs = append(webCTs, string(s.ct))
+	}
+	if len(webCTs) != 2 || webCTs[0] != "web-only" || webCTs[1] != "both-ct" {
+		t.Fatalf("web push must fire for webpush+both only, got %v", webCTs)
+	}
+	if len(tg.sent) != 2 || tg.sent[0] != "tg-only" || tg.sent[1] != "both-text" {
+		t.Fatalf("telegram must fire for telegram+both only, got %v", tg.sent)
+	}
+
+	// Everything is marked sent, so a second tick is a no-op — no duplicates.
+	sender2, tg2 := &fakeSender{goneFor: map[string]bool{}}, &fakeTGSender{}
+	NewRelay(store, sender2, tg2, 0).Tick(ctx)
+	if len(sender2.sent) != 0 || len(tg2.sent) != 0 {
+		t.Fatalf("second tick re-sent entries: web=%v tg=%v", sender2.sent, tg2.sent)
+	}
+}
+
+// TestRelay_TelegramFailureDoesNotWedgeQueue: a permanently-failing Telegram
+// send (unlinked chat, revoked token) must still mark the row sent, or the
+// relay would re-fire that reminder on every tick forever.
+func TestRelay_TelegramFailureDoesNotWedgeQueue(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+
+	session := registerAndGetSession(t, h, host, claimToken)
+	ctx := context.Background()
+
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{
+		{FireAtUnix: time.Now().Add(-time.Minute).Unix(), Delivery: "telegram", TGText: "never-delivers"},
+	}})
+
+	tg := &fakeTGSender{err: ErrNoLinkedChat}
+	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, tg, 0).Tick(ctx)
+	if len(tg.sent) != 1 {
+		t.Fatalf("expected one attempted send, got %v", tg.sent)
+	}
+
+	tg2 := &fakeTGSender{err: ErrNoLinkedChat}
+	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, tg2, 0).Tick(ctx)
+	if len(tg2.sent) != 0 {
+		t.Fatalf("failed telegram entry re-fired on the next tick: %v", tg2.sent)
+	}
+}
+
+// TestRelay_TelegramEntryWithNoSenderIsDropped: a deployment with no manager
+// bot must not wedge on telegram entries either.
+func TestRelay_TelegramEntryWithNoSenderIsDropped(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+
+	session := registerAndGetSession(t, h, host, claimToken)
+	ctx := context.Background()
+
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{
+		{FireAtUnix: time.Now().Add(-time.Minute).Unix(), Delivery: "telegram", TGText: "no-sender"},
+	}})
+
+	// nil TelegramSender — must not panic, must mark sent.
+	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, nil, 0).Tick(ctx)
+
+	due, err := store.DueScheduledPushes(ctx, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("telegram entry left unsent with no sender configured: %+v", due)
+	}
+}
+
+// med-76c.2 part 2: a medication entry carries an "s:<slotUnix>" stem, which the
+// relay hands to the Telegram sender so it can render Confirm/Snooze. BP/weight
+// entries carry none and must stay button-less.
+func TestRelay_ForwardsCallbackStemForButtons(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	past := time.Now().Add(-time.Minute).Unix()
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{
+		{FireAtUnix: past, Delivery: "telegram", TGText: "Time to take: Lisinopril", TGCallback: "s:1767225600"},
+		{FireAtUnix: past, Delivery: "telegram", TGText: "Time to measure your BP"},
+	}})
+
+	tg := &fakeTGSender{}
+	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, tg, 0).Tick(context.Background())
+
+	if len(tg.callbacks) != 2 {
+		t.Fatalf("forwarded %d entries, want 2", len(tg.callbacks))
+	}
+	byText := map[string]string{}
+	for i, text := range tg.sent {
+		byText[text] = tg.callbacks[i]
+	}
+	if got := byText["Time to take: Lisinopril"]; got != "s:1767225600" {
+		t.Errorf("medication stem = %q, want s:1767225600", got)
+	}
+	if got := byText["Time to measure your BP"]; got != "" {
+		t.Errorf("BP reminder carried a stem %q — it has no intake to confirm", got)
+	}
+}
+
+// The stem becomes callback_data on a button the relay sends as the user. Only
+// the grammar the webhook can parse back may be stored.
+func TestPutSchedule_RejectsMalformedCallbackStem(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	past := time.Now().Add(-time.Minute).Unix()
+	for _, stem := range []string{"i:intake-7-1", "s:abc", "s:", "s:1:confirm", strings.Repeat("s:1", 20)} {
+		body, _ := json.Marshal(putScheduleRequest{Entries: []scheduleEntryWire{
+			{FireAtUnix: past, Delivery: "telegram", TGText: "x", TGCallback: stem},
+		}})
+		rec := doReq(t, h, http.MethodPut, "http://"+host+"/api/push/schedule", host, session, body)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("stem %q accepted (status %d), want 400", stem, rec.Code)
+		}
+	}
+
+	// The legal shapes still pass.
+	for _, stem := range []string{"", "s:1767225600"} {
+		body, _ := json.Marshal(putScheduleRequest{Entries: []scheduleEntryWire{
+			{FireAtUnix: past, Delivery: "telegram", TGText: "x", TGCallback: stem},
+		}})
+		rec := doReq(t, h, http.MethodPut, "http://"+host+"/api/push/schedule", host, session, body)
+		if rec.Code != http.StatusNoContent {
+			t.Errorf("stem %q rejected (status %d)", stem, rec.Code)
+		}
 	}
 }

@@ -46,3 +46,131 @@ describe('domain/reminders.js — horizon scheduling', () => {
         expect(bpEntries[0].fireAtUnix).toBe(expectedNextBpTargetMs / 1000);
     });
 });
+
+// bd med-76c.1 — Telegram reminders transit the cloud relay as plaintext, so
+// every entry must carry a name-free twin the user can opt into, and the
+// delivery/verbosity pref must default to the documented values.
+describe('domain/reminders.js — Telegram delivery pref + generic verbosity', () => {
+    it('every horizon entry carries a genericText with no medication name in it', () => {
+        const nowMs = Date.UTC(2026, 6, 7, 6, 0, 0);
+        const entries = computeReminderHorizon({
+            medications: [{ id: 'm1', name: 'Lisinopril', dosage: '10 mg', schedule: '20:00' }],
+            intakes: [],
+            bps: [], weights: [],
+            timeZone: 'UTC',
+            now: nowMs,
+            bpStatus: { enabled: true, preferred_reminder_hour: 20 },
+            weightStatus: { enabled: true, preferred_reminder_hour: 9 },
+        });
+
+        expect(entries.length).toBeGreaterThan(0);
+        for (const e of entries) {
+            expect(typeof e.genericText).toBe('string');
+            expect(e.genericText.length).toBeGreaterThan(0);
+            expect(e.genericText).not.toContain('Lisinopril');
+        }
+        // The detailed text still names the drug — that is the default channel payload.
+        expect(entries.some((e) => e.text.includes('Lisinopril'))).toBe(true);
+    });
+
+    it('delivery pref defaults to webpush/detailed and round-trips, ignoring invalid values', async () => {
+        const { createRemindersDomain } = await import('../../../domain/reminders.js');
+        const { createInMemoryRecordsPort } = await import('./helpers/cloud-shim-harness.js');
+        const records = createInMemoryRecordsPort();
+        const domain = createRemindersDomain({ records, now: () => 1_700_000_000_000 });
+
+        expect(await domain.getDeliveryPref()).toEqual({ delivery: 'webpush', verbosity: 'detailed' });
+
+        expect(await domain.setDeliveryPref({ delivery: 'both', verbosity: 'generic' }))
+            .toEqual({ delivery: 'both', verbosity: 'generic' });
+
+        // Garbage keeps the stored value rather than silently resetting to defaults.
+        expect(await domain.setDeliveryPref({ delivery: 'carrier-pigeon', verbosity: 'shouty' }))
+            .toEqual({ delivery: 'both', verbosity: 'generic' });
+    });
+});
+
+// bd med-9b8.3 — snooze (2h) / don't-bug (24h) are mute-until instants, not
+// flags: `enabled` stays true and the horizon simply omits targets inside the
+// window. Mirrors internal/scheduler/bp_reminders.go's skip condition.
+describe('domain/reminders.js — snooze / dont-bug mute windows', () => {
+    const nowMs = Date.UTC(2026, 6, 7, 6, 0, 0); // 06:00 UTC; BP fires 20:00, weight 09:00
+
+    const horizon = (bpStatus, weightStatus) => computeReminderHorizon({
+        medications: [], intakes: [], bps: [], weights: [],
+        timeZone: 'UTC', now: nowMs, bpStatus, weightStatus,
+    });
+
+    it('drops BP targets inside an active snooze but keeps later ones', () => {
+        const enabled = { enabled: true, preferred_reminder_hour: 20 };
+        const before = horizon(enabled, { enabled: false });
+        expect(before.some((e) => e.kind === 'bp')).toBe(true);
+
+        // Snooze past today's 20:00 target (14h out) — tomorrow's must survive.
+        const snoozed = horizon({ ...enabled, snoozed_until: nowMs + 15 * 60 * 60 * 1000 }, { enabled: false });
+        const bpFires = snoozed.filter((e) => e.kind === 'bp').map((e) => e.fireAtUnix);
+        expect(bpFires.length).toBe(before.filter((e) => e.kind === 'bp').length - 1);
+        expect(Math.min(...bpFires) * 1000).toBeGreaterThan(nowMs + 15 * 60 * 60 * 1000);
+    });
+
+    it("a 24h don't-bug suppresses every BP target inside the day", () => {
+        const muted = horizon(
+            { enabled: true, preferred_reminder_hour: 20, dont_remind_until: nowMs + 24 * 60 * 60 * 1000 },
+            { enabled: false },
+        );
+        for (const e of muted.filter((x) => x.kind === 'bp')) {
+            expect(e.fireAtUnix * 1000).toBeGreaterThan(nowMs + 24 * 60 * 60 * 1000);
+        }
+    });
+
+    it('mute never touches enabled, and the two windows OR together', () => {
+        // snooze short, dontbug long → the longer one wins.
+        const muted = horizon(
+            {
+                enabled: true,
+                preferred_reminder_hour: 20,
+                snoozed_until: nowMs + 60 * 1000,
+                dont_remind_until: nowMs + 48 * 60 * 60 * 1000,
+            },
+            { enabled: false },
+        );
+        for (const e of muted.filter((x) => x.kind === 'bp')) {
+            expect(e.fireAtUnix * 1000).toBeGreaterThan(nowMs + 48 * 60 * 60 * 1000);
+        }
+    });
+
+    it('weight reminders honor their own mute window independently of BP', () => {
+        const both = horizon(
+            { enabled: true, preferred_reminder_hour: 20 },
+            { enabled: true, preferred_reminder_hour: 9, dont_remind_until: nowMs + 24 * 60 * 60 * 1000 },
+        );
+        expect(both.some((e) => e.kind === 'bp')).toBe(true);
+        for (const e of both.filter((x) => x.kind === 'weight')) {
+            expect(e.fireAtUnix * 1000).toBeGreaterThan(nowMs + 24 * 60 * 60 * 1000);
+        }
+    });
+
+    it('snoozeBPReminder sets a 2h window and preserves enabled + preferred hour', async () => {
+        const { createRemindersDomain, SNOOZE_MS, DONT_BUG_MS } = await import('../../../domain/reminders.js');
+        const { createInMemoryRecordsPort } = await import('./helpers/cloud-shim-harness.js');
+        const records = createInMemoryRecordsPort();
+        const fixedNow = 1_700_000_000_000;
+        const domain = createRemindersDomain({ records, now: () => fixedNow });
+
+        await domain.setBPEnabled(true, 18);
+        const snoozed = await domain.snoozeBPReminder();
+        expect(snoozed.enabled).toBe(true);
+        expect(snoozed.preferred_reminder_hour).toBe(18);
+        expect(snoozed.snoozed_until).toBe(fixedNow + SNOOZE_MS);
+
+        const bugged = await domain.dontBugBPReminder();
+        expect(bugged.dont_remind_until).toBe(fixedNow + DONT_BUG_MS);
+        expect(bugged.snoozed_until).toBe(fixedNow + SNOOZE_MS); // not clobbered
+        expect(bugged.enabled).toBe(true);
+
+        // Toggling must not silently clear an active mute.
+        const toggled = await domain.setBPEnabled(false);
+        expect(toggled.snoozed_until).toBe(fixedNow + SNOOZE_MS);
+        expect(toggled.dont_remind_until).toBe(fixedNow + DONT_BUG_MS);
+    });
+});

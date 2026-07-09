@@ -147,13 +147,36 @@ export async function sendTestPush(ctx) {
   }
 }
 
-export async function pushSchedule(ctx, reminders) {
-  const nk = await getOrCreateNK(ctx);
+// pushSchedule uploads the reminder horizon to the blind relay. pref picks the
+// delivery channel and, for Telegram, how much the message says — a Telegram
+// entry hands the relay PLAINTEXT (it cannot decrypt the vault), so 'generic'
+// verbosity is what keeps medication names out of the relay's reach.
+export async function pushSchedule(ctx, reminders, pref = {}) {
+  const delivery = ['webpush', 'telegram', 'both'].includes(pref.delivery) ? pref.delivery : 'webpush';
+  const verbosity = pref.verbosity === 'generic' ? 'generic' : 'detailed';
+  const needsCT = delivery === 'webpush' || delivery === 'both';
+  const needsText = delivery === 'telegram' || delivery === 'both';
+
+  // A telegram-only schedule never touches the NK, so don't mint one for it.
+  const nk = needsCT ? await getOrCreateNK(ctx) : null;
   const entries = [];
   for (const r of reminders) {
-    const plaintext = new TextEncoder().encode(JSON.stringify({ title: 'Med Tracker', body: r.text }));
-    const ct = await encryptPushPayload(nk, plaintext);
-    entries.push({ fire_at_unix: r.fireAtUnix, ct: toBase64(ct) });
+    const entry = { fire_at_unix: r.fireAtUnix, delivery };
+    if (needsCT) {
+      // `kind` rides inside the NK ciphertext (never on the wire in clear) so
+      // the service worker can attach the right Snooze / Don't-bug action
+      // buttons without the relay learning what sort of reminder this is.
+      const plaintext = new TextEncoder().encode(JSON.stringify({ title: 'Med Tracker', body: r.text, kind: r.kind }));
+      entry.ct = toBase64(await encryptPushPayload(nk, plaintext));
+    }
+    if (needsText) {
+      entry.tg_text = verbosity === 'generic' ? (r.genericText || r.text) : r.text;
+      // Medication entries carry an "s:<slotUnix>" stem; the relay turns it into
+      // Confirm/Snooze buttons. BP/weight reminders have no stem and no buttons.
+      // Safe at either verbosity: the slot instant is already fire_at_unix.
+      if (r.callback) entry.tg_callback = r.callback;
+    }
+    entries.push(entry);
   }
   const res = await fetch('/api/push/schedule', {
     method: 'PUT',

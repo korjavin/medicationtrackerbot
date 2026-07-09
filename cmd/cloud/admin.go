@@ -89,7 +89,7 @@ subcommands:
 }
 
 func adminInvite(ctx context.Context, store *cloudstore.Repo, cfg config) int {
-	inv, err := cloudserver.Provision(ctx, store, cfg.claimTTL, time.Now().UTC())
+	inv, err := cloudserver.Provision(ctx, store, cfg.claimTTL, time.Now().UTC(), "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "invite failed: %v\n", err)
 		return 1

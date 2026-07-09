@@ -136,7 +136,7 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              addr,
 		Handler:           handler,
-		ReadTimeout:       15 * time.Second,
+		ReadTimeout:       15 * time.Second, // comfortable for a ~2-3 MB gzip-compressed vault snapshot upload
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      45 * time.Second,
 		MaxHeaderBytes:    1 << 20,
@@ -187,6 +187,7 @@ func main() {
 	transferAPI := cloudserver.NewTransferAPI(store, cfg.sessionSecret)
 	deviceAPI := cloudserver.NewDeviceAPI(store, cfg.sessionSecret)
 	recoveryAPI := cloudserver.NewRecoveryAPI(store)
+	inviteAPI := cloudserver.NewInviteAPI(store, cfg.sessionSecret, cfg.baseDomain, cfg.claimTTL)
 	syncAPI := cloudserver.NewSyncAPI(store, cfg.sessionSecret, cfg.accountQuotaBytes)
 	webPushSender := &cloudserver.WebPushSender{
 		Subject:    cfg.vapidSubject,
@@ -204,8 +205,10 @@ func main() {
 	transferAPI.RegisterRoutes(apiMux)
 	deviceAPI.RegisterRoutes(apiMux)
 	recoveryAPI.RegisterRoutes(apiMux)
+	inviteAPI.RegisterRoutes(apiMux)
 	syncAPI.RegisterRoutes(apiMux)
 	pushAPI.RegisterRoutes(apiMux)
+	cloudserver.NewInboxAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
 	mcpRelayAPI.RegisterRoutes(apiMux)
 	mcpRemoteAPI.RegisterRoutes(apiMux)
 	trialProxyAPI.RegisterRoutes(apiMux)
@@ -217,7 +220,7 @@ func main() {
 	if cfg.managerBotToken == "" {
 		slog.Info("telegram disabled", "reason", "MANAGER_BOT_TOKEN unset")
 	} else {
-		tgAPI = cloudserver.NewTelegramAPI(store, cfg.sessionSecret, cfg.managerBotToken, cfg.baseDomain, cfg.tgAPIBaseURL)
+		tgAPI = cloudserver.NewTelegramAPI(store, cfg.sessionSecret, cfg.managerBotToken, cfg.baseDomain, cfg.tgAPIBaseURL, cfg.claimTTL)
 		if err := tgAPI.Bootstrap(context.Background()); err != nil {
 			// Bootstrap hits api.telegram.org (getMe + setWebhook). Telegram is
 			// an optional, additive feature — a transient third-party outage at
@@ -233,7 +236,14 @@ func main() {
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL, cfg.trial.TrialAIConfigured(), cfg.trial.TrialVoiceConfigured())
 	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
 
-	relay := cloudserver.NewRelay(store, webPushSender, cfg.dryQueueWarnHours)
+	// A nil *TelegramAPI stored in a TelegramSender interface is NOT a nil
+	// interface, so assign only when Telegram actually came up — otherwise the
+	// relay would call SendReminder on a nil receiver.
+	var tgSender cloudserver.TelegramSender
+	if tgAPI != nil {
+		tgSender = tgAPI
+	}
+	relay := cloudserver.NewRelay(store, webPushSender, tgSender, cfg.dryQueueWarnHours)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

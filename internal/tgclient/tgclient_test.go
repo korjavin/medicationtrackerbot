@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeTelegram is an httptest stand-in for api.telegram.org that lets a test
@@ -17,12 +18,13 @@ import (
 type fakeTelegram struct {
 	t          *testing.T
 	responses  map[string]string // method → JSON envelope
+	statuses   map[string]int    // method → HTTP status (default 200)
 	lastBody   map[string]any
 	lastMethod string
 }
 
 func newFake(t *testing.T) (*fakeTelegram, *httptest.Server) {
-	f := &fakeTelegram{t: t, responses: map[string]string{}}
+	f := &fakeTelegram{t: t, responses: map[string]string{}, statuses: map[string]int{}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Path is /bot<token>/<method>.
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
@@ -42,6 +44,12 @@ func newFake(t *testing.T) (*fakeTelegram, *httptest.Server) {
 			env = `{"ok":true,"result":{}}`
 		}
 		w.Header().Set("Content-Type", "application/json")
+		// Telegram sends the error envelope with a real 4xx/5xx status; the
+		// status is what IsClientError classifies on, so tests must be able to
+		// set it. Default 200 keeps every existing success case unchanged.
+		if code := f.statuses[f.lastMethod]; code != 0 {
+			w.WriteHeader(code)
+		}
 		io.WriteString(w, env)
 	}))
 	return f, srv
@@ -71,6 +79,88 @@ func TestAPIErrorEnvelope(t *testing.T) {
 	_, err := c.GetManagedBotToken(context.Background(), 999)
 	if err == nil || !strings.Contains(err.Error(), "bot not found") {
 		t.Fatalf("expected api-error envelope surfaced, got %v", err)
+	}
+}
+
+// med-jjd: a 429 is the one 4xx that retrying fixes. IsClientError callers drop
+// the event when it reports true, and managed_bot_created is never re-sent — so
+// misclassifying a rate limit strands the account unbound forever.
+func TestRateLimitIsNotAPermanentClientError(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+	f.statuses["getManagedBotToken"] = http.StatusTooManyRequests
+	f.responses["getManagedBotToken"] = `{"ok":false,"description":"Too Many Requests: retry after 30","parameters":{"retry_after":30}}`
+
+	c := New("123:ABC", srv.URL)
+	_, err := c.GetManagedBotToken(context.Background(), 999)
+	if err == nil {
+		t.Fatal("expected an error on 429")
+	}
+	if IsClientError(err) {
+		t.Errorf("429 must not be a permanent client error, got IsClientError=true for %v", err)
+	}
+	wait, ok := RetryAfter(err)
+	if !ok || wait != 30*time.Second {
+		t.Errorf("RetryAfter = (%v, %v), want (30s, true)", wait, ok)
+	}
+}
+
+// Every other 4xx stays permanent — the guard above must not widen into "all
+// 4xx are retryable", which would re-drive dead events forever.
+func TestNon429ClientErrorsStayPermanent(t *testing.T) {
+	for _, code := range []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound} {
+		f, srv := newFake(t)
+		f.statuses["getManagedBotToken"] = code
+		f.responses["getManagedBotToken"] = `{"ok":false,"description":"user is deactivated"}`
+
+		c := New("123:ABC", srv.URL)
+		_, err := c.GetManagedBotToken(context.Background(), 999)
+		if !IsClientError(err) {
+			t.Errorf("status %d: IsClientError = false, want true (err=%v)", code, err)
+		}
+		if _, ok := RetryAfter(err); ok {
+			t.Errorf("status %d: RetryAfter reported a cooldown for a non-429", code)
+		}
+		srv.Close()
+	}
+}
+
+// 5xx and transport failures were already transient; pin it so the 429 guard
+// can't accidentally invert them.
+func TestServerErrorIsNotAClientError(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+	f.statuses["getManagedBotToken"] = http.StatusBadGateway
+	f.responses["getManagedBotToken"] = `{"ok":false,"description":"bad gateway"}`
+
+	c := New("123:ABC", srv.URL)
+	_, err := c.GetManagedBotToken(context.Background(), 999)
+	if err == nil || IsClientError(err) {
+		t.Errorf("5xx must stay transient, got IsClientError=true for %v", err)
+	}
+}
+
+func TestSetMyCommandsPayloadShape(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+
+	c := New("123:ABC", srv.URL)
+	err := c.SetMyCommands(context.Background(), []BotCommand{
+		{Command: "start", Description: "Start the bot and open the App"},
+	})
+	if err != nil {
+		t.Fatalf("SetMyCommands: %v", err)
+	}
+	if f.lastMethod != "setMyCommands" {
+		t.Fatalf("called %q, want setMyCommands", f.lastMethod)
+	}
+	cmds, ok := f.lastBody["commands"].([]any)
+	if !ok || len(cmds) != 1 {
+		t.Fatalf("commands payload = %#v, want a 1-element array", f.lastBody["commands"])
+	}
+	first, _ := cmds[0].(map[string]any)
+	if first["command"] != "start" || first["description"] != "Start the bot and open the App" {
+		t.Errorf("command entry = %#v", first)
 	}
 }
 
@@ -134,5 +224,209 @@ func TestTransportErrorRedactsToken(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), token) {
 		t.Fatalf("token leaked in error: %q", err.Error())
+	}
+}
+
+func TestSetMyProfilePhotoMultipartShape(t *testing.T) {
+	var gotContentType string
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotContentType = r.Header.Get("Content-Type")
+		b, err := io.ReadAll(r.Body)
+		if err == nil {
+			gotBody = b
+		}
+		w.Write([]byte(`{"ok": true, "result": true}`))
+	}))
+	defer srv.Close()
+
+	client := New("dummy_token", srv.URL)
+	err := client.SetMyProfilePhoto(context.Background(), []byte("fake_image_data"))
+	if err != nil {
+		t.Fatalf("SetMyProfilePhoto failed: %v", err)
+	}
+
+	if !strings.HasPrefix(gotContentType, "multipart/form-data; boundary=") {
+		t.Errorf("expected multipart/form-data, got %q", gotContentType)
+	}
+
+	bodyStr := string(gotBody)
+	if !strings.Contains(bodyStr, `name="photo"`) {
+		t.Errorf("missing photo field name")
+	}
+	if !strings.Contains(bodyStr, `{"type":"static","photo":"attach://profile_photo"}`) {
+		t.Errorf("missing correct JSON for photo field")
+	}
+	if !strings.Contains(bodyStr, `name="profile_photo"`) {
+		t.Errorf("missing profile_photo file part name")
+	}
+	if !strings.Contains(bodyStr, "fake_image_data") {
+		t.Errorf("missing image payload")
+	}
+}
+
+// med-76c.2: callback_data is the only thing that crosses back from a button
+// tap, so its grammar is a contract. "s:<slotUnix>:<action>" — anything else is
+// a tap we must refuse rather than guess at.
+func TestParseCallbackData(t *testing.T) {
+	for _, tc := range []struct {
+		data     string
+		wantSlot int64
+		wantAct  string
+		wantOK   bool
+	}{
+		{data: "s:1767225600:confirm", wantSlot: 1767225600, wantAct: "confirm", wantOK: true},
+		{data: "s:1767225600:snooze", wantSlot: 1767225600, wantAct: "snooze", wantOK: true},
+		{data: "s:1767225600:detonate"},  // unknown action
+		{data: "i:intake-7-123:confirm"}, // retired per-intake namespace
+		{data: "s::confirm"},             // empty slot
+		{data: "s:abc:confirm"},          // non-numeric slot
+		{data: "s:-5:confirm"},           // non-positive slot
+		{data: "s:1767225600"},           // no action
+		{data: "confirm"},                // no namespace
+		{data: ""},                       // empty
+		{data: "s:1767225600:confirm:extra", wantSlot: 1767225600, wantAct: "", wantOK: false},
+	} {
+		slot, action, ok := ParseCallbackData(tc.data)
+		if ok != tc.wantOK {
+			t.Errorf("ParseCallbackData(%q) ok = %v, want %v", tc.data, ok, tc.wantOK)
+			continue
+		}
+		if ok && (slot != tc.wantSlot || action != tc.wantAct) {
+			t.Errorf("ParseCallbackData(%q) = (%d, %q), want (%d, %q)", tc.data, slot, action, tc.wantSlot, tc.wantAct)
+		}
+	}
+}
+
+// ValidCallbackStem gates what a client may put in the queue and therefore what
+// the relay puts in a button. Empty means "no buttons" and must stay legal.
+func TestValidCallbackStem(t *testing.T) {
+	valid := []string{"", "s:1", "s:1767225600"}
+	for _, s := range valid {
+		if !ValidCallbackStem(s) {
+			t.Errorf("ValidCallbackStem(%q) = false, want true", s)
+		}
+	}
+	invalid := []string{
+		"s:", "s:abc", "i:intake-7-1:confirm", "x:1", "1767225600",
+		"s:1767225600:confirm",         // an already-built callback_data, not a stem
+		"s:99999999999999999999999999", // over the length cap
+	}
+	for _, s := range invalid {
+		if ValidCallbackStem(s) {
+			t.Errorf("ValidCallbackStem(%q) = true, want false", s)
+		}
+	}
+}
+
+// A round-trip guard: whatever stem the relay accepts, appending an action must
+// produce data ParseCallbackData reads back — and stay inside Telegram's 64-byte
+// callback_data limit.
+func TestCallbackStemRoundTripsAndFitsTelegramLimit(t *testing.T) {
+	stem := "s:1767225600"
+	if !ValidCallbackStem(stem) {
+		t.Fatalf("stem %q rejected", stem)
+	}
+	for _, action := range []string{CallbackActionConfirm, CallbackActionSnooze} {
+		data := stem + ":" + action
+		if len(data) > 64 {
+			t.Errorf("callback_data %q is %d bytes, over Telegram's 64-byte limit", data, len(data))
+		}
+		slot, got, ok := ParseCallbackData(data)
+		if !ok || slot != 1767225600 || got != action {
+			t.Errorf("round-trip %q = (%d, %q, %v)", data, slot, got, ok)
+		}
+	}
+}
+
+func TestSendMessageWithButtonsPayloadShape(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+
+	c := New("123:ABC", srv.URL)
+	err := c.SendMessageWithButtons(context.Background(), 42, "Time to take: Lisinopril", []InlineKeyboardButton{
+		{Text: "✅ Confirm", CallbackData: "s:1767225600:confirm"},
+		{Text: "⏰ Snooze", CallbackData: "s:1767225600:snooze"},
+	})
+	if err != nil {
+		t.Fatalf("SendMessageWithButtons: %v", err)
+	}
+	if f.lastMethod != "sendMessage" {
+		t.Fatalf("called %q, want sendMessage", f.lastMethod)
+	}
+	markup, ok := f.lastBody["reply_markup"].(map[string]any)
+	if !ok {
+		t.Fatalf("reply_markup missing: %#v", f.lastBody)
+	}
+	rows, ok := markup["inline_keyboard"].([]any)
+	if !ok || len(rows) != 1 {
+		t.Fatalf("inline_keyboard = %#v, want one row", markup["inline_keyboard"])
+	}
+	buttons, _ := rows[0].([]any)
+	if len(buttons) != 2 {
+		t.Fatalf("want 2 buttons, got %d", len(buttons))
+	}
+	first, _ := buttons[0].(map[string]any)
+	if first["callback_data"] != "s:1767225600:confirm" {
+		t.Errorf("first button = %#v", first)
+	}
+}
+
+// No buttons must mean no reply_markup at all — Telegram renders an empty
+// keyboard object as a stuck, tappable-but-dead row.
+func TestSendMessageWithButtonsOmitsMarkupWhenEmpty(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+
+	c := New("123:ABC", srv.URL)
+	if err := c.SendMessageWithButtons(context.Background(), 42, "BP reminder", nil); err != nil {
+		t.Fatalf("SendMessageWithButtons: %v", err)
+	}
+	if _, present := f.lastBody["reply_markup"]; present {
+		t.Errorf("reply_markup present for a button-less message: %#v", f.lastBody)
+	}
+}
+
+func TestAnswerCallbackQueryPayloadShape(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+
+	c := New("123:ABC", srv.URL)
+	if err := c.AnswerCallbackQuery(context.Background(), "cbq-1", "Saved"); err != nil {
+		t.Fatalf("AnswerCallbackQuery: %v", err)
+	}
+	if f.lastMethod != "answerCallbackQuery" {
+		t.Fatalf("called %q", f.lastMethod)
+	}
+	if f.lastBody["callback_query_id"] != "cbq-1" || f.lastBody["text"] != "Saved" {
+		t.Errorf("body = %#v", f.lastBody)
+	}
+}
+
+func TestUpdateDecodesCallbackQuery(t *testing.T) {
+	var upd Update
+	raw := `{"update_id":5,"callback_query":{"id":"cbq-9","data":"s:1767225600:confirm","from":{"id":7},"message":{"message_id":3,"chat":{"id":100,"type":"private"}}}}`
+	if err := json.Unmarshal([]byte(raw), &upd); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if upd.CallbackQuery == nil || upd.CallbackQuery.ID != "cbq-9" || upd.CallbackQuery.Data != "s:1767225600:confirm" {
+		t.Fatalf("callback_query = %#v", upd.CallbackQuery)
+	}
+	if upd.CallbackQuery.Message == nil || upd.CallbackQuery.Message.Chat.ID != 100 {
+		t.Fatalf("callback_query.message = %#v", upd.CallbackQuery.Message)
+	}
+}
+
+// The invariant the two functions must jointly hold: a stem the relay accepts,
+// with an action appended, is data the webhook can parse. Guards against the two
+// drifting apart (an over-long or overflowing slot was accepted once).
+func TestEveryAcceptedStemParsesBack(t *testing.T) {
+	for _, stem := range []string{"s:1", "s:1767225600", "s:9223372036854775807"} {
+		if !ValidCallbackStem(stem) {
+			continue // rejected is fine; accepted-but-unparseable is not
+		}
+		if _, _, ok := ParseCallbackData(stem + ":" + CallbackActionConfirm); !ok {
+			t.Errorf("stem %q accepted but its callback_data does not parse back", stem)
+		}
 	}
 }

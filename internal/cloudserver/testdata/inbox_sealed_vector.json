@@ -1,0 +1,10 @@
+{
+  "note": "mt/v1/inbox sealed box. Go seals (internal/cloudserver/sealedbox.go), the browser opens (web/cloud/js/crypto.js openInboxEvent). Regenerate with: go test ./internal/cloudserver -run CrossLanguageVector -update-inbox-vector",
+  "account_id": "acct-vector",
+  "recipient_private_b64": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+  "recipient_public_b64": "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9/AsrhtHHw=",
+  "plaintext": "{\"kind\":\"intake_slot_action\",\"slot_unix\":1767225600,\"action\":\"confirm\",\"at_unix\":1767225600}",
+  "sealed_b64": "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9/AsrhtHHwhIiMkJSYnKCkqKywexcsV+95aFgOZZZpZKag5tTJewtJalYsc7UZaCP5lGHxumb3qEz1u+fx8HkyN4jA3gUmIdzbauPGmZ0aOeklZ8mKRAllrQ6MvYCNK0+ujDYoj+fZfuNU6OHuqBhUu2ORHclGyRxJUR7Lx7tU=",
+  "plaintext_earlier": "{\"kind\":\"intake_slot_action\",\"slot_unix\":1767225600,\"action\":\"snooze\",\"at_unix\":1767225000}",
+  "sealed_earlier_b64": "fZwkMWU5glwYluV/KBl3Rnk85gy+461H2p0HuF+lXiqEhYaHiImKi4yNjo/htWFCUEXVgD71+v7h6WnIRuFjqAgR6umotmu7Ja6d68loVJoVDKbMl2dnTijZAmF11TtuG4fAH2N5DtNl04IKdqPU71eQgGO1kdJiGzYi2DK91JXpnOIF+3/wBWWsPMo4GNYZaKDo6Ep/uQ=="
+}
