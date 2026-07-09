@@ -26,9 +26,12 @@
 //     the integrations step so they can retry or skip.
 // Skip semantics:
 //   - Advances to "done" without touching the PATCH endpoint. The
-//     user's API key fields remain empty server-side; AI-dependent
-//     features fall back to their existing "configure to enable" empty
-//     states.
+//     user's API key fields remain empty server-side. In cloud mode with
+//     an operator trial key configured, AI features keep working through
+//     that key (rate-limited); otherwise AI-dependent features fall back
+//     to their existing "configure to enable" empty states. The copy in
+//     this screen keys off the same trial meta tag so it never promises
+//     an out-of-the-box trial the operator hasn't provisioned.
 (function () {
     'use strict';
 
@@ -103,10 +106,32 @@
         });
     }
 
+    // In cloud mode the operator may configure a shared trial OpenAI key
+    // (TRIAL_OPENAI_API_KEY); cmd/cloud then injects <meta
+    // name="medtracker-trial-ai" content="1"> and web/cloud/js/aiclient.js
+    // routes through it whenever the user has no key of their own. Read the
+    // same tag Settings → Integrations reads (applyTrialHints), so the two
+    // surfaces can never disagree about whether the trial path exists. Bot
+    // mode never injects the tag, hence the __MEDTRACKER_CLOUD__ guard.
+    function _trialAvailable() {
+        if (!window.__MEDTRACKER_CLOUD__) return false;
+        return document.querySelector('meta[name="medtracker-trial-ai"]')?.content === '1';
+    }
+
+    const TAGLINE_TRIAL = 'AI features — food by description, food photo, and voice — already work, '
+        + 'using a shared trial key that is rate-limited. Add your own OpenAI key to lift the limit '
+        + 'and keep your prompts off the operator’s key. You can skip this and add one later in '
+        + 'Settings → Integrations.';
+    const TAGLINE_NO_TRIAL = 'Add your OpenAI API key to unlock food photo analysis and other AI '
+        + 'features. URL and model defaults are pre-filled — change them only if you use a '
+        + 'self-hosted compatible endpoint.';
+
     function render(body, helpers) {
+        const trial = _trialAvailable();
+
         const intro = document.createElement('p');
         intro.className = 'wg-firstrun-screen__tagline';
-        intro.textContent = 'Add your OpenAI API key to unlock food photo analysis and other AI features. URL and model defaults are pre-filled — change them only if you use a self-hosted compatible endpoint.';
+        intro.textContent = trial ? TAGLINE_TRIAL : TAGLINE_NO_TRIAL;
         body.appendChild(intro);
 
         const form = document.createElement('div');
@@ -167,7 +192,7 @@
         const skip = document.createElement('button');
         skip.type = 'button';
         skip.className = 'wg-firstrun-btn wg-firstrun-btn--secondary';
-        skip.textContent = 'Skip';
+        skip.textContent = trial ? 'Skip — use the trial key' : 'Skip';
         skip.setAttribute('data-firstrun-action', 'skip');
         skip.addEventListener('click', function () {
             helpers.advance('done');
