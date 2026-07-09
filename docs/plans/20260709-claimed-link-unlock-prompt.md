@@ -153,15 +153,15 @@ Dependencies identified: none new. No migration, no new HTTP route, no new npm/G
 
 ### Task 4: Frontend coverage for the claimed-link branch
 
-- [ ] add `web/cloud/js/tests/signup.claimed-link.test.js` following the `web/cloud/js/tests/cloud-boot.test.js`
+- [x] add `web/cloud/js/tests/signup.claimed-link.test.js` following the `web/cloud/js/tests/cloud-boot.test.js`
       convention (cloud shell has no integration entry point — the documented rule-8 exception)
-- [ ] case: probe returns `409 {"error":"already_claimed"}` → the rendered DOM contains the already-claimed copy
+- [x] case: probe returns `409 {"error":"already_claimed"}` → the rendered DOM contains the already-claimed copy
       and the new-device guidance, and **does not** contain a `#create-passkey` element (this is the regression guard)
-- [ ] case: probe returns `200` → `#create-passkey` renders, as today
-- [ ] case: probe returns `403` → `#create-passkey` renders alongside the expired-link error text
-- [ ] ⚠️ `signup.js` statically imports `./crypto.js`, which touches WebCrypto at module scope — if that breaks
-      under jsdom, stub `globalThis.crypto` in the test setup or mock the `./crypto.js` module; do **not** restructure
-      `signup.js` solely to make it importable
+- [x] case: probe returns `200` → `#create-passkey` renders, as today
+- [x] case: probe returns `403` → `#create-passkey` renders alongside the expired-link error text
+- [x] ⚠️ resolved — no stub needed. `crypto.js` only calls WebCrypto inside functions, never at module scope, and
+      Node provides `globalThis.crypto`, so `import { runSignupWizard } from '../signup.js'` works as-is under the
+      suite's `environment: 'node'` + explicit `JSDOM` document (the `telegram.test.js` pattern). `signup.js` untouched.
 
 ### Task 5: Verify acceptance criteria
 
