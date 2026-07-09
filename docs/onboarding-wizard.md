@@ -55,21 +55,24 @@ Per the bead: the flag must sync across devices. Cloud-mode settings are vault s
 runtime-agnostic domain module `web/domain/settings.js` (`createSettingsDomain({ records, now, timeZone })`,
 line 72), encrypted at rest by the sync engine.
 
-Add `first_run_complete: boolean` to the **existing general `settings` singleton**
-(`GENERAL_RECORD_TYPE = 'settings'`, `web/domain/settings.js:10-11`), which already carries `timezone` and
-`dismissed_tz_suggestion`. No new record type, no migration, no new HTTP route.
+`first_run_complete` lives on its **own vault singleton** (`FIRSTRUN_RECORD_TYPE = 'firstrun'`), not on the
+general `settings` record. Records are last-writer-wins per *whole record*: a device that has not yet pulled
+the completion op, later writing the shared singleton for `timezone` or `dismissed_tz_suggestion`, would
+upload a newer record with the flag missing and re-open the overlay everywhere. Nothing but
+`setFirstRunComplete` writes the `firstrun` record, and it only ever writes `true`. No migration, no new HTTP
+route.
 
 | concern | decision |
 |---|---|
-| authoritative "onboarding done?" | `settings.first_run_complete` in the vault — syncs to every device |
+| authoritative "onboarding done?" | the `firstrun` vault singleton — syncs to every device |
 | in-flight step ("resume at step 3") | stays `sessionStorage` (`state.js`), unchanged |
 
-**Absent ⇒ needs onboarding.** `needs_first_run = !general.first_run_complete`, so only an explicit `true`
-suppresses the overlay. A vault field cannot be backfilled the way migration `071` backfilled bot mode's
-column, and an absent field cannot mean two things at once. The accepted consequence: **cloud vaults that
+**Absent ⇒ needs onboarding.** `needs_first_run = !first_run_complete`, so only an explicit `true`
+suppresses the overlay. A vault record cannot be backfilled the way migration `071` backfilled bot mode's
+column, and an absent record cannot mean two things at once. The accepted consequence: **cloud vaults that
 predate this change see the overlay once**, dismiss it, and never see it again.
 
-Shape: the flag rides the general `settings` singleton, read once per `settingsResponse()` and surfaced as a
+Shape: the flag is read once per `bootstrapPayload()` and surfaced as a
 **top-level** `/api/bootstrap` field — matching bot mode (`internal/server/settings_handlers.go:460`). It is
 deliberately *not* in the `GET /api/settings` body, whose shape is unchanged. `bootstrapPayload()` re-reads
 the vault on every call and never caches: `WGFirstRun`'s `_mounted` latch is module state lost on reload, so
@@ -211,7 +214,7 @@ screen could be exercised end to end. It has landed, so the rest are unblocked.
 ## Deliberately not doing
 
 - **No new wizard framework.** The registry + overlay + step tracker exist and are purpose-built for this.
-- **No new record type or migration** for the flag — the `settings` singleton already syncs.
+- **No migration or new HTTP route** for the flag — the `firstrun` singleton syncs through the ordinary oplog.
 - **No syncing of the in-flight step.** See the table above.
 - **No per-step plan files yet.** The parent epic `med-l3q` scopes the wizard steps themselves out of this
   sprint; plan files written now would rot before `med-4pz.2/.3/.4` are scheduled. Write each plan when its

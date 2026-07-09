@@ -111,6 +111,24 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(after.needs_first_run).toBe(false);
     });
 
+    it('a stale device overwriting the settings singleton cannot un-complete first run', async () => {
+        const { window, records } = env;
+
+        await window.apiCall('/api/firstrun/complete', 'POST');
+
+        // Records are last-writer-wins per whole record. Simulate a device that
+        // never saw the completion writing the shared `settings` singleton.
+        await records.put('settings', {
+            recordId: 'settings',
+            clientTs: Date.now() + 60000,
+            deleted: false,
+            timezone: 'Europe/Berlin',
+        });
+
+        const boot = await window.apiCall('/api/bootstrap');
+        expect(boot.needs_first_run).toBe(false);
+    });
+
     it('completing first run leaves GET /api/settings shape unchanged and does not clobber the singleton', async () => {
         const { window } = env;
 

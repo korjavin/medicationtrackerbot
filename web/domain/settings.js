@@ -17,6 +17,13 @@ const FOODTARGETS_RECORD_TYPE = 'foodtargets';
 const FOODTARGETS_RECORD_ID = 'foodtargets';
 const INTEGRATIONS_RECORD_TYPE = 'integrations';
 const INTEGRATIONS_RECORD_ID = 'integrations';
+// Own singleton rather than a field on the `settings` record: records are
+// last-writer-wins whole-record, so a stale device writing the shared singleton
+// (timezone / dismissed_tz_suggestion) with a newer clientTs would drop a
+// first_run_complete it never saw and re-open the onboarding overlay. Nothing
+// but setFirstRunComplete writes this record, and it only ever writes `true`.
+const FIRSTRUN_RECORD_TYPE = 'firstrun';
+const FIRSTRUN_RECORD_ID = 'firstrun';
 // Provisioned ElevenLabs voice agent state (agent id + toolset version + tool
 // id map). Kept in its own vault singleton rather than the masked integrations
 // record because it holds an object map, and because it is app-provisioned
@@ -76,7 +83,6 @@ export function createSettingsDomain({ records, now, timeZone }) {
     return {
       timezone: (rec && rec.timezone) || timeZone,
       dismissed_tz_suggestion: (rec && rec.dismissed_tz_suggestion) || '',
-      first_run_complete: !!(rec && rec.first_run_complete),
     };
   }
 
@@ -117,20 +123,19 @@ export function createSettingsDomain({ records, now, timeZone }) {
     return tz || '';
   }
 
-  // setFirstRunComplete merges onto the general singleton (same idiom as
-  // setTimezone) so completing onboarding never clobbers timezone /
-  // dismissed_tz_suggestion.
-  //
-  // Semantics: an ABSENT first_run_complete means "needs onboarding". A vault
-  // field cannot be backfilled the way bot-mode migration 071 backfilled its
+  // Semantics: an ABSENT firstrun record means "needs onboarding". A vault
+  // record cannot be backfilled the way bot-mode migration 071 backfilled its
   // SQLite column, so only an explicit true suppresses the overlay — vaults
   // predating this flag see onboarding once.
+  async function getFirstRunComplete() {
+    const all = await records.list(FIRSTRUN_RECORD_TYPE);
+    const rec = findSingleton(all, FIRSTRUN_RECORD_ID);
+    return !!(rec && rec.first_run_complete);
+  }
+
   async function setFirstRunComplete(done) {
-    const all = await records.list(GENERAL_RECORD_TYPE);
-    const existing = findSingleton(all, GENERAL_RECORD_ID);
-    await records.put(GENERAL_RECORD_TYPE, {
-      ...existing,
-      recordId: GENERAL_RECORD_ID,
+    await records.put(FIRSTRUN_RECORD_TYPE, {
+      recordId: FIRSTRUN_RECORD_ID,
       clientTs: now(),
       deleted: false,
       first_run_complete: !!done,
@@ -286,6 +291,7 @@ export function createSettingsDomain({ records, now, timeZone }) {
 
   return {
     getGeneral,
+    getFirstRunComplete,
     setTimezone,
     setDismissedTzSuggestion,
     setFirstRunComplete,

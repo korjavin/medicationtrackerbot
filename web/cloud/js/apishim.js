@@ -197,9 +197,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       dismissed_tz_suggestion: general.dismissed_tz_suggestion,
     };
     if (tabOrder) block.tab_order = tabOrder;
-    // `general` is for internal callers (bootstrapPayload) only; GET /api/settings
-    // spreads settingsBlock + features, so its shape stays unchanged.
-    return { settings: block, features: clampFeatures(features), general };
+    return { settings: block, features: clampFeatures(features) };
   }
 
   // Mirrors handleBootstrap's shape (internal/server/settings_handlers.go)
@@ -208,20 +206,21 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // flag is simply omitted, which applyBootstrapPayload already treats as
   // "leave that cache alone".
   async function bootstrapPayload() {
-    const [readings, goal, stats, logs, weightGoal, settingsPart] = await Promise.all([
+    const [readings, goal, stats, logs, weightGoal, settingsPart, firstRunComplete] = await Promise.all([
       bp.list({ days: 60, limit: 0 }),
       bp.getGoal(),
       bp.getStats(),
       weight.list({ days: 35, limit: 0 }),
       weight.getGoal(),
       settingsResponse(),
+      settings.getFirstRunComplete(),
     ]);
     return {
       cursor: 0,
       // Read from the vault on every call, never cached: WGFirstRun's _mounted
       // latch is module state lost on reload, so only a fresh `false` here keeps
       // the overlay from re-opening on the next page load.
-      needs_first_run: !settingsPart.general.first_run_complete,
+      needs_first_run: !firstRunComplete,
       features: settingsPart.features,
       bp: { readings, goal, stats },
       weight: { logs, goal: weightGoal },

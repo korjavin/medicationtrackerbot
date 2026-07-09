@@ -49,8 +49,8 @@ would break the orchestrator's registry lookup. No Go changes at all.
   always win over a STUBS entry. Unmatched → `apiError(404)` (`apishim.js:662-667`).
 - `web/cloud/js/apishim.js:99` — `createSettingsDomain({ records, now, timeZone })`; `records` is
   `recordsPort(ctx)` (`web/cloud/js/sync.js:696-703`), needing only `ctx = {accountId, dek}`.
-- `web/cloud/js/apishim.js:~209` — `settingsResponse()` already `await`s `settings.getGeneral()` as part of a
-  `Promise.all`. **Reuse that read**; do not add a second one.
+- `web/cloud/js/apishim.js:~209` — `bootstrapPayload()` already `await`s `settingsResponse()` inside a
+  `Promise.all`; the firstrun read joins that same `Promise.all` rather than adding a serial round trip.
 - `web/domain/settings.js:10-11` — `GENERAL_RECORD_TYPE = 'settings'` / `GENERAL_RECORD_ID = 'settings'`, the
   singleton that already carries `timezone` and `dismissed_tz_suggestion`.
 - `web/domain/settings.js:73-117` — `getGeneral` / `setTimezone` / `setDismissedTzSuggestion`. Note the
@@ -77,21 +77,23 @@ module (it is exercised through the shim); any empty-vault signal in `bootstrapP
 
 ## Design decisions
 
-- **Store the flag on the existing `settings` general singleton**, not a new record type. It already syncs,
-  is already read once per `settingsResponse()`, and needs no new record plumbing.
-- **`needs_first_run = !general.first_run_complete`.** Absent or `false` → mount. Only an explicit `true`
-  suppresses it. This is the owner decision above.
+- ⚠️ **Revised during review: store the flag on its own `firstrun` vault singleton**, not on the shared
+  `settings` general record. Records are last-writer-wins per whole record, so a device that had not pulled the
+  completion op could later write the shared singleton (timezone / dismissed_tz_suggestion) with a newer
+  `clientTs` and drop the flag, re-opening the overlay. Nothing but `setFirstRunComplete` writes the `firstrun`
+  record and it only ever writes `true`. Cost: one extra indexed singleton read per `bootstrapPayload()`.
+- **`needs_first_run = !(await settings.getFirstRunComplete())`.** Absent or `false` → mount. Only an explicit
+  `true` suppresses it. This is the owner decision above.
 - **Do not leak the flag into `GET /api/settings`.** Bot mode carries `needs_first_run` as a **top-level**
   bootstrap field, not inside the settings block (`internal/server/settings_handlers.go:460`). Keep the
-  `/api/settings` response shape byte-identical, or the real app's settings code sees a new key.
-  Practically: have `settingsResponse()` return the `general` object alongside `{settings, features}` for
-  internal callers, and let `bootstrapPayload()` read `general.first_run_complete` from it. `GET /api/settings`
-  spreads only `settingsBlock` + `features`, so it stays unchanged.
+  `/api/settings` response shape byte-identical, or the real app's settings code sees a new key. Since the flag
+  lives on its own `firstrun` record, `settingsResponse()` never sees it and stays untouched; `bootstrapPayload()`
+  reads it with a separate `settings.getFirstRunComplete()` in its existing `Promise.all`.
 - **Replace the STUBS entry with a real inline branch**, not a smarter stub. STUBS entries are no-arg and are
   only reached after the cascade; a route that must `await` a domain write belongs in `shimCall`. Delete the
   stub (and its now-obsolete comment) so there is exactly one handler for the path.
-- **`setFirstRunComplete` merges onto the existing record**, following `setTimezone`'s idiom, so completing
-  onboarding never clobbers `timezone` or `dismissed_tz_suggestion`.
+- **`setFirstRunComplete` writes only the `firstrun` singleton**, so completing onboarding cannot touch
+  `timezone` or `dismissed_tz_suggestion` at all.
 - **Read the flag on every `bootstrapPayload()` call.** Caching it would re-open the overlay across reloads
   (see the `_mounted` note above).
 
@@ -128,13 +130,14 @@ module (it is exercised through the shim); any empty-vault signal in `bootstrapP
 
 ### Task 1: `first_run_complete` accessor in the settings domain
 
-- [x] in `web/domain/settings.js`, extend `getGeneral()` (`:73-80`) to return
-      `first_run_complete: !!(rec && rec.first_run_complete)` alongside `timezone` and `dismissed_tz_suggestion`
-- [x] add `async function setFirstRunComplete(done)` that merges onto the `GENERAL_RECORD_TYPE` singleton
-      exactly as `setTimezone` (`:85-104`) does — `{...existing, recordId: GENERAL_RECORD_ID, clientTs: now(),
-      deleted: false, first_run_complete: !!done}` — so it never clobbers `timezone` /
-      `dismissed_tz_suggestion`
-- [x] export it from the object `createSettingsDomain` returns, next to the other general-settings accessors
+- [x] ⚠️ revised: the flag lives on its own `FIRSTRUN_RECORD_TYPE = 'firstrun'` singleton, not on the shared
+      `settings` general record — last-writer-wins per whole record would let a stale device clobber it
+- [x] in `web/domain/settings.js`, add `async function getFirstRunComplete()` returning
+      `!!(rec && rec.first_run_complete)` for the `firstrun` singleton (absent record ⇒ `false`)
+- [x] add `async function setFirstRunComplete(done)` writing `{recordId: FIRSTRUN_RECORD_ID, clientTs: now(),
+      deleted: false, first_run_complete: !!done}` to `FIRSTRUN_RECORD_TYPE` — no merge needed, nothing else
+      ever writes that record
+- [x] export both from the object `createSettingsDomain` returns, next to the other general-settings accessors
 - [x] stay pure: I/O only through the injected `records` port — no `window`/`document`/`fetch`/`indexedDB`
       (`architecture.domain-purity.test.js` scans this directory)
 - [x] comment the semantics at the accessor: **absent ⇒ needs onboarding**; a vault field cannot be backfilled
@@ -142,13 +145,12 @@ module (it is exercised through the shim); any empty-vault signal in `bootstrapP
 
 ### Task 2: `bootstrapPayload` reports the real flag
 
-- [x] in `web/cloud/js/apishim.js`, have `settingsResponse()` also return the already-fetched `general` object
-      (it is in the existing `Promise.all`) — e.g. `return { settings: block, features: clampFeatures(features), general }`
-- [x] in `bootstrapPayload()` (`:208-225`), replace the hardcoded `needs_first_run: false` (`:219`) with
-      `needs_first_run: !settingsPart.general.first_run_complete`
+- [x] in `web/cloud/js/apishim.js`, add `settings.getFirstRunComplete()` to `bootstrapPayload()`'s existing
+      `Promise.all` (`:216`) and replace the hardcoded `needs_first_run: false` with `needs_first_run: !firstRunComplete`
+      (`:223`)
 - [x] leave `cursor: 0` exactly as-is — it is a shape-matching constant, unrelated to `sync_meta.localLastSeq`
-- [x] **verify `GET /api/settings` is unchanged**: its handler spreads `settingsBlock` + `features` only
-      (`apishim.js:238-241`), so `general` must not appear in its response. Assert this in Task 4.
+- [x] **verify `GET /api/settings` is unchanged**: `settingsResponse()` is untouched, and the flag never lands
+      on the `settings` record at all. Assert this in Task 4.
 - [x] add a comment noting the flag is read on every call by design — caching it would re-open the overlay on
       the next page load, because `WGFirstRun`'s `_mounted` latch does not survive a reload
 
@@ -184,9 +186,9 @@ module (it is exercised through the shim); any empty-vault signal in `bootstrapP
 - [x] verify completing onboarding writes the vault record and a **reload** does not re-open the overlay
       (the across-reload path, not just the in-page `_mounted` latch) — the POST → second `GET /api/bootstrap`
       round trip in the same suite exercises exactly this, since `bootstrapPayload()` re-reads the vault
-- [x] verify the flag round-trips through the encrypted record, i.e. it is on the `settings` singleton and not
-      a new record type — `setFirstRunComplete` writes `GENERAL_RECORD_TYPE`/`GENERAL_RECORD_ID`, and the
-      no-clobber assertion on `dismissed_tz_suggestion` / `tab_order` proves it is the shared singleton
+- [x] verify the flag round-trips through the encrypted record — `setFirstRunComplete` writes the dedicated
+      `FIRSTRUN_RECORD_TYPE`/`FIRSTRUN_RECORD_ID` singleton, and the no-clobber assertion on
+      `dismissed_tz_suggestion` / `tab_order` proves the shared `settings` singleton is left alone
 - [x] verify `GET /api/settings` and `GET /api/init` response shapes are unchanged — `/api/settings` spreads
       only `settingsBlock` + `features` (asserted: no `general`, no `first_run_complete`); `/api/init`
       (`apishim.js:239`) never calls `settingsResponse()` and is untouched by the diff
@@ -208,11 +210,11 @@ module (it is exercised through the shim); any empty-vault signal in `bootstrapP
 
 ## Technical Details
 
-**Semantics table** (`general` = the `settings` singleton record):
+**Semantics table** (the dedicated `firstrun` singleton record):
 
-| `general.first_run_complete` | `needs_first_run` | who |
+| `firstrun.first_run_complete` | `needs_first_run` | who |
 |---|---|---|
-| absent | `true` | fresh vault **and** any vault predating this change |
+| record absent | `true` | fresh vault **and** any vault predating this change |
 | `false` | `true` | in-flight onboarding |
 | `true` | `false` | completed |
 
@@ -220,15 +222,15 @@ module (it is exercised through the shim); any empty-vault signal in `bootstrapP
 
 ```
 GET /api/bootstrap
-  -> settingsResponse() -> settings.getGeneral()   [already in the Promise.all]
-  -> needs_first_run: !general.first_run_complete
+  -> settings.getFirstRunComplete()   [added to the existing Promise.all]
+  -> needs_first_run: !firstRunComplete
   -> auth-bootstrap.js mirrors it, WGFirstRun.mount({needs_first_run})
 
 ...user finishes or skips-all...
 
 POST /api/firstrun/complete            [inline shimCall branch, not a STUB]
   -> settings.setFirstRunComplete(true)
-  -> records.put('settings', {...existing, first_run_complete: true, clientTs})
+  -> records.put('firstrun', {recordId:'firstrun', first_run_complete: true, clientTs})
   -> encrypted oplog -> syncs to every device
 
 next GET /api/bootstrap -> needs_first_run: false -> no overlay
