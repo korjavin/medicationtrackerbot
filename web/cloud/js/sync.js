@@ -534,6 +534,13 @@ export async function isBootstrapped() {
 // Max re-post attempts when a concurrent writer keeps interleaving (below).
 const FLUSH_MAX_ATTEMPTS = 5;
 
+// Returns true only when every pending op is CONFIRMED persisted server-side
+// (the contiguous-assignment branch below), and false when writes were left in
+// 'pending' for a later retry — offline, un-bootstrapped, or a concurrent-writer
+// collision we couldn't resolve within FLUSH_MAX_ATTEMPTS. The mailbox drain
+// (bd med-76c.2) relies on this distinction: it may only ack an inbound event
+// once the ops it produced are durably on the server. Every other caller
+// ignores the value, exactly as before.
 async function flushPending(ctx) {
   const kData = await getKData(ctx);
   // Convergence under concurrent writers. Each record's AAD binds account_seq
@@ -551,13 +558,13 @@ async function flushPending(ctx) {
   // junk (rare for the toy note set); snapshot compaction eventually drops them.
   for (let attempt = 0; attempt < FLUSH_MAX_ATTEMPTS; attempt++) {
     const pending = await readPending();
-    if (pending.length === 0) return;
+    if (pending.length === 0) return true; // nothing to flush — vacuously confirmed
     const meta = await readMeta();
     // Not bootstrapped yet (bootstrap failed transiently): localLastSeq is null,
     // so `seq += 1` would predict seqs from 1 and AAD-bind every op to the wrong
     // seq. Keep the writes safely in 'pending' until a real bootstrap sets the
     // cursor.
-    if (meta.localLastSeq === null) return;
+    if (meta.localLastSeq === null) return false;
     let seq = meta.localLastSeq;
     const ops = [];
     const includedIds = [];
@@ -580,7 +587,7 @@ async function flushPending(ctx) {
       ops.push({ record_type_tag: makeTag(recordType, recordId), nonce: toBase64(nonce), ct: toBase64(ct) });
       includedIds.push(recordId);
     }
-    if (ops.length === 0) return;
+    if (ops.length === 0) return true; // pending rows referenced deleted records
     let res;
     try {
       res = await fetch('/api/sync/ops', {
@@ -590,11 +597,11 @@ async function flushPending(ctx) {
       });
     } catch {
       offline = true;
-      return; // left in 'pending' — retried on the next pullOnOpen/write
+      return false; // left in 'pending' — retried on the next pullOnOpen/write
     }
     if (!res.ok) {
       offline = true;
-      return;
+      return false;
     }
     offline = false;
     const { assigned } = await res.json();
@@ -606,15 +613,16 @@ async function flushPending(ctx) {
       await clearPending(includedIds);
       await writeMeta({ localLastSeq: Math.max(...assigned) });
       await maybeSnapshot(ctx);
-      return;
+      return true;
     }
     // Mis-predicted: a concurrent device interleaved. Re-pull to advance past
     // the peer ops (and our own now-dead ops — pullTail skips those unreadable
     // rows; our optimistic local copies survive since 'pending' is kept),
     // then loop to re-post these records under fresh seqs.
     await pullTail(ctx);
-    if (offline) return; // couldn't advance — retry next open
+    if (offline) return false; // couldn't advance — retry next open
   }
+  return false; // attempts exhausted; writes stay pending
 }
 
 // --- public API ------------------------------------------------------------
@@ -673,6 +681,14 @@ export async function listRecordsInRange(ctx, recordType, fromId, toId) {
   return records
     .filter((r) => r.recordType === recordType && !r.deleted)
     .sort((a, b) => b.clientTs - a.clientTs);
+}
+
+// flushConfirmed is the ack barrier for the inbound mailbox drain: it resolves
+// true only once every locally-pending op is durably on the server. Callers that
+// must not ack until their writes are safe (drainInbox) await this AFTER the
+// domain write and only delete the mailbox event when it returns true.
+export async function flushConfirmed(ctx) {
+  return flushPending(ctx);
 }
 
 export async function writeRecord(ctx, recordType, record) {

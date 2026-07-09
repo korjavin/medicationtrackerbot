@@ -235,6 +235,14 @@ window.MedTrackerCloudReady = (async function boot() {
             .then(({ refreshResponder }) => refreshResponder(ctx))
             .catch((e) => console.error('[cloud-boot] mcp responder failed', e));
 
+        // Publish this account's inbox public key so the relay can seal inbound
+        // Telegram events to it (bd med-76c.2). Generates the keypair on the
+        // first unlock that finds none. Best-effort: a failure here means
+        // inbound events are refused server-side, not that the app degrades.
+        import('/js/inbox.js')
+            .then(({ ensureInboxKey }) => ensureInboxKey(ctx))
+            .catch((e) => console.error('[cloud-boot] inbox key publish failed', e));
+
         // Snooze / don't-bug taps from a push notification (med-9b8.3). The
         // service worker has no DEK, so it hands the action here instead of
         // POSTing it itself: warm tab → postMessage, cold start → ?reminder_action.
