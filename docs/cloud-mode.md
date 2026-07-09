@@ -191,18 +191,20 @@ Flow, keyed on the sender's Telegram user id:
 
 ```
 already claimed an account?  yes -> "you already have an account, unlock it with your passkey"   [no mint]
-                             no  -> "yes"/"ok"/…      -> mintMu | sweep | count(24h) >= 3 ? wait message : Provision -> claim URL
+                             no  -> "yes"/"ok"/…      -> mintMu | sweep | live invites >= 3 ? wait message : Provision -> claim URL
                                     /start|hi|help    -> explain + offer
                                     anything else     -> one-line nudge
 ```
 
 **Provenance: `created_by_account_id` is overloaded.** A managebot mint stores `"tg:<telegram_user_id>"` in that column — do not read every value there as an account id. The column is `TEXT` with **no foreign key** (migration `010`), so three value shapes coexist: a real account id (user-mintable invites), `NULL` (admin-CLI invites), and `tg:<uid>` (managebot). They cannot collide — account ids are opaque and never carry a `tg:` prefix — so the 100/30d per-account quota above and the managebot's own counter are provably invisible to each other (asserted by `TestInviteQuotaIgnoresManagebotProvenance`). One column then serves provenance, the rate limit, and the already-connected check, with no migration and no new table. `ponytail:` promote to a `tg_invite_mints` table only if a second non-account minter ever needs provenance.
 
-**Quota: 3 invites per Telegram user per rolling 24 hours**, hardcoded (`managerInviteDailyQuota`), refused with a plain-language wait message. It mirrors `POST /api/invite` exactly: take `mintMu`, `SweepExpiredClaims`, *then* count — sweeping first because a user sitting at the cap never reaches `Provision`, so their own expired unclaimed invites would otherwise hold slots forever. An invite that expires unclaimed therefore frees a slot.
+**Quota: 3 *live* invites per Telegram user**, hardcoded (`managerInviteQuota`), refused with a plain-language wait message. It mirrors `POST /api/invite`: take `mintMu`, `SweepExpiredClaims`, *then* count — sweeping first because a user sitting at the cap never reaches `Provision`, so their own expired unclaimed invites would otherwise hold slots forever. An invite that expires unclaimed frees a slot.
 
-**Already-connected check is a separate query, not the counter.** The sweep deletes expired *unclaimed* accounts, so a count cannot tell "claimed an account" from "has a pending invite". A claimed account has `claim_token_hash IS NULL` and survives the sweep — `HasClaimedAccountCreatedBy` tests exactly that. Without it, a returning user saying "yes" again would silently collect a second, empty account. A pending invite's link cannot be re-sent (the token is hash-only at rest), so a user with a live unclaimed invite who asks again gets a fresh one and the old one expires on its own.
+The counting window is **the claim TTL, not a rolling day**: post-sweep, every surviving row attributed to that user is still claimable, and anything older was minted with an already-passed expiry. A per-day window would only cap the mint *rate*, not the number of claim links a user holds — since claiming happens out-of-band (passkey registration on the subdomain, nothing the bot sees), an abuser could say "yes" three times a day for the whole TTL and bank `3 × TTL/day` claimable links against the one-account-per-person promise. Pinned by `TestManagerOnboarding/day-old_unclaimed_invites_still_occupy_the_quota`.
 
-**No `update_id` dedupe** exists anywhere in this codebase, so a Telegram retry of a `"yes"` mints again. The blast radius is bounded by the two gates: a user who never claims can reach at most the daily quota of empty accounts (which then expire and sweep), and one who has claimed can mint nothing at all. `ponytail:` a dedupe table isn't worth that.
+**Already-connected check is a separate query, not the counter.** The sweep deletes expired *unclaimed* accounts, so a count cannot tell "claimed an account" from "has a pending invite". A claimed account has `claim_token_hash IS NULL` and survives the sweep — `HasClaimedAccountCreatedBy` tests exactly that. Without it, a returning user saying "yes" again would silently collect a second, empty account. A pending invite's link cannot be re-sent (the token is hash-only at rest), so a user with a live unclaimed invite who asks again gets a fresh one — up to the cap of 3 — and the old ones expire on their own.
+
+**No `update_id` dedupe** exists anywhere in this codebase, so a Telegram retry of a `"yes"` mints again. The blast radius is bounded by the two gates: a user who never claims can hold at most `managerInviteQuota` empty accounts (which then expire and sweep), and one who has claimed can mint nothing at all. `ponytail:` a dedupe table isn't worth that.
 
 ## BYO provider keys
 

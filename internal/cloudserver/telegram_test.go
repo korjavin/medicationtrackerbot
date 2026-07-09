@@ -466,20 +466,60 @@ func TestManagerOnboarding(t *testing.T) {
 		}
 	})
 
-	t.Run("fourth yes in the window is refused", func(t *testing.T) {
+	t.Run("fourth yes while three invites are live is refused", func(t *testing.T) {
 		store, tg, top, secret := managerFixture(t)
 		now := time.Now().UTC()
-		for i := 0; i < managerInviteDailyQuota; i++ {
+		for i := 0; i < managerInviteQuota; i++ {
 			if _, err := Provision(t.Context(), store, 14*24*time.Hour, now, tgCreator); err != nil {
 				t.Fatalf("seed mint %d: %v", i, err)
 			}
 		}
 		tgMessage(t, top, secret, "yes")
-		if n := mintedBy(t, store, tgCreator); n != managerInviteDailyQuota {
-			t.Fatalf("minted %d accounts, want the quota %d (no new mint)", n, managerInviteDailyQuota)
+		if n := mintedBy(t, store, tgCreator); n != managerInviteQuota {
+			t.Fatalf("minted %d accounts, want the quota %d (no new mint)", n, managerInviteQuota)
 		}
 		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "limit per person") {
 			t.Fatalf("reply is not the wait message: %v", tg.mu.sent)
+		}
+	})
+
+	// The cap counts live invites over the whole claim TTL, not a rolling day.
+	// Yesterday's unclaimed invites are still claimable, so they must still
+	// occupy the quota — otherwise a user could stack quota × TTL/day claim
+	// links by saying "yes" three times a day until the first batch expires.
+	t.Run("day-old unclaimed invites still occupy the quota", func(t *testing.T) {
+		store, tg, top, secret := managerFixture(t)
+		yesterday := time.Now().UTC().Add(-25 * time.Hour)
+		for i := 0; i < managerInviteQuota; i++ {
+			if _, err := Provision(t.Context(), store, 14*24*time.Hour, yesterday, tgCreator); err != nil {
+				t.Fatalf("seed mint %d: %v", i, err)
+			}
+		}
+		tgMessage(t, top, secret, "yes")
+		if n := mintedBy(t, store, tgCreator); n != managerInviteQuota {
+			t.Fatalf("minted %d accounts, want the quota %d (yesterday's live invites freed a slot)", n, managerInviteQuota)
+		}
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "limit per person") {
+			t.Fatalf("reply is not the wait message: %v", tg.mu.sent)
+		}
+	})
+
+	// ...but once they expire the sweep frees the quota, so "I lost my link"
+	// still recovers — just not before the old link is dead.
+	t.Run("expired unclaimed invites free the quota", func(t *testing.T) {
+		store, tg, top, secret := managerFixture(t)
+		old := time.Now().UTC().Add(-15 * 24 * time.Hour)
+		for i := 0; i < managerInviteQuota; i++ {
+			if _, err := Provision(t.Context(), store, 14*24*time.Hour, old, tgCreator); err != nil {
+				t.Fatalf("seed mint %d: %v", i, err)
+			}
+		}
+		tgMessage(t, top, secret, "yes")
+		if n := mintedBy(t, store, tgCreator); n != 1 {
+			t.Fatalf("minted %d accounts, want 1 (expired invites swept, one fresh mint)", n)
+		}
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "#claim=") {
+			t.Fatalf("reply missing a fresh claim URL: %v", tg.mu.sent)
 		}
 	})
 
@@ -489,7 +529,7 @@ func TestManagerOnboarding(t *testing.T) {
 	t.Run("concurrent yes cannot exceed the quota", func(t *testing.T) {
 		store, _, top, secret := managerFixture(t)
 		now := time.Now().UTC()
-		for i := 0; i < managerInviteDailyQuota-1; i++ {
+		for i := 0; i < managerInviteQuota-1; i++ {
 			if _, err := Provision(t.Context(), store, 14*24*time.Hour, now, tgCreator); err != nil {
 				t.Fatalf("seed mint %d: %v", i, err)
 			}
@@ -514,8 +554,8 @@ func TestManagerOnboarding(t *testing.T) {
 				t.Fatalf("racer %d status = %d, want 200", i, code)
 			}
 		}
-		if n := mintedBy(t, store, tgCreator); n != managerInviteDailyQuota {
-			t.Errorf("minted %d accounts, want the quota %d (concurrent mints overran the cap)", n, managerInviteDailyQuota)
+		if n := mintedBy(t, store, tgCreator); n != managerInviteQuota {
+			t.Errorf("minted %d accounts, want the quota %d (concurrent mints overran the cap)", n, managerInviteQuota)
 		}
 	})
 

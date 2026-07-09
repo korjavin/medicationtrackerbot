@@ -393,18 +393,19 @@ const (
 	onboardingMintFailMessage = "Sorry, I couldn't create your account just now. Please try again in a few minutes."
 )
 
-// onboardingQuotaMessage is built from the constants so the copy can't drift
-// from the actual cap.
+// onboardingQuotaMessage is built from the cap so the copy can't drift from it.
 var onboardingQuotaMessage = fmt.Sprintf(
-	"You've already created %d accounts in the last %d hours — that's my limit per person. Please try again later.",
-	managerInviteDailyQuota, int(managerInviteQuotaWindow/time.Hour))
+	"You already have %d setup links waiting — that's my limit per person. "+
+		"Open one of them, or wait for them to expire and message me again.",
+	managerInviteQuota)
 
-// managerInviteDailyQuota caps how many invites one Telegram user may mint per
-// rolling managerInviteQuotaWindow. ponytail: hardcoded — env-var knob only if
-// someone asks. Same posture as inviteMonthlyQuota.
-const managerInviteDailyQuota = 3
-
-const managerInviteQuotaWindow = 24 * time.Hour
+// managerInviteQuota caps how many *live* invites one Telegram user may hold at
+// once. The counting window is the claim TTL, not a fixed day: after the sweep,
+// every surviving unclaimed account minted by this user is still claimable, so a
+// per-day window would let an abuser stack quota × (claimTTL/day) claim links.
+// ponytail: hardcoded — env-var knob only if someone asks. Same posture as
+// inviteMonthlyQuota.
+const managerInviteQuota = 3
 
 // affirmatives / greetings classify the one-word replies this conversation
 // expects. Anything else gets the nudge.
@@ -451,8 +452,8 @@ func (t *TelegramAPI) handleManagerMessage(ctx context.Context, msg *tgclient.Me
 }
 
 // mintInvite provisions a fresh unclaimed account attributed to creator and
-// replies with its claim link, refusing past managerInviteDailyQuota mints in
-// the rolling window.
+// replies with its claim link, refusing once creator holds managerInviteQuota
+// live invites.
 func (t *TelegramAPI) mintInvite(ctx context.Context, chatID int64, creator string) {
 	t.reply(ctx, chatID, t.mintInviteLocked(ctx, creator))
 }
@@ -466,10 +467,10 @@ func (t *TelegramAPI) mintInviteLocked(ctx context.Context, creator string) stri
 
 	// ponytail: no update_id dedupe anywhere in this codebase, so a Telegram
 	// retry of a "yes" mints again. The already-connected gate above plus the
-	// daily cap bound a replay to the daily quota of empty accounts; a dedupe
-	// table isn't worth it. We also can't re-send a pending invite's link — the
-	// token is hash-only at rest — so a user with a live unclaimed invite who
-	// asks again just gets a fresh one and the old one expires on its own.
+	// live-invite cap bound a replay to managerInviteQuota empty accounts; a
+	// dedupe table isn't worth it. We also can't re-send a pending invite's link
+	// — the token is hash-only at rest — so a user with a live unclaimed invite
+	// who asks again just gets a fresh one, up to the cap.
 	now := time.Now().UTC()
 	// Sweep before counting, same as InviteAPI.CreateInvite: a user sitting at
 	// the cap never reaches Provision, so without this their own expired
@@ -478,12 +479,15 @@ func (t *TelegramAPI) mintInviteLocked(ctx context.Context, creator string) stri
 		slog.Error("telegram manager message: sweep expired claims", "error", err)
 		return onboardingMintFailMessage
 	}
-	minted, err := t.store.CountAccountsCreatedBy(ctx, creator, now.Add(-managerInviteQuotaWindow))
+	// Window is the claim TTL: post-sweep, every row this creator has inside it
+	// is a still-claimable invite. Anything older was minted with an expiry that
+	// has already passed and been swept, so it can never become an account.
+	minted, err := t.store.CountAccountsCreatedBy(ctx, creator, now.Add(-t.claimTTL))
 	if err != nil {
 		slog.Error("telegram manager message: count mints", "error", err, "creator", creator)
 		return onboardingMintFailMessage
 	}
-	if minted >= managerInviteDailyQuota {
+	if minted >= managerInviteQuota {
 		return onboardingQuotaMessage
 	}
 
