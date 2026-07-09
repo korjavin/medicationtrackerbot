@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeTelegram is an httptest stand-in for api.telegram.org that lets a test
@@ -17,12 +18,13 @@ import (
 type fakeTelegram struct {
 	t          *testing.T
 	responses  map[string]string // method → JSON envelope
+	statuses   map[string]int    // method → HTTP status (default 200)
 	lastBody   map[string]any
 	lastMethod string
 }
 
 func newFake(t *testing.T) (*fakeTelegram, *httptest.Server) {
-	f := &fakeTelegram{t: t, responses: map[string]string{}}
+	f := &fakeTelegram{t: t, responses: map[string]string{}, statuses: map[string]int{}}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Path is /bot<token>/<method>.
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
@@ -42,6 +44,12 @@ func newFake(t *testing.T) (*fakeTelegram, *httptest.Server) {
 			env = `{"ok":true,"result":{}}`
 		}
 		w.Header().Set("Content-Type", "application/json")
+		// Telegram sends the error envelope with a real 4xx/5xx status; the
+		// status is what IsClientError classifies on, so tests must be able to
+		// set it. Default 200 keeps every existing success case unchanged.
+		if code := f.statuses[f.lastMethod]; code != 0 {
+			w.WriteHeader(code)
+		}
 		io.WriteString(w, env)
 	}))
 	return f, srv
@@ -71,6 +79,88 @@ func TestAPIErrorEnvelope(t *testing.T) {
 	_, err := c.GetManagedBotToken(context.Background(), 999)
 	if err == nil || !strings.Contains(err.Error(), "bot not found") {
 		t.Fatalf("expected api-error envelope surfaced, got %v", err)
+	}
+}
+
+// med-jjd: a 429 is the one 4xx that retrying fixes. IsClientError callers drop
+// the event when it reports true, and managed_bot_created is never re-sent — so
+// misclassifying a rate limit strands the account unbound forever.
+func TestRateLimitIsNotAPermanentClientError(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+	f.statuses["getManagedBotToken"] = http.StatusTooManyRequests
+	f.responses["getManagedBotToken"] = `{"ok":false,"description":"Too Many Requests: retry after 30","parameters":{"retry_after":30}}`
+
+	c := New("123:ABC", srv.URL)
+	_, err := c.GetManagedBotToken(context.Background(), 999)
+	if err == nil {
+		t.Fatal("expected an error on 429")
+	}
+	if IsClientError(err) {
+		t.Errorf("429 must not be a permanent client error, got IsClientError=true for %v", err)
+	}
+	wait, ok := RetryAfter(err)
+	if !ok || wait != 30*time.Second {
+		t.Errorf("RetryAfter = (%v, %v), want (30s, true)", wait, ok)
+	}
+}
+
+// Every other 4xx stays permanent — the guard above must not widen into "all
+// 4xx are retryable", which would re-drive dead events forever.
+func TestNon429ClientErrorsStayPermanent(t *testing.T) {
+	for _, code := range []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound} {
+		f, srv := newFake(t)
+		f.statuses["getManagedBotToken"] = code
+		f.responses["getManagedBotToken"] = `{"ok":false,"description":"user is deactivated"}`
+
+		c := New("123:ABC", srv.URL)
+		_, err := c.GetManagedBotToken(context.Background(), 999)
+		if !IsClientError(err) {
+			t.Errorf("status %d: IsClientError = false, want true (err=%v)", code, err)
+		}
+		if _, ok := RetryAfter(err); ok {
+			t.Errorf("status %d: RetryAfter reported a cooldown for a non-429", code)
+		}
+		srv.Close()
+	}
+}
+
+// 5xx and transport failures were already transient; pin it so the 429 guard
+// can't accidentally invert them.
+func TestServerErrorIsNotAClientError(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+	f.statuses["getManagedBotToken"] = http.StatusBadGateway
+	f.responses["getManagedBotToken"] = `{"ok":false,"description":"bad gateway"}`
+
+	c := New("123:ABC", srv.URL)
+	_, err := c.GetManagedBotToken(context.Background(), 999)
+	if err == nil || IsClientError(err) {
+		t.Errorf("5xx must stay transient, got IsClientError=true for %v", err)
+	}
+}
+
+func TestSetMyCommandsPayloadShape(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+
+	c := New("123:ABC", srv.URL)
+	err := c.SetMyCommands(context.Background(), []BotCommand{
+		{Command: "start", Description: "Start the bot and open the App"},
+	})
+	if err != nil {
+		t.Fatalf("SetMyCommands: %v", err)
+	}
+	if f.lastMethod != "setMyCommands" {
+		t.Fatalf("called %q, want setMyCommands", f.lastMethod)
+	}
+	cmds, ok := f.lastBody["commands"].([]any)
+	if !ok || len(cmds) != 1 {
+		t.Fatalf("commands payload = %#v, want a 1-element array", f.lastBody["commands"])
+	}
+	first, _ := cmds[0].(map[string]any)
+	if first["command"] != "start" || first["description"] != "Start the bot and open the App" {
+		t.Errorf("command entry = %#v", first)
 	}
 }
 

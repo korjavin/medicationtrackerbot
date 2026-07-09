@@ -32,6 +32,7 @@ func fakeTG(t *testing.T, responses map[string]string) *httptest.Server {
 			_ = json.Unmarshal(body, &req)
 			if req.UserID == 0 {
 				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
 				io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: invalid user_id specified"}`)
 				return
 			}
@@ -41,6 +42,18 @@ func fakeTG(t *testing.T, responses map[string]string) *httptest.Server {
 			env = `{"ok":true,"result":{}}`
 		}
 		w.Header().Set("Content-Type", "application/json")
+		// The real API pairs an ok:false envelope with a matching HTTP status,
+		// and tgclient.IsClientError classifies on that status — so a fake that
+		// always answered 200 could never exercise the permanent-vs-transient
+		// split. Mirror error_code onto the status line.
+		var probe struct {
+			OK        bool `json:"ok"`
+			ErrorCode int  `json:"error_code"`
+		}
+		_ = json.Unmarshal([]byte(env), &probe)
+		if !probe.OK && probe.ErrorCode != 0 {
+			w.WriteHeader(probe.ErrorCode)
+		}
 		io.WriteString(w, env)
 	}))
 	t.Cleanup(srv.Close)
@@ -221,6 +234,83 @@ func newRecordingTG(t *testing.T) *recordingTG {
 	t.Cleanup(rec.srv.Close)
 	rec.url = rec.srv.URL
 	return rec
+}
+
+// med-jjd: Telegram never re-sends managed_bot_created on demand, so a dropped
+// event strands the account unbound with no recovery path. A 429 on
+// getManagedBotToken is transient — the handler must answer non-2xx so Telegram
+// redelivers, NOT 200 (which reads as "handled, stop retrying"). The pending row
+// is a plain lookup, not consumed here, so the redelivery still binds inside its
+// TTL. A permanent 4xx (bot deleted) must still drop with 200.
+func TestManagerWebhookRateLimitIsRedeliveredNotDropped(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		envelope string
+		wantCode int
+	}{
+		{
+			name:     "429 rate limit is transient, ask Telegram to redeliver",
+			envelope: `{"ok":false,"error_code":429,"description":"Too Many Requests: retry after 30","parameters":{"retry_after":30}}`,
+			wantCode: http.StatusInternalServerError,
+		},
+		{
+			name:     "403 deactivated bot is permanent, drop it",
+			envelope: `{"ok":false,"error_code":403,"description":"Forbidden: user is deactivated"}`,
+			wantCode: http.StatusOK,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := setupStore(t)
+			account, claimToken := setupInvite(t, store)
+			host := account.Subdomain + ".localhost"
+
+			tgSrv := fakeTG(t, map[string]string{
+				"getMe":              `{"ok":true,"result":{"id":7,"is_bot":true,"username":"mt_manager_bot","can_manage_bots":true}}`,
+				"getManagedBotToken": tc.envelope,
+			})
+
+			webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
+			tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL)
+			if err := tgAPI.Bootstrap(t.Context()); err != nil {
+				t.Fatalf("Bootstrap: %v", err)
+			}
+			apiMux := http.NewServeMux()
+			webauthnAPI.RegisterRoutes(apiMux)
+			tgAPI.RegisterAPIRoutes(apiMux)
+			router := New("localhost", store, testFS(), testAppFS(), testDomainFS(), apiMux, "", false, false)
+			top := http.NewServeMux()
+			tgAPI.RegisterWebhookRoutes(top)
+			top.Handle("/", router)
+
+			session := registerAndGetSession(t, top, host, claimToken)
+			provRec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/provision", host, session, nil)
+			if provRec.Code != http.StatusOK {
+				t.Fatalf("provision status = %d", provRec.Code)
+			}
+			var prov struct {
+				Suggested string `json:"suggested_username"`
+			}
+			if err := json.Unmarshal(provRec.Body.Bytes(), &prov); err != nil {
+				t.Fatalf("decode provision: %v", err)
+			}
+
+			managerSecret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
+			update := `{"update_id":1,"message":{"message_id":1,"from":{"id":6918132008},"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":909,"username":"` + prov.Suggested + `"}}}}`
+			rec := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, update)
+			if rec.Code != tc.wantCode {
+				t.Fatalf("manager webhook status = %d, want %d", rec.Code, tc.wantCode)
+			}
+
+			// Either way no bot was bound, and the pending row must survive so a
+			// redelivery (429) or a fresh create (403) can still bind.
+			if _, err := store.BotByAccount(t.Context(), account.ID); err == nil {
+				t.Fatal("a bot was bound despite the token fetch failing")
+			}
+			if _, err := store.PendingAccountByUsername(t.Context(), prov.Suggested, time.Now()); err != nil {
+				t.Fatalf("pending row gone, redelivery can never bind: %v", err)
+			}
+		})
+	}
 }
 
 // TestTelegramLinkingAndBYO guards Task 4: /start links the chat and emits the
