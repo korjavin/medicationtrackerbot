@@ -355,3 +355,92 @@ export async function openMCPFrame(pairingKey, pairingId, frame) {
   const aad = encodeFields('mt/v1/mcp', pairingId);
   return aesGcmDecrypt(pairingKey, nonce, ct, aad);
 }
+
+// --- Inbound sealed mailbox (mt/v1/inbox, bd med-76c.2) --------------------
+//
+// The cloud relay receives Telegram events it must hand to us without reading
+// them. It holds only this account's inbox PUBLIC key and seals each event to
+// it (internal/cloudserver/sealedbox.go); the private key below lives in the
+// vault and never leaves an unlocked client, so the seal is write-only for the
+// server. Anonymous ephemeral-static X25519:
+//
+//   ephPub(32) ‖ nonce(12) ‖ AES-256-GCM(K, plaintext, aad)
+//   K   = HKDF-SHA256(ikm=X25519(ephPriv, inboxPub), salt=ephPub‖inboxPub, info="mt/v1/inbox")
+//   aad = encodeFields("mt/v1/inbox", accountId)
+//
+// internal/cloudserver/testdata/inbox_sealed_vector.json pins this format; both
+// the Go and the JS suite decrypt it, so the two implementations cannot drift.
+const INBOX_LABEL = 'mt/v1/inbox';
+
+// WebCrypto X25519 is recent (Chrome 133+, Firefox 132+, Safari 17.4+). Without
+// it the mailbox cannot be opened at all, so probe explicitly and fail loudly
+// rather than silently dropping inbound events.
+export async function inboxCryptoSupported() {
+  try {
+    await crypto.subtle.generateKey({ name: 'X25519' }, true, ['deriveBits']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// generateInboxKeypair returns the raw 32-byte public key (uploaded to the
+// server) and the PKCS#8 private key (stored as a vault record). Raw export is
+// not defined for X25519 private keys, so PKCS#8 is the portable choice.
+export async function generateInboxKeypair() {
+  const kp = await crypto.subtle.generateKey({ name: 'X25519' }, true, ['deriveBits']);
+  const publicKey = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+  const privateKey = new Uint8Array(await crypto.subtle.exportKey('pkcs8', kp.privateKey));
+  return { publicKey, privateKey };
+}
+
+// PKCS#8 wrapper for a raw X25519 scalar: SEQUENCE{ INTEGER 0,
+// SEQUENCE{ OID 1.3.101.110 }, OCTET STRING{ OCTET STRING(32) } }. Fixed-length
+// for X25519, so a literal prefix is exact — this lets the Go-side test vector
+// (which carries a raw scalar) be imported by WebCrypto, which only accepts
+// PKCS#8. Raw private keys never appear on the wire in production.
+const X25519_PKCS8_PREFIX = new Uint8Array([
+  0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x04, 0x22, 0x04, 0x20,
+]);
+
+export function rawX25519PrivateToPkcs8(raw) {
+  if (raw.length !== 32) throw new Error('X25519 private key must be 32 bytes');
+  const out = new Uint8Array(X25519_PKCS8_PREFIX.length + 32);
+  out.set(X25519_PKCS8_PREFIX, 0);
+  out.set(raw, X25519_PKCS8_PREFIX.length);
+  return out;
+}
+
+// openInboxEvent decrypts one sealed mailbox row. Throws on a tampered payload,
+// a foreign account id, or a key that isn't ours — all of which must surface as
+// a failed drain rather than a silently skipped event.
+export async function openInboxEvent(pkcs8PrivateKey, accountId, packed) {
+  if (packed.length < 32 + 12 + 16) throw new Error('sealed inbox payload too short');
+  const ephPub = packed.slice(0, 32);
+  const nonce = packed.slice(32, 44);
+  const ct = packed.slice(44);
+
+  const priv = await crypto.subtle.importKey('pkcs8', pkcs8PrivateKey, { name: 'X25519' }, false, ['deriveBits']);
+  const eph = await crypto.subtle.importKey('raw', ephPub, { name: 'X25519' }, false, []);
+  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: 'X25519', public: eph }, priv, 256));
+
+  // The salt binds the key to this (ephemeral, recipient) pair. We must recover
+  // our own public key to rebuild it — derive it from the private key material
+  // we were handed, rather than trusting anything in the payload.
+  const recipientPub = await inboxPublicFromPrivate(pkcs8PrivateKey);
+  const salt = new Uint8Array(64);
+  salt.set(ephPub, 0);
+  salt.set(recipientPub, 32);
+
+  const key = await hkdf(shared, salt, utf8(INBOX_LABEL));
+  const aad = encodeFields(INBOX_LABEL, accountId);
+  return aesGcmDecrypt(key, nonce, ct, aad);
+}
+
+// WebCrypto cannot export a public key from a private one, so round-trip the
+// PKCS#8 through JWK: the `x` member is the base64url raw public key.
+export async function inboxPublicFromPrivate(pkcs8PrivateKey) {
+  const priv = await crypto.subtle.importKey('pkcs8', pkcs8PrivateKey, { name: 'X25519' }, true, ['deriveBits']);
+  const jwk = await crypto.subtle.exportKey('jwk', priv);
+  return fromBase64Url(jwk.x);
+}

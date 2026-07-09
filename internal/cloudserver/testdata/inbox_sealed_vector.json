@@ -1,0 +1,8 @@
+{
+  "note": "mt/v1/inbox sealed box. Go seals (internal/cloudserver/sealedbox.go), the browser opens (web/cloud/js/crypto.js openInboxEvent). Regenerate with: go test ./internal/cloudserver -run CrossLanguageVector -update-inbox-vector",
+  "account_id": "acct-vector",
+  "recipient_private_b64": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+  "recipient_public_b64": "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9/AsrhtHHw=",
+  "plaintext": "{\"kind\":\"intake_action\",\"intake_id\":\"intake-7-1767225600\",\"action\":\"confirm\",\"at_unix\":1767225600}",
+  "sealed_b64": "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9/AsrhtHHwhIiMkJSYnKCkqKywexcsV+95aFgOZZZpZKag5pz1F3+JV1NNX60YMRbdzK3p+5PKmEys4oqYuBUyS4TI3hkuWYGGJ/LrlKwXXLENZ8ibCUlcmAecnZhEdkaC6W+9noKkQqN0+OX2tSXeCCFMom152scJzTrz132sfNaMR9u0="
+}
