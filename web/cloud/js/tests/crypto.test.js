@@ -9,6 +9,9 @@ import {
   encryptTransferPayload,
   generateDEK,
   generateRecoveryCode,
+  gunzip,
+  gzip,
+  isGzip,
   parseRecoveryCode,
   unwrapEnvelope,
   wrapEnvelope
@@ -115,5 +118,33 @@ describe('cloud crypto suite v1', () => {
     const dek = generateDEK();
     const packed = await encryptTransferPayload(tk, dek, accountId);
     await expect(decryptTransferPayload(wrongTk, packed, accountId)).rejects.toThrow();
+  });
+});
+
+// Snapshot gzip helpers: the decrypt path sniffs the gzip magic bytes to decide
+// whether to gunzip, with no wire field — so a wrong sniff silently corrupts
+// every bootstrap. These pin the round-trip and the magic-byte discrimination.
+describe('snapshot gzip (web/cloud/js/crypto.js gzip/gunzip/isGzip)', () => {
+  it('round-trips arbitrary bytes through gzip -> gunzip', async () => {
+    const records = Array.from({ length: 500 }, (_, i) => ({ recordId: `note-${i}`, text: `dose ${i}` }));
+    const bytes = new TextEncoder().encode(JSON.stringify(records));
+    const round = await gunzip(await gzip(bytes));
+    expect(new TextDecoder().decode(round)).toBe(new TextDecoder().decode(bytes));
+  });
+
+  it('round-trips the empty-records edge case', async () => {
+    const bytes = new TextEncoder().encode('[]');
+    expect(new TextDecoder().decode(await gunzip(await gzip(bytes)))).toBe('[]');
+  });
+
+  it('isGzip is true for gzip output and false for raw JSON snapshots', async () => {
+    const gzipped = await gzip(new TextEncoder().encode('[]'));
+    expect(isGzip(gzipped)).toBe(true);
+    expect(gzipped[0]).toBe(0x1f);
+    expect(gzipped[1]).toBe(0x8b);
+    // Legacy uncompressed snapshots start with '[' (0x5b) or '{' (0x7b).
+    expect(isGzip(new TextEncoder().encode('[{"recordId":"note-1"}]'))).toBe(false);
+    expect(isGzip(new TextEncoder().encode('{}'))).toBe(false);
+    expect(isGzip(new Uint8Array([0x1f]))).toBe(false); // too short to sniff
   });
 });

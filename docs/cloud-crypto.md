@@ -104,6 +104,8 @@ snapshot = same, aad = "mt/v1/snap" ‖ account_id ‖ snapshot_seq
 
 Binding `account_seq` into the AAD makes server-side reordering/replay of ciphertexts detectable at decrypt time. GCM's 96-bit random nonces are safe far beyond this workload's message counts (health-tracking volumes are ≪ 2³²).
 
+**Snapshot plaintext is gzip-then-encrypt.** The snapshot `plaintext` is `gzip(utf8(JSON(records)))`, not raw JSON — compressing before encryption shrinks the ciphertext (and POST body) ~10x so a large vault fits (a 24 MB vault → ~2–3 MB body). Compression must precede encryption to be effective, so this is a client-owned payload-format detail; the AAD, `{snapshot_seq, nonce, ct}` wire shape, and server storage are unchanged — `ct` stays opaque to the server. The read path (only `sync.js` `bootstrap` decrypts snapshots) sniffs the first two plaintext bytes after decrypt: `0x1f 0x8b` → gunzip; otherwise parse as raw UTF-8 JSON, so pre-existing uncompressed snapshots on deployed accounts still bootstrap. No version field. Server snapshot caps (`internal/cloudserver/sync.go`) allow a **64 MiB decoded ciphertext** (`maxSnapshotCTLen`); the request-body cap (`maxSnapshotBodyBytes`) is **96 MiB** to cover base64 expansion of that CT (`ct` decodes from base64, so the JSON body carries ~4/3 the decoded bytes). Headroom well above a compressed large vault so the cap stops being the binding limit and oplog compaction keeps working as the store grows.
+
 **Push payload** (app layer, inside the RFC 8291 wrap): `AES-GCM(NK, payload, aad = "mt/v1/push")`.
 
 **Sealed mailbox item** (ECIES): ephemeral ECDH P-256 against the inbox public key → HKDF → AES-GCM. X25519 via WebCrypto where available; P-256 is the universal floor.

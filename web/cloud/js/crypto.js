@@ -261,6 +261,28 @@ export async function decryptRecord({ kData, accountId, recordType, recordId, se
   return aesGcmDecrypt(kData, nonce, ct, aad);
 }
 
+// gzip/gunzip via Web Streams (CompressionStream). Used to compress snapshot
+// JSON *before* encryption so the ciphertext (and POST body) shrinks ~10x. A
+// gzip stream always starts with the 2-byte magic 0x1f 0x8b; raw-JSON snapshots
+// start with '[' (0x5b) or '{' (0x7b), so the decrypt path can sniff which is
+// which — no wire field, and old uncompressed snapshots stay readable.
+async function streamThrough(bytes, stream) {
+  const out = new Response(new Blob([bytes]).stream().pipeThrough(stream));
+  return new Uint8Array(await out.arrayBuffer());
+}
+
+export function gzip(bytes) {
+  return streamThrough(bytes, new CompressionStream('gzip'));
+}
+
+export function gunzip(bytes) {
+  return streamThrough(bytes, new DecompressionStream('gzip'));
+}
+
+export function isGzip(bytes) {
+  return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+}
+
 // snapshot = same construction, aad = "mt/v1/snap" ‖ account_id ‖ snapshot_seq.
 export async function encryptSnapshot({ kData, accountId, snapshotSeq, plaintext }) {
   const nonce = crypto.getRandomValues(new Uint8Array(12));

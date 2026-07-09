@@ -5,7 +5,7 @@
 // are { recordId, clientTs, deleted, ...body }, merged by last-write-wins on
 // clientTs; recordsPort() below exposes the generic list/put/del trio that
 // web/domain/'s domain modules are built on.
-import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64 } from './crypto.js';
+import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
 import { openDb } from './localdb.js';
 
 // Task 6: the NK (push notification key) is itself a vault record so every
@@ -90,12 +90,13 @@ async function readMeta() {
   try {
     const tx = db.transaction('sync_meta', 'readonly');
     const store = tx.objectStore('sync_meta');
-    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending] = await Promise.all([
+    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, forceSnapshotError] = await Promise.all([
       reqToPromise(store.get('localLastSeq')),
       reqToPromise(store.get('lastSnapshotSeq')),
       reqToPromise(store.get('lastSyncedAt')),
       reqToPromise(store.get('integrityErrors')),
       reqToPromise(store.get('forceSnapshotPending')),
+      reqToPromise(store.get('forceSnapshotError')),
     ]);
     return {
       localLastSeq: localLastSeq ?? null,
@@ -103,6 +104,7 @@ async function readMeta() {
       lastSyncedAt: lastSyncedAt ?? null,
       integrityErrors: integrityErrors ?? 0,
       forceSnapshotPending: forceSnapshotPending ?? false,
+      forceSnapshotError: forceSnapshotError ?? null,
     };
   } finally {
     db.close();
@@ -242,7 +244,10 @@ async function bootstrap(ctx) {
         nonce: fromBase64(body.nonce),
         ct: fromBase64(body.ct),
       });
-      const records = JSON.parse(new TextDecoder().decode(plaintext));
+      // Snapshots are gzip-then-encrypt (magic 0x1f 0x8b); legacy uncompressed
+      // ones start with raw JSON, so sniff and gunzip only when compressed.
+      const json = isGzip(plaintext) ? await gunzip(plaintext) : plaintext;
+      const records = JSON.parse(new TextDecoder().decode(json));
       await replaceAllRecords(records);
       lastSnapshotSeq = body.snapshot_seq;
     } catch {
@@ -333,7 +338,9 @@ async function pullTail(ctx) {
 async function snapshotAt(ctx, snapshotSeq) {
   const kData = await getKData(ctx);
   const records = await readAllRecords();
-  const plaintext = new TextEncoder().encode(JSON.stringify(records));
+  // gzip the JSON before encryption so the ciphertext (POST body) shrinks ~10x;
+  // bootstrap sniffs the gzip magic bytes on decrypt. AAD/nonce unchanged.
+  const plaintext = await gzip(new TextEncoder().encode(JSON.stringify(records)));
   const { nonce, ct } = await encryptSnapshot({ kData, accountId: ctx.accountId, snapshotSeq, plaintext });
   let res;
   try {
@@ -344,12 +351,16 @@ async function snapshotAt(ctx, snapshotSeq) {
     });
   } catch {
     offline = true;
-    return false;
+    return { ok: false, status: 0 }; // network error — retryable
   }
-  if (!res.ok) return false;
+  if (!res.ok) return { ok: false, status: res.status }; // 4xx=won't-fit, 5xx=retryable; caller decides offline
   offline = false;
-  await writeMeta({ lastSnapshotSeq: snapshotSeq });
-  return true;
+  // A successful snapshot means the store now fits the server cap, so clear any
+  // stale "too large" error a prior oversized import recorded. Covers both the
+  // forced path and the threshold-gated maybeSnapshot (e.g. the store shrank, or
+  // a peer re-bootstrap healed this device) — otherwise the banner sticks forever.
+  await writeMeta({ lastSnapshotSeq: snapshotSeq, forceSnapshotError: null });
+  return { ok: true, status: res.status };
 }
 
 async function maybeSnapshot(ctx) {
@@ -392,7 +403,19 @@ export async function forceSnapshot(ctx) {
 // the pre-import data is already gone. Marking first makes that window safe: a
 // crash leaves a pending forced snapshot, which the next open retries.
 export async function markForceSnapshotPending() {
-  await writeMeta({ forceSnapshotPending: true });
+  // Clear any stale error from a previous oversized import so this fresh
+  // attempt doesn't inherit a "too large" banner while it's merely pending.
+  await writeMeta({ forceSnapshotPending: true, forceSnapshotError: null });
+}
+
+// A permanent 4xx means the request reached a server that refused it and will
+// keep refusing (oversized body → 400, quota exceeded → 413). Retrying wedges
+// the app forever, so the force-snapshot path records a durable error instead.
+// 401/403/408/429 are transient (auth expiry / proxy timeout / rate-limit — a
+// reverse proxy in front of cmd/cloud can return these even though the Go server
+// didn't); mirrors web/static/js/sync.js isPermanentSyncError.
+function isPermanentSyncStatus(status) {
+  return status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status);
 }
 
 // Drives (or retries) a pending forced snapshot to completion: advance last_seq
@@ -439,6 +462,23 @@ async function tryForceSnapshot(ctx) {
     return; // couldn't reach the server — marker stays set, retried next open
   }
   if (!res.ok) {
+    // A permanent 4xx on the bump (e.g. 413 quota exceeded) will keep failing.
+    // Unlike the snapshot leg below — which advances localLastSeq to the
+    // server-assigned seq before its upload, keeping this device's cursor at/above
+    // the compaction floor — the bump was REJECTED, so we have no assigned seq and
+    // the cursor stays where bootstrap left it, below the floor. Clearing the
+    // marker here would let pullOnOpen fall through to pullTail, which re-bootstraps
+    // the stale server snapshot straight over the just-imported records (the exact
+    // silent wipe the header comment guards against). So surface the error for the
+    // status line but KEEP the marker set: pullOnOpen returns early (no pull, no
+    // wipe), and re-attempting the tiny bump op each open is cheap (not the
+    // oversized-snapshot re-encrypt wedge). The user must free account quota for
+    // the import to sync.
+    if (isPermanentSyncStatus(res.status)) {
+      await writeMeta({ forceSnapshotError: { status: res.status, at: Date.now() } });
+      offline = false;
+      return;
+    }
     offline = true;
     return;
   }
@@ -453,13 +493,23 @@ async function tryForceSnapshot(ctx) {
   // the floor (no re-bootstrap) once the marker clears.
   await writeMeta({ localLastSeq: snapshotSeq });
   // A rejected snapshot leaves forceSnapshotPending set, which blocks every later
-  // pull/flush. Surface that as offline so the status line is honest.
-  if (!(await snapshotAt(ctx, snapshotSeq))) {
+  // pull/flush. A permanent 4xx means the snapshot is larger than the server cap
+  // and will NEVER fit, so re-encrypting it every open wedges the app forever and
+  // blocks all pulls. Record a durable error, clear the pending marker so the
+  // pull/flush path proceeds, and surface it in the status line. A 5xx/offline
+  // failure is transient: leave the marker set and retry next open.
+  const snap = await snapshotAt(ctx, snapshotSeq);
+  if (!snap.ok) {
+    if (isPermanentSyncStatus(snap.status)) {
+      await writeMeta({ forceSnapshotPending: false, forceSnapshotError: { status: snap.status, at: Date.now() } });
+      offline = false;
+      return;
+    }
     offline = true;
     return;
   }
   if ((await readMeta()).lastSnapshotSeq >= snapshotSeq) {
-    await writeMeta({ forceSnapshotPending: false });
+    await writeMeta({ forceSnapshotPending: false, forceSnapshotError: null });
   }
 }
 
@@ -683,6 +733,7 @@ export async function getSyncStatus(ctx) {
     pendingCount,
     offline,
     integrityErrors: meta.integrityErrors,
+    forceSnapshotError: meta.forceSnapshotError || null,
   };
 }
 
@@ -692,5 +743,6 @@ export async function describeSyncStatus(ctx) {
   parts.push(status.offline ? 'Offline' : status.lastSyncedAt ? `Synced ${new Date(status.lastSyncedAt).toLocaleTimeString()}` : 'Not yet synced');
   if (status.pendingCount > 0) parts.push(`${status.pendingCount} pending`);
   if (status.integrityErrors > 0) parts.push(`${status.integrityErrors} sync-integrity warning(s)`);
+  if (status.forceSnapshotError) parts.push('Import too large to sync');
   return parts.join(' · ');
 }
