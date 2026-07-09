@@ -497,6 +497,12 @@ func TestWebAuthnRegistration_ClaimTokenOutcomes(t *testing.T) {
 		t.Fatalf("409 body = %v, want error=already_claimed", got)
 	}
 
+	// A claimed account has no stored hash left to compare against, so a garbage
+	// token is indistinguishable from the real one and answers 409 too.
+	if rec := postBegin(hex.EncodeToString([]byte("not-the-real-token-not-the-real"))); rec.Code != http.StatusConflict {
+		t.Fatalf("bad token on claimed account: status = %d, want 409 (body %q)", rec.Code, rec.Body.String())
+	}
+
 	// Credential count is the discriminator, not the NULL claim hash: an account
 	// that was claimed and later had its credentials deleted (recovery-only) is
 	// indistinguishable from an expired-and-swept invite, so it falls back to 403

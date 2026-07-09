@@ -106,6 +106,13 @@ function renderWelcome(app, claimToken, errorText) {
 
 async function startRegistration(app, claimToken) {
   const beginRes = await beginRegistration(claimToken);
+  // The probe said "pending", but another tab/device may have claimed the invite
+  // between then and this click. 409 is register/begin's only conflict status and
+  // it always means already_claimed — route to unlock, not back to the welcome screen.
+  if (beginRes.status === 409) {
+    renderAlreadyClaimed(app);
+    return;
+  }
   if (!beginRes.ok) throw new Error(EXPIRED_LINK_MESSAGE);
   const { publicKey } = await beginRes.json();
   const creationOptions = PublicKeyCredential.parseCreationOptionsFromJSON(publicKey);
@@ -165,6 +172,12 @@ async function startRegistration(app, claimToken) {
       },
     }),
   });
+  // Losing the claim race between begin and finish rolls the registration back
+  // server-side ("claim already used or expired"); the winner owns the account.
+  if (finishRes.status === 409) {
+    renderAlreadyClaimed(app);
+    return;
+  }
   if (!finishRes.ok) throw new Error('Passkey registration failed. Please try again.');
 
   renderLossProtection(app, { accountId, dek });

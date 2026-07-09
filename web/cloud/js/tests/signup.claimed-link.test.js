@@ -66,6 +66,21 @@ describe('runSignupWizard claim-state probe', () => {
     expect(app.querySelector('#create-passkey')).toBeNull();
   });
 
+  it('routes to the already-claimed screen when the invite is claimed between probe and click', async () => {
+    const responses = [
+      { ok: true, status: 200, json: async () => ({ publicKey: {} }) },
+      { ok: false, status: 409, json: async () => ({ error: 'already_claimed' }) },
+    ];
+    globalThis.fetch = vi.fn(async () => responses.shift());
+    await runSignupWizard('tok123');
+
+    const app = dom.window.document.getElementById('app');
+    app.querySelector('#create-passkey').click();
+    await vi.waitFor(() => expect(app.querySelector('#unlock-instead')).not.toBeNull());
+    expect(app.querySelector('#create-passkey')).toBeNull();
+    expect(app.textContent).toContain('already been claimed');
+  });
+
   it('renders the passkey button with the expired-link message on 403', async () => {
     globalThis.fetch = beginResponse(403, {});
     await runSignupWizard('tok123');
