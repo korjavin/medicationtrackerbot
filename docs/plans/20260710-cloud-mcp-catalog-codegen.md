@@ -171,14 +171,14 @@ of the bead. Two existing assertions were retargeted (`web/cloud/js/tests/mcp-re
 - [x] run `go test ./internal/mcp/...` — must pass
 
 ### Task 5: Integration test — `mcp_help` wire contract and the 64 KiB frame cap
-- [ ] extend `web/cloud/js/tests/mcp-responder.test.js` (do not create a new file — CLAUDE.md rule 8: extend the owning suite)
-- [ ] assert the no-args `mcp_help` result returns **compact** entries (no `params_schema` / `body_schema` / `response_example` keys on any entry) plus `usage_protocol`
-- [ ] assert the catalog contains **no** `gamification.*` op id, and does contain representative ids from each retained topic (e.g. `workouts.*`, `medications.*`, `food.*`, `health.*` — read the real ids from the generated file rather than guessing)
-- [ ] assert `mcp_help({ operation_ids: [...] })` returns **full** entries for the requested ids, and reports unknown ids in the note rather than throwing
-- [ ] assert `mcp_help({ query: '…' })` returns compact matches only — never full schemas
-- [ ] **frame-cap regression guard**: the UTF-8 byte length of `JSON.stringify(await dispatcher.handle('mcp_help', {}))` must be `< 64 * 1024` (measure with `new TextEncoder().encode(...).length`, not `.length` — descriptions contain non-ASCII), with a comment naming `internal/cloudserver/mcp_relay.go`'s `maxRelayFrameBytes` as the source of the number
-- [ ] assert `mcp_call` on a catalogued-but-unwired op (e.g. a `workouts.*` id) still returns the `unknown operation` + did-you-mean error — this pins the scope fence so med-csu.3 has a failing-to-passing signal
-- [ ] run `pnpm test` — must pass
+- [x] extend `web/cloud/js/tests/mcp-responder.test.js` (do not create a new file — CLAUDE.md rule 8: extend the owning suite)
+- [x] assert the no-args `mcp_help` result returns **compact** entries (no `params_schema` / `body_schema` / `response_example` keys on any entry) plus `usage_protocol`
+- [x] assert the catalog contains **no** `gamification.*` op id, and does contain representative ids from each retained topic (e.g. `workouts.*`, `medications.*`, `food.*`, `health.*` — read the real ids from the generated file rather than guessing)
+- [x] assert `mcp_help({ operation_ids: [...] })` returns **full** entries for the requested ids, and reports unknown ids in the note rather than throwing
+- [x] assert `mcp_help({ query: '…' })` returns compact matches only — never full schemas
+- [x] **frame-cap regression guard**: the UTF-8 byte length of `JSON.stringify(await dispatcher.handle('mcp_help', {}))` must be `< 64 * 1024` (measure with `new TextEncoder().encode(...).length`, not `.length` — descriptions contain non-ASCII), with a comment naming `internal/cloudserver/mcp_relay.go`'s `maxRelayFrameBytes` as the source of the number
+- [x] assert `mcp_call` on a catalogued-but-unwired op (e.g. a `workouts.*` id) still returns the `unknown operation` + did-you-mean error — this pins the scope fence so med-csu.3 has a failing-to-passing signal
+- [x] run `pnpm test` — must pass (285 files, 3049 tests)
 
 ### Task 6: Verify acceptance criteria
 - [ ] verify all requirements from Overview are implemented

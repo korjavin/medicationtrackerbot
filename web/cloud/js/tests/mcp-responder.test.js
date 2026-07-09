@@ -84,3 +84,62 @@ describe('mcp-responder dispatch', () => {
     expect(suggestOperations('health.notes.creat')).toContain('health.notes.create');
   });
 });
+
+describe('mcp_help wire contract (generated catalog)', () => {
+  const SCHEMA_KEYS = ['params_schema', 'body_schema', 'response_example', 'path', 'response_summary'];
+
+  it('returns compact entries and a usage protocol with no args', async () => {
+    const result = await makeDispatcher().handle('mcp_help', {});
+    expect(result.usage_protocol).toEqual(expect.any(String));
+    expect(result.operations).toBeUndefined();
+    expect(result.compact_operations).toHaveLength(CATALOG.length);
+    for (const entry of result.compact_operations) {
+      for (const key of SCHEMA_KEYS) expect(entry).not.toHaveProperty(key);
+    }
+  });
+
+  it('excludes gamification and covers every retained topic', async () => {
+    const ids = (await makeDispatcher().handle('mcp_help', {})).compact_operations.map((op) => op.id);
+    expect(ids.filter((id) => id.startsWith('gamification.'))).toEqual([]);
+    for (const id of ['workouts.groups.list', 'medications.list', 'food.log.create', 'health.bp.list']) {
+      expect(ids).toContain(id);
+    }
+  });
+
+  it('drills into full entries by operation_ids and notes unknown ids instead of throwing', async () => {
+    const result = await makeDispatcher().handle('mcp_help', {
+      operation_ids: ['food.log.create', 'nope.not.real'],
+    });
+    expect(result.count).toBe(1);
+    expect(result.operations[0].id).toBe('food.log.create');
+    expect(result.operations[0].body_schema).toBeDefined();
+    expect(result.note).toContain('nope.not.real');
+  });
+
+  it('returns compact matches only for a query — never full schemas', async () => {
+    const result = await makeDispatcher().handle('mcp_help', { query: 'blood pressure' });
+    expect(result.count).toBeGreaterThan(0);
+    expect(result.operations).toBeUndefined();
+    for (const entry of result.compact_operations) {
+      for (const key of SCHEMA_KEYS) expect(entry).not.toHaveProperty(key);
+    }
+  });
+
+  // internal/cloudserver/mcp_relay.go: maxRelayFrameBytes = 64 << 10 caps a
+  // sealed relay frame, so the plaintext help payload must stay under it.
+  it('keeps the no-args mcp_help payload under the 64 KiB relay frame cap', async () => {
+    const result = await makeDispatcher().handle('mcp_help', {});
+    const bytes = new TextEncoder().encode(JSON.stringify(result)).length;
+    expect(bytes).toBeLessThan(64 * 1024);
+  });
+
+  it('rejects a catalogued-but-unwired op with a did-you-mean error (med-csu.3 scope fence)', async () => {
+    const response = await handleRequest(makeDispatcher(), {
+      jsonrpc: '2.0', id: 9, method: 'mcp_call', params: { op: 'workouts.groups.list', params: {} },
+    });
+    expect(response.result).toBeUndefined();
+    expect(response.error.code).toBe(-32602);
+    expect(response.error.message).toContain('unknown operation "workouts.groups.list"');
+    expect(response.error.message).toContain('did you mean');
+  });
+});
