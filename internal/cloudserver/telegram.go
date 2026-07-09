@@ -10,12 +10,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
-	"os"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
@@ -48,12 +51,19 @@ type TelegramAPI struct {
 	manager         *tgclient.Client
 	managerSecret   string // per-deployment webhook path/secret-token
 	managerUsername string // resolved by Bootstrap via getMe
+	claimTTL        time.Duration
+
+	// mintMu serializes the count-then-insert when the managebot mints an
+	// invite; without it concurrent updates all read a sub-quota count and all
+	// insert. ponytail: one global lock — cmd/cloud is a single process and
+	// minting is rare. Same rationale as InviteAPI.mintMu.
+	mintMu sync.Mutex
 }
 
 // NewTelegramAPI builds the Telegram surface for a manager bot token. apiBaseURL
 // overrides the Telegram API root (tests inject an httptest fake); "" uses the
 // real api.telegram.org.
-func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDomain, apiBaseURL string) *TelegramAPI {
+func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDomain, apiBaseURL string, claimTTL time.Duration) *TelegramAPI {
 	return &TelegramAPI{
 		store:         store,
 		sessionSecret: sessionSecret,
@@ -61,6 +71,7 @@ func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDom
 		apiBaseURL:    apiBaseURL,
 		manager:       tgclient.New(managerToken, apiBaseURL),
 		managerSecret: deriveWebhookSecret(sessionSecret, "mt/tg-manager-webhook/v1"),
+		claimTTL:      claimTTL,
 	}
 }
 
@@ -252,7 +263,11 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	botID, botUsername, userID, ok := upd.ManagedBotCreatedInfo()
 	if !ok {
-		slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID)
+		if upd.Message != nil {
+			t.handleManagerMessage(r.Context(), upd.Message)
+		} else {
+			slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID)
+		}
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -364,6 +379,133 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("telegram managed bot provisioned", "account", accountID, "bot_username", botUsername)
 	w.WriteHeader(http.StatusOK)
+}
+
+// Onboarding copy the managebot sends in a private chat. Server constants, like
+// welcomeMessage/testMessage.
+const (
+	onboardingOfferMessage = "👋 I help you set up your own personal health-tracking bot — medications, " +
+		"blood pressure, weight, food and vitals, all yours.\n\n" +
+		"Want me to create an account for you? Just reply “yes”."
+	onboardingNudgeMessage   = "Reply “yes” and I'll send you a link to set up your personal health-tracking bot."
+	onboardingClaimedMessage = "You already have a Med Tracker account. Open your subdomain and unlock it with your passkey — " +
+		"I can't create a second one for you."
+	onboardingMintFailMessage = "Sorry, I couldn't create your account just now. Please try again in a few minutes."
+)
+
+// onboardingQuotaMessage is built from the cap so the copy can't drift from it.
+var onboardingQuotaMessage = fmt.Sprintf(
+	"You already have %d setup links waiting — that's my limit per person. "+
+		"Open one of them, or wait for them to expire and message me again.",
+	managerInviteQuota)
+
+// managerInviteQuota caps how many *live* invites one Telegram user may hold at
+// once — unclaimed accounts whose claim has not expired, counted directly (see
+// CountLiveInvitesCreatedBy). Not a per-day cap: that would let an abuser stack
+// quota × (claimTTL/day) claim links.
+// ponytail: hardcoded — env-var knob only if someone asks. Same posture as
+// inviteMonthlyQuota.
+const managerInviteQuota = 3
+
+// affirmatives / greetings classify the one-word replies this conversation
+// expects. Anything else gets the nudge.
+var (
+	affirmatives = map[string]bool{"yes": true, "y": true, "yeah": true, "yep": true, "sure": true, "ok": true, "okay": true}
+	greetings    = map[string]bool{"/start": true, "hi": true, "hello": true, "help": true}
+)
+
+// handleManagerMessage runs the onboarding conversation for an ordinary private
+// message to the managebot: explain, offer, and on agreement mint an invite.
+// Every failure is logged and swallowed — the caller always answers 200, because
+// a non-200 makes Telegram retry the update (and retrying a mint is worse than
+// dropping a reply).
+func (t *TelegramAPI) handleManagerMessage(ctx context.Context, msg *tgclient.Message) {
+	if msg.Chat.Type != "private" || msg.From == nil || msg.From.IsBot {
+		return
+	}
+	// ponytail: accounts.created_by_account_id is overloaded — it is TEXT with no
+	// FK, so a "tg:"-prefixed Telegram user id cannot collide with a real account
+	// id (never prefixed) nor with admin-CLI mints (NULL). One column then carries
+	// provenance, the live-invite cap, and the already-connected check, with no new
+	// table. Promote to a tg_invite_mints table if a second non-account minter
+	// ever needs provenance.
+	creator := "tg:" + strconv.FormatInt(msg.From.ID, 10)
+
+	claimed, err := t.store.HasClaimedAccountCreatedBy(ctx, creator)
+	if err != nil {
+		slog.Error("telegram manager message: claimed check", "error", err)
+		return
+	}
+	if claimed {
+		t.reply(ctx, msg.Chat.ID, onboardingClaimedMessage)
+		return
+	}
+
+	switch text := strings.TrimSpace(strings.ToLower(msg.Text)); {
+	case affirmatives[text]:
+		t.mintInvite(ctx, msg.Chat.ID, creator)
+	case greetings[text]:
+		t.reply(ctx, msg.Chat.ID, onboardingOfferMessage)
+	default:
+		t.reply(ctx, msg.Chat.ID, onboardingNudgeMessage)
+	}
+}
+
+// mintInvite provisions a fresh unclaimed account attributed to creator and
+// replies with its claim link, refusing once creator holds managerInviteQuota
+// live invites.
+func (t *TelegramAPI) mintInvite(ctx context.Context, chatID int64, creator string) {
+	t.reply(ctx, chatID, t.mintInviteLocked(ctx, creator))
+}
+
+// mintInviteLocked does the count-then-insert under mintMu and returns the text
+// to reply with. The reply itself is sent by the caller, outside the lock: it is
+// an HTTP round-trip to Telegram, and mintMu is global across every user.
+func (t *TelegramAPI) mintInviteLocked(ctx context.Context, creator string) string {
+	t.mintMu.Lock()
+	defer t.mintMu.Unlock()
+
+	// ponytail: no update_id dedupe anywhere in this codebase, so a Telegram
+	// retry of a "yes" mints again. The already-connected gate above plus the
+	// live-invite cap bound a replay to managerInviteQuota empty accounts; a
+	// dedupe table isn't worth it. We also can't re-send a pending invite's link
+	// — the token is hash-only at rest — so a user with a live unclaimed invite
+	// who asks again just gets a fresh one, up to the cap.
+	now := time.Now().UTC()
+	// Sweep before counting, same as InviteAPI.CreateInvite: a user sitting at
+	// the cap never reaches Provision, so without this their own expired
+	// unclaimed invites would occupy slots forever.
+	if _, err := t.store.SweepExpiredClaims(ctx, now); err != nil {
+		slog.Error("telegram manager message: sweep expired claims", "error", err)
+		return onboardingMintFailMessage
+	}
+	// Count liveness from the rows themselves (unclaimed, expiry in the future)
+	// rather than from a created_at window: shortening CLOUD_CLAIM_TTL, or a
+	// ResetClaim that moves an expiry without touching created_at, would put a
+	// still-claimable link outside any TTL-derived window and hand back quota.
+	minted, err := t.store.CountLiveInvitesCreatedBy(ctx, creator, now)
+	if err != nil {
+		slog.Error("telegram manager message: count mints", "error", err, "creator", creator)
+		return onboardingMintFailMessage
+	}
+	if minted >= managerInviteQuota {
+		return onboardingQuotaMessage
+	}
+
+	inv, err := Provision(ctx, t.store, t.claimTTL, now, creator)
+	if err != nil {
+		slog.Error("telegram manager message: provision invite", "error", err, "creator", creator)
+		return onboardingMintFailMessage
+	}
+	return "🎉 Your account is ready. Open this link and set it up with a passkey:\n\n" +
+		inv.ClaimURL(t.baseDomain) + "\n\nThe link is personal and expires — open it on the device you'll use."
+}
+
+// reply sends a managebot message, logging and swallowing failures.
+func (t *TelegramAPI) reply(ctx context.Context, chatID int64, text string) {
+	if err := t.manager.SendMessage(ctx, chatID, text); err != nil {
+		slog.Error("telegram manager message: send reply", "error", err, "chat_id", chatID)
+	}
 }
 
 // ChildWebhook receives a linked bot's updates. It loads the bot addressed by

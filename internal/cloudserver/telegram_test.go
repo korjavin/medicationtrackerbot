@@ -2,14 +2,18 @@ package cloudserver
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
-	"context"
 	"time"
+
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
 
@@ -64,7 +68,7 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 	})
 
 	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, 14*24*time.Hour)
 	if err := tgAPI.Bootstrap(t.Context()); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
@@ -191,6 +195,7 @@ type recordingTG struct {
 }
 
 type recordMu struct {
+	sync.Mutex
 	sent []string
 }
 
@@ -212,7 +217,9 @@ func newRecordingTG(t *testing.T) *recordingTG {
 			io.WriteString(w, `{"ok":true,"result":"555:CHILD"}`)
 		case "sendMessage":
 			b, _ := io.ReadAll(r.Body)
+			rec.mu.Lock()
 			rec.mu.sent = append(rec.mu.sent, string(b))
+			rec.mu.Unlock()
 			io.WriteString(w, `{"ok":true,"result":{}}`)
 		default:
 			io.WriteString(w, `{"ok":true,"result":{}}`)
@@ -233,7 +240,7 @@ func TestTelegramLinkingAndBYO(t *testing.T) {
 
 	tg := newRecordingTG(t)
 	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, 14*24*time.Hour)
 	if err := tgAPI.Bootstrap(t.Context()); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
@@ -349,7 +356,7 @@ func TestTelegramBYOWebhookFailureLeavesNoBot(t *testing.T) {
 	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
 	// No Bootstrap: it would call the (scripted-to-fail) manager setWebhook. BYO
 	// doesn't need the resolved manager username.
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, 14*24*time.Hour)
 	apiMux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(apiMux)
 	tgAPI.RegisterAPIRoutes(apiMux)
@@ -379,6 +386,251 @@ func TestTelegramBYOWebhookFailureLeavesNoBot(t *testing.T) {
 	if got := tgState(t, top, host, session); got != "none" {
 		t.Fatalf("status after failed BYO = %q, want none (no phantom bot_created)", got)
 	}
+}
+
+// managerFixture wires just the manager webhook against a recording Telegram —
+// the onboarding conversation needs no session, no subdomain routing, and no
+// Bootstrap (it never builds a deep link).
+func managerFixture(t *testing.T) (*cloudstore.Repo, *recordingTG, http.Handler, string) {
+	t.Helper()
+	store := setupStore(t)
+	tg := newRecordingTG(t)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, 14*24*time.Hour)
+	top := http.NewServeMux()
+	tgAPI.RegisterWebhookRoutes(top)
+	return store, tg, top, deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
+}
+
+// tgMessage posts a private-chat message from user 4242 to the manager webhook.
+func tgMessage(t *testing.T, h http.Handler, secret, text string) *httptest.ResponseRecorder {
+	t.Helper()
+	body := `{"update_id":9,"message":{"message_id":1,"text":"` + text +
+		`","from":{"id":4242,"is_bot":false},"chat":{"id":77,"type":"private"}}}`
+	rec := postWebhook(t, h, "/tg/manager/"+secret, secret, body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("manager message %q status = %d, want 200", text, rec.Code)
+	}
+	return rec
+}
+
+// mintedBy counts accounts attributed to creator, ever.
+func mintedBy(t *testing.T, store *cloudstore.Repo, creator string) int {
+	t.Helper()
+	n, err := store.CountAccountsCreatedBy(t.Context(), creator, time.Unix(0, 0))
+	if err != nil {
+		t.Fatalf("CountAccountsCreatedBy: %v", err)
+	}
+	return n
+}
+
+const tgCreator = "tg:4242"
+
+// TestManagerOnboarding guards the managebot's private-chat conversation:
+// /start explains without minting, "yes" mints an invite attributed to
+// "tg:<uid>" and replies with its claim link, a 4th "yes" inside the window is
+// refused, an already-claimed user is told to unlock instead, and non-private /
+// bot-authored messages are ignored entirely.
+func TestManagerOnboarding(t *testing.T) {
+	t.Run("start explains and offers, mints nothing", func(t *testing.T) {
+		store, tg, top, secret := managerFixture(t)
+		tgMessage(t, top, secret, "/start")
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "personal health-tracking bot") {
+			t.Fatalf("no offer reply sent: %v", tg.mu.sent)
+		}
+		if n := mintedBy(t, store, tgCreator); n != 0 {
+			t.Fatalf("/start minted %d accounts, want 0", n)
+		}
+	})
+
+	t.Run("unrecognized text gets the nudge", func(t *testing.T) {
+		store, tg, top, secret := managerFixture(t)
+		tgMessage(t, top, secret, "what is this")
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], onboardingNudgeMessage[:20]) {
+			t.Fatalf("no nudge reply sent: %v", tg.mu.sent)
+		}
+		if n := mintedBy(t, store, tgCreator); n != 0 {
+			t.Fatalf("nudge minted %d accounts, want 0", n)
+		}
+	})
+
+	t.Run("yes mints one invite and replies with its claim link", func(t *testing.T) {
+		store, tg, top, secret := managerFixture(t)
+		tgMessage(t, top, secret, "yes")
+		if n := mintedBy(t, store, tgCreator); n != 1 {
+			t.Fatalf("minted %d accounts, want exactly 1 attributed to %s", n, tgCreator)
+		}
+		accounts, err := store.ListAccounts(t.Context())
+		if err != nil || len(accounts) != 1 {
+			t.Fatalf("ListAccounts = (%d, %v), want 1", len(accounts), err)
+		}
+		want := "https://" + accounts[0].Subdomain + ".localhost/#claim="
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], want) {
+			t.Fatalf("reply missing claim URL %q: %v", want, tg.mu.sent)
+		}
+	})
+
+	t.Run("fourth yes while three invites are live is refused", func(t *testing.T) {
+		store, tg, top, secret := managerFixture(t)
+		now := time.Now().UTC()
+		for i := 0; i < managerInviteQuota; i++ {
+			if _, err := Provision(t.Context(), store, 14*24*time.Hour, now, tgCreator); err != nil {
+				t.Fatalf("seed mint %d: %v", i, err)
+			}
+		}
+		tgMessage(t, top, secret, "yes")
+		if n := mintedBy(t, store, tgCreator); n != managerInviteQuota {
+			t.Fatalf("minted %d accounts, want the quota %d (no new mint)", n, managerInviteQuota)
+		}
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "limit per person") {
+			t.Fatalf("reply is not the wait message: %v", tg.mu.sent)
+		}
+	})
+
+	// The cap counts live invites over the whole claim TTL, not a rolling day.
+	// Yesterday's unclaimed invites are still claimable, so they must still
+	// occupy the quota — otherwise a user could stack quota × TTL/day claim
+	// links by saying "yes" three times a day until the first batch expires.
+	t.Run("day-old unclaimed invites still occupy the quota", func(t *testing.T) {
+		store, tg, top, secret := managerFixture(t)
+		yesterday := time.Now().UTC().Add(-25 * time.Hour)
+		for i := 0; i < managerInviteQuota; i++ {
+			if _, err := Provision(t.Context(), store, 14*24*time.Hour, yesterday, tgCreator); err != nil {
+				t.Fatalf("seed mint %d: %v", i, err)
+			}
+		}
+		tgMessage(t, top, secret, "yes")
+		if n := mintedBy(t, store, tgCreator); n != managerInviteQuota {
+			t.Fatalf("minted %d accounts, want the quota %d (yesterday's live invites freed a slot)", n, managerInviteQuota)
+		}
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "limit per person") {
+			t.Fatalf("reply is not the wait message: %v", tg.mu.sent)
+		}
+	})
+
+	// Liveness comes from the row's own claim_expires_unix, not from a window
+	// derived from the *current* CLOUD_CLAIM_TTL: shortening the TTL after a
+	// batch was minted must not hand back quota while those links still work.
+	t.Run("shortening the claim TTL does not free live invites", func(t *testing.T) {
+		store := setupStore(t)
+		tg := newRecordingTG(t)
+		tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, time.Hour)
+		top := http.NewServeMux()
+		tgAPI.RegisterWebhookRoutes(top)
+		secret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
+
+		old := time.Now().UTC().Add(-25 * time.Hour) // older than the new 1h TTL...
+		for i := 0; i < managerInviteQuota; i++ {
+			// ...but minted under the old 14d TTL, so still claimable.
+			if _, err := Provision(t.Context(), store, 14*24*time.Hour, old, tgCreator); err != nil {
+				t.Fatalf("seed mint %d: %v", i, err)
+			}
+		}
+		tgMessage(t, top, secret, "yes")
+		if n := mintedBy(t, store, tgCreator); n != managerInviteQuota {
+			t.Fatalf("minted %d accounts, want the quota %d (TTL change freed live slots)", n, managerInviteQuota)
+		}
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "limit per person") {
+			t.Fatalf("reply is not the wait message: %v", tg.mu.sent)
+		}
+	})
+
+	// ...but once they expire the sweep frees the quota, so "I lost my link"
+	// still recovers — just not before the old link is dead.
+	t.Run("expired unclaimed invites free the quota", func(t *testing.T) {
+		store, tg, top, secret := managerFixture(t)
+		old := time.Now().UTC().Add(-15 * 24 * time.Hour)
+		for i := 0; i < managerInviteQuota; i++ {
+			if _, err := Provision(t.Context(), store, 14*24*time.Hour, old, tgCreator); err != nil {
+				t.Fatalf("seed mint %d: %v", i, err)
+			}
+		}
+		tgMessage(t, top, secret, "yes")
+		if n := mintedBy(t, store, tgCreator); n != 1 {
+			t.Fatalf("minted %d accounts, want 1 (expired invites swept, one fresh mint)", n)
+		}
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "#claim=") {
+			t.Fatalf("reply missing a fresh claim URL: %v", tg.mu.sent)
+		}
+	})
+
+	// Concurrent "yes" deliveries (Telegram retries, or a user tapping twice)
+	// must not all read a sub-quota count and all provision. mintMu serializes
+	// the count-then-insert; this races 8 of them for the one free slot.
+	t.Run("concurrent yes cannot exceed the quota", func(t *testing.T) {
+		store, _, top, secret := managerFixture(t)
+		now := time.Now().UTC()
+		for i := 0; i < managerInviteQuota-1; i++ {
+			if _, err := Provision(t.Context(), store, 14*24*time.Hour, now, tgCreator); err != nil {
+				t.Fatalf("seed mint %d: %v", i, err)
+			}
+		}
+
+		const racers = 8
+		body := `{"update_id":9,"message":{"message_id":1,"text":"yes",` +
+			`"from":{"id":4242,"is_bot":false},"chat":{"id":77,"type":"private"}}}`
+		var wg sync.WaitGroup
+		codes := make([]int, racers)
+		for i := 0; i < racers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				codes[i] = postWebhook(t, top, "/tg/manager/"+secret, secret, body).Code
+			}()
+		}
+		wg.Wait()
+
+		for i, code := range codes {
+			if code != http.StatusOK {
+				t.Fatalf("racer %d status = %d, want 200", i, code)
+			}
+		}
+		if n := mintedBy(t, store, tgCreator); n != managerInviteQuota {
+			t.Errorf("minted %d accounts, want the quota %d (concurrent mints overran the cap)", n, managerInviteQuota)
+		}
+	})
+
+	t.Run("already-claimed user is never handed a second account", func(t *testing.T) {
+		store, tg, top, secret := managerFixture(t)
+		now := time.Now().UTC()
+		inv, err := Provision(t.Context(), store, 14*24*time.Hour, now, tgCreator)
+		if err != nil {
+			t.Fatalf("Provision: %v", err)
+		}
+		raw, err := hex.DecodeString(inv.Token)
+		if err != nil {
+			t.Fatalf("decode claim token: %v", err)
+		}
+		sum := sha256.Sum256(raw)
+		if _, err := store.ConsumeClaimToken(t.Context(), inv.Account.Subdomain, sum[:], now); err != nil {
+			t.Fatalf("ConsumeClaimToken: %v", err)
+		}
+
+		tgMessage(t, top, secret, "yes")
+		if n := mintedBy(t, store, tgCreator); n != 1 {
+			t.Fatalf("minted %d accounts, want 1 (the claimed one)", n)
+		}
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "passkey") {
+			t.Fatalf("reply does not tell the user to unlock with a passkey: %v", tg.mu.sent)
+		}
+	})
+
+	t.Run("group chats and bot senders are ignored", func(t *testing.T) {
+		store, tg, top, secret := managerFixture(t)
+		group := `{"update_id":9,"message":{"message_id":1,"text":"yes","from":{"id":4242,"is_bot":false},"chat":{"id":77,"type":"group"}}}`
+		fromBot := `{"update_id":9,"message":{"message_id":1,"text":"yes","from":{"id":4242,"is_bot":true},"chat":{"id":77,"type":"private"}}}`
+		noFrom := `{"update_id":9,"message":{"message_id":1,"text":"yes","chat":{"id":77,"type":"private"}}}`
+		for _, body := range []string{group, fromBot, noFrom} {
+			if rec := postWebhook(t, top, "/tg/manager/"+secret, secret, body); rec.Code != http.StatusOK {
+				t.Fatalf("ignored update status = %d, want 200", rec.Code)
+			}
+		}
+		if len(tg.mu.sent) != 0 {
+			t.Fatalf("replied to a non-private or bot message: %v", tg.mu.sent)
+		}
+		if n := mintedBy(t, store, tgCreator); n != 0 {
+			t.Fatalf("minted %d accounts from ignored updates, want 0", n)
+		}
+	})
 }
 
 func tgState(t *testing.T, h http.Handler, host string, session *http.Cookie) string {
@@ -434,7 +686,7 @@ func TestChildWebhookRace(t *testing.T) {
 		"sendMessage": `{"ok":true,"result":{}}`,
 	})
 
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, 14*24*time.Hour)
 	top := http.NewServeMux()
 	tgAPI.RegisterWebhookRoutes(top)
 
