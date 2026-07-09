@@ -172,17 +172,17 @@ a reasonable starting point and are reused where sound.
 
 ### Task 5: Integration tests for the manager message path
 
-- [ ] extend `internal/cloudserver/telegram_test.go` (do not add a new file) using the existing
+- [x] extend `internal/cloudserver/telegram_test.go` (do not add a new file) using the existing
       `newRecordingTG` + `postWebhook` helpers; assert on `recordingTG.mu.sent`
-- [ ] case: `/start` in a private chat → a reply is sent mentioning the offer; **no account row is created**
-- [ ] case: `"yes"` in a private chat → exactly one account row minted with
+- [x] case: `/start` in a private chat → a reply is sent mentioning the offer; **no account row is created**
+- [x] case: `"yes"` in a private chat → exactly one account row minted with
       `created_by_account_id == "tg:<uid>"`, and the reply contains the claim URL for that subdomain
-- [ ] case: a 4th `"yes"` within the window → no new account row, and the reply is the wait message
+- [x] case: a 4th `"yes"` within the window → no new account row, and the reply is the wait message
       (seed 3 prior mints for that `creator` directly through the store)
-- [ ] case: user who already claimed an account (consume the claim so `claim_token_hash IS NULL`) says `"yes"`
+- [x] case: user who already claimed an account (consume the claim so `claim_token_hash IS NULL`) says `"yes"`
       → no new account row, reply tells them to unlock with their passkey
-- [ ] case: a non-private chat, and a message from a bot (`From.IsBot`) → no reply sent, no row minted
-- [ ] case: a `managed_bot_created` update still binds the child bot exactly as before (guard against the new
+- [x] case: a non-private chat, and a message from a bot (`From.IsBot`) → no reply sent, no row minted
+- [x] case: a `managed_bot_created` update still binds the child bot exactly as before (guard against the new
       branch swallowing it) — the existing `TestTelegramProvisioningStateMachine` should still pass unchanged
 
 ### Task 6: Verify acceptance criteria
