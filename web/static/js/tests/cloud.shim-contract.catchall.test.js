@@ -1,8 +1,10 @@
 // bd med-9b8.1 — the cloud shim's fallback branch (web/cloud/js/apishim.js).
 // Unmapped writes used to resolve null, so every unshimmed write silently
 // looked like it succeeded. They now throw like unmapped reads. Also covers
-// the firstrun-complete stub and the cloud-mode /api/changes suppression in
-// data-store.js, which was the source of the console warn spam.
+// the cloud-mode /api/changes suppression in data-store.js, which was the
+// source of the console warn spam. (POST /api/firstrun/complete used to be a
+// hardcoded ack here; med-4pz.5 made it a real vault write, covered by
+// cloud.shim-contract.settings.test.js.)
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 
@@ -36,11 +38,6 @@ describe('cloud shim contract — unmapped-route fallback', () => {
         expect(console.warn).toHaveBeenCalledWith(
             expect.stringContaining('unmapped route (C2 discovery): PUT /api/gamification/targets'),
         );
-    });
-
-    it('acks POST /api/firstrun/complete so the overlay can dismiss', async () => {
-        await expect(env.window.offlineAwareApiCall('/api/firstrun/complete', 'POST'))
-            .resolves.toEqual({ success: true });
     });
 });
 

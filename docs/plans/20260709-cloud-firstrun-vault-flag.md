@@ -164,19 +164,18 @@ module (it is exercised through the shim); any empty-vault signal in `bootstrapP
 
 ### Task 4: Shim contract coverage
 
-- [ ] extend `web/static/js/tests/cloud.shim-contract.settings.test.js` (the owning suite — do not add a file):
+- [x] extend `web/static/js/tests/cloud.shim-contract.settings.test.js` (the owning suite — do not add a file):
       fresh in-memory records port → `GET /api/bootstrap` reports `needs_first_run: true`
-- [ ] same suite: `POST /api/firstrun/complete` → a subsequent `GET /api/bootstrap` reports
+- [x] same suite: `POST /api/firstrun/complete` → a subsequent `GET /api/bootstrap` reports
       `needs_first_run: false` (the durable round trip — this is the regression guard for the old fake stub)
-- [ ] same suite: after completion, `GET /api/settings` response has **no** `first_run_complete` and no
+- [x] same suite: after completion, `GET /api/settings` response has **no** `first_run_complete` and no
       `general` key — the settings shape is unchanged
-- [ ] same suite: completing onboarding does not clobber a previously-set `timezone` /
-      `dismissed_tz_suggestion` on the shared singleton
-- [ ] update `web/static/js/tests/cloud.shim-contract.catchall.test.js:41-44`, which asserts the old fake stub:
-      the path is now a real handler, so either move the assertion or adjust it to the real behavior — it must
-      not keep asserting a hardcoded ack
-- [ ] ⚠️ flipping `needs_first_run` on may make other existing frontend tests mount the overlay unexpectedly.
-      If a suite breaks, fix the test's bootstrap fixture rather than re-hardcoding the flag
+- [x] same suite: completing onboarding does not clobber a previously-set `timezone` /
+      `dismissed_tz_suggestion` on the shared singleton (asserted via `dismissed_tz_suggestion` + `tab_order`)
+- [x] update `web/static/js/tests/cloud.shim-contract.catchall.test.js:41-44`, which asserts the old fake stub:
+      removed the hardcoded-ack assertion; the real behavior is now covered by the settings suite
+- [x] ⚠️ flipping `needs_first_run` on may make other existing frontend tests mount the overlay unexpectedly.
+      No suite broke — full `pnpm test` green (281 files, 3006 tests)
 
 ### Task 5: Verify acceptance criteria
 
