@@ -446,6 +446,57 @@ func TestWebAuthnRegistration_SessionGateRejectsRevokedCredential(t *testing.T) 
 	}
 }
 
+// TestWebAuthnRegistration_ClaimTokenOutcomes pins the three-way response
+// contract of register/begin with a claim_token — the signup wizard branches on
+// it to decide between "create your passkey", "already claimed, go unlock", and
+// "expired link".
+func TestWebAuthnRegistration_ClaimTokenOutcomes(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+	h, _ := newTestWebAuthnHandler(store)
+
+	postBegin := func(token string) *httptest.ResponseRecorder {
+		t.Helper()
+		body, _ := json.Marshal(registerBeginRequest{ClaimToken: token})
+		req := httptest.NewRequest(http.MethodPost, "/api/webauthn/register/begin", bytes.NewReader(body))
+		req.Host = host
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	if rec := postBegin(claimToken); rec.Code != http.StatusOK {
+		t.Fatalf("pending invite: status = %d, want 200 (body %q)", rec.Code, rec.Body.String())
+	}
+
+	if rec := postBegin(hex.EncodeToString([]byte("not-the-real-token-not-the-real"))); rec.Code != http.StatusForbidden {
+		t.Fatalf("bad token: status = %d, want 403", rec.Code)
+	}
+
+	// Claim it for real, which NULLs the hash and stores a credential.
+	rp := virtualwebauthn.RelyingParty{Name: "Med Tracker Cloud", ID: host, Origin: "http://" + host}
+	authenticator := virtualwebauthn.NewAuthenticator()
+	cred := virtualwebauthn.NewCredential(virtualwebauthn.KeyTypeEC2)
+	opts, challengeCookie := beginRegistration(t, h, host, claimToken)
+	response := virtualwebauthn.CreateAttestationResponse(rp, authenticator, cred, *opts)
+	if rec := finishRegistration(t, h, host, challengeCookie, response); rec.Code != http.StatusOK {
+		t.Fatalf("register/finish status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	rec := postBegin(claimToken)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("claimed account: status = %d, want 409 (body %q)", rec.Code, rec.Body.String())
+	}
+	var got map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode 409 body %q: %v", rec.Body.String(), err)
+	}
+	if got["error"] != "already_claimed" {
+		t.Fatalf("409 body = %v, want error=already_claimed", got)
+	}
+}
+
 func TestWebAuthnRegistration_RejectsInvalidClaimToken(t *testing.T) {
 	store := setupStore(t)
 	account, _ := setupInvite(t, store)

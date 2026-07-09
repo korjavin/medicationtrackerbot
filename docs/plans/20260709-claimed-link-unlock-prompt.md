@@ -108,16 +108,16 @@ Dependencies identified: none new. No migration, no new HTTP route, no new npm/G
 
 ### Task 1: `RegisterBegin` distinguishes already-claimed from expired
 
-- [ ] in `internal/cloudserver/webauthn.go`, in the `case req.ClaimToken != "":` branch (`:254-261`), when
+- [x] in `internal/cloudserver/webauthn.go`, in the `case req.ClaimToken != "":` branch (`:254-261`), when
       `validClaimToken` returns `valid == false`, check for the claimed case before falling through to the `403`:
       if `account.ClaimTokenHash == nil`, call `a.store.CredentialsByAccount(r.Context(), account.ID)` and, when
       it returns ≥ 1 credential, respond `writeJSON(w, http.StatusConflict, map[string]string{"error": "already_claimed"})`
-- [ ] on a `CredentialsByAccount` error respond `500 "server error"` and log with `slog.Error("register begin: credential lookup", "error", err, "account_id", account.ID)` (repo rule 5: `log/slog` with contextual args)
-- [ ] leave the existing `http.Error(w, "invalid or expired claim", http.StatusForbidden)` as the fallback for
+- [x] on a `CredentialsByAccount` error respond `500 "server error"` and log with `slog.Error("register begin: credential lookup", "error", err, "account_id", account.ID)` (repo rule 5: `log/slog` with contextual args)
+- [x] leave the existing `http.Error(w, "invalid or expired claim", http.StatusForbidden)` as the fallback for
       genuinely expired / mismatched / swept tokens (NULL hash + zero credentials → still `403`)
-- [ ] add a short comment on the branch explaining why the credential count is the discriminator (NULL hash alone
+- [x] add a short comment on the branch explaining why the credential count is the discriminator (NULL hash alone
       also matches an expired-and-swept account)
-- [ ] integration test in `internal/cloudserver/webauthn_test.go`: drive the real handler over `httptest` for all
+- [x] integration test in `internal/cloudserver/webauthn_test.go`: drive the real handler over `httptest` for all
       three outcomes — pending invite → `200`; claimed account (consume the claim + add a credential, then re-POST
       the same token) → `409` with body `{"error":"already_claimed"}`; unknown/expired token → `403`
 
