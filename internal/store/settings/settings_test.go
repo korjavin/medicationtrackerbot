@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 	"github.com/korjavin/medicationtrackerbot/internal/store/migrations"
@@ -266,43 +265,6 @@ func TestSettingsBoolValidation(t *testing.T) {
 		} else if !strings.Contains(err.Error(), "unknown settings column") {
 			t.Errorf("Expected 'unknown settings column' error, got: %v", err)
 		}
-	}
-}
-
-func TestLastDownload(t *testing.T) {
-	r := setupSettingsRepo(t)
-
-	// Set a download time
-	now := time.Now().Truncate(time.Second)
-	err := r.UpdateLastDownload(now)
-	if err != nil {
-		t.Fatalf("UpdateLastDownload: %v", err)
-	}
-
-	// Retrieve it
-	last, err := r.GetLastDownload()
-	if err != nil {
-		t.Fatalf("GetLastDownload after update: %v", err)
-	}
-	diff := last.Sub(now)
-	if diff < -time.Second || diff > time.Second {
-		t.Errorf("Expected %v, got %v (diff: %v)", now, last, diff)
-	}
-
-	// Update again
-	later := now.Add(time.Hour)
-	err = r.UpdateLastDownload(later)
-	if err != nil {
-		t.Fatalf("UpdateLastDownload again: %v", err)
-	}
-
-	last, err = r.GetLastDownload()
-	if err != nil {
-		t.Fatalf("GetLastDownload after second update: %v", err)
-	}
-	diff = last.Sub(later)
-	if diff < -time.Second || diff > time.Second {
-		t.Errorf("Expected %v, got %v (diff: %v)", later, last, diff)
 	}
 }
 

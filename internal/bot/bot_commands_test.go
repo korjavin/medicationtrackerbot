@@ -40,58 +40,6 @@ func testBP(userID int64, systolic, diastolic int, pulse *int, measuredAt time.T
 	}
 }
 
-// --- /bphistory ---
-
-func TestHandleBPHistoryCommand_Empty(t *testing.T) {
-	env := setupBotTest(t)
-	defer env.teardown()
-
-	body := sendCmd(env, "/bphistory")
-	if body == "" {
-		t.Fatal("Timeout waiting for /bphistory response")
-	}
-	if !strings.Contains(body, "Blood Pressure") {
-		t.Errorf("Expected 'Blood Pressure' in response, got: %s", body)
-	}
-}
-
-func TestHandleBPHistoryCommand_WithData(t *testing.T) {
-	env := setupBotTest(t)
-	defer env.teardown()
-
-	ctx := context.Background()
-	pulse := 72
-	env.s.BP.CreateReading(ctx, testBP(123456, 125, 82, &pulse, time.Now()))
-	env.s.BP.CreateReading(ctx, testBP(123456, 118, 78, nil, time.Now().Add(-time.Hour)))
-
-	body := sendCmd(env, "/bphistory")
-	if body == "" {
-		t.Fatal("Timeout waiting for /bphistory response")
-	}
-	if !strings.Contains(body, "125") || !strings.Contains(body, "82") {
-		t.Errorf("Expected BP reading in response, got: %s", body)
-	}
-}
-
-func TestHandleBPHistoryCommand_LimitsTo10(t *testing.T) {
-	env := setupBotTest(t)
-	defer env.teardown()
-
-	ctx := context.Background()
-	for i := 0; i < 15; i++ {
-		env.s.BP.CreateReading(ctx, testBP(123456, 120, 80, nil, time.Now().Add(-time.Duration(i)*time.Hour)))
-	}
-
-	body := sendCmd(env, "/bphistory")
-	if body == "" {
-		t.Fatal("Timeout")
-	}
-	count := strings.Count(body, "120/80")
-	if count != 10 {
-		t.Errorf("Expected exactly 10 readings (limit), got %d in body", count)
-	}
-}
-
 // --- /bpstats ---
 
 func TestHandleBPStatsCommand_Empty(t *testing.T) {
@@ -121,39 +69,6 @@ func TestHandleBPStatsCommand_WithData(t *testing.T) {
 	}
 	if !strings.Contains(body, "Statistics") {
 		t.Errorf("Expected 'Statistics' in response, got: %s", body)
-	}
-}
-
-// --- /weighthistory ---
-
-func TestHandleWeightHistoryCommand_Empty(t *testing.T) {
-	env := setupBotTest(t)
-	defer env.teardown()
-
-	body := sendCmd(env, "/weighthistory")
-	if body == "" {
-		t.Fatal("Timeout waiting for /weighthistory response")
-	}
-	// Any response is acceptable; just ensure the handler doesn't crash
-	if body == "" {
-		t.Error("Expected non-empty response for /weighthistory")
-	}
-}
-
-func TestHandleWeightHistoryCommand_WithData(t *testing.T) {
-	env := setupBotTest(t)
-	defer env.teardown()
-
-	ctx := context.Background()
-	env.s.Weight.CreateLog(ctx, &store.WeightLog{UserID: 123456, MeasuredAt: time.Now(), Weight: 76.2})
-	env.s.Weight.CreateLog(ctx, &store.WeightLog{UserID: 123456, MeasuredAt: time.Now().Add(-24 * time.Hour), Weight: 75.8})
-
-	body := sendCmd(env, "/weighthistory")
-	if body == "" {
-		t.Fatal("Timeout")
-	}
-	if !strings.Contains(body, "76.2") && !strings.Contains(body, "75.8") {
-		t.Errorf("Expected weight values in response, got: %s", body)
 	}
 }
 

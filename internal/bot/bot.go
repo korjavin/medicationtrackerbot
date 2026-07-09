@@ -411,40 +411,12 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 
 		msgConfig.Text = "Select medication to log:"
 		msgConfig.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
-	case "download":
-		if !flags.Medication {
-			msgConfig.Text = "⚠️ Medication section is disabled in settings."
-			break
-		}
-		rows := [][]tgbotapi.InlineKeyboardButton{
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("Since last download", "download:since_last"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("Last 7 days", "download:7"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("Last 14 days", "download:14"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("Last 30 days", "download:30"),
-			),
-		}
-
-		msgConfig.Text = "Select time period for export:"
-		msgConfig.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
 	case "bp":
 		if !flags.BP {
 			msgConfig.Text = "⚠️ Blood Pressure section is disabled in settings."
 			break
 		}
 		b.handleBPCommand(msg, &msgConfig)
-	case "bphistory":
-		if !flags.BP {
-			msgConfig.Text = "⚠️ Blood Pressure section is disabled in settings."
-			break
-		}
-		b.handleBPHistoryCommand(&msgConfig)
 	case "bpstats":
 		if !flags.BP {
 			msgConfig.Text = "⚠️ Blood Pressure section is disabled in settings."
@@ -457,12 +429,6 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			break
 		}
 		b.handleWeightCommand(msg, &msgConfig)
-	case "weighthistory":
-		if !flags.Weight {
-			msgConfig.Text = "⚠️ Weight section is disabled in settings."
-			break
-		}
-		b.handleWeightHistoryCommand(&msgConfig)
 	case "goal":
 		if !flags.Weight {
 			msgConfig.Text = "⚠️ Weight section is disabled in settings."
@@ -487,24 +453,6 @@ func (b *Bot) handleMessage(msg *tgbotapi.Message) {
 			break
 		}
 		b.handleAdHocWorkoutCommand(&msgConfig)
-	case "startnext":
-		if !flags.Workout {
-			msgConfig.Text = "⚠️ Workouts section is disabled in settings."
-			break
-		}
-		b.handleStartNextCommand(&msgConfig)
-	case "workoutstatus":
-		if !flags.Workout {
-			msgConfig.Text = "⚠️ Workouts section is disabled in settings."
-			break
-		}
-		b.handleWorkoutStatusCommand(&msgConfig)
-	case "workouthistory":
-		if !flags.Workout {
-			msgConfig.Text = "⚠️ Workouts section is disabled in settings."
-			break
-		}
-		b.handleWorkoutHistoryCommand(&msgConfig)
 	case "next":
 		if !flags.Medication {
 			msgConfig.Text = "⚠️ Medication section is disabled in settings."
@@ -839,9 +787,6 @@ func (b *Bot) handleCallback(cb *tgbotapi.CallbackQuery) {
 		}
 	} else if strings.HasPrefix(data, "page_info_") {
 		// Page info button - ignore (it's just a display, not actionable)
-	} else if len(data) > 9 && data[:9] == "download:" {
-		option := data[9:]
-		b.handleDownloadCallback(cb, option)
 	} else if len(data) > 3 && (data == "bp_confirm" || data == "bp_snooze" || data == "bp_dontbug") {
 		// BP reminder callbacks
 		b.handleBPReminderCallback(cb, data)
@@ -1106,168 +1051,6 @@ func (b *Bot) SendLowStockWarning(text string) error {
 	return err
 }
 
-func (b *Bot) handleDownloadCallback(cb *tgbotapi.CallbackQuery, option string) {
-	var since time.Time
-	switch option {
-	case "since_last":
-		lastDownload, err := b.meds.GetLastDownload()
-		if err != nil {
-			slog.Error("Error getting last download", "error", err)
-			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving last download date.")); err != nil {
-				slog.Error("send failed", "error", err)
-			}
-			return
-		}
-		if lastDownload.IsZero() {
-			if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "No previous download found. Please choose a time period.")); err != nil {
-				slog.Error("send failed", "error", err)
-			}
-			return
-		}
-		since = lastDownload
-	case "7":
-		since = time.Now().AddDate(0, 0, -7)
-	case "14":
-		since = time.Now().AddDate(0, 0, -14)
-	case "30":
-		since = time.Now().AddDate(0, 0, -30)
-	default:
-		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "Unknown download option.")); err != nil {
-			slog.Error("send failed", "error", err)
-		}
-		return
-	}
-
-	// Get medication intakes
-	intakes, err := b.meds.ListIntakesSince(since)
-	if err != nil {
-		slog.Error("Error getting intakes", "error", err)
-		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving intake data.")); err != nil {
-			slog.Error("send failed", "error", err)
-		}
-		return
-	}
-
-	// Get blood pressure readings
-	bpReadings, err := b.bp.ListReadings(context.Background(), b.allowedUserID, since)
-	if err != nil {
-		slog.Error("Error getting BP readings", "error", err)
-		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "❌ Error retrieving blood pressure data.")); err != nil {
-			slog.Error("send failed", "error", err)
-		}
-		return
-	}
-
-	// Get weight logs
-	weightLogs, err := b.weight.GetWeightLogs(context.Background(), b.allowedUserID, since)
-	if err != nil {
-		slog.Error("Error getting weight logs", "error", err)
-	}
-
-	if len(intakes) == 0 && len(bpReadings) == 0 && len(weightLogs) == 0 {
-		if _, err := b.api.Send(tgbotapi.NewMessage(cb.Message.Chat.ID, "No records found for the selected period.")); err != nil {
-			slog.Error("send failed", "error", err)
-		}
-		return
-	}
-
-	// Update last download timestamp
-	if err := b.meds.UpdateLastDownload(time.Now()); err != nil {
-		slog.Error("Error updating last download", "error", err)
-	}
-
-	// Remove buttons
-	edit := tgbotapi.NewEditMessageReplyMarkup(cb.Message.Chat.ID, cb.Message.MessageID, tgbotapi.InlineKeyboardMarkup{
-		InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{},
-	})
-	if _, err := b.api.Send(edit); err != nil {
-		slog.Error("send failed", "error", err)
-	}
-
-	// Send medication CSV if available
-	if len(intakes) > 0 {
-		medExports := make([]domain.MedicationIntake, len(intakes))
-		for i, intake := range intakes {
-			medExports[i] = domain.MedicationIntake{
-				ScheduledAt:      intake.ScheduledAt,
-				TakenAt:          intake.TakenAt,
-				MedicationName:   intake.MedicationName,
-				MedicationDosage: intake.MedicationDosage,
-			}
-		}
-		csvData, err := domain.GenerateMedicationCSV(medExports)
-		if err != nil {
-			slog.Error("Error generating medication CSV", "error", err)
-		} else {
-			doc := tgbotapi.NewDocument(cb.Message.Chat.ID, tgbotapi.FileBytes{
-				Name:  "medication_export.csv",
-				Bytes: csvData,
-			})
-			doc.Caption = fmt.Sprintf("Medication export (%d records)", len(intakes))
-			if _, err := b.api.Send(doc); err != nil {
-				slog.Error("send failed", "error", err)
-			}
-		}
-	}
-
-	// Send BP CSV if available
-	if len(bpReadings) > 0 {
-		bpExports := make([]domain.BPExportReading, len(bpReadings))
-		for i, bp := range bpReadings {
-			bpExports[i] = domain.BPExportReading{
-				MeasuredAt: bp.MeasuredAt,
-				Systolic:   bp.Systolic,
-				Diastolic:  bp.Diastolic,
-				Pulse:      bp.Pulse,
-				Category:   bp.Category,
-			}
-		}
-		bpCSV, err := domain.GenerateBPCSV(bpExports)
-		if err != nil {
-			slog.Error("Error generating BP CSV", "error", err)
-		} else {
-			doc := tgbotapi.NewDocument(cb.Message.Chat.ID, tgbotapi.FileBytes{
-				Name:  "blood_pressure_export.csv",
-				Bytes: bpCSV,
-			})
-			doc.Caption = fmt.Sprintf("Blood pressure export (%d records)", len(bpReadings))
-			if _, err := b.api.Send(doc); err != nil {
-				slog.Error("send failed", "error", err)
-			}
-		}
-	}
-
-	// Send weight CSV if available
-	if len(weightLogs) > 0 {
-		wExports := make([]domain.WeightExportLog, len(weightLogs))
-		for i, w := range weightLogs {
-			wExports[i] = domain.WeightExportLog{
-				MeasuredAt:      w.MeasuredAt,
-				Weight:          w.Weight,
-				WeightTrend:     w.WeightTrend,
-				BodyFat:         w.BodyFat,
-				BodyFatTrend:    w.BodyFatTrend,
-				MuscleMass:      w.MuscleMass,
-				MuscleMassTrend: w.MuscleMassTrend,
-				Notes:           w.Notes,
-			}
-		}
-		weightCSV, err := domain.GenerateWeightCSV(wExports)
-		if err != nil {
-			slog.Error("Error generating weight CSV", "error", err)
-		} else {
-			doc := tgbotapi.NewDocument(cb.Message.Chat.ID, tgbotapi.FileBytes{
-				Name:  "weight_export.csv",
-				Bytes: weightCSV,
-			})
-			doc.Caption = fmt.Sprintf("Weight export (%d records)", len(weightLogs))
-			if _, err := b.api.Send(doc); err != nil {
-				slog.Error("send failed", "error", err)
-			}
-		}
-	}
-}
-
 // -- Blood Pressure Commands --
 
 func (b *Bot) handleBPCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.MessageConfig) {
@@ -1355,44 +1138,6 @@ Pulse: heart rate (optional)`
 		pulseStr = fmt.Sprintf(", pulse %d", pulse)
 	}
 	msgConfig.Text = fmt.Sprintf("✅ Blood pressure recorded: %d/%d%s\n📊 Category: %s", systolic, diastolic, pulseStr, category)
-}
-
-func (b *Bot) handleBPHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
-	since := time.Now().AddDate(0, 0, -30)
-	readings, err := b.bp.ListReadings(context.Background(), b.allowedUserID, since)
-	if err != nil {
-		slog.Error("Error getting BP readings", "error", err)
-		msgConfig.Text = "❌ Error retrieving blood pressure history."
-		return
-	}
-
-	if len(readings) == 0 {
-		msgConfig.Text = "📈 Blood Pressure History (last 10):\n\nNo records for the last 30 days."
-		return
-	}
-
-	// Limit to 10
-	if len(readings) > 10 {
-		readings = readings[:10]
-	}
-
-	var sb strings.Builder
-	sb.WriteString("📈 Blood Pressure History (last 10):\n\n")
-
-	for _, bp := range readings {
-		dateStr := bp.MeasuredAt.Format("02.01.2006 15:04")
-		pulseStr := ""
-		if bp.Pulse != nil {
-			pulseStr = fmt.Sprintf(", pulse %d", *bp.Pulse)
-		}
-		category := bp.Category
-		if category == "" {
-			category = domain.CalculateBPCategory(bp.Systolic, bp.Diastolic)
-		}
-		fmt.Fprintf(&sb, "%s — %d/%d%s 📊 %s\n", dateStr, bp.Systolic, bp.Diastolic, pulseStr, category)
-	}
-
-	msgConfig.Text = sb.String()
 }
 
 func (b *Bot) handleBPStatsCommand(msgConfig *tgbotapi.MessageConfig) {
@@ -1520,40 +1265,6 @@ The system will automatically calculate your weight trend over time.`
 	} else {
 		msgConfig.Text = fmt.Sprintf("✅ Weight recorded: %s\n📊 Trend: %s%s", primary, trendPrimary, trendInfo)
 	}
-}
-
-func (b *Bot) handleWeightHistoryCommand(msgConfig *tgbotapi.MessageConfig) {
-	since := time.Now().AddDate(0, 0, -30)
-	logs, err := b.weight.GetWeightLogs(context.Background(), b.allowedUserID, since)
-	if err != nil {
-		slog.Error("Error getting weight logs", "error", err)
-		msgConfig.Text = "❌ Error retrieving weight history."
-		return
-	}
-
-	if len(logs) == 0 {
-		msgConfig.Text = "📊 Weight History (last 10):\n\nNo records for the last 30 days."
-		return
-	}
-
-	// Limit to 10
-	if len(logs) > 10 {
-		logs = logs[:10]
-	}
-
-	var sb strings.Builder
-	sb.WriteString("📊 Weight History (last 10):\n\n")
-
-	for _, w := range logs {
-		dateStr := w.MeasuredAt.Format("02.01.2006 15:04")
-		trendStr := ""
-		if w.WeightTrend != nil {
-			trendStr = fmt.Sprintf(" (trend: %.1f kg)", *w.WeightTrend)
-		}
-		fmt.Fprintf(&sb, "%s — %.1f kg%s\n", dateStr, w.Weight, trendStr)
-	}
-
-	msgConfig.Text = sb.String()
 }
 
 func (b *Bot) handleGoalCommand(msg *tgbotapi.Message, msgConfig *tgbotapi.MessageConfig) {
