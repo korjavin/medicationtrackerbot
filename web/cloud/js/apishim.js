@@ -236,6 +236,10 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       const { settings: settingsBlock, features } = await settingsResponse();
       return { ...settingsBlock, features };
     },
+    // The firstrun overlay's completion POST. Cloud has no server-side
+    // settings row to flip (med-4pz.5 moves it into the vault); ack it so the
+    // overlay dismisses instead of erroring.
+    'POST /api/firstrun/complete': async () => ({ success: true }),
     'GET /api/bp/reminder/status': async () => reminders.getBPStatus(),
     'GET /api/weight/reminder/status': async () => reminders.getWeightStatus(),
   };
@@ -623,14 +627,10 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     }
 
     console.warn(`[cloud shim] unmapped route (C2 discovery): ${method} ${path}`);
-    // A thrown non-GET is turned into a blocking "Error:" alert by api.js
-    // (apiCall catch → safeAlert). Writes the always-visible Settings surface
-    // can still reach an unmapped route from — the Test-BP button
-    // (POST /api/bp/reminder/test), journey targets (unported, C2d) — guard a
-    // falsy result and revert or no-op honestly. So resolve null for writes to
-    // a not-yet-wired route instead of alerting the user; reads keep throwing
-    // so apiCall's offline/empty-state handling is unchanged.
-    if (method !== 'GET') return null;
+    // Unmapped writes throw like unmapped reads. Resolving null here used to
+    // make every unshimmed write (Test-BP, journey targets) look like it
+    // succeeded while doing nothing; a thrown error routes into the caller's
+    // existing failure path (api.js apiCall → safeAlert / toast) instead.
     throw apiError(404, `Not found: ${method} ${path}`);
   }
 
