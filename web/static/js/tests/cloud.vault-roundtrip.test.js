@@ -168,6 +168,85 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(day8.day).toBe('2026-07-08');
   });
 
+  // med-9z3.6 — 57% of a real vault is per-minute HR/SpO2/stress the UI can never
+  // display: vitals.js renders HOURLY buckets over a 7d/30d window. Beyond 60d
+  // (a month of margin on that window) samples are collapsed to one per UTC hour.
+  describe('downsamples vitals older than 60d to hourly averages', () => {
+    const wrap = (heart, stress = []) => ({
+      format: 'medtracker-vault', version: 1, data: { vitals: { heart, stress } },
+    });
+    const hrOf = (records, day) => records.find((r) => r.recordId === `hrsample-${day}`).samples;
+    const sample = (date_time, value) => ({ date_time, tz_offset: 7200, value });
+
+    it('collapses an old hour to one sample at the hour start, value = round(mean)', () => {
+      // 2026-01-01 is >60d before NOW (2026-07-08). Three samples in hour 09.
+      const records = vaultToRecords(wrap([
+        sample('2026-01-01T09:05:00Z', 60),
+        sample('2026-01-01T09:35:00Z', 61),
+        sample('2026-01-01T09:55:00Z', 62),
+        sample('2026-01-01T10:05:00Z', 80),
+      ]), { now: NOW });
+      expect(hrOf(records, '2026-01-01')).toEqual([
+        { date_time: '2026-01-01T09:00:00Z', tz_offset: 7200, value: 61 },
+        { date_time: '2026-01-01T10:00:00Z', tz_offset: 7200, value: 80 },
+      ]);
+    });
+
+    it('leaves samples inside the 60d window at full resolution', () => {
+      const recent = new Date(NOW - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 11);
+      const records = vaultToRecords(wrap([
+        sample(`${recent}09:05:00Z`, 60),
+        sample(`${recent}09:35:00Z`, 70),
+      ]), { now: NOW });
+      const day = new Date(NOW - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      expect(hrOf(records, day).map((s) => s.value)).toEqual([60, 70]);
+    });
+
+    it('is a fixed point: re-importing a cloud export does not drift', () => {
+      const original = wrap([
+        sample('2026-01-01T09:05:00Z', 60),
+        sample('2026-01-01T09:35:00Z', 61),
+        sample('2026-01-01T09:55:00Z', 62),
+      ]);
+      const once = recordsToVault(vaultToRecords(original, { now: NOW }), { now: NOW });
+      const twice = recordsToVault(vaultToRecords(once, { now: NOW }), { now: NOW });
+      expect(twice.data.vitals.heart).toEqual(once.data.vitals.heart);
+    });
+
+    it('reproduces the exact hourly buckets vitals.js would have computed from raw samples', () => {
+      // The whole justification: bucketVitals floors to the UTC hour and averages,
+      // so averaging into UTC hours at import loses nothing the UI could show.
+      const raw = [
+        sample('2026-01-01T09:05:00Z', 60),
+        sample('2026-01-01T09:35:00Z', 61),
+        sample('2026-01-01T09:55:00Z', 65),
+      ];
+      const [only] = hrOf(vaultToRecords(wrap(raw), { now: NOW }), '2026-01-01');
+      const rawAvg = Math.trunc(raw.reduce((a, s) => a + s.value, 0) / raw.length);
+      expect(only.value).toBe(rawAvg); // 186/3 = 62 exactly
+      expect(Date.parse(only.date_time) % (60 * 60 * 1000)).toBe(0);
+    });
+
+    it("drops the stress `info` label beyond the cutoff (a text label has no mean)", () => {
+      const records = vaultToRecords(wrap([], [
+        { date_time: '2026-01-01T09:05:00Z', tz_offset: 7200, value: 30, info: 'relaxed' },
+        { date_time: '2026-01-01T09:45:00Z', tz_offset: 7200, value: 40, info: 'normal' },
+      ]), { now: NOW });
+      const s = records.find((r) => r.recordId === 'stresssample-2026-01-01').samples;
+      expect(s).toEqual([{ date_time: '2026-01-01T09:00:00Z', tz_offset: 7200, value: 35 }]);
+    });
+
+    it('does not downsample when the caller supplies no clock', () => {
+      // nowMs 0 => negative cutoff => everything fresh. A caller that cannot say
+      // when "now" is must not silently collapse the history.
+      const records = vaultToRecords(wrap([
+        sample('2026-01-01T09:05:00Z', 60),
+        sample('2026-01-01T09:35:00Z', 61),
+      ]));
+      expect(hrOf(records, '2026-01-01').map((s) => s.value)).toEqual([60, 61]);
+    });
+  });
+
   it('every produced record type is vault-managed (preserving nk/plumbing on import is the shell shim job)', () => {
     const records = vaultToRecords(fixture, { now: NOW });
     for (const r of records) expect(VAULT_MANAGED_TYPES.has(r.recordType)).toBe(true);
