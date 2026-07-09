@@ -208,4 +208,64 @@ describe('cloud shim contract — food products flows (features/food/{products,d
         expect(fetchSpy.mock.calls[0][0]).toBe('https://fooddb.example.test/api/v1/food/barcode/12345678');
         expect(results).toEqual([expect.objectContaining({ name: 'Barcode Product', barcode: '12345678' })]);
     });
+
+    // med-1j1: a fresh cloud account has no BYO food URL, and if the operator
+    // never set CLOUD_FOOD_DB_URL there is no remote DB at all. fooddb.js's
+    // search() then returns [] and the old UI rendered that as "no results",
+    // so the user blamed the search. The UI must name the real cause.
+    describe('no food DB configured (med-1j1)', () => {
+        it('CloudFoodSearch.remoteConfigured is false with no vault URL and no operator meta tag', async () => {
+            const { window } = env;
+            window.__MEDTRACKER_CLOUD__ = true;
+            vi.stubGlobal('document', window.document);
+            // The harness DOM carries no <meta name="medtracker-food-db-url">.
+            expect(window.document.querySelector('meta[name="medtracker-food-db-url"]')).toBeNull();
+
+            expect(await window.CloudFoodSearch.remoteConfigured()).toBe(false);
+            expect(await window.CloudFoodSearch.search('yogurt', { remote: true })).toEqual([]);
+        });
+
+        it('the search UI says "Food database not configured" instead of reporting zero results', async () => {
+            const { window } = env;
+            window.__MEDTRACKER_CLOUD__ = true;
+            vi.stubGlobal('document', window.document);
+            vi.useFakeTimers();
+            try {
+                window.document.getElementById('food-name').value = 'yogurt';
+                window.onFoodNameChange();
+                await vi.runAllTimersAsync();
+
+                const status = window.document.getElementById('food-search-status');
+                expect(status.textContent).toBe('Food database not configured. Add one in Settings → Integrations.');
+                expect(status.classList.contains('error')).toBe(true);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('once a food DB is configured the UI searches it and never shows the not-configured message', async () => {
+            const { window } = env;
+            window.__MEDTRACKER_CLOUD__ = true;
+            vi.stubGlobal('document', window.document);
+            await window.apiCall('/api/settings/integrations', 'PATCH', {
+                food: { url: 'https://fooddb.example.test' }
+            });
+            vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+                ok: true,
+                async json() { return { results: [{ name: 'Remote Yogurt', carbs: 12, protein: 9, fat: 2, kcal100g: 105 }] }; }
+            }));
+            vi.useFakeTimers();
+            try {
+                window.document.getElementById('food-name').value = 'yogurt';
+                window.onFoodNameChange();
+                await vi.runAllTimersAsync();
+
+                const status = window.document.getElementById('food-search-status');
+                expect(status.textContent).not.toMatch(/not configured/);
+                expect(status.textContent).toMatch(/Found 1 result/);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+    });
 });

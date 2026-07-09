@@ -104,8 +104,9 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   });
   const intake = createIntakeDomain({ records, now, timeZone });
   const tzplan = createTzPlanDomain({ records, now, timeZone });
+  const foodDb = createFoodDbClient({ settingsDomain: settings });
   const food = createFoodDomain({
-    records, now, timeZone, foodDb: createFoodDbClient({ settingsDomain: settings }),
+    records, now, timeZone, foodDb,
   });
   const foodAI = createFoodAIDomain({
     aiClient: createAIClient({ settingsDomain: settings }), foodDomain: food, now,
@@ -117,7 +118,10 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // shimCall route table below: the AI provider call and the food-DB search
   // both go straight from the browser, never through any /api surface.
   targetWindow.CloudFoodAI = foodAI;
-  targetWindow.CloudFoodSearch = { search: food.search };
+  // remoteConfigured lets products.js distinguish "no food DB configured" from
+  // "no matches" — without it an unconfigured operator renders as an empty
+  // result set and the user blames the search (med-1j1).
+  targetWindow.CloudFoodSearch = { search: food.search, remoteConfigured: foodDb.remoteConfigured };
   // Voice: elevenlabs-call.js's fetchSignedURL() branches on
   // window.__MEDTRACKER_CLOUD__ to mint the signed URL browser-direct here
   // (BYO ElevenLabs key from the vault; never crosses /api).
