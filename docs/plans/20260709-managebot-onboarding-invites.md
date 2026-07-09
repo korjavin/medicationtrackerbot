@@ -138,22 +138,22 @@ a reasonable starting point and are reused where sound.
 
 ### Task 3: Managebot replies to ordinary private messages
 
-- [ ] in `ManagerWebhook`'s `!ok` branch (`telegram.go:253-258`), before the existing log-and-200, call a new
+- [x] in `ManagerWebhook`'s `!ok` branch (`telegram.go:253-258`), before the existing log-and-200, call a new
       `t.handleManagerMessage(r.Context(), upd)` when `upd.Message != nil`
-- [ ] `handleManagerMessage` returns early (leaving today's log-and-drop) unless
+- [x] `handleManagerMessage` returns early (leaving today's log-and-drop) unless
       `upd.Message.Chat.Type == "private"` **and** `upd.Message.From != nil` **and** `!upd.Message.From.IsBot`
-- [ ] compute `creator := "tg:" + strconv.FormatInt(upd.Message.From.ID, 10)`; add the `ponytail:` comment
+- [x] compute `creator := "tg:" + strconv.FormatInt(upd.Message.From.ID, 10)`; add the `ponytail:` comment
       explaining the overloaded column (TEXT, no FK, cannot collide with account ids or NULL admin mints) and
       naming the upgrade path (a `tg_invite_mints` table if a second non-account minter appears)
-- [ ] if `HasClaimedAccountCreatedBy(creator)` → reply that they already have an account and should unlock it
+- [x] if `HasClaimedAccountCreatedBy(creator)` → reply that they already have an account and should unlock it
       with their passkey; **return without minting**
-- [ ] classify `strings.TrimSpace(strings.ToLower(text))`:
+- [x] classify `strings.TrimSpace(strings.ToLower(text))`:
       affirmative (`yes`, `y`, `yeah`, `yep`, `sure`, `ok`, `okay`) → mint path;
       greeting/help (`/start`, `hi`, `hello`, `help`) → explain + offer;
       anything else → a one-line nudge that says how to ask for an invite
-- [ ] every `SendMessage` error is logged with `slog.Error(..., "error", err)` and swallowed; the handler still
+- [x] every `SendMessage` error is logged with `slog.Error(..., "error", err)` and swallowed; the handler still
       returns 200 (a non-200 makes Telegram retry the update)
-- [ ] add a `ponytail:` comment where the mint happens noting there is no `update_id` dedupe, and that the
+- [x] add a `ponytail:` comment where the mint happens noting there is no `update_id` dedupe, and that the
       already-connected gate + daily cap bound a replay to at most the daily quota
 
 ### Task 4: Rate limit — 3 invites per Telegram user per 24h (bd med-bc9)

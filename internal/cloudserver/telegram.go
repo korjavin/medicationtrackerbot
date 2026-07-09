@@ -11,10 +11,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"os"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -261,6 +262,9 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	botID, botUsername, userID, ok := upd.ManagedBotCreatedInfo()
 	if !ok {
+		if upd.Message != nil {
+			t.handleManagerMessage(r.Context(), upd.Message)
+		}
 		slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID)
 		w.WriteHeader(http.StatusOK)
 		return
@@ -373,6 +377,91 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("telegram managed bot provisioned", "account", accountID, "bot_username", botUsername)
 	w.WriteHeader(http.StatusOK)
+}
+
+// Onboarding copy the managebot sends in a private chat. Server constants, like
+// welcomeMessage/testMessage.
+const (
+	onboardingOfferMessage = "👋 I help you set up your own personal health-tracking bot — medications, " +
+		"blood pressure, weight, food and vitals, all yours.\n\n" +
+		"Want me to create an account for you? Just reply “yes”."
+	onboardingNudgeMessage   = "Reply “yes” and I'll send you a link to set up your personal health-tracking bot."
+	onboardingClaimedMessage = "You already have a Med Tracker account. Open your subdomain and unlock it with your passkey — " +
+		"I can't create a second one for you."
+	onboardingMintFailMessage = "Sorry, I couldn't create your account just now. Please try again in a few minutes."
+)
+
+// affirmatives / greetings classify the one-word replies this conversation
+// expects. Anything else gets the nudge.
+var (
+	affirmatives = map[string]bool{"yes": true, "y": true, "yeah": true, "yep": true, "sure": true, "ok": true, "okay": true}
+	greetings    = map[string]bool{"/start": true, "hi": true, "hello": true, "help": true}
+)
+
+// handleManagerMessage runs the onboarding conversation for an ordinary private
+// message to the managebot: explain, offer, and on agreement mint an invite.
+// Every failure is logged and swallowed — the caller always answers 200, because
+// a non-200 makes Telegram retry the update (and retrying a mint is worse than
+// dropping a reply).
+func (t *TelegramAPI) handleManagerMessage(ctx context.Context, msg *tgclient.Message) {
+	if msg.Chat.Type != "private" || msg.From == nil || msg.From.IsBot {
+		return
+	}
+	// ponytail: accounts.created_by_account_id is overloaded — it is TEXT with no
+	// FK, so a "tg:"-prefixed Telegram user id cannot collide with a real account
+	// id (never prefixed) nor with admin-CLI mints (NULL). One column then carries
+	// provenance, the daily cap, and the already-connected check, with no new
+	// table. Promote to a tg_invite_mints table if a second non-account minter
+	// ever needs provenance.
+	creator := "tg:" + strconv.FormatInt(msg.From.ID, 10)
+
+	claimed, err := t.store.HasClaimedAccountCreatedBy(ctx, creator)
+	if err != nil {
+		slog.Error("telegram manager message: claimed check", "error", err)
+		return
+	}
+	if claimed {
+		t.reply(ctx, msg.Chat.ID, onboardingClaimedMessage)
+		return
+	}
+
+	switch text := strings.TrimSpace(strings.ToLower(msg.Text)); {
+	case affirmatives[text]:
+		t.mintInvite(ctx, msg.Chat.ID, creator)
+	case greetings[text]:
+		t.reply(ctx, msg.Chat.ID, onboardingOfferMessage)
+	default:
+		t.reply(ctx, msg.Chat.ID, onboardingNudgeMessage)
+	}
+}
+
+// mintInvite provisions a fresh unclaimed account attributed to creator and
+// replies with its claim link.
+func (t *TelegramAPI) mintInvite(ctx context.Context, chatID int64, creator string) {
+	t.mintMu.Lock()
+	defer t.mintMu.Unlock()
+
+	// ponytail: no update_id dedupe anywhere in this codebase, so a Telegram
+	// retry of a "yes" mints again. The already-connected gate above plus the
+	// daily cap bound a replay to the daily quota of empty accounts; a dedupe
+	// table isn't worth it. We also can't re-send a pending invite's link — the
+	// token is hash-only at rest — so a user with a live unclaimed invite who
+	// asks again just gets a fresh one and the old one expires on its own.
+	inv, err := Provision(ctx, t.store, t.claimTTL, time.Now().UTC(), creator)
+	if err != nil {
+		slog.Error("telegram manager message: provision invite", "error", err, "creator", creator)
+		t.reply(ctx, chatID, onboardingMintFailMessage)
+		return
+	}
+	t.reply(ctx, chatID, "🎉 Your account is ready. Open this link and set it up with a passkey:\n\n"+
+		inv.ClaimURL(t.baseDomain)+"\n\nThe link is personal and expires — open it on the device you'll use.")
+}
+
+// reply sends a managebot message, logging and swallowing failures.
+func (t *TelegramAPI) reply(ctx context.Context, chatID int64, text string) {
+	if err := t.manager.SendMessage(ctx, chatID, text); err != nil {
+		slog.Error("telegram manager message: send reply", "error", err, "chat_id", chatID)
+	}
 }
 
 // ChildWebhook receives a linked bot's updates. It loads the bot addressed by
