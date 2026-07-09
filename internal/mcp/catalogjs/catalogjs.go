@@ -7,6 +7,10 @@
 // checked-in file. See docs/plans/20260710-cloud-mcp-catalog-codegen.md.
 package catalogjs
 
+// Paths are relative to this package dir; from the repo root it is just
+// `go run ./cmd/genmcpcatalog`.
+//go:generate go run ../../../cmd/genmcpcatalog -out ../../../web/cloud/js/mcp-catalog.generated.js
+
 import (
 	"bytes"
 	"encoding/json"
