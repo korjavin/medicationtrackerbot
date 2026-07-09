@@ -16,8 +16,44 @@ import {
   toBase64,
 } from './crypto.js';
 
+const EXPIRED_LINK_MESSAGE = 'Could not start passkey registration — the invite link may be expired.';
+
+// Probe register/begin before rendering: a claimed link must never show
+// "Create your passkey". The probe's challenge cookie is harmlessly overwritten
+// when the user clicks through and startRegistration calls begin again.
 export async function runSignupWizard(claimToken) {
-  renderWelcome(document.getElementById('app'), claimToken);
+  const app = document.getElementById('app');
+  let res;
+  try {
+    res = await beginRegistration(claimToken);
+  } catch (err) {
+    renderWelcome(app, claimToken, err.message || String(err));
+    return;
+  }
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}));
+    if (body.error === 'already_claimed') {
+      renderAlreadyClaimed(app);
+      return;
+    }
+  }
+  renderWelcome(app, claimToken, res.ok ? undefined : EXPIRED_LINK_MESSAGE);
+}
+
+function beginRegistration(claimToken) {
+  return fetch('/api/webauthn/register/begin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ claim_token: claimToken }),
+  });
+}
+
+function renderAlreadyClaimed(app) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>This invite has already been claimed</h1>
+      <p>Unlock your vault with the passkey you already created.</p>
+    </section>`;
 }
 
 function renderWelcome(app, claimToken, errorText) {
@@ -44,12 +80,8 @@ function renderWelcome(app, claimToken, errorText) {
 }
 
 async function startRegistration(app, claimToken) {
-  const beginRes = await fetch('/api/webauthn/register/begin', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ claim_token: claimToken }),
-  });
-  if (!beginRes.ok) throw new Error('Could not start passkey registration — the invite link may be expired.');
+  const beginRes = await beginRegistration(claimToken);
+  if (!beginRes.ok) throw new Error(EXPIRED_LINK_MESSAGE);
   const { publicKey } = await beginRes.json();
   const creationOptions = PublicKeyCredential.parseCreationOptionsFromJSON(publicKey);
 

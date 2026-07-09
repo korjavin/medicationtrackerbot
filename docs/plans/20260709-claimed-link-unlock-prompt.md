@@ -123,16 +123,17 @@ Dependencies identified: none new. No migration, no new HTTP route, no new npm/G
 
 ### Task 2: Signup wizard probes claim state before rendering
 
-- [ ] in `web/cloud/js/signup.js`, change `runSignupWizard(claimToken)` to `await` a probe of
+- [x] in `web/cloud/js/signup.js`, change `runSignupWizard(claimToken)` to `await` a probe of
       `POST /api/webauthn/register/begin` (same body shape as `startRegistration`: `{ claim_token: claimToken }`)
       before rendering anything
-- [ ] on `res.status === 409` with a body whose `error === 'already_claimed'` → `renderAlreadyClaimed(app)`
-- [ ] on `res.ok` → `renderWelcome(document.getElementById('app'), claimToken)` exactly as today (the probe's
+- [x] on `res.status === 409` with a body whose `error === 'already_claimed'` → `renderAlreadyClaimed(app)`
+      (minimal screen added here; Task 3 fleshes out copy + unlock hand-off)
+- [x] on `res.ok` → `renderWelcome(document.getElementById('app'), claimToken)` exactly as today (the probe's
       challenge cookie is harmlessly overwritten when the user clicks "Create your passkey" and `startRegistration`
       calls begin again — see Design decisions)
-- [ ] on any other non-OK status (incl. `403`) → `renderWelcome(app, claimToken, <existing expired-link message>)`
+- [x] on any other non-OK status (incl. `403`) → `renderWelcome(app, claimToken, <existing expired-link message>)`
       so today's expired-link behavior is preserved
-- [ ] if the probe itself throws (network/offline) → `renderWelcome(app, claimToken, err.message)`, matching the
+- [x] if the probe itself throws (network/offline) → `renderWelcome(app, claimToken, err.message)`, matching the
       existing failure affordance rather than leaving `#app` blank
 
 ### Task 3: The "already claimed" screen
