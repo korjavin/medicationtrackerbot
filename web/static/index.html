@@ -450,6 +450,22 @@
                 </div>
             </section>
 
+            <section class="wg-card wg-settings-section wg-settings-cloud-invite wg-settings-hidden">
+                <h3 class="wg-settings-section__title">Invite a friend</h3>
+                <p class="wg-settings-section__desc">Create a personal account for someone you know</p>
+                <div class="wg-settings-row-list">
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Invite a friend</div>
+                            <div class="wg-settings-row__desc">Up to 100 invites per month</div>
+                        </div>
+                        <div class="wg-settings-row__control">
+                            <button type="button" id="settings-invite-btn" class="wg-gloss wg-settings-action-btn">Invite</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <section id="oidc-setup-container" class="wg-card wg-settings-section wg-settings-oidc"></section>
 
             <section class="wg-card wg-settings-section">
@@ -944,6 +960,29 @@
         </div>
         <div class="wg-backend-logs-modal__body">
             <pre id="backend-logs-output" class="wg-mono-display wg-backend-logs-modal__output"></pre>
+        </div>
+    </mt-modal>
+
+    <!-- Cloud-mode invite claim link (minted by POST /api/invite). The claim
+         token lives only in the URL fragment shown here — never persisted. -->
+    <mt-modal id="invite-modal" class="hidden wg-modal wg-invite-modal">
+        <div class="wg-invite-modal__header">
+            <div class="wg-invite-modal__heading">
+                <span class="wg-section-label wg-invite-modal__eyebrow">Invite</span>
+                <span class="wg-mono-display wg-invite-modal__title">Share this link</span>
+            </div>
+            <div class="wg-invite-modal__header-actions">
+                <button type="button" id="invite-close-btn"
+                    class="wg-gloss wg-invite-modal__header-btn">Close</button>
+            </div>
+        </div>
+        <div class="wg-invite-modal__body">
+            <div id="invite-qr" class="wg-invite-modal__qr"></div>
+            <div class="wg-gloss--inset wg-invite-modal__url-wrap">
+                <span id="invite-claim-url" class="wg-mono-display wg-invite-modal__url"></span>
+            </div>
+            <button type="button" id="invite-copy-btn" class="wg-gloss wg-settings-action-btn">Copy link</button>
+            <p class="wg-invite-modal__note">The link works once and expires — send it directly to your friend.</p>
         </div>
     </mt-modal>
 

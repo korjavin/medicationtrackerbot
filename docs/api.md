@@ -99,6 +99,14 @@ All routes gate on the `gamification_enabled` flag in the service layer: when of
 | GET | `/api/food/search` | Same-origin proxy for the operator default `CLOUD_FOOD_DB_URL` (bypasses browser CORS requirements) |
 | GET | `/api/food/barcode/{barcode}` | Same-origin proxy for the operator default `CLOUD_FOOD_DB_URL` |
 
+## Cloud Mode Invites (`cmd/cloud` only)
+
+Session-authed endpoint served on the account subdomain by `cmd/cloud` (see [cloud-mode.md → User-mintable invites](cloud-mode.md#user-mintable-invites)). Not present in the server build.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/invite` | Mint an invite for a friend. Provisions an unclaimed account (subdomain + one-time claim token + VAPID keypair) with the caller recorded in `accounts.created_by_account_id`, and returns `{"subdomain": "sunny-vole-abc123", "claim_url": "https://sunny-vole-abc123.<base>/#claim=<64-hex>", "expires_at": "<RFC3339>"}`. The claim token appears only here — the store holds its hash. Quota is 100 per account per rolling 30 days, counted from the DB (so it survives restarts, and an expired unclaimed invite frees its slot); over quota: `429 {"error":"invite limit reached","limit":100,"window_days":30}`. |
+
 ## Cloud Mode Telegram (`cmd/cloud` only)
 
 Session-authed endpoints served on the account subdomain by `cmd/cloud` (see [cloud-mode.md → Telegram](cloud-mode.md#telegram-optional-byo-bot-token)). Not present in the server build.

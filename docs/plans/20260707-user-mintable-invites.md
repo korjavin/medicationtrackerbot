@@ -44,37 +44,37 @@
 ## Implementation Steps
 
 ### Task 1: Store — invite provenance + quota count
-- [ ] add `internal/cloudstore/migrations/010_invite_provenance.sql`: `ALTER TABLE accounts ADD COLUMN created_by_account_id TEXT` + index on `(created_by_account_id, created_at_unix)`
-- [ ] extend `cloudstore.Repo.CreateAccount` with a `createdBy string` param (empty → stored NULL); update the `Account` struct and scan sites
-- [ ] add `cloudstore.Repo.CountAccountsCreatedBy(ctx, accountID string, since time.Time) (int, error)`
-- [ ] update all `CreateAccount` callers (admin CLI, tests) to pass `""`
+- [x] add `internal/cloudstore/migrations/010_invite_provenance.sql`: `ALTER TABLE accounts ADD COLUMN created_by_account_id TEXT` + index on `(created_by_account_id, created_at_unix)`
+- [x] extend `cloudstore.Repo.CreateAccount` with a `createdBy string` param (empty → stored NULL); ➕ no `Account` struct field / scan-site change — nothing reads the column back, `CountAccountsCreatedBy` is the only consumer (add the field when a reader appears)
+- [x] add `cloudstore.Repo.CountAccountsCreatedBy(ctx, accountID string, since time.Time) (int, error)`
+- [x] update all `CreateAccount` callers (`Provision`, tests) to pass `""`
 
 ### Task 2: Provision plumbing
-- [ ] add `createdBy string` param to `cloudserver.Provision` (threaded into `CreateAccount`); admin CLI passes `""`
-- [ ] update `provisionStore` interface + existing provision tests accordingly
+- [x] add `createdBy string` param to `cloudserver.Provision` (threaded into `CreateAccount`); admin CLI passes `""`
+- [x] update `provisionStore` interface + existing provision tests accordingly; ➕ interface already carried `createdBy` from Task 1, so only the `Provision` signature + call sites changed; no fake `provisionStore` exists (tests use the real repo)
 
 ### Task 3: `POST /api/invite` endpoint
-- [ ] create `internal/cloudserver/invite.go`: `InviteAPI{store, sessionSecret, baseDomain, claimTTL}` with `RegisterRoutes(mux)` registering `POST /api/invite` behind `RequireSession` (follow `device.go` shape)
-- [ ] handler: read `Session.AccountID` from context; `CountAccountsCreatedBy(accountID, now-30d)`; if ≥ 100 → `429` with JSON error incl. quota info; else `Provision(..., accountID)` and respond `{subdomain, claim_url, expires_at}` (claim_url via `Invite.ClaimURL(baseDomain)`)
-- [ ] hardcode the limit as `const inviteMonthlyQuota = 100` — ponytail: env-var knob only if someone actually asks
-- [ ] wire `InviteAPI` into the api mux in `cmd/cloud/main.go` (pass `cfg.baseDomain`, `cfg.claimTTL`)
-- [ ] integration test `internal/cloudserver/invite_test.go`: no session → 401; with session → 200 + claim_url matches `https://<sub>.<base>/#claim=<hex>` and account row has creator set; seed quota-many creations → 429
+- [x] create `internal/cloudserver/invite.go`: `InviteAPI{store, sessionSecret, baseDomain, claimTTL}` with `RegisterRoutes(mux)` registering `POST /api/invite` behind `RequireSession` (follow `device.go` shape)
+- [x] handler: read `Session.AccountID` from context; `CountAccountsCreatedBy(accountID, now-30d)`; if ≥ 100 → `429` with JSON error incl. quota info; else `Provision(..., accountID)` and respond `{subdomain, claim_url, expires_at}` (claim_url via `Invite.ClaimURL(baseDomain)`)
+- [x] hardcode the limit as `const inviteMonthlyQuota = 100` — ponytail: env-var knob only if someone actually asks
+- [x] wire `InviteAPI` into the api mux in `cmd/cloud/main.go` (pass `cfg.baseDomain`, `cfg.claimTTL`)
+- [x] integration test `internal/cloudserver/invite_test.go`: no session → 401; with session → 200 + claim_url matches `https://<sub>.<base>/#claim=<hex>` and account row has creator set; seed quota-many creations → 429; ➕ provenance asserted via `CountAccountsCreatedBy` (no `Account` reader field exists, per Task 1)
 
 ### Task 4: Settings UI — invite row + claim modal with QR
-- [ ] add a hidden `.wg-settings-cloud-invite` row ("Invite a friend") to the settings markup, revealed in cloud mode next to the existing `.wg-settings-cloud-devices` reveal in `web/static/js/features/settings.js`
-- [ ] on tap: `POST /api/invite`; on 429 show a friendly "monthly invite limit reached" toast; on success open a modal showing the claim URL (copy button) + QR SVG via `const { qrcode } = await import('/vendor/qrcode.mjs')` (same usage as `web/cloud/js/transfer.js`)
-- [ ] styling via existing `--wg-*` tokens / classes only (repo rule 3); reuse the `kit-qr` treatment if the classes are reachable, otherwise add a token-based class
-- [ ] Vitest: extend the settings feature suite — cloud ctx present → row visible, tap → mocked 200 renders modal with claim URL + QR svg; mocked 429 → limit toast; no cloud ctx → row hidden
+- [x] add a hidden `.wg-settings-cloud-invite` row ("Invite a friend") to the settings markup, revealed in cloud mode next to the existing `.wg-settings-cloud-devices` reveal in `web/static/js/features/settings.js`
+- [x] on tap: `POST /api/invite`; on 429 show a friendly "monthly invite limit reached" toast; on success open a modal showing the claim URL (copy button) + QR SVG; ➕ the fetch is a plain `fetch()`, not `apiCall()` — the cloud apiCall shim 404s any route it doesn't own; ➕ the QR import goes through a bare `loadQrcodeModule()` global (same test seam as `loadCloudPushModule`)
+- [x] styling via existing `--wg-*` tokens / classes only (repo rule 3); ➕ `kit-qr` is shell-only CSS, and `.wg-modal` needs no per-modal CSS (see `wg-backend-logs-modal`), so the invite modal ships with zero new CSS
+- [x] Vitest: extend the settings feature suite — cloud ctx present → row visible, tap → mocked 200 renders modal with claim URL + QR svg; mocked 429 → limit toast; no cloud ctx → row hidden
 
 ### Task 5: Verify acceptance criteria
-- [ ] verify: mint works from an account subdomain session, quota enforced at 100/30d, admin CLI invite unaffected, QR + copy shown
-- [ ] `go test ./...` passes
-- [ ] `pnpm test` passes
-- [ ] run linters if configured (`go vet ./...`)
+- [x] verify: mint works from an account subdomain session, quota enforced at 100/30d, admin CLI invite unaffected, QR + copy shown — covered by `TestInviteAPI_Contract` (401 / 200 + claim-URL regex + provenance / 429), `cmd/cloud/admin.go:92` still passing `""` to `Provision`, and the three settings-suite cases (row hidden outside cloud, mint → modal with claim URL + QR svg, 429 → limit toast)
+- [x] `go test ./...` passes
+- [x] `pnpm test` passes (278 files, 2967 tests; needed `pnpm install` first in a fresh worktree)
+- [x] run linters if configured (`go vet ./...`) — clean
 
 ### Task 6: [Final] Update documentation
-- [ ] add "User-mintable invites" subsection to `docs/cloud-mode.md` (endpoint, quota semantics, provenance column)
-- [ ] mention the new endpoint in `docs/api.md` if cloud endpoints are catalogued there
+- [x] add "User-mintable invites" subsection to `docs/cloud-mode.md` (endpoint, quota semantics, provenance column)
+- [x] mention the new endpoint in `docs/api.md` if cloud endpoints are catalogued there — new "Cloud Mode Invites" section alongside the existing Telegram / Trial Proxy cloud-only tables
 
 ## Technical Details
 - Response shape: `{"subdomain": "sunny-vole-abc123", "claim_url": "https://sunny-vole-abc123.<base>/#claim=<64-hex>", "expires_at": "<RFC3339>"}`

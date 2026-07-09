@@ -22,7 +22,7 @@ import (
 func setupInvite(t *testing.T, store *cloudstore.Repo) (*cloudstore.Account, string) {
 	t.Helper()
 	now := time.Now().UTC()
-	inv, err := Provision(t.Context(), store, 14*24*time.Hour, now)
+	inv, err := Provision(t.Context(), store, 14*24*time.Hour, now, "")
 	if err != nil {
 		t.Fatalf("Provision: %v", err)
 	}

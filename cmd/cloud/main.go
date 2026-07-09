@@ -187,6 +187,7 @@ func main() {
 	transferAPI := cloudserver.NewTransferAPI(store, cfg.sessionSecret)
 	deviceAPI := cloudserver.NewDeviceAPI(store, cfg.sessionSecret)
 	recoveryAPI := cloudserver.NewRecoveryAPI(store)
+	inviteAPI := cloudserver.NewInviteAPI(store, cfg.sessionSecret, cfg.baseDomain, cfg.claimTTL)
 	syncAPI := cloudserver.NewSyncAPI(store, cfg.sessionSecret, cfg.accountQuotaBytes)
 	webPushSender := &cloudserver.WebPushSender{
 		Subject:    cfg.vapidSubject,
@@ -204,6 +205,7 @@ func main() {
 	transferAPI.RegisterRoutes(apiMux)
 	deviceAPI.RegisterRoutes(apiMux)
 	recoveryAPI.RegisterRoutes(apiMux)
+	inviteAPI.RegisterRoutes(apiMux)
 	syncAPI.RegisterRoutes(apiMux)
 	pushAPI.RegisterRoutes(apiMux)
 	mcpRelayAPI.RegisterRoutes(apiMux)

@@ -39,7 +39,7 @@ var ErrAccountsExhausted = fmt.Errorf("cloudserver: could not allocate a free su
 
 // provisionStore is the subset of *cloudstore.Repo Provision needs.
 type provisionStore interface {
-	CreateAccount(ctx context.Context, id, subdomain string, claimTokenHash []byte, claimExpiresAt, createdAt time.Time, vapidPublicKey, vapidPrivateKey string) (*cloudstore.Account, error)
+	CreateAccount(ctx context.Context, id, subdomain string, claimTokenHash []byte, claimExpiresAt, createdAt time.Time, vapidPublicKey, vapidPrivateKey, createdBy string) (*cloudstore.Account, error)
 	SweepExpiredClaims(ctx context.Context, now time.Time) (int, error)
 }
 
@@ -62,8 +62,9 @@ const maxSubdomainAttempts = 10
 // Provision pre-provisions a new unclaimed account: random account_id,
 // human-memorable subdomain, and a one-time claim token valid for ttl. It
 // opportunistically sweeps expired unclaimed invites first so stale
-// subdomains free up without a background job.
-func Provision(ctx context.Context, store provisionStore, ttl time.Duration, now time.Time) (*Invite, error) {
+// subdomains free up without a background job. createdBy records the account
+// that minted the invite (empty for admin-CLI invites).
+func Provision(ctx context.Context, store provisionStore, ttl time.Duration, now time.Time, createdBy string) (*Invite, error) {
 	if _, err := store.SweepExpiredClaims(ctx, now); err != nil {
 		return nil, fmt.Errorf("sweep expired claims: %w", err)
 	}
@@ -87,7 +88,7 @@ func Provision(ctx context.Context, store provisionStore, ttl time.Duration, now
 		if err != nil {
 			return nil, err
 		}
-		acc, err := store.CreateAccount(ctx, accountID, sub, tokenHash, now.Add(ttl), now, vapidPublic, vapidPrivate)
+		acc, err := store.CreateAccount(ctx, accountID, sub, tokenHash, now.Add(ttl), now, vapidPublic, vapidPrivate, createdBy)
 		if err == nil {
 			return &Invite{Account: acc, Token: token}, nil
 		}
