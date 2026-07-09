@@ -95,7 +95,7 @@ The claim link lands on a minimal, picture-first education wizard:
 
 Invites are not admin-only: any signed-in account can mint one for a friend from its own subdomain via `POST /api/invite` (session-authed, same host-routed `/api/*` mux as devices/sync/push). It runs the same `Provision()` path as `cloud admin invite` — server-assigned subdomain, one-time claim token, per-account VAPID keypair — and returns `{"subdomain", "claim_url", "expires_at"}`. The token exists only in that response body and travels in the claim URL's fragment; the store keeps only its hash. Settings → "Invite a friend" shows the claim URL with a copy button and a client-rendered QR code.
 
-**Quota: 100 invites per account per rolling 30 days**, counted in SQL, not memory — `accounts.created_by_account_id` (migration `010`, NULL for admin-CLI invites) records the minter, and the endpoint counts that account's rows with `created_at_unix` inside the window. Over quota: `429 {"error":"invite limit reached","limit":100,"window_days":30}`. Counting rows rather than mints means `SweepExpiredClaims` reaping an unclaimed invite gives the quota back — deliberate, since the limit is about *users* created, not links clicked. `ponytail:` a patient abuser can therefore recycle expired invites; swap in an append-only mint log if that ever happens.
+**Quota: 100 invites per account per rolling 30 days**, counted in SQL, not memory — `accounts.created_by_account_id` (migration `010`, NULL for admin-CLI invites) records the minter, and the endpoint counts that account's rows with `created_at_unix` inside the window. Over quota: `429 {"error":"invite limit reached","limit":100,"window_days":30}`. Counting rows rather than mints means `SweepExpiredClaims` reaping an unclaimed invite gives the quota back — deliberate, since the limit is about *users* created, not links clicked. `ponytail:` a patient abuser can therefore recycle expired invites; swap in an append-only mint log if that ever happens. Note that `created_by_account_id` also holds `tg:<uid>` rows minted by the managebot — not every value is an account id, see [Managebot onboarding](#managebot-onboarding--invites-over-chat).
 
 ## Operating the cloud — admin surface
 
@@ -182,6 +182,27 @@ Zero-knowledge server vs. a chat bot is a real tension: the bot must exchange pl
   4. **Apply in server-timestamp order** within a drain, and backdate records from the sealed server timestamp (not drain time) — that's what makes the 09:00 tap record 09:00.
 - **Free-text logging works through the same mailbox**: `/bp 120/80`, `/food two eggs`, `/weight 81.5` are sealed as raw text and parsed *client-side at drain time* by the same JS domain layer the app uses — including AI food parsing, since provider keys live in the vault and the drain runs on an unlocked client. The bot's immediate reply is necessarily generic ("saved — recorded next time you open the app"): the server can't confirm what it can't parse. Richer confirmation can arrive after drain, composed by the client (user-chosen verbosity).
 - **Not supported in cloud mode**: conversational queries ("what's my BP trend?") — answering requires reading data, which only clients can do; a live reply would need an online unlocked client anyway, at which point the user has the app open. That stays a server-mode feature.
+
+### Managebot onboarding — invites over chat
+
+The manager bot is also the front door: an ordinary private message to it starts an onboarding conversation (`handleManagerMessage`, `internal/cloudserver/telegram.go`), reached from `ManagerWebhook`'s "not a `managed_bot_created` update" branch. Group chats and messages from bots are ignored — a group adding the managebot must not trigger onboarding — and the handler always answers 200, logging and swallowing every reply/mint failure, because a non-200 makes Telegram retry the update.
+
+Flow, keyed on the sender's Telegram user id:
+
+```
+already claimed an account?  yes -> "you already have an account, unlock it with your passkey"   [no mint]
+                             no  -> "yes"/"ok"/…      -> mintMu | sweep | count(24h) >= 3 ? wait message : Provision -> claim URL
+                                    /start|hi|help    -> explain + offer
+                                    anything else     -> one-line nudge
+```
+
+**Provenance: `created_by_account_id` is overloaded.** A managebot mint stores `"tg:<telegram_user_id>"` in that column — do not read every value there as an account id. The column is `TEXT` with **no foreign key** (migration `010`), so three value shapes coexist: a real account id (user-mintable invites), `NULL` (admin-CLI invites), and `tg:<uid>` (managebot). They cannot collide — account ids are opaque and never carry a `tg:` prefix — so the 100/30d per-account quota above and the managebot's own counter are provably invisible to each other (asserted by `TestInviteQuotaIgnoresManagebotProvenance`). One column then serves provenance, the rate limit, and the already-connected check, with no migration and no new table. `ponytail:` promote to a `tg_invite_mints` table only if a second non-account minter ever needs provenance.
+
+**Quota: 3 invites per Telegram user per rolling 24 hours**, hardcoded (`managerInviteDailyQuota`), refused with a plain-language wait message. It mirrors `POST /api/invite` exactly: take `mintMu`, `SweepExpiredClaims`, *then* count — sweeping first because a user sitting at the cap never reaches `Provision`, so their own expired unclaimed invites would otherwise hold slots forever. An invite that expires unclaimed therefore frees a slot.
+
+**Already-connected check is a separate query, not the counter.** The sweep deletes expired *unclaimed* accounts, so a count cannot tell "claimed an account" from "has a pending invite". A claimed account has `claim_token_hash IS NULL` and survives the sweep — `HasClaimedAccountCreatedBy` tests exactly that. Without it, a returning user saying "yes" again would silently collect a second, empty account. A pending invite's link cannot be re-sent (the token is hash-only at rest), so a user with a live unclaimed invite who asks again gets a fresh one and the old one expires on its own.
+
+**No `update_id` dedupe** exists anywhere in this codebase, so a Telegram retry of a `"yes"` mints again. The blast radius is bounded by the two gates: a user who never claims can reach at most the daily quota of empty accounts (which then expire and sweep), and one who has claimed can mint nothing at all. `ponytail:` a dedupe table isn't worth that.
 
 ## BYO provider keys
 

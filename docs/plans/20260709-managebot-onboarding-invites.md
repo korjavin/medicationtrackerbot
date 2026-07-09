@@ -203,11 +203,11 @@ a reasonable starting point and are reused where sound.
 
 ### Task 7: [Final] Update documentation
 
-- [ ] `docs/cloud-mode.md`: document the managebot onboarding conversation, the `"tg:<uid>"` provenance
+- [x] `docs/cloud-mode.md`: document the managebot onboarding conversation, the `"tg:<uid>"` provenance
       convention, and the 3-per-user-per-day limit
-- [ ] note explicitly that `created_by_account_id` is overloaded and why (no FK, TEXT, prefixed), so the next
+- [x] note explicitly that `created_by_account_id` is overloaded and why (no FK, TEXT, prefixed), so the next
       reader does not treat every value as an account id
-- [ ] note the absence of `update_id` dedupe and what bounds a replay
+- [x] note the absence of `update_id` dedupe and what bounds a replay
 
 ## Technical Details
 
