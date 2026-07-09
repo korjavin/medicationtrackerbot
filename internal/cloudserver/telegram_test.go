@@ -195,6 +195,7 @@ type recordingTG struct {
 }
 
 type recordMu struct {
+	sync.Mutex
 	sent []string
 }
 
@@ -216,7 +217,9 @@ func newRecordingTG(t *testing.T) *recordingTG {
 			io.WriteString(w, `{"ok":true,"result":"555:CHILD"}`)
 		case "sendMessage":
 			b, _ := io.ReadAll(r.Body)
+			rec.mu.Lock()
 			rec.mu.sent = append(rec.mu.sent, string(b))
+			rec.mu.Unlock()
 			io.WriteString(w, `{"ok":true,"result":{}}`)
 		default:
 			io.WriteString(w, `{"ok":true,"result":{}}`)

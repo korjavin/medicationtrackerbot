@@ -426,7 +426,7 @@ func (t *TelegramAPI) handleManagerMessage(ctx context.Context, msg *tgclient.Me
 	// ponytail: accounts.created_by_account_id is overloaded — it is TEXT with no
 	// FK, so a "tg:"-prefixed Telegram user id cannot collide with a real account
 	// id (never prefixed) nor with admin-CLI mints (NULL). One column then carries
-	// provenance, the daily cap, and the already-connected check, with no new
+	// provenance, the live-invite cap, and the already-connected check, with no new
 	// table. Promote to a tg_invite_mints table if a second non-account minter
 	// ever needs provenance.
 	creator := "tg:" + strconv.FormatInt(msg.From.ID, 10)
