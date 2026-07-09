@@ -37,6 +37,7 @@ type config struct {
 	vapidSubject      string
 	dryQueueWarnHours time.Duration
 	foodDBURL         string
+	foodDBAPIKey      string
 	managerBotToken   string
 	tgAPIBaseURL      string
 	trial             cloudserver.TrialConfig
@@ -52,6 +53,7 @@ func loadConfig() (config, error) {
 		vapidSubject:      os.Getenv("VAPID_SUBJECT"),
 		dryQueueWarnHours: 120 * time.Hour,
 		foodDBURL:         os.Getenv("CLOUD_FOOD_DB_URL"),
+		foodDBAPIKey:      os.Getenv("CLOUD_FOOD_DB_API_KEY"),
 		managerBotToken:   os.Getenv("MANAGER_BOT_TOKEN"),
 		tgAPIBaseURL:      os.Getenv("CLOUD_TG_API_BASE_URL"),
 	}
@@ -198,7 +200,7 @@ func main() {
 	mcpRemoteAPI := cloudserver.NewMCPRemoteAPI(store, mcpRelayAPI, cfg.sessionSecret)
 	mcpRemoteAPI.Restore(context.Background())
 	trialProxyAPI := cloudserver.NewTrialProxyAPI(store, cfg.sessionSecret, cfg.trial)
-	foodProxyAPI := cloudserver.NewFoodProxyAPI(store, cfg.sessionSecret, cfg.foodDBURL)
+	foodProxyAPI := cloudserver.NewFoodProxyAPI(store, cfg.sessionSecret, cfg.foodDBURL, cfg.foodDBAPIKey)
 	apiMux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(apiMux)
 	envelopeAPI.RegisterRoutes(apiMux)

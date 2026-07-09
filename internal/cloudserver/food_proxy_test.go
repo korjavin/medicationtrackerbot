@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
 // newFoodTestHandlerAPI mirrors cmd/cloud/main.go's wiring for the food
 // proxy so the tests drive the real subdomain-routing + session + proxy
 // contract.
-func newFoodTestHandlerAPI(t *testing.T, dbURL string) (http.Handler, *FoodProxyAPI, string, string) {
+func newFoodTestHandlerAPI(t *testing.T, dbURL, dbAPIKey string) (http.Handler, *FoodProxyAPI, string, string) {
 	t.Helper()
 	store := setupStore(t)
 	account, claimToken := setupInvite(t, store)
@@ -18,7 +19,7 @@ func newFoodTestHandlerAPI(t *testing.T, dbURL string) (http.Handler, *FoodProxy
 	secret := "test-session-secret-at-least-32-bytes-long"
 
 	webauthnAPI := NewWebAuthnAPI(store, secret)
-	proxyAPI := NewFoodProxyAPI(store, secret, dbURL)
+	proxyAPI := NewFoodProxyAPI(store, secret, dbURL, dbAPIKey)
 	mux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(mux)
 	proxyAPI.RegisterRoutes(mux)
@@ -46,7 +47,7 @@ func TestFoodProxyAPI(t *testing.T) {
 	}))
 	defer mockDB.Close()
 
-	handler, _, host, claimToken := newFoodTestHandlerAPI(t, mockDB.URL)
+	handler, _, host, claimToken := newFoodTestHandlerAPI(t, mockDB.URL, "")
 	session := registerAndGetSession(t, handler, host, claimToken)
 
 	t.Run("Search routes correctly", func(t *testing.T) {
@@ -105,4 +106,77 @@ func TestFoodProxyAPI(t *testing.T) {
 			t.Errorf("Expected 401, got %d", w.Code)
 		}
 	})
+}
+
+// med-eas.39: the operator's real food DB is keyed. Without X-API-Key the
+// upstream 401s, so CLOUD_FOOD_DB_URL alone was never enough to make food
+// search work on a fresh cloud account.
+func TestFoodProxyForwardsOperatorAPIKey(t *testing.T) {
+	var gotKey string
+	var gotAuth string
+	mockDB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotKey = r.Header.Get("X-API-Key")
+		gotAuth = r.Header.Get("Authorization")
+		if gotKey != "operator-secret-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"results": [{"name": "Apple", "kcal100g": 52}]}`))
+	}))
+	defer mockDB.Close()
+
+	handler, _, host, claimToken := newFoodTestHandlerAPI(t, mockDB.URL, "operator-secret-key")
+	session := registerAndGetSession(t, handler, host, claimToken)
+
+	req := httptest.NewRequest(http.MethodGet, "http://"+host+"/api/food/search?q=apple", nil)
+	req.AddCookie(session)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("keyed upstream rejected the proxied request: got %d, body %s", w.Code, w.Body.String())
+	}
+	if gotKey != "operator-secret-key" {
+		t.Errorf("upstream saw X-API-Key %q, want the operator key", gotKey)
+	}
+	if gotAuth != "" {
+		t.Errorf("proxy sent an unexpected Authorization header: %q", gotAuth)
+	}
+
+	// SECURITY INVARIANT (mirrors TrialConfig): the operator key must never
+	// reach the browser — not in the body, not in a response header.
+	if body := w.Body.String(); strings.Contains(body, "operator-secret-key") {
+		t.Errorf("operator key leaked into the response body: %s", body)
+	}
+	for name, values := range w.Header() {
+		for _, v := range values {
+			if strings.Contains(v, "operator-secret-key") {
+				t.Errorf("operator key leaked into response header %s: %s", name, v)
+			}
+		}
+	}
+}
+
+// An unkeyed upstream must keep working: no CLOUD_FOOD_DB_API_KEY means no
+// X-API-Key header at all, rather than an empty one.
+func TestFoodProxyOmitsAPIKeyHeaderWhenUnset(t *testing.T) {
+	var hadKeyHeader bool
+	mockDB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, hadKeyHeader = r.Header["X-Api-Key"]
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"results": []}`))
+	}))
+	defer mockDB.Close()
+
+	handler, _, host, claimToken := newFoodTestHandlerAPI(t, mockDB.URL, "")
+	session := registerAndGetSession(t, handler, host, claimToken)
+
+	req := httptest.NewRequest(http.MethodGet, "http://"+host+"/api/food/search?q=apple", nil)
+	req.AddCookie(session)
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	if hadKeyHeader {
+		t.Error("proxy sent an X-API-Key header despite no operator key being configured")
+	}
 }

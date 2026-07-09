@@ -65,7 +65,15 @@ external `proxy` network.
 Requests to the operator default are now routed through a same-origin proxy on the cloud server (`/api/food/search`, `/api/food/barcode/`),
 eliminating the need for CORS configuration on the upstream FastFoodDB instance.
 
-Set it. Food is enabled by default on fresh accounts, so a new user's first
+Set it — and if your upstream is keyed, set `CLOUD_FOOD_DB_API_KEY` too. The
+proxy forwards it as `X-API-Key` exactly as bot mode does with `FOOD_API_KEY`;
+without it a keyed instance answers 401 and search stays broken even though
+`CLOUD_FOOD_DB_URL` is set. The key is operator-owned and server-side only: it
+never appears in a meta tag, a response body or header, or a log line — the
+browser learns only that a food DB exists. Per-user BYO keys are unaffected,
+since those go browser-direct and never touch this proxy.
+
+Food is enabled by default on fresh accounts, so a new user's first
 action on the Food screen is usually a search — and with no food DB configured
 there is nothing to search but the products they have already logged.
 
