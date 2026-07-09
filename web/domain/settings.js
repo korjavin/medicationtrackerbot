@@ -76,6 +76,7 @@ export function createSettingsDomain({ records, now, timeZone }) {
     return {
       timezone: (rec && rec.timezone) || timeZone,
       dismissed_tz_suggestion: (rec && rec.dismissed_tz_suggestion) || '',
+      first_run_complete: !!(rec && rec.first_run_complete),
     };
   }
 
@@ -114,6 +115,27 @@ export function createSettingsDomain({ records, now, timeZone }) {
       dismissed_tz_suggestion: tz || '',
     });
     return tz || '';
+  }
+
+  // setFirstRunComplete merges onto the general singleton (same idiom as
+  // setTimezone) so completing onboarding never clobbers timezone /
+  // dismissed_tz_suggestion.
+  //
+  // Semantics: an ABSENT first_run_complete means "needs onboarding". A vault
+  // field cannot be backfilled the way bot-mode migration 071 backfilled its
+  // SQLite column, so only an explicit true suppresses the overlay — vaults
+  // predating this flag see onboarding once.
+  async function setFirstRunComplete(done) {
+    const all = await records.list(GENERAL_RECORD_TYPE);
+    const existing = findSingleton(all, GENERAL_RECORD_ID);
+    await records.put(GENERAL_RECORD_TYPE, {
+      ...existing,
+      recordId: GENERAL_RECORD_ID,
+      clientTs: now(),
+      deleted: false,
+      first_run_complete: !!done,
+    });
+    return !!done;
   }
 
   async function getFeatures() {
@@ -266,6 +288,7 @@ export function createSettingsDomain({ records, now, timeZone }) {
     getGeneral,
     setTimezone,
     setDismissedTzSuggestion,
+    setFirstRunComplete,
     getFeatures,
     setFeature,
     getTabOrder,

@@ -128,16 +128,16 @@ module (it is exercised through the shim); any empty-vault signal in `bootstrapP
 
 ### Task 1: `first_run_complete` accessor in the settings domain
 
-- [ ] in `web/domain/settings.js`, extend `getGeneral()` (`:73-80`) to return
+- [x] in `web/domain/settings.js`, extend `getGeneral()` (`:73-80`) to return
       `first_run_complete: !!(rec && rec.first_run_complete)` alongside `timezone` and `dismissed_tz_suggestion`
-- [ ] add `async function setFirstRunComplete(done)` that merges onto the `GENERAL_RECORD_TYPE` singleton
+- [x] add `async function setFirstRunComplete(done)` that merges onto the `GENERAL_RECORD_TYPE` singleton
       exactly as `setTimezone` (`:85-104`) does — `{...existing, recordId: GENERAL_RECORD_ID, clientTs: now(),
       deleted: false, first_run_complete: !!done}` — so it never clobbers `timezone` /
       `dismissed_tz_suggestion`
-- [ ] export it from the object `createSettingsDomain` returns, next to the other general-settings accessors
-- [ ] stay pure: I/O only through the injected `records` port — no `window`/`document`/`fetch`/`indexedDB`
+- [x] export it from the object `createSettingsDomain` returns, next to the other general-settings accessors
+- [x] stay pure: I/O only through the injected `records` port — no `window`/`document`/`fetch`/`indexedDB`
       (`architecture.domain-purity.test.js` scans this directory)
-- [ ] comment the semantics at the accessor: **absent ⇒ needs onboarding**; a vault field cannot be backfilled
+- [x] comment the semantics at the accessor: **absent ⇒ needs onboarding**; a vault field cannot be backfilled
       the way bot-mode migration `071` backfilled its column, so only an explicit `true` suppresses the overlay
 
 ### Task 2: `bootstrapPayload` reports the real flag
