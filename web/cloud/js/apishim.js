@@ -206,17 +206,21 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // flag is simply omitted, which applyBootstrapPayload already treats as
   // "leave that cache alone".
   async function bootstrapPayload() {
-    const [readings, goal, stats, logs, weightGoal, settingsPart] = await Promise.all([
+    const [readings, goal, stats, logs, weightGoal, settingsPart, firstRunComplete] = await Promise.all([
       bp.list({ days: 60, limit: 0 }),
       bp.getGoal(),
       bp.getStats(),
       weight.list({ days: 35, limit: 0 }),
       weight.getGoal(),
       settingsResponse(),
+      settings.getFirstRunComplete(),
     ]);
     return {
       cursor: 0,
-      needs_first_run: false,
+      // Read from the vault on every call, never cached: WGFirstRun's _mounted
+      // latch is module state lost on reload, so only a fresh `false` here keeps
+      // the overlay from re-opening on the next page load.
+      needs_first_run: !firstRunComplete,
       features: settingsPart.features,
       bp: { readings, goal, stats },
       weight: { logs, goal: weightGoal },
@@ -236,10 +240,6 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       const { settings: settingsBlock, features } = await settingsResponse();
       return { ...settingsBlock, features };
     },
-    // The firstrun overlay's completion POST. Cloud has no server-side
-    // settings row to flip (med-4pz.5 moves it into the vault); ack it so the
-    // overlay dismisses instead of erroring.
-    'POST /api/firstrun/complete': async () => ({ success: true }),
     'GET /api/bp/reminder/status': async () => reminders.getBPStatus(),
     'GET /api/weight/reminder/status': async () => reminders.getWeightStatus(),
   };
@@ -332,6 +332,11 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
         await settings.setFeature(feature, enabled);
         return { enabled };
       }
+    }
+
+    if (path === '/api/firstrun/complete' && method === 'POST') {
+      await settings.setFirstRunComplete(true);
+      return { success: true };
     }
 
     if (path === '/api/settings/tab-order' && method === 'POST') {

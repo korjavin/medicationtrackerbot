@@ -99,6 +99,51 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(boot.settings.dismissed_tz_suggestion).toBe('Europe/Berlin');
     });
 
+    it('a fresh vault needs first run, and completing it durably flips the flag', async () => {
+        const { window } = env;
+
+        const before = await window.apiCall('/api/bootstrap');
+        expect(before.needs_first_run).toBe(true);
+
+        await window.apiCall('/api/firstrun/complete', 'POST');
+
+        const after = await window.apiCall('/api/bootstrap');
+        expect(after.needs_first_run).toBe(false);
+    });
+
+    it('a stale device overwriting the settings singleton cannot un-complete first run', async () => {
+        const { window, records } = env;
+
+        await window.apiCall('/api/firstrun/complete', 'POST');
+
+        // Records are last-writer-wins per whole record. Simulate a device that
+        // never saw the completion writing the shared `settings` singleton.
+        await records.put('settings', {
+            recordId: 'settings',
+            clientTs: Date.now() + 60000,
+            deleted: false,
+            timezone: 'Europe/Berlin',
+        });
+
+        const boot = await window.apiCall('/api/bootstrap');
+        expect(boot.needs_first_run).toBe(false);
+    });
+
+    it('completing first run leaves GET /api/settings shape unchanged and does not clobber the singleton', async () => {
+        const { window } = env;
+
+        await window.apiCall('/api/tz-suggestion/dismiss', 'POST', { detected_tz: 'Europe/Berlin' });
+        await window.saveTabOrder(['weight', 'bp']);
+
+        await window.apiCall('/api/firstrun/complete', 'POST');
+
+        const settings = await window.apiCall('/api/settings', 'GET');
+        expect(settings.first_run_complete).toBeUndefined();
+        expect(settings.general).toBeUndefined();
+        expect(settings.dismissed_tz_suggestion).toBe('Europe/Berlin');
+        expect(settings.tab_order).toEqual(['weight', 'bp']);
+    });
+
     it('Integrations round-trip: entering a key, saving, then reloading shows the masked value', async () => {
         const { window, document } = env;
 
