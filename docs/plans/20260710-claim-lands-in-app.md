@@ -154,13 +154,19 @@ criterion — *"a friend … claims it, creates a passkey, saves the Emergency K
 
 ### Task 4: Verify acceptance criteria
 
-- [ ] verify the claim wizard no longer renders "The full app arrives with the next update."
-- [ ] verify a completed claim lands on `/` with a warm cache, so `cloud-boot`'s `warmUnlock` succeeds
-- [ ] verify a failed `establishLdkCache` still lands on `/` (and would bounce to `/unlock`, not dead-end)
-- [ ] verify `recover.js`'s `onKitSaved` override still short-circuits the telegram/enter-app tail
-- [ ] verify the Telegram step still falls straight through when Telegram is disabled, now into `enterApp`
-- [ ] `pnpm test` passes
-- [ ] `go build ./...` and `go vet ./...` pass (no Go changes expected — confirm the diff has none)
+- [x] verify the claim wizard no longer renders "The full app arrives with the next update." — `grep` over
+      `web/` returns nothing; the only surviving hits are this plan and `docs/onboarding-wizard.md` (Task 5)
+- [x] verify a completed claim lands on `/` with a warm cache, so `cloud-boot`'s `warmUnlock` succeeds —
+      covered by "warms the LDK cache with the ceremony DEK, then enters the app"
+- [x] verify a failed `establishLdkCache` still lands on `/` (and would bounce to `/unlock`, not dead-end) —
+      covered by "still enters the app when the warm cache cannot be written (storage-blocked browser)"
+- [x] verify `recover.js`'s `onKitSaved` override still short-circuits the telegram/enter-app tail — covered by
+      "lets ctx.onKitSaved override the tail, so recover.js is unaffected"; `git diff master -- recover.js` empty
+- [x] verify the Telegram step still falls straight through when Telegram is disabled, now into `enterApp` —
+      `mountTelegram`'s `onDone` invokes `enterApp(ctx)` (`signup.js:313`); the mocked `onDone` drives the two
+      enter-app cases above
+- [x] `pnpm test` passes (284 files, 3041 tests, 29 skipped)
+- [x] `go build ./...` and `go vet ./...` pass; `git diff master --stat -- '*.go'` is empty
 
 ### Task 5: [Final] Update documentation
 
