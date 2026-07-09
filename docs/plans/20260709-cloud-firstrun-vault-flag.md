@@ -142,14 +142,14 @@ module (it is exercised through the shim); any empty-vault signal in `bootstrapP
 
 ### Task 2: `bootstrapPayload` reports the real flag
 
-- [ ] in `web/cloud/js/apishim.js`, have `settingsResponse()` also return the already-fetched `general` object
+- [x] in `web/cloud/js/apishim.js`, have `settingsResponse()` also return the already-fetched `general` object
       (it is in the existing `Promise.all`) — e.g. `return { settings: block, features: clampFeatures(features), general }`
-- [ ] in `bootstrapPayload()` (`:208-225`), replace the hardcoded `needs_first_run: false` (`:219`) with
+- [x] in `bootstrapPayload()` (`:208-225`), replace the hardcoded `needs_first_run: false` (`:219`) with
       `needs_first_run: !settingsPart.general.first_run_complete`
-- [ ] leave `cursor: 0` exactly as-is — it is a shape-matching constant, unrelated to `sync_meta.localLastSeq`
-- [ ] **verify `GET /api/settings` is unchanged**: its handler spreads `settingsBlock` + `features` only
+- [x] leave `cursor: 0` exactly as-is — it is a shape-matching constant, unrelated to `sync_meta.localLastSeq`
+- [x] **verify `GET /api/settings` is unchanged**: its handler spreads `settingsBlock` + `features` only
       (`apishim.js:238-241`), so `general` must not appear in its response. Assert this in Task 4.
-- [ ] add a comment noting the flag is read on every call by design — caching it would re-open the overlay on
+- [x] add a comment noting the flag is read on every call by design — caching it would re-open the overlay on
       the next page load, because `WGFirstRun`'s `_mounted` latch does not survive a reload
 
 ### Task 3: `POST /api/firstrun/complete` durably flips the vault flag

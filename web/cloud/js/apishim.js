@@ -197,7 +197,9 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       dismissed_tz_suggestion: general.dismissed_tz_suggestion,
     };
     if (tabOrder) block.tab_order = tabOrder;
-    return { settings: block, features: clampFeatures(features) };
+    // `general` is for internal callers (bootstrapPayload) only; GET /api/settings
+    // spreads settingsBlock + features, so its shape stays unchanged.
+    return { settings: block, features: clampFeatures(features), general };
   }
 
   // Mirrors handleBootstrap's shape (internal/server/settings_handlers.go)
@@ -216,7 +218,10 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     ]);
     return {
       cursor: 0,
-      needs_first_run: false,
+      // Read from the vault on every call, never cached: WGFirstRun's _mounted
+      // latch is module state lost on reload, so only a fresh `false` here keeps
+      // the overlay from re-opening on the next page load.
+      needs_first_run: !settingsPart.general.first_run_complete,
       features: settingsPart.features,
       bp: { readings, goal, stats },
       weight: { logs, goal: weightGoal },
