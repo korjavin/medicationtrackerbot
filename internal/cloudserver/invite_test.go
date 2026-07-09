@@ -98,3 +98,27 @@ func TestInviteAPI_Contract(t *testing.T) {
 		t.Errorf("quota error = %+v, want limit=%d window_days=30", quotaErr, inviteMonthlyQuota)
 	}
 }
+
+// TestInviteAPI_ExpiredInvitesFreeQuota pins the documented quota semantics:
+// the limit counts *users* created, so an unclaimed invite that expired must
+// give its slot back even to the account that is already at the limit.
+func TestInviteAPI_ExpiredInvitesFreeQuota(t *testing.T) {
+	h, store, host, claimToken := newTestInviteHandler(t)
+	session := registerAndGetSession(t, h, host, claimToken)
+	accountID, _, ok := VerifySessionToken(session.Value, "test-session-secret-at-least-32-bytes-long")
+	if !ok {
+		t.Fatalf("could not verify session token")
+	}
+
+	now := time.Now().UTC()
+	for i := 0; i < inviteMonthlyQuota; i++ {
+		id := fmt.Sprintf("expired-account-%d", i)
+		if _, err := store.CreateAccount(t.Context(), id, id, []byte("hash"), now.Add(-time.Hour), now, "", "", accountID); err != nil {
+			t.Fatalf("seed expired account %d: %v", i, err)
+		}
+	}
+
+	if rec := postInvite(t, h, host, session); rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/invite after expired invites = %d, want 200 (sweep must free quota)", rec.Code)
+	}
+}

@@ -65,6 +65,14 @@ func (a *InviteAPI) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
+	// Sweep before counting, not just inside Provision: an account sitting at
+	// the quota never reaches Provision, so without this its expired unclaimed
+	// invites would keep occupying slots until some other account's mint swept
+	// them.
+	if _, err := a.store.SweepExpiredClaims(r.Context(), now); err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
 	minted, err := a.store.CountAccountsCreatedBy(r.Context(), session.AccountID, now.Add(-inviteQuotaWindow))
 	if err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
