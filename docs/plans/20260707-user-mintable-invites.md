@@ -50,8 +50,8 @@
 - [x] update all `CreateAccount` callers (`Provision`, tests) to pass `""`
 
 ### Task 2: Provision plumbing
-- [ ] add `createdBy string` param to `cloudserver.Provision` (threaded into `CreateAccount`); admin CLI passes `""`
-- [ ] update `provisionStore` interface + existing provision tests accordingly
+- [x] add `createdBy string` param to `cloudserver.Provision` (threaded into `CreateAccount`); admin CLI passes `""`
+- [x] update `provisionStore` interface + existing provision tests accordingly; ➕ interface already carried `createdBy` from Task 1, so only the `Provision` signature + call sites changed; no fake `provisionStore` exists (tests use the real repo)
 
 ### Task 3: `POST /api/invite` endpoint
 - [ ] create `internal/cloudserver/invite.go`: `InviteAPI{store, sessionSecret, baseDomain, claimTTL}` with `RegisterRoutes(mux)` registering `POST /api/invite` behind `RequireSession` (follow `device.go` shape)
