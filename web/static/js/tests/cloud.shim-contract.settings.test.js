@@ -32,6 +32,16 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(window.featureSettings.bp).toBe(false);
     });
 
+    it('a fresh vault (no features record) defaults food ON, and an explicit opt-out survives', async () => {
+        const { window } = env;
+        window.rebuildCanonicalBottomNav = vi.fn();
+
+        expect((await window.apiCall('/api/settings/features', 'GET')).food).toBe(true);
+
+        await window.toggleFeatureSetting('food', false);
+        expect((await window.apiCall('/api/settings/features', 'GET')).food).toBe(false);
+    });
+
     it('feature clamp holds: enabling an unported feature never surfaces as enabled from the shim', async () => {
         const { window } = env;
         window.rebuildCanonicalBottomNav = vi.fn();

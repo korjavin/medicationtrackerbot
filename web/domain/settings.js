@@ -52,7 +52,7 @@ const INTEGRATIONS_SECRET_FIELDS = {
 };
 
 const DEFAULT_FEATURES = {
-  food: false,
+  food: true,
   bp: true,
   weight: true,
   medication: true,
