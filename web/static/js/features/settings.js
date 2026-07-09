@@ -342,6 +342,7 @@ function bindCloudInvite() {
 // Load settings (BP reminders status, etc.)
 async function loadSettings() {
     if (window.__MEDTRACKER_CLOUD__) {
+        document.querySelector('.wg-settings-timezone')?.classList.add('wg-settings-hidden');
         document.querySelector('.wg-settings-notifications')?.classList.add('wg-settings-hidden');
         document.querySelector('.wg-settings-notifications-cloud')?.classList.remove('wg-settings-hidden');
         await bindCloudNotifications();
