@@ -277,7 +277,7 @@ func TestManagerWebhookRateLimitIsRedeliveredNotDropped(t *testing.T) {
 			})
 
 			webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
-			tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL)
+			tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, 14*24*time.Hour)
 			if err := tgAPI.Bootstrap(t.Context()); err != nil {
 				t.Fatalf("Bootstrap: %v", err)
 			}
