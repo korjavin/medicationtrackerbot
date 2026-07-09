@@ -139,16 +139,18 @@ criterion — *"a friend … claims it, creates a passkey, saves the Emergency K
 
 ### Task 3: Cover the wizard tail
 
-- [ ] extend `web/cloud/js/tests/signup.claimed-link.test.js` (owning suite, do not add a file), following the
+- [x] extend `web/cloud/js/tests/signup.claimed-link.test.js` (owning suite, do not add a file), following the
       fake-`location` convention of `cloud-boot.test.js`
-- [ ] case: completing the wizard calls `establishLdkCache` with the ceremony's `dek` + `accountId`, then sets
+- [x] case: completing the wizard calls `establishLdkCache` with the ceremony's `dek` + `accountId`, then sets
       `location.href === '/'`
-- [ ] case: `establishLdkCache` rejecting still navigates to `/` (the storage-blocked browser path) — this is
+- [x] case: `establishLdkCache` rejecting still navigates to `/` (the storage-blocked browser path) — this is
       the regression guard for the swallowed `catch`
-- [ ] case: a `ctx.onKitSaved` override (recover's path) is called instead of `enterApp`, and `enterApp` never
+- [x] case: a `ctx.onKitSaved` override (recover's path) is called instead of `enterApp`, and `enterApp` never
       runs — pins that `recover.js` is unaffected
-- [ ] ⚠️ `enterApp` is module-private; drive it through the exported `renderEmergencyKit(app, ctx)` +
+- [x] ⚠️ `enterApp` is module-private; drive it through the exported `renderEmergencyKit(app, ctx)` +
       `#kit-continue` click rather than exporting it just to test it
+- ➕ [x] `unlock.js` (static import) and `telegram.js` (dynamic import) are `vi.mock`ed; the helper must tick
+      `#kit-saved-checkbox` and dispatch `change` before clicking, since `#kit-continue` starts disabled
 
 ### Task 4: Verify acceptance criteria
 
