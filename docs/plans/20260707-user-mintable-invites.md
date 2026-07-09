@@ -67,10 +67,10 @@
 - [x] Vitest: extend the settings feature suite — cloud ctx present → row visible, tap → mocked 200 renders modal with claim URL + QR svg; mocked 429 → limit toast; no cloud ctx → row hidden
 
 ### Task 5: Verify acceptance criteria
-- [ ] verify: mint works from an account subdomain session, quota enforced at 100/30d, admin CLI invite unaffected, QR + copy shown
-- [ ] `go test ./...` passes
-- [ ] `pnpm test` passes
-- [ ] run linters if configured (`go vet ./...`)
+- [x] verify: mint works from an account subdomain session, quota enforced at 100/30d, admin CLI invite unaffected, QR + copy shown — covered by `TestInviteAPI_Contract` (401 / 200 + claim-URL regex + provenance / 429), `cmd/cloud/admin.go:92` still passing `""` to `Provision`, and the three settings-suite cases (row hidden outside cloud, mint → modal with claim URL + QR svg, 429 → limit toast)
+- [x] `go test ./...` passes
+- [x] `pnpm test` passes (278 files, 2967 tests; needed `pnpm install` first in a fresh worktree)
+- [x] run linters if configured (`go vet ./...`) — clean
 
 ### Task 6: [Final] Update documentation
 - [ ] add "User-mintable invites" subsection to `docs/cloud-mode.md` (endpoint, quota semantics, provenance column)
