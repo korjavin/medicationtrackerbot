@@ -18,14 +18,13 @@ function makeDispatcher() {
 }
 
 describe('mcp-responder dispatch', () => {
-  it('mcp_help returns the catalog and a usage protocol', async () => {
+  it('mcp_help returns the compact catalog and a usage protocol', async () => {
     const dispatcher = makeDispatcher();
     const response = await handleRequest(dispatcher, { jsonrpc: '2.0', id: 1, method: 'mcp_help', params: {} });
-    expect(response).toEqual({
-      jsonrpc: '2.0',
-      id: 1,
-      result: { catalog: CATALOG, usage_protocol: expect.any(String) },
-    });
+    expect(response.error).toBeUndefined();
+    expect(response.result.count).toBe(CATALOG.length);
+    expect(response.result.usage_protocol).toEqual(expect.any(String));
+    expect(response.result.compact_operations.map((op) => op.id)).toContain('health.bp.list');
   });
 
   it('round-trips bp.create then bp.list as wire-shaped JSON-RPC responses', async () => {
@@ -35,7 +34,7 @@ describe('mcp-responder dispatch', () => {
       jsonrpc: '2.0',
       id: 2,
       method: 'mcp_call',
-      params: { op: 'bp.create', params: { measured_at: '2026-07-06T09:00:00.000Z', systolic: 120, diastolic: 80 } },
+      params: { op: 'health.bp.create', params: { measured_at: '2026-07-06T09:00:00.000Z', systolic: 120, diastolic: 80 } },
     });
     expect(createResp.error).toBeUndefined();
     expect(createResp).toMatchObject({ jsonrpc: '2.0', id: 2, result: { systolic: 120, diastolic: 80 } });
@@ -44,7 +43,7 @@ describe('mcp-responder dispatch', () => {
       jsonrpc: '2.0',
       id: 3,
       method: 'mcp_call',
-      params: { op: 'bp.list', params: {} },
+      params: { op: 'health.bp.list', params: {} },
     });
     expect(listResp.error).toBeUndefined();
     expect(listResp.jsonrpc).toBe('2.0');
@@ -59,11 +58,11 @@ describe('mcp-responder dispatch', () => {
       jsonrpc: '2.0',
       id: 4,
       method: 'mcp_call',
-      params: { op: 'bp.lst', params: {} },
+      params: { op: 'health.bp.lst', params: {} },
     });
     expect(response.result).toBeUndefined();
     expect(response.error.code).toBe(-32602);
-    expect(response.error.message).toContain('bp.list');
+    expect(response.error.message).toContain('health.bp.list');
   });
 
   it('maps a domain string error code to numeric -32602 with the code in error.data', async () => {
@@ -72,7 +71,7 @@ describe('mcp-responder dispatch', () => {
       jsonrpc: '2.0',
       id: 5,
       method: 'mcp_call',
-      params: { op: 'notes.create', params: { content: '' } },
+      params: { op: 'health.notes.create', params: { content: '' } },
     });
     expect(response.result).toBeUndefined();
     // Must be numeric so the Go shim's int64 decode doesn't drop the frame.
@@ -82,6 +81,6 @@ describe('mcp-responder dispatch', () => {
   });
 
   it('suggestOperations falls back to Levenshtein distance for an unrelated typo', () => {
-    expect(suggestOperations('notes.creat')).toContain('notes.create');
+    expect(suggestOperations('health.notes.creat')).toContain('health.notes.create');
   });
 });

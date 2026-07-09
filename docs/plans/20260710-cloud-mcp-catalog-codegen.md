@@ -138,16 +138,29 @@ write straight from the terse list without a schema drill-in.
 - [x] sanity-check the emitted op count is `106 - 8 = 98` and that no gamification id appears in `CATALOG`
 
 ### Task 3: Serve the generated catalog from mcp-responder.js with bot-mode `mcp_help` semantics
-- [ ] in `web/cloud/js/mcp-responder.js`, delete the inline `CATALOG` array (`:19-99`) and `import { CATALOG, EXCLUDED } from './mcp-catalog.generated.js'`, re-exporting `CATALOG` so existing importers/tests keep resolving it
-- [ ] add a `compactEntry(op)` projection returning `{ id, topic, method, risk, description, required }` (drop `required` when empty)
-- [ ] rewrite the `mcp_help` branch of `createDispatcher` to mirror `internal/mcp/help.go` precedence **ids > query > topic > catalog**:
-  - [ ] merge `params.operation_id` + `params.operation_ids` (lowercased, trimmed, empties dropped); if any resolve, return **full** entries for the found ids plus a `Not found: …` note for the rest; if none resolve, return `{ count: 0, topics, next_step }` rather than throwing
-  - [ ] `params.query` → **compact** matches over id/description/topic/response_summary; return `{ count: 0, topics, note }` on no match. Do **not** auto-expand to full entries — `help.go:161-167` documents this as a measured regression for weaker models
-  - [ ] `params.topic` → compact entries for that topic; unknown topic → `{ count: 0, topics }`
-  - [ ] no args → compact catalog + `usage_protocol` + `topics`
-- [ ] rewrite `USAGE_PROTOCOL`: it currently claims *"the catalog is small enough to read in full"*, which is false at 98 ops. State the discover→drill-in→`mcp_call` decision rule, that `mcp_call` runs exactly one op, that this connector talks to an unlocked browser tab over an E2E-encrypted channel, and that **`mcp_execute` does not exist in cloud mode** (zero-knowledge — the server cannot see plaintext; see med-csu.4)
-- [ ] verify `suggestOperations` still behaves over 98 entries (substring first, Levenshtein ≤3 fallback, top 3) — the `levenshtein` helper is O(n·m) per entry and now runs 98× per unknown op, which is fine; leave it alone
-- [ ] leave `createDispatcher`'s six `ops` dispatch entries untouched (scope fence: med-csu.3 wires the rest)
+- [x] in `web/cloud/js/mcp-responder.js`, delete the inline `CATALOG` array (`:19-99`) and `import { CATALOG, EXCLUDED } from './mcp-catalog.generated.js'`, re-exporting `CATALOG` so existing importers/tests keep resolving it
+- [x] add a `compactEntry(op)` projection returning `{ id, topic, method, risk, description, required }` (drop `required` when empty)
+- [x] rewrite the `mcp_help` branch of `createDispatcher` to mirror `internal/mcp/help.go` precedence **ids > query > topic > catalog**:
+  - [x] merge `params.operation_id` + `params.operation_ids` (lowercased, trimmed, empties dropped); if any resolve, return **full** entries for the found ids plus a `Not found: …` note for the rest; if none resolve, return `{ count: 0, topics, next_step }` rather than throwing
+  - [x] `params.query` → **compact** matches over id/description/topic/response_summary; return `{ count: 0, topics, note }` on no match. Do **not** auto-expand to full entries — `help.go:161-167` documents this as a measured regression for weaker models
+  - [x] `params.topic` → compact entries for that topic; unknown topic → `{ count: 0, topics }`
+  - [x] no args → compact catalog + `usage_protocol` + `topics`
+- [x] rewrite `USAGE_PROTOCOL`: it currently claims *"the catalog is small enough to read in full"*, which is false at 98 ops. State the discover→drill-in→`mcp_call` decision rule, that `mcp_call` runs exactly one op, that this connector talks to an unlocked browser tab over an E2E-encrypted channel, and that **`mcp_execute` does not exist in cloud mode** (zero-knowledge — the server cannot see plaintext; see med-csu.4)
+- [x] verify `suggestOperations` still behaves over 98 entries (substring first, Levenshtein ≤3 fallback, top 3) — the `levenshtein` helper is O(n·m) per entry and now runs 98× per unknown op, which is fine; leave it alone
+- [x] leave `createDispatcher`'s six `ops` dispatch entries untouched (scope fence: med-csu.3 wires the rest) — **kept as six entries, but re-keyed; see ⚠️ below**
+
+⚠️ **Deviation (op-id namespace).** The PoC dispatch keys were `bp.list` / `weight.create` / `notes.list`; the
+registry's real ids are `health.bp.list` / `health.weight.create` / `health.notes.list`. Leaving the six keys
+literally untouched would have advertised 98 ids that `mcp_call` rejects while the six runnable ids appeared
+nowhere in the catalog — a functional regression, not a scope-fence-preserving no-op. The six entries were
+therefore re-keyed to their registry ids (same six operations, same domain calls, same param shapes — verified
+against each op's `params_schema`/`body_schema`). Two callers followed: `web/static/js/features/elevenlabs-call.js`
+(the cloud-only voice tools dispatch straight into this dispatcher) and the tests that pinned the old ids.
+
+⚠️ **Deviation (response keys).** `mcp_help` now returns `operations` (full) / `compact_operations` (compact),
+matching `internal/mcp/help.go`'s `HelpResponse`, instead of the PoC's `{ catalog }`. Bot-mode parity is the point
+of the bead. Two existing assertions were retargeted (`web/cloud/js/tests/mcp-responder.test.js`,
+`web/static/js/tests/cloud.shim-contract.mcp-dispatcher.test.js`).
 
 ### Task 4: Integration test — the Go drift guard (the point of this bead)
 - [ ] create `internal/mcp/catalogjs/drift_test.go`, modeled on `internal/server`'s `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt`
