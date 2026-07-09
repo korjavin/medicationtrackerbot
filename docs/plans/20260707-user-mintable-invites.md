@@ -44,10 +44,10 @@
 ## Implementation Steps
 
 ### Task 1: Store — invite provenance + quota count
-- [ ] add `internal/cloudstore/migrations/010_invite_provenance.sql`: `ALTER TABLE accounts ADD COLUMN created_by_account_id TEXT` + index on `(created_by_account_id, created_at_unix)`
-- [ ] extend `cloudstore.Repo.CreateAccount` with a `createdBy string` param (empty → stored NULL); update the `Account` struct and scan sites
-- [ ] add `cloudstore.Repo.CountAccountsCreatedBy(ctx, accountID string, since time.Time) (int, error)`
-- [ ] update all `CreateAccount` callers (admin CLI, tests) to pass `""`
+- [x] add `internal/cloudstore/migrations/010_invite_provenance.sql`: `ALTER TABLE accounts ADD COLUMN created_by_account_id TEXT` + index on `(created_by_account_id, created_at_unix)`
+- [x] extend `cloudstore.Repo.CreateAccount` with a `createdBy string` param (empty → stored NULL); ➕ no `Account` struct field / scan-site change — nothing reads the column back, `CountAccountsCreatedBy` is the only consumer (add the field when a reader appears)
+- [x] add `cloudstore.Repo.CountAccountsCreatedBy(ctx, accountID string, since time.Time) (int, error)`
+- [x] update all `CreateAccount` callers (`Provision`, tests) to pass `""`
 
 ### Task 2: Provision plumbing
 - [ ] add `createdBy string` param to `cloudserver.Provision` (threaded into `CreateAccount`); admin CLI passes `""`

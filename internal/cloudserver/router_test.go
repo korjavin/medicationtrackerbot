@@ -56,7 +56,7 @@ func testDomainFS() fstest.MapFS {
 func TestRouter_CloudConfigJS(t *testing.T) {
 	store := setupStore(t)
 	now := time.Now().UTC()
-	if _, err := store.CreateAccount(t.Context(), "acc-1", "known-sub", []byte("hash"), now.Add(time.Hour), now, "", ""); err != nil {
+	if _, err := store.CreateAccount(t.Context(), "acc-1", "known-sub", []byte("hash"), now.Add(time.Hour), now, "", "", ""); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 	h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "https://food.example.com", false, false)
@@ -83,7 +83,7 @@ func TestRouter_CloudConfigJS(t *testing.T) {
 func TestRouter_TrialFlagsOff_NoTrialMetas(t *testing.T) {
 	store := setupStore(t)
 	now := time.Now().UTC()
-	if _, err := store.CreateAccount(t.Context(), "acc-1", "known-sub", []byte("hash"), now.Add(time.Hour), now, "", ""); err != nil {
+	if _, err := store.CreateAccount(t.Context(), "acc-1", "known-sub", []byte("hash"), now.Add(time.Hour), now, "", "", ""); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 	h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "https://food.example.com", false, false)
@@ -105,7 +105,7 @@ func TestRouter_HostVariants(t *testing.T) {
 	store := setupStore(t)
 	ctx := t.Context()
 	now := time.Now().UTC()
-	if _, err := store.CreateAccount(ctx, "acc-1", "known-sub", []byte("hash"), now.Add(time.Hour), now, "", ""); err != nil {
+	if _, err := store.CreateAccount(ctx, "acc-1", "known-sub", []byte("hash"), now.Add(time.Hour), now, "", "", ""); err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 

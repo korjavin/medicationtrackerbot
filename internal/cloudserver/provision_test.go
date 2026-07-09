@@ -133,7 +133,7 @@ func TestBackfillVAPIDKeys(t *testing.T) {
 
 	// A pre-existing account with no keys (simulates a row created before
 	// per-account keys shipped).
-	legacy, err := store.CreateAccount(ctx, "legacy-account", "legacy-sub", []byte("hash"), now.Add(time.Hour), now, "", "")
+	legacy, err := store.CreateAccount(ctx, "legacy-account", "legacy-sub", []byte("hash"), now.Add(time.Hour), now, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateAccount (legacy): %v", err)
 	}

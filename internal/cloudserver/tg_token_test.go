@@ -18,7 +18,7 @@ func TestTGBotSealRoundtrip(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	acc, err := repo.CreateAccount(ctx, "acc-tg", "brave-otter-tg01", []byte("claimtokenhash-32-bytes-of-junk"), now.Add(time.Hour), now, "", "")
+	acc, err := repo.CreateAccount(ctx, "acc-tg", "brave-otter-tg01", []byte("claimtokenhash-32-bytes-of-junk"), now.Add(time.Hour), now, "", "", "")
 	if err != nil {
 		t.Fatalf("CreateAccount: %v", err)
 	}
