@@ -235,7 +235,14 @@ func main() {
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL, cfg.trial.TrialAIConfigured(), cfg.trial.TrialVoiceConfigured())
 	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
 
-	relay := cloudserver.NewRelay(store, webPushSender, cfg.dryQueueWarnHours)
+	// A nil *TelegramAPI stored in a TelegramSender interface is NOT a nil
+	// interface, so assign only when Telegram actually came up — otherwise the
+	// relay would call SendReminder on a nil receiver.
+	var tgSender cloudserver.TelegramSender
+	if tgAPI != nil {
+		tgSender = tgAPI
+	}
+	relay := cloudserver.NewRelay(store, webPushSender, tgSender, cfg.dryQueueWarnHours)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

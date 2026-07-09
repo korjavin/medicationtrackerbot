@@ -596,6 +596,34 @@ func (t *TelegramAPI) Test(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"sent": true})
 }
 
+// ErrNoLinkedChat means the account has a bot row but the user never tapped
+// /start, so there is no chat to deliver to. The relay treats this as terminal
+// for that entry rather than retrying it forever.
+var ErrNoLinkedChat = errors.New("telegram: bot has no linked chat")
+
+// SendReminder forwards a client-composed reminder to the account's linked bot
+// (the relay's TelegramSender). text arrives as plaintext because the relay
+// cannot decrypt the vault — the client chose this exact string at its chosen
+// verbosity and handed it over knowing the relay reads it. Nothing here derives
+// text from account data.
+func (t *TelegramAPI) SendReminder(ctx context.Context, accountID, text string) error {
+	bot, err := t.store.BotByAccount(ctx, accountID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNoLinkedChat
+	}
+	if err != nil {
+		return err
+	}
+	if bot.ChatID == nil {
+		return ErrNoLinkedChat
+	}
+	client, err := t.botClient(bot)
+	if err != nil {
+		return err
+	}
+	return client.SendMessage(ctx, *bot.ChatID, text)
+}
+
 // Delete unlinks the account's bot: it deletes the Telegram webhook (best
 // effort) and removes the row. A *managed* bot itself stays owned by the user
 // (deletable via BotFather) — the response copy says so.

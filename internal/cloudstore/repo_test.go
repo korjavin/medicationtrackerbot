@@ -357,3 +357,61 @@ func TestDeleteCredentialWithEnvelope_NeverStrandsAccount(t *testing.T) {
 		t.Fatalf("delete last credential with recovery envelope + verifier: %v", err)
 	}
 }
+
+// TestScheduledPushDeliveryRoundtrip guards the C3b column addition
+// (010_push_delivery.sql): a telegram entry carries its plaintext through
+// ReplaceSchedule → DueScheduledPushes, and an entry inserted with no delivery
+// reads back as webpush so pre-C3b clients keep firing exactly as before.
+func TestScheduledPushDeliveryRoundtrip(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	acc, err := r.CreateAccount(ctx, "acc-tg", "keen-heron-def456", []byte("hash"), now.Add(time.Hour), now, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	past := now.Add(-time.Minute)
+	if err := r.ReplaceSchedule(ctx, acc.ID, []ScheduledPushInput{
+		{FireAt: past, CT: []byte("ct-legacy")}, // no Delivery → webpush
+		{FireAt: past, Delivery: DeliveryTelegram, TGText: "Time to take: Lisinopril"},
+		{FireAt: past, Delivery: DeliveryBoth, CT: []byte("ct-both"), TGText: "Medication time"},
+	}, now); err != nil {
+		t.Fatalf("ReplaceSchedule: %v", err)
+	}
+
+	due, err := r.DueScheduledPushes(ctx, now)
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 3 {
+		t.Fatalf("expected 3 due entries, got %d", len(due))
+	}
+
+	byDelivery := map[string]ScheduledPush{}
+	for _, p := range due {
+		byDelivery[p.Delivery] = p
+	}
+	legacy, ok := byDelivery[DeliveryWebPush]
+	if !ok {
+		t.Fatalf("entry with no delivery did not default to %q: %+v", DeliveryWebPush, due)
+	}
+	if string(legacy.CT) != "ct-legacy" || legacy.TGText != "" {
+		t.Errorf("legacy entry round-tripped wrong: %+v", legacy)
+	}
+	tg, ok := byDelivery[DeliveryTelegram]
+	if !ok {
+		t.Fatalf("missing telegram entry: %+v", due)
+	}
+	if tg.TGText != "Time to take: Lisinopril" || len(tg.CT) != 0 {
+		t.Errorf("telegram entry round-tripped wrong: %+v", tg)
+	}
+	both, ok := byDelivery[DeliveryBoth]
+	if !ok {
+		t.Fatalf("missing both entry: %+v", due)
+	}
+	if string(both.CT) != "ct-both" || both.TGText != "Medication time" {
+		t.Errorf("both entry round-tripped wrong: %+v", both)
+	}
+}

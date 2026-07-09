@@ -145,8 +145,17 @@ export async function mountTelegram(container, opts = {}) {
         <p><strong>What the server sees:</strong> to send messages, the server
            stores <em>one</em> credential — your bot's token — which it can read.
            With it, and only it, the server can send and receive messages as
-           that bot. Your health data stays encrypted; this covers the message
-           channel only.</p>
+           that bot.</p>
+        <p><strong>And it reads your reminder text.</strong> Telegram messages
+           cannot be end-to-end encrypted through a bot, so your device hands
+           the server the exact words to forward. By default that text is
+           <em>detailed</em> — it names the medication ("Time to take:
+           Lisinopril 10 mg"). Switch <em>Telegram Reminder Detail</em> to
+           <em>Generic</em> in Settings → Notifications and it sends only
+           "Medication time" instead, with no names leaving your vault.</p>
+        <p>Everything else — your medications, readings, notes — stays
+           encrypted. Only the reminder text you choose to send crosses this
+           channel.</p>
         <div class="wizard-actions">
           <button id="tg-accept">Set up my bot</button>
           <button id="tg-skip" class="secondary">Skip</button>

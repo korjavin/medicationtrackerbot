@@ -535,6 +535,32 @@
                             <button id="cloud-push-test-btn" class="wg-gloss wg-settings-action-btn">Send test push</button>
                         </div>
                     </div>
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Reminder Delivery</div>
+                            <div class="wg-settings-row__desc">Where scheduled reminders are sent. Telegram needs a linked bot.</div>
+                        </div>
+                        <div class="wg-settings-row__control wg-settings-action-row">
+                            <select id="cloud-reminder-delivery" class="wg-gloss wg-settings-action-btn" aria-label="Reminder delivery channel">
+                                <option value="webpush">Web push only</option>
+                                <option value="telegram">Telegram only</option>
+                                <option value="both">Web push and Telegram</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Telegram Reminder Detail</div>
+                            <div class="wg-settings-row__desc">Telegram reminders pass through the server as readable text. "Detailed" includes medication names; "Generic" says only that a reminder is due.</div>
+                        </div>
+                        <div class="wg-settings-row__control wg-settings-action-row">
+                            <select id="cloud-reminder-verbosity" class="wg-gloss wg-settings-action-btn" aria-label="Telegram reminder detail level">
+                                <option value="detailed">Detailed (includes names)</option>
+                                <option value="generic">Generic (no names)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="cloud-reminder-delivery-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
                 </div>
             </section>
 

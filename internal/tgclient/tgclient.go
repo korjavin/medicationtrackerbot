@@ -254,6 +254,17 @@ func (c *Client) SendMessage(ctx context.Context, chatID int64, text string) err
 	}, nil)
 }
 
+// CallbackIntakePrefix reserves the callback_data namespace for the inline
+// Confirm/Snooze buttons that ride on medication reminders. The full shape is
+// "i:<intakeID>:<action>" — opaque to the relay and deterministic, so the
+// inbound side can seal and apply a tap idempotently.
+//
+// C3b outbound (med-76c.1) sends text-only reminders and attaches no keyboard:
+// a button with nobody to answer it would spin in the client. The buttons, the
+// callback_query webhook, and the sealed mailbox all land together in the
+// inbound half (med-76c.2), which consumes this constant.
+const CallbackIntakePrefix = "i:"
+
 // Update is the subset of a Telegram update our webhooks read. A managed-bot
 // creation arrives in TWO shapes (both observed live, Bot API 9.6, 2026-04):
 // a top-level managed_bot update ({user, bot}) and a service message

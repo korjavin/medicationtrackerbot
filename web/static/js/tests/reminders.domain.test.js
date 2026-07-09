@@ -46,3 +46,46 @@ describe('domain/reminders.js — horizon scheduling', () => {
         expect(bpEntries[0].fireAtUnix).toBe(expectedNextBpTargetMs / 1000);
     });
 });
+
+// bd med-76c.1 — Telegram reminders transit the cloud relay as plaintext, so
+// every entry must carry a name-free twin the user can opt into, and the
+// delivery/verbosity pref must default to the documented values.
+describe('domain/reminders.js — Telegram delivery pref + generic verbosity', () => {
+    it('every horizon entry carries a genericText with no medication name in it', () => {
+        const nowMs = Date.UTC(2026, 6, 7, 6, 0, 0);
+        const entries = computeReminderHorizon({
+            medications: [{ id: 'm1', name: 'Lisinopril', dosage: '10 mg', schedule: '20:00' }],
+            intakes: [],
+            bps: [], weights: [],
+            timeZone: 'UTC',
+            now: nowMs,
+            bpStatus: { enabled: true, preferred_reminder_hour: 20 },
+            weightStatus: { enabled: true, preferred_reminder_hour: 9 },
+        });
+
+        expect(entries.length).toBeGreaterThan(0);
+        for (const e of entries) {
+            expect(typeof e.genericText).toBe('string');
+            expect(e.genericText.length).toBeGreaterThan(0);
+            expect(e.genericText).not.toContain('Lisinopril');
+        }
+        // The detailed text still names the drug — that is the default channel payload.
+        expect(entries.some((e) => e.text.includes('Lisinopril'))).toBe(true);
+    });
+
+    it('delivery pref defaults to webpush/detailed and round-trips, ignoring invalid values', async () => {
+        const { createRemindersDomain } = await import('../../../domain/reminders.js');
+        const { createInMemoryRecordsPort } = await import('./helpers/cloud-shim-harness.js');
+        const records = createInMemoryRecordsPort();
+        const domain = createRemindersDomain({ records, now: () => 1_700_000_000_000 });
+
+        expect(await domain.getDeliveryPref()).toEqual({ delivery: 'webpush', verbosity: 'detailed' });
+
+        expect(await domain.setDeliveryPref({ delivery: 'both', verbosity: 'generic' }))
+            .toEqual({ delivery: 'both', verbosity: 'generic' });
+
+        // Garbage keeps the stored value rather than silently resetting to defaults.
+        expect(await domain.setDeliveryPref({ delivery: 'carrier-pigeon', verbosity: 'shouty' }))
+            .toEqual({ delivery: 'both', verbosity: 'generic' });
+    });
+});

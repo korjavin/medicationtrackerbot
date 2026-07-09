@@ -54,6 +54,14 @@ type PushSender interface {
 	Send(ctx context.Context, sub cloudstore.PushSubscription, keys cloudstore.AccountVAPIDKeys, ct []byte) (statusCode int, err error)
 }
 
+// TelegramSender forwards one client-composed reminder to an account's linked
+// Telegram bot. Deliberately narrow: the relay hands over bytes it was given
+// and learns nothing else about the account. Nil when the deployment has no
+// manager bot configured, in which case telegram entries are dropped.
+type TelegramSender interface {
+	SendReminder(ctx context.Context, accountID, text string) error
+}
+
 // WebPushSender is the production PushSender. ct is already NK-encrypted
 // app-layer ciphertext (see docs/cloud-crypto.md); webpush-go wraps it in
 // RFC 8291 per subscription — the relay composes nothing and can read
@@ -113,17 +121,19 @@ type relayStore interface {
 type Relay struct {
 	store              relayStore
 	sender             PushSender
+	tg                 TelegramSender // nil when no manager bot is configured
 	interval           time.Duration
 	dryQueueWarnWithin time.Duration
 }
 
 // NewRelay builds a Relay that ticks every 30s. dryQueueWarnWithin is
-// CLOUD_DRY_QUEUE_WARN_HOURS (Task 7); <= 0 uses the 120h default.
-func NewRelay(store relayStore, sender PushSender, dryQueueWarnWithin time.Duration) *Relay {
+// CLOUD_DRY_QUEUE_WARN_HOURS (Task 7); <= 0 uses the 120h default. tg may be
+// nil — the relay then serves web-push entries only.
+func NewRelay(store relayStore, sender PushSender, tg TelegramSender, dryQueueWarnWithin time.Duration) *Relay {
 	if dryQueueWarnWithin <= 0 {
 		dryQueueWarnWithin = defaultDryQueueWarnWithin
 	}
-	return &Relay{store: store, sender: sender, interval: 30 * time.Second, dryQueueWarnWithin: dryQueueWarnWithin}
+	return &Relay{store: store, sender: sender, tg: tg, interval: 30 * time.Second, dryQueueWarnWithin: dryQueueWarnWithin}
 }
 
 // Run ticks until ctx is cancelled. Call it in its own goroutine, passing the
@@ -157,37 +167,82 @@ func (rl *Relay) Tick(ctx context.Context) {
 	subsByAccount := make(map[string][]cloudstore.PushSubscription)
 	keysByAccount := make(map[string]cloudstore.AccountVAPIDKeys)
 	for _, p := range due {
-		subs, ok := subsByAccount[p.AccountID]
-		if !ok {
-			subs, err = rl.store.List(ctx, p.AccountID)
-			if err != nil {
-				slog.Error("push relay: list subscriptions", "accountID", p.AccountID, "error", err)
-				continue
-			}
-			subsByAccount[p.AccountID] = subs
+		// An empty delivery is a pre-C3b row: web push, as before.
+		delivery := p.Delivery
+		if delivery == "" {
+			delivery = cloudstore.DeliveryWebPush
 		}
 
-		keys, ok := keysByAccount[p.AccountID]
-		if !ok {
-			keys, err = rl.store.AccountVAPIDKeysByID(ctx, p.AccountID)
-			if err != nil {
-				slog.Error("push relay: load VAPID keys", "accountID", p.AccountID, "error", err)
-				continue
-			}
-			keysByAccount[p.AccountID] = keys
+		if delivery == cloudstore.DeliveryWebPush || delivery == cloudstore.DeliveryBoth {
+			rl.sendWebPush(ctx, p, subsByAccount, keysByAccount)
 		}
 
-		if keys.PublicKey == "" || keys.PrivateKey == "" {
-			slog.Warn("push relay: account has no VAPID keys, skipping send", "accountID", p.AccountID)
-		} else {
-			for _, sub := range subs {
-				rl.send(ctx, sub, keys, p.CT)
-			}
+		if delivery == cloudstore.DeliveryTelegram || delivery == cloudstore.DeliveryBoth {
+			rl.sendTelegram(ctx, p)
 		}
 
+		// Mark sent whatever happened on either channel: delivery is
+		// at-most-once. Retrying a "both" entry because its web-push half hit a
+		// lookup error would re-send its Telegram half, and a permanently
+		// unlinked chat or revoked token would re-fire forever. A DB outage
+		// fails MarkPushSent too, so the row is naturally retried then.
 		if err := rl.store.MarkPushSent(ctx, p.ID, time.Now().UTC()); err != nil {
 			slog.Error("push relay: mark sent", "id", p.ID, "error", err)
 		}
+	}
+}
+
+// sendWebPush fans one due entry out to every enabled subscription for its
+// account, memoizing the per-account subscription list and VAPID keys across
+// the tick.
+func (rl *Relay) sendWebPush(
+	ctx context.Context,
+	p cloudstore.ScheduledPush,
+	subsByAccount map[string][]cloudstore.PushSubscription,
+	keysByAccount map[string]cloudstore.AccountVAPIDKeys,
+) {
+	subs, ok := subsByAccount[p.AccountID]
+	if !ok {
+		var err error
+		subs, err = rl.store.List(ctx, p.AccountID)
+		if err != nil {
+			slog.Error("push relay: list subscriptions", "accountID", p.AccountID, "error", err)
+			return
+		}
+		subsByAccount[p.AccountID] = subs
+	}
+
+	keys, ok := keysByAccount[p.AccountID]
+	if !ok {
+		var err error
+		keys, err = rl.store.AccountVAPIDKeysByID(ctx, p.AccountID)
+		if err != nil {
+			slog.Error("push relay: load VAPID keys", "accountID", p.AccountID, "error", err)
+			return
+		}
+		keysByAccount[p.AccountID] = keys
+	}
+
+	if keys.PublicKey == "" || keys.PrivateKey == "" {
+		slog.Warn("push relay: account has no VAPID keys, skipping send", "accountID", p.AccountID)
+		return
+	}
+	for _, sub := range subs {
+		rl.send(ctx, sub, keys, p.CT)
+	}
+}
+
+// sendTelegram forwards p.TGText to the account's linked bot. Every failure is
+// logged and swallowed: the caller still marks the row sent, so a revoked token
+// or an account that never tapped /start cannot re-fire the same reminder on
+// every tick forever.
+func (rl *Relay) sendTelegram(ctx context.Context, p cloudstore.ScheduledPush) {
+	if rl.tg == nil {
+		slog.Warn("push relay: telegram entry but no telegram sender configured", "accountID", p.AccountID)
+		return
+	}
+	if err := rl.tg.SendReminder(ctx, p.AccountID, p.TGText); err != nil {
+		slog.Error("push relay: telegram send", "accountID", p.AccountID, "error", err)
 	}
 }
 
