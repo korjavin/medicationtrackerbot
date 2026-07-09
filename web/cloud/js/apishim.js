@@ -53,6 +53,18 @@ function intParam(params, name, fallback) {
   return Number.isNaN(n) ? fallback : n;
 }
 
+// Some Go handlers guard their `days` parse with `err == nil && d > 0`, so a
+// non-positive value falls back to the default window rather than being used
+// (handleListSleepLogs, handleGetFoodLogs, handleGetFoodStats). Left to
+// intParam, `days=0` would reach the domain module and yield an empty (or, for
+// negative days, a future) window — silently no data where bot mode returns the
+// default window. Others (bp, weight, intake history) deliberately let
+// non-positive through to mean "unbounded"; those keep intParam.
+function positiveIntParam(params, name, fallback) {
+  const n = intParam(params, name, fallback);
+  return n > 0 ? n : fallback;
+}
+
 // Mirrors apiCallDirect's error shape (Error with .status) so apiCall's
 // catch/alert/return-null behavior matches the real network path exactly.
 function apiError(status, message) {
@@ -338,7 +350,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       return vitals.sleep({
         from: params.get('from') || undefined,
         to: params.get('to') || undefined,
-        days: intParam(params, 'days', 90),
+        days: positiveIntParam(params, 'days', 90),
         limit: intParam(params, 'limit', 0),
       });
     }
@@ -429,7 +441,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     if (path === '/api/food/log') {
       if (method === 'POST') return food.create(body);
       if (method === 'GET') {
-        return food.listGrouped({ date: params.get('date') || undefined, days: intParam(params, 'days', 1) });
+        return food.listGrouped({ date: params.get('date') || undefined, days: positiveIntParam(params, 'days', 1) });
       }
     }
     if (method === 'PUT') {
@@ -441,7 +453,7 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       if (m) { await food.remove(m[1]); return true; }
     }
     if (path === '/api/food/stats' && method === 'GET') {
-      return food.stats({ date: params.get('date') || undefined, days: intParam(params, 'days', 7) });
+      return food.stats({ date: params.get('date') || undefined, days: positiveIntParam(params, 'days', 7) });
     }
     if (path === '/api/food/products/from-logs' && method === 'POST') {
       return food.createMealFromLogs(body && body.name, (body && body.log_ids) || []);

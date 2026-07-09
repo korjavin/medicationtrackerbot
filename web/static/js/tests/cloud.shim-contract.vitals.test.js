@@ -95,6 +95,41 @@ describe('cloud shim contract — vitals overview (features/health.js over web/d
         expect(today.heart_rate_avg).toBe(60);
     });
 
+    // med-9z3.9 — handleListSleepLogs guards `days` with `err == nil && d > 0`
+    // (health_handlers.go), so a non-positive value keeps the 90d default. The
+    // shim's intParam let 0/-5 through into `now - days*DAY`, producing an empty
+    // (days=0) or future (days<0) window: no rows where bot mode returns 90 days.
+    describe('non-positive `days` on /api/health/sleep falls back to the default 90d', () => {
+        const sleepRecord = (daysAgo) => {
+            const at = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+            const day = at.toISOString().slice(0, 10);
+            return {
+                recordId: `sleep_${day}`,
+                clientTs: Date.now(),
+                deleted: false,
+                start_time: at.toISOString(),
+                end_time: at.toISOString(),
+                timezone_offset: 0,
+                day,
+                total_minutes: 420,
+                user_modified: false,
+            };
+        };
+
+        for (const days of ['0', '-5']) {
+            it(`days=${days} returns the same rows as the default window`, async () => {
+                env = loadCloudShimFrontendEnv({ seedRecords: { sleep: [sleepRecord(1)] } });
+                installApiCache(env.window);
+
+                const withDays = await env.window.apiCall(`/api/health/sleep?days=${days}`, 'GET');
+                const withDefault = await env.window.apiCall('/api/health/sleep', 'GET');
+
+                expect(withDays).toHaveLength(1);
+                expect(withDays).toEqual(withDefault);
+            });
+        }
+    });
+
     // med-9z3.3 — overview() used to flatten EVERY stored sample day for three
     // streams and then throw all but the 30d window away. A multi-year account
     // re-expanded years of batches on every load.
