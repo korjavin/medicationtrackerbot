@@ -2,11 +2,15 @@ package cloudserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
 
 // TestGetVapidPublicKey_PerAccount guards the per-account VAPID design: two
@@ -184,5 +188,63 @@ func TestPostTestPush_GoneDisablesSubscription(t *testing.T) {
 	}
 	if sub != nil {
 		t.Fatalf("subscription should be disabled after 410 (GetByEndpoint filters disabled), got %+v", sub)
+	}
+}
+
+// TestPutSchedule_DeliveryValidation guards the C3b wire contract: each channel
+// requires its own payload, unknown channels are rejected, and an entry with no
+// delivery field (every pre-C3b client) still persists as webpush.
+func TestPutSchedule_DeliveryValidation(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+
+	session := registerAndGetSession(t, h, host, claimToken)
+	fireAt := time.Now().Add(time.Hour).Unix()
+
+	put := func(e scheduleEntryWire) int {
+		body, _ := json.Marshal(putScheduleRequest{Entries: []scheduleEntryWire{e}})
+		r := httptest.NewRequest(http.MethodPut, "/api/push/schedule", bytes.NewReader(body))
+		r.Host = host
+		r.AddCookie(session)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec.Code
+	}
+
+	bad := []struct {
+		name  string
+		entry scheduleEntryWire
+	}{
+		{"unknown channel", scheduleEntryWire{FireAtUnix: fireAt, CT: []byte("ct"), Delivery: "carrier-pigeon"}},
+		{"telegram without text", scheduleEntryWire{FireAtUnix: fireAt, Delivery: "telegram"}},
+		{"both without text", scheduleEntryWire{FireAtUnix: fireAt, CT: []byte("ct"), Delivery: "both"}},
+		{"both without ct", scheduleEntryWire{FireAtUnix: fireAt, Delivery: "both", TGText: "hi"}},
+		{"webpush without ct", scheduleEntryWire{FireAtUnix: fireAt, Delivery: "webpush"}},
+		{"tg text too long", scheduleEntryWire{FireAtUnix: fireAt, Delivery: "telegram", TGText: strings.Repeat("x", maxScheduleTGTextLen+1)}},
+	}
+	for _, tc := range bad {
+		if code := put(tc.entry); code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want 400", tc.name, code)
+		}
+	}
+
+	// No delivery field at all → stored as webpush (backward compatibility).
+	if code := put(scheduleEntryWire{FireAtUnix: time.Now().Add(-time.Minute).Unix(), CT: []byte("legacy-ct")}); code != http.StatusNoContent {
+		t.Fatalf("legacy entry status = %d, want 204", code)
+	}
+	due, err := store.DueScheduledPushes(context.Background(), time.Now().UTC())
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 1 || due[0].Delivery != cloudstore.DeliveryWebPush {
+		t.Fatalf("legacy entry did not default to webpush: %+v", due)
 	}
 }

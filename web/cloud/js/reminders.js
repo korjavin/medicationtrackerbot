@@ -56,9 +56,18 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
   });
 }
 
+// getDeliveryPref/setDeliveryPref back the cloud notification settings' channel
+// + verbosity controls (bd med-76c.1); apishim.js routes the settings writes here.
+export function remindersDomain(ctx, { records: recordsOverride } = {}) {
+  return createRemindersDomain({ records: recordsOverride || recordsPort(ctx), now: () => Date.now() });
+}
+
 export async function recomputeAndPush(ctx, opts = {}) {
-  const entries = await computeReminderEntries(ctx, opts);
-  await pushSchedule(ctx, entries);
+  const [entries, pref] = await Promise.all([
+    computeReminderEntries(ctx, opts),
+    remindersDomain(ctx, opts).getDeliveryPref(),
+  ]);
+  await pushSchedule(ctx, entries, pref);
 }
 
 // scheduleReminderRecompute debounces recomputeAndPush per ctx (keyed by

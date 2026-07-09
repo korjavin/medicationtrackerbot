@@ -202,7 +202,63 @@ function bindCloudNotifications() {
         }
         setTimeout(() => hideWebpushStatus(status), 3000);
     });
+    bindCloudReminderDelivery();
     return ready;
+}
+
+// Reminder delivery channel + Telegram verbosity (bd med-76c.1). Both live in
+// the vault (reminderdeliverypref), so they round-trip through the cloud
+// reminders domain rather than an /api route. Changing either re-uploads the
+// horizon immediately — the relay holds precomputed entries, so a pref change
+// that isn't re-pushed wouldn't take effect until the next mutation.
+let _cloudReminderDeliveryBound = false; // module-state: bind the selects once across repeated loadSettings() calls
+function bindCloudReminderDelivery() {
+    const deliverySel = document.getElementById('cloud-reminder-delivery');
+    const verbositySel = document.getElementById('cloud-reminder-verbosity');
+    const status = document.getElementById('cloud-reminder-delivery-status');
+    if (!deliverySel || !verbositySel || !status) return;
+
+    const ctx = window.MedTrackerCloud?.ctx;
+    if (ctx) {
+        loadCloudRemindersModule()
+            .then(({ remindersDomain }) => remindersDomain(ctx).getDeliveryPref())
+            .then((pref) => {
+                deliverySel.value = pref.delivery;
+                verbositySel.value = pref.verbosity;
+            })
+            .catch(() => { /* leave the HTML defaults (webpush/detailed) */ });
+    }
+
+    if (_cloudReminderDeliveryBound) return;
+    _cloudReminderDeliveryBound = true;
+
+    const save = async () => {
+        const cloudCtx = window.MedTrackerCloud?.ctx;
+        if (!cloudCtx) {
+            applyWebpushStatus(status, 'Unlock the vault to change reminder delivery.', 'error');
+            setTimeout(() => hideWebpushStatus(status), 3000);
+            return;
+        }
+        deliverySel.disabled = true;
+        verbositySel.disabled = true;
+        try {
+            const { remindersDomain, recomputeAndPush } = await loadCloudRemindersModule();
+            await remindersDomain(cloudCtx).setDeliveryPref({
+                delivery: deliverySel.value,
+                verbosity: verbositySel.value,
+            });
+            await recomputeAndPush(cloudCtx);
+            applyWebpushStatus(status, 'Reminder delivery updated.', 'success');
+        } catch (err) {
+            applyWebpushStatus(status, err.message || 'Failed to update reminder delivery', 'error');
+        }
+        deliverySel.disabled = false;
+        verbositySel.disabled = false;
+        setTimeout(() => hideWebpushStatus(status), 3000);
+    };
+
+    deliverySel.addEventListener('change', save);
+    verbositySel.addEventListener('change', save);
 }
 
 // Cloud-mode "Invite a friend": POST /api/invite mints a subdomain + claim

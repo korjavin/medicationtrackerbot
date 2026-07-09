@@ -31,6 +31,11 @@ const (
 	maxScheduleEntries   = 2000
 	maxScheduleCTLen     = 4 << 10
 
+	// Telegram reminder text is plaintext the relay forwards verbatim. 1 KiB
+	// is far above any reminder the client composes and well under Telegram's
+	// own 4096-char sendMessage limit.
+	maxScheduleTGTextLen = 1 << 10
+
 	// Test-push body cap; the ciphertext reuses maxScheduleCTLen (same bound
 	// as a single schedule entry).
 	maxTestPushBodyBytes = 8 << 10
@@ -190,9 +195,15 @@ func (a *PushAPI) GetVapidPublicKey(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, vapidPublicKeyResponse{PublicKey: *account.VAPIDPublicKey})
 }
 
+// scheduleEntryWire is one uploaded reminder. Delivery is optional — an empty
+// value means "webpush", which is what every pre-C3b client sends. CT is the
+// opaque NK ciphertext for web push; TGText is the plaintext the relay hands
+// straight to Telegram (see cloudstore.ScheduledPush).
 type scheduleEntryWire struct {
 	FireAtUnix int64  `json:"fire_at_unix"`
 	CT         []byte `json:"ct"`
+	Delivery   string `json:"delivery"`
+	TGText     string `json:"tg_text"`
 }
 
 type putScheduleRequest struct {
@@ -221,11 +232,36 @@ func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	entries := make([]cloudstore.ScheduledPushInput, len(req.Entries))
 	for i, e := range req.Entries {
-		if e.FireAtUnix <= 0 || len(e.CT) == 0 || len(e.CT) > maxScheduleCTLen {
+		delivery := e.Delivery
+		if delivery == "" {
+			delivery = cloudstore.DeliveryWebPush
+		}
+		if e.FireAtUnix <= 0 || !cloudstore.ValidDelivery(delivery) {
+			http.Error(w, "schedule entry field invalid or missing", http.StatusBadRequest)
+			return
+		}
+		// Each channel requires its own payload: web push can only fire the
+		// ciphertext, Telegram can only fire the plaintext.
+		needsCT := delivery == cloudstore.DeliveryWebPush || delivery == cloudstore.DeliveryBoth
+		needsText := delivery == cloudstore.DeliveryTelegram || delivery == cloudstore.DeliveryBoth
+		if needsCT && (len(e.CT) == 0 || len(e.CT) > maxScheduleCTLen) {
 			http.Error(w, "schedule entry field too large or missing", http.StatusBadRequest)
 			return
 		}
-		entries[i] = cloudstore.ScheduledPushInput{FireAt: storedb.UnixToTime(e.FireAtUnix), CT: e.CT}
+		if needsText && (e.TGText == "" || len(e.TGText) > maxScheduleTGTextLen) {
+			http.Error(w, "schedule entry field too large or missing", http.StatusBadRequest)
+			return
+		}
+		if !needsCT && len(e.CT) > maxScheduleCTLen {
+			http.Error(w, "schedule entry field too large or missing", http.StatusBadRequest)
+			return
+		}
+		entries[i] = cloudstore.ScheduledPushInput{
+			FireAt:   storedb.UnixToTime(e.FireAtUnix),
+			CT:       e.CT,
+			Delivery: delivery,
+			TGText:   e.TGText,
+		}
 	}
 
 	if err := a.store.ReplaceSchedule(r.Context(), session.AccountID, entries, time.Now().UTC()); err != nil {

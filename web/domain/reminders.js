@@ -21,6 +21,11 @@ const BP_REMINDERPREF_RECORD_TYPE = 'bpreminderpref';
 const BP_REMINDERPREF_RECORD_ID = 'bpreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_TYPE = 'weightreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_ID = 'weightreminderpref';
+const DELIVERYPREF_RECORD_TYPE = 'reminderdeliverypref';
+const DELIVERYPREF_RECORD_ID = 'reminderdeliverypref';
+
+export const DELIVERY_CHANNELS = ['webpush', 'telegram', 'both'];
+export const VERBOSITIES = ['detailed', 'generic'];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FORECAST_DAYS = 7;
@@ -58,6 +63,15 @@ function doseSlotText(names) {
     ? `\u{1F48A} Time to take: ${names[0]}`
     : `\u{1F48A} Time to take (${names.length} medications): ${names.join(', ')}`;
 }
+
+// Every entry carries a name-free twin of its `text`. Cloud mode forwards
+// Telegram reminders to the relay in plaintext, so a user who doesn't want
+// medication names leaving the vault picks `generic` verbosity and we send
+// these instead (see docs/cloud-mode.md, bd med-76c.1).
+const GENERIC_DOSE_TEXT = '\u{1F48A} Medication time';
+const GENERIC_REREMIND_TEXT = '\u{1F514} You have an unconfirmed medication';
+const GENERIC_BP_TEXT = '\u{1F4CA} Time for a scheduled measurement';
+const GENERIC_WEIGHT_TEXT = '\u{2696}\u{FE0F} Time for a scheduled measurement';
 
 // computeReminderHorizon is pure: medications/intakes are raw records
 // (server field names), timeZone is an IANA string, now is ms epoch, tzPlan
@@ -130,7 +144,7 @@ export function computeReminderHorizon({
     bySlot.set(t.scheduledAtMs, list);
   }
   for (const [slotMs, names] of bySlot) {
-    entries.push({ fireAtUnix: Math.floor(slotMs / 1000), text: doseSlotText(names) });
+    entries.push({ fireAtUnix: Math.floor(slotMs / 1000), text: doseSlotText(names), genericText: GENERIC_DOSE_TEXT });
   }
 
   // Ported from medication_reminder.go's Check: re-remind a still-PENDING
@@ -146,7 +160,7 @@ export function computeReminderHorizon({
     if (fireMs < now) fireMs = now;
     const text = `\u{1F514} REMINDER: You haven't confirmed taking ${medDisplayName(med)} yet on ${formatHHMM(scheduledMs, timeZone)}!`;
     for (let i = 0; i < MAX_REREMINDS_PER_INTAKE; i++) {
-      entries.push({ fireAtUnix: Math.floor(fireMs / 1000), text });
+      entries.push({ fireAtUnix: Math.floor(fireMs / 1000), text, genericText: GENERIC_REREMIND_TEXT });
       fireMs += REREMIND_INTERVAL_MS;
     }
   }
@@ -166,7 +180,7 @@ export function computeReminderHorizon({
 
       // Fire if no reading within 12h before target
       if (targetMs > now && targetMs - lastBPMs > 12 * 60 * 60 * 1000) {
-        entries.push({ fireAtUnix: Math.floor(targetMs / 1000), text: "📊 **Time to measure your blood pressure**\n\nPlease take a moment to measure and record your BP." });
+        entries.push({ fireAtUnix: Math.floor(targetMs / 1000), text: "📊 **Time to measure your blood pressure**\n\nPlease take a moment to measure and record your BP.", genericText: GENERIC_BP_TEXT });
       }
     }
   }
@@ -186,7 +200,7 @@ export function computeReminderHorizon({
 
       // Fire if no reading within 7 days before target
       if (targetMs > now && targetMs - lastWeightMs > 7 * 24 * 60 * 60 * 1000) {
-        entries.push({ fireAtUnix: Math.floor(targetMs / 1000), text: "⚖️ **Time to track your weight**\n\nIt's been about a week since your last measurement. Regular tracking helps you stay on top of your goals!" });
+        entries.push({ fireAtUnix: Math.floor(targetMs / 1000), text: "⚖️ **Time to track your weight**\n\nIt's been about a week since your last measurement. Regular tracking helps you stay on top of your goals!", genericText: GENERIC_WEIGHT_TEXT });
       }
     }
   }
@@ -256,6 +270,30 @@ export function createRemindersDomain({ records, now }) {
     return getWeightStatus();
   }
 
+  // Where reminders are delivered, and how much they say. Telegram reminders
+  // transit the relay as plaintext, so `verbosity` is the user's control over
+  // what leaves the vault: 'detailed' (default) sends medication names,
+  // 'generic' sends only "Medication time".
+  async function getDeliveryPref() {
+    const all = await records.list(DELIVERYPREF_RECORD_TYPE);
+    const rec = findSingleton(all, DELIVERYPREF_RECORD_ID);
+    const delivery = rec && DELIVERY_CHANNELS.includes(rec.delivery) ? rec.delivery : 'webpush';
+    const verbosity = rec && VERBOSITIES.includes(rec.verbosity) ? rec.verbosity : 'detailed';
+    return { delivery, verbosity };
+  }
+
+  async function setDeliveryPref({ delivery, verbosity } = {}) {
+    const current = await getDeliveryPref();
+    const next = {
+      delivery: DELIVERY_CHANNELS.includes(delivery) ? delivery : current.delivery,
+      verbosity: VERBOSITIES.includes(verbosity) ? verbosity : current.verbosity,
+    };
+    await records.put(DELIVERYPREF_RECORD_TYPE, {
+      recordId: DELIVERYPREF_RECORD_ID, clientTs: now(), deleted: false, ...next,
+    });
+    return getDeliveryPref();
+  }
+
   // buildHorizon returns [] when reminders are disabled — the caller uploads
   // that empty med portion via a replace-all pushSchedule, per the plan's
   // "disabled -> upload empty med portion" rule.
@@ -291,5 +329,8 @@ export function createRemindersDomain({ records, now }) {
     });
   }
 
-  return { getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled, buildHorizon };
+  return {
+    getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled,
+    getDeliveryPref, setDeliveryPref, buildHorizon,
+  };
 }
