@@ -73,8 +73,8 @@
 - [x] run linters if configured (`go vet ./...`) — clean
 
 ### Task 6: [Final] Update documentation
-- [ ] add "User-mintable invites" subsection to `docs/cloud-mode.md` (endpoint, quota semantics, provenance column)
-- [ ] mention the new endpoint in `docs/api.md` if cloud endpoints are catalogued there
+- [x] add "User-mintable invites" subsection to `docs/cloud-mode.md` (endpoint, quota semantics, provenance column)
+- [x] mention the new endpoint in `docs/api.md` if cloud endpoints are catalogued there — new "Cloud Mode Invites" section alongside the existing Telegram / Trial Proxy cloud-only tables
 
 ## Technical Details
 - Response shape: `{"subdomain": "sunny-vole-abc123", "claim_url": "https://sunny-vole-abc123.<base>/#claim=<64-hex>", "expires_at": "<RFC3339>"}`
