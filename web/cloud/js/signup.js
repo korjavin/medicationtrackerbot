@@ -1,9 +1,10 @@
 // Claim/registration wizard: the passkey signup ceremony described in
 // docs/cloud-crypto.md "Signup (first device)". Drives the account shell
 // (signup.html's #app) through create-passkey -> loss-protection ack ->
-// Emergency Kit. Each screen is rendered fresh from the outcome of the
-// previous step rather than a stored step counter, per docs/cloud-mode.md
-// Onboarding ("the wizard is stateless").
+// Emergency Kit -> optional Telegram link, then enters the app itself. Each
+// screen is rendered fresh from the outcome of the previous step rather than a
+// stored step counter, per docs/cloud-mode.md Onboarding ("the wizard is
+// stateless").
 import {
   saltKek,
   generateDEK,
@@ -15,6 +16,7 @@ import {
   deriveVerifier,
   toBase64,
 } from './crypto.js';
+import { establishLdkCache } from './unlock.js';
 
 const EXPIRED_LINK_MESSAGE = 'Could not start passkey registration — the invite link may be expired.';
 
@@ -240,8 +242,8 @@ function renderLossProtectionError(app, err) {
 // Exported so recover.js re-renders the identical Emergency Kit screen for
 // the forced code rotation after a successful recovery redemption, rather
 // than a second copy of this ceremony. ctx.onKitSaved, if given, replaces the
-// default "You're set up" done screen (recover.js redirects to the unlocked
-// vault instead).
+// default telegram-step-then-enter-app tail (recover.js redirects to the
+// already-unlocked vault itself).
 export async function renderEmergencyKit(app, ctx) {
   const { codeBytes, formatted } = await generateRecoveryCode();
   const kekRec = await deriveKEKRec(codeBytes, ctx.accountId);
@@ -299,28 +301,33 @@ export async function renderEmergencyKit(app, ctx) {
   const checkbox = app.querySelector('#kit-saved-checkbox');
   const button = app.querySelector('#kit-continue');
   checkbox.addEventListener('change', () => { button.disabled = !checkbox.checked; });
-  button.addEventListener('click', () => (ctx.onKitSaved ? ctx.onKitSaved() : renderTelegramStep(app)));
+  button.addEventListener('click', () => (ctx.onKitSaved ? ctx.onKitSaved() : renderTelegramStep(app, ctx)));
 }
 
 // Wizard step 5: optional Telegram linking. mountTelegram self-gates on the
 // server's status (enabled + state === 'none'); when Telegram is disabled or
 // already resolved it calls onDone immediately, so the wizard falls straight
-// through to the done screen with no dead step.
-async function renderTelegramStep(app) {
+// through into the app with no dead step.
+async function renderTelegramStep(app, ctx) {
   try {
     const { mountTelegram } = await import('./telegram.js');
-    await mountTelegram(app, { onDone: () => renderDone(app) });
+    await mountTelegram(app, { onDone: () => enterApp(ctx) });
   } catch (e) {
     console.error('[signup] telegram step failed', e);
-    renderDone(app);
+    enterApp(ctx);
   }
 }
 
-function renderDone(app) {
-  app.innerHTML = `
-    <section class="wizard-step">
-      <h1>You're set up</h1>
-      <p>Your vault is unlocked on this device. The full app arrives with
-         the next update.</p>
-    </section>`;
+// The wizard's last step is the app itself: warm the LDK cache so cloud-boot's
+// warmUnlock succeeds on '/', then go there. There is no confirmation screen —
+// the app, with the first-run overlay on top, is the confirmation.
+async function enterApp(ctx) {
+  try {
+    await establishLdkCache(ctx.dek, ctx.accountId);
+  } catch {
+    // Warm-cache is an optimization; a storage-blocked browser must still
+    // reach the vault after a successful enrollment — cloud-boot routes it to
+    // /unlock, where it signs in with the passkey it just created.
+  }
+  location.href = '/';
 }

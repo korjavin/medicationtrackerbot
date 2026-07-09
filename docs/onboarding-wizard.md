@@ -1,8 +1,8 @@
 # Cloud onboarding wizard — design
 
-Status: **design proposal** (bd `med-4pz.1`), except for the vault flag — `med-4pz.5` is **implemented**, so
-`WGFirstRun` now mounts in cloud mode. The screens and the claim→app seam still land via the sibling beads
-`med-8eh`, `med-4pz.2`, `med-4pz.3`, `med-4pz.4`.
+Status: **design proposal** (bd `med-4pz.1`), except for the vault flag (`med-4pz.5`) and the claim→app seam
+(`med-8eh`) — both **implemented**, so `WGFirstRun` now mounts in cloud mode and the claim wizard delivers the
+user into the app. The screens still land via the sibling beads `med-4pz.2`, `med-4pz.3`, `med-4pz.4`.
 
 ## The headline: don't build a wizard, revive one
 
@@ -30,11 +30,11 @@ So this design is **not** "build an onboarding wizard". It is:
 
 1. ~~give cloud mode a vault-backed `first_run_complete` so `needs_first_run` can be true~~ — done (`med-4pz.5`),
 2. ~~route `POST /api/firstrun/complete` through the shim~~ — done (`med-4pz.5`),
-3. add three screens to the existing registry,
-4. delete the claim wizard's dead-end final screen and hand off into the app.
+3. ~~delete the claim wizard's dead-end final screen and hand off into the app~~ — done (`med-8eh`),
+4. add three screens to the existing registry.
 
-That ordering also resolves `med-8eh` (the "app arrives with the next update" dead-end) as a *consequence*
-rather than a separate tweak — which is what that bead's own notes ask for.
+Step 3 fell out of the same ordering: `med-8eh` was a *consequence* of the vault flag, not a separate tweak —
+which is what that bead's own notes ask for.
 
 ## The trigger
 
@@ -121,28 +121,27 @@ Consequence worth stating plainly: skipping every step individually and skipping
 (`first_run_complete = true`), but per-step skip still walks the user past the safety nudges. That is the
 point — `med-4pz.4`'s Emergency Kit nudge is the one screen we want people to *see* even if they skip it.
 
-## The claim → onboarding seam (resolves `med-8eh`)
+## The claim → onboarding seam — **implemented** (`med-8eh`)
 
-Today the claim wizard ends at `renderDone` (`web/cloud/js/signup.js:249-256`):
+The claim wizard used to end at `renderDone`, a terminal screen ("the full app arrives with the next update")
+with no button and no redirect. It is gone. The sequence is now
+`welcome → (unsupported-authenticator) → loss-ack → Emergency Kit → (telegram) → enterApp`.
 
-```html
-<h1>You're set up</h1>
-<p>Your vault is unlocked on this device. The full app arrives with
-   the next update.</p>
-```
+`enterApp(ctx)` (`web/cloud/js/signup.js`) establishes the LDK warm cache with the ceremony's `{dek, accountId}`
+and then navigates `location.href = '/'`, exactly as `renderDeviceList`'s `onExit` already does
+(`app.js:38-40`). The app boots, `/api/bootstrap` reports `needs_first_run: true`, and `WGFirstRun` mounts on
+top of the real app.
 
-This is a terminal dead-end — no button, no redirect. The full sequence is
-`welcome → (unsupported-authenticator) → loss-ack → Emergency Kit → (telegram) → done`.
+The cache is established **at the tail, not right after `register/finish`** (which is what `claim.js:167-173`
+does, because enrollment is its last step). Caching early would let a user who abandons at the Emergency Kit
+reload straight into the app having never saved a recovery code.
 
-**Remaining gap after `med-4pz.5`.** The vault flag is live, but the seam is not: a freshly-claimed user still
-dead-ends here and has to navigate to the app and unlock the vault themselves. So the overlay is first seen
-**after that unlock**, not immediately after the Emergency Kit. `med-8eh` closes the gap; nothing about the
-flag changes when it does.
+`establishLdkCache` failure is swallowed and we navigate anyway: a storage-blocked browser lands on `/`,
+`cloud-boot`'s `warmUnlock` fails, and it is routed to `/unlock` to sign in with the passkey it just created.
+Degraded, not dead-ended.
 
-**Change:** `renderDone` goes away; the last real step (`renderTelegramStep`, or `renderEmergencyKit`'s
-`#kit-continue` when Telegram self-gates off) navigates into the app with `location.href = '/'`, exactly as
-`renderDeviceList`'s `onExit` already does (`app.js:38-40`). The app boots, `/api/bootstrap` reports
-`needs_first_run: true`, and `WGFirstRun` mounts on top of the real app.
+`recover.js` is unaffected — its `ctx.onKitSaved` override still short-circuits at `#kit-continue`, and its
+warm cache was already established by `enrollWithToken`.
 
 Onboarding therefore starts **after** the Emergency Kit, **inside** the real app — as the bead requires — and
 the claim wizard keeps exactly one job: get a passkey and a recovery code. No duplicated step machinery: the
@@ -202,7 +201,7 @@ No navigation, no reload.
 | bead | work |
 |---|---|
 | `med-4pz.5` ✅ | vault flag: `first_run_complete` in `web/domain/settings.js`; `needs_first_run` computed in `bootstrapPayload`; `POST /api/firstrun/complete` routed as a real `shimCall` branch. `VALID_STEPS` deliberately **not** extended — that belongs with the screens that need it |
-| `med-8eh` | delete `renderDone`; last claim step navigates `location.href = '/'` |
+| `med-8eh` ✅ | `renderDone` → `enterApp(ctx)`: warm the LDK cache, then navigate `location.href = '/'` |
 | `med-4pz.2` | `screens/features.js` |
 | `med-4pz.3` | `screens/sections.js`; verify `screens/integrations.js` under cloud |
 | `med-4pz.4` | `screens/safety.js`; verify `firstrun/permissions.js` under cloud push |

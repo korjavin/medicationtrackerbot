@@ -7,7 +7,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 
-import { runSignupWizard } from '../signup.js';
+import { renderEmergencyKit, runSignupWizard } from '../signup.js';
+import { establishLdkCache } from '../unlock.js';
+
+vi.mock('../unlock.js', () => ({ establishLdkCache: vi.fn(async () => {}) }));
+// Telegram self-gates and calls onDone immediately when disabled; the wizard
+// tail is what's under test, not the step itself.
+vi.mock('../telegram.js', () => ({ mountTelegram: async (_app, { onDone }) => onDone() }));
 
 let dom;
 
@@ -22,11 +28,14 @@ function beginResponse(status, body) {
 beforeEach(() => {
   dom = new JSDOM('<div id="app"></div>');
   globalThis.document = dom.window.document;
+  globalThis.location = { origin: 'https://acct.example', href: '' };
 });
 
 afterEach(() => {
   delete globalThis.document;
   delete globalThis.fetch;
+  delete globalThis.location;
+  vi.clearAllMocks();
 });
 
 describe('runSignupWizard claim-state probe', () => {
@@ -88,5 +97,58 @@ describe('runSignupWizard claim-state probe', () => {
     const app = dom.window.document.getElementById('app');
     expect(app.querySelector('#create-passkey')).not.toBeNull();
     expect(app.querySelector('.wizard-error').textContent).toContain('may be expired');
+  });
+});
+
+// med-8eh: the wizard used to end on a "the full app arrives with the next
+// update" screen. It now warms the LDK cache and navigates to '/'. enterApp is
+// module-private, so drive it the way the user does: #kit-continue.
+describe('wizard tail (Emergency Kit -> app)', () => {
+  const CTX = { accountId: 'acct-1', dek: new Uint8Array(32).fill(7) };
+
+  // vi.clearAllMocks() clears calls but keeps implementations, so a mockRejectedValue
+  // set by one case would otherwise leak into the next.
+  beforeEach(() => { establishLdkCache.mockResolvedValue(undefined); });
+
+  async function clickKitContinue(ctx) {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200 }));
+    const app = dom.window.document.getElementById('app');
+    await renderEmergencyKit(app, ctx);
+    // #kit-continue is disabled until "I saved my Emergency Kit" is ticked.
+    const checkbox = app.querySelector('#kit-saved-checkbox');
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new dom.window.Event('change'));
+    app.querySelector('#kit-continue').click();
+    return app;
+  }
+
+  it('warms the LDK cache with the ceremony DEK, then enters the app', async () => {
+    await clickKitContinue(CTX);
+
+    await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
+    expect(establishLdkCache).toHaveBeenCalledWith(CTX.dek, CTX.accountId);
+  });
+
+  it('still enters the app when the warm cache cannot be written (storage-blocked browser)', async () => {
+    // Rejects on every call, not just the first: renderTelegramStep's own catch
+    // re-invokes enterApp, so a mockRejectedValueOnce would let that retry
+    // navigate and mask a deleted `catch` inside enterApp.
+    establishLdkCache.mockRejectedValue(new Error('storage blocked'));
+    await clickKitContinue(CTX);
+
+    // cloud-boot bounces this to /unlock; a dead-end here is the bug.
+    await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
+    // Exactly once: enterApp swallowed the failure itself rather than bubbling
+    // out to the telegram-step error path.
+    expect(establishLdkCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets ctx.onKitSaved override the tail, so recover.js is unaffected', async () => {
+    const onKitSaved = vi.fn();
+    await clickKitContinue({ ...CTX, onKitSaved });
+
+    expect(onKitSaved).toHaveBeenCalled();
+    expect(establishLdkCache).not.toHaveBeenCalled();
+    expect(globalThis.location.href).toBe('');
   });
 });
