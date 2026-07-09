@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
@@ -48,12 +49,19 @@ type TelegramAPI struct {
 	manager         *tgclient.Client
 	managerSecret   string // per-deployment webhook path/secret-token
 	managerUsername string // resolved by Bootstrap via getMe
+	claimTTL        time.Duration
+
+	// mintMu serializes the count-then-insert when the managebot mints an
+	// invite; without it concurrent updates all read a sub-quota count and all
+	// insert. ponytail: one global lock — cmd/cloud is a single process and
+	// minting is rare. Same rationale as InviteAPI.mintMu.
+	mintMu sync.Mutex
 }
 
 // NewTelegramAPI builds the Telegram surface for a manager bot token. apiBaseURL
 // overrides the Telegram API root (tests inject an httptest fake); "" uses the
 // real api.telegram.org.
-func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDomain, apiBaseURL string) *TelegramAPI {
+func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDomain, apiBaseURL string, claimTTL time.Duration) *TelegramAPI {
 	return &TelegramAPI{
 		store:         store,
 		sessionSecret: sessionSecret,
@@ -61,6 +69,7 @@ func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDom
 		apiBaseURL:    apiBaseURL,
 		manager:       tgclient.New(managerToken, apiBaseURL),
 		managerSecret: deriveWebhookSecret(sessionSecret, "mt/tg-manager-webhook/v1"),
+		claimTTL:      claimTTL,
 	}
 }
 

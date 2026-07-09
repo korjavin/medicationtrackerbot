@@ -128,12 +128,12 @@ a reasonable starting point and are reused where sound.
 
 ### Task 2: Thread `claimTTL` into `TelegramAPI`
 
-- [ ] add a `claimTTL time.Duration` field to `TelegramAPI` (`internal/cloudserver/telegram.go:43-51`)
-- [ ] add a `mintMu sync.Mutex` field with the same rationale comment as `InviteAPI.mintMu`
+- [x] add a `claimTTL time.Duration` field to `TelegramAPI` (`internal/cloudserver/telegram.go:43-51`)
+- [x] add a `mintMu sync.Mutex` field with the same rationale comment as `InviteAPI.mintMu`
       (`invite.go:35-39`): it serializes count-then-insert
-- [ ] extend `NewTelegramAPI` (`telegram.go:56`) with a trailing `claimTTL time.Duration` param
-- [ ] update the caller `cmd/cloud/main.go:222` to pass `cfg.claimTTL` (already in scope, used at `main.go:190`)
-- [ ] update any test constructors of `NewTelegramAPI` in `internal/cloudserver/telegram_test.go` to pass
+- [x] extend `NewTelegramAPI` (`telegram.go:56`) with a trailing `claimTTL time.Duration` param
+- [x] update the caller `cmd/cloud/main.go:222` to pass `cfg.claimTTL` (already in scope, used at `main.go:190`)
+- [x] update any test constructors of `NewTelegramAPI` in `internal/cloudserver/telegram_test.go` to pass
       `14*24*time.Hour`, matching the other test call sites
 
 ### Task 3: Managebot replies to ordinary private messages

@@ -64,7 +64,7 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 	})
 
 	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, 14*24*time.Hour)
 	if err := tgAPI.Bootstrap(t.Context()); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestTelegramLinkingAndBYO(t *testing.T) {
 
 	tg := newRecordingTG(t)
 	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, 14*24*time.Hour)
 	if err := tgAPI.Bootstrap(t.Context()); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestTelegramBYOWebhookFailureLeavesNoBot(t *testing.T) {
 	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
 	// No Bootstrap: it would call the (scripted-to-fail) manager setWebhook. BYO
 	// doesn't need the resolved manager username.
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, 14*24*time.Hour)
 	apiMux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(apiMux)
 	tgAPI.RegisterAPIRoutes(apiMux)
@@ -434,7 +434,7 @@ func TestChildWebhookRace(t *testing.T) {
 		"sendMessage": `{"ok":true,"result":{}}`,
 	})
 
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, 14*24*time.Hour)
 	top := http.NewServeMux()
 	tgAPI.RegisterWebhookRoutes(top)
 
