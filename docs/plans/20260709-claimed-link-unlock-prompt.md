@@ -138,18 +138,18 @@ Dependencies identified: none new. No migration, no new HTTP route, no new npm/G
 
 ### Task 3: The "already claimed" screen
 
-- [ ] add `renderAlreadyClaimed(app)` to `web/cloud/js/signup.js`: heading that states the invite has already
+- [x] add `renderAlreadyClaimed(app)` to `web/cloud/js/signup.js`: heading that states the invite has already
       been claimed, body copy telling the user to unlock with the passkey they already created, and a separate
       line of new-device guidance ("If this is a new device, open Med Tracker on your former device and share
       access from there.")
-- [ ] primary action button hands off to the unlock flow: `const { runUnlockFlow } = await import('./unlock.js'); await runUnlockFlow();`
+- [x] primary action button hands off to the unlock flow: `const { runUnlockFlow } = await import('./unlock.js'); await runUnlockFlow();`
       — the same module `app.js:49` uses, so a claimed link converges on the normal returning-device path
-- [ ] reuse the existing `wizard-step` section markup/classes; **no hardcoded colors and no inline `.style.`
+- [x] reuse the existing `wizard-step` section markup/classes; **no hardcoded colors and no inline `.style.`
       assignments** (repo rule 3) — design tokens / existing CSS classes only. If a new class is needed, define it
-      with `--wg-*` tokens
-- [ ] render all copy via `textContent` / static markup, never interpolated `innerHTML` (this page holds the DEK,
+      with `--wg-*` tokens (none needed — `wizard-step` / `wizard-error` cover it)
+- [x] render all copy via `textContent` / static markup, never interpolated `innerHTML` (this page holds the DEK,
       per the comment at `signup.js:33-34`)
-- [ ] introduce **no** new `window.*` global (repo rule 4)
+- [x] introduce **no** new `window.*` global (repo rule 4)
 
 ### Task 4: Frontend coverage for the claimed-link branch
 

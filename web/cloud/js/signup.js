@@ -53,7 +53,22 @@ function renderAlreadyClaimed(app) {
     <section class="wizard-step">
       <h1>This invite has already been claimed</h1>
       <p>Unlock your vault with the passkey you already created.</p>
+      <p>If this is a new device, open Med Tracker on your former device and
+         share access from there.</p>
+      <button id="unlock-instead">Unlock with your passkey</button>
     </section>`;
+  app.querySelector('#unlock-instead').addEventListener('click', () => {
+    // Same module app.js dispatches to for a returning device, so a claimed
+    // link converges on the normal unlock path.
+    import('./unlock.js')
+      .then(({ runUnlockFlow }) => runUnlockFlow())
+      .catch((err) => {
+        const p = document.createElement('p');
+        p.className = 'wizard-error';
+        p.textContent = err.message || String(err);
+        app.querySelector('section').appendChild(p);
+      });
+  });
 }
 
 function renderWelcome(app, claimToken, errorText) {
