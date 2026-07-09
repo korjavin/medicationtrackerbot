@@ -5642,13 +5642,10 @@ textarea.wg-input {
     color: var(--wg-fg-1);
 }
 
-/* Today rings summary tile: compact square-ish card — stack centered over a
-   per-ring icon state row. Width-capped so it doesn't sprawl into an empty
-   horizontal band on wide screens; the full legend lives on Journey. */
+/* Today rings summary tile: full-width card — stack centered over a
+   per-ring icon state row. The full legend lives on Journey. */
 .wg-today-rings {
-    margin-bottom: var(--space-md);
     cursor: pointer;
-    max-width: 320px;
 }
 
 .wg-today-rings__header {
