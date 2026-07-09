@@ -16,8 +16,69 @@ import {
   toBase64,
 } from './crypto.js';
 
+const EXPIRED_LINK_MESSAGE = 'Could not start passkey registration — the invite link may be expired.';
+
+// Probe register/begin before rendering: a claimed link must never show
+// "Create your passkey". The probe's challenge cookie is harmlessly overwritten
+// when the user clicks through and startRegistration calls begin again.
 export async function runSignupWizard(claimToken) {
-  renderWelcome(document.getElementById('app'), claimToken);
+  const app = document.getElementById('app');
+  // The probe is a network round-trip; without this #app would be blank until
+  // it resolves (and forever on a hung connection).
+  renderChecking(app);
+  let res;
+  try {
+    res = await beginRegistration(claimToken);
+  } catch (err) {
+    renderWelcome(app, claimToken, err.message || String(err));
+    return;
+  }
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}));
+    if (body.error === 'already_claimed') {
+      renderAlreadyClaimed(app);
+      return;
+    }
+  }
+  renderWelcome(app, claimToken, res.ok ? undefined : EXPIRED_LINK_MESSAGE);
+}
+
+function beginRegistration(claimToken) {
+  return fetch('/api/webauthn/register/begin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ claim_token: claimToken }),
+  });
+}
+
+function renderChecking(app) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>Checking your invite…</h1>
+    </section>`;
+}
+
+function renderAlreadyClaimed(app) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>This invite has already been claimed</h1>
+      <p>Unlock your vault with the passkey you already created.</p>
+      <p>If this is a new device, open Med Tracker on your former device and
+         share access from there.</p>
+      <button id="unlock-instead">Unlock with your passkey</button>
+    </section>`;
+  app.querySelector('#unlock-instead').addEventListener('click', () => {
+    // Same module app.js dispatches to for a returning device, so a claimed
+    // link converges on the normal unlock path.
+    import('./unlock.js')
+      .then(({ runUnlockFlow }) => runUnlockFlow())
+      .catch((err) => {
+        const p = document.createElement('p');
+        p.className = 'wizard-error';
+        p.textContent = err.message || String(err);
+        app.querySelector('section').appendChild(p);
+      });
+  });
 }
 
 function renderWelcome(app, claimToken, errorText) {
@@ -44,12 +105,15 @@ function renderWelcome(app, claimToken, errorText) {
 }
 
 async function startRegistration(app, claimToken) {
-  const beginRes = await fetch('/api/webauthn/register/begin', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ claim_token: claimToken }),
-  });
-  if (!beginRes.ok) throw new Error('Could not start passkey registration — the invite link may be expired.');
+  const beginRes = await beginRegistration(claimToken);
+  // The probe said "pending", but another tab/device may have claimed the invite
+  // between then and this click. 409 is register/begin's only conflict status and
+  // it always means already_claimed — route to unlock, not back to the welcome screen.
+  if (beginRes.status === 409) {
+    renderAlreadyClaimed(app);
+    return;
+  }
+  if (!beginRes.ok) throw new Error(EXPIRED_LINK_MESSAGE);
   const { publicKey } = await beginRes.json();
   const creationOptions = PublicKeyCredential.parseCreationOptionsFromJSON(publicKey);
 
@@ -108,6 +172,12 @@ async function startRegistration(app, claimToken) {
       },
     }),
   });
+  // Losing the claim race between begin and finish rolls the registration back
+  // server-side ("claim already used or expired"); the winner owns the account.
+  if (finishRes.status === 409) {
+    renderAlreadyClaimed(app);
+    return;
+  }
   if (!finishRes.ok) throw new Error('Passkey registration failed. Please try again.');
 
   renderLossProtection(app, { accountId, dek });
