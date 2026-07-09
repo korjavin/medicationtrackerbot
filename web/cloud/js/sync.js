@@ -645,9 +645,14 @@ export async function pullOnOpen(ctx) {
 // (web/domain/'s storage port).
 export async function listRecords(ctx, recordType) {
   await bootstrapIfNeeded(ctx);
-  const records = await readAllRecords();
+  // Via the 'recordType' index, not getAll()+filter: a full-store scan
+  // structured-clones every record of every domain (a real vault is hundreds of
+  // MiB of vitals samples), so the clone cost dwarfed the read itself.
+  const records = await withStore('records', 'readonly', (store) => (
+    reqToPromise(store.index('recordType').getAll(recordType))
+  ));
   return records
-    .filter((r) => r.recordType === recordType && !r.deleted)
+    .filter((r) => !r.deleted)
     .sort((a, b) => b.clientTs - a.clientTs);
 }
 

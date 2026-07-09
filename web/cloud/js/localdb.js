@@ -3,7 +3,10 @@
 // same database — centralizing name/version here means adding a sync.js
 // object store can never collide with unlock.js opening an older version.
 const DB_NAME = 'medtracker-cloud';
-const DB_VERSION = 2;
+// v3: 'recordType' index on records. Without it every records.list(type) was a
+// full-store getAll() + JS filter, structured-cloning every record of every
+// domain (sync.js listRecords).
+const DB_VERSION = 3;
 
 export function openDb() {
   return new Promise((resolve, reject) => {
@@ -14,6 +17,10 @@ export function openDb() {
       if (!db.objectStoreNames.contains('records')) db.createObjectStore('records', { keyPath: 'recordId' });
       if (!db.objectStoreNames.contains('pending')) db.createObjectStore('pending', { keyPath: 'recordId' });
       if (!db.objectStoreNames.contains('sync_meta')) db.createObjectStore('sync_meta');
+      // Existing v2 rows already carry recordType (putRecord always writes it),
+      // so createIndex backfills the index from them — no data migration.
+      const records = req.transaction.objectStore('records');
+      if (!records.indexNames.contains('recordType')) records.createIndex('recordType', 'recordType');
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
