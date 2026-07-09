@@ -1141,6 +1141,17 @@ h3 {
 }
 
 
+/* Initial state for modal sections that groups.js / variants.js swap in and out
+   with .style.display. Not `.hidden` — that rule is `!important` and the CSSOM
+   setter could never override it. Declared here rather than as a style=
+   attribute so the strict cloud CSP (style-src 'self') accepts the page. */
+#workout-variants-section,
+#workout-group-flat-exercises-section,
+#workout-variant-rotation-field,
+#workout-exercises-section {
+    display: none;
+}
+
 #workout-group-modal.hidden,
 #workout-variant-modal.hidden,
 #workout-exercise-modal.hidden,
@@ -9182,6 +9193,9 @@ textarea.wg-input {
 }
 
 .wg-health-notes__loading {
+    /* Initial state. Toggled at runtime via .style.display (health.js), so this
+       must not be `.hidden` — that rule is `!important` and would win. */
+    display: none;
     color: var(--wg-fg-4);
     font-family: var(--wg-font-mono);
     font-size: var(--font-size-sm);
