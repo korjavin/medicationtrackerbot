@@ -1,6 +1,7 @@
 # Cloud onboarding wizard — design
 
-Status: **design proposal** (bd `med-4pz.1`). No code yet. Implementation lands via the sibling beads
+Status: **design proposal** (bd `med-4pz.1`), except for the vault flag — `med-4pz.5` is **implemented**, so
+`WGFirstRun` now mounts in cloud mode. The screens and the claim→app seam still land via the sibling beads
 `med-8eh`, `med-4pz.2`, `med-4pz.3`, `med-4pz.4`.
 
 ## The headline: don't build a wizard, revive one
@@ -16,15 +17,10 @@ The app **already has** an in-app, multi-step, first-run onboarding overlay. It 
 - `web/static/js/features/auth-bootstrap.js:312-324` — reads top-level `needs_first_run` from
   `/api/bootstrap` and calls `WGFirstRun.mount({ needs_first_run })` on every fresh bootstrap
 
-It is **dead in cloud mode for exactly one reason** — one hardcoded literal:
-
-```js
-// web/cloud/js/apishim.js:207
-return {
-  cursor: 0,
-  needs_first_run: false,   // <-- never true, so the overlay never mounts
-  ...
-```
+It was **dead in cloud mode for exactly one reason** — `bootstrapPayload()` hardcoded
+`needs_first_run: false`, and `POST /api/firstrun/complete` was a fake `STUBS` entry that acked without
+storing anything. `med-4pz.5` fixed both (see "The flag lives in the vault" below): the payload now computes
+the flag from the vault on every call, and the completion route is a real `shimCall` branch that writes it.
 
 In bot mode the same flag is a real SQLite column (`first_run_complete`,
 `internal/store/settings/repo.go:227-242`, migration `071_add_first_run_state.sql`), surfaced on
@@ -32,8 +28,8 @@ In bot mode the same flag is a real SQLite column (`first_run_complete`,
 
 So this design is **not** "build an onboarding wizard". It is:
 
-1. give cloud mode a vault-backed `first_run_complete` so `needs_first_run` can be true,
-2. route `POST /api/firstrun/complete` through the shim,
+1. ~~give cloud mode a vault-backed `first_run_complete` so `needs_first_run` can be true~~ — done (`med-4pz.5`),
+2. ~~route `POST /api/firstrun/complete` through the shim~~ — done (`med-4pz.5`),
 3. add three screens to the existing registry,
 4. delete the claim wizard's dead-end final screen and hand off into the app.
 
@@ -53,7 +49,7 @@ installs the `/api` shim ahead of every `web/static` script (`cloud-boot.js:130-
 Explicitly **not** the hook: `web/cloud/js/app.js`'s router. That handles `/claim`, `/recover`, `/devices`
 and the claim-token branch — it is the *shell* entry, not the main-app boot path.
 
-## The flag lives in the vault, not localStorage
+## The flag lives in the vault, not localStorage — **implemented** (`med-4pz.5`)
 
 Per the bead: the flag must sync across devices. Cloud-mode settings are vault singleton records via the
 runtime-agnostic domain module `web/domain/settings.js` (`createSettingsDomain({ records, now, timeZone })`,
@@ -67,6 +63,18 @@ Add `first_run_complete: boolean` to the **existing general `settings` singleton
 |---|---|
 | authoritative "onboarding done?" | `settings.first_run_complete` in the vault — syncs to every device |
 | in-flight step ("resume at step 3") | stays `sessionStorage` (`state.js`), unchanged |
+
+**Absent ⇒ needs onboarding.** `needs_first_run = !general.first_run_complete`, so only an explicit `true`
+suppresses the overlay. A vault field cannot be backfilled the way migration `071` backfilled bot mode's
+column, and an absent field cannot mean two things at once. The accepted consequence: **cloud vaults that
+predate this change see the overlay once**, dismiss it, and never see it again.
+
+Shape: the flag rides the general `settings` singleton, read once per `settingsResponse()` and surfaced as a
+**top-level** `/api/bootstrap` field — matching bot mode (`internal/server/settings_handlers.go:460`). It is
+deliberately *not* in the `GET /api/settings` body, whose shape is unchanged. `bootstrapPayload()` re-reads
+the vault on every call and never caches: `WGFirstRun`'s `_mounted` latch is module state lost on reload, so
+across reloads the payload reporting `false` is the only thing keeping the overlay closed. Contract covered by
+`web/static/js/tests/cloud.shim-contract.settings.test.js`.
 
 **Why the split.** The vault flag answers *"has this human ever been onboarded?"* — that must survive a new
 device. The step tracker answers *"where were they 30 seconds ago?"* — that must not. Syncing a half-finished
@@ -122,6 +130,11 @@ Today the claim wizard ends at `renderDone` (`web/cloud/js/signup.js:249-256`):
 
 This is a terminal dead-end — no button, no redirect. The full sequence is
 `welcome → (unsupported-authenticator) → loss-ack → Emergency Kit → (telegram) → done`.
+
+**Remaining gap after `med-4pz.5`.** The vault flag is live, but the seam is not: a freshly-claimed user still
+dead-ends here and has to navigate to the app and unlock the vault themselves. So the overlay is first seen
+**after that unlock**, not immediately after the Emergency Kit. `med-8eh` closes the gap; nothing about the
+flag changes when it does.
 
 **Change:** `renderDone` goes away; the last real step (`renderTelegramStep`, or `renderEmergencyKit`'s
 `#kit-continue` when Telegram self-gates off) navigates into the app with `location.href = '/'`, exactly as
@@ -185,15 +198,15 @@ No navigation, no reload.
 
 | bead | work |
 |---|---|
-| **new** (file it) | vault flag: `first_run_complete` in `web/domain/settings.js`; compute `needs_first_run` in `bootstrapPayload` (`apishim.js:196-213`); route `POST /api/firstrun/complete` in the shim; extend `VALID_STEPS` |
+| `med-4pz.5` ✅ | vault flag: `first_run_complete` in `web/domain/settings.js`; `needs_first_run` computed in `bootstrapPayload`; `POST /api/firstrun/complete` routed as a real `shimCall` branch. `VALID_STEPS` deliberately **not** extended — that belongs with the screens that need it |
 | `med-8eh` | delete `renderDone`; last claim step navigates `location.href = '/'` |
 | `med-4pz.2` | `screens/features.js` |
 | `med-4pz.3` | `screens/sections.js`; verify `screens/integrations.js` under cloud |
 | `med-4pz.4` | `screens/safety.js`; verify `firstrun/permissions.js` under cloud push |
 | **new** (file it) | Settings "Re-run onboarding" row |
 
-The vault-flag bead **blocks all the others** — without it the overlay cannot mount in cloud mode and no screen
-can be exercised end to end.
+The vault-flag bead **blocked all the others** — without it the overlay could not mount in cloud mode and no
+screen could be exercised end to end. It has landed, so the rest are unblocked.
 
 ## Deliberately not doing
 

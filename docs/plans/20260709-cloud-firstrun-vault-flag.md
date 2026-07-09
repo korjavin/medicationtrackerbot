@@ -197,12 +197,13 @@ module (it is exercised through the shim); any empty-vault signal in `bootstrapP
 
 ### Task 6: [Final] Update documentation
 
-- [ ] update `docs/onboarding-wizard.md`: the vault flag is implemented; record that
+- [x] update `docs/onboarding-wizard.md`: the vault flag is implemented; record that
       `POST /api/firstrun/complete` was already routed as a fake stub and is now real; state plainly that
       **absent ⇒ needs onboarding**, so existing vaults see the overlay once
-- [ ] update `docs/cloud-mode.md` where the shim's bootstrap payload is described, if `needs_first_run` is
-      mentioned there
-- [ ] note the remaining gap: a freshly-claimed user still dead-ends at `renderDone` and must unlock to reach
+- [x] update `docs/cloud-mode.md` where the shim's bootstrap payload is described, if `needs_first_run` is
+      mentioned there — no-op: `needs_first_run` is never mentioned in that file (its shim section only
+      describes `/api/bootstrap` as a boot-path stub route), so there was nothing to correct
+- [x] note the remaining gap: a freshly-claimed user still dead-ends at `renderDone` and must unlock to reach
       the app (`med-8eh`), so the overlay is first seen after that unlock, not immediately after the kit
 
 ## Technical Details
