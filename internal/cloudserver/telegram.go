@@ -454,6 +454,13 @@ func (t *TelegramAPI) handleManagerMessage(ctx context.Context, msg *tgclient.Me
 // replies with its claim link, refusing past managerInviteDailyQuota mints in
 // the rolling window.
 func (t *TelegramAPI) mintInvite(ctx context.Context, chatID int64, creator string) {
+	t.reply(ctx, chatID, t.mintInviteLocked(ctx, creator))
+}
+
+// mintInviteLocked does the count-then-insert under mintMu and returns the text
+// to reply with. The reply itself is sent by the caller, outside the lock: it is
+// an HTTP round-trip to Telegram, and mintMu is global across every user.
+func (t *TelegramAPI) mintInviteLocked(ctx context.Context, creator string) string {
 	t.mintMu.Lock()
 	defer t.mintMu.Unlock()
 
@@ -469,28 +476,24 @@ func (t *TelegramAPI) mintInvite(ctx context.Context, chatID int64, creator stri
 	// unclaimed invites would occupy slots forever.
 	if _, err := t.store.SweepExpiredClaims(ctx, now); err != nil {
 		slog.Error("telegram manager message: sweep expired claims", "error", err)
-		t.reply(ctx, chatID, onboardingMintFailMessage)
-		return
+		return onboardingMintFailMessage
 	}
 	minted, err := t.store.CountAccountsCreatedBy(ctx, creator, now.Add(-managerInviteQuotaWindow))
 	if err != nil {
 		slog.Error("telegram manager message: count mints", "error", err, "creator", creator)
-		t.reply(ctx, chatID, onboardingMintFailMessage)
-		return
+		return onboardingMintFailMessage
 	}
 	if minted >= managerInviteDailyQuota {
-		t.reply(ctx, chatID, onboardingQuotaMessage)
-		return
+		return onboardingQuotaMessage
 	}
 
 	inv, err := Provision(ctx, t.store, t.claimTTL, now, creator)
 	if err != nil {
 		slog.Error("telegram manager message: provision invite", "error", err, "creator", creator)
-		t.reply(ctx, chatID, onboardingMintFailMessage)
-		return
+		return onboardingMintFailMessage
 	}
-	t.reply(ctx, chatID, "🎉 Your account is ready. Open this link and set it up with a passkey:\n\n"+
-		inv.ClaimURL(t.baseDomain)+"\n\nThe link is personal and expires — open it on the device you'll use.")
+	return "🎉 Your account is ready. Open this link and set it up with a passkey:\n\n" +
+		inv.ClaimURL(t.baseDomain) + "\n\nThe link is personal and expires — open it on the device you'll use."
 }
 
 // reply sends a managebot message, logging and swallowing failures.

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -479,6 +480,42 @@ func TestManagerOnboarding(t *testing.T) {
 		}
 		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "limit per person") {
 			t.Fatalf("reply is not the wait message: %v", tg.mu.sent)
+		}
+	})
+
+	// Concurrent "yes" deliveries (Telegram retries, or a user tapping twice)
+	// must not all read a sub-quota count and all provision. mintMu serializes
+	// the count-then-insert; this races 8 of them for the one free slot.
+	t.Run("concurrent yes cannot exceed the quota", func(t *testing.T) {
+		store, _, top, secret := managerFixture(t)
+		now := time.Now().UTC()
+		for i := 0; i < managerInviteDailyQuota-1; i++ {
+			if _, err := Provision(t.Context(), store, 14*24*time.Hour, now, tgCreator); err != nil {
+				t.Fatalf("seed mint %d: %v", i, err)
+			}
+		}
+
+		const racers = 8
+		body := `{"update_id":9,"message":{"message_id":1,"text":"yes",` +
+			`"from":{"id":4242,"is_bot":false},"chat":{"id":77,"type":"private"}}}`
+		var wg sync.WaitGroup
+		codes := make([]int, racers)
+		for i := 0; i < racers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				codes[i] = postWebhook(t, top, "/tg/manager/"+secret, secret, body).Code
+			}()
+		}
+		wg.Wait()
+
+		for i, code := range codes {
+			if code != http.StatusOK {
+				t.Fatalf("racer %d status = %d, want 200", i, code)
+			}
+		}
+		if n := mintedBy(t, store, tgCreator); n != managerInviteDailyQuota {
+			t.Errorf("minted %d accounts, want the quota %d (concurrent mints overran the cap)", n, managerInviteDailyQuota)
 		}
 	})
 
