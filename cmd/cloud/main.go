@@ -219,7 +219,7 @@ func main() {
 	if cfg.managerBotToken == "" {
 		slog.Info("telegram disabled", "reason", "MANAGER_BOT_TOKEN unset")
 	} else {
-		tgAPI = cloudserver.NewTelegramAPI(store, cfg.sessionSecret, cfg.managerBotToken, cfg.baseDomain, cfg.tgAPIBaseURL)
+		tgAPI = cloudserver.NewTelegramAPI(store, cfg.sessionSecret, cfg.managerBotToken, cfg.baseDomain, cfg.tgAPIBaseURL, cfg.claimTTL)
 		if err := tgAPI.Bootstrap(context.Background()); err != nil {
 			// Bootstrap hits api.telegram.org (getMe + setWebhook). Telegram is
 			// an optional, additive feature — a transient third-party outage at
