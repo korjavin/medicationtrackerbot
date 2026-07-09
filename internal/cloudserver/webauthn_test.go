@@ -446,10 +446,11 @@ func TestWebAuthnRegistration_SessionGateRejectsRevokedCredential(t *testing.T) 
 	}
 }
 
-// TestWebAuthnRegistration_ClaimTokenOutcomes pins the three-way response
-// contract of register/begin with a claim_token — the signup wizard branches on
-// it to decide between "create your passkey", "already claimed, go unlock", and
-// "expired link".
+// TestWebAuthnRegistration_ClaimTokenOutcomes pins the response contract of
+// register/begin with a claim_token — the signup wizard branches on it to decide
+// between "create your passkey", "already claimed, go unlock", and "expired
+// link". A claimed account whose credentials were all deleted has no passkey to
+// unlock with, so it reads as an expired link too.
 func TestWebAuthnRegistration_ClaimTokenOutcomes(t *testing.T) {
 	store := setupStore(t)
 	account, claimToken := setupInvite(t, store)
@@ -494,6 +495,30 @@ func TestWebAuthnRegistration_ClaimTokenOutcomes(t *testing.T) {
 	}
 	if got["error"] != "already_claimed" {
 		t.Fatalf("409 body = %v, want error=already_claimed", got)
+	}
+
+	// Credential count is the discriminator, not the NULL claim hash: an account
+	// that was claimed and later had its credentials deleted (recovery-only) is
+	// indistinguishable from an expired-and-swept invite, so it falls back to 403
+	// rather than sending the user to an unlock screen with nothing to unlock with.
+	if err := store.PutEnvelope(t.Context(), cloudstore.Envelope{
+		AccountID: account.ID, CredentialRef: "recovery", V: 1,
+		Nonce: []byte("nonce"), CT: []byte("ct"), MAC: []byte("mac"),
+	}); err != nil {
+		t.Fatalf("PutEnvelope(recovery): %v", err)
+	}
+	if err := store.SetRecoveryVerifier(t.Context(), account.ID, []byte("verifier-hash")); err != nil {
+		t.Fatalf("SetRecoveryVerifier: %v", err)
+	}
+	creds, err := store.CredentialsByAccount(t.Context(), account.ID)
+	if err != nil || len(creds) != 1 {
+		t.Fatalf("CredentialsByAccount: %v (len %d)", err, len(creds))
+	}
+	if err := store.DeleteCredentialWithEnvelope(t.Context(), account.ID, creds[0].ID); err != nil {
+		t.Fatalf("DeleteCredentialWithEnvelope: %v", err)
+	}
+	if rec := postBegin(claimToken); rec.Code != http.StatusForbidden {
+		t.Fatalf("claimed but credential-less account: status = %d, want 403 (body %q)", rec.Code, rec.Body.String())
 	}
 }
 

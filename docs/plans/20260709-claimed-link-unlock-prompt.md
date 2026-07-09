@@ -165,15 +165,24 @@ Dependencies identified: none new. No migration, no new HTTP route, no new npm/G
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] verify a claimed link never renders passkey-creation UI, and its primary action leads to unlock-with-passkey
-- [ ] verify an expired/garbage token still shows the existing expired-link message (no `409`, no new screen)
-- [ ] verify a pending invite still completes signup end to end (probe → welcome → create passkey → finish),
-      confirming the double-begin does not break `RegisterFinish`
-- [ ] verify the edge case where an account is claimed but all its credentials were later deleted → falls back to
-      `403` expired-link copy (acceptable; note it in the docs task)
-- [ ] `go test ./...` passes
-- [ ] `pnpm test` passes
-- [ ] `go vet ./...` passes
+- [x] verify a claimed link never renders passkey-creation UI, and its primary action leads to unlock-with-passkey
+      — pinned by `signup.claimed-link.test.js` (409 case asserts `#create-passkey` is absent and `#unlock-instead`
+      present; `renderAlreadyClaimed` wires that button to `import('./unlock.js') → runUnlockFlow()`)
+- [x] verify an expired/garbage token still shows the existing expired-link message (no `409`, no new screen)
+      — Go `ClaimTokenOutcomes` (bad token → `403`) + frontend 403 case (`#create-passkey` + `.wizard-error`
+      containing "may be expired")
+- [x] verify a pending invite still completes signup end to end (probe → welcome → create passkey → finish),
+      confirming the double-begin does not break `RegisterFinish` — `ClaimTokenOutcomes` issues `postBegin` (200,
+      challenge A) and then `beginRegistration` (challenge B) against the same token before `finishRegistration`
+      returns `200`, which is exactly the double-begin sequence; `RegisterFinish` verifies against the cookie's B
+- [x] verify the edge case where an account is claimed but all its credentials were later deleted → falls back to
+      `403` expired-link copy (acceptable; note it in the docs task) — reachable in practice, since
+      `DeleteCredentialWithEnvelope` permits removing the last credential once recovery material exists. Pinned by a
+      fourth assertion appended to `ClaimTokenOutcomes` (add recovery envelope + verifier, delete the sole
+      credential, re-POST the claim token → `403`)
+- [x] `go test ./...` passes
+- [x] `pnpm test` passes (279 files, 2967 tests)
+- [x] `go vet ./...` passes
 
 ### Task 6: [Final] Update documentation
 
