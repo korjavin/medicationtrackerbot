@@ -106,6 +106,10 @@ describe('runSignupWizard claim-state probe', () => {
 describe('wizard tail (Emergency Kit -> app)', () => {
   const CTX = { accountId: 'acct-1', dek: new Uint8Array(32).fill(7) };
 
+  // vi.clearAllMocks() clears calls but keeps implementations, so a mockRejectedValue
+  // set by one case would otherwise leak into the next.
+  beforeEach(() => { establishLdkCache.mockResolvedValue(undefined); });
+
   async function clickKitContinue(ctx) {
     globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200 }));
     const app = dom.window.document.getElementById('app');
@@ -126,11 +130,17 @@ describe('wizard tail (Emergency Kit -> app)', () => {
   });
 
   it('still enters the app when the warm cache cannot be written (storage-blocked browser)', async () => {
-    establishLdkCache.mockRejectedValueOnce(new Error('storage blocked'));
+    // Rejects on every call, not just the first: renderTelegramStep's own catch
+    // re-invokes enterApp, so a mockRejectedValueOnce would let that retry
+    // navigate and mask a deleted `catch` inside enterApp.
+    establishLdkCache.mockRejectedValue(new Error('storage blocked'));
     await clickKitContinue(CTX);
 
     // cloud-boot bounces this to /unlock; a dead-end here is the bug.
     await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
+    // Exactly once: enterApp swallowed the failure itself rather than bubbling
+    // out to the telegram-step error path.
+    expect(establishLdkCache).toHaveBeenCalledTimes(1);
   });
 
   it('lets ctx.onKitSaved override the tail, so recover.js is unaffected', async () => {
