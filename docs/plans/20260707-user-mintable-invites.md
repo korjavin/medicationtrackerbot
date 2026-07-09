@@ -54,11 +54,11 @@
 - [x] update `provisionStore` interface + existing provision tests accordingly; ➕ interface already carried `createdBy` from Task 1, so only the `Provision` signature + call sites changed; no fake `provisionStore` exists (tests use the real repo)
 
 ### Task 3: `POST /api/invite` endpoint
-- [ ] create `internal/cloudserver/invite.go`: `InviteAPI{store, sessionSecret, baseDomain, claimTTL}` with `RegisterRoutes(mux)` registering `POST /api/invite` behind `RequireSession` (follow `device.go` shape)
-- [ ] handler: read `Session.AccountID` from context; `CountAccountsCreatedBy(accountID, now-30d)`; if ≥ 100 → `429` with JSON error incl. quota info; else `Provision(..., accountID)` and respond `{subdomain, claim_url, expires_at}` (claim_url via `Invite.ClaimURL(baseDomain)`)
-- [ ] hardcode the limit as `const inviteMonthlyQuota = 100` — ponytail: env-var knob only if someone actually asks
-- [ ] wire `InviteAPI` into the api mux in `cmd/cloud/main.go` (pass `cfg.baseDomain`, `cfg.claimTTL`)
-- [ ] integration test `internal/cloudserver/invite_test.go`: no session → 401; with session → 200 + claim_url matches `https://<sub>.<base>/#claim=<hex>` and account row has creator set; seed quota-many creations → 429
+- [x] create `internal/cloudserver/invite.go`: `InviteAPI{store, sessionSecret, baseDomain, claimTTL}` with `RegisterRoutes(mux)` registering `POST /api/invite` behind `RequireSession` (follow `device.go` shape)
+- [x] handler: read `Session.AccountID` from context; `CountAccountsCreatedBy(accountID, now-30d)`; if ≥ 100 → `429` with JSON error incl. quota info; else `Provision(..., accountID)` and respond `{subdomain, claim_url, expires_at}` (claim_url via `Invite.ClaimURL(baseDomain)`)
+- [x] hardcode the limit as `const inviteMonthlyQuota = 100` — ponytail: env-var knob only if someone actually asks
+- [x] wire `InviteAPI` into the api mux in `cmd/cloud/main.go` (pass `cfg.baseDomain`, `cfg.claimTTL`)
+- [x] integration test `internal/cloudserver/invite_test.go`: no session → 401; with session → 200 + claim_url matches `https://<sub>.<base>/#claim=<hex>` and account row has creator set; seed quota-many creations → 429; ➕ provenance asserted via `CountAccountsCreatedBy` (no `Account` reader field exists, per Task 1)
 
 ### Task 4: Settings UI — invite row + claim modal with QR
 - [ ] add a hidden `.wg-settings-cloud-invite` row ("Invite a friend") to the settings markup, revealed in cloud mode next to the existing `.wg-settings-cloud-devices` reveal in `web/static/js/features/settings.js`
