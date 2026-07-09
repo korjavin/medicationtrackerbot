@@ -504,6 +504,33 @@ func TestManagerOnboarding(t *testing.T) {
 		}
 	})
 
+	// Liveness comes from the row's own claim_expires_unix, not from a window
+	// derived from the *current* CLOUD_CLAIM_TTL: shortening the TTL after a
+	// batch was minted must not hand back quota while those links still work.
+	t.Run("shortening the claim TTL does not free live invites", func(t *testing.T) {
+		store := setupStore(t)
+		tg := newRecordingTG(t)
+		tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, time.Hour)
+		top := http.NewServeMux()
+		tgAPI.RegisterWebhookRoutes(top)
+		secret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
+
+		old := time.Now().UTC().Add(-25 * time.Hour) // older than the new 1h TTL...
+		for i := 0; i < managerInviteQuota; i++ {
+			// ...but minted under the old 14d TTL, so still claimable.
+			if _, err := Provision(t.Context(), store, 14*24*time.Hour, old, tgCreator); err != nil {
+				t.Fatalf("seed mint %d: %v", i, err)
+			}
+		}
+		tgMessage(t, top, secret, "yes")
+		if n := mintedBy(t, store, tgCreator); n != managerInviteQuota {
+			t.Fatalf("minted %d accounts, want the quota %d (TTL change freed live slots)", n, managerInviteQuota)
+		}
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "limit per person") {
+			t.Fatalf("reply is not the wait message: %v", tg.mu.sent)
+		}
+	})
+
 	// ...but once they expire the sweep frees the quota, so "I lost my link"
 	// still recovers — just not before the old link is dead.
 	t.Run("expired unclaimed invites free the quota", func(t *testing.T) {

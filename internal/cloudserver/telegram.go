@@ -400,9 +400,9 @@ var onboardingQuotaMessage = fmt.Sprintf(
 	managerInviteQuota)
 
 // managerInviteQuota caps how many *live* invites one Telegram user may hold at
-// once. The counting window is the claim TTL, not a fixed day: after the sweep,
-// every surviving unclaimed account minted by this user is still claimable, so a
-// per-day window would let an abuser stack quota × (claimTTL/day) claim links.
+// once — unclaimed accounts whose claim has not expired, counted directly (see
+// CountLiveInvitesCreatedBy). Not a per-day cap: that would let an abuser stack
+// quota × (claimTTL/day) claim links.
 // ponytail: hardcoded — env-var knob only if someone asks. Same posture as
 // inviteMonthlyQuota.
 const managerInviteQuota = 3
@@ -479,10 +479,11 @@ func (t *TelegramAPI) mintInviteLocked(ctx context.Context, creator string) stri
 		slog.Error("telegram manager message: sweep expired claims", "error", err)
 		return onboardingMintFailMessage
 	}
-	// Window is the claim TTL: post-sweep, every row this creator has inside it
-	// is a still-claimable invite. Anything older was minted with an expiry that
-	// has already passed and been swept, so it can never become an account.
-	minted, err := t.store.CountAccountsCreatedBy(ctx, creator, now.Add(-t.claimTTL))
+	// Count liveness from the rows themselves (unclaimed, expiry in the future)
+	// rather than from a created_at window: shortening CLOUD_CLAIM_TTL, or a
+	// ResetClaim that moves an expiry without touching created_at, would put a
+	// still-claimable link outside any TTL-derived window and hand back quota.
+	minted, err := t.store.CountLiveInvitesCreatedBy(ctx, creator, now)
 	if err != nil {
 		slog.Error("telegram manager message: count mints", "error", err, "creator", creator)
 		return onboardingMintFailMessage

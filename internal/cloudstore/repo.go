@@ -149,6 +149,22 @@ func (r *Repo) CountAccountsCreatedBy(ctx context.Context, accountID string, sin
 	return n, err
 }
 
+// CountLiveInvitesCreatedBy returns how many still-claimable invites createdBy
+// holds at the given instant: unclaimed (claim_token_hash NOT NULL, see
+// consumeClaimTx) with a claim expiry in the future. Unlike a created_at
+// window, this reads liveness from the row itself, so it stays correct when the
+// deployment's claim TTL changes or ResetClaim moves an expiry.
+func (r *Repo) CountLiveInvitesCreatedBy(ctx context.Context, createdBy string, now time.Time) (int, error) {
+	if createdBy == "" {
+		return 0, nil
+	}
+	var n int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM accounts WHERE created_by_account_id = ? AND claim_token_hash IS NOT NULL AND claim_expires_unix IS NOT NULL AND claim_expires_unix >= ?`,
+		createdBy, storedb.TimeToUnix(now)).Scan(&n)
+	return n, err
+}
+
 // HasClaimedAccountCreatedBy reports whether createdBy has minted an account
 // that was actually claimed. A claimed account has a NULL claim_token_hash (see
 // consumeClaimTx) and survives SweepExpiredClaims, so this — unlike a plain
