@@ -154,13 +154,13 @@ module (it is exercised through the shim); any empty-vault signal in `bootstrapP
 
 ### Task 3: `POST /api/firstrun/complete` durably flips the vault flag
 
-- [ ] delete the `'POST /api/firstrun/complete'` entry from `STUBS` (`apishim.js:242`) **and** its now-obsolete
+- [x] delete the `'POST /api/firstrun/complete'` entry from `STUBS` (`apishim.js:242`) **and** its now-obsolete
       three-line comment above it (`:239-241`), which explicitly defers to this bead
-- [ ] add an inline branch in `shimCall`, alongside the other exact-path settings branches:
+- [x] add an inline branch in `shimCall`, alongside the other exact-path settings branches:
       `if (path === '/api/firstrun/complete' && method === 'POST') { await settings.setFirstRunComplete(true); return { success: true }; }`
-- [ ] keep the `{ success: true }` response shape — `firstrun/index.js:170-181` ignores the body but
+- [x] keep the `{ success: true }` response shape — `firstrun/index.js:170-181` ignores the body but
       `.catch()`es a rejection, and a 404 from an unmatched path would be a silent regression
-- [ ] confirm no other STUBS entry or cascade branch also matches this path (exactly one handler)
+- [x] confirm no other STUBS entry or cascade branch also matches this path (exactly one handler)
 
 ### Task 4: Shim contract coverage
 

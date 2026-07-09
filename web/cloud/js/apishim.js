@@ -241,10 +241,6 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
       const { settings: settingsBlock, features } = await settingsResponse();
       return { ...settingsBlock, features };
     },
-    // The firstrun overlay's completion POST. Cloud has no server-side
-    // settings row to flip (med-4pz.5 moves it into the vault); ack it so the
-    // overlay dismisses instead of erroring.
-    'POST /api/firstrun/complete': async () => ({ success: true }),
     'GET /api/bp/reminder/status': async () => reminders.getBPStatus(),
     'GET /api/weight/reminder/status': async () => reminders.getWeightStatus(),
   };
@@ -337,6 +333,11 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
         await settings.setFeature(feature, enabled);
         return { enabled };
       }
+    }
+
+    if (path === '/api/firstrun/complete' && method === 'POST') {
+      await settings.setFirstRunComplete(true);
+      return { success: true };
     }
 
     if (path === '/api/settings/tab-order' && method === 'POST') {
