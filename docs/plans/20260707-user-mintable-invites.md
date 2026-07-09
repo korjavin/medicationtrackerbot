@@ -61,10 +61,10 @@
 - [x] integration test `internal/cloudserver/invite_test.go`: no session → 401; with session → 200 + claim_url matches `https://<sub>.<base>/#claim=<hex>` and account row has creator set; seed quota-many creations → 429; ➕ provenance asserted via `CountAccountsCreatedBy` (no `Account` reader field exists, per Task 1)
 
 ### Task 4: Settings UI — invite row + claim modal with QR
-- [ ] add a hidden `.wg-settings-cloud-invite` row ("Invite a friend") to the settings markup, revealed in cloud mode next to the existing `.wg-settings-cloud-devices` reveal in `web/static/js/features/settings.js`
-- [ ] on tap: `POST /api/invite`; on 429 show a friendly "monthly invite limit reached" toast; on success open a modal showing the claim URL (copy button) + QR SVG via `const { qrcode } = await import('/vendor/qrcode.mjs')` (same usage as `web/cloud/js/transfer.js`)
-- [ ] styling via existing `--wg-*` tokens / classes only (repo rule 3); reuse the `kit-qr` treatment if the classes are reachable, otherwise add a token-based class
-- [ ] Vitest: extend the settings feature suite — cloud ctx present → row visible, tap → mocked 200 renders modal with claim URL + QR svg; mocked 429 → limit toast; no cloud ctx → row hidden
+- [x] add a hidden `.wg-settings-cloud-invite` row ("Invite a friend") to the settings markup, revealed in cloud mode next to the existing `.wg-settings-cloud-devices` reveal in `web/static/js/features/settings.js`
+- [x] on tap: `POST /api/invite`; on 429 show a friendly "monthly invite limit reached" toast; on success open a modal showing the claim URL (copy button) + QR SVG; ➕ the fetch is a plain `fetch()`, not `apiCall()` — the cloud apiCall shim 404s any route it doesn't own; ➕ the QR import goes through a bare `loadQrcodeModule()` global (same test seam as `loadCloudPushModule`)
+- [x] styling via existing `--wg-*` tokens / classes only (repo rule 3); ➕ `kit-qr` is shell-only CSS, and `.wg-modal` needs no per-modal CSS (see `wg-backend-logs-modal`), so the invite modal ships with zero new CSS
+- [x] Vitest: extend the settings feature suite — cloud ctx present → row visible, tap → mocked 200 renders modal with claim URL + QR svg; mocked 429 → limit toast; no cloud ctx → row hidden
 
 ### Task 5: Verify acceptance criteria
 - [ ] verify: mint works from an account subdomain session, quota enforced at 100/30d, admin CLI invite unaffected, QR + copy shown
