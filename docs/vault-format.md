@@ -215,11 +215,12 @@ Workout entities carry a numeric body `id` (FK glue; `-1` is the ad-hoc sentinel
 - **miband_workout** (leaf, no `id`) — `activity_type` (num), `activity_name`, `source_start_ms`
   (**milliseconds** epoch), `source_end_ms` (**milliseconds** epoch), `tz_offset`
   (seconds), `duration_sec`, `distance_m`, `steps`, `calories`, `heart_rate_avg`,
-  `spo2_avg` (num), `pause_ms` (ms), `source` (str), and `gps` (array | null). Each GPS
-  point: `point_index` (int), `ts_ms` (**milliseconds**), `latitude`, `longitude`,
-  `altitude` (num), `is_pause` (bool). The wire `start_time`/`end_time` RFC3339 strings
-  are **derived** from `source_start_ms` + `tz_offset` and omitted; the format stores the
-  raw ms + offset.
+  `spo2_avg` (num), `pause_ms` (ms), `source` (str). The bot exporter also emits `gps`
+  (array | null) — each point `point_index` (int), `ts_ms` (**milliseconds**), `latitude`,
+  `longitude`, `altitude` (num), `is_pause` (bool) — but **cloud import drops it** (see the
+  skip list), so a cloud re-export omits it. The wire `start_time`/`end_time` RFC3339
+  strings are **derived** from `source_start_ms` + `tz_offset` and omitted; the format
+  stores the raw ms + offset.
 
 ### `vitals`
 
@@ -411,7 +412,7 @@ user-scoped table that lands in the wipe set and in neither list fails CI, becau
 | `login_nonces` | short-lived auth material |
 | `change_events`, per-domain download cursors | SSE/poll sync bookkeeping, rebuilt on demand |
 | `intake_reminders` | Telegram message ids, meaningless on another server |
-| `miband_gps_tracks` | not skipped — carried nested under `workouts.miband[].gps` |
+| `miband_gps_tracks` | **bot export carries it** nested under `workouts.miband[].gps`; **cloud import drops it** (`vaultToRecords`). It was 44% of a real vault (~77 MiB / 168 tracks) and no code in either mode renders a route, yet it rode in every cloud snapshot and was structured-cloned on every `records.list()`. Accepted loss: a cloud → bot export no longer carries routes; the bot-mode DB stays the source of truth. |
 | `workout_schedule_snapshots` | **write-only table.** `CreateGroupSnapshot` is called from `workout_handlers.go`; `ListGroupSnapshots` (`internal/store/workout/repo.go`) has **zero callers** — no handler, no MCP op, no bot command, no frontend. Nothing can read the data, so carrying it would preserve nothing. |
 | cloud-only `voiceprovisioning` | plumbing with no `/api` route |
 
