@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"sync"
 	"testing"
 	"time"
 
@@ -96,6 +97,61 @@ func TestInviteAPI_Contract(t *testing.T) {
 	}
 	if quotaErr.Limit != inviteMonthlyQuota || quotaErr.WindowDays != 30 {
 		t.Errorf("quota error = %+v, want limit=%d window_days=30", quotaErr, inviteMonthlyQuota)
+	}
+}
+
+// TestInviteAPI_ConcurrentMintsRespectQuota pins that the quota check and the
+// account insert are serialized: without the lock, concurrent mints all read a
+// sub-quota count and every one of them provisions an account.
+func TestInviteAPI_ConcurrentMintsRespectQuota(t *testing.T) {
+	h, store, host, claimToken := newTestInviteHandler(t)
+	session := registerAndGetSession(t, h, host, claimToken)
+	accountID, _, ok := VerifySessionToken(session.Value, "test-session-secret-at-least-32-bytes-long")
+	if !ok {
+		t.Fatalf("could not verify session token")
+	}
+
+	// Leave exactly one slot free, then race 8 mints for it.
+	now := time.Now().UTC()
+	for i := 0; i < inviteMonthlyQuota-1; i++ {
+		id := fmt.Sprintf("seed-account-%d", i)
+		if _, err := store.CreateAccount(t.Context(), id, id, []byte("hash"), now.Add(24*time.Hour), now, "", "", accountID); err != nil {
+			t.Fatalf("seed account %d: %v", i, err)
+		}
+	}
+
+	const racers = 8
+	var wg sync.WaitGroup
+	codes := make([]int, racers)
+	for i := 0; i < racers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			codes[i] = postInvite(t, h, host, session).Code
+		}()
+	}
+	wg.Wait()
+
+	granted := 0
+	for i, code := range codes {
+		switch code {
+		case http.StatusOK:
+			granted++
+		case http.StatusTooManyRequests:
+		default:
+			t.Fatalf("mint %d = %d, want 200 or 429", i, code)
+		}
+	}
+	if granted != 1 {
+		t.Errorf("granted %d mints for 1 free slot, want 1", granted)
+	}
+
+	n, err := store.CountAccountsCreatedBy(t.Context(), accountID, time.Now().Add(-inviteQuotaWindow))
+	if err != nil {
+		t.Fatalf("CountAccountsCreatedBy: %v", err)
+	}
+	if n != inviteMonthlyQuota {
+		t.Errorf("accounts created by %s = %d, want %d (quota exceeded)", accountID, n, inviteMonthlyQuota)
 	}
 }
 

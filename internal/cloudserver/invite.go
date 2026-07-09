@@ -3,6 +3,7 @@ package cloudserver
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -30,6 +31,12 @@ type InviteAPI struct {
 	sessionSecret string
 	baseDomain    string
 	claimTTL      time.Duration
+
+	// mintMu serializes the count-then-insert in CreateInvite; without it
+	// concurrent mints all read a sub-quota count and all insert.
+	// ponytail: one global lock — cmd/cloud is a single process and minting is
+	// rare. Move the count into Provision's transaction if this ever contends.
+	mintMu sync.Mutex
 }
 
 // NewInviteAPI builds the user-mintable invite handler.
@@ -63,6 +70,9 @@ func (a *InviteAPI) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+
+	a.mintMu.Lock()
+	defer a.mintMu.Unlock()
 
 	now := time.Now().UTC()
 	// Sweep before counting, not just inside Provision: an account sitting at
