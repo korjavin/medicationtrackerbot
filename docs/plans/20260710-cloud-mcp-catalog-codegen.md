@@ -163,12 +163,12 @@ of the bead. Two existing assertions were retargeted (`web/cloud/js/tests/mcp-re
 `web/static/js/tests/cloud.shim-contract.mcp-dispatcher.test.js`).
 
 ### Task 4: Integration test — the Go drift guard (the point of this bead)
-- [ ] create `internal/mcp/catalogjs/drift_test.go`, modeled on `internal/server`'s `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt`
-- [ ] `TestCloudCatalog_EveryRegistryOpCoveredOrExcluded`: assert every `registry.DefaultOperations()` id is present in the checked-in `web/cloud/js/mcp-catalog.generated.js` **or** in `Excluded`; on failure, name the offending ids and tell the author to regenerate or add a reasoned exclusion
-- [ ] `TestCloudCatalog_GeneratedFileIsUpToDate`: run `Generate(registry.DefaultOperations())` in memory and byte-compare against the checked-in file; on mismatch, fail with `run: go run ./cmd/genmcpcatalog`
-- [ ] `TestCloudCatalog_ExclusionsAreRealOps`: assert every `Excluded` id actually exists in the registry (catches typos and stale exclusions after an op is renamed or deleted) and that every exclusion carries a non-empty `Reason`
-- [ ] resolve the repo-root path from the test file location (`../../../web/cloud/js/mcp-catalog.generated.js`) rather than depending on the working directory
-- [ ] run `go test ./internal/mcp/...` — must pass
+- [x] create `internal/mcp/catalogjs/drift_test.go`, modeled on `internal/server`'s `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt`
+- [x] `TestCloudCatalog_EveryRegistryOpCoveredOrExcluded`: assert every `registry.DefaultOperations()` id is present in the checked-in `web/cloud/js/mcp-catalog.generated.js` **or** in `Excluded`; on failure, name the offending ids and tell the author to regenerate or add a reasoned exclusion (ids are parsed out of the `CATALOG` array only — `EXCLUDED` ids also appear in the file, so a substring scan would report them as covered)
+- [x] `TestCloudCatalog_GeneratedFileIsUpToDate`: run `Generate(registry.DefaultOperations())` in memory and byte-compare against the checked-in file; on mismatch, fail with `run: go run ./cmd/genmcpcatalog`
+- [x] `TestCloudCatalog_ExclusionsAreRealOps`: assert every `Excluded` id actually exists in the registry (catches typos and stale exclusions after an op is renamed or deleted) and that every exclusion carries a non-empty `Reason`
+- [x] resolve the repo-root path from the test file location (`../../../web/cloud/js/mcp-catalog.generated.js`) rather than depending on the working directory
+- [x] run `go test ./internal/mcp/...` — must pass
 
 ### Task 5: Integration test — `mcp_help` wire contract and the 64 KiB frame cap
 - [ ] extend `web/cloud/js/tests/mcp-responder.test.js` (do not create a new file — CLAUDE.md rule 8: extend the owning suite)
