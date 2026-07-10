@@ -13,8 +13,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
+// One base instant for every sample. Calling new Date() per sample made the
+// gaps a hair off a whole number of days whenever the clock ticked mid-test,
+// which is what turned a flat trend into a 1.6-quadrillion-day projection
+// (bd med-3oa). Samples must be exactly N days apart to mean "flat".
+const NOW_BASE = new Date();
 function isoDaysAgo(days) {
-    const d = new Date();
+    const d = new Date(NOW_BASE.getTime());
     d.setDate(d.getDate() - days);
     return d.toISOString();
 }
@@ -169,6 +174,26 @@ describe('Weight design parity — Round 2, Task 1', () => {
             window.renderWeightPrognosisCard([], {});
             const card = document.getElementById('weight-prognosis-card');
             expect(card.hidden).toBe(true);
+        });
+
+        // bd med-3oa: three IDENTICAL weigh-ins, with the middle one just 5ms off
+        // a whole number of days (exactly what `new Date()` per sample produces
+        // when the clock ticks mid-test). The regression then returns
+        // -3.09e-15 instead of 0, and the old `slopePerDay !== 0` guard let it
+        // divide: -5 / -3.09e-15 = +1.6e15, rendered "in 1616282092830720 days".
+        // This pins the PRODUCT bug — a magnitude guard — not the helper's timing.
+        it('renders a dash for a flat trend whose samples are milliseconds off a whole day', () => {
+            const { document, window } = env;
+            const logs = [
+                { measured_at: '2026-03-01T08:00:00.000Z', weight: 80.0 },
+                { measured_at: '2026-02-22T08:00:00.005Z', weight: 80.0 },
+                { measured_at: '2026-02-15T08:00:00.000Z', weight: 80.0 },
+            ];
+            window.renderWeightPrognosisCard(logs, { goal: 75, goal_direction: 'lose' });
+            const card = document.getElementById('weight-prognosis-card');
+            const value = card.querySelector('.wg-weight-prognosis-card__value');
+            expect(value.textContent).toBe('\u2014');
+            expect(card.textContent).not.toMatch(/\d{10,}/); // no absurd horizons
         });
 
         it('renders a dash for time-to-goal when trend is flat', () => {
