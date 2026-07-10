@@ -1,21 +1,11 @@
-// Task 3: devices-page mode picker (remote connector primary, local shim
-// alternative). devices.js drives the real DOM directly (no framework), so
-// these tests run it against a real jsdom document with the pairing/remote
-// modules mocked — the interesting behavior here is the mode-picker wiring,
-// not mcp-pairing.js's/mcp-remote.js's own fetch calls (covered separately).
+// Device list + revocation. med-lyv split the Claude/MCP connector picker out
+// into connectors.js (see connectors.test.js) and moved Telegram to Settings →
+// Integrations, so this page now answers exactly one question: which passkeys
+// can open this vault. The "renders neither" case below pins that split — it is
+// the assertion that fails if the connector UI creeps back onto this screen.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 
-vi.mock('../mcp-pairing.js', () => ({
-  getPairing: vi.fn(),
-  connectClaude: vi.fn(),
-  disconnectClaude: vi.fn(),
-}));
-vi.mock('../mcp-remote.js', () => ({
-  getRemoteStatus: vi.fn(),
-  connectRemote: vi.fn(),
-  disconnectRemote: vi.fn(),
-}));
 vi.mock('../crypto.js', () => ({
   auditEnvelope: vi.fn(async () => true),
   fromBase64: vi.fn((x) => x),
@@ -23,20 +13,23 @@ vi.mock('../crypto.js', () => ({
 }));
 
 import { renderDeviceList } from '../devices.js';
-import { getPairing, connectClaude, disconnectClaude } from '../mcp-pairing.js';
-import { getRemoteStatus, connectRemote, disconnectRemote } from '../mcp-remote.js';
 
 let dom;
 let app;
 let onExit;
 const ctx = { dek: 'fake-dek' };
 
+const DEVICES = [
+  { credential_id: 'aaaabbbbcccc', created_at: '2026-07-01T10:00:00Z', envelope: { nonce: 'n', ct: 'c', mac: 'm' } },
+  { credential_id: 'ddddeeeeffff', created_at: '2026-07-02T10:00:00Z', envelope: null },
+];
+
 beforeEach(() => {
   dom = new JSDOM('<!doctype html><div id="app"></div>', { url: 'https://acct.example.test/' });
   global.document = dom.window.document;
   vi.stubGlobal('navigator', dom.window.navigator);
   global.confirm = vi.fn(() => true);
-  global.fetch = vi.fn(async () => ({ ok: true, json: async () => [] }));
+  global.fetch = vi.fn(async () => ({ ok: true, json: async () => DEVICES }));
   app = dom.window.document.getElementById('app');
   onExit = vi.fn();
 });
@@ -52,85 +45,51 @@ afterEach(() => {
 async function renderAndSettle() {
   renderDeviceList(app, ctx, onExit);
   await vi.waitFor(() => {
-    if (!app.querySelector('#claude-remote-connect-button')) throw new Error('not rendered yet');
+    if (!app.querySelector('#add-device-button')) throw new Error('not rendered yet');
   });
 }
 
-describe('devices.js Claude connector mode picker', () => {
-  it('gates remote enable on consent: declining the confirm dialog never calls connectRemote', async () => {
-    getPairing.mockResolvedValue(null);
-    getRemoteStatus.mockResolvedValue(false);
-    global.confirm.mockReturnValue(false);
+describe('devices.js device list', () => {
+  it('renders one row per device with its audit badge', async () => {
     await renderAndSettle();
 
-    app.querySelector('#claude-remote-connect-button').dispatchEvent(new dom.window.Event('click'));
-    await Promise.resolve();
-
-    expect(connectRemote).not.toHaveBeenCalled();
+    const rows = app.querySelectorAll('#device-list .device-row');
+    expect(rows).toHaveLength(2);
+    // auditEnvelope is mocked true; the envelope-less device stays unverified.
+    expect(rows[0].querySelector('.device-verified')).not.toBeNull();
+    expect(rows[1].querySelector('.device-unverified')).not.toBeNull();
   });
 
-  it('renders the connector URL once consent is given and enable succeeds', async () => {
-    getPairing.mockResolvedValue(null);
-    getRemoteStatus.mockResolvedValue(false);
-    connectRemote.mockResolvedValue({ token: 'abc-def', url: 'https://acct.example.test/mcp/abc-def' });
+  // The point of med-lyv: devices and connectors are separate pages now.
+  it('renders neither the connector picker nor the Telegram mount', async () => {
     await renderAndSettle();
 
-    app.querySelector('#claude-remote-connect-button').dispatchEvent(new dom.window.Event('click'));
-    await vi.waitFor(() => {
-      if (!app.querySelector('#claude-remote-url')) throw new Error('not rendered yet');
-    });
-
-    expect(app.querySelector('#claude-remote-url').textContent).toBe('https://acct.example.test/mcp/abc-def');
+    expect(app.querySelector('#claude-remote-connect-button')).toBeNull();
+    expect(app.querySelector('#claude-local-connect-button')).toBeNull();
+    expect(app.querySelector('#claude-disconnect-button')).toBeNull();
+    expect(app.querySelector('#claude-status')).toBeNull();
+    expect(app.querySelector('#telegram-mount')).toBeNull();
   });
 
-  it('shows the remote-linked status and disconnects the old pairing before switching to local', async () => {
-    getPairing.mockResolvedValue({ recordId: 'mcppairing' });
-    getRemoteStatus.mockResolvedValue(true);
-    disconnectRemote.mockResolvedValue();
-    connectClaude.mockResolvedValue({ code: 'mtmcp1.fake' });
+  it('revokes a device and re-renders the list', async () => {
     await renderAndSettle();
 
-    expect(app.querySelector('#claude-status').textContent).toContain('remote (claude.ai / ChatGPT) linked');
+    global.fetch.mockClear();
+    app.querySelectorAll('#device-list .device-row button')[0]
+      .dispatchEvent(new dom.window.Event('click'));
 
-    app.querySelector('#claude-local-connect-button').dispatchEvent(new dom.window.Event('click'));
     await vi.waitFor(() => {
-      if (!app.querySelector('#claude-code')) throw new Error('not rendered yet');
+      if (global.fetch.mock.calls.length === 0) throw new Error('not called yet');
     });
-
-    expect(disconnectRemote).toHaveBeenCalledWith(ctx);
-    expect(connectClaude).toHaveBeenCalledWith(ctx);
-    expect(app.querySelector('#claude-code').textContent).toBe('mtmcp1.fake');
+    const [url, opts] = global.fetch.mock.calls[0];
+    expect(url).toBe('/api/devices/aaaabbbbcccc');
+    expect(opts.method).toBe('DELETE');
   });
 
-  it('disconnect calls disconnectRemote when the remote mode is active', async () => {
-    getPairing.mockResolvedValue({ recordId: 'mcppairing' });
-    getRemoteStatus.mockResolvedValue(true);
-    disconnectRemote.mockResolvedValue();
+  it('Back exits the page', async () => {
     await renderAndSettle();
 
-    app.querySelector('#claude-disconnect-button').dispatchEvent(new dom.window.Event('click'));
-    await vi.waitFor(() => {
-      if (disconnectRemote.mock.calls.length === 0) throw new Error('not called yet');
-    });
-
-    expect(disconnectRemote).toHaveBeenCalledWith(ctx);
-    expect(disconnectClaude).not.toHaveBeenCalled();
-  });
-
-  it('disconnect calls disconnectClaude when the local mode is active', async () => {
-    getPairing.mockResolvedValue({ recordId: 'mcppairing' });
-    getRemoteStatus.mockResolvedValue(false);
-    disconnectClaude.mockResolvedValue();
-    await renderAndSettle();
-
-    expect(app.querySelector('#claude-status').textContent).toContain('local shim (Claude Code) linked');
-
-    app.querySelector('#claude-disconnect-button').dispatchEvent(new dom.window.Event('click'));
-    await vi.waitFor(() => {
-      if (disconnectClaude.mock.calls.length === 0) throw new Error('not called yet');
-    });
-
-    expect(disconnectClaude).toHaveBeenCalledWith(ctx);
-    expect(disconnectRemote).not.toHaveBeenCalled();
+    app.querySelector('#devices-back').dispatchEvent(new dom.window.Event('click'));
+    expect(onExit).toHaveBeenCalled();
   });
 });

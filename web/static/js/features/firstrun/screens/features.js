@@ -18,10 +18,18 @@
 // re-POSTing by hand — it owns the whole write (POST
 // /api/settings/features/<key>, SettingsState mirror, bottom-nav rebuild,
 // DataStore tag invalidation, tab-visibility sync). Toggles write through
-// immediately, one POST per flip; defaults are all-on so a user who keeps
-// everything issues zero requests. The `fetch` fallback exists only for
+// immediately, one POST per flip. The `fetch` fallback exists only for
 // the Vitest harness, which loads the firstrun modules alone (same reason
 // integrations.js carries one — see its _patch helper).
+//
+// Continue persists an EXPLICIT boolean for all six, not just the deviations
+// (med-t05.1). web/domain/settings.js DEFAULT_FEATURES is all-on and
+// getFeatures() spreads it under the stored flags, so a feature this screen
+// showed UNCHECKED but never wrote would come back ON. Per-flip writes alone
+// cannot fix that: a user who accepts the defaults flips nothing, writes
+// nothing, and gets all-on. DEFAULT_FEATURES itself must stay all-on — it is
+// also the fallback for existing accounts that never wrote a features record,
+// and flipping it would strip sections from current users.
 //
 // Failure semantics mirror the Settings UI: a rejected write reverts the
 // checkbox to its previous value and surfaces one inline message, so the
@@ -31,36 +39,45 @@
 
     var FEATURES_URL = '/api/settings/features';
 
+    // `on` is the first-run pre-check state (owner call, med-t05.1): the three
+    // low-friction daily-logging sections start on; the three that only pay off
+    // with a device, a prescription, or a clinical reason start off.
     var CATALOG = [
         {
             key: 'medication',
             label: 'Medications',
             copy: 'Track doses, courses, and refill reminders.',
+            on: false,
         },
         {
             key: 'bp',
             label: 'Blood pressure',
             copy: 'Log readings and watch trends over time.',
+            on: false,
         },
         {
             key: 'weight',
             label: 'Weight',
             copy: 'Record weigh-ins and see the moving average.',
+            on: true,
         },
         {
             key: 'food',
             label: 'Food',
             copy: 'Log meals and daily calorie and macro targets.',
+            on: true,
         },
         {
             key: 'workout',
             label: 'Workouts',
             copy: 'Plan sessions, log exercises, and track progress.',
+            on: true,
         },
         {
             key: 'health',
             label: 'Vitals',
             copy: 'Sleep, heart rate, and other wearable data.',
+            on: false,
         },
     ];
 
@@ -71,6 +88,18 @@
         if (!flags || typeof flags !== 'object') return true;
         if (typeof flags[key] !== 'boolean') return true;
         return flags[key];
+    }
+
+    // What the box shows on mount. A user resuming the wizard, or one whose
+    // account already has flags, sees their own state; everyone else sees the
+    // first-run pre-check set. Reads the mirror directly rather than through
+    // _isEnabled, whose absent-mirror answer is the all-on *fallback* default.
+    function _initialChecked(item) {
+        var flags = window.featureSettings;
+        if (flags && typeof flags === 'object' && typeof flags[item.key] === 'boolean') {
+            return flags[item.key];
+        }
+        return item.on;
     }
 
     function _writeFeature(key, enabled) {
@@ -91,6 +120,18 @@
         }).then(function (resp) {
             if (!resp || !resp.ok) throw new Error('rejected');
         });
+    }
+
+    // Writes every row's current state, one at a time. Sequential is required,
+    // not just tidy: the cloud shim's setFeature (web/domain/settings.js) reads
+    // the whole flags map, mutates one key, and puts it back, so concurrent
+    // writes would last-write-wins each other's keys away.
+    function _persistAll(rows) {
+        return rows.reduce(function (chain, row) {
+            return chain.then(function () {
+                return _writeFeature(row.key, row.toggle.checked);
+            });
+        }, Promise.resolve());
     }
 
     function _renderRow(item, error) {
@@ -118,7 +159,7 @@
         toggle.type = 'checkbox';
         toggle.id = 'firstrun-feature-' + item.key;
         toggle.className = 'wg-firstrun-feature__toggle';
-        toggle.checked = _isEnabled(item.key);
+        toggle.checked = _initialChecked(item);
         toggle.setAttribute('data-firstrun-feature-toggle', item.key);
         toggle.addEventListener('change', function () {
             var desired = toggle.checked;
@@ -150,8 +191,14 @@
 
         var rows = document.createElement('div');
         rows.className = 'wg-firstrun-features';
+        var picked = [];
         for (var i = 0; i < CATALOG.length; i++) {
-            rows.appendChild(_renderRow(CATALOG[i], error));
+            var rowEl = _renderRow(CATALOG[i], error);
+            rows.appendChild(rowEl);
+            picked.push({
+                key: CATALOG[i].key,
+                toggle: rowEl.querySelector('[data-firstrun-feature-toggle]'),
+            });
         }
         body.appendChild(rows);
         body.appendChild(error);
@@ -165,7 +212,19 @@
         cont.textContent = 'Continue';
         cont.setAttribute('data-firstrun-action', 'continue');
         cont.addEventListener('click', function () {
-            helpers.advance('integrations');
+            cont.disabled = true;
+            error.textContent = '';
+            _persistAll(picked)
+                .then(function () {
+                    helpers.advance('integrations');
+                })
+                .catch(function () {
+                    // Advancing here would leave the unchecked features silently
+                    // ON, since an unwritten flag falls back to DEFAULT_FEATURES.
+                    // Better to stay put and let the user retry.
+                    cont.disabled = false;
+                    error.textContent = 'Couldn’t save your choices. Check your connection and try again — you can also adjust features later in Settings.';
+                });
         });
 
         actions.appendChild(cont);

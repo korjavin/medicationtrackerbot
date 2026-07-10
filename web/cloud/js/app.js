@@ -43,6 +43,22 @@ try {
       console.error('[devices] warm unlock failed', e);
       location.href = '/unlock';
     }
+  } else if (location.pathname === '/connectors') {
+    const { warmUnlock } = await import('./unlock.js');
+    const { renderConnectors } = await import('./connectors.js');
+    try {
+      const ctx = await warmUnlock();
+      if (!ctx) {
+        location.href = '/unlock';
+      } else {
+        renderConnectors(document.getElementById('app'), ctx, () => {
+          location.href = '/';
+        });
+      }
+    } catch (e) {
+      console.error('[connectors] warm unlock failed', e);
+      location.href = '/unlock';
+    }
   } else if (claimToken) {
     const { runSignupWizard } = await import('./signup.js');
     await runSignupWizard(claimToken);

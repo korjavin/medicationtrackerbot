@@ -216,6 +216,7 @@ type recordMu struct {
 	sync.Mutex
 	sent     []string
 	answered []string
+	commands []string
 }
 
 func newRecordingTG(t *testing.T) *recordingTG {
@@ -240,6 +241,12 @@ func newRecordingTG(t *testing.T) *recordingTG {
 			rec.mu.sent = append(rec.mu.sent, string(b))
 			rec.mu.Unlock()
 			io.WriteString(w, `{"ok":true,"result":{}}`)
+		case "setMyCommands":
+			b, _ := io.ReadAll(r.Body)
+			rec.mu.Lock()
+			rec.mu.commands = append(rec.mu.commands, string(b))
+			rec.mu.Unlock()
+			io.WriteString(w, `{"ok":true,"result":true}`)
 		case "answerCallbackQuery":
 			b, _ := io.ReadAll(r.Body)
 			rec.mu.Lock()
@@ -1054,5 +1061,126 @@ func TestChildWebhook_CallbackQueryRedeliveryQueuesAgainAndStays200(t *testing.T
 	}
 	if n := inboxCount(t, f.store, f.accountID); n != 2 {
 		t.Fatalf("queued %d events, want 2 (at-least-once; the client converges)", n)
+	}
+}
+
+// TestChildWebhook_HelpAndUnknownCommands (bd med-26y): before this, the child
+// webhook answered only /start and CallbackQuery — every other message hit a
+// silent 200. /help therefore did nothing, and the autocomplete menu stayed
+// empty until the user's first /start (setMyCommands lived inside that branch).
+func TestChildWebhook_HelpAndUnknownCommands(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	tg := newRecordingTG(t)
+	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, 14*24*time.Hour)
+	if err := tgAPI.Bootstrap(t.Context()); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	apiMux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(apiMux)
+	tgAPI.RegisterAPIRoutes(apiMux)
+	router := New("localhost", store, testFS(), testAppFS(), testDomainFS(), apiMux, "", false, false)
+	top := http.NewServeMux()
+	tgAPI.RegisterWebhookRoutes(top)
+	top.Handle("/", router)
+
+	session := registerAndGetSession(t, top, host, claimToken)
+	provRec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/provision", host, session, nil)
+	if provRec.Code != http.StatusOK {
+		t.Fatalf("provision status = %d", provRec.Code)
+	}
+	var prov struct {
+		Suggested string `json:"suggested_username"`
+	}
+	json.Unmarshal(provRec.Body.Bytes(), &prov)
+	managerSecret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
+	update := `{"update_id":1,"message":{"message_id":1,"from":{"id":6918132008},"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":909,"username":"` + prov.Suggested + `"}}}}`
+	if whRec := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, update); whRec.Code != http.StatusOK {
+		t.Fatalf("manager webhook status = %d", whRec.Code)
+	}
+
+	// Commands are registered at MINT — before any /start has been sent, so
+	// Telegram autocomplete is populated the moment the user opens the chat.
+	tg.mu.Lock()
+	minted := append([]string(nil), tg.mu.commands...)
+	tg.mu.Unlock()
+	if len(minted) != 1 {
+		t.Fatalf("setMyCommands calls at mint = %d, want 1: %v", len(minted), minted)
+	}
+	for _, want := range []string{`"start"`, `"help"`} {
+		if !strings.Contains(minted[0], want) {
+			t.Errorf("mint-time command menu missing %s: %s", want, minted[0])
+		}
+	}
+
+	bot, err := store.BotByAccount(t.Context(), account.ID)
+	if err != nil {
+		t.Fatalf("BotByAccount: %v", err)
+	}
+	childPath := "/tg/bot/" + account.ID + "/" + bot.WebhookSecret
+
+	sentSince := func(n int) []string {
+		tg.mu.Lock()
+		defer tg.mu.Unlock()
+		return append([]string(nil), tg.mu.sent[n:]...)
+	}
+
+	// /help is answered WITHOUT a prior /start — it reads no vault data and
+	// needs no linked chat.
+	if rec := postWebhook(t, top, childPath, bot.WebhookSecret,
+		`{"update_id":2,"message":{"message_id":1,"text":"/help","chat":{"id":777,"type":"private"}}}`); rec.Code != http.StatusOK {
+		t.Fatalf("/help status = %d", rec.Code)
+	}
+	sent := sentSince(0)
+	if len(sent) != 1 || !strings.Contains(sent[0], "/start") || !strings.Contains(sent[0], "777") {
+		t.Fatalf("/help reply not sent to chat 777: %v", sent)
+	}
+
+	// "/help@some_bot" (group form) resolves to the same command.
+	if rec := postWebhook(t, top, childPath, bot.WebhookSecret,
+		`{"update_id":3,"message":{"message_id":2,"text":"/help@mt_child_bot","chat":{"id":777,"type":"private"}}}`); rec.Code != http.StatusOK {
+		t.Fatalf("/help@bot status = %d", rec.Code)
+	}
+	if got := sentSince(1); len(got) != 1 || !strings.Contains(got[0], "/start") {
+		t.Fatalf("/help@bot did not produce the help reply: %v", got)
+	}
+
+	// An unknown command is answered, not silently dropped.
+	if rec := postWebhook(t, top, childPath, bot.WebhookSecret,
+		`{"update_id":4,"message":{"message_id":3,"text":"/bogus","chat":{"id":777,"type":"private"}}}`); rec.Code != http.StatusOK {
+		t.Fatalf("/bogus status = %d", rec.Code)
+	}
+	if got := sentSince(2); len(got) != 1 || !strings.Contains(got[0], "Unknown command") {
+		t.Fatalf("unknown command not answered: %v", got)
+	}
+
+	// Free text stays silently dropped — routing it is C3b's sealed-mailbox
+	// work, and replying would widen the declared zero-knowledge surface.
+	if rec := postWebhook(t, top, childPath, bot.WebhookSecret,
+		`{"update_id":5,"message":{"message_id":4,"text":"I ate two eggs","chat":{"id":777,"type":"private"}}}`); rec.Code != http.StatusOK {
+		t.Fatalf("free text status = %d", rec.Code)
+	}
+	if got := sentSince(3); len(got) != 0 {
+		t.Fatalf("free text should not be answered, sent: %v", got)
+	}
+}
+
+func TestBotCommand(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"/start", "/start"},
+		{"/help", "/help"},
+		{"/Help", "/help"},
+		{"/help@mt_child_bot", "/help"},
+		{"/start deep-link-payload", "/start"},
+		{"I ate two eggs", ""},
+		{"", ""},
+		{"/", "/"},
+	} {
+		if got := botCommand(tc.in); got != tc.want {
+			t.Errorf("botCommand(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }

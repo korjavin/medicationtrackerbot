@@ -583,7 +583,10 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             await window.loadSettings();
             expect(document.querySelector('.wg-settings-cloud-devices').classList.contains('wg-settings-hidden')).toBe(false);
             expect(document.getElementById('settings-devices-link').getAttribute('href')).toBe('/devices');
-            expect(document.getElementById('settings-claude-connector-link').getAttribute('href')).toBe('/devices');
+            // med-lyv split the connector picker onto its own page; the two rows
+            // used to land on the same screen, which is what made the MCP
+            // controls look like a property of the device list.
+            expect(document.getElementById('settings-claude-connector-link').getAttribute('href')).toBe('/connectors');
         } finally {
             delete window.__MEDTRACKER_CLOUD__;
             cleanup();

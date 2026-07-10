@@ -23,6 +23,23 @@ vi.mock('../rxnorm.js', () => ({
   }),
 }));
 
+// The controller's reconcile() reaches mcp-pairing through a *dynamic*
+// import('./mcp-pairing.js') (a static one would close an import cycle). A
+// per-test vi.doMock of it is not reliable: the controller describe below calls
+// vi.resetModules() in beforeEach, and a doMock registered against a registry
+// that is being torn down and rebuilt intermittently misses that dynamic
+// import. reconcile then ran the REAL getPairing against a stub ctx — returning
+// null (no socket, no error) or throwing inside SubtleCrypto.importKey — which
+// is bd med-tc1.2, a ~1-in-3 full-suite flake that CI hit as
+// "expected [] to have a length of 1". A hoisted vi.mock is applied when the
+// module graph is built, so it holds across resetModules. Nothing else in this
+// file uses mcp-pairing, so mocking it file-wide is safe.
+const pairingMock = vi.hoisted(() => ({
+  getPairing: vi.fn(),
+  purgePairing: vi.fn(),
+}));
+vi.mock('../mcp-pairing.js', () => pairingMock);
+
 // The dispatcher under test routes through the real apishim router over an
 // in-memory records port — the same code path the cloud UI takes. Injecting a
 // stub router here would prove nothing about whether a catalogued op reaches a
@@ -712,25 +729,29 @@ describe('mcp-responder controller vault-record safety', () => {
     vi.stubGlobal('WebSocket', FakeSocket);
     vi.stubGlobal('location', { protocol: 'https:', host: 'relay.test' });
     FakeSocket.instances = [];
+    pairingMock.getPairing.mockResolvedValue({ pairingId: 'pair-1', key: KEY_B64 });
+    pairingMock.purgePairing.mockResolvedValue(undefined);
   });
   afterEach(() => {
-    vi.doUnmock('../mcp-pairing.js');
     vi.doUnmock('../apishim.js');
     vi.unstubAllGlobals();
     vi.resetModules();
   });
 
   async function bootController() {
-    const purgePairing = vi.fn(async () => {});
-    vi.doMock('../mcp-pairing.js', () => ({
-      getPairing: async () => ({ pairingId: 'pair-1', key: KEY_B64 }),
-      purgePairing,
-    }));
+    // apishim is only mocked to skip building the real domain graph; if the
+    // mock ever failed to apply, the real createApiRouter would still work
+    // here (it does no eager ctx work). mcp-pairing is different — see the
+    // hoisted vi.mock at the top of this file.
     vi.doMock('../apishim.js', () => ({ createApiRouter: () => async () => ({ status: 200, body: {} }) }));
     const mod = await import('../mcp-responder.js');
-    mod.refreshResponder({});
-    await vi.waitFor(() => expect(FakeSocket.instances).toHaveLength(1));
-    return { mod, purgePairing };
+    // Await the reconcile rather than polling for the socket. refreshResponder
+    // used to fire it and return, so the reconcile outlived the test that
+    // started it — and a stray one racing the next beforeEach's resetModules
+    // was half of bd med-tc1.2.
+    await mod.refreshResponder({});
+    expect(FakeSocket.instances).toHaveLength(1);
+    return { mod, purgePairing: pairingMock.purgePairing };
   }
 
   it('does not purge the vault record when the pairing was replaced (4409)', async () => {
