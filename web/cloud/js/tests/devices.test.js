@@ -69,6 +69,17 @@ describe('devices.js Claude connector mode picker', () => {
     expect(connectRemote).not.toHaveBeenCalled();
   });
 
+  // Nothing connected: both connectors are on offer, neither is hidden (med-3mx).
+  it('offers both connectors when no pairing is active', async () => {
+    getPairing.mockResolvedValue(null);
+    getRemoteStatus.mockResolvedValue(false);
+    await renderAndSettle();
+
+    expect(app.querySelector('#claude-remote-connect-button').hidden).toBe(false);
+    expect(app.querySelector('#claude-local-connect-button').hidden).toBe(false);
+    expect(app.querySelector('#claude-disconnect-button').hidden).toBe(true);
+  });
+
   it('renders the connector URL once consent is given and enable succeeds', async () => {
     getPairing.mockResolvedValue(null);
     getRemoteStatus.mockResolvedValue(false);
@@ -91,6 +102,10 @@ describe('devices.js Claude connector mode picker', () => {
     await renderAndSettle();
 
     expect(app.querySelector('#claude-status').textContent).toContain('remote (claude.ai / ChatGPT) linked');
+    // Remote is already on: don't offer to enable it (med-3mx). The local
+    // button stays visible — it is the switch control.
+    expect(app.querySelector('#claude-remote-connect-button').hidden).toBe(true);
+    expect(app.querySelector('#claude-local-connect-button').hidden).toBe(false);
 
     app.querySelector('#claude-local-connect-button').dispatchEvent(new dom.window.Event('click'));
     await vi.waitFor(() => {
@@ -124,6 +139,10 @@ describe('devices.js Claude connector mode picker', () => {
     await renderAndSettle();
 
     expect(app.querySelector('#claude-status').textContent).toContain('local shim (Claude Code) linked');
+    // Mirror of the remote case: local is on, so hide its connect button and
+    // keep the remote one as the switch control (med-3mx).
+    expect(app.querySelector('#claude-local-connect-button').hidden).toBe(true);
+    expect(app.querySelector('#claude-remote-connect-button').hidden).toBe(false);
 
     app.querySelector('#claude-disconnect-button').dispatchEvent(new dom.window.Event('click'));
     await vi.waitFor(() => {
