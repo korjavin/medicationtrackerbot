@@ -7,8 +7,9 @@
 // mcp_remote.go + mcp_endpoint.go ("/mcp/<token>" on the account host).
 import { connectClaude, disconnectClaude } from './mcp-pairing.js';
 
-// Reports whether the caller's account currently has Tier 2 enabled. Never
-// returns the token — that's shown once, at enable time.
+// Reports whether the caller's account currently has Tier 2 enabled, and the
+// connector URL when it is — so the connectors page can show it again instead
+// of forcing a rotate-to-recover (med-24d).
 export async function getRemoteStatus() {
   const res = await fetch('/api/mcp/remote');
   // A non-2xx here is a genuine failure, not "disabled" — the endpoint returns
@@ -18,8 +19,12 @@ export async function getRemoteStatus() {
   // enablement (a permanent relay pairing restored on every restart). Fail the
   // load instead, matching loadDevices' handling of /api/devices.
   if (!res.ok) throw new Error('Could not load the remote connector status.');
-  const { enabled } = await res.json();
-  return enabled;
+  const { enabled, token } = await res.json();
+  return { enabled: !!enabled, url: token ? remoteURL(token) : '' };
+}
+
+function remoteURL(token) {
+  return `${location.origin}/mcp/${token}`;
 }
 
 // Mints a fresh pairing (same code path as the local shim), hands the code
@@ -47,7 +52,7 @@ export async function connectRemote(ctx) {
     throw new Error('Could not enable the remote connector. Try again.');
   }
   const { token } = await res.json();
-  return { token, url: `${location.origin}/mcp/${token}` };
+  return { token, url: remoteURL(token) };
 }
 
 // Disables Tier 2 server-side and drops the underlying pairing (vault record

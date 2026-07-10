@@ -378,12 +378,17 @@ func (a *MCPRemoteAPI) DeleteRemote(w http.ResponseWriter, r *http.Request) {
 }
 
 type statusMCPRemoteResponse struct {
-	Enabled bool `json:"enabled"`
+	Enabled bool   `json:"enabled"`
+	Token   string `json:"token,omitempty"`
 }
 
-// GetRemote reports whether Tier 2 is enabled for the caller's account. It
-// never returns the token again — the devices page shows it once, at enable
-// time, and relies on this endpoint only for on/off UI state.
+// GetRemote reports whether Tier 2 is enabled for the caller's account, and if
+// so the connector token. The token is the credential, but the caller already
+// holds a session cookie for this account's own subdomain — the same authority
+// that could mint a fresh one via POST. Withholding it only forced users to
+// rotate the connector (disconnect + re-enable) to recover a URL they lost,
+// which is strictly worse. Never log it; the connectors page renders it with
+// textContent only.
 func (a *MCPRemoteAPI) GetRemote(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
@@ -391,7 +396,11 @@ func (a *MCPRemoteAPI) GetRemote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.mu.RLock()
-	_, enabled := a.byAcc[session.AccountID]
+	entry, enabled := a.byAcc[session.AccountID]
 	a.mu.RUnlock()
-	writeJSON(w, http.StatusOK, statusMCPRemoteResponse{Enabled: enabled})
+	resp := statusMCPRemoteResponse{Enabled: enabled}
+	if enabled {
+		resp.Token = entry.token
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
