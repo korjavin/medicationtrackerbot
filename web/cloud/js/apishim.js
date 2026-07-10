@@ -136,7 +136,9 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
   // bp/weight/notes instances above, no relay/crypto (the relay responder in
   // mcp-responder.js only exists in the Claude-connector-elected tab and builds
   // its own instances, so this is the clean reuse seam).
-  targetWindow.CloudMCPDispatcher = createDispatcher({ bp, weight, notes });
+  targetWindow.CloudMCPDispatcher = createDispatcher({
+    bp, weight, notes, now,
+  });
 
   // Due-dose materialization + tz-plan status refresh: neither domain module
   // owns a timer (Task 3/4's modules stay pure functions of their inputs), so
@@ -282,7 +284,11 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     if (path === '/api/notes') {
       if (method === 'POST') return notes.create(body);
       if (method === 'GET') {
-        return notes.list({ limit: intParam(params, 'limit', 50), beforeId: params.get('before_id') || undefined });
+        return notes.list({
+          days: intParam(params, 'days', undefined),
+          limit: intParam(params, 'limit', 50),
+          beforeId: params.get('before_id') || undefined,
+        });
       }
     }
     if (method === 'DELETE') {

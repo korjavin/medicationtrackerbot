@@ -29,7 +29,7 @@ describe('cloud shim contract — in-tab MCP dispatcher (window.CloudMCPDispatch
     });
 
     it('mcp_call bp.list returns the vault readings over the in-memory records port', async () => {
-        const result = await env.window.CloudMCPDispatcher.handle('mcp_call', { op: 'bp.list', params: {} });
+        const result = await env.window.CloudMCPDispatcher.handle('mcp_call', { op: 'health.bp.list', params: {} });
         expect(Array.isArray(result)).toBe(true);
         expect(result.length).toBe(2);
         // Newest first — same wire shape the /api/bp GET route returns.
@@ -39,14 +39,14 @@ describe('cloud shim contract — in-tab MCP dispatcher (window.CloudMCPDispatch
 
     it('mcp_help returns the catalog + usage_protocol', async () => {
         const help = await env.window.CloudMCPDispatcher.handle('mcp_help', {});
-        expect(Array.isArray(help.catalog)).toBe(true);
-        expect(help.catalog.map((op) => op.id)).toContain('bp.list');
+        expect(Array.isArray(help.compact_operations)).toBe(true);
+        expect(help.compact_operations.map((op) => op.id)).toContain('health.bp.list');
         expect(typeof help.usage_protocol).toBe('string');
         expect(help.usage_protocol.length).toBeGreaterThan(0);
     });
 
     it('unknown op throws a did-you-mean error (never dispatches a bogus result)', async () => {
-        await expect(env.window.CloudMCPDispatcher.handle('mcp_call', { op: 'bp.lst', params: {} }))
-            .rejects.toThrow(/unknown operation.*did you mean.*bp\.list/i);
+        await expect(env.window.CloudMCPDispatcher.handle('mcp_call', { op: 'health.bp.lst', params: {} }))
+            .rejects.toThrow(/unknown operation.*did you mean.*health\.bp\.list/i);
     });
 });

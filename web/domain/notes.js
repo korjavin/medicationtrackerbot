@@ -4,6 +4,7 @@
 // Mirrors internal/store/diary/repo.go + internal/server/notes_handlers.go.
 
 const RECORD_TYPE = 'note';
+const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_CONTENT_RUNES = 10000;
 const VALID_TAGS = new Set(['SLEEP', 'STRESS', 'HR', 'SPO2', 'STEPS', 'NOTE']);
 
@@ -73,13 +74,17 @@ export function createNotesDomain({ records, now }) {
   }
 
   // list mirrors handleListNotes's newest-first + before_id keyset cursor
-  // contract (internal/server/notes_handlers.go:16-54).
-  async function list({ limit = 50, beforeId } = {}) {
+  // contract (internal/server/notes_handlers.go:16-54). `days` is unbounded
+  // when absent or non-positive, matching the server's zero `since` time.
+  async function list({ days, limit = 50, beforeId } = {}) {
     const all = await records.list(RECORD_TYPE);
+    const since = days > 0 ? now() - days * DAY_MS : 0;
     // Server orders strictly by id DESC (unique, monotonic) and applies the
     // cursor as `id < beforeID` — robust whether or not the cursor row still
     // exists. Mirror both: sort by numeric id, keyset-filter by id.
-    let filtered = all.slice().sort((a, b) => Number(b.recordId) - Number(a.recordId));
+    let filtered = all
+      .filter((r) => !since || Date.parse(r.created_at) >= since)
+      .sort((a, b) => Number(b.recordId) - Number(a.recordId));
     if (beforeId) {
       const bid = Number(beforeId);
       filtered = filtered.filter((r) => Number(r.recordId) < bid);

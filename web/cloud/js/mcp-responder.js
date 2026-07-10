@@ -10,102 +10,43 @@ import { createBPDomain } from '../../domain/bp.js';
 import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
 import { openMCPFrame, sealMCPFrame, utf8 } from './crypto.js';
+import { CATALOG } from './mcp-catalog.generated.js';
+
+// Re-exported: the catalog is generated from internal/mcp/registry by
+// cmd/genmcpcatalog, but this module stays its import site for the rest of
+// cloud mode. Regenerate with `go run ./cmd/genmcpcatalog`.
+export { CATALOG };
 
 const decoder = new TextDecoder();
 
-// ponytail: PoC hardcodes this tiny catalog; full C4 generates it from
-// internal/mcp/registry filtered to the ported-domain set (see the plan's
-// "Locked decisions").
-export const CATALOG = [
-  {
-    id: 'bp.list',
-    risk: 'read',
-    description: "List the user's blood pressure readings, newest first.",
-    input_schema: {
-      type: 'object',
-      properties: {
-        days: { type: 'integer', description: 'lookback window in days (default 30, 0 = all)' },
-        limit: { type: 'integer', description: 'max rows to return (default 100, 0 = unlimited)' },
-      },
-    },
-  },
-  {
-    id: 'bp.create',
-    risk: 'write',
-    description: 'Log a new blood pressure reading.',
-    input_schema: {
-      type: 'object',
-      required: ['measured_at', 'systolic', 'diastolic'],
-      properties: {
-        measured_at: { type: 'string', description: 'ISO 8601 timestamp' },
-        systolic: { type: 'integer' },
-        diastolic: { type: 'integer' },
-        pulse: { type: 'integer' },
-        notes: { type: 'string' },
-      },
-    },
-  },
-  {
-    id: 'weight.list',
-    risk: 'read',
-    description: "List the user's weight log entries, newest first.",
-    input_schema: {
-      type: 'object',
-      properties: {
-        days: { type: 'integer', description: 'lookback window in days (default 30, 0 = all)' },
-        limit: { type: 'integer', description: 'max rows to return (default 100, 0 = unlimited)' },
-      },
-    },
-  },
-  {
-    id: 'weight.create',
-    risk: 'write',
-    description: 'Log a new weight entry.',
-    input_schema: {
-      type: 'object',
-      required: ['measured_at', 'weight'],
-      properties: {
-        measured_at: { type: 'string', description: 'ISO 8601 timestamp' },
-        weight: { type: 'number' },
-        notes: { type: 'string' },
-      },
-    },
-  },
-  {
-    id: 'notes.list',
-    risk: 'read',
-    description: "List the user's diary notes, newest first.",
-    input_schema: {
-      type: 'object',
-      properties: {
-        limit: { type: 'integer', description: 'max rows to return (default 50)' },
-        before_id: { type: 'string', description: 'pagination cursor: only notes older than this id' },
-      },
-    },
-  },
-  {
-    id: 'notes.create',
-    risk: 'write',
-    description: 'Add a diary note.',
-    input_schema: {
-      type: 'object',
-      required: ['content'],
-      properties: {
-        content: { type: 'string' },
-        tag: { type: 'string', description: 'one of SLEEP, STRESS, HR, SPO2, STEPS, NOTE' },
-      },
-    },
-  },
-];
+export const USAGE_PROTOCOL = 'Decision rule: (1) Discover — call mcp_help with no args (or topic=/query=) for the '
+  + 'terse catalog, then drill in with operation_id=/operation_ids=[...] for full schemas. The catalog is too large '
+  + 'to return in full; only an id drill-in returns schemas. (2) Run exactly ONE operation per call with '
+  + 'mcp_call({op, params}). There is no mcp_execute in cloud mode: this connector is zero-knowledge, the server '
+  + 'cannot see your plaintext, so there is no server-side script runtime — chain mcp_call instead. This connector '
+  + 'talks directly to your unlocked Med Tracker browser tab over an end-to-end encrypted channel; the relay server '
+  + 'never sees your data, only frame sizes and timing. If no device is unlocked and online, mcp_call returns an '
+  + "actionable error instead of hanging. For relative dates ('today', 'now', 'yesterday', 'last N days') use this "
+  + "response's current_time as the real clock — never guess the date or year.";
 
-export const USAGE_PROTOCOL = 'Discover with mcp_help (no args) — the catalog is small enough to read in full. '
-  + 'Run exactly one operation at a time with mcp_call({op, params}). This connector talks directly to your '
-  + 'unlocked Med Tracker browser tab over an end-to-end encrypted channel; the relay server never sees your '
-  + 'data, only frame sizes and timing. If no device is unlocked and online, mcp_call returns an actionable '
-  + 'error instead of hanging.';
+// currentTimeHint mirrors internal/mcp/help.go's helper of the same name: a
+// tool-only agent has no other clock, and the wired writes take an explicit
+// timestamp (health.bp.create/health.weight.create require measured_at), so an
+// unstamped response invites a guessed year. Same layout as Go's, weekday
+// included.
+function currentTimeHint(nowMs) {
+  const d = new Date(nowMs);
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+  return `${d.toISOString().replace(/\.\d{3}Z$/, 'Z')} (${weekday}, UTC)`;
+}
 
-// Ported from internal/mcp/proxy's Levenshtein helper, scaled to this
-// catalog's handful of entries.
+// Prototype-free so a caller-supplied id like "toString"/"constructor" misses
+// (→ the unknown-op path) instead of resolving an inherited prototype member.
+const BY_ID = CATALOG.reduce((m, op) => { m[op.id] = op; return m; }, Object.create(null));
+const TOPICS = [...new Set(CATALOG.map((op) => op.topic))].sort();
+
+// Ported from internal/mcp/proxy's Levenshtein helper. O(n·m) per entry, run
+// once per catalog entry on an unknown op — a rare, already-failing path.
 function levenshtein(a, b) {
   const dp = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
   for (let i = 0; i <= a.length; i++) dp[i][0] = i;
@@ -121,17 +62,174 @@ function levenshtein(a, b) {
 }
 
 // suggestOperations mirrors internal/mcp/proxy's did-you-mean semantics
-// (substring match first, Levenshtein fallback) over the tiny PoC catalog.
+// (substring match first, Levenshtein ≤3 fallback, top 3). The query itself is
+// never a candidate: unlike bot mode, cloud mode's catalog is wider than its
+// dispatch table, so an id that fails to dispatch may still be catalogued, and
+// "did you mean: <the id you just called>?" would loop the calling agent.
 export function suggestOperations(opID) {
   const query = String(opID || '').toLowerCase();
-  const substring = CATALOG.filter((op) => query && (op.id.includes(query) || query.includes(op.id))).map((op) => op.id);
+  if (!query) return [];
+  const candidates = CATALOG.filter((op) => op.id.toLowerCase() !== query);
+  const substring = candidates.filter((op) => op.id.includes(query) || query.includes(op.id)).map((op) => op.id);
   if (substring.length > 0) return substring.slice(0, 3);
-  return CATALOG
+  return candidates
     .map((op) => ({ id: op.id, dist: levenshtein(query, op.id.toLowerCase()) }))
     .filter((s) => s.dist <= 3)
     .sort((a, b) => a.dist - b.dist)
     .slice(0, 3)
     .map((s) => s.id);
+}
+
+// compactEntry is the terse projection returned by every mcp_help variant
+// except an explicit id drill-in. `required` is baked into the generated
+// catalog by cmd/genmcpcatalog, so a write is formable straight from here.
+function compactEntry(op) {
+  const e = {
+    id: op.id, topic: op.topic, method: op.method, risk: op.risk, description: op.description,
+  };
+  if (op.required && op.required.length) e.required = op.required;
+  return e;
+}
+
+const lower = (v) => String(v == null ? '' : v).trim().toLowerCase();
+
+// Ported from registry.searchStopwords / searchTokens / Registry.Search's
+// fallback. Cloud mcp_help must answer natural multi-word queries ("first
+// workout group exercises") the same way bot mode does — a zero-result
+// dead-end is what makes weaker agents give up instead of drilling in.
+const SEARCH_STOPWORDS = new Set([
+  'the', 'and', 'for', 'are', 'was', 'what', 'that', 'with', 'your', 'you',
+  'how', 'can', 'from', 'this', 'all', 'any', 'give', 'show', 'tell', 'does',
+]);
+
+function searchTokens(q) {
+  return [...new Set(q.match(/[a-z0-9]+/g) || [])]
+    .filter((tok) => tok.length >= 3 && !SEARCH_STOPWORDS.has(tok));
+}
+
+// searchCatalog mirrors registry.Search: whole-phrase substring across
+// id/description/topic/response_summary first; only when that matches nothing,
+// an OR-match over tokens ranked by distinct hits. A 2+ token query must hit at
+// least 2 tokens on the same op so one common word can't drag in the catalog.
+function searchCatalog(query) {
+  const phrase = CATALOG.filter((op) => [op.id, op.description, op.topic, op.response_summary]
+    .some((field) => lower(field).includes(query)));
+  if (phrase.length > 0) return phrase.sort((a, b) => (a.id < b.id ? -1 : 1));
+
+  const tokens = searchTokens(query);
+  if (tokens.length === 0) return [];
+  const minScore = tokens.length >= 2 ? 2 : 1;
+  return CATALOG
+    .map((op) => {
+      const hay = lower(`${op.id} ${op.topic} ${op.description} ${op.response_summary || ''}`);
+      return { op, score: tokens.filter((tok) => hay.includes(tok)).length };
+    })
+    .filter((s) => s.score >= minScore)
+    .sort((a, b) => (b.score - a.score) || (a.op.id < b.op.id ? -1 : 1))
+    .map((s) => s.op);
+}
+
+// An id drill-in is the only mcp_help variant that returns full schemas, and
+// its size is caller-controlled: internal/cloudserver/mcp_relay.go caps a
+// sealed relay frame at 64 KiB (maxRelayFrameBytes), and the whole catalog as
+// full entries is ~73 KB. Over the cap the relay closes the device leg, so the
+// agent sees an offline-device timeout and the responder reconnect-loops.
+// Budget the entries by serialized size (not a count — entry sizes vary ~4x)
+// and leave headroom for the envelope, note/next_step, and frame overhead.
+const HELP_ENTRY_BUDGET_BYTES = 48 * 1024;
+
+// takeWithinBudget returns the longest prefix of ids whose entries fit the
+// budget, plus the ids that were dropped. At least one entry is always
+// returned, so a single oversized op still answers rather than returning empty.
+function takeWithinBudget(ids) {
+  const kept = [];
+  let bytes = 0;
+  for (const id of ids) {
+    const size = utf8(JSON.stringify(BY_ID[id])).length;
+    if (kept.length > 0 && bytes + size > HELP_ENTRY_BUDGET_BYTES) break;
+    bytes += size;
+    kept.push(id);
+  }
+  return { kept, dropped: ids.slice(kept.length) };
+}
+
+// buildHelp mirrors internal/mcp/help.go's precedence: ids > query > topic >
+// full catalog. Only an id drill-in returns full entries — internal/cloudserver/
+// mcp_relay.go caps a relay frame at 64 KiB and the full catalog is ~100 KB.
+// Query matches stay compact deliberately: help.go:161-167 records that full
+// nested schemas on a query response make weaker models emit an empty turn.
+function buildHelp(params) {
+  const p = params || {};
+  const requested = [p.operation_id, ...(Array.isArray(p.operation_ids) ? p.operation_ids : [])]
+    .map(lower)
+    .filter(Boolean);
+
+  if (requested.length > 0) {
+    const found = requested.filter((id) => BY_ID[id]);
+    const missing = requested.filter((id) => !BY_ID[id]);
+    if (found.length === 0) {
+      return {
+        count: 0,
+        topics: TOPICS,
+        next_step: `Operation "${missing.join(', ')}" not found. Pick a topic (e.g. 'workouts') or call mcp_help with no args for the full catalog.`,
+      };
+    }
+    const { kept, dropped } = takeWithinBudget(found);
+    let note = `Showing full details for ${kept.length} operation(s).`;
+    if (missing.length > 0) note += ` Not found: ${missing.join(', ')}.`;
+    if (dropped.length > 0) {
+      note += ` Omitted ${dropped.length} operation(s) to stay under the relay's frame limit`
+        + ` — request them in a follow-up mcp_help call: ${dropped.join(', ')}.`;
+    }
+    return {
+      operations: kept.map((id) => BY_ID[id]),
+      count: kept.length,
+      note,
+      next_step: 'Review the operation details, then run one with mcp_call({op, params}).',
+    };
+  }
+
+  const query = lower(p.query);
+  if (query) {
+    const matches = searchCatalog(query);
+    if (matches.length === 0) {
+      return {
+        count: 0,
+        topics: TOPICS,
+        note: `No operations matched query "${query}".`,
+        next_step: 'Try a broader keyword, browse a topic from the list below, or omit all filters for the full catalog.',
+      };
+    }
+    return {
+      compact_operations: matches.map(compactEntry),
+      count: matches.length,
+      note: `Showing ${matches.length} match(es) for query "${query}". These are OPERATIONS you can run, not the data itself — re-running the same search makes no progress.`,
+      next_step: `ACT NOW — don't search again: call mcp_call({op: "${matches[0].id}", params: {…}}), or pick whichever id above matches the request. Need a field's exact type? Call mcp_help({operation_id: "${matches[0].id}"}) for the full schema.`,
+    };
+  }
+
+  const topic = lower(p.topic);
+  if (topic && topic !== 'all') {
+    const ops = CATALOG.filter((op) => op.topic === topic);
+    if (ops.length === 0) {
+      return { count: 0, topics: TOPICS, next_step: `Topic "${topic}" not found. Try one of the topics listed below.` };
+    }
+    return {
+      compact_operations: ops.map(compactEntry),
+      count: ops.length,
+      note: `Showing ${ops.length} operation(s) for topic "${topic}" (id · method · risk · description, plus required input fields). Drill in with operation_id for full schemas.`,
+      next_step: `Explore the operations for topic "${topic}", then act with mcp_call.`,
+    };
+  }
+
+  return {
+    compact_operations: CATALOG.map(compactEntry),
+    count: CATALOG.length,
+    topics: TOPICS,
+    usage_protocol: USAGE_PROTOCOL,
+    note: 'The full operation catalog is shown below in terse form (id, topic, method, risk, description, required). Drill in with topic="workouts" or operation_id="workouts.groups.list" for params/body schemas, or pass query="blood pressure" to keyword-search.',
+    next_step: "Pick a topic, look up an operation by ID, or pass query='blood pressure' to keyword-search.",
+  };
 }
 
 class MCPError extends Error {
@@ -144,27 +242,43 @@ class MCPError extends Error {
 // createDispatcher builds the mcp_help/mcp_call handlers over the injected
 // domain instances (same construction path apishim.js uses for bp/weight/
 // notes).
-export function createDispatcher({ bp, weight, notes }) {
+export function createDispatcher({
+  bp, weight, notes, now = Date.now,
+}) {
+  // Keyed by the registry's operation ids (health.bp.list, not bp.list) so the
+  // ids mcp_call accepts are exactly the ids the generated catalog advertises.
+  // Only these six are wired; med-csu.3 wires the rest of the catalog.
+  //
   // Prototype-free so a caller-supplied op like "toString"/"constructor"
   // resolves to undefined (→ the unknown-op did-you-mean path) instead of an
   // inherited Object.prototype member that would dispatch a bogus result.
   const ops = Object.assign(Object.create(null), {
-    'bp.list': (p) => bp.list(p || {}),
-    'bp.create': (p) => bp.create(p || {}),
-    'weight.list': (p) => weight.list(p || {}),
-    'weight.create': (p) => weight.create(p || {}),
-    'notes.list': (p) => notes.list({ limit: p && p.limit, beforeId: p && p.before_id }),
-    'notes.create': (p) => notes.create(p || {}),
+    'health.bp.list': (p) => bp.list(p || {}),
+    'health.bp.create': (p) => bp.create(p || {}),
+    'health.weight.list': (p) => weight.list(p || {}),
+    'health.weight.create': (p) => weight.create(p || {}),
+    'health.notes.list': (p) => notes.list({ days: p && p.days, limit: p && p.limit, beforeId: p && p.before_id }),
+    'health.notes.create': (p) => notes.create(p || {}),
   });
 
   async function handle(method, params) {
     if (method === 'mcp_help') {
-      return { catalog: CATALOG, usage_protocol: USAGE_PROTOCOL };
+      // Stamped here, where every mcp_help variant converges (help.go:76 does
+      // the same), so no branch can ship an unclocked response.
+      return { ...buildHelp(params), current_time: currentTimeHint(now()) };
     }
     if (method === 'mcp_call') {
       const opID = params && params.op;
       const fn = ops[opID];
       if (!fn) {
+        // The generated catalog mirrors the whole Go registry, but cloud mode
+        // dispatches only `ops` (med-csu.3 wires the rest). A catalogued id is
+        // not "unknown" — telling an agent it is, then suggesting that same id
+        // back, makes it re-issue the identical call forever.
+        if (BY_ID[opID]) {
+          throw new MCPError(-32602, `operation "${opID}" is catalogued but not yet callable in cloud mode. `
+            + `Callable now: ${Object.keys(ops).join(', ')}.`);
+        }
         const suggestions = suggestOperations(opID);
         const hint = suggestions.length ? ` — did you mean: ${suggestions.join(', ')}?` : '';
         throw new MCPError(-32602, `unknown operation "${opID}"${hint}`);
@@ -228,6 +342,7 @@ export function createResponder({
     bp: createBPDomain({ records, now, timeZone }),
     weight: createWeightDomain({ records, now, timeZone }),
     notes: createNotesDomain({ records, now }),
+    now,
   });
 
   let ws = null;

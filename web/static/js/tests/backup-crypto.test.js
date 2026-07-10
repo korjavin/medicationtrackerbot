@@ -27,7 +27,9 @@ const KAT_FILE = path.join(REPO_ROOT, 'tests/fixtures/backup-kat.age');
 const KAT_PASS = 'medtracker-known-answer-passphrase';
 const KAT_PLAIN = '{"format":"medtracker-vault","version":1,"note":"age CLI known-answer"}';
 
-describe('BackupCrypto (core/backup-crypto.js over vendored typage)', () => {
+// age's scrypt work factor costs 1-5s per case standalone and overruns vitest's
+// 5s default once the full suite contends for CPU.
+describe('BackupCrypto (core/backup-crypto.js over vendored typage)', { timeout: 30_000 }, () => {
     let dom;
     let BackupCrypto;
 
