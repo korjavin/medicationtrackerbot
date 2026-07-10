@@ -206,6 +206,10 @@ export async function handleRequest(dispatcher, request) {
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 
+// Mirrors StatusNoPairing in internal/cloudserver/mcp_relay.go: the relay has
+// no pairing for this account, so reconnecting is futile.
+export const STATUS_NO_PAIRING = 4404;
+
 // createResponder wires a live relay connection: decrypts each inbound
 // frame, dispatches it via handleRequest, encrypts the response, and
 // reconnects with backoff while the tab lives (docs/cloud-mode.md "Tab
@@ -213,8 +217,12 @@ const RECONNECT_MAX_MS = 30000;
 // offline state, surfaced through the shim's timeout error, not this
 // module). records/now/timeZone are the same ports apishim.js's domain
 // instances take.
+//
+// onStalePairing fires when the relay reports the pairing is gone; the owner
+// (reconcile) drops the vault record. The responder is already stopped by
+// then, so the callback must not stop it again.
 export function createResponder({
-  pairingId, key, records, now, timeZone, relayURL,
+  pairingId, key, records, now, timeZone, relayURL, onStalePairing = () => {},
 }) {
   const dispatcher = createDispatcher({
     bp: createBPDomain({ records, now, timeZone }),
@@ -274,7 +282,19 @@ export function createResponder({
     ws.binaryType = 'arraybuffer';
     ws.onopen = () => { status = 'linked'; reconnectDelay = RECONNECT_MIN_MS; };
     ws.onmessage = (ev) => { onFrame(ev.data).catch(() => {}); };
-    ws.onclose = () => { status = 'idle'; scheduleReconnect(); };
+    ws.onclose = (ev) => {
+      status = 'idle';
+      // The relay forgot this pairing (see StatusNoPairing in mcp_relay.go).
+      // Reconnecting can never succeed: stop, and let the owner drop the
+      // stale vault record. Every other close is transient — back off.
+      if (ev && ev.code === STATUS_NO_PAIRING) {
+        stopped = true;
+        clearTimeout(reconnectTimer);
+        onStalePairing();
+        return;
+      }
+      scheduleReconnect();
+    };
     ws.onerror = () => {};
   }
 
@@ -315,7 +335,7 @@ async function reconcile() {
     if (active) { active.responder.stop(); active = null; }
     return;
   }
-  const { getPairing } = await import('./mcp-pairing.js');
+  const { getPairing, purgePairing } = await import('./mcp-pairing.js');
   const pairing = await getPairing(controllerCtx);
   const nextId = pairing ? pairing.pairingId : null;
   if ((active && active.pairingId) === nextId) return; // unchanged
@@ -323,12 +343,16 @@ async function reconcile() {
   if (!pairing) return;
   const { recordsPort } = await import('./sync.js');
   const { fromBase64 } = await import('./crypto.js');
+  const ctx = controllerCtx;
   const responder = createResponder({
     pairingId: pairing.pairingId,
     key: fromBase64(pairing.key),
     records: recordsPort(controllerCtx),
     now: () => Date.now(),
     timeZone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC',
+    onStalePairing: () => {
+      purgePairing(ctx).catch((e) => console.error('[mcp] stale pairing purge failed', e));
+    },
   });
   active = { pairingId: pairing.pairingId, responder };
   responder.connect();
