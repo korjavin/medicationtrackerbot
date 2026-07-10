@@ -255,10 +255,15 @@ func main() {
 	relay := cloudserver.NewRelay(store, webPushSender, tgSender, cfg.dryQueueWarnHours)
 
 	mux := http.NewServeMux()
+	// Liveness: "the process is running". Unconditional on purpose — the
+	// orchestrator restarts on failure, and restarting will not fix a full disk.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
+	// Readiness: "this instance can actually serve". Reads the database, so a
+	// locked, corrupt, or disk-full cloud.db stops reporting healthy (med-d5t.7).
+	mux.HandleFunc("GET /readyz", cloudserver.ReadyzHandler(sharedDB, router.BuildID()))
 	if tgAPI != nil {
 		tgAPI.RegisterWebhookRoutes(mux)
 	}
