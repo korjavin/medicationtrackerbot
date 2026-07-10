@@ -135,9 +135,11 @@ device leg's pairing identifier and the one close code.
 
 ### Task 4: Regression tests for both close codes
 - [x] rewrite Task 1's reproduction into its regression form: a stale-pairing device dial is now closed with `StatusPairingReplaced`, and a current-pairing dial is served and **never** sees that code (done in Task 2's commit to keep the tree green)
-- [ ] vitest: on `STATUS_PAIRING_REPLACED` the responder stops permanently (advance timers, assert no new socket), reports the code to `onStalePairing`, and **does not** call `purgePairing`
-- [ ] vitest: on `STATUS_NO_PAIRING` the responder still stops **and** purges — the distinction is the point of the bead and must be pinned in both directions
-- [ ] confirm the pre-existing #521 reconnect-loop tests still pass untouched
+- [x] vitest: on `STATUS_PAIRING_REPLACED` the responder stops permanently (advance timers, assert no new socket), reports the code to `onStalePairing`, and **does not** call `purgePairing`
+- [x] vitest: on `STATUS_NO_PAIRING` the responder still stops **and** purges — the distinction is the point of the bead and must be pinned in both directions
+- [x] confirm the pre-existing #521 reconnect-loop tests still pass untouched
+- ➕ [x] the purge distinction lives in `reconcile`, not `createResponder`, so it is pinned through `refreshResponder` with `mcp-pairing.js` / `apishim.js` doMocked in a scoped describe; a bare `createResponder` test could not observe `purgePairing` at all
+- ➕ [x] added a `wsURL()` assertion (device leg presents an encoded `?pairing=`) — Task 3's wire change had no JS-side guard
 
 ### Task 5: Verify acceptance criteria
 - [ ] verify the race is closed: a stale tab can no longer occupy the fresh pairing's device slot, and cannot evict the tab holding the current key
