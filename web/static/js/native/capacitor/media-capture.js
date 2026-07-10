@@ -142,7 +142,19 @@
             });
     }
 
+    // No in-app video preview exists in the shell: MLKit owns the full-screen
+    // scanner UI (see native/capacitor/barcode.js), so nothing here should ever
+    // need a raw MediaStream. Rejecting keeps callers on the native path
+    // instead of letting them silently build a WebView camera modal.
+    function openCameraStream() {
+        var err = new Error('openCameraStream is unavailable in the Capacitor shell');
+        err.name = 'MediaCaptureError';
+        err.code = 'UNAVAILABLE';
+        return Promise.reject(err);
+    }
+
     var impl = {
+        openCameraStream: openCameraStream,
         takePhoto: takePhoto,
         pickPhoto: pickPhoto,
         requestPermissions: requestPermissions,

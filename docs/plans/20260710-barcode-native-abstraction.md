@@ -112,22 +112,22 @@ guard must distinguish the two:
 
 ### Task 1: Add `openCameraStream` to the MediaCapture abstraction
 
-- [ ] in `web/static/js/native/web/media-capture.js`, add
+- [x] in `web/static/js/native/web/media-capture.js`, add
       `openCameraStream(opts)` returning a `Promise<MediaStream>`: guard on
       `navigator.mediaDevices.getUserMedia` availability exactly as `takePhoto`
       does, then `getUserMedia({ audio: false, video: { facingMode: { ideal:
       opts.facingMode || 'environment' } } })`; reject via the existing
       `normalizeError` so callers see `{ name: 'MediaCaptureError', code }`
-- [ ] refactor the existing `takePhoto` to acquire its stream via
+- [x] refactor the existing `takePhoto` to acquire its stream via
       `openCameraStream` so there is exactly one `getUserMedia` call site in the
       file (keep `stopStream`/`captureFrameFromVideo` behavior byte-for-byte)
-- [ ] export `openCameraStream` on the web `impl` object
-- [ ] in `web/static/js/native/capacitor/media-capture.js`, add
+- [x] export `openCameraStream` on the web `impl` object
+- [x] in `web/static/js/native/capacitor/media-capture.js`, add
       `openCameraStream` that rejects with a normalized
       `{ name: 'MediaCaptureError', code: 'UNAVAILABLE' }` — the Capacitor shell
       never opens the in-app video modal (MLKit owns the scanner UI). Comment
       the *why*, not the what.
-- [ ] extend `web/static/js/tests/native.media-capture.test.js`: web impl
+- [x] extend `web/static/js/tests/native.media-capture.test.js`: web impl
       resolves with the stream and requests `facingMode: environment`; web impl
       rejects `UNAVAILABLE` when `getUserMedia` is absent; capacitor impl always
       rejects `UNAVAILABLE`
