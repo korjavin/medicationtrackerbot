@@ -566,7 +566,12 @@ export function createApiRouter(ctx, {
       return true;
     }
     if (path === '/api/workout/sessions/status' && method === 'PUT') {
-      return workout.setSessionStatus(intParam(params, 'id', 0), body && body.status);
+      // Go's handleUpdateSessionStatus writes an empty 200 body (apiCall -> true)
+      // and 404s on a missing session. The {session, terminal} outcome is only
+      // consumed server-side for notification cleanup, so don't leak it here.
+      const outcome = await workout.setSessionStatus(intParam(params, 'id', 0), body && body.status);
+      if (!outcome) throw apiError(404, 'session not found');
+      return true;
     }
     if (path === '/api/workout/sessions/schedule' && method === 'POST') {
       return workout.schedulePlannedAdHocSession(body);
