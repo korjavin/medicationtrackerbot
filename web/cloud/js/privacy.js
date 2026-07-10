@@ -1,0 +1,169 @@
+// "What can the operator see?" (bd med-d5t.9). docs/cloud-mode.md's metadata
+// leakage table is honest and complete, and a non-technical friend will never
+// read it. This is the same truth in plain language, in the app.
+//
+// DRIFT GUARD: every item whose `docSignal` is non-null must correspond exactly
+// to a Signal row in that doc table, and vice versa — tests/privacy.drift check
+// asserts the two sets are equal, so a leakage row added to the doc fails CI
+// until it is added here (and the reverse). Items with `docSignal: null` are
+// deliberate additions the table does not enumerate as their own row (trial-AI
+// prompts, transient inbound-Telegram content) — honest exposures the bead asks
+// us to name; they are not checked against the doc.
+//
+// Categories:
+//   protected — encrypted on your device; the operator stores only ciphertext.
+//   visible   — the operator (this server) can observe it. Metadata, never your
+//               health content, except the two opt-in channels that say so.
+//   leaves    — goes from your browser DIRECT to a third party, never through
+//               the operator. A different trust decision, made plain.
+
+export const PRIVACY_CATEGORIES = [
+  {
+    key: 'protected',
+    title: 'What is protected',
+    intro: 'Everything you record — medications and doses, blood pressure, weight, food, workouts, sleep, diary notes — is encrypted on your device before it is ever sent. The operator stores only that ciphertext and holds no key to it. Losing your device and your Emergency Kit means even you cannot get back in; that is the cost of the operator never being able to read your data.',
+  },
+  {
+    key: 'visible',
+    title: 'What the operator can see',
+    intro: 'The server needs some metadata to function. None of it is your health content, with the two clearly-marked exceptions you opt into.',
+  },
+  {
+    key: 'leaves',
+    title: 'What leaves your device to others',
+    intro: 'A few features talk from your browser straight to a third party — never routed through the operator. You choose whether to use them.',
+  },
+];
+
+export const PRIVACY_ITEMS = [
+  // --- protected (framing; not doc-table rows) --------------------------------
+  {
+    category: 'protected',
+    docSignal: null,
+    title: 'Your health data',
+    detail: 'Stored and synced only as ciphertext. The operator cannot read a single reading, dose, note, or value.',
+  },
+
+  // --- visible to the operator (metadata) -------------------------------------
+  {
+    category: 'visible',
+    docSignal: 'Reminder timing',
+    title: 'When your reminders fire',
+    detail: 'A reminder is a blind alarm clock: the server knows a reminder is due at a time, but its content stays sealed.',
+  },
+  {
+    category: 'visible',
+    docSignal: 'Subdomain (≈ account existence)',
+    title: 'That your account exists',
+    detail: 'Your account lives at its own subdomain, so the operator (and, over the network, DNS observers) can tell an account exists. The wildcard certificate keeps the name out of public certificate logs.',
+  },
+  {
+    category: 'visible',
+    docSignal: 'Sync cadence, blob sizes, IPs',
+    title: 'When and how much you sync',
+    detail: 'How often your device syncs, the size of each encrypted blob, and your IP address — the same as any sync service sees. No content.',
+  },
+  {
+    category: 'visible',
+    docSignal: 'TG bot token, chat id, TG message text at user-chosen verbosity',
+    title: 'Telegram reminders, if you turn them on',
+    detail: 'A chat bot cannot be end-to-end encrypted: the relay reads the reminder text it sends to Telegram in plain text. You choose the detail — "Medication time" with no names (generic), or the medication named (detailed) — in Settings → Notifications. Only reminders you route to Telegram carry any text.',
+  },
+  {
+    category: 'visible',
+    docSignal: 'MCP query content',
+    title: 'Claude connector queries (hosted mode only)',
+    detail: 'With the local Claude connector, your queries stay sealed end-to-end. Only the opt-in hosted remote mode lets the server see query content in transit; it is off unless you enable it.',
+  },
+  {
+    category: 'visible',
+    docSignal: 'MCP frame sizes + timing',
+    title: 'Claude connector traffic shape',
+    detail: 'When the connector is active, the relay sees message sizes and timing and pairing ids — never the content, which stays sealed.',
+  },
+  {
+    category: 'visible',
+    docSignal: 'MCP pairing key at rest (tier 2 only)',
+    title: 'Hosted connector key (hosted mode only)',
+    detail: 'The hosted remote mode stores a pairing key on the server while it is enabled. It is deleted when you disconnect, and the pairing token itself is never logged.',
+  },
+  {
+    category: 'visible',
+    docSignal: null,
+    title: 'Trial AI prompts, if you use the operator\'s key',
+    detail: 'If you use the shared trial AI instead of your own key, your meal descriptions and photos pass through the operator\'s OpenAI account to be parsed. Add your own key in Settings → Integrations to keep them off the operator entirely.',
+  },
+  {
+    category: 'visible',
+    docSignal: null,
+    title: 'A Telegram message, briefly, before it is sealed',
+    detail: 'Telegram delivers your messages to the bot in the clear, so the relay unavoidably sees an inbound message in memory for the instant it takes to seal it to your account. It is never stored unsealed.',
+  },
+
+  // --- leaves your device to third parties ------------------------------------
+  {
+    category: 'leaves',
+    docSignal: 'Food/barcode search terms',
+    title: 'Food and barcode searches',
+    detail: 'Search terms go to the configured food database (the same exposure as searching a public food catalogue). The endpoint is swappable in settings.',
+  },
+  {
+    category: 'leaves',
+    docSignal: 'Drug-name search + interaction queries',
+    title: 'Drug-name and interaction lookups',
+    detail: 'Drug searches and interaction checks go from your browser directly to RxNav (NIH), never through the operator. Only the resolved drug id is kept on the medication record.',
+  },
+  {
+    category: 'leaves',
+    docSignal: 'Meal descriptions + photos (AI parsing)',
+    title: 'AI meal parsing with your own key',
+    detail: 'When you use your own OpenAI-compatible key, meal descriptions and photos go straight from your browser to that provider — never proxied through the operator.',
+  },
+];
+
+// renderPrivacyInto builds the three-section transparency view into `container`.
+// Everything here is authored constants (no user or server data), but it is
+// still built with textContent + createElement rather than innerHTML — this
+// ships on the DEK-bearing page, and "static today" is how an injection lands
+// tomorrow.
+export function renderPrivacyInto(container, doc = (typeof document !== 'undefined' ? document : null)) {
+  if (!container || !doc) return;
+  container.replaceChildren();
+  for (const cat of PRIVACY_CATEGORIES) {
+    const section = doc.createElement('div');
+    section.className = 'wg-privacy-group';
+    section.dataset.category = cat.key;
+
+    const h = doc.createElement('h4');
+    h.className = 'wg-privacy-group__title wg-mono-display';
+    h.textContent = cat.title;
+    section.appendChild(h);
+
+    if (cat.intro) {
+      const p = doc.createElement('p');
+      p.className = 'wg-privacy-group__intro';
+      p.textContent = cat.intro;
+      section.appendChild(p);
+    }
+
+    const items = PRIVACY_ITEMS.filter((it) => it.category === cat.key);
+    if (items.length) {
+      const list = doc.createElement('ul');
+      list.className = 'wg-privacy-list';
+      for (const it of items) {
+        const li = doc.createElement('li');
+        li.className = 'wg-privacy-item';
+        const t = doc.createElement('div');
+        t.className = 'wg-privacy-item__title';
+        t.textContent = it.title;
+        const d = doc.createElement('div');
+        d.className = 'wg-privacy-item__detail';
+        d.textContent = it.detail;
+        li.append(t, d);
+        list.appendChild(li);
+      }
+      section.appendChild(list);
+    }
+    container.appendChild(section);
+  }
+}
