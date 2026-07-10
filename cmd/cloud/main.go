@@ -242,6 +242,20 @@ func main() {
 		}
 	}
 
+	// Self-service account deletion (med-d5t.8). Registered after tgAPI is
+	// finalized so its teardown can tear down Telegram too. teardown composes the
+	// external + in-memory cleanup a pure DB delete can't: closing MCP relay legs
+	// (tier 1), disabling the hosted MCP client (tier 2), and deleting the
+	// Telegram webhook. All best-effort — the DB delete is the source of truth.
+	accountTeardown := func(ctx context.Context, accountID string) {
+		mcpRelayAPI.RevokePairing(accountID)
+		mcpRemoteAPI.TeardownForAccount(ctx, accountID)
+		if tgAPI != nil {
+			tgAPI.TeardownForAccount(ctx, accountID)
+		}
+	}
+	cloudserver.NewAccountAPI(store, cfg.sessionSecret, webauthnAPI, accountTeardown).RegisterRoutes(apiMux)
+
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL, cfg.trial.TrialAIConfigured(), cfg.trial.TrialVoiceConfigured())
 	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
 

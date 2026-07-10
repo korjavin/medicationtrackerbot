@@ -444,6 +444,76 @@ async function bindOperatorVisibility() {
     }
 }
 
+// Self-service account deletion (med-d5t.8). The flow logic lives in the
+// cloud-only web/cloud/js/account-delete.js, dynamic-imported the same way the
+// other cloud modules are (so a test overrides window.loadAccountDeleteModule).
+// ponytail: no memoization — import() caches by specifier.
+function loadAccountDeleteModule() { return import('/js/account-delete.js'); }
+
+let _deleteAccountBound = false; // module-state: bind the delete modal's listeners once across repeated loadSettings() calls
+
+function bindDeleteAccount() {
+    const section = document.querySelector('.wg-settings-danger');
+    if (!section) return;
+    section.classList.remove('wg-settings-hidden');
+    if (_deleteAccountBound) return;
+    _deleteAccountBound = true;
+
+    const modal = document.getElementById('delete-account-modal');
+    const openBtn = document.getElementById('delete-account-open');
+    const cancelBtn = document.getElementById('delete-account-cancel');
+    const exportBtn = document.getElementById('delete-account-export');
+    const exportStatus = document.getElementById('delete-account-export-status');
+    const confirmInput = document.getElementById('delete-account-confirm-input');
+    const confirmBtn = document.getElementById('delete-account-confirm');
+    const errorEl = document.getElementById('delete-account-error');
+    if (!modal || !openBtn || !confirmBtn) return;
+
+    const closeModal = () => { modal.classList.add('hidden'); };
+    openBtn.addEventListener('click', () => {
+        if (errorEl) errorEl.textContent = '';
+        if (exportStatus) exportStatus.textContent = '';
+        if (confirmInput) confirmInput.value = '';
+        confirmBtn.disabled = true;
+        modal.classList.remove('hidden');
+    });
+    cancelBtn?.addEventListener('click', closeModal);
+
+    // The typed-confirmation gate: the delete button stays disabled until the
+    // exact phrase is entered. One tap must never erase a vault.
+    let confirmPhrase = 'delete my account';
+    loadAccountDeleteModule().then((m) => { confirmPhrase = m.DELETE_CONFIRM_PHRASE; }).catch(() => {});
+    confirmInput?.addEventListener('input', () => {
+        confirmBtn.disabled = confirmInput.value.trim().toLowerCase() !== confirmPhrase;
+    });
+
+    exportBtn?.addEventListener('click', async () => {
+        if (exportStatus) exportStatus.textContent = 'Preparing your export…';
+        try {
+            const { exportVaultToFile } = await loadAccountDeleteModule();
+            await exportVaultToFile();
+            if (exportStatus) exportStatus.textContent = 'Export downloaded. Keep it somewhere safe.';
+        } catch (err) {
+            if (exportStatus) exportStatus.textContent = err.message || 'Export failed.';
+        }
+    });
+
+    confirmBtn.addEventListener('click', async () => {
+        confirmBtn.disabled = true;
+        if (errorEl) errorEl.textContent = '';
+        try {
+            const { reauthAndDelete, clearLocalVault, baseDomainURL } = await loadAccountDeleteModule();
+            await reauthAndDelete();
+            await clearLocalVault();
+            // The subdomain is gone; send the user somewhere that still exists.
+            window.location.href = baseDomainURL();
+        } catch (err) {
+            if (errorEl) errorEl.textContent = err.message || 'Could not delete the account.';
+            confirmBtn.disabled = false;
+        }
+    });
+}
+
 function bindCloudInvite() {
     document.querySelector('.wg-settings-cloud-invite')?.classList.remove('wg-settings-hidden');
     if (_inviteBound) return;
@@ -512,6 +582,7 @@ async function loadSettings() {
         document.querySelector('.wg-settings-cloud-devices')?.classList.remove('wg-settings-hidden');
         await bindSecondDeviceNudge();
         await bindOperatorVisibility();
+        bindDeleteAccount();
         bindCloudInvite();
     }
     const applyBundle = async (rawBundle) => {

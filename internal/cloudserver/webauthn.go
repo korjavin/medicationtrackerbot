@@ -53,16 +53,24 @@ type WebAuthnAPI struct {
 	sessionSecret   string
 	challenges      *challengeStore[registerChallenge]
 	loginChallenges *challengeStore[loginChallenge]
+	// reauthChallenges is a SEPARATE store from loginChallenges so the re-auth
+	// ceremony (which gates account deletion) and the login ceremony (which
+	// mints a session) cannot cross-redeem each other's challenge ids. Both bind
+	// the assertion to the challenge's random bytes, so sharing a store was not
+	// an auth bypass — but keeping them apart makes "re-auth is not login"
+	// structural rather than a matter of which cookie name was used (med-d5t.8).
+	reauthChallenges *challengeStore[loginChallenge]
 }
 
 // NewWebAuthnAPI builds the WebAuthn handlers. sessionSecret mints the HMAC
 // session cookie (session.go) on successful registration or login.
 func NewWebAuthnAPI(store webauthnStore, sessionSecret string) *WebAuthnAPI {
 	return &WebAuthnAPI{
-		store:           store,
-		sessionSecret:   sessionSecret,
-		challenges:      newChallengeStore[registerChallenge](),
-		loginChallenges: newChallengeStore[loginChallenge](),
+		store:            store,
+		sessionSecret:    sessionSecret,
+		challenges:       newChallengeStore[registerChallenge](),
+		loginChallenges:  newChallengeStore[loginChallenge](),
+		reauthChallenges: newChallengeStore[loginChallenge](),
 	}
 }
 
@@ -591,6 +599,99 @@ func clearChallengeCookie(w http.ResponseWriter, name, path string) {
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
+}
+
+// reauthChallengeCookieName carries the re-authentication challenge for an
+// irreversible action (account deletion, med-d5t.8). Distinct from the login
+// challenge because it is scoped to a different path — the finishing endpoint is
+// not under /api/webauthn/login — and must never issue a session.
+const reauthChallengeCookieName = "cloud_webauthn_reauth_challenge"
+
+// BeginReauth issues a fresh WebAuthn assertion challenge for the caller's
+// account, to gate a destructive action. It mirrors LoginBegin but scopes its
+// challenge cookie to cookiePath so an endpoint outside /api/webauthn/login
+// receives it, and it never mints a session. Writes the assertion JSON on
+// success. cookiePath must be a prefix of both this route and the verifying
+// route (e.g. "/api/account").
+func (a *WebAuthnAPI) BeginReauth(w http.ResponseWriter, r *http.Request, cookiePath string) {
+	account, ok := AccountFromContext(r.Context())
+	if !ok {
+		http.Error(w, "account not resolved", http.StatusInternalServerError)
+		return
+	}
+	creds, err := a.store.CredentialsByAccount(r.Context(), account.ID)
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	wa, err := rpForRequest(r)
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	assertion, session, err := wa.BeginLogin(&accountUser{account: account, creds: toWebAuthnCredentials(creds)},
+		webauthn.WithUserVerification(protocol.VerificationRequired))
+	if err != nil {
+		http.Error(w, "no credentials to authenticate with", http.StatusBadRequest)
+		return
+	}
+	challengeID, err := a.reauthChallenges.put(loginChallenge{session: *session, accountID: account.ID})
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	setChallengeCookie(w, reauthChallengeCookieName, cookiePath, challengeID)
+	writeJSON(w, http.StatusOK, assertion)
+}
+
+// VerifyReauth consumes the BeginReauth challenge and verifies the assertion in
+// r.Body against the caller account's credentials. Returns true on a valid fresh
+// assertion; writes the error response and returns false otherwise. It issues NO
+// session — its only job is to prove the user is physically present with a
+// registered passkey, so a stolen session cookie alone cannot drive the gated
+// action (med-d5t.8).
+func (a *WebAuthnAPI) VerifyReauth(w http.ResponseWriter, r *http.Request, cookiePath string) bool {
+	account, ok := AccountFromContext(r.Context())
+	if !ok {
+		http.Error(w, "account not resolved", http.StatusInternalServerError)
+		return false
+	}
+	cookie, err := r.Cookie(reauthChallengeCookieName)
+	if err != nil {
+		http.Error(w, "missing challenge", http.StatusBadRequest)
+		return false
+	}
+	clearChallengeCookie(w, reauthChallengeCookieName, cookiePath)
+
+	challenge, ok := a.reauthChallenges.take(cookie.Value)
+	if !ok || challenge.accountID != account.ID {
+		http.Error(w, "challenge expired or unknown", http.StatusBadRequest)
+		return false
+	}
+	creds, err := a.store.CredentialsByAccount(r.Context(), account.ID)
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return false
+	}
+	wa, err := rpForRequest(r)
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return false
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxRegisterFinishBodyBytes)
+	cred, err := wa.FinishLogin(&accountUser{account: account, creds: toWebAuthnCredentials(creds)}, challenge.session, r)
+	if err != nil {
+		logCeremonyFailure("reauth", account.ID, err)
+		http.Error(w, "reauthentication failed", http.StatusForbidden)
+		return false
+	}
+	// Advance the sign counter like a normal login, so a cloned authenticator's
+	// stale counter is still caught on the next real assertion.
+	if err := a.store.TouchCredential(r.Context(), cred.ID, cred.Authenticator.SignCount, time.Now().UTC()); err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return false
+	}
+	return true
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

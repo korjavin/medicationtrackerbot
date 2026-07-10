@@ -485,6 +485,22 @@
                 </details>
             </section>
 
+            <section class="wg-card wg-settings-section wg-settings-danger wg-settings-hidden">
+                <h3 class="wg-settings-section__title">Delete account</h3>
+                <p class="wg-settings-section__desc">Permanently erase your account and all of its data from this server. This cannot be undone.</p>
+                <div class="wg-settings-row-list">
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Delete my account</div>
+                            <div class="wg-settings-row__desc">Export your data first if you want to keep it</div>
+                        </div>
+                        <div class="wg-settings-row__control">
+                            <button type="button" id="delete-account-open" class="wg-gloss wg-settings-action-btn wg-settings-action-btn--danger">Delete…</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <section id="oidc-setup-container" class="wg-card wg-settings-section wg-settings-oidc"></section>
 
             <section class="wg-card wg-settings-section wg-settings-timezone">
@@ -1033,6 +1049,24 @@
             </div>
             <button type="button" id="invite-copy-btn" class="wg-gloss wg-settings-action-btn">Copy link</button>
             <p class="wg-invite-modal__note">The link works once and expires — send it directly to your friend.</p>
+        </div>
+    </mt-modal>
+
+    <mt-modal id="delete-account-modal" class="hidden wg-modal wg-danger-modal">
+        <div class="wg-danger-modal__header">
+            <span class="wg-mono-display wg-danger-modal__title">Delete your account</span>
+            <button type="button" id="delete-account-cancel" class="wg-gloss">Cancel</button>
+        </div>
+        <div class="wg-danger-modal__body">
+            <p class="wg-danger-modal__warn">This permanently erases your account and every reading, note, and setting from this server. <strong>It cannot be undone</strong>, and because your data is encrypted, no one — including the operator — can recover it afterwards.</p>
+            <button type="button" id="delete-account-export" class="wg-gloss wg-settings-action-btn">Export my data first</button>
+            <p id="delete-account-export-status" class="wg-danger-modal__status" role="status"></p>
+            <label class="wg-danger-modal__confirm">
+                <span>Type <strong>delete my account</strong> to confirm:</span>
+                <input type="text" id="delete-account-confirm-input" autocomplete="off" autocapitalize="none" spellcheck="false" />
+            </label>
+            <p id="delete-account-error" class="wg-danger-modal__error" role="alert"></p>
+            <button type="button" id="delete-account-confirm" class="wg-gloss wg-settings-action-btn wg-settings-action-btn--danger" disabled>Verify passkey &amp; delete</button>
         </div>
     </mt-modal>
 
