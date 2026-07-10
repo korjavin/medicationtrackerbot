@@ -108,6 +108,11 @@ func injectCloudBoot(idx []byte, foodDBURL string, trialAI, trialVoice bool, bui
 		inject += "\n    <meta name=\"medtracker-trial-voice\" content=\"1\">"
 	}
 	inject += "\n    <script src=\"/js/cloud-boot.js\"></script>"
+	// Deferred module (unlike cloud-boot.js, which must block parsing): it only
+	// compares the build-id meta above against GET /api/version and, on a
+	// mismatch, offers the user a reload. Independent of unlock — a stale tab
+	// should be told so whether or not the vault is open. See med-jb7.3.
+	inject += "\n    <script type=\"module\" src=\"/js/update-check.js\"></script>"
 	out := bytes.Replace(idx, []byte(marker), []byte(inject), 1)
 	if bytes.Equal(out, idx) {
 		panic("cloudserver: index.html missing <head> to inject cloud-boot.js")
