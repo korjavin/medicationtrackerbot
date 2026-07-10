@@ -55,6 +55,7 @@ function renderDevices(app, ctx, onExit, devices) {
       <h1>Devices</h1>
       <ul class="device-list" id="device-list"></ul>
       <button id="add-device-button">Add a device</button>
+      <button id="regenerate-kit-button" class="secondary">Regenerate Emergency Kit</button>
       <button id="devices-back">Back</button>
     </section>`;
 
@@ -69,7 +70,77 @@ function renderDevices(app, ctx, onExit, devices) {
       .catch(() => renderDeviceListError(app, ctx, onExit, 'Could not open the add-device flow. Try again.'));
   });
 
+  app.querySelector('#regenerate-kit-button').addEventListener('click', () => {
+    renderRegenerateKit(app, ctx, () => renderDeviceList(app, ctx, onExit));
+  });
+
   app.querySelector('#devices-back').addEventListener('click', onExit);
+}
+
+// Regenerating is a ROTATION, never a reveal (med-d5t.12). The recovery code is
+// derived client-side at signup and only its verifier and the recovery-wrapped
+// envelope are uploaded, so the server has never seen the code and cannot show
+// it to anyone — including the account's owner. The only thing Settings can do
+// is mint a fresh one, which necessarily invalidates the old.
+//
+// Say that plainly before the user commits: a friend with a printed kit in a
+// drawer is about to turn it into wastepaper.
+export function renderRegenerateKit(app, ctx, onDone) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>Regenerate Emergency Kit</h1>
+      <p>We cannot show you your current recovery code. It was created on your
+         device and never sent to the server — that is what makes your data
+         unreadable to us.</p>
+      <p>We can issue you a <strong>new</strong> kit. Doing so
+         <strong>permanently invalidates your old recovery code</strong>. If you
+         have one saved or printed somewhere, it will stop working the moment
+         you continue.</p>
+      <p class="wizard-error" id="regen-error"></p>
+      <label class="wizard-ack">
+        <input type="checkbox" id="regen-ack-checkbox">
+        I understand my old Emergency Kit will stop working.
+      </label>
+      <button id="regen-continue" disabled>Confirm with passkey</button>
+      <button id="regen-cancel" class="secondary">Cancel</button>
+    </section>`;
+
+  const checkbox = app.querySelector('#regen-ack-checkbox');
+  const confirmButton = app.querySelector('#regen-continue');
+  checkbox.addEventListener('change', () => { confirmButton.disabled = !checkbox.checked; });
+  app.querySelector('#regen-cancel').addEventListener('click', onDone);
+
+  confirmButton.addEventListener('click', () => {
+    confirmButton.disabled = true;
+    confirmButton.textContent = 'Waiting for your passkey…';
+    rotateEmergencyKit(app, ctx, onDone).catch((err) => {
+      // Nothing has been rotated: assertPasskey throws before any upload, and
+      // renderEmergencyKit uploads the new envelope + verifier together in one
+      // atomic request. The old kit still works.
+      const errorEl = app.querySelector('#regen-error');
+      if (errorEl) errorEl.textContent = `${err.message || String(err)} Your existing Emergency Kit still works.`;
+      confirmButton.disabled = false;
+      confirmButton.textContent = 'Confirm with passkey';
+    });
+  });
+}
+
+async function rotateEmergencyKit(app, ctx, onDone) {
+  // A fresh assertion, not ctx.dek: an unlocked tab left open on a shared
+  // laptop must not be enough to rotate someone's recovery credential. The
+  // ceremony also hands back the DEK, so the rotation re-wraps the key the
+  // authenticator just proved this user can reach.
+  const { assertPasskey } = await import('./unlock.js');
+  const { accountId, dek } = await assertPasskey();
+  if (accountId !== ctx.accountId) {
+    throw new Error('That passkey belongs to a different account.');
+  }
+
+  // Reuse the signup ceremony wholesale — including the download/print gate
+  // from med-d5t.2. A second copy of this screen would drift, and the copy that
+  // drifted would be the one that fails a friend who has lost their phone.
+  const { renderEmergencyKit } = await import('./signup.js');
+  await renderEmergencyKit(app, { accountId, dek, onKitSaved: onDone, continueLabel: 'Done' });
 }
 
 function renderDeviceRow(app, ctx, onExit, d) {
