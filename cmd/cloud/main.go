@@ -175,7 +175,14 @@ func main() {
 		slog.Error("Failed to initialize cloudstore", "error", err)
 		os.Exit(1)
 	}
-	slog.Info("Database initialized", "path", cfg.dbPath, "baseDomain", cfg.baseDomain, "claimTTL", cfg.claimTTL)
+	// Log the effective quota: "is the quota on?" was previously unanswerable
+	// without reading the source, and a deployment with it off looks identical
+	// to one with it on until a single account fills the disk (med-d5t.4).
+	quotaDesc := "disabled"
+	if cfg.accountQuotaBytes > 0 {
+		quotaDesc = strconv.FormatInt(cfg.accountQuotaBytes, 10) + " bytes"
+	}
+	slog.Info("Database initialized", "path", cfg.dbPath, "baseDomain", cfg.baseDomain, "claimTTL", cfg.claimTTL, "accountQuota", quotaDesc)
 
 	backfilled, err := cloudserver.BackfillVAPIDKeys(context.Background(), store)
 	if err != nil {

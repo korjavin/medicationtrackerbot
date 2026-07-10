@@ -57,3 +57,91 @@ func TestComposePassesEveryEnvCloudReads(t *testing.T) {
 			strings.Join(missing, "\n  "))
 	}
 }
+
+// bd med-d5t.4 — "turn the storage quota ON by default". The bead was written
+// believing quotaBytes stayed 0 when the env var was unset, which would leave
+// every default deployment unprotected. It does not: loadConfig seeds 50MB and
+// only a non-empty CLOUD_ACCOUNT_QUOTA_BYTES overrides it. That distinction is
+// load-bearing and invisible — docker-compose.cloud.yml forwards the var as an
+// empty string, so the safe default depends entirely on the `quota != ""` guard
+// below not being "simplified" into an unconditional ParseInt.
+//
+// NewSyncAPI treats quotaBytes <= 0 as DISABLED, so a regression here silently
+// removes the quota from every deployment rather than failing anything.
+func TestLoadConfig_AccountQuotaDefaultsOn(t *testing.T) {
+	t.Setenv("CLOUD_BASE_DOMAIN", "example.test")
+	t.Setenv("SESSION_SECRET", "an-entirely-unpredictable-session-secret-value")
+
+	const defaultQuota = 50 << 20
+
+	t.Run("unset env keeps the 50MB default", func(t *testing.T) {
+		t.Setenv("CLOUD_ACCOUNT_QUOTA_BYTES", "")
+		os.Unsetenv("CLOUD_ACCOUNT_QUOTA_BYTES")
+
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("loadConfig: %v", err)
+		}
+		if cfg.accountQuotaBytes != defaultQuota {
+			t.Errorf("accountQuotaBytes = %d, want %d (quota must be ON by default)", cfg.accountQuotaBytes, defaultQuota)
+		}
+	})
+
+	// This is exactly what docker-compose's `${VAR:-}` produces.
+	t.Run("empty env keeps the 50MB default, it does not disable the quota", func(t *testing.T) {
+		t.Setenv("CLOUD_ACCOUNT_QUOTA_BYTES", "")
+
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("loadConfig: %v", err)
+		}
+		if cfg.accountQuotaBytes != defaultQuota {
+			t.Errorf("accountQuotaBytes = %d, want %d (an empty env var must not disable the quota)", cfg.accountQuotaBytes, defaultQuota)
+		}
+	})
+
+	t.Run("explicit 0 disables it, deliberately", func(t *testing.T) {
+		t.Setenv("CLOUD_ACCOUNT_QUOTA_BYTES", "0")
+
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("loadConfig: %v", err)
+		}
+		if cfg.accountQuotaBytes != 0 {
+			t.Errorf("accountQuotaBytes = %d, want 0", cfg.accountQuotaBytes)
+		}
+	})
+
+	t.Run("an explicit value is honored", func(t *testing.T) {
+		t.Setenv("CLOUD_ACCOUNT_QUOTA_BYTES", "12345")
+
+		cfg, err := loadConfig()
+		if err != nil {
+			t.Fatalf("loadConfig: %v", err)
+		}
+		if cfg.accountQuotaBytes != 12345 {
+			t.Errorf("accountQuotaBytes = %d, want 12345", cfg.accountQuotaBytes)
+		}
+	})
+
+	t.Run("a negative value is rejected rather than silently disabling the quota", func(t *testing.T) {
+		t.Setenv("CLOUD_ACCOUNT_QUOTA_BYTES", "-1")
+
+		if _, err := loadConfig(); err == nil {
+			t.Error("loadConfig() error = nil, want an error for a negative quota")
+		}
+	})
+}
+
+// The compose file should not merely forward the var — it should carry the safe
+// value, so `docker compose config` shows an operator what they are running.
+func TestComposeCarriesAnExplicitQuotaDefault(t *testing.T) {
+	compose, err := os.ReadFile(filepath.Join("..", "..", "docker-compose.cloud.yml"))
+	if err != nil {
+		t.Fatalf("read compose: %v", err)
+	}
+	if strings.Contains(string(compose), "CLOUD_ACCOUNT_QUOTA_BYTES=${CLOUD_ACCOUNT_QUOTA_BYTES:-}") {
+		t.Error("docker-compose.cloud.yml forwards CLOUD_ACCOUNT_QUOTA_BYTES with an empty default; " +
+			"give it an explicit value so the quota is visibly on")
+	}
+}
