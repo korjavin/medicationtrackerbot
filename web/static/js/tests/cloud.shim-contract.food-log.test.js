@@ -215,3 +215,104 @@ describe('cloud shim contract — food log flows (features/food/log.js over web/
         expect(document.getElementById('food-per-100g').checked).toBe(true);
     });
 });
+
+// bd med-d5t.11 — owner logged food via the ElevenLabs voice agent and it never
+// appeared in the UI, across reloads, while the agent could still read it back.
+//
+// Food has no named voice tool that browser-stamps the timestamp (BP does), so
+// the LLM writes eaten_at itself and it has no clock. The MCP required-field
+// check is warn-only. An omitted or unparseable eaten_at therefore reached
+// food.create(), where toISOString() passed it through verbatim — and
+// Date.parse(undefined) is NaN, so `NaN >= start` dropped the row from every
+// windowed read, permanently.
+//
+// BP hid the same class of bug behind two protections food lacks: a browser
+// stamp, and a rolling 30-day window rather than a single calendar day.
+describe('cloud shim contract — food log eaten_at guard (med-d5t.11)', () => {
+    let env;
+    const today = localDateStr();
+
+    beforeEach(() => {
+        env = loadCloudShimFrontendEnv();
+        installApiCache(env.window);
+        env.window.loadFoodLogs = vi.fn();
+        env.window.loadToday = vi.fn();
+        env.window.safeAlert = vi.fn();
+    });
+
+    afterEach(() => { env.cleanup(); });
+
+    async function todaysLogs(window) {
+        const grouped = await window.apiCall(`/api/food/log?date=${today}&days=1`);
+        return grouped.flatMap((g) => g.logs);
+    }
+
+    // The exact shapes an LLM produces when it has no clock.
+    it.each([
+        ['omitted', undefined],
+        ['an empty string', ''],
+        ['unparseable prose', 'with lunch'],
+        ['null', null],
+    ])('stamps now() when eaten_at is %s, so the meal is visible today', async (_label, eaten_at) => {
+        const { window } = env;
+
+        await createLog(window, { name: 'Voice meal', eaten_at, weight: 100, carbs: 1, protein: 2, fat: 3, calories: 40 });
+
+        const logs = await todaysLogs(window);
+        const created = logs.find((l) => l.name === 'Voice meal');
+        expect(created).toBeDefined();
+        expect(Number.isNaN(Date.parse(created.eaten_at))).toBe(false);
+    });
+
+    it('counts a now()-stamped meal in today\'s stats, not just the list', async () => {
+        const { window } = env;
+
+        await createLog(window, { name: 'Voice meal', eaten_at: undefined, weight: 100, carbs: 0, protein: 0, fat: 0, calories: 250 });
+
+        const stats = await window.apiCall(`/api/food/stats?date=${today}&days=1`);
+        expect(stats.calories).toBe(250);
+    });
+
+    it('preserves an explicit eaten_at exactly — the guard must not overwrite good input', async () => {
+        const { window } = env;
+        const explicit = new Date(`${today}T09:30:00`).toISOString();
+
+        await createLog(window, { name: 'Breakfast', eaten_at: explicit, weight: 100, carbs: 1, protein: 1, fat: 1, calories: 20 });
+
+        const created = (await todaysLogs(window)).find((l) => l.name === 'Breakfast');
+        expect(created.eaten_at).toBe(explicit);
+    });
+
+    it('an update that omits eaten_at keeps the original instant, never nulls it', async () => {
+        const { window } = env;
+        const explicit = new Date(`${today}T09:30:00`).toISOString();
+        await createLog(window, { name: 'Lunch', eaten_at: explicit, weight: 100, carbs: 1, protein: 1, fat: 1, calories: 20 });
+        const created = (await todaysLogs(window)).find((l) => l.name === 'Lunch');
+
+        // MCP food.log.update does not require eaten_at (validateInput is
+        // warn-only), so an edit of calories alone used to destroy the timestamp.
+        await window.apiCall(`/api/food/log/${created.id}`, 'PUT', {
+            name: 'Lunch', weight: 100, carbs: 1, protein: 1, fat: 1, calories: 99,
+        });
+
+        const after = (await todaysLogs(window)).find((l) => l.name === 'Lunch');
+        expect(after).toBeDefined();
+        expect(after.eaten_at).toBe(explicit);
+        expect(after.calories).toBe(99);
+    });
+
+    it('an update must not silently move a meal to now()', async () => {
+        const { window } = env;
+        // 09:30 today, then edited later in the day.
+        const explicit = new Date(`${today}T09:30:00`).toISOString();
+        await createLog(window, { name: 'Snack', eaten_at: explicit, weight: 10, carbs: 1, protein: 1, fat: 1, calories: 5 });
+        const created = (await todaysLogs(window)).find((l) => l.name === 'Snack');
+
+        await window.apiCall(`/api/food/log/${created.id}`, 'PUT', {
+            name: 'Snack', weight: 10, carbs: 1, protein: 1, fat: 1, calories: 6, eaten_at: 'nonsense',
+        });
+
+        const after = (await todaysLogs(window)).find((l) => l.name === 'Snack');
+        expect(after.eaten_at).toBe(explicit);
+    });
+});
