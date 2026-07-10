@@ -722,13 +722,13 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Strict-Transport-Security", "max-age=15552000; includeSubDomains")
 		// Note: 'unsafe-inline' is currently required in style-src because the application dynamically
 		// injects styles for various components (like charts, modals, and dynamic themes).
-		// esm.sh serves the @elevenlabs/client SDK as a single ES module.
-		// blob:/data: in script-src and worker-src are required by the SDK's
-		// AudioWorklet processors (rawAudioProcessor, audioConcatProcessor) —
-		// Chrome falls back worklet-src → worker-src → script-src.
-		// esm.sh is also allowed in connect-src so DevTools can fetch the
-		// SDK's .mjs.map source maps (fetched via the connect-src channel).
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org https://esm.sh blob: data:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://telegram.org https://esm.sh https://api.us.elevenlabs.io https://api.elevenlabs.io wss://api.us.elevenlabs.io wss://api.elevenlabs.io; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://oauth.telegram.org; base-uri 'self'; frame-ancestors 'self'")
+		// The @elevenlabs/client SDK is served from our own origin
+		// (/static/vendor/elevenlabs-client.min.js), so esm.sh is no longer allowed
+		// in script-src or connect-src (bd med-7e7.1). blob:/data: in script-src and
+		// worker-src are still required by the SDK's AudioWorklet processors
+		// (rawAudioProcessor, audioConcatProcessor) — Chrome falls back
+		// worklet-src → worker-src → script-src.
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://telegram.org blob: data:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://telegram.org https://api.us.elevenlabs.io https://api.elevenlabs.io wss://api.us.elevenlabs.io wss://api.elevenlabs.io; font-src 'self' https://fonts.gstatic.com; frame-src 'self' https://oauth.telegram.org; base-uri 'self'; frame-ancestors 'self'")
 		next.ServeHTTP(w, r)
 	})
 }

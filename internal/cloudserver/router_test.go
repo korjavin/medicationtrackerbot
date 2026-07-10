@@ -164,14 +164,16 @@ func TestRouter_HostVariants(t *testing.T) {
 			// hold the in-memory DEK. The base domain and the passkey ceremony
 			// pages make no cross-origin calls and stay strict.
 			wantConnect := "connect-src 'self';"
-			// Account app pages also load the @elevenlabs/client voice SDK from
-			// esm.sh (blob: AudioWorklets); base/ceremony pages stay strict.
+			// Account app pages also load the @elevenlabs/client voice SDK, but
+			// from our own origin (vendored) — so script-src keeps 'self' and only
+			// gains blob:/data: for the SDK's AudioWorklets. No third-party script
+			// host may appear here: that is the med-7e7.1 invariant.
 			wantScript := "script-src 'self';"
 			accountApp := stripPort(tc.host) != "app.example.com" &&
 				(tc.path == "/" || strings.HasPrefix(tc.path, "/static/") || strings.HasPrefix(tc.path, "/domain/"))
 			if accountApp {
 				wantConnect = "connect-src 'self' https: wss:;"
-				wantScript = "script-src 'self' https://esm.sh blob: data:;"
+				wantScript = "script-src 'self' blob: data:;"
 			}
 			if !strings.Contains(csp, wantConnect) {
 				t.Errorf("CSP connect-src = %q, want it to contain %q", csp, wantConnect)
@@ -182,9 +184,31 @@ func TestRouter_HostVariants(t *testing.T) {
 			if accountApp && !strings.Contains(csp, "worker-src 'self' blob:;") {
 				t.Errorf("CSP = %q, want worker-src 'self' blob: for account app SDK worklets", csp)
 			}
+			// med-7e7.1: no third-party script host may ever appear in script-src.
+			// These pages hold the in-memory DEK, and docs/cloud-crypto.md rates
+			// on-origin XSS as catastrophic — a foreign script host reintroduces
+			// exactly that. Vendor the dependency instead (web/static/vendor/).
+			// Asserted on the directive, not the whole header: connect-src
+			// legitimately carries https: for BYO provider calls.
+			scriptSrc := cspDirective(csp, "script-src")
+			if strings.Contains(scriptSrc, "//") {
+				t.Errorf("script-src = %q, want no third-party script host (vendor it instead)", scriptSrc)
+			}
 			if xcto := rec.Header().Get("X-Content-Type-Options"); xcto != "nosniff" {
 				t.Errorf("X-Content-Type-Options = %q, want nosniff", xcto)
 			}
 		})
 	}
+}
+
+// cspDirective returns the value of one CSP directive (without its name), or ""
+// when the policy does not carry it.
+func cspDirective(csp, name string) string {
+	for _, part := range strings.Split(csp, ";") {
+		part = strings.TrimSpace(part)
+		if after, ok := strings.CutPrefix(part, name+" "); ok {
+			return after
+		}
+	}
+	return ""
 }

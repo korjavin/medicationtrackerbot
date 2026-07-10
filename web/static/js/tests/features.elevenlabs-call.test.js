@@ -84,7 +84,7 @@ function makeUploadFetchStub({ fileId = 'file_abc', status = 200 } = {}) {
 }
 
 // Inject a fake SDK module so loadSDK()'s dynamic import resolves to it.
-// elevenlabs-call.js calls `import('https://esm.sh/@elevenlabs/client')`
+// elevenlabs-call.js calls `import('/static/vendor/elevenlabs-client.min.js')`
 // which jsdom's `runScripts: 'outside-only'` cannot satisfy. We bypass
 // that by replacing window.WGCallAgent.startCall's path: call onConnect
 // ourselves and manually drive the controller through a small adapter.

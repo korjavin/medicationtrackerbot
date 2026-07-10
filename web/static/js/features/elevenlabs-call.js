@@ -1,7 +1,8 @@
 // ElevenLabs conversational agent — "Call agent" card on the Today screen.
 //
-// Uses the @elevenlabs/client SDK directly (loaded as ESM via esm.sh) so we
-// can drive the call from a single button: idle → connecting → in_call.
+// Uses the @elevenlabs/client SDK directly (loaded as ESM from our own origin,
+// vendor/elevenlabs-client.min.js) so we can drive the call from a single
+// button: idle → connecting → in_call.
 //
 // State machine:
 //   idle       — primary button reads "Call agent"; click → startCall()
@@ -14,9 +15,14 @@
 // ELEVENLABS_API_KEY server-side. The SDK handles WebRTC + AudioWorklets;
 // CSP must permit blob: + data: scripts and worker-src blob: for the
 // rawAudioProcessor / audioConcatProcessor worklets.
+//
+// The SDK is vendored (bd med-7e7.1) rather than pulled from esm.sh: in cloud
+// mode this page holds the in-memory DEK, and a third-party script executing
+// on that origin is the catastrophic case docs/cloud-crypto.md names. Same
+// vendored-ESM pattern as core/backup-crypto.js's /static/vendor/age.min.js.
 
 (function () {
-    const SDK_URL = 'https://esm.sh/@elevenlabs/client';
+    const SDK_URL = '/static/vendor/elevenlabs-client.min.js';
 
     let sdkPromise = null;
     function loadSDK() {
