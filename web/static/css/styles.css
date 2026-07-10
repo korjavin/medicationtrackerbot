@@ -10933,6 +10933,59 @@ textarea.wg-input {
     justify-content: flex-end;
 }
 
+/* Second-device safety nudge (med-4pz.4) — a dismissible callout at the top of
+   the cloud Devices section, shown only while the account has a single device.
+   A mint left-rule marks it as guidance rather than a control. All values come
+   from --wg-* tokens; no hardcoded colors. */
+.wg-settings-nudge {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--wg-settings-row-pad-y) var(--wg-settings-row-pad-x);
+    border-left: 3px solid var(--wg-mint-soft);
+    border-radius: var(--wg-radius-gloss);
+    background: var(--wg-bg-card-inset);
+}
+
+.wg-settings-nudge__body {
+    min-width: 0;
+    flex: 1 1 16rem;
+}
+
+.wg-settings-nudge__title {
+    margin: 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-title-size);
+    font-weight: var(--font-weight-medium);
+    color: var(--wg-fg-1);
+}
+
+.wg-settings-nudge__desc {
+    margin: var(--space-xs) 0 0 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-desc-size);
+    color: var(--wg-fg-3);
+}
+
+.wg-settings-nudge__actions {
+    display: flex;
+    gap: var(--space-sm);
+    align-items: center;
+}
+
+.wg-settings-nudge__dismiss {
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-desc-size);
+    color: var(--wg-fg-3);
+    text-decoration: underline;
+}
+
 /* Sectioned card shell (Phase 9, Task 2) — groups titled settings rows into
    a `.wg-card` with a mono header, optional uppercase eyebrow, and an
    optional muted description. The `.wg-settings-row-list` child container

@@ -428,6 +428,16 @@
             <section class="wg-card wg-settings-section wg-settings-cloud-devices wg-settings-hidden">
                 <h3 class="wg-settings-section__title">Devices</h3>
                 <p class="wg-settings-section__desc">Manage devices linked to this account</p>
+                <div id="second-device-nudge" class="wg-settings-nudge wg-settings-hidden" role="note">
+                    <div class="wg-settings-nudge__body">
+                        <div class="wg-settings-nudge__title wg-mono-display">Add a second device</div>
+                        <div class="wg-settings-nudge__desc">This account can only be opened from this one device. Enroll a second one (a desktop browser counts) so a lost or broken phone doesn't lock you out of your health data.</div>
+                    </div>
+                    <div class="wg-settings-nudge__actions">
+                        <a id="second-device-nudge-add" class="wg-gloss wg-settings-action-btn" href="/devices">Add a device</a>
+                        <button id="second-device-nudge-dismiss" type="button" class="wg-settings-nudge__dismiss">Not now</button>
+                    </div>
+                </div>
                 <div class="wg-settings-row-list">
                     <div class="wg-settings-row">
                         <div class="wg-settings-row__content">

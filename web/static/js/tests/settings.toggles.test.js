@@ -592,6 +592,98 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             cleanup();
         }
     });
+
+    // med-4pz.4 — nudge a single-device account to add a second one, so a lost
+    // or broken phone doesn't lock the user out of their vault.
+    describe('second-device nudge', () => {
+        // The nudge fetches /api/devices via raw fetch (a real server route, not
+        // the domain shim). Returns an N-device list.
+        const withDevices = (window, n) => {
+            window.fetch = vi.fn(async () => ({
+                ok: true,
+                json: async () => Array.from({ length: n }, (_, i) => ({ credential_id: `cred-${i}`, created_at: '2026-07-01T00:00:00Z' })),
+            }));
+        };
+
+        const mountCloud = async (window) => {
+            window.__MEDTRACKER_CLOUD__ = true;
+            window.MedTrackerCloud = { ctx: { accountId: 'acct-1' } };
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            await window.loadSettings();
+        };
+
+        it('shows the nudge when the account has exactly one device', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                window.localStorage.clear();
+                withDevices(window, 1);
+                await mountCloud(window);
+
+                expect(document.getElementById('second-device-nudge').classList.contains('wg-settings-hidden')).toBe(false);
+                expect(document.getElementById('second-device-nudge-add').getAttribute('href')).toBe('/devices');
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('hides the nudge once a second device exists — it self-retires', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                window.localStorage.clear();
+                withDevices(window, 2);
+                await mountCloud(window);
+
+                expect(document.getElementById('second-device-nudge').classList.contains('wg-settings-hidden')).toBe(true);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('stays hidden on a failed device fetch rather than nagging on incomplete info', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                window.localStorage.clear();
+                window.fetch = vi.fn(async () => { throw new Error('offline'); });
+                await mountCloud(window);
+
+                expect(document.getElementById('second-device-nudge').classList.contains('wg-settings-hidden')).toBe(true);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('dismiss hides it and keeps it hidden on the next mount, per account', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                window.localStorage.clear();
+                withDevices(window, 1);
+                await mountCloud(window);
+                expect(document.getElementById('second-device-nudge').classList.contains('wg-settings-hidden')).toBe(false);
+
+                document.getElementById('second-device-nudge-dismiss').click();
+                expect(document.getElementById('second-device-nudge').classList.contains('wg-settings-hidden')).toBe(true);
+
+                // Re-mount, still single-device: dismissal persists.
+                await window.loadSettings();
+                expect(document.getElementById('second-device-nudge').classList.contains('wg-settings-hidden')).toBe(true);
+
+                // A different account has not dismissed it.
+                window.MedTrackerCloud = { ctx: { accountId: 'acct-2' } };
+                await window.loadSettings();
+                expect(document.getElementById('second-device-nudge').classList.contains('wg-settings-hidden')).toBe(false);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+    });
 });
 
 // Cloud-only "Invite a friend" row (plan 20260707-user-mintable-invites, Task 4).

@@ -359,6 +359,62 @@ async function mintInvite() {
     }
 }
 
+// Second-device safety nudge (med-4pz.4). A single-device account can only be
+// opened from that one device: lose it without the Emergency Kit and the vault
+// is gone. Enrollment already exists (/devices → Add a device), but nothing
+// prompted a single-device user toward it. This is a dismissible card, not a
+// mandatory step — with the kit properly saved (med-d5t.2) a second device is
+// defence in depth, hence a gentle nudge rather than a gate.
+//
+// Shown only while the account has exactly one device; once a second is added
+// the condition is false forever, so the card self-retires. Dismissal is a
+// per-account localStorage flag — a per-device UI preference, never vault data.
+let _secondDeviceNudgeBound = false; // module-state: one-time guard so the nudge dismiss listener binds once across repeated loadSettings() calls
+
+function secondDeviceNudgeDismissKey() {
+    const accountId = window.MedTrackerCloud?.ctx?.accountId || 'unknown';
+    return `secondDeviceNudgeDismissed:${accountId}`;
+}
+
+// Raw fetch, not apiCall: /api/devices is a real server route (credential
+// state), and in cloud mode apiCall routes /api/* through the domain shim,
+// which has no such route. devices.js / transfer.js fetch it the same way.
+async function fetchDeviceCount() {
+    try {
+        const res = await fetch('/api/devices');
+        if (!res.ok) return null;
+        const devices = await res.json();
+        return Array.isArray(devices) ? devices.length : null;
+    } catch {
+        return null;
+    }
+}
+
+async function bindSecondDeviceNudge() {
+    const nudge = document.getElementById('second-device-nudge');
+    if (!nudge) return;
+
+    if (!_secondDeviceNudgeBound) {
+        _secondDeviceNudgeBound = true;
+        document.getElementById('second-device-nudge-dismiss')?.addEventListener('click', () => {
+            try { localStorage.setItem(secondDeviceNudgeDismissKey(), '1'); } catch { /* private mode */ }
+            nudge.classList.add('wg-settings-hidden');
+        });
+    }
+
+    let dismissed = false;
+    try { dismissed = localStorage.getItem(secondDeviceNudgeDismissKey()) === '1'; } catch { /* private mode */ }
+    if (dismissed) {
+        nudge.classList.add('wg-settings-hidden');
+        return;
+    }
+
+    // Reveal only on a confirmed single-device count. A failed fetch leaves the
+    // card hidden rather than nagging on incomplete information.
+    const count = await fetchDeviceCount();
+    nudge.classList.toggle('wg-settings-hidden', count !== 1);
+}
+
 function bindCloudInvite() {
     document.querySelector('.wg-settings-cloud-invite')?.classList.remove('wg-settings-hidden');
     if (_inviteBound) return;
@@ -425,6 +481,7 @@ async function loadSettings() {
         // Devices row (add/manage a second device) only makes sense in cloud
         // mode — server/mobile builds have no /devices shell route.
         document.querySelector('.wg-settings-cloud-devices')?.classList.remove('wg-settings-hidden');
+        await bindSecondDeviceNudge();
         bindCloudInvite();
     }
     const applyBundle = async (rawBundle) => {
