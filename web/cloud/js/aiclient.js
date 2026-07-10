@@ -109,16 +109,43 @@ async function fileToDataURL(file) {
   });
 }
 
-// trialErrorCode extracts the trial proxy's machine-readable error code
-// ({"error":"trial_not_configured"} etc.) from a failed response body.
-// Returns '' for non-JSON bodies (e.g. a reverse-proxy error page).
-function trialErrorCode(bodyText) {
+// trialErrorInfo extracts the trial proxy's machine-readable error code
+// ({"error":"trial_not_configured"} etc.) and the real upstream status it
+// relays ({"upstream_status":401}) from a failed response body. Both fall back
+// to empty for non-JSON bodies (e.g. a reverse-proxy error page).
+function trialErrorInfo(bodyText) {
   try {
     const obj = JSON.parse(bodyText);
-    return typeof obj?.error === 'string' ? obj.error : '';
+    return {
+      code: typeof obj?.error === 'string' ? obj.error : '',
+      upstreamStatus: typeof obj?.upstream_status === 'number' ? obj.upstream_status : 0,
+    };
   } catch {
-    return '';
+    return { code: '', upstreamStatus: 0 };
   }
+}
+
+// The proxy sanitizes the upstream's own response_format complaint into a
+// machine code, so synthesize an error shaped for isResponseFormatRejection()
+// and let the existing fenced-prompt retry take over — same fallback the BYO
+// path gets from the provider's raw 400.
+function responseFormatUnsupportedError() {
+  const err = new Error('Trial model rejected response_format');
+  err.apiError = true;
+  err.code = 'response_format_unsupported';
+  return err;
+}
+
+// The proxy always answers 502, so the upstream status is the only thing that
+// separates "the operator's key is bad" from "try again in a bit".
+function trialFailureMessage(upstreamStatus) {
+  if (upstreamStatus === 401 || upstreamStatus === 403) {
+    return 'Trial AI is temporarily unavailable — contact the operator, or add your own OpenAI key in Settings → Integrations.';
+  }
+  if (upstreamStatus === 429) {
+    return 'Trial AI quota is exhausted — try later, or add your own OpenAI key in Settings → Integrations.';
+  }
+  return 'Trial AI request failed — try again or add your own OpenAI key in Settings → Integrations.';
 }
 
 // Trial proxy path: strip model (server forces the operator's model, the
@@ -128,21 +155,27 @@ function trialErrorCode(bodyText) {
 // come from the reverse proxy itself (backend restarting, proxy throttle),
 // and those must not degrade to the misleading "add your own key" message.
 // trial_not_configured degrades to the plain no-key error, trial_rate_limit
-// becomes the trial-limit error, and anything else with a status (including
-// the server's sanitized {"error":"upstream_error"}) gets a friendly retry
-// message instead of raw JSON in an alert. That sanitizing also means
-// isResponseFormatRejection never matches here (no fenced retry on trial).
+// becomes the trial-limit error, response_format_unsupported re-enters the
+// fenced-prompt retry (the proxy cannot relay the upstream's own 400 text, so
+// it names the case instead — bot mode's internal/ai/openai.go sniffs that
+// text directly), and anything else with a status gets a friendly message
+// worded by the relayed upstream_status instead of raw JSON in an alert.
 async function postTrialChatCompletion(vision, body) {
   const { model: _serverForced, ...rest } = body;
   try {
     return await postChatCompletion(`/api/trial/openai/chat/completions${vision ? '?vision=1' : ''}`, '', rest);
   } catch (err) {
-    const code = trialErrorCode(err.body);
+    const { code, upstreamStatus } = trialErrorInfo(err.body);
     if (code === 'trial_not_configured') throw noKeyError();
     if (code === 'trial_rate_limit') throw trialLimitError();
     if (err.status) {
-      const friendly = new Error('Trial AI request failed — try again or add your own OpenAI key in Settings → Integrations.');
+      // The proxy sanitizes the upstream body, so this is the only place a
+      // browser can observe what actually failed.
+      console.error('trial AI request failed', { status: err.status, code, upstream_status: upstreamStatus, body: err.body });
+      if (code === 'response_format_unsupported') throw responseFormatUnsupportedError();
+      const friendly = new Error(trialFailureMessage(upstreamStatus));
       friendly.status = err.status;
+      friendly.upstreamStatus = upstreamStatus;
       throw friendly;
     }
     throw err;

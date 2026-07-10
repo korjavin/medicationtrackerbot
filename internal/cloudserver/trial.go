@@ -2,6 +2,7 @@ package cloudserver
 
 import (
 	"errors"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -88,5 +89,26 @@ func TrialConfigFromEnv() (TrialConfig, error) {
 		}
 		cfg.RatePerMinute = n
 	}
+	// Fail fast on a typo'd URL. Otherwise the only symptom is a 502 on the
+	// user's first AI request, from the http.NewRequestWithContext branch in
+	// trial_proxy.go — the URL never reaches a log line, by design.
+	if err := validateTrialURL("TRIAL_OPENAI_URL", cfg.OpenAIURL); err != nil {
+		return cfg, err
+	}
+	if err := validateTrialURL("TRIAL_OPENAI_VISION_URL", cfg.VisionURL); err != nil {
+		return cfg, err
+	}
 	return cfg, nil
+}
+
+// validateTrialURL rejects anything http.NewRequestWithContext would choke on
+// (control characters, no scheme, no host). SECURITY INVARIANT: the returned
+// error names the env var only — never the value. url.Parse's own error text
+// embeds the URL, so it is discarded rather than wrapped.
+func validateTrialURL(envName, raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return errors.New(envName + " must be an absolute http(s) URL")
+	}
+	return nil
 }

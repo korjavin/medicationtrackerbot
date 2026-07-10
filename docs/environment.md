@@ -77,8 +77,8 @@ CLOUD_FOOD_DB_URL=https://food.example.com  # REQUIRED for food search to work o
 # Operator-owned keys served ONLY through server-side proxy routes (/api/trial/*) —
 # they never reach the browser. See docs/cloud-mode.md → Trial provider keys.
 TRIAL_OPENAI_API_KEY=...           # Master switch: enables POST /api/trial/openai/chat/completions and the client trial-AI flag
-TRIAL_OPENAI_URL=https://api.openai.com/v1  # OpenAI-compatible base URL (default shown). Provider must support response_format json_schema — the trial path has no fenced-JSON retry
-TRIAL_OPENAI_MODEL=gpt-4o-mini     # Model forced server-side on every trial chat call (default shown)
+TRIAL_OPENAI_URL=https://api.openai.com/v1  # OpenAI-compatible base URL (default shown). Must be an absolute http(s) URL — cmd/cloud refuses to start otherwise
+TRIAL_OPENAI_MODEL=gpt-4o-mini     # Model forced server-side on every trial chat call (default shown). Models without response_format json_schema (deepseek-chat, most local models) are fine — the proxy reports the rejection and the client retries with a fenced-JSON prompt
 TRIAL_OPENAI_VISION_API_KEY=...    # Vision triple; each field falls back to the text triple when unset. Overrides only — without TRIAL_OPENAI_API_KEY trial AI stays off
 TRIAL_OPENAI_VISION_URL=...
 TRIAL_OPENAI_VISION_MODEL=...

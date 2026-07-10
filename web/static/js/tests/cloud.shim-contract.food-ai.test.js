@@ -366,6 +366,72 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         expect(window.safeAlert).not.toHaveBeenCalledWith(expect.stringContaining('upstream_error'));
     });
 
+    // med-0s9: the operator's trial model (deepseek-chat) 400s on
+    // response_format: json_schema. The proxy sanitizes that 400 into an
+    // opaque 502, so the fenced-prompt retry that bot-mode's
+    // internal/ai/openai.go runs (it sniffs the raw upstream text) could never
+    // fire here — trial food-by-description failed 100% of the time. The proxy
+    // now names the case and the trial path retries just like BYO does.
+    it('trial response_format_unsupported: retries once without response_format and still logs the item', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        enableTrialAI(env);
+
+        const rejection = {
+            ok: false,
+            status: 502,
+            async text() { return JSON.stringify({ error: 'response_format_unsupported', upstream_status: 400 }); }
+        };
+        const success = chatCompletionResponse([
+            { name: 'Oatmeal', weight_grams: 250, carbs_100g: 12, protein_100g: 3, fat_100g: 2 }
+        ]);
+        const fetchSpy = vi.fn()
+            .mockResolvedValueOnce(rejection)
+            .mockResolvedValueOnce(success);
+        vi.stubGlobal('fetch', fetchSpy);
+
+        document.getElementById('food-id').value = '';
+        document.getElementById('food-parse-ai').checked = true;
+        document.getElementById('food-datetime').value = todayAt('08:00');
+        document.getElementById('food-name').value = 'a bowl of oatmeal';
+
+        await window.saveFoodLog();
+        await flushPromises();
+
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+        expect(fetchSpy.mock.calls[1][0]).toBe('/api/trial/openai/chat/completions');
+        const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body);
+        expect(secondBody.response_format).toBeUndefined();
+        expect(secondBody.model).toBeUndefined(); // proxy still forces the model
+
+        const grouped = await window.apiCall('/api/food/log?days=1');
+        expect(grouped.flatMap((g) => g.logs).map((l) => l.name)).toEqual(['Oatmeal']);
+        expect(window.safeAlert).not.toHaveBeenCalled();
+    });
+
+    it('trial upstream 401: message points at the operator, not at the user adding a key', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        enableTrialAI(env);
+
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: false,
+            status: 502,
+            async text() { return JSON.stringify({ error: 'upstream_error', upstream_status: 401 }); }
+        }));
+
+        document.getElementById('food-id').value = '';
+        document.getElementById('food-parse-ai').checked = true;
+        document.getElementById('food-datetime').value = todayAt('09:00');
+        document.getElementById('food-name').value = 'a banana';
+
+        await window.saveFoodLog();
+        await flushPromises();
+
+        expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/operator/i));
+        expect(window.safeAlert).not.toHaveBeenCalledWith(expect.stringContaining('upstream_error'));
+    });
+
     it('vault key beats trial: with both present the call stays browser-direct', async () => {
         const { window, document } = env;
         await setOpenAIKey(window);
