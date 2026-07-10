@@ -288,12 +288,15 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   alternative.
 - **The catalog is generated, not hand-written.** `web/cloud/js/mcp-catalog.generated.js` is
   emitted from `registry.DefaultOperations()` by `cmd/genmcpcatalog` (logic in
-  `internal/mcp/catalogjs`); regenerate with `go run ./cmd/genmcpcatalog`. The only named
-  exclusion is **gamification** (8 ops, listed individually with a `Reason` in
-  `catalogjs.Excluded` — it is deferred project-wide and clamped out of `apishim.js`'s
-  `PORTED_SET`), leaving 98 of 106 ops. `internal/mcp/catalogjs/drift_test.go` fails CI when a
-  registry op is neither in the checked-in catalog nor excluded, and when the checked-in file
-  is stale — the same reasoned-exemption shape as `internal/server/mcp_coverage_exempt.go`.
+  `internal/mcp/catalogjs`); regenerate with `go run ./cmd/genmcpcatalog`. Nine of the 106
+  registry ops are excluded, each listed individually with a `Reason` in `catalogjs.Excluded`:
+  the 8 **gamification** ops (deferred project-wide, clamped out of `apishim.js`'s `PORTED_SET`)
+  and **`workouts.miband.gps`** (cloud vaults carry no GPS tracks — `vaultToRecords` drops
+  `workouts.miband[].gps` on import, so the op could only ever return an empty track; see
+  [docs/vault-format.md](vault-format.md)). That leaves **97 ops, every one of them
+  dispatchable**. `internal/mcp/catalogjs/drift_test.go` fails CI when a registry op is neither
+  in the checked-in catalog nor excluded, and when the checked-in file is stale — the same
+  reasoned-exemption shape as `internal/server/mcp_coverage_exempt.go`.
 - **`mcp_help` is compact-by-default because of the 64 KiB relay frame cap.** Full entries for
   all ops are ~106 KB, over `mcp_relay.go`'s `maxRelayFrameBytes`; the compact projection
   (`id/topic/method/risk/description/required`) is ~30 KB. Precedence mirrors
@@ -304,13 +307,14 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   definitions that must stay in lockstep are `web/cloud/js/mcp-responder.js`,
   `cmd/mcpshim/main.go`'s `callInput`, and `internal/cloudserver/mcp_endpoint.go`'s
   `mcpEndpointCallInput` — `TestMCPCallEnvelopeLockstep` fails CI on drift. `path_params` are
-  allowlisted against the op's catalog entry and URL-encoded per slot (validation only for now:
-  cloud dispatches by function, not URL). Bot mode splits query `params` from request `body`;
-  cloud mode dispatches each op as a single-argument domain call, so the two merge (`body` wins on
-  a key collision) before validation and dispatch — the wired write ops advertise only
-  `body_schema`, so an agent following the catalog sends its payload in `body`. Schema mismatches
-  produce warn-only `warnings` on the response, exactly as `registry.ValidateInput` does — they
-  never block a call. The success response is bot mode's `CallResponse`
+  allowlisted against the op's catalog entry and URL-encoded into the op's `{slot}`s. `params` and
+  `body` merge (`body` wins on a key collision) for validation and relative-date repair, then split
+  back apart by schema: a key the op declares in `params_schema` but not `body_schema` becomes a
+  querystring param, everything else is the request body (GET/DELETE take no body, so all of it is
+  query). Arrays repeat their key (`tags=a&tags=b`), objects encode as JSON — the only lossless
+  option a flat querystring affords. Schema mismatches produce warn-only `warnings` on the
+  response, exactly as `registry.ValidateInput` does — they never block a call. The success
+  response is bot mode's `CallResponse`
   (`{status, result, api_calls, warnings?}`) unconditionally: the shape must not depend on the
   input, or an agent that learned where `health.bp.list` puts its rows loses them on the one call
   that happened to trip a warning.
@@ -338,14 +342,28 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
     write frame on device A and then replay it to device B, whose ring has never seen that nonce.
     Single-device use (the common case) is fully protected; two simultaneously-unlocked devices are
     not. Sharing the ring through the oplog would replicate every nonce and is not worth it.
-- **Catalogued ≠ dispatchable (today).** `createDispatcher` still wires only six ops
-  (`health.bp.*`, `health.weight.*`, `health.notes.*`); an `mcp_call` for any other catalogued
-  op returns its actionable "not yet callable" error. Wiring the rest to `web/domain/*` is
-  bd **med-csu.3**.
+- **Every catalogued op is dispatchable, through the router the UI already uses** (med-csu.3).
+  `createDispatcher({ router })` takes `apishim.js`'s `createApiRouter` — the same
+  `(endpoint, method, body)` function `window.offlineAwareApiCall` is assigned to — and dispatches
+  by *catalog coordinates*: the entry's `method` + `path` are exactly what the router is keyed by,
+  so `mcp_call` is a `BY_ID` lookup, a path-param substitution, a querystring build, and one
+  `router(...)` call. There is **no second dispatch table** to drift from the first, and no domain
+  logic in the responder — an op that needs behavior `web/domain/*` lacks gets it added *there*,
+  shared with the UI, never branched into `mcp-responder.js`. MCP and the cloud frontend are one
+  code path, which is the JS-side statement of CLAUDE.md's domain-service rule.
+  - Because dispatch routes by path, `apishim.js:678`'s unmapped-route `throw` doubles as the
+    coverage assertion: a catalogued op the router cannot serve surfaces as a JSON-RPC `-32603`
+    naming the missing `METHOD /path`. The sweep in `web/cloud/js/tests/mcp-responder.test.js`
+    drives **all 97 ops** (63 of them writes, with payloads synthesized from each op's `required`)
+    through the real router and fails naming any op that 404s. A companion test asserts the 35 ops
+    carrying a `response_example` return that shape. Do not soften that 404 — it is load-bearing.
+  - `food.log.from_description` (AI parse) and `food.products.search` (food DB) reach outside the
+    vault. Both reuse C2c's **direct-from-browser** path (the same `foodAI`/`food` instances behind
+    `CloudFoodAI`/`CloudFoodSearch`), never the relay — routing them through it would hand the
+    server plaintext and break the property cloud mode exists to provide.
 - **The honest constraint: a device must be online with an unlocked vault.** A phone with the PWA backgrounded is not reliably reachable (iOS SW execution on push is too constrained to serve queries silently). Realistic availability = a desktop tab left open, or an old phone plugged in at home with the PWA foregrounded — at which point the user has voluntarily re-invented a tiny server, but it's *their* device, zero config, and the guarantee holds. When no device is online, the shim's tools return an actionable MCP error naming the E2E architecture and telling the user to open and unlock their app.
 - **PoC ceilings** (each `ponytail:`-marked in code): in-memory pairings, single pairing per
-  account, only six dispatchable ops (med-csu.3), no QR pairing, no packaged shim
-  binary/release artifact.
+  account, no QR pairing, no packaged shim binary/release artifact.
 
 **Tier 2 — hosted-relay convenience mode (explicit consent, reduced guarantee). PoC implemented**, see
 `docs/plans/2026-07-06-cloud-c4-poc-remote-mcp-endpoint.md`. claude.ai's remote MCP cannot run a shim, so the server runs the shim itself: it dials the relay on the account's behalf and exposes a plain streamable-HTTP MCP endpoint that hosted clients connect to directly. The server therefore terminates the client's MCP connection and sees requests/responses **in transit** (never stored); vault data at rest stays E2EE. This is a deliberate, per-account, clearly-labelled downgrade switch, off by default.
@@ -502,7 +520,7 @@ C2d shipped **workouts** — groups/variants/exercises/exercise-library CRUD, th
 - **Record types**: `workoutgroup`, `workoutvariant`, `workoutexercise`, `exerciselibrary`, `workoutsession`, `exerciselog`, `workoutrotation` (one per group), `miband` (fields per the enriched GET shape incl. `source_start_ms` + tz offset for local-time rendering; list with limit, PATCH diff-semantics over the six editable fields, DELETE → tombstone). Bodies use server JSON field names verbatim.
 - **The `apiCallDirect` wrapper** (`web/cloud/js/cloud-boot.js`): three frontend call sites (`groups.js:55`, `next-card.js:179`, `stats.js:40`) plus `today-loader.js:154`'s `workout_next` SWR fetch bypass `offlineAwareApiCall` and call `window.apiCallDirect` directly. Cloud-boot wraps `window.apiCallDirect` to route `/api/*` paths into the same shim dispatch as `offlineAwareApiCall`, so all four call sites work with zero `web/static` edits; non-`/api` URLs pass through to the original implementation untouched.
 - **`workout_next` bootstrap cache**: neither the native nor shim `/api/bootstrap` bundles a `res.workout` key, so cloud-boot warms the Today card's cache directly — one `apiCallDirect('/api/workout/sessions/next')` call piped through `cacheApiSnapshot('workout_next', ..., ['workout'])`, the same mechanism `applyBootstrapPayload` uses for bp/weight.
-- **Route table** (`web/cloud/js/apishim.js`): the query-param CRUD style (`/create`, `/update`, `/delete`, `?id=`) is preserved verbatim rather than folded into a combined GET+POST base path like bp/weight/food. Intentionally left unmapped, falling through to the unmapped-route warning (a code comment in the shim lists them so the warn stays interpretable): `rotation/state`, `rotation/initialize`, `exercises/unique`, `sessions/schedule`, the legacy `session/snooze`/`session/skip` compat routes, and the external Mi Band Notify webhook — all MCP/bot-only per the plan's scope decision.
+- **Route table** (`web/cloud/js/apishim.js`): the query-param CRUD style (`/create`, `/update`, `/delete`, `?id=`) is preserved verbatim rather than folded into a combined GET+POST base path like bp/weight/food. `rotation/state`, `rotation/initialize`, `exercises/unique` and `sessions/schedule` have no frontend caller but are catalogued MCP ops, so med-csu.3 routed them too. Still intentionally unmapped, falling through to the unmapped-route warning (a code comment in the shim lists them so the warn stays interpretable): the legacy `session/snooze`/`session/skip` compat routes and the external Mi Band Notify webhook.
 - **`workout` joins `PORTED_SET`**: the feature-flag clamp (C2a) now serves workouts end-to-end; the shim-contract settings test's unported-feature-clamp example moved to `gamification` since `workout` is no longer a valid example of an unported domain.
 - **Deferred by design** (mirrors the server split): the background scheduler loop (lazy `getNext` materialization covers a UI-only client — a session appears when the app computes "next" rather than at a scheduled tick, a UX difference not a data bug); workout reminders (compute-and-upload joins the C2b pattern in a later slice; the shim keeps returning disabled reminder shapes); Telegram/notification transport; the mi-band GPS route (no UI caller); the bot/MCP idempotent log-upsert (`internal/domain/exercise.go`) and name-resolver (`workout_resolver.go`) — neither is the web path, so neither is ported.
 - **Contract test strategy**: same as C1/C2a/C2b/C2c — additive shim-mode Vitest suites re-running the real workout feature UI paths (groups/variants/exercises/library CRUD, next-card resolution across all three priorities with seeded rotation state, start/snooze/skip/preskip/cancel-preskip/next-variant incl. rotation-cursor assertions, session-detail multi-call save with update-vs-create id gating, ad-hoc flow, stats shapes incl. `weekly_activity: null` when empty, mi-band list/patch/delete) against an in-memory records port, plus a two-domain-instance convergence case: concurrent lazy `getNext` on a shared in-memory store yields one merged session record.
@@ -530,10 +548,10 @@ Cloud mode runs the ElevenLabs conversational agent **browser-direct**, provisio
 
 - **Provisioned from code, key is enough.** `web/cloud/js/elevenlabs-agent.js` `createElevenLabsAgentProvisioner({ settingsDomain })` reads the vault `elevenlabs.api_key` and calls the ElevenLabs Agents/Tools API browser-direct (CORS-open). `provision()` orchestrates `ensureTools()` → `ensureAgent()`: `ensureTools()` lists `GET /v1/convai/tools`, matches our fixed spec list by name, and `POST /v1/convai/tools` (the `{tool_config:{type:"client",...}}` shape) for any missing → `{name→id}` map; `ensureAgent(toolIds)` `POST /v1/convai/agents/create` with `tool_ids`, a strong system prompt (always call a tool for any bp/weight/notes question, never claim no access), `tts.voice_id`, and `tool_call_sound:'typing'` + `tool_call_sound_behavior:'always'` for the audible tool-call cue. **Idempotent by `TOOLSET_VERSION`**: the provisioned `{agentId, toolsetVersion, toolIds}` is persisted to a dedicated `voiceprovisioning` vault singleton (`settingsDomain.get/setVoiceProvisioning`) and reused on a matching version — reprovision only on first run or a version bump, never per call. If the user pre-set `elevenlabs.agent_id`, that agent is `PATCH`ed instead of creating one. Published as `window.CloudElevenLabsAgent` from `apishim.js`. The concrete tools are: `get_blood_pressure`(days?)/`log_blood_pressure`(systolic,diastolic,pulse?), `get_weight`/`log_weight`(kg), `get_notes`/`add_note`(text,tag?) — flat typed params, one per catalog op, which voice LLMs call more reliably than a generic `mcp_call`.
 - **Signed URL is minted in the browser, not the server.** Bot mode hits `GET /api/elevenlabs/signed-url` (server-side, to hide the operator key); cloud has no such route, which is why "Call Agent" 404'd. `web/cloud/js/elevenlabs-signed-url.js` `createElevenLabsClient({ settingsDomain })` `fetchSignedURL(agentId)` takes the provisioned agent id (falling back to the vault `agent_id` if set) and calls `GET https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=<id>` with the `xi-api-key` header directly. Published as `window.CloudElevenLabs` from `apishim.js`; `startCall()` in `web/static/js/features/elevenlabs-call.js` cloud branch calls `window.CloudElevenLabsAgent.provision()` first, then `fetchSignedURL(agentId)`, surfacing provisioning errors as the call status. **The BYO ElevenLabs key never crosses `/api`** — it goes browser→ElevenLabs only.
-- **Concrete tools dispatch in-tab, no relay.** At `startSession`, cloud mode registers `clientTools` whose names match the provisioned tools; each callback dispatches into `window.CloudMCPDispatcher.handle(...)` (the `createDispatcher({ bp, weight, notes })` catalog the Claude connector uses) — e.g. `log_blood_pressure({systolic,diastolic,pulse})` → `bp.create {measured_at:<now ISO>, ...}`, `get_blood_pressure({days})` → `bp.list`. Writes stamp `measured_at`/timestamps = now client-side to match the catalog op schemas. The generic `mcp_help`/`mcp_call` stay registered too (harmless), but the concrete tools are the used path. No relay hop, no crypto — the tab is both the voice client and the MCP responder host, online + unlocked during its own call. Bot mode passes no `clientTools` (unchanged); nothing goes to the cloud server.
+- **Concrete tools dispatch in-tab, no relay.** At `startSession`, cloud mode registers `clientTools` whose names match the provisioned tools; each callback dispatches into `window.CloudMCPDispatcher.handle(...)` (the `createDispatcher({ router })` catalog the Claude connector uses) — e.g. `log_blood_pressure({systolic,diastolic,pulse})` → `bp.create {measured_at:<now ISO>, ...}`, `get_blood_pressure({days})` → `bp.list`. Writes stamp `measured_at`/timestamps = now client-side to match the catalog op schemas. The generic `mcp_help`/`mcp_call` stay registered too (harmless), but the concrete tools are the used path. No relay hop, no crypto — the tab is both the voice client and the MCP responder host, online + unlocked during its own call. Bot mode passes no `clientTools` (unchanged); nothing goes to the cloud server.
 - **No manual dashboard steps.** The user sets only the ElevenLabs API key in Settings → Integrations (the Agent ID field is optional — blank means the app creates the agent). Leakage note: ElevenLabs' cloud sees tool names, results, and transcripts (inherent to any cloud voice agent); under BYO keys that's strictly user↔ElevenLabs — the zero-knowledge server sees nothing, and the key is used only against `api.elevenlabs.io`, never `/api`.
 - **CSP**: the account-app CSP (`internal/cloudserver/router.go` `setSecurityHeaders`) relaxes `script-src`/`worker-src`/`media-src` for account subdomains to load the `@elevenlabs/client` SDK from esm.sh and run its blob: AudioWorklets (mirroring bot mode). This is a further weakening of the zero-third-party-script defense on the DEK-bearing page (esm.sh script now executes on-origin); vendoring the SDK locally to restore `script-src 'self'` is the follow-up.
-- **Scope**: the in-tab catalog is the existing 6 ops (bp/weight/notes list/create); more ops are a follow-up. Server-initiated / off-device voice is the separate med-65c relay path.
+- **Scope**: the *concrete* voice tools stay the 6 flat-param ones (bp/weight/notes list/create) — voice LLMs call those more reliably than a generic `mcp_call`. The generic `mcp_call` the agent may also reach for now dispatches the full 97-op catalog, since med-csu.3 gave the in-tab dispatcher the same router. Server-initiated / off-device voice is the separate med-65c relay path.
 
 ## Phasing
 
@@ -558,7 +576,7 @@ Cloud mode runs the ElevenLabs conversational agent **browser-direct**, provisio
     4. **Server-timestamp order** — events are sorted by the sealed `at_unix` (not mailbox arrival order) and intakes are backdated to it, so a Confirm tapped at 09:00 records `taken_at` 09:00 even when the app first opens at noon.
 
     A tap on an account that has never unlocked a client has no inbox key to seal to; it is **dropped**, never stored readable, and the user is told to open the app once. Free-text commands (`/bp 120/80`, `/food two eggs`) ride the same mailbox and remain future work (med-vcv, med-eas.29).
-- **C4 — MCP tier 1 + tier 2 PoC (implemented)** — tier 1: blind relay (`internal/cloudserver/mcp_relay.go`) + Go shim (`cmd/mcpshim`, crypto/framing in `internal/mcpshim`) + browser responder (`web/cloud/js/mcp-responder.js`), originally with a hardcoded `bp`/`weight`/`notes` catalog (`docs/plans/2026-07-05-cloud-c4-poc-mcp-blind-relay.md`), now serving the 98-op catalog generated from `internal/mcp/registry` by `cmd/genmcpcatalog` (`docs/plans/20260710-cloud-mcp-catalog-codegen.md`). Tier 2: consented hosted-relay mode — persistent `mcp_remote` registry + streamable-HTTP endpoint (`internal/cloudserver/mcp_remote.go`, `mcp_endpoint.go`) + devices-page mode picker (`docs/plans/2026-07-06-cloud-c4-poc-remote-mcp-endpoint.md`). See "MCP" section above. Dispatch wiring for the catalogued ops (med-csu.3), multi-pairing (remote + local simultaneously), OAuth 2.1 + DCR, and shim binary distribution are the identified full-C4 follow-ups; go/no-go decided at the PoC's exit review.
+- **C4 — MCP tier 1 + tier 2 PoC (implemented)** — tier 1: blind relay (`internal/cloudserver/mcp_relay.go`) + Go shim (`cmd/mcpshim`, crypto/framing in `internal/mcpshim`) + browser responder (`web/cloud/js/mcp-responder.js`), originally with a hardcoded `bp`/`weight`/`notes` catalog (`docs/plans/2026-07-05-cloud-c4-poc-mcp-blind-relay.md`), now serving the 97-op catalog generated from `internal/mcp/registry` by `cmd/genmcpcatalog` (`docs/plans/20260710-cloud-mcp-catalog-codegen.md`), every op of it dispatched through the shared `apishim` router (`docs/plans/20260710-cloud-mcp-dispatcher-wiring.md`). Tier 2: consented hosted-relay mode — persistent `mcp_remote` registry + streamable-HTTP endpoint (`internal/cloudserver/mcp_remote.go`, `mcp_endpoint.go`) + devices-page mode picker (`docs/plans/2026-07-06-cloud-c4-poc-remote-mcp-endpoint.md`). See "MCP" section above. Multi-pairing (remote + local simultaneously), OAuth 2.1 + DCR, `mcp_execute` (no cloud path — med-csu.4), and shim binary distribution are the identified full-C4 follow-ups; go/no-go decided at the PoC's exit review.
 - **C5 — trial provider pool**: metered OpenAI-compatible relay, ElevenLabs signed-URL minting + client-tools voice agent, trial-consent wizard screen, quota admin. Depends on C2 (the PWA needs AI features to call it).
 - **C6 — bot-mode domain unification** (after C2 parity; optional but intended): embed the JS domain layer in the server build (goja preferred, Node sidecar fallback) behind a SQLite storage port; shadow-mirror real traffic (Go serves, JS diffs, divergences logged); flip per-domain when quiet; deprecate the Go domain layer. Ends the double maintenance — see "The client: porting the domain layer" §3.
 

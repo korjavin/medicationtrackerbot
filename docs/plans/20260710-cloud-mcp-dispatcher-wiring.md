@@ -189,9 +189,10 @@ A reviewer should be able to diff the responder and see only *adapter* code.
 - [x] run the linter — `golangci-lint run ./...`: **0 issues**. (No JS lint script exists; `vitest` + the architecture suites are the frontend gate.)
 
 ### Task 7: [Final] Update documentation
-- [ ] update `docs/cloud-mode.md`: cloud MCP now dispatches every non-excluded catalog op, through the same `apishim` router the UI uses (one code path, no duplicate domain logic); name any op excluded for zero-knowledge reasons
-- [ ] remove the now-stale claim that catalogued ops are not dispatchable (added by med-csu.1's docs task)
-- [ ] update `CLAUDE.md` if a new invariant lands: a new cloud route must be added to the shared router, not to the MCP responder
+- [x] update `docs/cloud-mode.md`: cloud MCP now dispatches every non-excluded catalog op, through the same `apishim` router the UI uses (one code path, no duplicate domain logic); name any op excluded for zero-knowledge reasons. Named `workouts.miband.gps` (vault carries no GPS tracks) alongside the 8 gamification ops — 9 exclusions of 106, leaving 97. Documented the sweep + shape-conformance guards and the two direct-from-browser food ops that must never cross the relay
+- [x] remove the now-stale claim that catalogued ops are not dispatchable (added by med-csu.1's docs task)
+- [x] update `CLAUDE.md` if a new invariant lands: a new cloud route must be added to the shared router, not to the MCP responder. Landed in "Adding an MCP tool", with the `ResponseExample`-must-match-the-handler rule the Task 5 audit earned (14 of 35 examples were fiction)
+- [x] ➕ four further stale claims found and fixed while re-reading the MCP section, all written when only 6 ops dispatched: (a) "cloud dispatches by function, not URL" and the params/`body` single-argument merge — dispatch is by path now, and `splitInput` splits the merged input back apart by schema; (b) the "98-op catalog" count in the C4 roadmap entry, and med-csu.3 still listed there as a follow-up; (c) the apishim route-table note listing `rotation/state`/`rotation/initialize`/`exercises/unique`/`sessions/schedule` as unmapped (Task 4 mapped them); (d) the ElevenLabs section's `createDispatcher({ bp, weight, notes })` signature and its "in-tab catalog is the existing 6 ops" scope line — the 6 *concrete* voice tools remain, but the in-tab generic `mcp_call` now reaches all 97
 
 ## Technical Details
 
