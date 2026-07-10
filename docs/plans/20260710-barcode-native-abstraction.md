@@ -182,13 +182,13 @@ than after the `getUserMedia` probe; both orderings surface the same strings.
 
 ### Task 4: Add the architecture guard that catches the next bypass
 
-- [ ] create `web/static/js/tests/architecture.native-abstractions.test.js`
+- [x] create `web/static/js/tests/architecture.native-abstractions.test.js`
       following the `architecture.globals.test.js` style (read files off disk,
       assert on source text, document every allowlist entry with a reason)
-- [ ] fail if any file under `web/static/js/` outside `web/static/js/native/`
+- [x] fail if any file under `web/static/js/` outside `web/static/js/native/`
       references `navigator.mediaDevices`, `getUserMedia`, or `BarcodeDetector`.
       No allowlist — these are device capabilities and `native/` owns them.
-- [ ] fail if any file outside `web/static/js/native/` references
+- [x] fail if any file outside `web/static/js/native/` references
       `isNativePlatform`, except an explicit allowlist of
       `core/native-bootstrap.js`, `core/messenger-adapter.js`,
       `features/firstrun/permissions.js`,
@@ -196,10 +196,16 @@ than after the `getUserMedia` probe; both orderings surface the same strings.
       `features/settings/integrations.js` — each with a one-line justification
       naming it a shell-presence UI gate, not device-capability routing.
       `features/food/scanner.js` must NOT be on this list (Task 3 removes it).
-- [ ] assert the allowlist has no stale entries (every listed file still exists
+- [x] assert the allowlist has no stale entries (every listed file still exists
       and still matches), so it can't rot into a rubber stamp
-- [ ] confirm the guard actually fails by temporarily reintroducing a
+- [x] confirm the guard actually fails by temporarily reintroducing a
       `navigator.mediaDevices` reference in `scanner.js`, then revert
+      (verified: both the capability check and the `isNativePlatform` check
+      flagged `scanner.js`; reverted)
+
+Note: `tests/` is excluded from the scan (same as `architecture.globals.test.js`)
+— test files legitimately stub both seams. Task 3's leftover `getUserMedia`
+mention in a `scanner.js` comment tripped the capability check and was reworded.
 
 ### Task 5: Verify acceptance criteria
 

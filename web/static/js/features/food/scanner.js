@@ -169,8 +169,7 @@ async function startFoodScanner() {
     } catch (e) {
         console.error('Failed to start food scanner:', e);
         // MediaCaptureError.code is PERMISSION_DENIED | UNAVAILABLE; the latter
-        // covers "no camera API / no camera", which is the old no-getUserMedia
-        // branch and keeps its wording.
+        // covers "no camera API / no camera" and keeps that branch's wording.
         setFoodScannerStatus(e && e.code === 'UNAVAILABLE'
             ? 'Camera is unavailable. Use "Use Photo" or manual entry.'
             : 'Camera access denied or unavailable. Use "Use Photo".');
