@@ -1484,6 +1484,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       heart_rate_avg: record.heart_rate_avg,
       spo2_avg: record.spo2_avg,
       source_start_ms: record.source_start_ms,
+      source_end_ms: record.source_end_ms,
       source: record.source,
     };
   }

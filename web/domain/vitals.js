@@ -21,6 +21,10 @@
 
 import { dayStartMs } from './bp.js';
 
+// The vault holds one user's data; handleListSleepLogs stamps the row's
+// user_id, so the wire shape carries it too.
+const CLOUD_USER_ID = 1;
+
 const SLEEP_RECORD_TYPE = 'sleep';
 const DAYSTATS_RECORD_TYPE = 'daystats';
 const HR_RECORD_TYPE = 'hrsample';
@@ -73,6 +77,7 @@ function bucketVitals(samples, cutoffMs) {
 function sleepToResponse(r) {
   const resp = {
     id: r.recordId,
+    user_id: CLOUD_USER_ID,
     start_time: r.start_time,
     end_time: r.end_time,
     timezone_offset: r.timezone_offset || 0,

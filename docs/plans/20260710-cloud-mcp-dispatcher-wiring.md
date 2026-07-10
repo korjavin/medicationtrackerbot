@@ -156,9 +156,26 @@ A reviewer should be able to diff the responder and see only *adapter* code.
 - [x] re-run the sweep until it passes with zero unrouted ops (`pnpm test`: 288 files / 3122 tests green)
 
 ### Task 5: ResponseExample shape conformance
-- [ ] integration test: for each catalog op carrying a `response_example`, dispatch it and assert the result's top-level shape agrees (array vs object; expected keys present on an object, or on the first element of a non-empty array)
-- [ ] seed enough records that the representative read ops return non-empty results; an all-empty sweep proves nothing about shape
-- [ ] where a real mismatch surfaces, fix the **domain module** to match the registry's documented shape (the registry is the contract both surfaces advertise), and note any op whose `response_example` is itself wrong so it can be corrected in `internal/mcp/registry`
+- [x] integration test: for each catalog op carrying a `response_example`, dispatch it and assert the result's top-level shape agrees (array vs object; expected keys present on an object, or on the first element of a non-empty array). 35 ops carry one. ➕ a numeric-keyed example object (`workouts.rotation.state`'s `{"1": {...}}`) was read as a dynamic map — that turned out to be a registry bug, not a map (see below)
+- [x] seed enough records that the representative read ops return non-empty results; an all-empty sweep proves nothing about shape. Seeding runs through the router's own write ops (17 ops named in `MUST_BE_NON_EMPTY` must come back non-empty, asserted); `bpgoal`/`sleep`/`miband` have no catalogued write op and are seeded onto the records port directly. Every `omitempty` field the examples advertise is filled in, so a domain module that never emits them cannot pass
+- [x] where a real mismatch surfaces, fix the **domain module** to match the registry's documented shape, and note any op whose `response_example` is itself wrong so it can be corrected in `internal/mcp/registry`
+- [x] ➕ **domain fixes** (2): `workout.toMiBandResponse` never emitted `source_end_ms` (the Go `MiBandWorkout` always does); `vitals.sleepToResponse` never emitted `user_id`
+- [x] ➕ **the registry's own examples were wrong for 14 of the 35 ops** — hand-written shapes that no Go handler ever returned, which have been misleading bot-mode agents too. All corrected against the handler's real JSON (with `ResponseSummary` where it repeated the same lie), catalog regenerated:
+  - `health.bp.stats` — advertised `{dates, systolic[], diastolic[], pulse[], counts[]}`; really `{stats_14, stats_30, stats_60}`
+  - `health.bp.goal.read` — invented `updated_at`
+  - `health.bp.reminder.status` / `health.weight.reminder.status` — invented `dontbug_until`, `last_reminded_at`, `next_reminder_at`; really `preferred_reminder_hour` + `dont_remind_until`
+  - `health.weight.goal.read` — advertised `{target_weight, updated_at}`; really `{goal, goal_set_at, highest_weight, highest_date, …}`
+  - `health.sleep.list` — `created_at` is not in the vault format, so cloud cannot return it
+  - `food.log.list` — advertised `[{date, logs}]`; really `[{name, time, calories, carbs, protein, fat, logs}]`
+  - `food.stats.read` — advertised `{totals, daily_average, per_day}`; really flat `{calories, carbs, protein, fat}`
+  - `workouts.exercises.list` — advertised `name`; the field is `exercise_name`
+  - `workouts.variants.list` / `workouts.exercise_library.list` — showed `omitempty` fields with the very values that cause Go to omit them (`""`, `null`)
+  - `workouts.sessions.list` — advertised a flat session; really `{session, group_name, variant_name, exercises_count, exercises_completed, total_volume}`
+  - `workouts.sessions.details` — advertised `{id, …, exercise_logs}`; really `{session, logs}`
+  - `workouts.sessions.next` — advertised a flat session; really `{session, group_name, variant_name, exercises_count, variant_id, group_id, is_rotating}`
+  - `workouts.stats.read` — invented `per_group`; really `active_weeks` + `top_exercises[]` + `weekly_activity[]`
+- [x] ➕ `workouts.rotation.state` was undocumented **and uncallable**: it advertised a map keyed by group id and no params, but the handler requires a `group_id` query param and returns one state object. Gave it a `ParamsSchema` with `required: ["group_id"]`. Same for `workouts.rotation.initialize`, whose description claimed it reset "all groups" with no body — it needs `{group_id, starting_variant_id}`; gave it a `BodySchema`
+- [x] `pnpm test`: 288 files / 3123 tests green; `go build ./...` + `go test ./...` green
 
 ### Task 6: Verify acceptance criteria
 - [ ] verify the bead's criteria: every non-excluded catalog op dispatches to a `web/domain` module and returns data matching the registry's `ResponseExample` shape

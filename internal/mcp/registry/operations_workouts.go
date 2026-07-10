@@ -33,10 +33,10 @@ output(result)`,
   }
 }`),
 			Description:     "List all variants within a workout group. A variant is one rotation slot (e.g. 'Push Day', 'Pull Day').",
-			ResponseSummary: "JSON array of variant objects with id, name, description, group_id.",
+			ResponseSummary: "JSON array of variant objects with id, name, group_id; description and rotation_order are omitted when unset (rotation_order is null for a non-rotating group).",
 			ResponseExample: `[
-  {"id": 5, "name": "Push Day", "description": "", "group_id": 1, "rotation_order": 0},
-  {"id": 6, "name": "Pull Day", "description": "", "group_id": 1, "rotation_order": 1}
+  {"id": 5, "name": "Push Day", "description": "chest and triceps", "group_id": 1, "rotation_order": 1},
+  {"id": 6, "name": "Pull Day", "description": "back and biceps", "group_id": 1, "rotation_order": 2}
 ]`,
 			Example: `result = api.call("workouts.variants.list", params={"group_id": 1})
 output(result)`,
@@ -55,9 +55,9 @@ output(result)`,
   }
 }`),
 			Description:     "List all exercises in a workout variant. Returns exercises with their default sets, reps, and weight.",
-			ResponseSummary: "JSON array of exercise objects with id, name, sets, reps, weight_kg, notes, variant_id.",
+			ResponseSummary: "JSON array of exercise objects with id, variant_id, exercise_name, target_sets, target_reps_min, order_index; target_reps_max and target_weight_kg are omitted when unset.",
 			ResponseExample: `[
-  {"id": 42, "name": "Bench Press", "target_sets": 4, "target_reps_min": 6, "target_reps_max": 8, "target_weight_kg": 65.0, "order_index": 0, "variant_id": 2}
+  {"id": 42, "variant_id": 2, "exercise_name": "Bench Press", "target_sets": 4, "target_reps_min": 6, "target_reps_max": 8, "target_weight_kg": 65.0, "order_index": 0}
 ]`,
 			Example: `result = api.call("workouts.exercises.list", params={"variant_id": 2})
 output(result)`,
@@ -75,9 +75,16 @@ output(result)`,
   }
 }`),
 			Description:     "List recent workout sessions. Sessions represent a scheduled or ad-hoc workout that was completed or skipped. Returned sessions span every group; filter client-side on the returned group_id field if needed.",
-			ResponseSummary: "JSON array of session objects with id, group_id, variant_id, scheduled_date, status, started_at, completed_at.",
+			ResponseSummary: "JSON array of session views: {session: {id, group_id, variant_id, scheduled_date, scheduled_time, status, started_at, completed_at, snooze_count}, group_name, variant_name, exercises_count, exercises_completed, total_volume}.",
 			ResponseExample: `[
-  {"id": 42, "group_id": 1, "variant_id": 5, "scheduled_date": "2026-04-29", "status": "completed", "started_at": "2026-04-29T07:32:00Z", "completed_at": "2026-04-29T08:20:00Z"}
+  {
+    "session": {"id": 42, "group_id": 1, "variant_id": 5, "scheduled_date": "2026-04-29T00:00:00Z", "scheduled_time": "07:30", "status": "completed", "started_at": "2026-04-29T07:32:00Z", "completed_at": "2026-04-29T08:20:00Z", "snooze_count": 0},
+    "group_name": "Home Workout",
+    "variant_name": "Push Day",
+    "exercises_count": 5,
+    "exercises_completed": 5,
+    "total_volume": 4820.0
+  }
 ]`,
 			Example: `result = api.call("workouts.sessions.list", params={"limit": 10})
 output(result)`,
@@ -96,11 +103,11 @@ output(result)`,
   }
 }`),
 			Description:     "Get detailed information for a specific workout session including all exercise logs.",
-			ResponseSummary: "Session object with exercise_logs array containing sets, reps, weight_kg, status, notes per exercise.",
+			ResponseSummary: "Object {session, logs}: the session row plus its per-exercise logs (sets_completed, reps_completed, weight_kg, status, notes). Null when no session has that id.",
 			ResponseExample: `{
-  "id": 42, "group_id": 1, "variant_id": 5, "scheduled_date": "2026-04-29", "status": "completed",
-  "exercise_logs": [
-    {"id": 99, "exercise_name": "Bench Press", "target_sets": 4, "target_reps_min": 6, "sets_completed": 4, "reps_completed": 8, "weight_kg": 65.0, "status": "completed", "notes": ""}
+  "session": {"id": 42, "group_id": 1, "variant_id": 5, "scheduled_date": "2026-04-29T00:00:00Z", "scheduled_time": "07:30", "status": "completed", "snooze_count": 0},
+  "logs": [
+    {"id": 99, "session_id": 42, "exercise_id": 7, "exercise_name": "Bench Press", "sets_completed": 4, "reps_completed": 8, "weight_kg": 65.0, "status": "completed", "logged_at": "2026-04-29T08:10:00Z", "source": "library"}
   ]
 }`,
 			Example: `result = api.call("workouts.sessions.details", params={"id": 42})
@@ -112,12 +119,15 @@ output(result)`,
 			Method:          "GET",
 			Path:            "/api/workout/stats",
 			Risk:            RiskRead,
-			Description:     "Get aggregated workout statistics including total sessions, completion rate, and per-group summaries.",
-			ResponseSummary: "Stats object with total_sessions, completed_sessions, skipped_sessions, completion_rate, and per-group breakdowns.",
+			Description:     "Get aggregated workout statistics: session counts, completion rate, the most-trained exercises, and a per-week activity breakdown. There is no per-group breakdown — filter workouts.sessions.list on group_id for that.",
+			ResponseSummary: "Stats object with total_sessions, completed_sessions, skipped_sessions, completion_rate, active_weeks, top_exercises[] and weekly_activity[].",
 			ResponseExample: `{
-  "total_sessions": 48, "completed_sessions": 40, "skipped_sessions": 8, "completion_rate": 0.83,
-  "per_group": [
-    {"group_id": 1, "name": "Home Workout", "completed": 40, "skipped": 8}
+  "total_sessions": 48, "completed_sessions": 40, "skipped_sessions": 8, "completion_rate": 0.83, "active_weeks": 12,
+  "top_exercises": [
+    {"exercise_name": "Bench Press", "session_count": 22, "total_volume_kg": 41800.0, "max_weight_kg": 75.0}
+  ],
+  "weekly_activity": [
+    {"week": "2026-04-27", "completed": 3, "skipped": 1}
   ]
 }`,
 			Example: `result = api.call("workouts.stats.read")
@@ -428,28 +438,41 @@ output({"deleted": 88})`,
 
 		// --- Rotation state: drives "what variant is next" for rotating groups ---
 		{
-			ID:              "workouts.rotation.state",
-			Topic:           "workouts",
-			Method:          "GET",
-			Path:            "/api/workout/rotation/state",
-			Risk:            RiskRead,
-			Description:     "Read the current rotation state — which variant is queued next for each rotating workout group.",
-			ResponseSummary: "JSON object keyed by group_id with the current rotation slot and pointer.",
-			ResponseExample: `{
-  "1": {"current_variant_id": 5, "current_variant_name": "Push Day", "rotation_index": 0}
-}`,
-			Example: `result = api.call("workouts.rotation.state")
+			ID:     "workouts.rotation.state",
+			Topic:  "workouts",
+			Method: "GET",
+			Path:   "/api/workout/rotation/state",
+			Risk:   RiskRead,
+			ParamsSchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["group_id"],
+  "properties": {
+    "group_id": {"type": "integer", "description": "Rotating workout group ID"}
+  }
+}`),
+			Description:     "Read one rotating group's rotation state — which variant is queued next. Takes a single group_id; call it once per group.",
+			ResponseSummary: "Object {group_id, current_variant_id, last_session_date (may be null), updated_at}. 404 when the group has no rotation state.",
+			ResponseExample: `{"group_id": 1, "current_variant_id": 5, "last_session_date": "2026-04-29", "updated_at": "2026-04-29T08:20:00Z"}`,
+			Example: `result = api.call("workouts.rotation.state", params={"group_id": 1})
 output(result)`,
 		},
 		{
-			ID:              "workouts.rotation.initialize",
-			Topic:           "workouts",
-			Method:          "POST",
-			Path:            "/api/workout/rotation/initialize",
-			Risk:            RiskWrite,
-			Description:     "Initialize (or reset) the rotation state for all of the user's rotating groups: resets each group's rotation pointer to its first variant. Use after creating new groups/variants, or when manual skips/changes have left the rotation pointing at the wrong variant. Does NOT delete sessions or exercise logs — only repositions the rotation cursor.",
+			ID:     "workouts.rotation.initialize",
+			Topic:  "workouts",
+			Method: "POST",
+			Path:   "/api/workout/rotation/initialize",
+			Risk:   RiskWrite,
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["group_id", "starting_variant_id"],
+  "properties": {
+    "group_id":            {"type": "integer", "description": "Rotating workout group to reposition"},
+    "starting_variant_id": {"type": "integer", "description": "Variant the rotation cursor should point at next"}
+  }
+}`),
+			Description:     "Initialize (or reset) one rotating group's rotation state: points its rotation cursor at the given variant. Use after creating new groups/variants, or when manual skips/changes have left the rotation pointing at the wrong variant. Does NOT delete sessions or exercise logs — only repositions the rotation cursor.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
-			Example: `api.call("workouts.rotation.initialize")
+			Example: `api.call("workouts.rotation.initialize", body={"group_id": 1, "starting_variant_id": 5})
 output({"reset": True})`,
 		},
 
@@ -461,9 +484,9 @@ output({"reset": True})`,
 			Path:            "/api/workout/exercise-library",
 			Risk:            RiskRead,
 			Description:     "List the user's exercise library — saved exercises with default sets/reps/weight that the UI offers as autocomplete suggestions when building a workout.",
-			ResponseSummary: "JSON array of items with id, name, default_sets, default_reps_min, default_reps_max, default_weight_kg, notes.",
+			ResponseSummary: "JSON array of items with id, name, default_sets, default_reps_min; default_reps_max, default_weight_kg and notes are omitted when unset.",
 			ResponseExample: `[
-  {"id": 7, "name": "Pull-ups", "default_sets": 3, "default_reps_min": 8, "default_reps_max": 12, "default_weight_kg": null, "notes": ""}
+  {"id": 7, "name": "Pull-ups", "default_sets": 3, "default_reps_min": 8, "default_reps_max": 12, "default_weight_kg": 5.0, "notes": "weighted"}
 ]`,
 			Example: `result = api.call("workouts.exercise_library.list")
 output(result)`,
@@ -555,8 +578,16 @@ output({"deleted": 5})`,
 			Path:            "/api/workout/sessions/next",
 			Risk:            RiskRead,
 			Description:     "Find the next upcoming or active workout session for the user, in the user's timezone. Includes already-notified sessions for the current day even if the scheduled time has passed.",
-			ResponseSummary: "Session object with id, group_id, variant_id, scheduled_date, status; or HTTP 204 if nothing is upcoming.",
-			ResponseExample: `{"id": 43, "group_id": 1, "variant_id": 6, "scheduled_date": "2026-05-01", "status": "pending"}`,
+			ResponseSummary: "Object {session: {id, scheduled_date, scheduled_time, status, is_snoozed, snoozed_until, is_today}, group_name, variant_name, exercises_count, variant_id, group_id, is_rotating}; null when nothing is upcoming.",
+			ResponseExample: `{
+  "session": {"id": 43, "scheduled_date": "2026-05-01T00:00:00Z", "scheduled_time": "07:30", "status": "pending", "is_snoozed": false, "snoozed_until": null, "is_today": false},
+  "group_name": "Home Workout",
+  "variant_name": "Pull Day",
+  "exercises_count": 5,
+  "variant_id": 6,
+  "group_id": 1,
+  "is_rotating": true
+}`,
 			Example: `result = api.call("workouts.sessions.next")
 output(result)`,
 		},

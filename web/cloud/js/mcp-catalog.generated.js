@@ -122,7 +122,7 @@ export const CATALOG = [
     "path": "/api/food/log",
     "risk": "read",
     "description": "List food log entries for a date window, grouped into meals. date defaults to today in the user's timezone. tz overrides with an IANA name (e.g. 'America/Los_Angeles'); tz_offset (minutes west of UTC) is a fallback only when the IANA name is unrecognized. The date string is interpreted in whichever timezone resolves first: tz, then tz_offset, then the user's stored timezone.",
-    "response_summary": "JSON array of food groups; each group has logs[] with id, eaten_at, weight, carbs, protein, fat, calories, name, product_id.",
+    "response_summary": "JSON array of meal groups {name, time (HH:MM), calories, carbs, protein, fat, logs[]}; each logs[] entry has id, eaten_at, weight, carbs, protein, fat, calories, is_meal, and (when set) name + product_id.",
     "params_schema": {
       "type": "object",
       "properties": {
@@ -145,7 +145,7 @@ export const CATALOG = [
         }
       }
     },
-    "response_example": "[\n  {\n    \"date\": \"2026-04-29\",\n    \"logs\": [\n      {\"id\": 901, \"eaten_at\": \"2026-04-29T08:00:00Z\", \"weight\": 200, \"carbs\": 40, \"protein\": 8, \"fat\": 5, \"calories\": 250, \"name\": \"oatmeal\", \"product_id\": 12},\n      {\"id\": 902, \"eaten_at\": \"2026-04-29T12:30:00Z\", \"weight\": 150, \"carbs\": 0, \"protein\": 31, \"fat\": 4, \"calories\": 165, \"name\": \"chicken breast\", \"product_id\": 7}\n    ]\n  }\n]"
+    "response_example": "[\n  {\n    \"name\": \"Breakfast\",\n    \"time\": \"08:00\",\n    \"calories\": 415,\n    \"carbs\": 40,\n    \"protein\": 39,\n    \"fat\": 9,\n    \"logs\": [\n      {\"id\": 901, \"eaten_at\": \"2026-04-29T08:00:00Z\", \"weight\": 200, \"carbs\": 40, \"protein\": 8, \"fat\": 5, \"calories\": 250, \"name\": \"oatmeal\", \"product_id\": 12, \"is_meal\": false},\n      {\"id\": 902, \"eaten_at\": \"2026-04-29T08:05:00Z\", \"weight\": 150, \"carbs\": 0, \"protein\": 31, \"fat\": 4, \"calories\": 165, \"name\": \"chicken breast\", \"product_id\": 7, \"is_meal\": false}\n    ]\n  }\n]"
   },
   {
     "id": "food.log.update",
@@ -378,8 +378,8 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/food/stats",
     "risk": "read",
-    "description": "Aggregated food stats over a date window: totals, daily averages, and breakdowns.",
-    "response_summary": "Stats object with calories, carbs, protein, fat totals plus per-day arrays.",
+    "description": "Total calories and macros consumed over a date window. Divide by `days` yourself for a daily average; there is no per-day breakdown here — use food.log.list for that.",
+    "response_summary": "Object with the window's total calories, carbs, protein, fat (integers, kcal and grams).",
     "params_schema": {
       "type": "object",
       "properties": {
@@ -400,7 +400,7 @@ export const CATALOG = [
         }
       }
     },
-    "response_example": "{\n  \"totals\": {\"calories\": 14210, \"carbs\": 1400, \"protein\": 700, \"fat\": 420},\n  \"daily_average\": {\"calories\": 2030, \"carbs\": 200, \"protein\": 100, \"fat\": 60},\n  \"per_day\": [\n    {\"date\": \"2026-04-29\", \"calories\": 2100, \"carbs\": 210, \"protein\": 105, \"fat\": 62}\n  ]\n}"
+    "response_example": "{\"calories\": 14210, \"carbs\": 1400, \"protein\": 700, \"fat\": 420}"
   },
   {
     "id": "food.targets.read",
@@ -533,8 +533,8 @@ export const CATALOG = [
     "path": "/api/bp/goal",
     "risk": "read",
     "description": "Get the user's BP goal (target systolic/diastolic).",
-    "response_summary": "BPGoal object with target_systolic, target_diastolic and optional updated_at.",
-    "response_example": "{\"target_systolic\": 120, \"target_diastolic\": 80, \"updated_at\": \"2026-03-15T10:00:00Z\"}"
+    "response_summary": "BPGoal object with target_systolic and target_diastolic; either is omitted when unset, so an empty object means no goal.",
+    "response_example": "{\"target_systolic\": 120, \"target_diastolic\": 80}"
   },
   {
     "id": "health.bp.list",
@@ -586,9 +586,9 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/bp/reminder/status",
     "risk": "read",
-    "description": "Get the BP reminder state: enabled flag, snooze-until timestamp, dontbug-until timestamp, last/next reminder times.",
-    "response_summary": "ReminderState object with enabled, snoozed_until, dontbug_until, last_reminded_at, next_reminder_at.",
-    "response_example": "{\"enabled\": true, \"snoozed_until\": null, \"dontbug_until\": null, \"last_reminded_at\": \"2026-04-29T09:00:00Z\", \"next_reminder_at\": \"2026-04-30T09:00:00Z\"}"
+    "description": "Get the BP reminder state: enabled flag, the hour of day the reminder fires, and the snooze / don't-remind deadlines.",
+    "response_summary": "ReminderState object with enabled, preferred_reminder_hour, snoozed_until and dont_remind_until.",
+    "response_example": "{\"enabled\": true, \"preferred_reminder_hour\": 20, \"snoozed_until\": null, \"dont_remind_until\": null}"
   },
   {
     "id": "health.bp.reminder.test",
@@ -630,8 +630,8 @@ export const CATALOG = [
     "path": "/api/bp/stats",
     "risk": "read",
     "description": "Daily-weighted BP statistics over the user's recent history.",
-    "response_summary": "Stats object with arrays of date, mean systolic, mean diastolic, mean pulse, sample counts.",
-    "response_example": "{\n  \"dates\": [\"2026-04-27\", \"2026-04-28\", \"2026-04-29\"],\n  \"systolic\": [124.0, 127.5, 122.0],\n  \"diastolic\": [80.0, 81.5, 78.0],\n  \"pulse\": [68.0, 70.0, 64.0],\n  \"counts\": [1, 2, 1]\n}"
+    "response_summary": "Object with a stats_14 / stats_30 / stats_60 window, each carrying daily-weighted mean systolic and diastolic, the number of days with readings, and the total reading count.",
+    "response_example": "{\n  \"stats_14\": {\"systolic\": 124, \"diastolic\": 80, \"days\": 12, \"readings\": 21},\n  \"stats_30\": {\"systolic\": 125, \"diastolic\": 81, \"days\": 26, \"readings\": 44},\n  \"stats_60\": {\"systolic\": 126, \"diastolic\": 81, \"days\": 51, \"readings\": 88}\n}"
   },
   {
     "id": "health.notes.create",
@@ -733,7 +733,7 @@ export const CATALOG = [
     "path": "/api/health/sleep",
     "risk": "read",
     "description": "List raw device-imported sleep sessions, newest first, each with full phase breakdown (light/deep/REM/awake minutes), total minutes, turn-over count, and HR/SpO2 averages. This is the detailed, range-queryable sleep source — use it (NOT health.notes.*) for sleep-recovery / phase analysis, and prefer it over health.overview when you need a window other than the trailing 7/30 days (e.g. a past trip). Provide an explicit from/to range or a days look-back. This replaces the older get_sleep_logs endpoint.",
-    "response_summary": "JSON array of sleep sessions: {id, user_id, start_time, end_time, timezone_offset, day (YYYY-MM-DD), light_minutes, deep_minutes, rem_minutes, awake_minutes, total_minutes, turn_over_count, heart_rate_avg, spo2_avg, user_modified, notes, created_at}. Phase/HR fields are omitted when the device did not report them.",
+    "response_summary": "JSON array of sleep sessions: {id, user_id, start_time, end_time, timezone_offset, day (YYYY-MM-DD), light_minutes, deep_minutes, rem_minutes, awake_minutes, total_minutes, turn_over_count, heart_rate_avg, spo2_avg, user_modified, notes}. Phase/HR fields are omitted when the device did not report them.",
     "params_schema": {
       "type": "object",
       "properties": {
@@ -758,7 +758,7 @@ export const CATALOG = [
         }
       }
     },
-    "response_example": "[\n  {\"id\": 305, \"user_id\": 1, \"start_time\": \"2026-04-28T23:10:00Z\", \"end_time\": \"2026-04-29T06:30:00Z\", \"timezone_offset\": 0, \"day\": \"2026-04-29\", \"light_minutes\": 240, \"deep_minutes\": 90, \"rem_minutes\": 70, \"awake_minutes\": 20, \"total_minutes\": 420, \"turn_over_count\": 14, \"heart_rate_avg\": 56, \"spo2_avg\": 97, \"user_modified\": false, \"notes\": \"\", \"created_at\": \"2026-04-29T07:00:00Z\"}\n]"
+    "response_example": "[\n  {\"id\": 305, \"user_id\": 1, \"start_time\": \"2026-04-28T23:10:00Z\", \"end_time\": \"2026-04-29T06:30:00Z\", \"timezone_offset\": 0, \"day\": \"2026-04-29\", \"light_minutes\": 240, \"deep_minutes\": 90, \"rem_minutes\": 70, \"awake_minutes\": 20, \"total_minutes\": 420, \"turn_over_count\": 14, \"heart_rate_avg\": 56, \"spo2_avg\": 97, \"user_modified\": false, \"notes\": \"restless\"}\n]"
   },
   {
     "id": "health.weight.create",
@@ -849,9 +849,9 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/weight/goal",
     "risk": "read",
-    "description": "Get the user's weight goal (target weight in kg).",
-    "response_summary": "WeightGoal object with target_weight (kg) and optional updated_at.",
-    "response_example": "{\"target_weight\": 75.0, \"updated_at\": \"2026-02-01T08:00:00Z\"}"
+    "description": "Get the user's weight goal (goal weight in kg), plus the highest weight ever logged as the reference point the trajectory is measured from.",
+    "response_summary": "Object {goal (kg), goal_set_at (RFC3339), goal_date (YYYY-MM-DD, optional), goal_start_weight (kg, optional), highest_weight (kg), highest_date (RFC3339)}. Every field is omitted when unset, so an empty object means no goal and no readings.",
+    "response_example": "{\"goal\": 75.0, \"goal_set_at\": \"2026-02-01T08:00:00Z\", \"highest_weight\": 82.5, \"highest_date\": \"2026-01-04T07:30:00Z\"}"
   },
   {
     "id": "health.weight.list",
@@ -903,9 +903,9 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/weight/reminder/status",
     "risk": "read",
-    "description": "Get the weight reminder state. Reminders are temporarily muted while snoozed_until \u003e now or dontbug_until \u003e now (use this to decide whether to prompt the user). next_reminder_at is when the scheduler will fire the next reminder.",
-    "response_summary": "Object {enabled (bool), snoozed_until (RFC3339 or null), dontbug_until (RFC3339 or null), last_reminded_at (RFC3339 or null), next_reminder_at (RFC3339 or null)}.",
-    "response_example": "{\"enabled\": true, \"snoozed_until\": null, \"dontbug_until\": null, \"last_reminded_at\": \"2026-04-29T07:00:00Z\", \"next_reminder_at\": \"2026-04-30T07:00:00Z\"}"
+    "description": "Get the weight reminder state. Reminders are temporarily muted while snoozed_until \u003e now or dont_remind_until \u003e now (use this to decide whether to prompt the user). preferred_reminder_hour is the local hour the scheduler fires at.",
+    "response_summary": "Object {enabled (bool), preferred_reminder_hour (0-23), snoozed_until (RFC3339 or null), dont_remind_until (RFC3339 or null)}.",
+    "response_example": "{\"enabled\": true, \"preferred_reminder_hour\": 9, \"snoozed_until\": null, \"dont_remind_until\": null}"
   },
   {
     "id": "health.weight.reminder.toggle",
@@ -1557,8 +1557,8 @@ export const CATALOG = [
     "path": "/api/workout/exercise-library",
     "risk": "read",
     "description": "List the user's exercise library — saved exercises with default sets/reps/weight that the UI offers as autocomplete suggestions when building a workout.",
-    "response_summary": "JSON array of items with id, name, default_sets, default_reps_min, default_reps_max, default_weight_kg, notes.",
-    "response_example": "[\n  {\"id\": 7, \"name\": \"Pull-ups\", \"default_sets\": 3, \"default_reps_min\": 8, \"default_reps_max\": 12, \"default_weight_kg\": null, \"notes\": \"\"}\n]"
+    "response_summary": "JSON array of items with id, name, default_sets, default_reps_min; default_reps_max, default_weight_kg and notes are omitted when unset.",
+    "response_example": "[\n  {\"id\": 7, \"name\": \"Pull-ups\", \"default_sets\": 3, \"default_reps_min\": 8, \"default_reps_max\": 12, \"default_weight_kg\": 5.0, \"notes\": \"weighted\"}\n]"
   },
   {
     "id": "workouts.exercise_library.update",
@@ -1709,7 +1709,7 @@ export const CATALOG = [
     "path": "/api/workout/exercises",
     "risk": "read",
     "description": "List all exercises in a workout variant. Returns exercises with their default sets, reps, and weight.",
-    "response_summary": "JSON array of exercise objects with id, name, sets, reps, weight_kg, notes, variant_id.",
+    "response_summary": "JSON array of exercise objects with id, variant_id, exercise_name, target_sets, target_reps_min, order_index; target_reps_max and target_weight_kg are omitted when unset.",
     "params_schema": {
       "type": "object",
       "required": [
@@ -1722,7 +1722,7 @@ export const CATALOG = [
         }
       }
     },
-    "response_example": "[\n  {\"id\": 42, \"name\": \"Bench Press\", \"target_sets\": 4, \"target_reps_min\": 6, \"target_reps_max\": 8, \"target_weight_kg\": 65.0, \"order_index\": 0, \"variant_id\": 2}\n]"
+    "response_example": "[\n  {\"id\": 42, \"variant_id\": 2, \"exercise_name\": \"Bench Press\", \"target_sets\": 4, \"target_reps_min\": 6, \"target_reps_max\": 8, \"target_weight_kg\": 65.0, \"order_index\": 0}\n]"
   },
   {
     "id": "workouts.exercises.unique",
@@ -2000,8 +2000,29 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/workout/rotation/initialize",
     "risk": "write",
-    "description": "Initialize (or reset) the rotation state for all of the user's rotating groups: resets each group's rotation pointer to its first variant. Use after creating new groups/variants, or when manual skips/changes have left the rotation pointing at the wrong variant. Does NOT delete sessions or exercise logs — only repositions the rotation cursor.",
-    "response_summary": "Empty body on success (HTTP 200)."
+    "description": "Initialize (or reset) one rotating group's rotation state: points its rotation cursor at the given variant. Use after creating new groups/variants, or when manual skips/changes have left the rotation pointing at the wrong variant. Does NOT delete sessions or exercise logs — only repositions the rotation cursor.",
+    "response_summary": "Empty body on success (HTTP 200).",
+    "required": [
+      "group_id",
+      "starting_variant_id"
+    ],
+    "body_schema": {
+      "type": "object",
+      "required": [
+        "group_id",
+        "starting_variant_id"
+      ],
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "description": "Rotating workout group to reposition"
+        },
+        "starting_variant_id": {
+          "type": "integer",
+          "description": "Variant the rotation cursor should point at next"
+        }
+      }
+    }
   },
   {
     "id": "workouts.rotation.state",
@@ -2009,9 +2030,21 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/workout/rotation/state",
     "risk": "read",
-    "description": "Read the current rotation state — which variant is queued next for each rotating workout group.",
-    "response_summary": "JSON object keyed by group_id with the current rotation slot and pointer.",
-    "response_example": "{\n  \"1\": {\"current_variant_id\": 5, \"current_variant_name\": \"Push Day\", \"rotation_index\": 0}\n}"
+    "description": "Read one rotating group's rotation state — which variant is queued next. Takes a single group_id; call it once per group.",
+    "response_summary": "Object {group_id, current_variant_id, last_session_date (may be null), updated_at}. 404 when the group has no rotation state.",
+    "params_schema": {
+      "type": "object",
+      "required": [
+        "group_id"
+      ],
+      "properties": {
+        "group_id": {
+          "type": "integer",
+          "description": "Rotating workout group ID"
+        }
+      }
+    },
+    "response_example": "{\"group_id\": 1, \"current_variant_id\": 5, \"last_session_date\": \"2026-04-29\", \"updated_at\": \"2026-04-29T08:20:00Z\"}"
   },
   {
     "id": "workouts.sessions.adhoc",
@@ -2068,7 +2101,7 @@ export const CATALOG = [
     "path": "/api/workout/sessions/details",
     "risk": "read",
     "description": "Get detailed information for a specific workout session including all exercise logs.",
-    "response_summary": "Session object with exercise_logs array containing sets, reps, weight_kg, status, notes per exercise.",
+    "response_summary": "Object {session, logs}: the session row plus its per-exercise logs (sets_completed, reps_completed, weight_kg, status, notes). Null when no session has that id.",
     "params_schema": {
       "type": "object",
       "required": [
@@ -2081,7 +2114,7 @@ export const CATALOG = [
         }
       }
     },
-    "response_example": "{\n  \"id\": 42, \"group_id\": 1, \"variant_id\": 5, \"scheduled_date\": \"2026-04-29\", \"status\": \"completed\",\n  \"exercise_logs\": [\n    {\"id\": 99, \"exercise_name\": \"Bench Press\", \"target_sets\": 4, \"target_reps_min\": 6, \"sets_completed\": 4, \"reps_completed\": 8, \"weight_kg\": 65.0, \"status\": \"completed\", \"notes\": \"\"}\n  ]\n}"
+    "response_example": "{\n  \"session\": {\"id\": 42, \"group_id\": 1, \"variant_id\": 5, \"scheduled_date\": \"2026-04-29T00:00:00Z\", \"scheduled_time\": \"07:30\", \"status\": \"completed\", \"snooze_count\": 0},\n  \"logs\": [\n    {\"id\": 99, \"session_id\": 42, \"exercise_id\": 7, \"exercise_name\": \"Bench Press\", \"sets_completed\": 4, \"reps_completed\": 8, \"weight_kg\": 65.0, \"status\": \"completed\", \"logged_at\": \"2026-04-29T08:10:00Z\", \"source\": \"library\"}\n  ]\n}"
   },
   {
     "id": "workouts.sessions.list",
@@ -2090,7 +2123,7 @@ export const CATALOG = [
     "path": "/api/workout/sessions",
     "risk": "read",
     "description": "List recent workout sessions. Sessions represent a scheduled or ad-hoc workout that was completed or skipped. Returned sessions span every group; filter client-side on the returned group_id field if needed.",
-    "response_summary": "JSON array of session objects with id, group_id, variant_id, scheduled_date, status, started_at, completed_at.",
+    "response_summary": "JSON array of session views: {session: {id, group_id, variant_id, scheduled_date, scheduled_time, status, started_at, completed_at, snooze_count}, group_name, variant_name, exercises_count, exercises_completed, total_volume}.",
     "params_schema": {
       "type": "object",
       "properties": {
@@ -2102,7 +2135,7 @@ export const CATALOG = [
         }
       }
     },
-    "response_example": "[\n  {\"id\": 42, \"group_id\": 1, \"variant_id\": 5, \"scheduled_date\": \"2026-04-29\", \"status\": \"completed\", \"started_at\": \"2026-04-29T07:32:00Z\", \"completed_at\": \"2026-04-29T08:20:00Z\"}\n]"
+    "response_example": "[\n  {\n    \"session\": {\"id\": 42, \"group_id\": 1, \"variant_id\": 5, \"scheduled_date\": \"2026-04-29T00:00:00Z\", \"scheduled_time\": \"07:30\", \"status\": \"completed\", \"started_at\": \"2026-04-29T07:32:00Z\", \"completed_at\": \"2026-04-29T08:20:00Z\", \"snooze_count\": 0},\n    \"group_name\": \"Home Workout\",\n    \"variant_name\": \"Push Day\",\n    \"exercises_count\": 5,\n    \"exercises_completed\": 5,\n    \"total_volume\": 4820.0\n  }\n]"
   },
   {
     "id": "workouts.sessions.logs.create",
@@ -2270,8 +2303,8 @@ export const CATALOG = [
     "path": "/api/workout/sessions/next",
     "risk": "read",
     "description": "Find the next upcoming or active workout session for the user, in the user's timezone. Includes already-notified sessions for the current day even if the scheduled time has passed.",
-    "response_summary": "Session object with id, group_id, variant_id, scheduled_date, status; or HTTP 204 if nothing is upcoming.",
-    "response_example": "{\"id\": 43, \"group_id\": 1, \"variant_id\": 6, \"scheduled_date\": \"2026-05-01\", \"status\": \"pending\"}"
+    "response_summary": "Object {session: {id, scheduled_date, scheduled_time, status, is_snoozed, snoozed_until, is_today}, group_name, variant_name, exercises_count, variant_id, group_id, is_rotating}; null when nothing is upcoming.",
+    "response_example": "{\n  \"session\": {\"id\": 43, \"scheduled_date\": \"2026-05-01T00:00:00Z\", \"scheduled_time\": \"07:30\", \"status\": \"pending\", \"is_snoozed\": false, \"snoozed_until\": null, \"is_today\": false},\n  \"group_name\": \"Home Workout\",\n  \"variant_name\": \"Pull Day\",\n  \"exercises_count\": 5,\n  \"variant_id\": 6,\n  \"group_id\": 1,\n  \"is_rotating\": true\n}"
   },
   {
     "id": "workouts.sessions.next_variant",
@@ -2479,9 +2512,9 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/workout/stats",
     "risk": "read",
-    "description": "Get aggregated workout statistics including total sessions, completion rate, and per-group summaries.",
-    "response_summary": "Stats object with total_sessions, completed_sessions, skipped_sessions, completion_rate, and per-group breakdowns.",
-    "response_example": "{\n  \"total_sessions\": 48, \"completed_sessions\": 40, \"skipped_sessions\": 8, \"completion_rate\": 0.83,\n  \"per_group\": [\n    {\"group_id\": 1, \"name\": \"Home Workout\", \"completed\": 40, \"skipped\": 8}\n  ]\n}"
+    "description": "Get aggregated workout statistics: session counts, completion rate, the most-trained exercises, and a per-week activity breakdown. There is no per-group breakdown — filter workouts.sessions.list on group_id for that.",
+    "response_summary": "Stats object with total_sessions, completed_sessions, skipped_sessions, completion_rate, active_weeks, top_exercises[] and weekly_activity[].",
+    "response_example": "{\n  \"total_sessions\": 48, \"completed_sessions\": 40, \"skipped_sessions\": 8, \"completion_rate\": 0.83, \"active_weeks\": 12,\n  \"top_exercises\": [\n    {\"exercise_name\": \"Bench Press\", \"session_count\": 22, \"total_volume_kg\": 41800.0, \"max_weight_kg\": 75.0}\n  ],\n  \"weekly_activity\": [\n    {\"week\": \"2026-04-27\", \"completed\": 3, \"skipped\": 1}\n  ]\n}"
   },
   {
     "id": "workouts.variants.create",
@@ -2552,7 +2585,7 @@ export const CATALOG = [
     "path": "/api/workout/variants",
     "risk": "read",
     "description": "List all variants within a workout group. A variant is one rotation slot (e.g. 'Push Day', 'Pull Day').",
-    "response_summary": "JSON array of variant objects with id, name, description, group_id.",
+    "response_summary": "JSON array of variant objects with id, name, group_id; description and rotation_order are omitted when unset (rotation_order is null for a non-rotating group).",
     "params_schema": {
       "type": "object",
       "required": [
@@ -2565,7 +2598,7 @@ export const CATALOG = [
         }
       }
     },
-    "response_example": "[\n  {\"id\": 5, \"name\": \"Push Day\", \"description\": \"\", \"group_id\": 1, \"rotation_order\": 0},\n  {\"id\": 6, \"name\": \"Pull Day\", \"description\": \"\", \"group_id\": 1, \"rotation_order\": 1}\n]"
+    "response_example": "[\n  {\"id\": 5, \"name\": \"Push Day\", \"description\": \"chest and triceps\", \"group_id\": 1, \"rotation_order\": 1},\n  {\"id\": 6, \"name\": \"Pull Day\", \"description\": \"back and biceps\", \"group_id\": 1, \"rotation_order\": 2}\n]"
   },
   {
     "id": "workouts.variants.update",

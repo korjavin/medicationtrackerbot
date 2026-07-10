@@ -14,10 +14,11 @@ import { openDb } from '../localdb.js';
 
 // The coverage sweep drives medications.create, whose domain module calls the
 // rxnorm port — the real one fetches RxNav over the network. Stub it file-wide;
-// no test here asserts on interaction warnings.
+// no test here asserts on interaction warnings. It resolves a real rxcui so the
+// created row carries the rxcui/normalized_name that medications.list documents.
 vi.mock('../rxnorm.js', () => ({
   createRxnormPort: () => ({
-    searchRxNorm: async () => ({ rxcui: '', normalizedName: '' }),
+    searchRxNorm: async () => ({ rxcui: '2601723', normalizedName: 'tirzepatide' }),
     checkInteractions: async () => [],
   }),
 }));
@@ -827,5 +828,238 @@ describe('cloud MCP coverage sweep', () => {
       },
     });
     expect(response.error).toBeUndefined();
+  });
+});
+
+// --- ResponseExample shape conformance (med-csu.3, Task 5) ----------------
+// The registry's ResponseExample is the shape both surfaces advertise to an
+// agent. The coverage sweep above only proves an op *reaches* a domain module;
+// this proves what comes back looks like what mcp_help promised. Records are
+// seeded through the router's own write ops — an all-empty sweep would assert
+// nothing about element shape.
+
+describe('cloud MCP response_example conformance', () => {
+  const NOW = Date.parse('2026-07-06T12:00:00.000Z');
+
+  // Ops whose reads must come back non-empty: if a fixture stops landing, the
+  // key checks below silently degrade to "is an array" and prove nothing.
+  const MUST_BE_NON_EMPTY = [
+    'health.bp.list', 'health.weight.list', 'health.notes.list', 'food.log.list',
+    'food.products.list', 'food.products.search', 'health.weight.goal.history.list',
+    'health.sleep.list', 'medications.list', 'medications.history',
+    'medications.restocks.list', 'workouts.groups.list', 'workouts.variants.list',
+    'workouts.exercises.list', 'workouts.exercise_library.list', 'workouts.miband.list',
+    'workouts.sessions.list',
+  ];
+
+  async function seedFixtures(dispatcher) {
+    const w = async (op, input, pathParams = {}) => {
+      const res = await handleRequest(dispatcher, {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'mcp_call',
+        params: {
+          operation_id: op,
+          params: input,
+          path_params: pathParams,
+          mode: 'write',
+          intent: 'seed the conformance fixture',
+        },
+      });
+      expect(res.error, `${op}: ${res.error && res.error.message}`).toBeUndefined();
+      return res.result.result;
+    };
+
+    // Every optional field the examples advertise is filled in: the Go handlers
+    // mark them `omitempty`, so a sparse fixture would let a domain module that
+    // never emits them at all pass the key check.
+    await w('health.bp.create', {
+      measured_at: '2026-07-06T08:00:00.000Z',
+      systolic: 122,
+      diastolic: 79,
+      pulse: 61,
+      site: 'left arm',
+      position: 'sitting',
+      notes: 'after coffee',
+      tag: 'MORNING',
+    });
+    await w('health.weight.create', {
+      measured_at: '2026-07-06T07:00:00.000Z', weight: 78.4, body_fat: 18.2, muscle_mass: 34.1, notes: 'post-run',
+    });
+    await w('health.notes.create', { content: 'slept well', tag: 'SLEEP' });
+    await w('food.targets.set', {
+      calories: 2200, carbs: 250, protein: 140, fat: 70,
+    });
+    await w('food.log.create', {
+      name: 'oatmeal', eaten_at: '2026-07-06T08:30:00.000Z', weight: 100, calories: 370, carbs: 60, protein: 13, fat: 7,
+    });
+
+    // 20:00 today, inside nextIntake's 12h forecast window from the fixed clock.
+    const med = await w('medications.create', {
+      name: 'Mounjaro', dosage: '5 mg', schedule: JSON.stringify({ type: 'daily', times: ['20:00'] }), inventory_count: 4,
+    });
+    const medID = med.id;
+    await w('medications.restock', { quantity: 30, note: 'Pharmacy refill' }, { id: String(medID) });
+    await w('medications.log_past', { medication_id: medID, taken_at: '2026-07-05T20:00:00.000Z' });
+
+    const group = await w('workouts.groups.create', { name: 'Home Workout', description: 'Bodyweight rotation' });
+    // sessions.next scans active groups for a weekday + time match, so the
+    // group needs a schedule before it can name a next session.
+    await w('workouts.groups.update', {
+      id: group.id,
+      name: 'Home Workout',
+      description: 'Bodyweight rotation',
+      is_rotating: true,
+      days_of_week: '[0,1,2,3,4,5,6]',
+      scheduled_time: '18:00',
+      notification_advance_minutes: 15,
+      active: true,
+    });
+    const variant = await w('workouts.variants.create', {
+      group_id: group.id, name: 'Push Day', description: 'chest and triceps', rotation_order: 1,
+    });
+    await w('workouts.exercises.create', {
+      variant_id: variant.id,
+      exercise_name: 'Bench Press',
+      target_sets: 4,
+      target_reps_min: 6,
+      target_reps_max: 8,
+      target_weight_kg: 65,
+      order_index: 0,
+    });
+    await w('workouts.exercise_library.create', {
+      name: 'Pull-ups', default_sets: 3, default_reps_min: 8, default_reps_max: 12, default_weight_kg: 5, notes: 'weighted',
+    });
+    await w('workouts.rotation.initialize', { group_id: group.id, starting_variant_id: variant.id });
+    const session = await w('workouts.sessions.schedule', {
+      scheduled_date: '2026-07-07',
+      scheduled_time: '18:00',
+      exercises: [{ exercise_name: 'Bench Press', target_sets: 4, target_reps_min: 6 }],
+    });
+
+    return { medID, groupID: group.id, variantID: variant.id, sessionID: session.session.id };
+  }
+
+  // Per-op inputs for the reads that need one; everything else runs bare.
+  function inputsFor(op, ids) {
+    switch (op.id) {
+      case 'workouts.variants.list': return { params: { group_id: ids.groupID } };
+      case 'workouts.exercises.list': return { params: { variant_id: ids.variantID } };
+      case 'workouts.sessions.details': return { params: { id: ids.sessionID } };
+      case 'workouts.rotation.state': return { params: { group_id: ids.groupID } };
+      case 'medications.restocks.list': return { path_params: { id: String(ids.medID) } };
+      case 'food.products.search': return { params: { q: 'oat' } };
+      case 'medications.intake.update': return { params: { updates: [] } };
+      default: return {};
+    }
+  }
+
+  function parseExample(op) {
+    return typeof op.response_example === 'string' ? JSON.parse(op.response_example) : op.response_example;
+  }
+
+  const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  // rotation.state is a map keyed by group id — its example's "1" is a sample
+  // key, not a contract. Compare the value shapes instead.
+  const isNumericKeyMap = (v) => isPlainObject(v) && Object.keys(v).length > 0
+    && Object.keys(v).every((k) => /^\d+$/.test(k));
+
+  // Returns a mismatch string, or '' when the shapes agree.
+  function compareShape(example, actual) {
+    if (Array.isArray(example)) {
+      if (!Array.isArray(actual)) return `expected an array, got ${actual === null ? 'null' : typeof actual}`;
+      if (!example.length || !actual.length || !isPlainObject(example[0])) return '';
+      return missingKeys(example[0], actual[0], 'element');
+    }
+    if (isNumericKeyMap(example)) {
+      if (!isPlainObject(actual)) return `expected an object map, got ${actual === null ? 'null' : typeof actual}`;
+      const actualValues = Object.values(actual);
+      if (!actualValues.length) return '';
+      return missingKeys(Object.values(example)[0], actualValues[0], 'map value');
+    }
+    if (!isPlainObject(actual)) return `expected an object, got ${actual === null ? 'null' : typeof actual}`;
+    return missingKeys(example, actual, 'top level');
+  }
+
+  function missingKeys(example, actual, where) {
+    if (!isPlainObject(example) || !isPlainObject(actual)) return '';
+    const missing = Object.keys(example).filter((k) => !(k in actual));
+    return missing.length ? `${where} missing ${missing.join(', ')}` : '';
+  }
+
+  // Sleep and Mi Band have no catalogued write op (the bands upload them), and
+  // the BP goal has no cloud route at all — only the read is catalogued. Those
+  // three are seeded straight onto the records port the router reads.
+  function seedRecordsPort() {
+    return createInMemoryRecordsPort({
+      bpgoal: [{ recordId: 'bpgoal', target_systolic: 120, target_diastolic: 80 }],
+      sleep: [{
+        recordId: 305,
+        start_time: '2026-07-05T23:10:00.000Z',
+        end_time: '2026-07-06T06:40:00.000Z',
+        day: '2026-07-06',
+        light_minutes: 240,
+        deep_minutes: 110,
+        rem_minutes: 80,
+        awake_minutes: 20,
+        total_minutes: 450,
+        turn_over_count: 12,
+        heart_rate_avg: 56,
+        spo2_avg: 97,
+        notes: 'restless',
+      }],
+      miband: [{
+        recordId: 'miband-88',
+        id: 88,
+        activity_type: 1,
+        activity_name: 'Outdoor Running',
+        source_start_ms: NOW - 3600_000,
+        source_end_ms: NOW - 1200_000,
+        tz_offset: 0,
+        duration_sec: 2400,
+        distance_m: 5200,
+        steps: 5400,
+        calories: 320,
+        heart_rate_avg: 148,
+        spo2_avg: 97,
+        source: 'miband',
+      }],
+    });
+  }
+
+  it('returns the shape mcp_help advertises for every op carrying a response_example', async () => {
+    allowConsoleNoise();
+    const now = () => NOW;
+    const records = seedRecordsPort();
+    const router = createApiRouter(null, { records, now, timeZone: 'UTC' });
+    const dispatcher = createDispatcher({ router, now });
+
+    // The weight goal has no catalogued write; post it through the same router.
+    await router('/api/weight/goal', 'POST', { target_weight: 75, set_at: '2026-07-01T08:00:00.000Z' });
+
+    const ids = await seedFixtures(dispatcher);
+
+    const mismatches = [];
+    const empty = [];
+    for (const op of CATALOG.filter((o) => o.response_example !== undefined)) {
+      const { params = {}, path_params: pathParams = {} } = inputsFor(op, ids);
+      const request = { operation_id: op.id, params, path_params: pathParams };
+      if (op.risk === 'write') { request.mode = 'write'; request.intent = 'conformance check'; }
+      const response = await handleRequest(dispatcher, {
+        jsonrpc: '2.0', id: 1, method: 'mcp_call', params: request,
+      });
+      if (response.error) { mismatches.push(`${op.id}: errored — ${response.error.message}`); continue; }
+      const actual = response.result.result;
+      if (Array.isArray(actual) && !actual.length) empty.push(op.id);
+      const mismatch = compareShape(parseExample(op), actual);
+      if (mismatch) mismatches.push(`${op.id}: ${mismatch}`);
+    }
+
+    expect(mismatches, `ops whose result disagrees with the registry response_example:\n  ${mismatches.join('\n  ')}`).toEqual([]);
+    // A read that came back empty checked nothing about its element shape.
+    expect(
+      MUST_BE_NON_EMPTY.filter((id) => empty.includes(id)),
+      'seeded reads that still returned an empty array — the fixture stopped landing',
+    ).toEqual([]);
   });
 });
