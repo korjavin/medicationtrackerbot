@@ -46,7 +46,7 @@ type helpInput struct {
 // the two are duplicated rather than shared because cmd/mcpshim is package
 // main, and TestMCPCallEnvelopeLockstep is what stops them drifting.
 type callInput struct {
-	OperationID string         `json:"operation_id,omitempty" jsonschema:"the operation id from mcp_help's catalog, e.g. bp.list"`
+	OperationID string         `json:"operation_id,omitempty" jsonschema:"the operation id from mcp_help's catalog, e.g. health.bp.list"`
 	Op          string         `json:"op,omitempty" jsonschema:"deprecated alias for operation_id; prefer operation_id"`
 	Params      map[string]any `json:"params,omitempty" jsonschema:"parameters for the operation, per its params_schema in mcp_help"`
 	PathParams  map[string]any `json:"path_params,omitempty" jsonschema:"values for the operation's {placeholder} path slots, per its path_params in mcp_help"`
