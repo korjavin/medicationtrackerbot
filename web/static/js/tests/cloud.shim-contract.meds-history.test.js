@@ -223,6 +223,24 @@ describe('cloud shim contract — reminder horizon recompute-and-upload (web/dom
         vi.useRealTimers();
     });
 
+    // bd med-tc1.3 — scheduleReminderRecompute keys its 2s debounce off the shim
+    // ctx, and the harness makes a fresh ctx per env, so nothing ever cleared a
+    // prior env's timer. On a loaded runner (where 2s elapses inside a suite) a
+    // timer from an earlier test fired during a later one and called the shared
+    // pushSchedule mock — the later test then saw "called 2 times, but got 1",
+    // or read the stale empty-entry call as its own. Teardown must cancel it.
+    it('tearing down an env cancels its pending debounced push (no cross-test leak)', async () => {
+        const stale = loadCloudShimFrontendEnv({
+            seedRecords: { medication: [seedMedication({ inventory_count: 5 })] }
+        });
+        await stale.window.apiCall('/api/medication/reminder/toggle', 'POST', { enabled: true });
+        stale.cleanup(); // the debounce is still pending here
+
+        await vi.advanceTimersByTimeAsync(2100);
+
+        expect(pushSchedule).not.toHaveBeenCalled();
+    });
+
     it('confirming the only pending intake shrinks the uploaded schedule on the next debounced push', async () => {
         env = loadCloudShimFrontendEnv({
             seedRecords: {

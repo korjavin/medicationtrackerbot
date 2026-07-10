@@ -82,3 +82,15 @@ export function scheduleReminderRecompute(ctx, opts = {}, debounceMs = DEBOUNCE_
   }, debounceMs);
   timers.set(key, timer);
 }
+
+// Drops a pending debounced recompute for `ctx` without running it. A live page
+// never needs this — the timer is short and a reload kills it — but anything
+// that tears an account context down while a write is still settling does: the
+// timer would otherwise fire against a context nobody is using any more. The
+// cloud shim test harness calls it on env teardown, where a stray 2s timer from
+// one test fires into the next test's mocks (bd med-tc1.3).
+export function cancelReminderRecompute(ctx) {
+  const key = (ctx && ctx.accountId) || ctx;
+  clearTimeout(timers.get(key));
+  timers.delete(key);
+}

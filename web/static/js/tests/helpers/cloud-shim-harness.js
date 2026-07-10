@@ -7,6 +7,7 @@
 // window.offlineAwareApiCall) — this is the Go↔JS domain-contract boundary.
 import { installApiShim } from '../../../../cloud/js/apishim.js';
 import { loadFrontendEnv } from './frontend-harness.js';
+import { cancelReminderRecompute } from '../../../../cloud/js/reminders.js';
 
 // In-memory stand-in for web/cloud/js/sync.js's recordsPort(ctx): same
 // list/listRange/put/del contract (list returns only live/non-tombstoned
@@ -57,7 +58,19 @@ export function loadCloudShimFrontendEnv(opts = {}) {
     // vitals bounds its window via listRange rather than listing every batch).
     const records = createInMemoryRecordsPort(seedRecords);
     env.records = records;
-    const shimCall = installApiShim({}, { records, win: env.window });
+    // Every mutating med/intake/tzplan route schedules a 2s debounced reminder
+    // recompute keyed by this ctx. Nothing cancelled it on teardown, so a suite
+    // whose tests run on real timers left live timers behind; once the process
+    // was slow enough for 2s to elapse, they fired inside a *later* test and
+    // called its pushSchedule mock — an extra, empty-entry call the later test
+    // read as its own. Hold the ctx so cleanup can cancel. See bd med-tc1.3.
+    const ctx = {};
+    const shimCall = installApiShim(ctx, { records, win: env.window });
+    const innerCleanup = env.cleanup;
+    env.cleanup = () => {
+        cancelReminderRecompute(ctx);
+        if (innerCleanup) innerCleanup();
+    };
     if (wrapApiCallDirect) {
         // Workout's groups.js/next-card.js/stats.js call window.apiCallDirect
         // directly, bypassing offlineAwareApiCall (Decision 3, C2d plan) —
