@@ -284,8 +284,22 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
 - The device answers using the *same operation catalog* as `internal/mcp/registry`, served by
   `web/cloud/js/mcp-responder.js` — `mcp_help` (discover) and `mcp_call` (executed by the
   in-browser domain layer against local data, same construction path as `apishim`).
-  `mcp_execute` (Python) has no browser sandbox and stays parked, as does its Pyodide
-  alternative.
+- **Cloud MCP is a two-tool surface — `mcp_help` + `mcp_call` — by design, not by omission.**
+  Bot mode's third tool, `mcp_execute`, forks `python3` subprocesses server-side
+  (`internal/mcp/executor/service.go`). That is structurally impossible here: the cloud server
+  never sees vault plaintext, so a server-side script runner would have nothing to read. Making
+  it work would mean shipping plaintext to the server, which is the one property this whole mode
+  exists to prevent. Calling `mcp_execute` against a cloud connector returns an explicit error
+  saying so (`web/cloud/js/mcp-responder.js`), rather than an opaque "unknown method" an agent
+  would retry; `USAGE_PROTOCOL` also states it up front. Multi-step work is done by chaining
+  `mcp_call`, one operation per call.
+- **Availability**: every cloud MCP call requires a live, unlocked browser tab. There is no
+  server-side fallback — by design, for the same reason. If no device is unlocked and online,
+  the call returns an actionable error instead of hanging.
+- Running the Python sandbox **in the browser** via Pyodide is the only route that would preserve
+  zero-knowledge. It is recorded as a future research spike (see Open questions), deliberately not
+  opened: it would ship a ~10 MB WASM runtime into the DEK-bearing page, which interacts with the
+  strict-CSP work in med-7e7.1.
 - **The catalog is generated, not hand-written.** `web/cloud/js/mcp-catalog.generated.js` is
   emitted from `registry.DefaultOperations()` by `cmd/genmcpcatalog` (logic in
   `internal/mcp/catalogjs`); regenerate with `go run ./cmd/genmcpcatalog`. Nine of the 106
