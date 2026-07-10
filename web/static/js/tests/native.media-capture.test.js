@@ -179,6 +179,39 @@ describe('native/web/media-capture.js — web impl', () => {
         expect(track.stop).toHaveBeenCalledTimes(1);
     });
 
+    it('openCameraStream resolves with the raw stream and asks for the rear camera', async () => {
+        const stream = { getTracks: () => [{ stop: vi.fn() }] };
+        const getUserMedia = vi.fn().mockResolvedValue(stream);
+        env = loadEnv({ mediaDevices: { getUserMedia } });
+        const result = await env.window.MediaCapture.openCameraStream({ facingMode: 'environment' });
+        expect(result).toBe(stream);
+        expect(getUserMedia).toHaveBeenCalledWith({
+            audio: false,
+            video: { facingMode: { ideal: 'environment' } },
+        });
+    });
+
+    it('openCameraStream rejects with UNAVAILABLE when getUserMedia is absent', async () => {
+        env = loadEnv({ mediaDevices: {} });
+        let caught;
+        try { await env.window.MediaCapture.openCameraStream(); }
+        catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('MediaCaptureError');
+        expect(caught.code).toBe('UNAVAILABLE');
+    });
+
+    it('openCameraStream normalizes NotAllowedError into PERMISSION_DENIED', async () => {
+        const err = Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' });
+        env = loadEnv({ mediaDevices: { getUserMedia: vi.fn().mockRejectedValue(err) } });
+        let caught;
+        try { await env.window.MediaCapture.openCameraStream(); }
+        catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('MediaCaptureError');
+        expect(caught.code).toBe('PERMISSION_DENIED');
+    });
+
     it('pickPhoto resolves with the selected File on change', async () => {
         env = loadEnv();
         const stubs = installCanvasStubs(env.window);
@@ -319,6 +352,18 @@ describe('native/capacitor/media-capture.js — Capacitor impl', () => {
         env = loadEnv({ capacitor: { isNativePlatform: () => true, Plugins: {} } });
         let caught;
         try { await env.window.MediaCapture.takePhoto(); }
+        catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('MediaCaptureError');
+        expect(caught.code).toBe('UNAVAILABLE');
+    });
+
+    // The shell has no in-app video modal — MLKit owns the scanner UI — so a
+    // raw MediaStream is never obtainable here.
+    it('openCameraStream always rejects with UNAVAILABLE', async () => {
+        env = loadEnv({ capacitor: makeCapacitor({ getPhoto: vi.fn() }) });
+        let caught;
+        try { await env.window.MediaCapture.openCameraStream({ facingMode: 'environment' }); }
         catch (e) { caught = e; }
         expect(caught).toBeDefined();
         expect(caught.name).toBe('MediaCaptureError');

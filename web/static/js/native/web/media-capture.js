@@ -69,7 +69,10 @@
         });
     }
 
-    function takePhoto(opts) {
+    // The single getUserMedia call site in this file. Callers that want a live
+    // preview (features/food/scanner.js) own the returned stream and must
+    // stopStream() it themselves; takePhoto() below stops it after one frame.
+    function openCameraStream(opts) {
         opts = opts || {};
         var nav = window.navigator;
         if (!nav || !nav.mediaDevices || typeof nav.mediaDevices.getUserMedia !== 'function') {
@@ -78,18 +81,23 @@
             unavailable.code = 'UNAVAILABLE';
             return Promise.reject(unavailable);
         }
-
-        var stream = null;
-        var video = window.document.createElement('video');
-        try { video.setAttribute('playsinline', 'true'); } catch (_) { /* ignore */ }
-        video.muted = true;
-
         return nav.mediaDevices.getUserMedia({
             audio: false,
             video: { facingMode: { ideal: opts.facingMode || 'environment' } }
-        })
+        }).catch(function (e) { throw normalizeError(e); });
+    }
+
+    function takePhoto(opts) {
+        opts = opts || {};
+        var stream = null;
+        var video = null;
+
+        return openCameraStream(opts)
             .then(function (s) {
                 stream = s;
+                video = window.document.createElement('video');
+                try { video.setAttribute('playsinline', 'true'); } catch (_) { /* ignore */ }
+                video.muted = true;
                 video.srcObject = s;
                 var p = video.play && video.play();
                 return p && typeof p.then === 'function' ? p : Promise.resolve();
@@ -101,7 +109,7 @@
             })
             .catch(function (e) {
                 stopStream(stream);
-                throw normalizeError(e);
+                throw (e && e.name === 'MediaCaptureError') ? e : normalizeError(e);
             });
     }
 
@@ -150,6 +158,7 @@
     }
 
     var impl = {
+        openCameraStream: openCameraStream,
         takePhoto: takePhoto,
         pickPhoto: pickPhoto,
         requestPermissions: requestPermissions,

@@ -210,16 +210,14 @@ describe('features/food/scanner.js — Phase 2b abstraction seam (Task 7)', () =
         window.stopFoodScanner();
     });
 
-    it('startFoodScanner routes through window.Barcode.scan on the Capacitor shell (no modal, no getUserMedia)', async () => {
+    it('startFoodScanner routes through window.Barcode.scan when hasNativeScanner() (no modal, no camera stream)', async () => {
         const { window } = env;
 
-        // Simulate the Capacitor build's runtime: isNativePlatform() returns
-        // true so the scanner should hand control to MLKit instead of opening
-        // the in-app live-camera modal.
-        window.Capacitor = { isNativePlatform: () => true };
-
+        // Simulate the Capacitor build's runtime: the Barcode abstraction owns
+        // the platform decision (hasNativeScanner() === true) so the scanner
+        // hands control to MLKit instead of opening the in-app camera modal.
         const scanSpy = vi.fn().mockResolvedValue({ format: 'ean_13', rawValue: '1234567890123' });
-        window.Barcode = { scan: scanSpy };
+        window.Barcode = { scan: scanSpy, hasNativeScanner: () => true, supportsLiveScan: () => false };
 
         const onChangeSpy = vi.fn();
         window.onFoodBarcodeChange = onChangeSpy;
@@ -261,9 +259,8 @@ describe('features/food/scanner.js — Phase 2b abstraction seam (Task 7)', () =
         // stares at an empty surface they can't visually dismiss.
         const { window, document } = env;
 
-        window.Capacitor = { isNativePlatform: () => true };
         const scanSpy = vi.fn().mockResolvedValue(null);
-        window.Barcode = { scan: scanSpy };
+        window.Barcode = { scan: scanSpy, hasNativeScanner: () => true, supportsLiveScan: () => false };
 
         const modal = document.getElementById('food-scanner-modal');
         modal.classList.remove('hidden');
@@ -277,9 +274,8 @@ describe('features/food/scanner.js — Phase 2b abstraction seam (Task 7)', () =
     it('Capacitor scanner closes the in-app modal when MLKit throws (permission denied, etc.)', async () => {
         const { window, document } = env;
 
-        window.Capacitor = { isNativePlatform: () => true };
         const scanSpy = vi.fn().mockRejectedValue(new Error('permission denied'));
-        window.Barcode = { scan: scanSpy };
+        window.Barcode = { scan: scanSpy, hasNativeScanner: () => true, supportsLiveScan: () => false };
         const origAlert = window.alert;
         window.alert = vi.fn();
 

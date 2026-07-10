@@ -84,8 +84,20 @@
             });
     }
 
+    // MLKit owns the whole scanner UI: scan() takes over the screen, so feature
+    // code must not open its own video modal, and the in-app frame loop (which
+    // needs a <video> source) must never run here.
+    function hasNativeScanner() {
+        return true;
+    }
+    function supportsLiveScan() {
+        return false;
+    }
+
     var impl = {
         scan: scan,
+        hasNativeScanner: hasNativeScanner,
+        supportsLiveScan: supportsLiveScan,
     };
 
     if (window.Barcode && window.Barcode.__native && typeof window.Barcode.__native.registerImpl === 'function') {

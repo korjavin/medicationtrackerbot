@@ -246,6 +246,20 @@ describe('native/web/barcode.js — web impl', () => {
         expect(revokeObjectURL.mock.calls[0][0]).toBe('blob:fake/url');
     });
 
+    it('hasNativeScanner() is false — the browser has no full-screen scanner UI', () => {
+        env = loadEnv();
+        expect(env.window.Barcode.hasNativeScanner()).toBe(false);
+    });
+
+    it('supportsLiveScan() follows window.BarcodeDetector presence, probed at call time', () => {
+        env = loadEnv();
+        expect(env.window.Barcode.supportsLiveScan()).toBe(false);
+        env.window.BarcodeDetector = function () {};
+        expect(env.window.Barcode.supportsLiveScan()).toBe(true);
+        delete env.window.BarcodeDetector;
+        expect(env.window.Barcode.supportsLiveScan()).toBe(false);
+    });
+
     it('rejects a Response object as an unsupported source (not a Blob)', async () => {
         env = loadEnv();
         // Fabricate a Response-shaped object: duck-typed arrayBuffer+type but
@@ -341,6 +355,14 @@ describe('native/capacitor/barcode.js — Capacitor impl', () => {
         expect(caught.code).toBe('PERMISSION_DENIED');
     });
 
+    it('hasNativeScanner() is true and supportsLiveScan() is false (MLKit owns the UI)', () => {
+        env = loadEnv({ capacitor: makeCapacitor({ scan: vi.fn() }), barcodeDetector: function () {} });
+        expect(env.window.Barcode.hasNativeScanner()).toBe(true);
+        // Even with a BarcodeDetector present in the WebView, the in-app frame
+        // loop must never run in the shell.
+        expect(env.window.Barcode.supportsLiveScan()).toBe(false);
+    });
+
     it('rejects with UNAVAILABLE when Capacitor.Plugins.BarcodeScanner is missing', async () => {
         env = loadEnv({ capacitor: { isNativePlatform: () => true, Plugins: {} } });
         let caught;
@@ -376,5 +398,15 @@ describe('native/index.js — runtime selector after Task 4', () => {
         const cap = env.window.Barcode.__native.getImpl('Barcode', 'capacitor');
         expect(typeof web.scan).toBe('function');
         expect(typeof cap.scan).toBe('function');
+    });
+
+    it('both impls expose the platform-decision methods', () => {
+        env = loadEnv();
+        const web = env.window.Barcode.__native.getImpl('Barcode', 'web');
+        const cap = env.window.Barcode.__native.getImpl('Barcode', 'capacitor');
+        expect(web.hasNativeScanner()).toBe(false);
+        expect(web.supportsLiveScan()).toBe(false);
+        expect(cap.hasNativeScanner()).toBe(true);
+        expect(cap.supportsLiveScan()).toBe(false);
     });
 });

@@ -210,8 +210,22 @@
         )));
     }
 
+    // The browser has no full-screen scanner UI of its own — feature code owns
+    // the in-app video modal and drives scan({ source: video }) itself.
+    function hasNativeScanner() {
+        return false;
+    }
+
+    // Probed at call time, not module load: BarcodeDetector is installed late
+    // by both test harnesses and some browsers (origin trials, polyfills).
+    function supportsLiveScan() {
+        return !!window.BarcodeDetector;
+    }
+
     var impl = {
         scan: scan,
+        hasNativeScanner: hasNativeScanner,
+        supportsLiveScan: supportsLiveScan,
     };
 
     if (window.Barcode && window.Barcode.__native && typeof window.Barcode.__native.registerImpl === 'function') {

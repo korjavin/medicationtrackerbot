@@ -79,8 +79,11 @@ describe('native/index.js — Phase 2b foundation', () => {
         const cases = [
             ['MediaCapture', 'takePhoto'],
             ['MediaCapture', 'pickPhoto'],
+            ['MediaCapture', 'openCameraStream'],
             ['Geolocation', 'getCurrentPosition'],
             ['Barcode', 'scan'],
+            ['Barcode', 'hasNativeScanner'],
+            ['Barcode', 'supportsLiveScan'],
             ['Reminders', 'schedule'],
             ['Reminders', 'cancelAll'],
         ];
@@ -170,8 +173,11 @@ describe('native/index.js — full module load wires real impls (Phase 2b Task 6
         const checks = [
             ['MediaCapture', 'takePhoto'],
             ['MediaCapture', 'pickPhoto'],
+            ['MediaCapture', 'openCameraStream'],
             ['Geolocation', 'getCurrentPosition'],
             ['Barcode', 'scan'],
+            ['Barcode', 'hasNativeScanner'],
+            ['Barcode', 'supportsLiveScan'],
             ['Reminders', 'schedule'],
             ['Reminders', 'cancelAll'],
         ];
@@ -191,8 +197,11 @@ describe('native/index.js — full module load wires real impls (Phase 2b Task 6
         const checks = [
             ['MediaCapture', 'takePhoto'],
             ['MediaCapture', 'pickPhoto'],
+            ['MediaCapture', 'openCameraStream'],
             ['Geolocation', 'getCurrentPosition'],
             ['Barcode', 'scan'],
+            ['Barcode', 'hasNativeScanner'],
+            ['Barcode', 'supportsLiveScan'],
             ['Reminders', 'schedule'],
             ['Reminders', 'cancelAll'],
         ];
