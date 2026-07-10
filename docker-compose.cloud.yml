@@ -20,7 +20,12 @@ services:
       - CLOUD_DB_PATH=${CLOUD_DB_PATH:-/app/data/cloud.db}
       - PORT=${PORT:-8080}
       - CLOUD_CLAIM_TTL=${CLOUD_CLAIM_TTL:-14}
-      - CLOUD_ACCOUNT_QUOTA_BYTES=${CLOUD_ACCOUNT_QUOTA_BYTES:-}
+      # Per-account storage quota. Explicit rather than `:-` empty: an empty
+      # value merely falls through to cmd/cloud's own 50MB default, which works
+      # but reads like "no quota" to anyone skimming this file. 0 disables it,
+      # and one runaway account can then fill cloud_data and wedge writes for
+      # every other account on the box.
+      - CLOUD_ACCOUNT_QUOTA_BYTES=${CLOUD_ACCOUNT_QUOTA_BYTES:-52428800}
       - CLOUD_DRY_QUEUE_WARN_HOURS=${CLOUD_DRY_QUEUE_WARN_HOURS:-}
       - VAPID_SUBJECT=${VAPID_SUBJECT:-}
       - MANAGER_BOT_TOKEN=${MANAGER_BOT_TOKEN:-}

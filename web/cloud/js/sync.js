@@ -90,7 +90,7 @@ async function readMeta() {
   try {
     const tx = db.transaction('sync_meta', 'readonly');
     const store = tx.objectStore('sync_meta');
-    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq] = await Promise.all([
+    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError] = await Promise.all([
       reqToPromise(store.get('localLastSeq')),
       reqToPromise(store.get('lastSnapshotSeq')),
       reqToPromise(store.get('lastSyncedAt')),
@@ -98,6 +98,7 @@ async function readMeta() {
       reqToPromise(store.get('forceSnapshotPending')),
       reqToPromise(store.get('snapshotError')),
       reqToPromise(store.get('snapshotErrorSeq')),
+      reqToPromise(store.get('writeError')),
     ]);
     return {
       localLastSeq: localLastSeq ?? null,
@@ -106,6 +107,7 @@ async function readMeta() {
       integrityErrors: integrityErrors ?? 0,
       forceSnapshotPending: forceSnapshotPending ?? false,
       snapshotError: snapshotError ?? null,
+      writeError: writeError ?? null,
       snapshotErrorSeq: snapshotErrorSeq ?? null,
     };
   } finally {
@@ -698,12 +700,27 @@ async function flushPending(ctx) {
       return false; // left in 'pending' — retried on the next pullOnOpen/write
     }
     if (!res.ok) {
+      // A permanent 4xx here is NOT offline. 413 means the account's storage
+      // quota is exhausted: the server is reachable, healthy, and will refuse
+      // this batch forever. Reporting it as "Offline" told the user to check
+      // their wifi while their vault quietly stopped accepting writes, and the
+      // pending queue grew without bound (med-d5t.4).
+      //
+      // Records stay in 'pending' either way — nothing is lost, and the next
+      // open retries — but the status line must name the real cause.
+      if (isPermanentSyncStatus(res.status)) {
+        await writeMeta({ writeError: { status: res.status, at: Date.now() } });
+        offline = false;
+        return false;
+      }
       offline = true;
       return false;
     }
     offline = false;
     const { assigned } = await res.json();
-    await writeMeta({ lastSyncedAt: Date.now() });
+    // Cleared on the first batch the server accepts: the quota was raised, or
+    // the user freed space.
+    await writeMeta({ lastSyncedAt: Date.now(), writeError: null });
     if (assigned[0] === meta.localLastSeq + 1) {
       // Assigned contiguously from our cursor — predicted seqs equal assigned
       // seqs, so every op's AAD is correct and other devices can decrypt them.
@@ -874,6 +891,7 @@ export async function getSyncStatus(ctx) {
     offline,
     integrityErrors: meta.integrityErrors,
     snapshotError: meta.snapshotError || null,
+    writeError: meta.writeError || null,
   };
 }
 
@@ -883,6 +901,11 @@ export async function describeSyncStatus(ctx) {
   parts.push(status.offline ? 'Offline' : status.lastSyncedAt ? `Synced ${new Date(status.lastSyncedAt).toLocaleTimeString()}` : 'Not yet synced');
   if (status.pendingCount > 0) parts.push(`${status.pendingCount} pending`);
   if (status.integrityErrors > 0) parts.push(`${status.integrityErrors} sync-integrity warning(s)`);
+  // 413 is the quota; any other permanent 4xx is a refusal we can't name, so
+  // say the honest general thing rather than guessing "full".
+  if (status.writeError) {
+    parts.push(status.writeError.status === 413 ? 'Vault is full — new entries are not syncing' : 'Server refused this device\'s writes');
+  }
   if (status.snapshotError) parts.push('Vault too large to sync');
   return parts.join(' · ');
 }

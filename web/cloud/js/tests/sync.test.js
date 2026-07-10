@@ -413,3 +413,145 @@ describe('non-UI writes repaint the open tab (med-d5t.10)', () => {
     expect(ds.requestTabRefresh).toHaveBeenCalledWith(['bp', 'weight'], 'cloud-write');
   });
 });
+
+// bd med-d5t.4 — the account storage quota. Enforcement was already correct
+// (sync.go returns a clean 413 on both the ops and snapshot paths), but the
+// everyday WRITE path reported that 413 as `offline`. So a user whose vault was
+// full saw "Offline", was told in effect to check their wifi, and watched the
+// pending queue grow forever against a server that was healthy and would refuse
+// them every single time.
+describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
+  let ctx;
+  let opsStatus;
+  let opsPosts;
+
+  const readMetaKey = async (key) => {
+    const db = await openDb();
+    try {
+      const tx = db.transaction('sync_meta', 'readonly');
+      return await new Promise((resolve, reject) => {
+        const req = tx.objectStore('sync_meta').get(key);
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  // A non-null localLastSeq is what marks the device bootstrapped; without it
+  // flushPending returns early and never reaches the POST under test.
+  const seedMeta = async (meta) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('sync_meta', 'readwrite');
+        const store = tx.objectStore('sync_meta');
+        for (const [k, v] of Object.entries(meta)) store.put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, dek: await generateDEK() };
+    opsStatus = 200;
+    opsPosts = 0;
+
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/ops') {
+        opsPosts++;
+        if (opsStatus !== 200) return new Response('account storage quota exceeded', { status: opsStatus });
+        return new Response(JSON.stringify({ assigned: [opsPosts] }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+  });
+
+  it('names the quota rather than blaming the network on a 413', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsStatus = 413;
+
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+
+    const status = await getSyncStatus(ctx);
+    expect(status.writeError).toMatchObject({ status: 413 });
+    // The crux: the server answered. We are not offline.
+    expect(status.offline).toBe(false);
+
+    const line = await describeSyncStatus(ctx);
+    expect(line).toContain('Vault is full');
+    expect(line).not.toContain('Offline');
+  });
+
+  it('keeps the record pending, so a full vault never loses a write', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsStatus = 413;
+
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+
+    expect((await getSyncStatus(ctx)).pendingCount).toBe(1);
+    // And it is readable locally — the user's data is on their device.
+    const notes = await listRecords(ctx, 'note');
+    expect(notes.map((n) => n.recordId)).toContain('note-1');
+  });
+
+  it('clears the error once the server accepts a batch again', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsStatus = 413;
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    expect(await readMetaKey('writeError')).toMatchObject({ status: 413 });
+
+    // Quota raised, or space freed.
+    opsStatus = 200;
+    await writeRecord(ctx, 'note', { recordId: 'note-2', text: 'world' });
+
+    expect(await readMetaKey('writeError')).toBeNull();
+    expect(await describeSyncStatus(ctx)).not.toContain('Vault is full');
+  });
+
+  it('still treats a 5xx as offline — that one really is a network/server fault', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsStatus = 503;
+
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+
+    const status = await getSyncStatus(ctx);
+    expect(status.offline).toBe(true);
+    expect(status.writeError).toBeNull();
+  });
+
+  it('still treats 401/403/408/429 as transient, not as a full vault', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsStatus = 429; // a reverse proxy can return this even though cmd/cloud did not
+
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+
+    const status = await getSyncStatus(ctx);
+    expect(status.offline).toBe(true);
+    expect(status.writeError).toBeNull();
+  });
+
+  it('reports an unnameable permanent refusal honestly, without guessing "full"', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsStatus = 400;
+
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+
+    const line = await describeSyncStatus(ctx);
+    expect(line).toContain('refused');
+    expect(line).not.toContain('Vault is full');
+  });
+});
