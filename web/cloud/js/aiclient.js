@@ -33,6 +33,28 @@ function trialLimitError() {
   return err;
 }
 
+// Distinct from trial_rate_limit on purpose (bd med-d5t.5): "wait a minute" and
+// "the shared budget is gone until tomorrow" ask different things of the user.
+// `scope` says whose budget ran out — the account's own share, or the operator's
+// pool across everyone.
+function trialBudgetError(scope) {
+  const whose = scope === 'global'
+    ? "The shared AI budget for this server is used up for today"
+    : "You've used your AI allowance for today";
+  const err = new Error(`${whose} — it resets tomorrow, or add your own OpenAI key in Settings → Integrations to keep going now.`);
+  err.code = 'trial_budget_exhausted';
+  err.scope = scope;
+  return err;
+}
+
+// A budget check that could not run refuses the call rather than spending the
+// operator's key blind, so the client says so plainly instead of "try again".
+function trialBudgetUnavailableError() {
+  const err = new Error('Trial AI is unavailable right now — add your own OpenAI key in Settings → Integrations, or try later.');
+  err.code = 'trial_budget_unavailable';
+  return err;
+}
+
 function trialAIAvailable() {
   if (typeof document === 'undefined') return false;
   return document.querySelector('meta[name="medtracker-trial-ai"]')?.content === '1';
@@ -119,9 +141,10 @@ function trialErrorInfo(bodyText) {
     return {
       code: typeof obj?.error === 'string' ? obj.error : '',
       upstreamStatus: typeof obj?.upstream_status === 'number' ? obj.upstream_status : 0,
+      scope: typeof obj?.scope === 'string' ? obj.scope : '',
     };
   } catch {
-    return { code: '', upstreamStatus: 0 };
+    return { code: '', upstreamStatus: 0, scope: '' };
   }
 }
 
@@ -165,9 +188,11 @@ async function postTrialChatCompletion(vision, body) {
   try {
     return await postChatCompletion(`/api/trial/openai/chat/completions${vision ? '?vision=1' : ''}`, '', rest);
   } catch (err) {
-    const { code, upstreamStatus } = trialErrorInfo(err.body);
+    const { code, upstreamStatus, scope } = trialErrorInfo(err.body);
     if (code === 'trial_not_configured') throw noKeyError();
     if (code === 'trial_rate_limit') throw trialLimitError();
+    if (code === 'trial_budget_exhausted') throw trialBudgetError(scope);
+    if (code === 'trial_budget_unavailable') throw trialBudgetUnavailableError();
     if (err.status) {
       // The proxy sanitizes the upstream body, so this is the only place a
       // browser can observe what actually failed.

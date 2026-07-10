@@ -84,7 +84,9 @@ TRIAL_OPENAI_VISION_URL=...
 TRIAL_OPENAI_VISION_MODEL=...
 TRIAL_ELEVENLABS_API_KEY=...       # With TRIAL_ELEVENLABS_AGENT_ID, enables GET /api/trial/elevenlabs/signed-url
 TRIAL_ELEVENLABS_AGENT_ID=agent_...# Operator's shared ElevenLabs agent minted for trial users
-TRIAL_RATE_PER_MIN=10              # Per-account sliding-window limit shared across all trial routes (default: 10)
+TRIAL_RATE_PER_MIN=10              # Per-account sliding-window limit shared across all trial routes (default: 10). Smooths bursts; bounds no spend.
+TRIAL_DAILY_PER_ACCOUNT=100        # Per-account DAILY cap on trial AI requests, persisted in cloud.db (default: 100; 0 disables)
+TRIAL_DAILY_GLOBAL=500             # Cross-account DAILY cap on trial AI requests, persisted in cloud.db (default: 500; 0 disables)
 MANAGER_BOT_TOKEN=...              # Optional. BotFather token for the operator's manager bot with "Bot Management Mode" enabled. Enables one-tap managed-bot provisioning + BYO Telegram linking (C3a). Unset = Telegram fully disabled (wizard step + webhook routes skipped). See docs/cloud-deployment.md. NOTE: child bot tokens are sealed with a key derived from SESSION_SECRET — rotating SESSION_SECRET orphans stored tokens (users must re-link).
 CLOUD_TG_API_BASE_URL=...          # Optional. Overrides the Telegram Bot API root (default https://api.telegram.org). For tests/self-hosted proxies only.
 

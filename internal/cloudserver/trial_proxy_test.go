@@ -2,13 +2,16 @@ package cloudserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newTrialTestHandlerAPI mirrors cmd/cloud/main.go's wiring for the trial
@@ -438,4 +441,174 @@ func TestTrialConfigFromEnv_RejectsMalformedURL(t *testing.T) {
 			}
 		})
 	}
+}
+
+// bd med-d5t.5 — the operator's OpenAI key serves every friend, and before this
+// the only guard was a per-minute, per-account sliding window. Five friends at
+// 10 req/min sustained is 50 req/min against that key, forever, with the
+// expensive food-photo vision calls sharing the limiter with cheap text ones.
+func TestTrialProxy_DailyBudget(t *testing.T) {
+	newBudgetHandler := func(t *testing.T, perAccount, global int) (http.Handler, string, *http.Cookie, *int) {
+		t.Helper()
+		upstreamCalls := 0
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			upstreamCalls++
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+		}))
+		t.Cleanup(upstream.Close)
+
+		cfg := TrialConfig{
+			OpenAIAPIKey: "sk-trial", OpenAIURL: upstream.URL, OpenAIModel: "m",
+			RatePerMinute: 1000, DailyPerAccount: perAccount, DailyGlobal: global,
+		}
+		h, _, host, claimToken := newTrialTestHandlerAPI(t, cfg)
+		session := registerAndGetSession(t, h, host, claimToken)
+		return h, host, session, &upstreamCalls
+	}
+
+	const body = `{"messages":[{"role":"user","content":"hi"}]}`
+
+	t.Run("refuses past the per-account daily cap, with its own error code", func(t *testing.T) {
+		h, host, session, upstreamCalls := newBudgetHandler(t, 2, 0)
+
+		for i := range 2 {
+			if rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", body, session); rec.Code != http.StatusOK {
+				t.Fatalf("call %d status = %d", i+1, rec.Code)
+			}
+		}
+
+		rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", body, session)
+		if rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("status = %d, want 429, body %q", rec.Code, rec.Body.String())
+		}
+		var payload struct {
+			Error    string `json:"error"`
+			Scope    string `json:"scope"`
+			ResetsAt string `json:"resets_at"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		// Not trial_rate_limit: "wait a minute" and "gone until tomorrow" ask
+		// different things of the user.
+		if payload.Error != "trial_budget_exhausted" {
+			t.Errorf("error = %q, want trial_budget_exhausted", payload.Error)
+		}
+		if payload.Scope != "account" {
+			t.Errorf("scope = %q, want account", payload.Scope)
+		}
+		if payload.ResetsAt == "" {
+			t.Error("resets_at is empty — the user cannot tell when to come back")
+		}
+		// The refusal happens BEFORE the upstream call. That is the whole point.
+		if *upstreamCalls != 2 {
+			t.Errorf("upstream called %d times, want 2 — a refused call still spent money", *upstreamCalls)
+		}
+	})
+
+	t.Run("refuses past the global daily cap", func(t *testing.T) {
+		h, host, session, _ := newBudgetHandler(t, 0, 1)
+
+		if rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", body, session); rec.Code != http.StatusOK {
+			t.Fatalf("first call status = %d", rec.Code)
+		}
+		rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", body, session)
+		if rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("status = %d, want 429", rec.Code)
+		}
+		var payload struct{ Scope string }
+		_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+		if payload.Scope != "global" {
+			t.Errorf("scope = %q, want global", payload.Scope)
+		}
+	})
+
+	t.Run("both caps disabled leaves the proxy unmetered", func(t *testing.T) {
+		h, host, session, upstreamCalls := newBudgetHandler(t, 0, 0)
+		for range 5 {
+			if rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", body, session); rec.Code != http.StatusOK {
+				t.Fatalf("status = %d with budgets disabled", rec.Code)
+			}
+		}
+		if *upstreamCalls != 5 {
+			t.Errorf("upstream called %d times, want 5", *upstreamCalls)
+		}
+	})
+
+	// Vision requests are the expensive ones. They must draw on the same budget
+	// as text, or the cap is decorative.
+	t.Run("vision requests draw on the same budget as text", func(t *testing.T) {
+		h, host, session, _ := newBudgetHandler(t, 1, 0)
+
+		if rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", body, session); rec.Code != http.StatusOK {
+			t.Fatalf("text call status = %d", rec.Code)
+		}
+		rec := postTrialChat(h, host, "/api/trial/openai/chat/completions?vision=1", body, session)
+		if rec.Code != http.StatusTooManyRequests {
+			t.Errorf("vision call status = %d, want 429 — it bypassed the daily budget", rec.Code)
+		}
+	})
+
+	// The user chose to leave voice metering out (see bd med-d5t.5): a mint cap
+	// bounds how many calls START, never how long they run, so it would imply a
+	// cost ceiling it cannot deliver. Pin that this is deliberate, not forgotten.
+	t.Run("the ElevenLabs mint is deliberately NOT metered by the daily budget", func(t *testing.T) {
+		elevenLabs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`{"signed_url":"wss://example.test/x"}`))
+		}))
+		defer elevenLabs.Close()
+
+		cfg := TrialConfig{
+			ElevenLabsAPIKey: "xi-key", ElevenLabsAgentID: "agent-1",
+			RatePerMinute: 1000, DailyPerAccount: 1, DailyGlobal: 1,
+		}
+		h, api, host, claimToken := newTrialTestHandlerAPI(t, cfg)
+		api.elevenLabsSignedURLBase = elevenLabs.URL
+		session := registerAndGetSession(t, h, host, claimToken)
+
+		for i := range 3 {
+			req := httptest.NewRequest(http.MethodGet, "/api/trial/elevenlabs/signed-url", nil)
+			req.Host = host
+			req.AddCookie(session)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("mint %d status = %d, body %q", i+1, rec.Code, rec.Body.String())
+			}
+		}
+	})
+
+	// Fail closed: the thing on the other side of this check is a bill.
+	t.Run("a budget check that cannot run refuses the call", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Error("upstream called despite an unusable budget store")
+		}))
+		defer upstream.Close()
+
+		cfg := TrialConfig{
+			OpenAIAPIKey: "sk-trial", OpenAIURL: upstream.URL, OpenAIModel: "m",
+			RatePerMinute: 1000, DailyPerAccount: 10,
+		}
+		h, api, host, claimToken := newTrialTestHandlerAPI(t, cfg)
+		session := registerAndGetSession(t, h, host, claimToken)
+		api.budget = brokenBudgetStore{}
+
+		rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", body, session)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d, want 503", rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), "trial_budget_unavailable") {
+			t.Errorf("body = %q, want trial_budget_unavailable", rec.Body.String())
+		}
+		if strings.Contains(rec.Body.String(), "sk-trial") {
+			t.Error("SECURITY INVARIANT: the trial key leaked into an error body")
+		}
+	})
+}
+
+type brokenBudgetStore struct{}
+
+func (brokenBudgetStore) ConsumeTrialRequest(context.Context, string, time.Time, int, int) (bool, string, error) {
+	return false, "", errors.New("database is on fire")
 }

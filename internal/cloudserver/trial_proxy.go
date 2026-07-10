@@ -28,15 +28,24 @@ type TrialProxyAPI struct {
 	store         sessionStore
 	sessionSecret string
 	limiter       *rateLimiter
-	client        *http.Client
+	// budget persists the daily spend caps (bd med-d5t.5). Nil disables them,
+	// which is what the older two-arg constructor leaves behind for tests that
+	// only exercise the proxy's upstream behavior.
+	budget trialBudgetStore
+	client *http.Client
 	// elevenLabsSignedURLBase is overridable in tests.
 	elevenLabsSignedURLBase string
+}
+
+// trialBudgetStore is the one method the daily budgets need.
+type trialBudgetStore interface {
+	ConsumeTrialRequest(ctx context.Context, accountID string, now time.Time, perAccountLimit, globalLimit int) (bool, string, error)
 }
 
 // NewTrialProxyAPI builds the trial proxy handlers. cfg.RatePerMinute must be
 // positive — TrialConfigFromEnv guarantees it.
 func NewTrialProxyAPI(store sessionStore, sessionSecret string, cfg TrialConfig) *TrialProxyAPI {
-	return &TrialProxyAPI{
+	api := &TrialProxyAPI{
 		cfg:                     cfg,
 		store:                   store,
 		sessionSecret:           sessionSecret,
@@ -44,6 +53,44 @@ func NewTrialProxyAPI(store sessionStore, sessionSecret string, cfg TrialConfig)
 		client:                  &http.Client{Timeout: trialUpstreamTimout},
 		elevenLabsSignedURLBase: "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url",
 	}
+	// The session store is the cloudstore repo in production, which also owns
+	// the persisted counters. Tests pass narrower fakes and simply run unmetered.
+	if b, ok := store.(trialBudgetStore); ok {
+		api.budget = b
+	}
+	return api
+}
+
+// consumeBudget enforces the persisted daily spend caps on the operator's own
+// provider key. Fails CLOSED: a database error refuses the call rather than
+// waving it through, because the thing on the other side of this check is a bill.
+//
+// The response names the scope (`account` vs `global`) and when it resets, and
+// carries its own error code rather than overloading trial_rate_limit — "wait a
+// minute" and "the shared budget is gone until tomorrow" want different actions
+// from the user, and the client renders them differently.
+func (a *TrialProxyAPI) consumeBudget(w http.ResponseWriter, r *http.Request, accountID string) bool {
+	if a.budget == nil || (a.cfg.DailyPerAccount <= 0 && a.cfg.DailyGlobal <= 0) {
+		return true
+	}
+	now := time.Now().UTC()
+	allowed, scope, err := a.budget.ConsumeTrialRequest(r.Context(), accountID, now, a.cfg.DailyPerAccount, a.cfg.DailyGlobal)
+	if err != nil {
+		slog.Error("trial budget check failed", "account", accountID, "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "trial_budget_unavailable"})
+		return false
+	}
+	if allowed {
+		return true
+	}
+	resetsAt := now.Truncate(24 * time.Hour).Add(24 * time.Hour)
+	slog.Warn("trial daily budget exhausted", "account", accountID, "scope", scope)
+	writeJSON(w, http.StatusTooManyRequests, map[string]any{
+		"error":     "trial_budget_exhausted",
+		"scope":     scope,
+		"resets_at": resetsAt.Format(time.RFC3339),
+	})
+	return false
 }
 
 // RegisterRoutes adds the trial proxy routes to mux. RequireSession gives 401
@@ -141,6 +188,10 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 		key, baseURL, model = a.cfg.VisionAPIKey, a.cfg.VisionURL, a.cfg.VisionModel
 	}
 	if !a.rateLimit(w, account.ID) {
+		return
+	}
+	// After the burst limiter, before any upstream call: this is the spend gate.
+	if !a.consumeBudget(w, r, account.ID) {
 		return
 	}
 

@@ -48,6 +48,10 @@ services:
       - TRIAL_ELEVENLABS_API_KEY=${TRIAL_ELEVENLABS_API_KEY:-}
       - TRIAL_ELEVENLABS_AGENT_ID=${TRIAL_ELEVENLABS_AGENT_ID:-}
       - TRIAL_RATE_PER_MIN=${TRIAL_RATE_PER_MIN:-}
+      # Daily SPEND caps on the operator's own provider key (bd med-d5t.5).
+      # TRIAL_RATE_PER_MIN only smooths bursts; these bound the bill. 0 disables.
+      - TRIAL_DAILY_PER_ACCOUNT=${TRIAL_DAILY_PER_ACCOUNT:-}
+      - TRIAL_DAILY_GLOBAL=${TRIAL_DAILY_GLOBAL:-}
     networks:
       - proxy
     labels:

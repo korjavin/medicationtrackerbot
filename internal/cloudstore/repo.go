@@ -81,11 +81,11 @@ type Account struct {
 // Credential is one row in the credentials table — a WebAuthn public key
 // credential bound to an account.
 type Credential struct {
-	ID             []byte
-	AccountID      string
-	PublicKey      []byte
-	Transports     string
-	SignCount      uint32
+	ID         []byte
+	AccountID  string
+	PublicKey  []byte
+	Transports string
+	SignCount  uint32
 	// Backup flags from the registration ceremony. go-webauthn compares the
 	// assertion's BE bit against the stored value at login, so synced passkeys
 	// (BE=1) fail unlock unless these round-trip through the store.
@@ -962,4 +962,64 @@ func (r *Repo) CreateClaimedTransferSlot(ctx context.Context, id, accountID stri
 		`INSERT INTO transfer_slots (id, account_id, enrollment_token_hash, ct, created_at_unix, expires_at_unix, fetched) VALUES (?, ?, ?, ?, ?, ?, 1)`,
 		id, accountID, enrollmentTokenHash, []byte{}, storedb.TimeToUnix(createdAt), storedb.TimeToUnix(expiresAt))
 	return err
+}
+
+// Trial-budget scopes reported by ConsumeTrialRequest when a call is refused.
+const (
+	TrialScopeAccount = "account"
+	TrialScopeGlobal  = "global"
+)
+
+// ConsumeTrialRequest atomically checks today's trial budgets and, if the call
+// is allowed, records it (bd med-d5t.5).
+//
+// The per-minute limiter in front of this bounds burst rate; it does not bound
+// SPEND. Five friends at 10 req/min sustained is 50 req/min against the
+// operator's own OpenAI key, forever, and the expensive food-photo vision calls
+// share that limiter with cheap text ones. These counters are the spend cap, so
+// they live in the database: an in-memory budget would reset on every redeploy,
+// and a crash-loop would become a way to bill the operator without limit.
+//
+// Check-and-increment run in one transaction, so two concurrent requests cannot
+// both observe "one left". A limit <= 0 disables that scope. The account cap is
+// tested first: "you have used your share today" is more actionable than "the
+// shared pool is empty", and the caller relays the scope to the user.
+func (r *Repo) ConsumeTrialRequest(ctx context.Context, accountID string, now time.Time, perAccountLimit, globalLimit int) (allowed bool, scope string, err error) {
+	day := now.UTC().Format("2006-01-02")
+	err = r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if perAccountLimit > 0 {
+			var used int
+			row := tx.QueryRowContext(ctx, `SELECT requests FROM trial_usage WHERE day = ? AND account_id = ?`, day, accountID)
+			if txErr := row.Scan(&used); txErr != nil && !errors.Is(txErr, sql.ErrNoRows) {
+				return txErr
+			}
+			if used >= perAccountLimit {
+				scope = TrialScopeAccount
+				return nil
+			}
+		}
+		if globalLimit > 0 {
+			var total int
+			if txErr := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(requests), 0) FROM trial_usage WHERE day = ?`, day).Scan(&total); txErr != nil {
+				return txErr
+			}
+			if total >= globalLimit {
+				scope = TrialScopeGlobal
+				return nil
+			}
+		}
+		_, txErr := tx.ExecContext(ctx,
+			`INSERT INTO trial_usage (day, account_id, requests) VALUES (?, ?, 1)
+			 ON CONFLICT(day, account_id) DO UPDATE SET requests = requests + 1`,
+			day, accountID)
+		if txErr != nil {
+			return txErr
+		}
+		allowed = true
+		return nil
+	})
+	if err != nil {
+		return false, "", err
+	}
+	return allowed, scope, nil
 }
