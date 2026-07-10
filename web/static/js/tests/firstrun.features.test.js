@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
+import { createApiRouter } from '../../../cloud/js/apishim.js';
+import { createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -89,12 +91,20 @@ describe('firstrun feature picker screen', () => {
         }
     });
 
-    it('preselects every feature when no mirror exists (defaults are all-on)', () => {
+    // Owner call (med-t05.1): the three low-friction daily-logging sections
+    // start on; the three that need a device, a prescription, or a clinical
+    // reason start off. Note this is NOT web/domain/settings.js
+    // DEFAULT_FEATURES, which stays all-on as the fallback for existing
+    // accounts — see the explicit-write test below.
+    it('pre-checks food/workout/weight and leaves medication/bp/health unchecked', () => {
         const { window, document, cleanup } = loadFlow({ fetchMock: okFetch() });
         try {
             window.WGFirstRun.mount();
-            for (const key of TRACKING_KEYS) {
-                expect(rowToggle(document, key).checked, `${key} should default to on`).toBe(true);
+            for (const key of ['food', 'workout', 'weight']) {
+                expect(rowToggle(document, key).checked, `${key} should be pre-checked`).toBe(true);
+            }
+            for (const key of ['medication', 'bp', 'health']) {
+                expect(rowToggle(document, key).checked, `${key} should start unchecked`).toBe(false);
             }
         } finally {
             cleanup();
@@ -168,14 +178,16 @@ describe('firstrun feature picker screen', () => {
         try {
             window.WGFirstRun.mount();
 
-            const bp = rowToggle(document, 'bp');
-            expect(bp.checked).toBe(true);
-            bp.checked = false;
-            bp.dispatchEvent(new window.Event('change'));
+            // `food` is one of the pre-checked three, so this exercises a
+            // rejected on->off flip.
+            const food = rowToggle(document, 'food');
+            expect(food.checked).toBe(true);
+            food.checked = false;
+            food.dispatchEvent(new window.Event('change'));
             await flush();
 
-            expect(bp.checked, 'rejected write must not leave the toggle lying').toBe(true);
-            expect(bp.disabled).toBe(false);
+            expect(food.checked, 'rejected write must not leave the toggle lying').toBe(true);
+            expect(food.disabled).toBe(false);
             const error = document.querySelector('[data-firstrun-feature-error]');
             expect(error.textContent).toMatch(/couldn’t save/i);
         } finally {
@@ -206,12 +218,130 @@ describe('firstrun feature picker screen', () => {
         }
     });
 
-    it('Continue advances to the integrations step', () => {
+    it('Continue advances to the integrations step', async () => {
         const { window, document, cleanup } = loadFlow({ fetchMock: okFetch() });
         try {
             window.WGFirstRun.mount();
             document.querySelector('[data-firstrun-action="continue"]').click();
+            await flush();
             expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+        } finally {
+            cleanup();
+        }
+    });
+
+    // The load-bearing case (med-t05.1). A user who accepts the defaults flips
+    // nothing, so a deviation-only write path issues ZERO POSTs, leaves the
+    // features record empty, and getFeatures() falls back to the all-on
+    // DEFAULT_FEATURES — bp/health/medication come back ON while their boxes
+    // showed UNCHECKED. Continue must therefore write all six explicitly.
+    it('writes an explicit boolean for all six features when the user accepts the defaults', async () => {
+        const fetchMock = okFetch();
+        const { window, document, cleanup } = loadFlow({ fetchMock });
+        try {
+            window.WGFirstRun.mount();
+            document.querySelector('[data-firstrun-action="continue"]').click();
+            await flush();
+
+            const written = {};
+            for (const [url, opts] of fetchMock.mock.calls) {
+                expect(opts.method).toBe('POST');
+                const key = url.replace('/api/settings/features/', '');
+                written[key] = JSON.parse(opts.body).enabled;
+            }
+            expect(written).toEqual({
+                medication: false, bp: false, health: false, weight: true, food: true, workout: true,
+            });
+            expect(fetchMock).toHaveBeenCalledTimes(TRACKING_KEYS.length);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('routes the Continue writes through toggleFeatureSetting when it is loaded', async () => {
+        const features = {};
+        const toggle = vi.fn((key, enabled) => { features[key] = enabled; return Promise.resolve(true); });
+        const fetchMock = okFetch();
+        const { window, document, cleanup } = loadFlow({ features, fetchMock, toggleMock: toggle });
+        try {
+            window.WGFirstRun.mount();
+            document.querySelector('[data-firstrun-action="continue"]').click();
+            await flush();
+
+            expect(fetchMock).not.toHaveBeenCalled();
+            expect(features).toEqual({
+                medication: false, bp: false, health: false, weight: true, food: true, workout: true,
+            });
+        } finally {
+            cleanup();
+        }
+    });
+
+    // Advancing on a failed write would leave the unchecked features silently
+    // ON (unwritten flag -> DEFAULT_FEATURES). Stay put and let the user retry.
+    it('stays on the step and shows an error when a Continue write fails', async () => {
+        const fetchMock = vi.fn(() => Promise.resolve({ ok: false, status: 500 }));
+        const { window, document, cleanup } = loadFlow({ fetchMock });
+        try {
+            window.WGFirstRun.mount();
+            const cont = document.querySelector('[data-firstrun-action="continue"]');
+            cont.click();
+            await flush();
+
+            expect(window.WGFirstRun.state.getStep()).toBe('features');
+            expect(cont.disabled).toBe(false);
+            expect(document.querySelector('[data-firstrun-feature-error]').textContent)
+                .toMatch(/couldn’t save your choices/i);
+        } finally {
+            cleanup();
+        }
+    });
+
+    // End-to-end against the real cloud domain layer, because a DOM-only
+    // assertion passes while the app is wrong: it is getFeatures() spreading
+    // DEFAULT_FEATURES over the stored flags that decides what the app does.
+    it('persists flags the cloud domain layer reads back with bp/health/medication off', async () => {
+        const records = createInMemoryRecordsPort();
+        const router = createApiRouter(null, {
+            records, now: () => Date.parse('2026-07-10T12:00:00.000Z'), timeZone: 'UTC',
+        });
+        const fetchMock = vi.fn(async (url, opts) => {
+            const method = (opts && opts.method) || 'GET';
+            const body = opts && opts.body ? JSON.parse(opts.body) : undefined;
+            const result = await router(url, method, body);
+            return { ok: result !== null && result !== undefined, status: 200, json: async () => result };
+        });
+
+        const { window, document, cleanup } = loadFlow({ fetchMock });
+        try {
+            window.WGFirstRun.mount();
+            document.querySelector('[data-firstrun-action="continue"]').click();
+            await flush();
+
+            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+            const flags = await router('/api/settings/features', 'GET');
+            expect(flags).toMatchObject({
+                bp: false, health: false, medication: false, food: true, workout: true, weight: true,
+            });
+        } finally {
+            cleanup();
+        }
+    });
+
+    // A user resuming the wizard, or one whose account already carries flags,
+    // must see their own state rather than the first-run pre-check set.
+    it('prefers an existing mirror value over the first-run pre-check state', () => {
+        const { window, document, cleanup } = loadFlow({
+            features: { bp: true, food: false },
+            fetchMock: okFetch(),
+        });
+        try {
+            window.WGFirstRun.mount();
+            expect(rowToggle(document, 'bp').checked, 'explicit true beats pre-check off').toBe(true);
+            expect(rowToggle(document, 'food').checked, 'explicit false beats pre-check on').toBe(false);
+            // Absent from the mirror -> fall back to the pre-check state.
+            expect(rowToggle(document, 'workout').checked).toBe(true);
+            expect(rowToggle(document, 'medication').checked).toBe(false);
         } finally {
             cleanup();
         }
