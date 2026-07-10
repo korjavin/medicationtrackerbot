@@ -83,7 +83,7 @@ describe('WGFirstRun.state — step tracker', () => {
         const { window, cleanup } = loadState();
         try {
             expect(Array.from(window.WGFirstRun.state.VALID_STEPS)).toEqual([
-                'welcome', 'permissions', 'integrations', 'done',
+                'welcome', 'permissions', 'features', 'integrations', 'done',
             ]);
         } finally { cleanup(); }
     });
