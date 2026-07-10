@@ -333,6 +333,27 @@ export function validateInput(op, input) {
   return warnings;
 }
 
+// requiredMissing ports registry.RequiredMissing (validate.go:100): the labels
+// of required-but-absent fields (e.g. "body.eaten_at", "params.id"), checking
+// the merged input against both schemas' `required` lists. Unlike validateInput
+// it reports ONLY missing-required, so a write op can BLOCK on it while type
+// mismatches stay warn-only. Returns [] when the op is nil, has no schemas, or
+// nothing is missing.
+function missingRequired(prefix, schema, obj) {
+  return (schema.required || [])
+    .filter((req) => !has(obj, req))
+    .map((req) => `${prefix}.${req}`);
+}
+
+export function requiredMissing(op, input) {
+  if (!op) return [];
+  const obj = isPlainObject(input) ? input : {};
+  const missing = [];
+  if (op.params_schema) missing.push(...missingRequired('params', op.params_schema, obj));
+  if (op.body_schema) missing.push(...missingRequired('body', op.body_schema, obj));
+  return missing;
+}
+
 // The two input channels merge before normalization and validation: agents in
 // the wild put a write payload in `params` as often as in `body`, and the
 // catalog's precomputed `required` spans both schemas. splitInput puts each
@@ -526,6 +547,19 @@ export function createDispatcher({ router, now = Date.now }) {
       // warn-only: a mismatch never blocks the call.
       const { input, notes } = normalizeRelativeDates(op, mergeInput(p.params, p.body), now());
       const warnings = [...notes, ...validateInput(op, input)];
+
+      // For a WRITE op, a missing required field is a hard block, not a warning:
+      // dispatching it lets the domain layer silently persist a malformed record
+      // (med-d5t.11: food.log.create with no eaten_at became invisible to every
+      // windowed read while the agent reported success). Mirrors call.go:128 —
+      // type mismatches above stay warn-only, only missing-required blocks, and
+      // only for writes.
+      if (op.risk === MODE_WRITE) {
+        const missing = requiredMissing(op, input);
+        if (missing.length) {
+          throw new MCPError(-32602, `write op "${op.id}" rejected: required field missing: ${missing.join(', ')}`);
+        }
+      }
 
       const { query, body } = splitInput(op, input);
       const qs = serializeQuery(query);

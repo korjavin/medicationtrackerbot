@@ -125,10 +125,11 @@ func (e *CallError) Error() string {
 }
 
 const (
-	ErrUnknownOperation = "unknown_operation"
-	ErrWriteBlocked     = "write_blocked"
-	ErrMaxCallsExceeded = "max_calls_exceeded"
-	ErrTopicNotAllowed  = "topic_not_allowed"
+	ErrUnknownOperation     = "unknown_operation"
+	ErrWriteBlocked         = "write_blocked"
+	ErrMaxCallsExceeded     = "max_calls_exceeded"
+	ErrTopicNotAllowed      = "topic_not_allowed"
+	ErrRequiredFieldMissing = "required_field_missing"
 )
 
 // Call performs a single operation call subject to run constraints.

@@ -93,6 +93,16 @@ func buildRegistry(t *testing.T) *registry.Registry {
 			ResponseSummary: "logged set",
 			Description:     "log a set with a typed reps field (used by warn-only validation tests)",
 		},
+		&registry.Operation{
+			ID:              "workouts.groups.get",
+			Topic:           "workouts",
+			Method:          "GET",
+			Path:            "/api/workout/groups",
+			Risk:            registry.RiskRead,
+			ParamsSchema:    json.RawMessage(`{"type":"object","required":["id"],"properties":{"id":{"type":"integer"}}}`),
+			ResponseSummary: "one group",
+			Description:     "get a group with a required id param (used by required-missing read-not-blocked test)",
+		},
 	); err != nil {
 		t.Fatalf("register: %v", err)
 	}
@@ -884,6 +894,122 @@ func TestLoopbackCall_ProxyDeniedReturns403(t *testing.T) {
 	}
 	if observedOutcome != "proxy_denied" {
 		t.Errorf("expected X-MCP-Outcome=proxy_denied for proxy denial, got %q", observedOutcome)
+	}
+}
+
+func TestLoopbackCall_WriteMissingRequiredFieldBlocks(t *testing.T) {
+	// A write op forwarded with a missing required body field must be BLOCKED at
+	// the /call handler before it reaches the bridge — a silent success on a
+	// malformed record (med-d5t.11) is the bug this guards against. The block
+	// surfaces as 403 + X-MCP-Outcome=proxy_denied (same shape as a policy
+	// denial) so the script-side helper raises ProxyDenied.
+	var bridgeHit bool
+	bridge := func(w http.ResponseWriter, r *http.Request) {
+		bridgeHit = true
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{Status: 200, Body: json.RawMessage(`null`)})
+	}
+
+	var observedStatus int
+	var observedOutcome string
+	var observedBody string
+	sp := &fakeSpawner{fn: func(ctx context.Context, payload []byte) ([]byte, error) {
+		var p map[string]any
+		_ = json.Unmarshal(payload, &p)
+		token := p["run_token"].(string)
+		proxyURL := p["proxy_url"].(string)
+
+		// workouts.sets.log is a write op requiring "reps"; omit it.
+		body := []byte(`{"operation_id":"workouts.sets.log","body":{}}`)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, proxyURL, strings.NewReader(string(body)))
+		req.Header.Set("X-Run-Token", token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		observedStatus = resp.StatusCode
+		observedOutcome = resp.Header.Get("X-MCP-Outcome")
+		b, _ := io.ReadAll(resp.Body)
+		observedBody = string(b)
+		return envelopeOK(`null`), nil
+	}}
+
+	svc, _ := newTestServiceWithBridge(t, sp, bridge)
+	if _, err := svc.Execute(context.Background(), mcp.ExecutionRequest{
+		Script:    "x",
+		Mode:      proxy.ModeWrite,
+		TimeoutMS: 5000,
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if observedStatus != http.StatusForbidden {
+		t.Errorf("expected 403 for write missing required field, got %d", observedStatus)
+	}
+	if observedOutcome != "proxy_denied" {
+		t.Errorf("expected X-MCP-Outcome=proxy_denied, got %q", observedOutcome)
+	}
+	if !strings.Contains(observedBody, "body.reps") || !strings.Contains(observedBody, "required field missing") {
+		t.Errorf("expected error body to name the missing field, got %q", observedBody)
+	}
+	if bridgeHit {
+		t.Errorf("blocked write must NOT reach the bridge")
+	}
+}
+
+func TestLoopbackCall_ReadMissingRequiredFieldStillDispatches(t *testing.T) {
+	// The missing-required block is write-only: a READ op missing a required
+	// field stays warn-only and still forwards to the bridge.
+	var bridgeHit bool
+	bridge := func(w http.ResponseWriter, r *http.Request) {
+		bridgeHit = true
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(proxy.BridgeResponse{Status: 200, Body: json.RawMessage(`{"groups":[]}`)})
+	}
+
+	var observedStatus int
+	sp := &fakeSpawner{fn: func(ctx context.Context, payload []byte) ([]byte, error) {
+		var p map[string]any
+		_ = json.Unmarshal(payload, &p)
+		token := p["run_token"].(string)
+		proxyURL := p["proxy_url"].(string)
+
+		// workouts.groups.get is a read op requiring "id"; omit it.
+		body := []byte(`{"operation_id":"workouts.groups.get"}`)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, proxyURL, strings.NewReader(string(body)))
+		req.Header.Set("X-Run-Token", token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		observedStatus = resp.StatusCode
+		return envelopeOK(`null`), nil
+	}}
+
+	svc, _ := newTestServiceWithBridge(t, sp, bridge)
+	res, err := svc.Execute(context.Background(), mcp.ExecutionRequest{
+		Script:    "x",
+		Mode:      proxy.ModeReadOnly,
+		TimeoutMS: 5000,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if observedStatus != http.StatusOK {
+		t.Errorf("read missing required field must still dispatch (200), got %d", observedStatus)
+	}
+	if !bridgeHit {
+		t.Errorf("read must reach the bridge, not be blocked")
+	}
+	foundWarn := false
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "params.id") && strings.Contains(w, "required field missing") {
+			foundWarn = true
+		}
+	}
+	if !foundWarn {
+		t.Errorf("expected a warn-only missing-required warning for the read, got %v", res.Warnings)
 	}
 }
 

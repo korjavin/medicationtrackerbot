@@ -91,6 +91,56 @@ func ValidateInput(op *Operation, params map[string]json.RawMessage, body json.R
 	return warnings
 }
 
+// RequiredMissing returns the labels of required-but-absent fields (e.g.
+// "body.eaten_at", "params.id") for an operation, reusing the same compiled
+// schemas and Required lists that checkObject walks for its warnings. Unlike
+// ValidateInput it reports ONLY missing-required (not type mismatches), so
+// write-op callers can block on it. Returns nil when the op is nil, has no
+// schemas, or nothing is missing.
+func RequiredMissing(op *Operation, params map[string]json.RawMessage, body json.RawMessage) []string {
+	if op == nil {
+		return nil
+	}
+	c := compiledFor(op)
+	var missing []string
+
+	if c.params != nil {
+		obj := make(map[string]json.RawMessage, len(params))
+		for k, v := range params {
+			obj[k] = v
+		}
+		missing = append(missing, missingRequired("params", c.params, obj)...)
+	}
+
+	if c.body != nil {
+		obj := map[string]json.RawMessage{}
+		if len(bytes.TrimSpace(body)) > 0 {
+			// A present-but-non-object body (null / array / scalar) satisfies no
+			// required field, so leave obj empty and let every required body field
+			// be reported. Unlike ValidateInput (warn-only, stays lenient here),
+			// this is a hard gate: forwarding a `null` body would silently persist
+			// a malformed record — the exact med-d5t.11 shape this block prevents.
+			if parsed, ok := asObject(body); ok {
+				obj = parsed
+			}
+		}
+		missing = append(missing, missingRequired("body", c.body, obj)...)
+	}
+	return missing
+}
+
+// missingRequired reports required fields of schema absent from obj, labeled
+// with prefix ("params" or "body").
+func missingRequired(prefix string, schema *jsonschema.Schema, obj map[string]json.RawMessage) []string {
+	var missing []string
+	for _, req := range schema.Required {
+		if _, ok := obj[req]; !ok {
+			missing = append(missing, prefix+"."+req)
+		}
+	}
+	return missing
+}
+
 // checkObject reports required-but-missing and wrong-typed declared fields of
 // obj against schema. prefix labels the source ("params" or "body").
 func checkObject(prefix string, schema *jsonschema.Schema, obj map[string]json.RawMessage) []string {
