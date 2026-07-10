@@ -357,15 +357,47 @@ func (r *Repo) DeleteVariant(id int64) error {
 // -- Exercise Methods --
 
 func (r *Repo) CreateExerciseInVariant(variantID int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) (*WorkoutExercise, error) {
-	res, err := r.db.Exec(`
-		INSERT INTO workout_exercises (variant_id, exercise_name, target_sets, target_reps_min, target_reps_max, target_weight_kg, order_index)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		variantID, exerciseName, targetSets, targetRepsMin, targetRepsMax, targetWeightKg, orderIndex)
+	// Resolve the owning user so the new plan exercise can be promoted into the
+	// exercise library (the Workouts → Exercises tab). med-spp: schedule
+	// exercises must appear in the library, identically in bot and cloud modes.
+	variant, err := r.GetVariant(variantID)
 	if err != nil {
 		return nil, err
 	}
+	if variant == nil {
+		return nil, fmt.Errorf("variant %d not found", variantID)
+	}
+	group, err := r.GetGroup(variant.GroupID)
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, fmt.Errorf("group %d not found", variant.GroupID)
+	}
 
-	id, err := res.LastInsertId()
+	var id int64
+	err = r.db.WithTx(context.Background(), func(tx storedb.TX) error {
+		res, err := tx.Exec(`
+			INSERT INTO workout_exercises (variant_id, exercise_name, target_sets, target_reps_min, target_reps_max, target_weight_kg, order_index)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			variantID, exerciseName, targetSets, targetRepsMin, targetRepsMax, targetWeightKg, orderIndex)
+		if err != nil {
+			return err
+		}
+		id, err = res.LastInsertId()
+		if err != nil {
+			return err
+		}
+		// Promote into the library, seeded from the plan targets and deduped by
+		// the existing (user_id, name) unique index — no insert if the user
+		// already has a library item with this name.
+		_, err = tx.Exec(`
+			INSERT INTO exercise_library (user_id, name, default_sets, default_reps_min, default_reps_max, default_weight_kg)
+			VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(user_id, name) DO NOTHING`,
+			group.UserID, exerciseName, targetSets, targetRepsMin, targetRepsMax, targetWeightKg)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
