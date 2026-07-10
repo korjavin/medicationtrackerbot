@@ -20,6 +20,7 @@ function makeDispatcher() {
     bp: createBPDomain({ records, now, timeZone: 'UTC' }),
     weight: createWeightDomain({ records, now, timeZone: 'UTC' }),
     notes: createNotesDomain({ records, now }),
+    now,
   });
 }
 
@@ -198,6 +199,56 @@ describe('mcp-responder dispatch', () => {
     expect(created.error).toBeUndefined();
     expect(created.result.warnings).toBeUndefined();
     expect(created.result).toMatchObject({ systolic: 120, diastolic: 80 });
+  });
+
+  // registry.NormalizeCallInput (normalize_input.go:105) resolves the relative
+  // date tokens a clockless agent writes into a timestamp field. Without the
+  // repair the token persists verbatim and `Date.parse` makes the row invisible
+  // to every subsequent list — a silent write corruption, not an error.
+  it('resolves a relative date token in a write and warns about the repair', async () => {
+    const dispatcher = makeDispatcher();
+
+    const created = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 30,
+      method: 'mcp_call',
+      params: {
+        operation_id: 'health.bp.create',
+        mode: 'write',
+        intent: 'log the reading the user just dictated',
+        body: { measured_at: 'now', systolic: 118, diastolic: 76 },
+      },
+    });
+    expect(created.error).toBeUndefined();
+    expect(created.result.warnings).toEqual([
+      'resolved relative date measured_at="now" to "2026-07-06T12:00:00.000Z" using the device clock',
+    ]);
+    expect(created.result.result.measured_at).toBe('2026-07-06T12:00:00.000Z');
+
+    const listed = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 31,
+      method: 'mcp_call',
+      params: { operation_id: 'health.bp.list', params: {} },
+    });
+    expect(listed.result.map((r) => r.systolic)).toEqual([118]);
+  });
+
+  it('leaves a real timestamp and an unrecognized word untouched', async () => {
+    const dispatcher = makeDispatcher();
+    const created = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 32,
+      method: 'mcp_call',
+      params: {
+        operation_id: 'health.bp.create',
+        mode: 'write',
+        intent: 'log a backdated reading',
+        body: { measured_at: '2026-07-05T09:00:00.000Z', systolic: 120, diastolic: 80 },
+      },
+    });
+    expect(created.result.warnings).toBeUndefined();
+    expect(created.result.measured_at).toBe('2026-07-05T09:00:00.000Z');
   });
 
   // registry.ValidateInput never blocks (call.go:118): a mistyped or missing

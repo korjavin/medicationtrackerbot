@@ -326,10 +326,15 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   id-correlation intact. The ring is keyed by `pairing_id`, and every `connectClaude` mints a new
   one, so `disconnectClaude`/`purgePairing` delete the ring alongside the vault record — otherwise
   each connect/disconnect cycle would strand one ring key forever (the FIFO cap bounds one ring's
-  size, not how many rings exist). **Residual gap:** read frames are not deduped (a replayed read is
-  idempotent), and there is no counter bound into the frame AAD, so a relay that floods distinct
-  nonces can eventually evict and replay a very old write frame. The AAD counter is the durable
-  fix and is deliberately left to future work.
+  size, not how many rings exist). **Residual gaps**, all closed by the same durable fix (a counter
+  bound into the frame AAD), deliberately left to future work:
+  - Read frames are not deduped (a replayed read is idempotent).
+  - A relay that floods distinct nonces can eventually evict and replay a very old write frame.
+  - The ring is per-pairing **but also per-device** — `device` is a local-only store, never synced.
+    An honest relay keeps one device leg per pairing, but a *malicious* one can answer a captured
+    write frame on device A and then replay it to device B, whose ring has never seen that nonce.
+    Single-device use (the common case) is fully protected; two simultaneously-unlocked devices are
+    not. Sharing the ring through the oplog would replicate every nonce and is not worth it.
 - **Catalogued ≠ dispatchable (today).** `createDispatcher` still wires only six ops
   (`health.bp.*`, `health.weight.*`, `health.notes.*`); an `mcp_call` for any other catalogued
   op returns its actionable "not yet callable" error. Wiring the rest to `web/domain/*` is

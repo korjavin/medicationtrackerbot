@@ -341,6 +341,62 @@ const mergeInput = (params, body) => ({
   ...(isPlainObject(body) ? body : {}),
 });
 
+// --- Relative-date repair (port of registry.NormalizeCallInput step 2/3) ---
+// internal/mcp/registry/normalize_input.go:18. A tool-only agent has no clock
+// and writes the literal string "today"/"now" into a timestamp field. Bot mode
+// resolves it before the call leaves the MCP layer; without the same repair the
+// cloud domain modules store the token verbatim, and since `Date.parse("now")`
+// is NaN the record is then invisible to every list and sorts unpredictably —
+// a silent write corruption, not a 400. Warn-only and never blocking, like Go.
+//
+// Cloud merges params+body into one object, so the two schemas' properties are
+// checked as a union. The misplaced-body-field repair (step 1) is unnecessary
+// here for the same reason.
+const RELATIVE_DATE_DAYS = { now: 0, today: 0, yesterday: -1, tomorrow: 1 };
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DATE_TIME_KEYWORDS = ['rfc3339', 'iso8601', 'iso 8601', 'timestamp'];
+
+const propDescription = (prop) => String((prop && prop.description) || '').toLowerCase();
+
+// isDateField / isDateOnly mirror normalize_input.go:208 and :224.
+function isDateField(name, prop) {
+  const ln = name.toLowerCase();
+  if (ln.endsWith('_at') || ln === 'date' || ln === 'from' || ln === 'to') return true;
+  const d = propDescription(prop);
+  return d.includes('yyyy-mm-dd') || DATE_TIME_KEYWORDS.some((kw) => d.includes(kw));
+}
+
+function isDateOnly(prop) {
+  const d = propDescription(prop);
+  return d.includes('yyyy-mm-dd') && !DATE_TIME_KEYWORDS.some((kw) => d.includes(kw));
+}
+
+// normalizeRelativeDates returns a repaired copy of the merged input plus one
+// note per resolved field. Non-token values (a real timestamp, a number, an
+// unrecognized word) are left untouched — exactly as Go leaves them for the
+// warn-only schema check downstream.
+export function normalizeRelativeDates(op, input, nowMs) {
+  if (!op || !isPlainObject(input)) return { input, notes: [] };
+  const props = {
+    ...((op.params_schema && op.params_schema.properties) || {}),
+    ...((op.body_schema && op.body_schema.properties) || {}),
+  };
+  const out = { ...input };
+  const notes = [];
+  for (const name of Object.keys(out).sort()) {
+    const prop = props[name];
+    if (!prop || !isDateField(name, prop)) continue;
+    const raw = out[name];
+    if (typeof raw !== 'string') continue;
+    const offset = RELATIVE_DATE_DAYS[raw.trim().toLowerCase()];
+    if (offset === undefined) continue;
+    const iso = new Date(nowMs + offset * DAY_MS).toISOString();
+    out[name] = isDateOnly(prop) ? iso.slice(0, 10) : iso;
+    notes.push(`resolved relative date ${name}="${raw}" to "${out[name]}" using the device clock`);
+  }
+  return { input: out, notes };
+}
+
 // createDispatcher builds the mcp_help/mcp_call handlers over the injected
 // domain instances (same construction path apishim.js uses for bp/weight/
 // notes).
@@ -410,12 +466,14 @@ export function createDispatcher({
       // unfilled slot.
       substitutePath(BY_ID[opID] || { id: opID }, p.path_params);
 
-      // Warn-only, like call.go:118-121: a mismatch never blocks the call. The
-      // warned response nests the value under `result` — the same shape bot
-      // mode's CallResponse always uses — so an agent that ignores warnings
-      // still gets its data. A clean call returns the bare value, unchanged.
-      const input = mergeInput(p.params, p.body);
-      const warnings = validateInput(BY_ID[opID], input);
+      // Repair-then-validate, in that order, so a field the normalizer just
+      // rewrote isn't reported as malformed (call.go:96-121). Both stages are
+      // warn-only: a mismatch never blocks the call. The warned response nests
+      // the value under `result` — the same shape bot mode's CallResponse
+      // always uses — so an agent that ignores warnings still gets its data. A
+      // clean call returns the bare value, unchanged.
+      const { input, notes } = normalizeRelativeDates(BY_ID[opID], mergeInput(p.params, p.body), now());
+      const warnings = [...notes, ...validateInput(BY_ID[opID], input)];
       const result = await fn(input);
       return warnings.length ? { result, warnings } : result;
     }
