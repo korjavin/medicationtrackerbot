@@ -400,7 +400,7 @@ func TestMCPRelay_EvictedDeviceLegClosesWith4409(t *testing.T) {
 	deviceHeader := http.Header{}
 	deviceHeader.Set("Cookie", session.Name+"="+session.Value)
 
-	dial := func() *websocket.Conn {
+	dialDevice := func() *websocket.Conn {
 		t.Helper()
 		conn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device?pairing="+pairingID, &websocket.DialOptions{
 			HTTPClient: client,
@@ -412,9 +412,32 @@ func TestMCPRelay_EvictedDeviceLegClosesWith4409(t *testing.T) {
 		return conn
 	}
 
-	first := dial()
+	first := dialDevice()
 	defer first.CloseNow()
-	second := dial() // evicts `first`
+
+	// Pin the eviction ordering deterministically. websocket.Dial returns once
+	// the client handshake completes, but the server's serveLeg->join — which
+	// registers this conn as the pairing's device leg — runs asynchronously in
+	// the handler goroutine. If we dialled `second` right away, its join could
+	// beat `first`'s join under a loaded runner; `first` would then be the
+	// survivor and this test's `first.Read` would block until the deadline
+	// waiting for a 4409 that went to `second` instead. That inversion was the
+	// med-tc1.7 flake (a bigger deadline just made the wrong-path hang longer).
+	// Priming one frame first->shim proves `first` already occupies p.device
+	// before we dial `second`, so the eviction target is never ambiguous.
+	shimConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/shim?pairing="+pairingID, &websocket.DialOptions{HTTPClient: client})
+	if err != nil {
+		t.Fatalf("dial shim: %v", err)
+	}
+	defer shimConn.CloseNow()
+	if err := first.Write(ctx, websocket.MessageBinary, []byte("prime")); err != nil {
+		t.Fatalf("prime device write: %v", err)
+	}
+	if _, _, err := shimConn.Read(ctx); err != nil {
+		t.Fatalf("prime shim read: %v", err)
+	}
+
+	second := dialDevice() // now deterministically evicts `first`
 	defer second.CloseNow()
 
 	if _, _, err := first.Read(ctx); websocket.CloseStatus(err) != StatusPairingReplaced {
@@ -422,12 +445,6 @@ func TestMCPRelay_EvictedDeviceLegClosesWith4409(t *testing.T) {
 	}
 
 	// The replacement still owns the slot, and still bridges the shim's frames.
-	shimConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/shim?pairing="+pairingID, &websocket.DialOptions{HTTPClient: client})
-	if err != nil {
-		t.Fatalf("dial shim: %v", err)
-	}
-	defer shimConn.CloseNow()
-
 	want := []byte("frame-for-the-live-leg")
 	if err := shimConn.Write(ctx, websocket.MessageBinary, want); err != nil {
 		t.Fatalf("shim write: %v", err)
