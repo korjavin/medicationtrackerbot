@@ -80,15 +80,22 @@ function debugOnce(key, ...args) {
   console.debug(`[cloud shim] ${key}`, ...args);
 }
 
-// installApiShim wires the domain instances to window.offlineAwareApiCall.
-// ctx is the sync engine context (accountId, dek, ...) that recordsPort/
-// writeRecord already expect. Tests inject an in-memory records port via
-// opts.records to exercise the shim without crypto/IndexedDB (see
-// tests/helpers/cloud-shim-harness.js) — the port interface makes this a
-// drop-in swap with zero shim logic changes. opts.win overrides the target
-// window (the JSDOM window in tests); defaults to the global window in the
-// browser where this module actually runs in production.
-export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
+// createApiRouter builds the domain instances and the method+path router over
+// them, and assigns nothing — the MCP responder dispatches catalog ops through
+// the same router the UI calls, so there is exactly one place that maps an HTTP
+// route onto a web/domain/ module (med-csu.3). ctx is the sync engine context
+// (accountId, dek, ...) that recordsPort/writeRecord already expect. Tests
+// inject an in-memory records port via opts.records to exercise the router
+// without crypto/IndexedDB (see tests/helpers/cloud-shim-harness.js) — the port
+// interface makes this a drop-in swap with zero router logic changes. opts.win
+// is read-only here (the TZPlanBanner nudge below) and may be omitted entirely,
+// which is what lets the MCP coverage sweep drive the router headlessly.
+//
+// The domain instances are hung off the returned function as `.domains` because
+// installApiShim needs the very same instances for its window globals; building
+// a second set would give the UI and the shim's browser-direct clients
+// (CloudFoodAI, CloudMCPDispatcher, …) divergent state.
+export function createApiRouter(ctx, { records: recordsOverride, win } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || recordsPort(ctx);
   const now = () => Date.now();
@@ -112,48 +119,6 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     aiClient: createAIClient({ settingsDomain: settings }), foodDomain: food, now,
   });
   const workout = createWorkoutDomain({ records, now, timeZone });
-
-  // Task 4's frontend bypass guards (photo.js/log.js/products.js — raw fetch
-  // to the AI + search endpoints) call these directly, entirely outside the
-  // shimCall route table below: the AI provider call and the food-DB search
-  // both go straight from the browser, never through any /api surface.
-  targetWindow.CloudFoodAI = foodAI;
-  // remoteConfigured lets products.js distinguish "no food DB configured" from
-  // "no matches" — without it an unconfigured operator renders as an empty
-  // result set and the user blames the search (med-1j1).
-  targetWindow.CloudFoodSearch = { search: food.search, remoteConfigured: foodDb.remoteConfigured };
-  // Voice: elevenlabs-call.js's fetchSignedURL() branches on
-  // window.__MEDTRACKER_CLOUD__ to mint the signed URL browser-direct here
-  // (BYO ElevenLabs key from the vault; never crosses /api).
-  targetWindow.CloudElevenLabs = createElevenLabsClient({ settingsDomain: settings });
-  // Auto-provisioning: creates the ElevenLabs client tools + a MedTracker agent
-  // from code (browser-direct with the vault key) so the user configures only
-  // the API key. elevenlabs-call.js calls provision() before minting the
-  // signed URL. See web/cloud/js/elevenlabs-agent.js.
-  targetWindow.CloudElevenLabsAgent = createElevenLabsAgentProvisioner({ settingsDomain: settings });
-  // Voice MCP tools: elevenlabs-call.js registers mcp_help/mcp_call clientTools
-  // (cloud only) that dispatch straight into this in-tab catalog — same
-  // bp/weight/notes instances above, no relay/crypto (the relay responder in
-  // mcp-responder.js only exists in the Claude-connector-elected tab and builds
-  // its own instances, so this is the clean reuse seam).
-  targetWindow.CloudMCPDispatcher = createDispatcher({
-    bp, weight, notes, now,
-  });
-
-  // Due-dose materialization + tz-plan status refresh: neither domain module
-  // owns a timer (Task 3/4's modules stay pure functions of their inputs), so
-  // the shim runs both once on install and again every MATERIALIZE_INTERVAL_MS.
-  async function runMaterializationSweep() {
-    try {
-      await intake.materializeDueDoses();
-      await tzplan.refreshPlanStatus();
-    } catch (e) {
-      console.error('[cloud shim] materialization sweep failed', e);
-    }
-  }
-  clearInterval(materializeTimerHandle);
-  runMaterializationSweep();
-  materializeTimerHandle = setInterval(runMaterializationSweep, MATERIALIZE_INTERVAL_MS);
 
   // PORTED_SET: the feature domains this shim can actually serve end-to-end
   // (records + domain module + shim routes wired). Clamped onto every read
@@ -681,6 +646,65 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     // existing failure path (api.js apiCall → safeAlert / toast) instead.
     throw apiError(404, `Not found: ${method} ${path}`);
   }
+
+  shimCall.domains = {
+    bp, weight, notes, settings, food, foodAI, foodDb, intake, tzplan, now,
+  };
+  return shimCall;
+}
+
+// installApiShim wires the router to window.offlineAwareApiCall (the seam
+// web/static/js/core/api.js delegates through) plus the browser-direct globals
+// that bypass /api entirely, and starts the materialization sweep. Signature
+// and return value unchanged: it resolves to the router itself.
+export function installApiShim(ctx, { records, win } = {}) {
+  const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
+  const shimCall = createApiRouter(ctx, { records, win });
+  const {
+    bp, weight, notes, settings, food, foodAI, foodDb, intake, tzplan, now,
+  } = shimCall.domains;
+
+  // Task 4's frontend bypass guards (photo.js/log.js/products.js — raw fetch
+  // to the AI + search endpoints) call these directly, entirely outside the
+  // router's route table: the AI provider call and the food-DB search both go
+  // straight from the browser, never through any /api surface.
+  targetWindow.CloudFoodAI = foodAI;
+  // remoteConfigured lets products.js distinguish "no food DB configured" from
+  // "no matches" — without it an unconfigured operator renders as an empty
+  // result set and the user blames the search (med-1j1).
+  targetWindow.CloudFoodSearch = { search: food.search, remoteConfigured: foodDb.remoteConfigured };
+  // Voice: elevenlabs-call.js's fetchSignedURL() branches on
+  // window.__MEDTRACKER_CLOUD__ to mint the signed URL browser-direct here
+  // (BYO ElevenLabs key from the vault; never crosses /api).
+  targetWindow.CloudElevenLabs = createElevenLabsClient({ settingsDomain: settings });
+  // Auto-provisioning: creates the ElevenLabs client tools + a MedTracker agent
+  // from code (browser-direct with the vault key) so the user configures only
+  // the API key. elevenlabs-call.js calls provision() before minting the
+  // signed URL. See web/cloud/js/elevenlabs-agent.js.
+  targetWindow.CloudElevenLabsAgent = createElevenLabsAgentProvisioner({ settingsDomain: settings });
+  // Voice MCP tools: elevenlabs-call.js registers mcp_help/mcp_call clientTools
+  // (cloud only) that dispatch straight into this in-tab catalog — same
+  // bp/weight/notes instances above, no relay/crypto (the relay responder in
+  // mcp-responder.js only exists in the Claude-connector-elected tab and builds
+  // its own instances, so this is the clean reuse seam).
+  targetWindow.CloudMCPDispatcher = createDispatcher({
+    bp, weight, notes, now,
+  });
+
+  // Due-dose materialization + tz-plan status refresh: neither domain module
+  // owns a timer (Task 3/4's modules stay pure functions of their inputs), so
+  // the shim runs both once on install and again every MATERIALIZE_INTERVAL_MS.
+  async function runMaterializationSweep() {
+    try {
+      await intake.materializeDueDoses();
+      await tzplan.refreshPlanStatus();
+    } catch (e) {
+      console.error('[cloud shim] materialization sweep failed', e);
+    }
+  }
+  clearInterval(materializeTimerHandle);
+  runMaterializationSweep();
+  materializeTimerHandle = setInterval(runMaterializationSweep, MATERIALIZE_INTERVAL_MS);
 
   targetWindow.offlineAwareApiCall = shimCall;
   return shimCall;

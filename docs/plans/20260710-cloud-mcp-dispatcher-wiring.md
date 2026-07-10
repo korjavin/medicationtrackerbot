@@ -115,10 +115,10 @@ A reviewer should be able to diff the responder and see only *adapter* code.
 ## Implementation Steps
 
 ### Task 1: Extract the apishim router so MCP and the UI share one code path
-- [ ] in `web/cloud/js/apishim.js`, extract the body of `installApiShim` into an exported `createApiRouter(ctx, { records })` that returns `shimCall` and performs **no** `window` assignment
-- [ ] reduce `installApiShim(ctx, { records, win })` to `createApiRouter(...)` + `targetWindow.offlineAwareApiCall = router` + `return router`, preserving its current return value and signature exactly
-- [ ] make **no behavioral change** to any route in this task — it is a pure extraction; the existing apishim tests must pass untouched
-- [ ] confirm `createApiRouter` pulls in no browser globals beyond what `shimCall` already touches (the responder runs in the same tab, but keeping it port-injected is what lets the coverage sweep drive it headlessly)
+- [x] in `web/cloud/js/apishim.js`, extract the body of `installApiShim` into an exported `createApiRouter(ctx, { records })` that returns `shimCall` and performs **no** `window` assignment
+- [x] reduce `installApiShim(ctx, { records, win })` to `createApiRouter(...)` + `targetWindow.offlineAwareApiCall = router` + `return router`, preserving its current return value and signature exactly (plus the browser-direct globals + materialization timer, which are window side-effects and cannot live in the router)
+- [x] make **no behavioral change** to any route in this task — it is a pure extraction; the existing apishim tests must pass untouched (`pnpm test`: 288 files / 3118 tests green)
+- [x] confirm `createApiRouter` pulls in no browser globals beyond what `shimCall` already touches (`win` is now read-only, used only for the optional `TZPlanBanner.refresh()` nudge; the domain instances are exposed as `router.domains` so `installApiShim` reuses the same set)
 
 ### Task 2: Dispatch mcp_call through the router instead of the 6-entry ops map
 - [ ] in `web/cloud/js/mcp-responder.js`, build the endpoint from the resolved catalog entry: substitute `path_params` into the `path` template (reuse med-csu.2's allowlisted, encoded substitution — do not write a second one), then append `params` as a querystring
