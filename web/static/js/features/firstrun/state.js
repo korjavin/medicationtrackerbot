@@ -1,7 +1,7 @@
 // features/firstrun/state.js — first-run flow step tracker.
 //
-// Persists the current step ("welcome" | "permissions" | "integrations"
-// | "done") to sessionStorage so a mid-flow process kill (Capacitor
+// Persists the current step ("welcome" | "permissions" | "features" |
+// "integrations" | "done") to sessionStorage so a mid-flow process kill (Capacitor
 // WebView destroyed but sessionStorage retained per app session) can
 // resume at the last-visible step on the next bootstrap. A full device
 // power-cycle wipes sessionStorage; the flow then restarts from "welcome"
@@ -19,7 +19,7 @@
 
     const KEY = 'wg-firstrun-step';
     const DEFAULT_STEP = 'welcome';
-    const VALID_STEPS = Object.freeze(['welcome', 'permissions', 'integrations', 'done']);
+    const VALID_STEPS = Object.freeze(['welcome', 'permissions', 'features', 'integrations', 'done']);
 
     function _safeRead() {
         try {

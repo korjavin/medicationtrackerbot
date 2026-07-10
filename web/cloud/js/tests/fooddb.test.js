@@ -114,4 +114,39 @@ describe('fooddb', () => {
       expect.objectContaining({ headers: { 'X-API-Key': 'secret-domain' } })
     );
   });
+
+  // med-1j1: with no BYO url/domain and no operator CLOUD_FOOD_DB_URL, search()
+  // returns [] — indistinguishable from "no matches" unless the caller can ask.
+  describe('remoteConfigured', () => {
+    it('is false when neither a vault URL nor the operator default exists', async () => {
+      document.head.innerHTML = '';
+      const client = createFoodDbClient({ settingsDomain });
+
+      expect(await client.remoteConfigured()).toBe(false);
+      expect(await client.search('apple')).toEqual([]);
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('is true from the operator default alone', async () => {
+      expect(await createFoodDbClient({ settingsDomain }).remoteConfigured()).toBe(true);
+    });
+
+    it('is true from a vault URL even with no operator default', async () => {
+      document.head.innerHTML = '';
+      settingsDomain.readIntegrationsUnmasked.mockResolvedValue({
+        food: { url: 'https://user.example.com' }
+      });
+
+      expect(await createFoodDbClient({ settingsDomain }).remoteConfigured()).toBe(true);
+    });
+
+    it('is true from a bare vault domain even with no operator default', async () => {
+      document.head.innerHTML = '';
+      settingsDomain.readIntegrationsUnmasked.mockResolvedValue({
+        food: { domain: 'user.example.com' }
+      });
+
+      expect(await createFoodDbClient({ settingsDomain }).remoteConfigured()).toBe(true);
+    });
+  });
 });

@@ -5,7 +5,11 @@
 // + internal/server/food_handlers.go (targets)
 // + internal/server/settings_integrations_handlers.go (provider keys).
 // Feature-flag defaults mirror internal/store/migrations/{022,025,073,074}_*.sql
-// (food_intake and weekly_digest default off; everything else defaults on).
+// (weekly_digest defaults off; everything else defaults on), except food, which
+// defaults ON here and off in bot mode. Bot mode's shared settings row cannot
+// tell "never configured" from "deliberately disabled", so migration 018 stays
+// at DEFAULT 0; a fresh vault has no features record at all, so a cloud user
+// who turns food off still keeps that choice.
 
 const GENERAL_RECORD_TYPE = 'settings';
 const GENERAL_RECORD_ID = 'settings';
@@ -52,7 +56,7 @@ const INTEGRATIONS_SECRET_FIELDS = {
 };
 
 const DEFAULT_FEATURES = {
-  food: false,
+  food: true,
   bp: true,
   weight: true,
   medication: true,

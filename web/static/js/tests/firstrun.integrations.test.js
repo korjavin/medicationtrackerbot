@@ -27,6 +27,8 @@ function loadFlow({
     fetchMock = null,
     initialStep = 'integrations',
     settingsHelper = null,
+    cloud = false,
+    trialAi = false,
 } = {}) {
     const dom = new JSDOM(SHELL_HTML, {
         url: 'https://example.test/',
@@ -34,6 +36,15 @@ function loadFlow({
         pretendToBeVisual: true,
     });
     const { window } = dom;
+    if (cloud) window.__MEDTRACKER_CLOUD__ = true;
+    if (trialAi) {
+        // Same carrier cmd/cloud injects (internal/cloudserver/router.go) and
+        // that Settings → Integrations reads in applyTrialHints.
+        const meta = window.document.createElement('meta');
+        meta.name = 'medtracker-trial-ai';
+        meta.content = '1';
+        window.document.head.appendChild(meta);
+    }
     if (bootstrap) window.__MEDTRACKER_BOOTSTRAP__ = bootstrap;
     if (fetchMock) window.fetch = fetchMock;
     if (initialStep) window.sessionStorage.setItem('wg-firstrun-step', initialStep);
@@ -72,6 +83,39 @@ describe('firstrun integrations screen', () => {
             expect(document.querySelector('[data-firstrun-action="save"]')).not.toBeNull();
             expect(document.querySelector('[data-firstrun-action="skip"]')).not.toBeNull();
         } finally { cleanup(); }
+    });
+
+    // med-awx: a user who skips this screen must know AI still works — but only
+    // when the operator actually provisioned TRIAL_OPENAI_API_KEY. The copy
+    // keys off the same <meta name="medtracker-trial-ai"> tag aiclient.js reads,
+    // so the wizard can never promise a trial the backend won't honour.
+    it('promises the rate-limited trial only when the operator injected the trial-ai meta tag', () => {
+        const withTrial = loadFlow({ bootstrap: { needs_first_run: true }, cloud: true, trialAi: true });
+        try {
+            withTrial.window.WGFirstRun.mount();
+            const tagline = withTrial.document.querySelector('.wg-firstrun-screen__tagline').textContent;
+            expect(tagline).toMatch(/already work/i);
+            expect(tagline).toMatch(/rate-limited/i);
+            expect(withTrial.document.querySelector('[data-firstrun-action="skip"]').textContent)
+                .toMatch(/trial key/i);
+        } finally { withTrial.cleanup(); }
+
+        // Cloud, but the operator set no trial key: never claim AI works out of the box.
+        const noTrial = loadFlow({ bootstrap: { needs_first_run: true }, cloud: true });
+        try {
+            noTrial.window.WGFirstRun.mount();
+            const tagline = noTrial.document.querySelector('.wg-firstrun-screen__tagline').textContent;
+            expect(tagline).not.toMatch(/trial/i);
+            expect(tagline).toMatch(/Add your OpenAI API key/i);
+            expect(noTrial.document.querySelector('[data-firstrun-action="skip"]').textContent).toBe('Skip');
+        } finally { noTrial.cleanup(); }
+
+        // Bot mode has no trial path at all, even if a stray meta tag exists.
+        const bot = loadFlow({ bootstrap: { needs_first_run: true }, trialAi: true });
+        try {
+            bot.window.WGFirstRun.mount();
+            expect(bot.document.querySelector('.wg-firstrun-screen__tagline').textContent).not.toMatch(/trial/i);
+        } finally { bot.cleanup(); }
     });
 
     it('Save submits PATCH /api/settings/integrations with the entered key + URL + model', async () => {

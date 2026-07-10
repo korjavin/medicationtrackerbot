@@ -7,7 +7,7 @@ import { createNotesDomain } from '../../../domain/notes.js';
 import { createInMemoryRecordsPort } from '../../../static/js/tests/helpers/cloud-shim-harness.js';
 import {
   CATALOG, createDispatcher, createResponder, handleRequest,
-  STATUS_NO_PAIRING, STATUS_PAIRING_REPLACED, suggestOperations,
+  STATUS_NO_PAIRING, suggestOperations,
 } from '../mcp-responder.js';
 
 function makeDispatcher() {
@@ -344,31 +344,6 @@ describe('mcp-responder reconnect loop', () => {
     expect(responder.getStatus()).toBe('idle');
 
     // The whole point: no reconnect is ever scheduled, however long we wait.
-    vi.advanceTimersByTime(120_000);
-    expect(FakeSocket.instances).toHaveLength(1);
-  });
-
-  // The relay validates it against the account's live pairing, so a tab whose
-  // pairing was replaced elsewhere is rejected instead of squatting the fresh
-  // pairing's device slot with a dead key.
-  it('sends its pairing id on the device leg URL', () => {
-    const responder = makeResponder();
-    responder.connect();
-
-    expect(FakeSocket.instances[0].url).toBe('ws://relay.test/api/mcp/relay/device?pairing=pair-1');
-    responder.stop();
-  });
-
-  it('stops permanently on STATUS_PAIRING_REPLACED, reporting the code', () => {
-    const onStalePairing = vi.fn();
-    const responder = makeResponder({ onStalePairing });
-    responder.connect();
-
-    FakeSocket.instances[0].fireClose(STATUS_PAIRING_REPLACED);
-
-    // The code is what tells the owner to step aside rather than purge the
-    // vault record — which by now names the replacement pairing.
-    expect(onStalePairing).toHaveBeenCalledWith(STATUS_PAIRING_REPLACED);
     vi.advanceTimersByTime(120_000);
     expect(FakeSocket.instances).toHaveLength(1);
   });

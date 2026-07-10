@@ -48,7 +48,8 @@ Open `https://portainer.<base>`, finish the initial admin setup, then:
    cap, default 50MB, 0 disables), `CLOUD_DRY_QUEUE_WARN_HOURS` (default
    120 — how close the last unsent reminder must be before the hourly sweep
    warns a stale-synced account), and `CLOUD_FOOD_DB_URL` (operator's
-   default FastFoodDB instance for food search — see the CORS note below).
+   default FastFoodDB instance for food search — **required for food search
+   to work on a fresh account**; see the note below).
    See [environment.md](environment.md).
 3. Enable the stack's redeploy webhook and append its URL as a new line in
    the `PORTAINER_REDEPLOY_HOOK` GitHub secret (multiline — one URL per line,
@@ -64,7 +65,24 @@ external `proxy` network.
 Requests to the operator default are now routed through a same-origin proxy on the cloud server (`/api/food/search`, `/api/food/barcode/`),
 eliminating the need for CORS configuration on the upstream FastFoodDB instance.
 
-If left unset, remote search degrades to local-only (products already logged), which is silent and correct.
+Set it — and if your upstream is keyed, set `CLOUD_FOOD_DB_API_KEY` too. The
+proxy forwards it as `X-API-Key` exactly as bot mode does with `FOOD_API_KEY`;
+without it a keyed instance answers 401 and search stays broken even though
+`CLOUD_FOOD_DB_URL` is set. The key is operator-owned and server-side only: it
+never appears in a meta tag, a response body or header, or a log line — the
+browser learns only that a food DB exists. Per-user BYO keys are unaffected,
+since those go browser-direct and never touch this proxy.
+
+Food is enabled by default on fresh accounts, so a new user's first
+action on the Food screen is usually a search — and with no food DB configured
+there is nothing to search but the products they have already logged.
+
+If left unset, remote search degrades to local-only (products already logged).
+That degradation is no longer silent: `fooddb.js`'s `remoteConfigured()` reports
+false and the search UI renders an explicit "Food database not configured. Add
+one in Settings → Integrations." instead of "Found 0 result(s)." (med-1j1). A
+user who typed a query is told the database is missing, not that their food
+doesn't exist.
 
 ### Telegram manager bot (optional, C3a)
 

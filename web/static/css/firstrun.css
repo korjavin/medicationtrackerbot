@@ -223,3 +223,59 @@
 .wg-firstrun-form__error:empty {
     display: none;
 }
+
+/* Feature picker rows (med-4pz.2) — label + one-line copy on the left, a
+   checkbox on the right. Structurally a permission row turned horizontal;
+   it gets its own class rather than reusing .wg-firstrun-permission so the
+   two can diverge (permissions grow status text, features grow toggles).
+   All visual values resolve via design tokens (CLAUDE.md rule #3). */
+.wg-firstrun-features {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-firstrun-feature {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    padding: var(--space-md);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--wg-border-strong);
+    background: var(--wg-bg-card);
+}
+
+.wg-firstrun-feature__text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.wg-firstrun-feature__label {
+    display: block;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    color: var(--wg-fg-1);
+}
+
+.wg-firstrun-feature__copy {
+    margin: 0;
+    color: var(--wg-fg-2);
+    font-size: var(--font-size-sm);
+    line-height: 1.4;
+}
+
+/* Sized up from the 13px UA default so the row is a comfortable tap target
+   on a phone, which is where the overlay is most often seen. */
+.wg-firstrun-feature__toggle {
+    flex: 0 0 auto;
+    width: var(--space-lg);
+    height: var(--space-lg);
+    accent-color: var(--wg-teal);
+    cursor: pointer;
+}
+
+.wg-firstrun-feature__toggle:disabled {
+    cursor: progress;
+    opacity: 0.6;
+}

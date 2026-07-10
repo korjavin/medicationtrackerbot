@@ -45,23 +45,6 @@ const (
 	mcpRelayRateLimitWindow = 10 * time.Second
 )
 
-// StatusNoPairing tells the device leg its pairing is gone (a restart dropped
-// the in-memory table, or the TTL expired) so it stops reconnecting and drops
-// the stale vault record. It must be a WebSocket close code, not the HTTP 404
-// the handler would otherwise return: browsers surface a pre-upgrade HTTP
-// error as an indistinguishable abnormal close. Mirrored by STATUS_NO_PAIRING
-// in web/cloud/js/mcp-responder.js.
-const StatusNoPairing websocket.StatusCode = 4404
-
-// StatusPairingReplaced tells a device leg that the account *does* have a live
-// pairing, but not the one this tab holds — a re-pair (mint) elsewhere replaced
-// it. Distinct from StatusNoPairing because the answers differ: the tab must
-// not purge the vault record (it now describes the fresh pairing, possibly not
-// yet synced to this device), it must simply stop answering with its dead key
-// and hand the responder election to the tab that re-paired. Mirrored by
-// STATUS_PAIRING_REPLACED in web/cloud/js/mcp-responder.js.
-const StatusPairingReplaced websocket.StatusCode = 4409
-
 // mcpRelayStore is the subset of *cloudstore.Repo the pairing endpoints
 // need — RequireSession's revocation check only; pairings themselves live in
 // memory, not in the store.
@@ -212,38 +195,37 @@ func (a *MCPRelayAPI) DeletePairing(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// StatusNoPairing tells the browser responder that this account has no live
+// pairing, so it must stop reconnecting and drop its stale vault record.
+//
+// It has to be a WebSocket close code rather than an HTTP status: the browser
+// WebSocket API exposes no handshake status, so rejecting the upgrade with a
+// 404 is indistinguishable from a network drop and the responder retries
+// forever (the pairing table is in-memory — every redeploy strands one).
+// Close codes ARE visible, in onclose's `code`. 4404 is in the 4000-4999
+// application range reserved by RFC 6455 §7.4.2.
+const StatusNoPairing websocket.StatusCode = 4404
+
 // DeviceSocket is the browser-tab leg: the unlocked PWA connects here to
 // answer relayed tool calls. Requires the account to already have an active
 // pairing (minted via CreatePairing) — there's nothing to bridge otherwise.
-// The missing-pairing answer is delivered *after* the upgrade, as a
-// StatusNoPairing close: the browser responder cannot read a pre-upgrade HTTP
-// status, so a 404 here would look like a transient drop and it would
-// reconnect forever against a pairing that no longer exists.
-//
-// The `pairing` query param is the pairing id the tab believes it holds (not
-// a credential — the session cookie already authenticates the account). It is
-// checked against the account's live pairing so a tab still holding a replaced
-// pairing (re-paired in another tab: mint closes its leg, and it reconnects)
-// gets StatusPairingReplaced instead of silently occupying the fresh pairing's
-// device slot with the wrong key, dropping every frame.
 func (a *MCPRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	want := r.URL.Query().Get("pairing")
-	conn, err := websocket.Accept(w, r, nil)
-	if err != nil {
-		return
-	}
 	record, ok := a.pairings.byAccountID(session.AccountID)
 	if !ok {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
 		conn.Close(StatusNoPairing, "no active pairing for this account")
 		return
 	}
-	if want != "" && want != record.id {
-		conn.Close(StatusPairingReplaced, "pairing replaced")
+	conn, err := websocket.Accept(w, r, nil)
+	if err != nil {
 		return
 	}
 	a.serveLeg(r.Context(), conn, record, true)

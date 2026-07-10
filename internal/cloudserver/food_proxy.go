@@ -11,17 +11,28 @@ import (
 
 // FoodProxyAPI provides a same-origin proxy for the operator's default
 // FastFoodDB instance (CLOUD_FOOD_DB_URL) to bypass CORS restrictions.
+//
+// foodDBAPIKey (CLOUD_FOOD_DB_API_KEY) authenticates the operator against a
+// keyed upstream, mirroring bot mode's FOOD_API_KEY -> X-API-Key header in
+// internal/store/food/openfoodfacts_api.go. It carries the same SECURITY
+// INVARIANT as TrialConfig: the key must never appear in a response body, a
+// header echoed to the client, an injected meta tag, or a log line — the
+// browser only ever learns that a food DB exists, never how to authenticate
+// to it. Per-user BYO keys are unaffected; those go browser-direct from
+// web/cloud/js/fooddb.js and never reach this proxy.
 type FoodProxyAPI struct {
 	foodDBURL     string
+	foodDBAPIKey  string
 	store         sessionStore
 	sessionSecret string
 	client        *http.Client
 }
 
 // NewFoodProxyAPI creates a new FoodProxyAPI
-func NewFoodProxyAPI(store sessionStore, sessionSecret string, foodDBURL string) *FoodProxyAPI {
+func NewFoodProxyAPI(store sessionStore, sessionSecret string, foodDBURL, foodDBAPIKey string) *FoodProxyAPI {
 	return &FoodProxyAPI{
 		foodDBURL:     strings.TrimRight(foodDBURL, "/"),
+		foodDBAPIKey:  foodDBAPIKey,
 		store:         store,
 		sessionSecret: sessionSecret,
 		client: &http.Client{
@@ -85,6 +96,9 @@ func (a *FoodProxyAPI) proxyRequest(upstreamURL string, w http.ResponseWriter, r
 		slog.Error("foodproxy: failed to create request", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+	if a.foodDBAPIKey != "" {
+		req.Header.Set("X-API-Key", a.foodDBAPIKey)
 	}
 
 	resp, err := a.client.Do(req)

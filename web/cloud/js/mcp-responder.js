@@ -324,12 +324,6 @@ const RECONNECT_MAX_MS = 30000;
 // no pairing for this account, so reconnecting is futile.
 export const STATUS_NO_PAIRING = 4404;
 
-// Mirrors StatusPairingReplaced: the account has a live pairing, but a re-pair
-// elsewhere replaced the one this responder holds. Reconnecting is futile too
-// (the key is dead), but the vault record must survive — it now names the
-// replacement.
-export const STATUS_PAIRING_REPLACED = 4409;
-
 // createResponder wires a live relay connection: decrypts each inbound
 // frame, dispatches it via handleRequest, encrypts the response, and
 // reconnects with backoff while the tab lives (docs/cloud-mode.md "Tab
@@ -338,10 +332,9 @@ export const STATUS_PAIRING_REPLACED = 4409;
 // module). records/now/timeZone are the same ports apishim.js's domain
 // instances take.
 //
-// onStalePairing(code) fires when the relay reports this pairing is unusable —
-// gone (STATUS_NO_PAIRING) or superseded (STATUS_PAIRING_REPLACED); the owner
-// (reconcile) drops the vault record or steps aside, respectively. The
-// responder is already stopped by then, so the callback must not stop it again.
+// onStalePairing fires when the relay reports the pairing is gone; the owner
+// (reconcile) drops the vault record. The responder is already stopped by
+// then, so the callback must not stop it again.
 export function createResponder({
   pairingId, key, records, now, timeZone, relayURL, onStalePairing = () => {},
 }) {
@@ -358,17 +351,10 @@ export function createResponder({
   let status = 'idle';
   let stopped = false;
 
-  // The pairing id rides along so the relay can reject a tab still holding a
-  // replaced pairing (re-paired elsewhere) with STATUS_NO_PAIRING instead of
-  // bridging it, wrong-keyed, onto the fresh pairing's device slot. The
-  // session cookie, not this id, authenticates the leg.
   function wsURL() {
-    let base = relayURL;
-    if (!base) {
-      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      base = `${proto}//${location.host}/api/mcp/relay/device`;
-    }
-    return `${base}${base.includes('?') ? '&' : '?'}pairing=${encodeURIComponent(pairingId)}`;
+    if (relayURL) return relayURL;
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${location.host}/api/mcp/relay/device`;
   }
 
   async function onFrame(data) {
@@ -413,15 +399,13 @@ export function createResponder({
     ws.onmessage = (ev) => { onFrame(ev.data).catch(() => {}); };
     ws.onclose = (ev) => {
       status = 'idle';
-      // The relay forgot this pairing, or replaced it with a fresher one (see
-      // StatusNoPairing / StatusPairingReplaced in mcp_relay.go). Reconnecting
-      // can never succeed with this key: stop and hand the close code to the
-      // owner, which drops the stale vault record (gone) or steps aside for the
-      // tab that re-paired (replaced). Every other close is transient — back off.
-      if (ev && (ev.code === STATUS_NO_PAIRING || ev.code === STATUS_PAIRING_REPLACED)) {
+      // The relay forgot this pairing (see StatusNoPairing in mcp_relay.go).
+      // Reconnecting can never succeed: stop, and let the owner drop the
+      // stale vault record. Every other close is transient — back off.
+      if (ev && ev.code === STATUS_NO_PAIRING) {
         stopped = true;
         clearTimeout(reconnectTimer);
-        onStalePairing(ev.code);
+        onStalePairing();
         return;
       }
       scheduleReconnect();
@@ -454,10 +438,8 @@ export function createResponder({
 // as the pairing changes.
 //
 // ponytail: cross-tab re-pair isn't broadcast — if tab A holds the election
-// and the user re-pairs in tab B, tab A only learns of it when the relay closes
-// its leg with STATUS_PAIRING_REPLACED (mint evicts the old legs, and the
-// reconnect carries the stale pairing id), whereupon it releases the election
-// to tab B. A BroadcastChannel/storage-event nudge is full-C4 scope.
+// and the user re-pairs in tab B, tab A keeps the old key until it reloads.
+// A BroadcastChannel/storage-event nudge is full-C4 scope.
 let controllerCtx = null;
 let electing = false;
 let releaseLock = null;
@@ -483,14 +465,7 @@ async function reconcile() {
     records: recordsPort(controllerCtx),
     now: () => Date.now(),
     timeZone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC',
-    onStalePairing: (code) => {
-      // Replaced (not gone): the vault record now names the fresh pairing —
-      // which this device may not have synced yet — so purging it would delete
-      // the user's live pairing account-wide. Release the election instead; the
-      // tab that re-paired is already queued on the lock and takes over with the
-      // right key. A re-pair from another *device* leaves this tab idle until
-      // its next unlock/reload, which is what a re-pair means anyway.
-      if (code === STATUS_PAIRING_REPLACED) { stopResponder(); return; }
+    onStalePairing: () => {
       purgePairing(ctx).catch((e) => console.error('[mcp] stale pairing purge failed', e));
     },
   });

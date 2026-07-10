@@ -400,7 +400,7 @@
                          Mounted by loadNotes() from the api_cache 'diary_notes'
                          timestamp; hidden until populated. -->
                     <div id="health-notes-stale-badge" class="wg-section-stale-badge-row hidden"></div>
-                    <div id="notes-loading" class="wg-health-notes__loading" style="display:none;">Loading notes...</div>
+                    <div id="notes-loading" class="wg-health-notes__loading">Loading notes...</div>
                     <ul id="notes-list" class="wg-health-notes__list list-reset"></ul>
                 </div>
             </div>
@@ -592,6 +592,16 @@
                     <mt-setting-toggle title="Weekly Digest"
                         description="Opt-in Sunday-evening bot summary of your week"
                         input-id="weekly-digest-feature-toggle"></mt-setting-toggle>
+
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Re-run onboarding</div>
+                            <div class="wg-settings-row__desc">Show the setup wizard again</div>
+                        </div>
+                        <div class="wg-settings-row__control">
+                            <button type="button" id="settings-rerun-onboarding" class="wg-gloss wg-settings-action-btn">Start</button>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -1084,7 +1094,7 @@
             </label>
 
             <!-- Variants Section (only shown when editing existing group) -->
-            <div id="workout-variants-section" class="wg-workouts-group-modal__section" style="display: none;">
+            <div id="workout-variants-section" class="wg-workouts-group-modal__section">
                 <span class="wg-section-label wg-workouts-group-modal__section-label">Workout variants</span>
                 <div id="workout-variants-list" class="wg-workouts-group-modal__variants"></div>
                 <button id="add-variant-btn" type="button" class="wg-gloss wg-workouts-group-modal__section-add">
@@ -1093,7 +1103,7 @@
             </div>
 
             <!-- Exercises Section (for Non-Rotating groups) -->
-            <div id="workout-group-flat-exercises-section" class="wg-workouts-group-modal__section" style="display: none;">
+            <div id="workout-group-flat-exercises-section" class="wg-workouts-group-modal__section">
                 <span class="wg-section-label wg-workouts-group-modal__section-label">Exercises</span>
                 <div id="workout-group-flat-exercises-list" class="wg-workouts-group-modal__exercises"></div>
                 <button id="add-flat-exercise-btn" type="button" class="wg-gloss wg-workouts-group-modal__section-add">
@@ -1139,7 +1149,7 @@
                 </div>
             </div>
 
-            <div id="workout-variant-rotation-field" class="wg-workouts-variant-modal__field" style="display: none;">
+            <div id="workout-variant-rotation-field" class="wg-workouts-variant-modal__field">
                 <label for="workout-variant-rotation" class="wg-workouts-variant-modal__label">Rotation order</label>
                 <div class="wg-gloss--inset wg-workouts-variant-modal__input-wrap">
                     <input type="number" id="workout-variant-rotation"
@@ -1149,7 +1159,7 @@
             </div>
 
             <!-- Exercises Section (only shown when editing existing variant) -->
-            <div id="workout-exercises-section" class="wg-workouts-variant-modal__section" style="display: none;">
+            <div id="workout-exercises-section" class="wg-workouts-variant-modal__section">
                 <span class="wg-section-label wg-workouts-variant-modal__section-label">Exercises</span>
                 <div id="workout-exercises-list" class="wg-workouts-variant-modal__exercises"></div>
                 <button id="variant-add-exercise-btn" type="button" class="wg-gloss wg-workouts-variant-modal__section-add">
@@ -1612,7 +1622,7 @@
                 <button id="food-save-meal-confirm-btn" class="btn btn-primary">Save</button>
             </div>
         </div>
-        <p style="margin-bottom: 10px; font-size: 0.9em; color: var(--hint-color);">
+        <p class="hint">
             Combine the selected logs into a reusable meal template. It will appear first in your food searches.
         </p>
         <div class="form-row">
@@ -2052,6 +2062,7 @@
     <script src="/static/js/features/firstrun/permissions.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/firstrun/screens/welcome.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/firstrun/screens/permissions.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/firstrun/screens/features.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/firstrun/screens/integrations.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/firstrun/screens/done.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/firstrun/index.js?v=TIMESTAMP_PLACEHOLDER"></script>

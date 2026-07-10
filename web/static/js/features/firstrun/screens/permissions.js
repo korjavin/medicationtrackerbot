@@ -12,7 +12,7 @@
 // first capability use, so this screen has no role in the browser PWA or
 // the server-mode build. We check Capacitor.isNativePlatform() (the same
 // helper Phase 2b uses to pick web vs. capacitor impls) and call
-// helpers.advance('integrations') immediately when it returns false.
+// helpers.advance('features') immediately when it returns false.
 //
 // Location intentionally has no current caller — Phase 2b noted no feature
 // reads coords yet. Including it here lets the user grant it once for a
@@ -118,7 +118,7 @@
             // synchronously so the orchestrator re-renders into the next
             // step without ever painting permission rows the user would
             // have to dismiss.
-            helpers.advance('integrations');
+            helpers.advance('features');
             return;
         }
 
@@ -143,7 +143,7 @@
         cont.textContent = 'Continue';
         cont.setAttribute('data-firstrun-action', 'continue');
         cont.addEventListener('click', function () {
-            helpers.advance('integrations');
+            helpers.advance('features');
         });
 
         var skip = document.createElement('button');
@@ -152,7 +152,7 @@
         skip.textContent = 'Skip';
         skip.setAttribute('data-firstrun-action', 'skip');
         skip.addEventListener('click', function () {
-            helpers.advance('integrations');
+            helpers.advance('features');
         });
 
         actions.appendChild(cont);
