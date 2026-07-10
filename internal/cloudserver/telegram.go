@@ -482,7 +482,6 @@ const (
 	onboardingOfferMessage = "👋 I help you set up your own personal health-tracking bot — medications, " +
 		"blood pressure, weight, food and vitals, all yours.\n\n" +
 		"Want me to create an account for you? Just reply “yes”."
-	onboardingNudgeMessage   = "Reply “yes” and I'll send you a link to set up your personal health-tracking bot."
 	onboardingClaimedMessage = "You already have a Med Tracker account. Open your subdomain and unlock it with your passkey — " +
 		"I can't create a second one for you."
 	onboardingMintFailMessage = "Sorry, I couldn't create your account just now. Please try again in a few minutes."
@@ -542,7 +541,11 @@ func (t *TelegramAPI) handleManagerMessage(ctx context.Context, msg *tgclient.Me
 	case greetings[text]:
 		t.reply(ctx, msg.Chat.ID, onboardingOfferMessage)
 	default:
-		t.reply(ctx, msg.Chat.ID, onboardingNudgeMessage)
+		// ponytail: stay silent on arbitrary chatter. Onboarding still starts from
+		// /start|hi|hello|help above, and Telegram auto-sends /start on first open,
+		// so nudging every stray line only annoys users who already own a bot
+		// (BYO/web/admin-CLI onboarding is invisible to the "claimed" check).
+		return
 	}
 }
 

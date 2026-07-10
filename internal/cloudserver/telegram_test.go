@@ -563,11 +563,11 @@ func TestManagerOnboarding(t *testing.T) {
 		}
 	})
 
-	t.Run("unrecognized text gets the nudge", func(t *testing.T) {
+	t.Run("unrecognized text stays silent", func(t *testing.T) {
 		store, tg, top, secret := managerFixture(t)
 		tgMessage(t, top, secret, "what is this")
-		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], onboardingNudgeMessage[:20]) {
-			t.Fatalf("no nudge reply sent: %v", tg.mu.sent)
+		if len(tg.mu.sent) != 0 {
+			t.Fatalf("stray chatter should get no reply, sent: %v", tg.mu.sent)
 		}
 		if n := mintedBy(t, store, tgCreator); n != 0 {
 			t.Fatalf("nudge minted %d accounts, want 0", n)
