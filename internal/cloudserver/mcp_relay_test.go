@@ -13,6 +13,12 @@ import (
 	"github.com/coder/websocket"
 )
 
+// relayTestDeadline is a hang safety-net for the relay ws handshakes, not a
+// timing SLA. 5s was tight enough to trip on loaded CI runners (med-tc1.7);
+// these tests complete in ~0.3s locally, so a generous bound removes the flake
+// without hiding a real hang.
+const relayTestDeadline = 30 * time.Second
+
 // newTestMCPRelayHandler wires WebAuthn + the MCP relay routes onto one mux,
 // mirroring cmd/cloud/main.go's wiring.
 func newTestMCPRelayHandler(t *testing.T) (http.Handler, string, string) {
@@ -76,7 +82,7 @@ func TestMCPRelay_FramesPassOpaqueBothWays(t *testing.T) {
 	defer srv.Close()
 	client := wsClientFor(srv.Listener.Addr().String())
 
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
 	defer cancel()
 
 	deviceHeader := http.Header{}
@@ -132,7 +138,7 @@ func TestMCPRelay_ShimReconnectRebridgesBothWays(t *testing.T) {
 	defer srv.Close()
 	client := wsClientFor(srv.Listener.Addr().String())
 
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
 	defer cancel()
 
 	deviceHeader := http.Header{}
@@ -218,7 +224,7 @@ func TestMCPRelay_CrossPairingAccessRejected(t *testing.T) {
 	defer srv.Close()
 	client := wsClientFor(srv.Listener.Addr().String())
 
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
 	defer cancel()
 
 	_, resp, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/shim?pairing=not-a-real-pairing-id", &websocket.DialOptions{HTTPClient: client})
@@ -243,7 +249,7 @@ func TestMCPRelay_DeadPeerClosePropagates(t *testing.T) {
 	defer srv.Close()
 	client := wsClientFor(srv.Listener.Addr().String())
 
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
 	defer cancel()
 
 	deviceHeader := http.Header{}
@@ -352,7 +358,7 @@ func TestMCPRelay_DeviceWithoutPairingClosesWith4404(t *testing.T) {
 	defer srv.Close()
 	client := wsClientFor(srv.Listener.Addr().String())
 
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
 	defer cancel()
 
 	deviceHeader := http.Header{}
@@ -388,7 +394,7 @@ func TestMCPRelay_EvictedDeviceLegClosesWith4409(t *testing.T) {
 	defer srv.Close()
 	client := wsClientFor(srv.Listener.Addr().String())
 
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
 	defer cancel()
 
 	deviceHeader := http.Header{}
@@ -454,7 +460,7 @@ func TestMCPRelay_StaleDevicePairingCannotSquatCurrentSlot(t *testing.T) {
 	defer srv.Close()
 	client := wsClientFor(srv.Listener.Addr().String())
 
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
 	defer cancel()
 
 	deviceHeader := http.Header{}
