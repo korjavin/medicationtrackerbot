@@ -289,7 +289,7 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   | code | meaning | responder |
   |---|---|---|
   | `4404` `StatusNoPairing` | the account has no pairing at all (relay table is in-memory, 24h TTL, lost on redeploy) | stop, and **purge** the vault record — it is a tombstone pointing at nothing |
-  | `4409` `StatusPairingReplaced` | the account has a live pairing, just not the one this leg presents | stop, and **do not purge** — release the Web-Lock election so the tab holding the current key takes over |
+  | `4409` `StatusPairingReplaced` | the account has a live pairing, but this leg is not the one serving it | stop, and **do not purge** — release the Web-Lock election so the tab holding the current key takes over |
 
   The `mcppairing` vault record is CRDT-synced across devices, so a tab that purges on `4409` would
   delete the pairing every other device just adopted. A leg presenting *no* pairing id (an old
@@ -297,6 +297,15 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   Without this check a stale tab reconnects onto the current pairing's device slot, evicts the tab
   holding the right key (`pairingRecord.join` is last-writer-wins), and silently drops every frame it
   cannot decrypt — the connector looks alive and every `mcp_call` times out.
+
+  `4409` is sent from **two** places, and both need it. `DeviceSocket` rejects a leg whose pairing id
+  is stale or absent (above), and `pairingRecord.join` closes the leg it evicts when a newer one takes
+  the device slot. The eviction case is not the stale-tab case: two *legitimate* devices (phone and
+  laptop, both unlocked, both synced to the current pairing) each pass the id check, so they take turns
+  evicting each other. An abrupt `CloseNow` there reaches the browser as `1006`, which the responder
+  reads as a transient drop and retries — re-evicting its replacement, forever. Closing with `4409`
+  makes the loser step aside. (One device leg per pairing is the standing limitation; per-device
+  pairings are full-C4 scope.)
 - The device answers using the *same operation catalog* as `internal/mcp/registry`, served by
   `web/cloud/js/mcp-responder.js` — `mcp_help` (discover) and `mcp_call` (executed by the
   in-browser domain layer against local data, same construction path as `apishim`).
