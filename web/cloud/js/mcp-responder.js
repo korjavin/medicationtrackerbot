@@ -859,20 +859,37 @@ async function reconcile() {
 // pairing. Safe to call repeatedly; the first call that needs to answer wins
 // the cross-tab election and holds it for the tab's lifetime, swapping its
 // inner responder as the pairing changes.
+// Returns a promise that settles once the reconcile this call triggered has
+// finished (already error-logged, never rejecting). Production callers ignore
+// it — a reconcile is fire-and-forget from boot/connect/disconnect. Tests must
+// await it: an un-awaited reconcile outlives its test, and its dynamic
+// import('./mcp-pairing.js') then resolves against a module registry a later
+// beforeEach has already reset and re-mocked — so it silently runs the REAL
+// getPairing against a stub ctx, throws inside SubtleCrypto.importKey, and logs
+// the failure into whichever test happens to be running. See bd med-tc1.2.
 export function refreshResponder(ctx) {
   controllerCtx = ctx;
   if (releaseLock || !globalThis.navigator?.locks?.request) {
     // This tab already holds the election (or Web Locks is unsupported):
     // reconcile in place.
-    reconcile().catch((e) => console.error('[mcp] responder reconcile failed', e));
-    return;
+    return reconcile().catch((e) => console.error('[mcp] responder reconcile failed', e));
   }
-  if (electing) return; // election in flight; its reconcile will read ctx.
+  if (electing) return Promise.resolve(); // election in flight; its reconcile will read ctx.
   electing = true;
+  // The lock is held for the tab's lifetime, so locks.request()'s own promise
+  // does not settle until release — awaiting it would hang. Settle on the
+  // reconcile instead, adopting its promise.
+  let settle;
+  const reconciled = new Promise((resolve) => { settle = resolve; });
   navigator.locks.request('mcp-responder', () => new Promise((release) => {
     releaseLock = release;
-    reconcile().catch((e) => console.error('[mcp] responder reconcile failed', e));
-  })).catch((e) => { electing = false; console.error('[mcp] responder lock failed', e); });
+    settle(reconcile().catch((e) => console.error('[mcp] responder reconcile failed', e)));
+  })).catch((e) => {
+    electing = false;
+    console.error('[mcp] responder lock failed', e);
+    settle();
+  });
+  return reconciled;
 }
 
 // stopResponder stops any running responder and releases the election so a
