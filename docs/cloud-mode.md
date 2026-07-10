@@ -131,7 +131,14 @@ account inbox keypair (ECDH) — public half on server, private half in vault
 ## Sync protocol
 
 - **Encrypted oplog**: each write produces `{account_seq, device_id, record_type_tag, nonce, ciphertext}`. Server assigns the monotonic `account_seq`; clients push local ops and pull `since=<cursor>`. This mirrors the existing change-events + download-cursor design (`internal/store/settings`), with ciphertext bodies.
-- **Conflict resolution is client-side** (server can't merge what it can't read): last-writer-wins per record with vector timestamps, same semantics the offline write queue (`SyncManager`) already implements for server mode.
+- **Conflict resolution is client-side** (server can't merge what it can't read): last-writer-wins per record on `clientTs`, same semantics the offline write queue (`SyncManager`) already implements for server mode.
+
+  `clientTs` is a **merge token, not a wall clock** (bd med-d5t.6). It used to be the writing device's raw `Date.now()`, which made LWW obey whichever device's clock ran fastest: a phone ten minutes fast would win against a correctly-clocked laptop's *later* edit, and the laptop's fix was dropped silently. On a medication tracker that is the worst failure mode there is — quiet, plausible, and about dosage. Two local guards, neither touching the envelope format nor the server:
+
+  1. **Server-referenced time.** Every sync response already carries a `Date` header — the server's own clock, for free. `noteServerDate` measures the offset into `sync_meta.clockSkewMs` and writes subtract it, so every device stamps on one scale.
+  2. **A per-record monotonic guard.** A write to a record this device can already see is stamped `max(correctedNow, existing.clientTs + 1)`, so editing what you can see always beats what you are overwriting, whatever either clock says. This is what fixes the phone-then-laptop case outright.
+
+  Neither orders two *blind concurrent* writes made on skewed devices; that needs a hybrid logical clock (deferred with the envelope's `format_version`, bd med-jb7.5). But a device whose clock is more than two minutes out now says so in the sync status line rather than losing edits quietly.
 - **Snapshots + compaction**: the server cannot compact ciphertext, so clients periodically upload a full encrypted snapshot; the server then drops ops below that seq. Bounds both restore time on a new device and storage growth. The snapshot plaintext is **gzip-then-encrypt** (`gzip(utf8(JSON))` before AES-GCM), shrinking a large vault's POST body ~10x; the decrypt path sniffs the `0x1f 0x8b` gzip magic so legacy uncompressed snapshots still read. Server cap is a **64 MiB decoded ciphertext** (the request body is capped at 96 MiB to hold its base64 expansion). See [docs/cloud-crypto.md](cloud-crypto.md).
 - Local layer stays Dexie/IndexedDB (already vendored); plaintext lives only in memory and IndexedDB on the user's device, cloud copy is authoritative.
 

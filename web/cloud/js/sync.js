@@ -90,7 +90,7 @@ async function readMeta() {
   try {
     const tx = db.transaction('sync_meta', 'readonly');
     const store = tx.objectStore('sync_meta');
-    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError] = await Promise.all([
+    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs] = await Promise.all([
       reqToPromise(store.get('localLastSeq')),
       reqToPromise(store.get('lastSnapshotSeq')),
       reqToPromise(store.get('lastSyncedAt')),
@@ -99,6 +99,7 @@ async function readMeta() {
       reqToPromise(store.get('snapshotError')),
       reqToPromise(store.get('snapshotErrorSeq')),
       reqToPromise(store.get('writeError')),
+      reqToPromise(store.get('clockSkewMs')),
     ]);
     return {
       localLastSeq: localLastSeq ?? null,
@@ -108,6 +109,7 @@ async function readMeta() {
       forceSnapshotPending: forceSnapshotPending ?? false,
       snapshotError: snapshotError ?? null,
       writeError: writeError ?? null,
+      clockSkewMs: clockSkewMs ?? 0,
       snapshotErrorSeq: snapshotErrorSeq ?? null,
     };
   } finally {
@@ -263,6 +265,70 @@ function notifyRecordsChanged(recordTypes) {
     .catch(() => {});
 }
 
+// --- clock skew (med-d5t.6) ----------------------------------------------
+//
+// Convergence is last-writer-wins on clientTs, and clientTs was the WRITING
+// DEVICE's Date.now(). No server timestamp, no Lamport counter, no monotonic
+// guard. So, with no exotic assumptions:
+//
+//   A friend's phone clock runs 10 minutes fast. They edit a medication dose on
+//   the phone (clientTs = T+10min). Ten minutes later, on a correctly-clocked
+//   laptop, they fix a typo in the same record (clientTs = T+2min of real time,
+//   which is LESS). applyIncoming sees the laptop write as older and silently
+//   drops it. The wrong dose persists, with no warning and no trace.
+//
+// For a medication tracker that is the failure mode that matters most: silent,
+// plausible, and about dosage. Two local fixes, neither touching the envelope
+// format (whose versioning med-jb7.5 deferred), neither needing a server change:
+//
+//   1. SERVER-REFERENCED TIME. Every sync response carries a `Date` header — the
+//      server's own clock, for free. Measure the offset and subtract it, so a
+//      fast device stamps corrected times and every device's clientTs is
+//      comparable on the same scale.
+//   2. A PER-RECORD MONOTONIC GUARD. A write to a record you can already see
+//      must beat the version you are overwriting, whatever either clock says.
+//      This alone fixes the scenario above: the laptop is editing the record the
+//      phone wrote, so it stamps phoneTs+1 and wins.
+//
+// (1) is the general correction, (2) is the guarantee. Neither orders two blind
+// concurrent writes on skewed devices — that needs an HLC — but the user is
+// warned when their clock is the reason.
+
+// Beyond this the status line tells the user their clock is wrong. Small enough
+// to ignore ordinary drift (the Date header is second-granular, and a phone that
+// syncs NTP is within seconds), large enough that a real misconfiguration shows.
+const CLOCK_SKEW_WARN_MS = 2 * 60 * 1000;
+
+// skew > 0 means this device's clock is AHEAD of the server's.
+function nextClientTs(existing, proposed, skewMs) {
+  const base = typeof proposed === 'number' ? proposed : Date.now();
+  const corrected = base - (skewMs || 0);
+  // An edit of a record we hold must outrank the version it replaces, even if
+  // that version came from a device whose clock is far in the future.
+  if (existing && typeof existing.clientTs === 'number') {
+    return Math.max(corrected, existing.clientTs + 1);
+  }
+  return corrected;
+}
+
+// Learn the server's clock from any sync response, at no cost: net/http sets a
+// `Date` header on every one, and it is readable same-origin. The RTT is folded
+// into the estimate, which is irrelevant against a minutes-scale threshold.
+async function noteServerDate(res) {
+  const header = res && res.headers && typeof res.headers.get === 'function' ? res.headers.get('Date') : null;
+  if (!header) return;
+  const serverMs = Date.parse(header);
+  if (Number.isNaN(serverMs)) return;
+
+  const skewMs = Date.now() - serverMs;
+  const meta = await readMeta();
+  // The header is second-granular, so persisting every jitter would rewrite meta
+  // on every sync for no gain.
+  if (Math.abs(skewMs - (meta.clockSkewMs || 0)) > 1000) {
+    await writeMeta({ clockSkewMs: skewMs });
+  }
+}
+
 // --- remote sync ---------------------------------------------------------
 
 // Returns the recordType when the incoming record actually won (LWW on
@@ -355,6 +421,8 @@ async function pullTail(ctx) {
       offline = true;
       return;
     }
+    // Cheapest possible clock reference: the response's own `Date` header.
+    await noteServerDate(res);
     if (!res.ok) {
       offline = true;
       return;
@@ -717,6 +785,7 @@ async function flushPending(ctx) {
       return false;
     }
     offline = false;
+    await noteServerDate(res);
     const { assigned } = await res.json();
     // Cleared on the first batch the server accepts: the quota was raised, or
     // the user freed space.
@@ -808,16 +877,20 @@ export async function flushConfirmed(ctx) {
 
 export async function writeRecord(ctx, recordType, record) {
   await bootstrapIfNeeded(ctx);
+  const meta = await readMeta();
+  let stamped = record;
   // Atomic w.r.t. replaceAllRecords' clear (see withRecordsLock): the record
   // and its 'pending' row must both be visible, or neither, when a concurrent
   // bootstrap snapshots what to preserve.
   await withRecordsLock(async () => {
-    await putRecord({ ...record, recordType });
+    const existing = await getRecord(record.recordId);
+    stamped = { ...record, clientTs: nextClientTs(existing, record.clientTs, meta.clockSkewMs), recordType };
+    await putRecord(stamped);
     await markPending(record.recordId, recordType);
   });
   await flushPending(ctx);
   notifyRecordsChanged([recordType]);
-  return record;
+  return stamped;
 }
 
 // Storage port handed to web/domain/'s createXDomain() factories: the generic
@@ -892,6 +965,7 @@ export async function getSyncStatus(ctx) {
     integrityErrors: meta.integrityErrors,
     snapshotError: meta.snapshotError || null,
     writeError: meta.writeError || null,
+    clockSkewMs: meta.clockSkewMs || 0,
   };
 }
 
@@ -907,5 +981,11 @@ export async function describeSyncStatus(ctx) {
     parts.push(status.writeError.status === 413 ? 'Vault is full — new entries are not syncing' : 'Server refused this device\'s writes');
   }
   if (status.snapshotError) parts.push('Vault too large to sync');
+  // A skewed clock silently reorders edits across devices. Say so: the merge
+  // guards below keep the common case correct, but the user should fix the clock.
+  if (Math.abs(status.clockSkewMs) > CLOCK_SKEW_WARN_MS) {
+    const minutes = Math.round(Math.abs(status.clockSkewMs) / 60000);
+    parts.push(`This device's clock is ${minutes} min ${status.clockSkewMs > 0 ? 'fast' : 'slow'} — fix it to avoid losing edits`);
+  }
   return parts.join(' · ');
 }
