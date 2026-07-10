@@ -108,6 +108,12 @@ function renderDevices(app, ctx, onExit, devices, pairing, remoteEnabled) {
 
   app.querySelector('#claude-status').textContent = CLAUDE_STATUS_TEXT[mode];
   app.querySelector('#claude-disconnect-button').hidden = mode === 'none';
+  // Hide the connector that is already active — offering "Enable remote
+  // connector" while remote is on is a no-op affordance. The *other* button
+  // stays visible: it is the documented switch control (see the mode note
+  // above, and the disconnect-then-connect logic below).
+  app.querySelector('#claude-remote-connect-button').hidden = mode === 'remote';
+  app.querySelector('#claude-local-connect-button').hidden = mode === 'local';
 
   app.querySelector('#claude-remote-connect-button').addEventListener('click', () => {
     if (!confirm(REMOTE_CONSENT_TEXT)) return;
