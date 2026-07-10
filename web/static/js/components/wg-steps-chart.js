@@ -173,7 +173,6 @@
         const svg = document.createElementNS(SVG_NS, 'svg');
         svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
         svg.setAttribute('width', '100%');
-        svg.setAttribute('height', 'auto');
         svg.setAttribute('aria-hidden', 'true');
         svg.classList.add('wg-steps-chart');
         svg.dataset.stepsRange = range;

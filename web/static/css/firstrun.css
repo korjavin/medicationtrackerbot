@@ -131,7 +131,7 @@
     padding: var(--space-md);
     border-radius: var(--radius-md);
     border: 1px solid var(--wg-border-strong);
-    background: var(--wg-bg-surface);
+    background: var(--wg-bg-card);
 }
 
 .wg-firstrun-permission--granted {
@@ -197,7 +197,7 @@
 .wg-firstrun-field__input {
     appearance: none;
     border: 1px solid var(--wg-border-strong);
-    background: var(--wg-bg-surface);
+    background: var(--wg-bg-card-inset);
     color: var(--wg-fg-1);
     border-radius: var(--radius-md);
     padding: var(--space-md);
