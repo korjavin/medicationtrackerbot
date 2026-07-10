@@ -14,7 +14,7 @@ import { createTzPlanDomain } from '../../domain/tzplan.js';
 import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
 import { createWorkoutDomain } from '../../domain/workout.js';
-import { recordsPort } from './sync.js';
+import { recordsPort, ORIGIN_UI, ORIGIN_EXTERNAL } from './sync.js';
 import { scheduleReminderRecompute, sendTestPush } from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
@@ -92,16 +92,22 @@ function debugOnce(key, ...args) {
 // which is what lets the MCP coverage sweep drive the router headlessly.
 //
 // The domain instances are hung off the returned function as `.domains` because
-// installApiShim needs the very same instances for its window globals; building
-// a second set would give the UI and the shim's browser-direct clients
-// (CloudFoodAI, CloudMCPDispatcher, …) divergent state.
+// installApiShim needs the very same instances for its window globals.
+// The domain factories are pure over their injected ports (no module state), so
+// installApiShim can safely build a SECOND router for the non-UI writers — which
+// is exactly how each write's origin is known without threading a parameter
+// through the domain layer.
+//
+// opts.origin labels every write this router makes (med-dvr). Default: external,
+// so a new caller repaints. Only the UI passes ORIGIN_UI, to suppress the
+// "New data is available" banner for the user's own action.
 // opts.now/opts.timeZone override the clock the domain instances read, which is
 // what lets a test drive the router across a date boundary deterministically.
 export function createApiRouter(ctx, {
-  records: recordsOverride, win, now: nowOverride, timeZone: timeZoneOverride,
+  records: recordsOverride, win, now: nowOverride, timeZone: timeZoneOverride, origin,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
-  const records = recordsOverride || recordsPort(ctx);
+  const records = recordsOverride || recordsPort(ctx, origin);
   const now = nowOverride || (() => Date.now());
   const timeZone = timeZoneOverride
     || (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
@@ -710,10 +716,27 @@ export function createApiRouter(ctx, {
 // and return value unchanged: it resolves to the router itself.
 export function installApiShim(ctx, { records, win } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
-  const shimCall = createApiRouter(ctx, { records, win });
+  // Two routers over the same records store, differing only in the origin they
+  // stamp on writes (med-dvr):
+  //
+  //   shimCall  — the UI seam (offlineAwareApiCall / apiCallDirect). Its writes
+  //               must NOT raise "New data is available": the screen that made
+  //               them has already repainted.
+  //   bgCall    — everything else that writes from inside this tab: the voice
+  //               agent's MCP dispatcher, the browser-direct food-AI client, and
+  //               the materialization sweep. None of these is a user action on
+  //               the current screen, so all of them must repaint it.
+  //
+  // A test's injected `records` port carries its own origin and is shared by
+  // both, which keeps the harness a drop-in swap.
+  const shimCall = createApiRouter(ctx, { records, win, origin: ORIGIN_UI });
+  const bgCall = records ? shimCall : createApiRouter(ctx, { win, origin: ORIGIN_EXTERNAL });
   const {
-    settings, food, foodAI, foodDb, intake, tzplan, now,
+    settings, foodDb, now,
   } = shimCall.domains;
+  const {
+    food, foodAI, intake, tzplan,
+  } = bgCall.domains;
 
   // Task 4's frontend bypass guards (photo.js/log.js/products.js — raw fetch
   // to the AI + search endpoints) call these directly, entirely outside the
@@ -738,7 +761,7 @@ export function installApiShim(ctx, { records, win } = {}) {
   // very router, no relay/crypto (the relay responder in mcp-responder.js only
   // exists in the Claude-connector-elected tab and builds its own router over
   // the same records port, so this is the clean reuse seam).
-  targetWindow.CloudMCPDispatcher = createDispatcher({ router: shimCall, now });
+  targetWindow.CloudMCPDispatcher = createDispatcher({ router: bgCall, now });
 
   // Due-dose materialization + tz-plan status refresh: neither domain module
   // owns a timer (Task 3/4's modules stay pure functions of their inputs), so

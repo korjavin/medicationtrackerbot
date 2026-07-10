@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, describeSyncStatus, getSyncStatus } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, describeSyncStatus, getSyncStatus, recordsPort, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb } from '../localdb.js';
 
 const accountId = 'amber-falcon-8k3q9x';
@@ -373,14 +373,67 @@ describe('non-UI writes repaint the open tab (med-d5t.10)', () => {
     expect(ds.requestTabRefresh).toHaveBeenCalledWith(['bp'], 'cloud-write');
   });
 
-  it('does not repaint over the UI\'s own optimistic write', async () => {
-    stubDataStore({ hasAnyPendingOptimistic: vi.fn(() => true) });
+  // med-dvr: the original guard here was hasAnyPendingOptimistic(), which is only
+  // ever true for writes that go through DataStore.applyOptimistic. Settings
+  // writes do not — toggleFeatureSetting POSTs straight through apiCall — so the
+  // guard passed, the emit fired, and the user was told "New data is available"
+  // about the setting they had just changed. The origin is the real signal.
+  it("does not repaint over the UI's own write", async () => {
+    stubDataStore();
     stubSync();
 
-    await writeRecord(ctx, 'foodlog', { recordId: 'foodlog-1', clientTs: 1, deleted: false, name: 'oats' });
+    await writeRecord(ctx, 'foodlog', { recordId: 'foodlog-1', clientTs: 1, deleted: false, name: 'oats' }, ORIGIN_UI);
 
     expect(ds.invalidateTags).not.toHaveBeenCalled();
     expect(ds.requestTabRefresh).not.toHaveBeenCalled();
+  });
+
+  // The exact reported bug: a settings toggle has no applyOptimistic anywhere in
+  // its path, so the old guard could never have suppressed it.
+  it("does not repaint a UI settings write, which never touches applyOptimistic", async () => {
+    stubDataStore({ hasAnyPendingOptimistic: vi.fn(() => false) });
+    stubSync();
+
+    await writeRecord(ctx, 'features', { recordId: 'features', clientTs: 1, deleted: false, food_enabled: true }, ORIGIN_UI);
+
+    expect(ds.requestTabRefresh).not.toHaveBeenCalled();
+  });
+
+  it('suppression does not consult a timing window or the optimistic queue', async () => {
+    // No hasAnyPendingOptimistic, no lastOwnWriteAt: origin alone decides.
+    stubDataStore({ hasAnyPendingOptimistic: undefined, lastOwnWriteAt: Date.now() });
+    stubSync();
+
+    await writeRecord(ctx, 'bp', { recordId: 'bp-1', clientTs: 1, deleted: false, systolic: 120 }, ORIGIN_UI);
+    expect(ds.requestTabRefresh).not.toHaveBeenCalled();
+
+    await writeRecord(ctx, 'bp', { recordId: 'bp-2', clientTs: 1, deleted: false, systolic: 121 }, ORIGIN_EXTERNAL);
+    expect(ds.requestTabRefresh).toHaveBeenCalledWith(['bp'], 'cloud-write');
+  });
+
+  it('an untagged writer repaints — a stale screen beats a silent one', async () => {
+    stubDataStore();
+    stubSync();
+
+    // No origin argument at all, as a writer added later might call it.
+    await writeRecord(ctx, 'bp', { recordId: 'bp-1', clientTs: 1, deleted: false, systolic: 120 });
+
+    expect(ds.requestTabRefresh).toHaveBeenCalledWith(['bp'], 'cloud-write');
+  });
+
+  it('recordsPort carries its origin into both put and del', async () => {
+    stubDataStore();
+    stubSync();
+
+    const uiPort = recordsPort(ctx, ORIGIN_UI);
+    await uiPort.put('bp', { recordId: 'bp-1', clientTs: 1, deleted: false, systolic: 120 });
+    expect(ds.requestTabRefresh).not.toHaveBeenCalled();
+    await uiPort.del('bp', 'bp-1');
+    expect(ds.requestTabRefresh).not.toHaveBeenCalled();
+
+    const bgPort = recordsPort(ctx);
+    await bgPort.put('bp', { recordId: 'bp-2', clientTs: 1, deleted: false, systolic: 121 });
+    expect(ds.requestTabRefresh).toHaveBeenCalledWith(['bp'], 'cloud-write');
   });
 
   it('a record type no tag-cached screen reads (nk) emits nothing', async () => {

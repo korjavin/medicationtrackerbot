@@ -25,7 +25,7 @@ import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
 import { createRemindersDomain } from '../../domain/reminders.js';
 import { parseCommand } from '../../domain/tgcommand.js';
-import { recordsPort } from './sync.js';
+import { recordsPort, ORIGIN_EXTERNAL } from './sync.js';
 
 export const INTAKE_SLOT_ACTION = 'intake_slot_action';
 export const TG_COMMAND = 'tg_command';
@@ -223,7 +223,9 @@ async function confirmDueIntakes({ intake, records, atMs, now }) {
 // thrown — a newer relay may queue kinds this client predates, and stalling the
 // whole drain on one of them would block the events it does understand.
 export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply } = {}) {
-  const records = recordsOverride || recordsPort(ctx);
+  // A Telegram-drained /bp must repaint an open BP screen (med-d5t.10), so this
+  // is explicitly external even though that is already the default.
+  const records = recordsOverride || recordsPort(ctx, ORIGIN_EXTERNAL);
   const timeZone = defaultTimeZone();
   const intake = createIntakeDomain({ records, now, timeZone });
 

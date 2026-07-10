@@ -249,17 +249,33 @@ const RECORD_TAGS = {
   // back no tag-cached screen, so they emit nothing. Add a row when one does.
 };
 
+// Where a write came from. Only the UI's own writes are suppressed: the screen
+// that issued them has already repainted, and telling the user "New data is
+// available" about the setting they just changed is nonsense (med-dvr).
+//
+// Everything else — voice, the Claude connector, the Telegram inbox drain, the
+// background materialization sweep, and incoming sync pulls — MUST repaint, so
+// ORIGIN_EXTERNAL is the default. An untagged writer added later renders a
+// stale screen at worst, never a silent one; the reverse default would make
+// med-d5t.10 regress silently.
+export const ORIGIN_UI = 'ui';
+export const ORIGIN_EXTERNAL = 'external';
+
 // Fire-and-forget: a repaint must never fail a durable write. Runs in the page
 // (window.DataStore); a no-op in the service worker and in node tests that do
 // not stub a DataStore.
-function notifyRecordsChanged(recordTypes) {
+//
+// The previous guard was hasAnyPendingOptimistic(), which is only ever true for
+// writes that go through DataStore.applyOptimistic. Settings writes do not —
+// toggleFeatureSetting POSTs straight through apiCall — so the guard passed,
+// the emit fired, and the user was told there was new data about the toggle
+// they had just flipped. The origin is known at the call site; use it.
+function notifyRecordsChanged(recordTypes, origin) {
+  if (origin === ORIGIN_UI) return;
   const tags = [...new Set([...recordTypes].flatMap((t) => RECORD_TAGS[t] || []))];
   if (tags.length === 0) return;
   const ds = typeof window !== 'undefined' && window.DataStore;
   if (!ds || typeof ds.requestTabRefresh !== 'function') return;
-  // A UI write reaches here inside its own applyOptimistic window, which already
-  // repainted from the optimistic cache and will repaint again on commit.
-  if (typeof ds.hasAnyPendingOptimistic === 'function' && ds.hasAnyPendingOptimistic()) return;
   Promise.resolve(typeof ds.invalidateTags === 'function' ? ds.invalidateTags(tags) : undefined)
     .then(() => ds.requestTabRefresh(tags, 'cloud-write'))
     .catch(() => {});
@@ -465,7 +481,7 @@ async function pullTail(ctx) {
       await writeMeta({ localLastSeq: op.seq });
     }
     await writeMeta({ lastSyncedAt: Date.now() });
-    notifyRecordsChanged(applied);
+    notifyRecordsChanged(applied, ORIGIN_EXTERNAL);
     if (!body.next) break;
   }
 }
@@ -875,7 +891,7 @@ export async function flushConfirmed(ctx) {
   return flushPending(ctx);
 }
 
-export async function writeRecord(ctx, recordType, record) {
+export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTERNAL) {
   await bootstrapIfNeeded(ctx);
   const meta = await readMeta();
   let stamped = record;
@@ -889,7 +905,7 @@ export async function writeRecord(ctx, recordType, record) {
     await markPending(record.recordId, recordType);
   });
   await flushPending(ctx);
-  notifyRecordsChanged([recordType]);
+  notifyRecordsChanged([recordType], origin);
   return stamped;
 }
 
@@ -898,12 +914,17 @@ export async function writeRecord(ctx, recordType, record) {
 // sync internals (crypto, seq prediction, IndexedDB). del writes a tombstone via
 // writeRecord — same convergence semantics (LWW on clientTs) as every other
 // write.
-export function recordsPort(ctx) {
+// `origin` is bound per port, not per call: the domain modules are pure and must
+// stay ignorant of who is calling them. A port is therefore created once per
+// writer (the UI's router, the voice/MCP router, the inbox applier), which is
+// also why the background materialization sweep runs on the external port — it
+// is a timer, not a user action, and its due doses must repaint Today.
+export function recordsPort(ctx, origin = ORIGIN_EXTERNAL) {
   return {
     list: (recordType) => listRecords(ctx, recordType),
     listRange: (recordType, fromId, toId) => listRecordsInRange(ctx, recordType, fromId, toId),
-    put: (recordType, record) => writeRecord(ctx, recordType, record),
-    del: (recordType, recordId) => writeRecord(ctx, recordType, { recordId, clientTs: Date.now(), deleted: true }),
+    put: (recordType, record) => writeRecord(ctx, recordType, record, origin),
+    del: (recordType, recordId) => writeRecord(ctx, recordType, { recordId, clientTs: Date.now(), deleted: true }, origin),
   };
 }
 
