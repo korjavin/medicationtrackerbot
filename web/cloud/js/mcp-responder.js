@@ -861,7 +861,9 @@ async function reconcile() {
 // inner responder as the pairing changes.
 export function refreshResponder(ctx) {
   controllerCtx = ctx;
-  if (releaseLock || !(navigator.locks && navigator.locks.request)) {
+  // globalThis.navigator is absent on Node < 21, where the tests run.
+  const locks = globalThis.navigator?.locks;
+  if (releaseLock || !locks?.request) {
     // This tab already holds the election (or Web Locks is unsupported):
     // reconcile in place.
     reconcile().catch((e) => console.error('[mcp] responder reconcile failed', e));
@@ -869,7 +871,7 @@ export function refreshResponder(ctx) {
   }
   if (electing) return; // election in flight; its reconcile will read ctx.
   electing = true;
-  navigator.locks.request('mcp-responder', () => new Promise((release) => {
+  locks.request('mcp-responder', () => new Promise((release) => {
     releaseLock = release;
     reconcile().catch((e) => console.error('[mcp] responder reconcile failed', e));
   })).catch((e) => { electing = false; console.error('[mcp] responder lock failed', e); });
