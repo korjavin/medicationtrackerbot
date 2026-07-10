@@ -7,7 +7,7 @@
 // Wire shape (GET /api/settings/integrations):
 //   {
 //     "openai":     { api_key, url, model, vision_api_key, vision_url, vision_model },
-//     "food":       { api_key, url, domain },
+//     "food":       { api_key, url, domain },   // `domain` is read-only legacy; no input
 //     "elevenlabs": { api_key, agent_id }
 //   }
 // Secret fields are masked with "***" when the server has a value
@@ -33,10 +33,15 @@
             vision_url: 'integrations-openai-vision-url',
             vision_model: 'integrations-openai-vision-model'
         },
+        // No `domain` entry: it was a hostname-shorthand duplicate of `url`,
+        // ignored whenever `url` was set, and nobody could tell the two apart
+        // (med-xrr). The field is gone from the UI; the resolvers still read a
+        // stored food.domain, and leaving it out of FIELD_IDS is what preserves
+        // it — readDOMIntoPayload would otherwise send '' for the absent input
+        // and both patch paths treat '' as "clear this".
         food: {
             api_key: 'integrations-food-api-key',
-            url: 'integrations-food-url',
-            domain: 'integrations-food-domain'
+            url: 'integrations-food-url'
         },
         elevenlabs: {
             api_key: 'integrations-elevenlabs-api-key',
