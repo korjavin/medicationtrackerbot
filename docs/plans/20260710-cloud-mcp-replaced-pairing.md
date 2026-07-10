@@ -142,14 +142,14 @@ device leg's pairing identifier and the one close code.
 - ➕ [x] added a `wsURL()` assertion (device leg presents an encoded `?pairing=`) — Task 3's wire change had no JS-side guard
 
 ### Task 5: Verify acceptance criteria
-- [ ] verify the race is closed: a stale tab can no longer occupy the fresh pairing's device slot, and cannot evict the tab holding the current key
-- [ ] adversarially verify each new test: revert the relay's id check → the relay regression test must fail; collapse `4409` into the `4404` purge path → the "does not purge" test must fail. A test that cannot fail is not a test
-- [ ] verify no behavior change for the happy path: a single tab, paired once, connects and serves frames exactly as before
-- [ ] verify the frame layer is untouched: PR #526's write gating and nonce anti-replay still pass; PR #527's coverage sweep still passes
-- [ ] run `go build ./...` — must pass
-- [ ] run `go test ./...` — must pass
-- [ ] run `pnpm test` — must pass
-- [ ] run the linter — all issues must be fixed
+- [x] verify the race is closed: a stale tab can no longer occupy the fresh pairing's device slot, and cannot evict the tab holding the current key (`TestMCPRelay_StaleDevicePairingCannotSquatCurrentSlot`)
+- [x] adversarially verify each new test: deleting the relay's id check made the relay regression test fail (`close status = -1, want 4409`); collapsing `4409` into the `4404` purge path made the responder's "does not purge" test fail. Both mutations reverted
+- [x] verify no behavior change for the happy path: a single tab, paired once, connects and serves frames exactly as before (existing relay + `mcp_shim_integration_test.go` legs, all green with `?pairing=<id>`)
+- [x] verify the frame layer is untouched: PR #526's write gating and nonce anti-replay still pass; PR #527's coverage sweep still passes (all 51 cases in `mcp-responder.test.js`)
+- [x] run `go build ./...` — passes
+- [x] run `go test ./...` — passes
+- [x] run `pnpm test` — passes (288 files / 3130 tests; one timing flake under CPU contention, green on re-run)
+- [x] run the linter — `go vet ./...` and `gofmt -l` clean; no JS lint script in this repo
 
 ### Task 6: [Final] Update documentation
 - [ ] `docs/cloud-mode.md`: document both device-leg close codes and what each means for the vault record (4404 purge / 4409 step aside)
