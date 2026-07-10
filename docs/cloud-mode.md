@@ -299,10 +299,31 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   (`id/topic/method/risk/description/required`) is ~30 KB. Precedence mirrors
   `internal/mcp/help.go`: `operation_id(s)` → full entries, `query` → compact matches (never
   auto-expanded), `topic`/no-args → compact catalog + `usage_protocol`.
+- **The `mcp_call` envelope matches bot mode** (`internal/mcp/call.go`): `operation_id` (with
+  `op` kept as a back-compat alias), `params`, `path_params`, `body`, `mode`, `intent`. The three
+  definitions that must stay in lockstep are `web/cloud/js/mcp-responder.js`,
+  `cmd/mcpshim/main.go`'s `callInput`, and `internal/cloudserver/mcp_endpoint.go`'s
+  `mcpEndpointCallInput` — `TestMCPCallEnvelopeLockstep` fails CI on drift. `path_params` are
+  allowlisted against the op's catalog entry and URL-encoded per slot (validation only for now:
+  cloud dispatches by function, not URL). Schema mismatches produce warn-only `warnings` on the
+  response, exactly as `registry.ValidateInput` does — they never block a call.
+- **Write ops require `mode: 'write'` plus a non-empty `intent`.** Any catalog op with
+  `risk: 'write'` is refused otherwise, with an error naming both fields so an agent
+  self-corrects. This means an old shim calling `bp.create` with a bare `{op, params}` is now
+  refused — intended, not a regression; reads are unaffected.
+- **Write frames are deduped by GCM nonce.** The sender draws a fresh random nonce per frame, so
+  a byte-identical nonce is always a replay (or a catastrophic sender bug). The responder keeps a
+  bounded FIFO ring (4096 entries) of seen write-frame nonces, per pairing, persisted in
+  `localdb.js`'s local-only never-synced `device` store — so a tab reload does not reopen the
+  hole. A duplicate is answered with a JSON-RPC `-32600` rather than dropped silently, keeping
+  id-correlation intact. **Residual gap:** read frames are not deduped (a replayed read is
+  idempotent), and there is no counter bound into the frame AAD, so a relay that floods distinct
+  nonces can eventually evict and replay a very old write frame. The AAD counter is the durable
+  fix and is deliberately left to future work.
 - **Catalogued ≠ dispatchable (today).** `createDispatcher` still wires only six ops
   (`health.bp.*`, `health.weight.*`, `health.notes.*`); an `mcp_call` for any other catalogued
-  op returns the `unknown operation` + did-you-mean error. Wiring the rest to `web/domain/*` is
-  bd **med-csu.3**; `mcp_call` envelope parity (path_params / body / write-intent) is med-csu.2.
+  op returns its actionable "not yet callable" error. Wiring the rest to `web/domain/*` is
+  bd **med-csu.3**.
 - **The honest constraint: a device must be online with an unlocked vault.** A phone with the PWA backgrounded is not reliably reachable (iOS SW execution on push is too constrained to serve queries silently). Realistic availability = a desktop tab left open, or an old phone plugged in at home with the PWA foregrounded — at which point the user has voluntarily re-invented a tiny server, but it's *their* device, zero config, and the guarantee holds. When no device is online, the shim's tools return an actionable MCP error naming the E2E architecture and telling the user to open and unlock their app.
 - **PoC ceilings** (each `ponytail:`-marked in code): in-memory pairings, single pairing per
   account, only six dispatchable ops (med-csu.3), no QR pairing, no packaged shim

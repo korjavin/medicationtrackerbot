@@ -177,9 +177,9 @@ back-compat by the `op`-keyed `health.bp.list` round-trip, unknown `mode` / whit
 double-`boot(records)` case. No new tests were needed.
 
 ### Task 8: [Final] Update documentation
-- [ ] update `docs/cloud-mode.md`'s MCP section: the cloud `mcp_call` envelope now matches bot mode; write ops require `mode: 'write'` + `intent`; write frames are deduped by GCM nonce, persisted per-pairing and bounded
-- [ ] state the residual gap plainly so the doc does not overclaim: read frames are not deduped, and there is no AAD-bound counter (med-csu.5 / future work)
-- [ ] note that catalogued ops remain undispatchable until med-csu.3
+- [x] update `docs/cloud-mode.md`'s MCP section: the cloud `mcp_call` envelope now matches bot mode; write ops require `mode: 'write'` + `intent`; write frames are deduped by GCM nonce, persisted per-pairing and bounded
+- [x] state the residual gap plainly so the doc does not overclaim: read frames are not deduped, and there is no AAD-bound counter (med-csu.5 / future work)
+- [x] note that catalogued ops remain undispatchable until med-csu.3
 
 ## Technical Details
 
