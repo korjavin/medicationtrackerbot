@@ -15,8 +15,8 @@
 //      complete succeeds, and by "Skip all" on the welcome screen via
 //      the complete() helper.
 //
-// Screen registry: each step ("welcome" | "permissions" | "integrations"
-// | "done") owns a module under features/firstrun/screens/<step>.js that
+// Screen registry: each step ("welcome" | "permissions" | "features" |
+// "integrations" | "done") owns a module under features/firstrun/screens/<step>.js that
 // attaches `{ title, render(body, helpers) }` to
 // window.WGFirstRun.screens[step]. The orchestrator looks the screen up
 // by name, sets the panel title, clears the body container, then calls

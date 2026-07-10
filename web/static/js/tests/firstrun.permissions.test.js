@@ -19,7 +19,7 @@ const INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/index.js'
 // via the helper in features/firstrun/permissions.js, which in turn
 // calls into window.MediaCapture / window.Reminders / window.Geolocation.
 // On a web build (Capacitor.isNativePlatform() returns false) the screen
-// auto-advances to integrations because the browser handles permissions
+// auto-advances to the feature picker because the browser handles permissions
 // inline at first capability use.
 
 const SHELL_HTML = `<!doctype html><html><body></body></html>`;
@@ -167,7 +167,7 @@ describe('firstrun permissions screen', () => {
 
             // Continue still works after a denial — every row is optional.
             document.querySelector('[data-firstrun-action="continue"]').click();
-            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+            expect(window.WGFirstRun.state.getStep()).toBe('features');
         } finally { cleanup(); }
     });
 
@@ -193,7 +193,7 @@ describe('firstrun permissions screen', () => {
         } finally { cleanup(); }
     });
 
-    it('on web (isNativePlatform=false), screen auto-advances to integrations without rendering rows', () => {
+    it('on web (isNativePlatform=false), screen auto-advances to the feature picker without rendering rows', () => {
         const mediaCapture = { pickPhoto: vi.fn() };
         const reminders = { requestPermissions: vi.fn(), schedule: vi.fn() };
         const geolocation = { getCurrentPosition: vi.fn() };
@@ -205,9 +205,9 @@ describe('firstrun permissions screen', () => {
         });
         try {
             window.WGFirstRun.mount();
-            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
-            // The integrations screen has not been registered yet (Task 6),
-            // so the orchestrator's _renderCurrentStep clears the panel.
+            expect(window.WGFirstRun.state.getStep()).toBe('features');
+            // This suite loads only the permissions screen, so the features
+            // screen is unregistered and _renderCurrentStep clears the panel.
             // The permissions rows must never have been painted in the
             // first place — auto-advance runs before any DOM is added.
             expect(document.querySelector('[data-firstrun-permission="camera"]')).toBeNull();
@@ -221,18 +221,18 @@ describe('firstrun permissions screen', () => {
         } finally { cleanup(); }
     });
 
-    it('with no window.Capacitor present at all, screen auto-advances to integrations', () => {
+    it('with no window.Capacitor present at all, screen auto-advances to the feature picker', () => {
         const { window, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
             initialStep: 'permissions',
         });
         try {
             window.WGFirstRun.mount();
-            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+            expect(window.WGFirstRun.state.getStep()).toBe('features');
         } finally { cleanup(); }
     });
 
-    it('"Skip" advances to integrations without triggering any prompts', () => {
+    it('"Skip" advances to the feature picker without triggering any prompts', () => {
         const mediaCapture = { pickPhoto: vi.fn() };
         const reminders = { requestPermissions: vi.fn(), schedule: vi.fn() };
         const geolocation = { getCurrentPosition: vi.fn() };
@@ -245,7 +245,7 @@ describe('firstrun permissions screen', () => {
         try {
             window.WGFirstRun.mount();
             document.querySelector('[data-firstrun-action="skip"]').click();
-            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+            expect(window.WGFirstRun.state.getStep()).toBe('features');
             expect(mediaCapture.pickPhoto).not.toHaveBeenCalled();
             expect(reminders.requestPermissions).not.toHaveBeenCalled();
             expect(reminders.schedule).not.toHaveBeenCalled();
@@ -253,7 +253,7 @@ describe('firstrun permissions screen', () => {
         } finally { cleanup(); }
     });
 
-    it('"Continue" after granting one permission still advances to integrations', async () => {
+    it('"Continue" after granting one permission still advances to the feature picker', async () => {
         const mediaCapture = {
             requestPermissions: vi.fn().mockResolvedValue({ camera: 'granted', photos: 'granted' }),
         };
@@ -275,7 +275,7 @@ describe('firstrun permissions screen', () => {
             document.querySelector('[data-firstrun-action="allow-camera"]').click();
             await new Promise(resolve => setTimeout(resolve, 0));
             document.querySelector('[data-firstrun-action="continue"]').click();
-            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+            expect(window.WGFirstRun.state.getStep()).toBe('features');
             expect(mediaCapture.requestPermissions).toHaveBeenCalledTimes(1);
             expect(reminders.requestPermissions).not.toHaveBeenCalled();
             expect(reminders.schedule).not.toHaveBeenCalled();

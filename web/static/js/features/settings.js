@@ -267,6 +267,7 @@ function bindCloudReminderDelivery() {
 // and 404s anything else; this one is a real server call on the account
 // subdomain. Same test seam as the notification modules: a bare global fn.
 let _inviteBound = false; // module-state: one-time guard so the invite click listeners bind once across repeated loadSettings() calls
+let _rerunOnboardingBound = false; // module-state: same one-time guard for the "Re-run onboarding" row
 function loadQrcodeModule() { return import('/vendor/qrcode.mjs'); }
 
 function inviteToast(message) {
@@ -339,8 +340,37 @@ function bindCloudInvite() {
     });
 }
 
+// Re-open the first-run overlay on demand (med-4pz.6).
+//
+// This deliberately does NOT reset the vault's `first_run_complete` flag.
+// That singleton is write-once by design (web/domain/settings.js setFirstRunComplete
+// only ever writes `true`) so a stale last-writer-wins device can't un-complete
+// onboarding for every other device. Re-running is therefore a purely local
+// re-mount: pass `needs_first_run` straight to WGFirstRun.mount(), which reads
+// the payload before consulting the bootstrap mirror. Finishing the flow again
+// re-POSTs /api/firstrun/complete, which is idempotent.
+//
+// state.clear() first: a leftover sessionStorage step from an earlier flow would
+// otherwise resume the overlay mid-wizard (or straight at "done") instead of
+// starting over at "welcome".
+function bindRerunOnboarding() {
+    if (_rerunOnboardingBound) return;
+    const btn = document.getElementById('settings-rerun-onboarding');
+    if (!btn) return;
+    _rerunOnboardingBound = true;
+    btn.addEventListener('click', () => {
+        const firstRun = window.WGFirstRun;
+        if (!firstRun || typeof firstRun.mount !== 'function') return;
+        if (firstRun.state && typeof firstRun.state.clear === 'function') firstRun.state.clear();
+        firstRun.mount({ needs_first_run: true });
+    });
+}
+
 // Load settings (BP reminders status, etc.)
 async function loadSettings() {
+    // Ungated: the first-run overlay ships in the server, cloud, and mobile
+    // builds alike, so the row is not wrapped in a wg-settings-cloud-* reveal.
+    bindRerunOnboarding();
     if (window.__MEDTRACKER_CLOUD__) {
         document.querySelector('.wg-settings-timezone')?.classList.add('wg-settings-hidden');
         document.querySelector('.wg-settings-notifications')?.classList.add('wg-settings-hidden');
