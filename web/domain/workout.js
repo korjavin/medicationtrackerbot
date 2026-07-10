@@ -527,8 +527,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // listUniqueExercises ports ListAllUniqueExercises (repo.go:448): the
   // exercise library when it has entries, else the highest-id row per distinct
   // exercise name across every variant, alphabetical. Shape is WorkoutExercise
-  // either way (the catalog's response_example claiming a string array is
-  // wrong — see the plan's Task 5).
+  // either way.
   async function listUniqueExercises() {
     const lib = await listLibrary();
     if (lib.length > 0) {

@@ -1730,9 +1730,9 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/workout/exercises/unique",
     "risk": "read",
-    "description": "List the distinct exercise names the user has logged historically (deduped union across all variants and sessions). Useful for autocomplete or building rotation suggestions.",
-    "response_summary": "JSON array of strings (exercise names).",
-    "response_example": "[\"Bench Press\", \"Pull-ups\", \"Squat\", \"Deadlift\"]"
+    "description": "List the distinct exercises the user has logged historically: the exercise library when it has entries, else the latest row per distinct exercise name across every variant. Useful for autocomplete or building rotation suggestions.",
+    "response_summary": "JSON array of exercise objects with id, exercise_name, target_sets, target_reps_min, order_index; target_reps_max and target_weight_kg are omitted when unset. variant_id is 0 for library-backed entries.",
+    "response_example": "[\n  {\"id\": 42, \"variant_id\": 0, \"exercise_name\": \"Bench Press\", \"target_sets\": 4, \"target_reps_min\": 6, \"target_reps_max\": 8, \"target_weight_kg\": 65.0, \"order_index\": 0}\n]"
   },
   {
     "id": "workouts.exercises.update",

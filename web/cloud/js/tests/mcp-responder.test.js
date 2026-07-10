@@ -964,7 +964,13 @@ describe('cloud MCP response_example conformance', () => {
   function compareShape(example, actual) {
     if (Array.isArray(example)) {
       if (!Array.isArray(actual)) return `expected an array, got ${actual === null ? 'null' : typeof actual}`;
-      if (!example.length || !actual.length || !isPlainObject(example[0])) return '';
+      if (!example.length || !actual.length) return '';
+      // A scalar-element example must not stand in for an object-element
+      // response (and vice versa) — that mismatch is exactly what agents
+      // index into, so it has to fail rather than short-circuit.
+      if (isPlainObject(example[0]) !== isPlainObject(actual[0])) {
+        return `element expected ${isPlainObject(example[0]) ? 'an object' : typeof example[0]}, got ${isPlainObject(actual[0]) ? 'an object' : typeof actual[0]}`;
+      }
       return missingKeys(example[0], actual[0], 'element');
     }
     if (!isPlainObject(actual)) return `expected an object, got ${actual === null ? 'null' : typeof actual}`;
