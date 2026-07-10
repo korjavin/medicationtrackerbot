@@ -126,6 +126,7 @@ function renderUnlocked(app, ctx) {
       <p id="sync-status" class="sync-status">Syncing&hellip;</p>
       <button id="reminders-button">Reminders</button>
       <button id="devices-button">Devices</button>
+      <button id="connectors-button">Connectors</button>
       <button id="lock-button">Lock</button>
     </section>`;
   // Server-controlled value — set via textContent, never innerHTML (E2EE
@@ -159,6 +160,19 @@ function renderUnlocked(app, ctx) {
         const p = document.createElement('p');
         p.className = 'wizard-error';
         p.textContent = 'Could not open the devices screen. Try again.';
+        app.querySelector('section').appendChild(p);
+      });
+  });
+  // The connector picker used to live on the devices screen; med-lyv split it
+  // onto its own page, so the unlocked shell needs its own way in — otherwise
+  // shell users lose access to it entirely.
+  app.querySelector('#connectors-button').addEventListener('click', () => {
+    import('./connectors.js')
+      .then(({ renderConnectors }) => renderConnectors(app, ctx, () => renderUnlocked(app, ctx)))
+      .catch(() => {
+        const p = document.createElement('p');
+        p.className = 'wizard-error';
+        p.textContent = 'Could not open the connectors screen. Try again.';
         app.querySelector('section').appendChild(p);
       });
   });
