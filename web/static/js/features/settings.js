@@ -374,6 +374,11 @@ async function loadSettings() {
     if (window.__MEDTRACKER_CLOUD__) {
         document.querySelector('.wg-settings-timezone')?.classList.add('wg-settings-hidden');
         document.querySelector('.wg-settings-notifications')?.classList.add('wg-settings-hidden');
+        // The Sync pane reports the bot-mode offline queue drained against
+        // /api/changes. Cloud mode replaces that wholesale with the encrypted
+        // oplog sync engine, which never touches this status bar — so the pane
+        // sits empty under its own heading (med-8q2).
+        document.querySelector('.wg-settings-sync')?.classList.add('wg-settings-hidden');
         document.querySelector('.wg-settings-notifications-cloud')?.classList.remove('wg-settings-hidden');
         await bindCloudNotifications();
         // Devices row (add/manage a second device) only makes sense in cloud

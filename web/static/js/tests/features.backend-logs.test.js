@@ -15,9 +15,11 @@ const BACKEND_LOGS_JS = path.join(REPO_ROOT, 'web/static/js/features/backend-log
 // + server-mode build the row stays hidden — these tests pin both branches.
 
 const SHELL_HTML = `<!doctype html><html><body>
-    <div id="backend-logs-row" class="wg-settings-row hidden">
-        <button id="backend-logs-open-btn" type="button">View logs</button>
-    </div>
+    <section id="settings-about" class="wg-card wg-settings-section wg-settings-about wg-settings-hidden">
+        <div id="backend-logs-row" class="wg-settings-row hidden">
+            <button id="backend-logs-open-btn" type="button">View logs</button>
+        </div>
+    </section>
     <div id="backend-logs-modal" class="hidden">
         <button id="backend-logs-close-btn" type="button">Close</button>
         <pre id="backend-logs-output"></pre>
@@ -120,6 +122,28 @@ describe('BackendLogs — Capacitor shell only', () => {
             const out = document.getElementById('backend-logs-output');
             openBtn.dispatchEvent(new window.Event('click', { bubbles: true }));
             expect(out.textContent).toContain('no log lines captured yet');
+        } finally { cleanup(); }
+    });
+});
+
+// med-g3k. The backend-logs row is the About section's only content, so
+// outside the Capacitor shell the section rendered its heading and the words
+// "Diagnostics for the embedded server" over nothing at all.
+describe('Settings → About section visibility', () => {
+    it('stays hidden without the native bridge', () => {
+        const { document, cleanup } = loadBackendLogs();
+        try {
+            expect(document.getElementById('settings-about').classList.contains('wg-settings-hidden')).toBe(true);
+        } finally { cleanup(); }
+    });
+
+    it('is revealed in the Capacitor shell, alongside the logs row', () => {
+        const { document, cleanup } = loadBackendLogs({
+            native: { getBackendLogs: () => 'line one' },
+        });
+        try {
+            expect(document.getElementById('settings-about').classList.contains('wg-settings-hidden')).toBe(false);
+            expect(document.getElementById('backend-logs-row').classList.contains('hidden')).toBe(false);
         } finally { cleanup(); }
     });
 });

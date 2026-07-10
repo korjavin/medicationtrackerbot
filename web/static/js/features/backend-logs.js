@@ -13,6 +13,7 @@
 (function () {
     'use strict';
 
+    const SECTION_ID = 'settings-about';
     const ROW_ID = 'backend-logs-row';
     const OPEN_BTN_ID = 'backend-logs-open-btn';
     const CLOSE_BTN_ID = 'backend-logs-close-btn';
@@ -68,10 +69,15 @@
         if (!row || !openBtn) return;
 
         if (!hasNativeBridge()) {
-            // Stay hidden in non-Capacitor builds; nothing else to do.
+            // Stay hidden in non-Capacitor builds; nothing else to do. The
+            // whole About section ships hidden too (med-g3k): the backend-logs
+            // row is its only content, so outside the Capacitor shell it was
+            // rendering a header and the words "Diagnostics for the embedded
+            // server" above nothing at all.
             return;
         }
 
+        document.getElementById(SECTION_ID)?.classList.remove('wg-settings-hidden');
         row.classList.remove('hidden');
         openBtn.addEventListener('click', openModal);
         if (closeBtn) closeBtn.addEventListener('click', closeModal);
