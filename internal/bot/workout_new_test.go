@@ -494,10 +494,24 @@ func TestExerciseDone_VariantMismatch_FallsThruToLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkoutVariant A: %v", err)
 	}
+	// Create the distinct-named library item FIRST so it claims exercise_library
+	// id=1. Creating the "Squat" plan exercise below now also promotes a "Squat"
+	// library row (med-spp), which lands at id=2 — harmless. The first
+	// workout_exercises row still gets id=1, so "Cable Row" (library id=1)
+	// collides cross-table with squat (workout_exercise id=1), which is the
+	// collision the variant guard must resolve. The distinct name lets us tell
+	// which table the fall-through resolved against.
+	libItem, err := env.s.Workout.CreateExerciseLibraryItem(userID, "Cable Row", 3, 12, nil, nil, "")
+	if err != nil {
+		t.Fatalf("CreateExerciseLibraryItem: %v", err)
+	}
 	// Workout exercise in variant A — its name is "Squat".
 	squat, err := env.s.Workout.CreateExerciseInVariant(variantA.ID, "Squat", 5, 5, nil, nil, 0)
 	if err != nil {
 		t.Fatalf("AddExerciseToVariant A: %v", err)
+	}
+	if libItem.ID != squat.ID {
+		t.Fatalf("expected library_id == squat.ID for cross-table collision, got lib=%d squat=%d (fixture seeded extra rows?)", libItem.ID, squat.ID)
 	}
 
 	groupB, err := env.s.Workout.CreateGroup("Pull", "", false, userID, "[2]", "09:00", 15)
@@ -507,18 +521,6 @@ func TestExerciseDone_VariantMismatch_FallsThruToLibrary(t *testing.T) {
 	variantB, err := env.s.Workout.CreateVariant(groupB.ID, "Heavy", nil, "")
 	if err != nil {
 		t.Fatalf("CreateWorkoutVariant B: %v", err)
-	}
-	// Both workout_exercises and exercise_library are fresh AUTOINCREMENT tables
-	// in the :memory: DB, so the first row in each gets id=1 — guaranteeing the
-	// cross-table ID collision the variant guard must handle. Fatal if that
-	// invariant ever drifts (e.g., default-seeded library rows), since silent
-	// fixture changes would otherwise neuter this test.
-	libItem, err := env.s.Workout.CreateExerciseLibraryItem(userID, "Cable Row", 3, 12, nil, nil, "")
-	if err != nil {
-		t.Fatalf("CreateExerciseLibraryItem: %v", err)
-	}
-	if libItem.ID != squat.ID {
-		t.Fatalf("expected library_id == squat.ID for cross-table collision, got lib=%d squat=%d (fixture seeded extra rows?)", libItem.ID, squat.ID)
 	}
 
 	// Session in variant B — does NOT contain the workout_exercise with squat.ID.
@@ -567,16 +569,17 @@ func TestExerciseDone_SameVariant_UsesWorkoutExercise(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateWorkoutVariant: %v", err)
 	}
-	squat, err := env.s.Workout.CreateExerciseInVariant(variant.ID, "Squat", 5, 5, nil, nil, 0)
-	if err != nil {
-		t.Fatalf("AddExerciseToVariant: %v", err)
-	}
-
-	// Fresh AUTOINCREMENT tables — both first rows get id=1, so the cross-table
-	// collision is guaranteed. Fatal if a future fixture change breaks it.
+	// Distinct-named library item first so it claims exercise_library id=1;
+	// creating "Squat" below promotes a "Squat" library row at id=2 (med-spp),
+	// leaving squat (workout_exercise id=1) colliding with "Cable Row" (library
+	// id=1). The distinct name proves the resolver used the workout_exercise.
 	libItem, err := env.s.Workout.CreateExerciseLibraryItem(userID, "Cable Row", 3, 12, nil, nil, "")
 	if err != nil {
 		t.Fatalf("CreateExerciseLibraryItem: %v", err)
+	}
+	squat, err := env.s.Workout.CreateExerciseInVariant(variant.ID, "Squat", 5, 5, nil, nil, 0)
+	if err != nil {
+		t.Fatalf("AddExerciseToVariant: %v", err)
 	}
 	if libItem.ID != squat.ID {
 		t.Fatalf("expected library_id == squat.ID for cross-table collision, got lib=%d squat=%d (fixture seeded extra rows?)", libItem.ID, squat.ID)

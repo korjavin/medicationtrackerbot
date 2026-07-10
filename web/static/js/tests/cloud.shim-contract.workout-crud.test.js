@@ -103,6 +103,32 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
         expect(exercises).toHaveLength(1);
     });
 
+    it('creating a plan exercise promotes it into the exercise library (med-spp), deduped by name', async () => {
+        const { window } = env;
+        const group = await window.apiCall('/api/workout/groups/create', 'POST', { name: 'Push' });
+        const varA = await window.apiCall('/api/workout/variants/create', 'POST', { group_id: group.id, name: 'A' });
+        const varB = await window.apiCall('/api/workout/variants/create', 'POST', { group_id: group.id, name: 'B' });
+
+        await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: varA.id, exercise_name: 'Bench Press', target_sets: 4, target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60
+        });
+
+        const lib = await window.apiCall('/api/workout/exercise-library');
+        const entry = lib.find((i) => i.name === 'Bench Press');
+        expect(entry).toBeTruthy();
+        expect(entry.default_sets).toBe(4);
+        expect(entry.default_reps_min).toBe(8);
+        expect(entry.default_reps_max).toBe(10);
+        expect(entry.default_weight_kg).toBe(60);
+
+        // Same name in another variant must not create a second library entry.
+        await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: varB.id, exercise_name: 'Bench Press', target_sets: 5, target_reps_min: 3
+        });
+        const after = await window.apiCall('/api/workout/exercise-library');
+        expect(after.filter((i) => i.name === 'Bench Press')).toHaveLength(1);
+    });
+
     it('exercise library create/list/update/delete round-trips with name-uniqueness enforced', async () => {
         const { window } = env;
         const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', {

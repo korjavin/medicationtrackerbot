@@ -468,7 +468,38 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       order_index: Number(input && input.order_index) || 0,
     };
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, record);
+    // med-spp: promote the plan exercise into the library (Exercises tab),
+    // deduped by name to match the Go (user_id, name) unique index. Mirrors
+    // CreateExerciseInVariant's ON CONFLICT DO NOTHING upsert so both modes
+    // return the same exercise-library entries for the same create sequence.
+    await promoteExerciseToLibrary(record);
     return toExerciseResponse(record);
+  }
+
+  // promoteExerciseToLibrary upserts a library record from a plan exercise,
+  // seeding defaults from its targets. No-op when the name is blank or already
+  // present (non-deleted) — the create-time counterpart of the Go upsert.
+  async function promoteExerciseToLibrary(exercise) {
+    const name = (exercise.exercise_name || '').trim();
+    if (!name) return;
+    const all = await records.list(WORKOUT_RECORD_TYPES.LIBRARY);
+    if (all.some((item) => !item.deleted && item.name === name)) return;
+    const nowMs = now();
+    await records.put(WORKOUT_RECORD_TYPES.LIBRARY, {
+      recordId: genRecordId('library', nowMs),
+      clientTs: nowMs,
+      deleted: false,
+      id: mintNumericId(all, nowMs),
+      user_id: CLOUD_USER_ID,
+      name,
+      default_sets: exercise.target_sets,
+      default_reps_min: exercise.target_reps_min,
+      default_reps_max: exercise.target_reps_max,
+      default_weight_kg: exercise.target_weight_kg,
+      notes: '',
+      created_at: new Date(nowMs).toISOString(),
+      updated_at: new Date(nowMs).toISOString(),
+    });
   }
 
   async function listExercises(variantId) {

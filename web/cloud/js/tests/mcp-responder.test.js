@@ -1069,8 +1069,13 @@ describe('cloud MCP response_example conformance', () => {
       target_weight_kg: 65,
       order_index: 0,
     });
+    // Creating the "Bench Press" plan exercise above now also promotes a
+    // notes-less "Bench Press" library entry (med-spp). exercise_library.list is
+    // sorted by name and the response_example shape check inspects the first
+    // element, so this fully-populated anchor is named to sort before the
+    // promoted plan exercises — keep its name alphabetically first.
     await w('workouts.exercise_library.create', {
-      name: 'Pull-ups', default_sets: 3, default_reps_min: 8, default_reps_max: 12, default_weight_kg: 5, notes: 'weighted',
+      name: 'Barbell Curl', default_sets: 3, default_reps_min: 8, default_reps_max: 12, default_weight_kg: 5, notes: 'weighted',
     });
     await w('workouts.rotation.initialize', { group_id: group.id, starting_variant_id: variant.id });
     const session = await w('workouts.sessions.schedule', {
