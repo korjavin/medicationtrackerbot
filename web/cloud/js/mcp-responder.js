@@ -239,6 +239,10 @@ class MCPError extends Error {
   }
 }
 
+// Mirrors proxy.ModeReadOnly / proxy.ModeWrite (internal/mcp/proxy/proxy.go:26).
+export const MODE_READ_ONLY = 'read_only';
+export const MODE_WRITE = 'write';
+
 // createDispatcher builds the mcp_help/mcp_call handlers over the injected
 // domain instances (same construction path apishim.js uses for bp/weight/
 // notes).
@@ -268,7 +272,11 @@ export function createDispatcher({
       return { ...buildHelp(params), current_time: currentTimeHint(now()) };
     }
     if (method === 'mcp_call') {
-      const opID = params && params.op;
+      // Full bot-mode envelope (internal/mcp/call.go:20-27): operation_id is
+      // primary, `op` stays a back-compat alias because existing pairings and
+      // older mcpshim binaries still send it.
+      const p = params || {};
+      const opID = p.operation_id || p.op;
       const fn = ops[opID];
       if (!fn) {
         // The generated catalog mirrors the whole Go registry, but cloud mode
@@ -283,7 +291,16 @@ export function createDispatcher({
         const hint = suggestions.length ? ` — did you mean: ${suggestions.join(', ')}?` : '';
         throw new MCPError(-32602, `unknown operation "${opID}"${hint}`);
       }
-      return fn(params && params.params);
+
+      // Absent mode means read-only, matching call.go:70-73. Write-intent
+      // gating on top of this lands in Task 3; path_params/body plumbing in
+      // Task 2 — they are accepted here so the envelope is stable first.
+      const mode = p.mode == null || p.mode === '' ? MODE_READ_ONLY : String(p.mode);
+      if (mode !== MODE_READ_ONLY && mode !== MODE_WRITE) {
+        throw new MCPError(-32602, `mode must be "${MODE_READ_ONLY}" or "${MODE_WRITE}", got "${mode}"`);
+      }
+
+      return fn(p.params);
     }
     throw new MCPError(-32601, `unknown method "${method}"`);
   }

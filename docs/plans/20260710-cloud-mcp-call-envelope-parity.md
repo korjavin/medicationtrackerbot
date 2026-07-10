@@ -105,11 +105,11 @@ The sender picks a fresh random nonce (`rand.Read`, `frame.go:70-72`).
 ## Implementation Steps
 
 ### Task 1: Widen the cloud mcp_call envelope in the dispatcher
-- [ ] in `web/cloud/js/mcp-responder.js`, accept the full envelope in `createDispatcher`'s `mcp_call` branch: `operation_id` (primary) with `op` as a back-compat alias, plus `params`, `path_params`, `body`, `mode`, `intent`
-- [ ] resolve the op via the existing `BY_ID` map; keep the existing "catalogued but not yet callable" error and the unknown-op did-you-mean path exactly as they are
-- [ ] default `mode` to read-only when absent, matching `internal/mcp/call.go:70-73`; reject any `mode` that is neither read-only nor `'write'`
-- [ ] export `BY_ID` (it is currently a module-local `const` at `:45`) only if the tests need it — otherwise leave it private
-- [ ] keep the six wired dispatch entries unchanged (scope fence)
+- [x] in `web/cloud/js/mcp-responder.js`, accept the full envelope in `createDispatcher`'s `mcp_call` branch: `operation_id` (primary) with `op` as a back-compat alias, plus `params`, `path_params`, `body`, `mode`, `intent`
+- [x] resolve the op via the existing `BY_ID` map; keep the existing "catalogued but not yet callable" error and the unknown-op did-you-mean path exactly as they are
+- [x] default `mode` to read-only when absent, matching `internal/mcp/call.go:70-73`; reject any `mode` that is neither read-only nor `'write'`
+- [x] export `BY_ID` (it is currently a module-local `const` at `:45`) only if the tests need it — otherwise leave it private (left private: no test needs it)
+- [x] keep the six wired dispatch entries unchanged (scope fence)
 
 ### Task 2: Path-param substitution validated against the catalog allowlist
 - [ ] add a helper that substitutes `path_params` into the op's `path` `{placeholder}` slots
