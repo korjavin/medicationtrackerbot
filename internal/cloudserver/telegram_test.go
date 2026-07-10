@@ -1199,14 +1199,16 @@ func TestChildWebhook_HelpAndUnknownCommands(t *testing.T) {
 		t.Fatalf("unknown command not answered: %v", got)
 	}
 
-	// Free text stays silently dropped — routing it is C3b's sealed-mailbox
-	// work, and replying would widen the declared zero-knowledge surface.
+	// Free text is now sealed for the drain-time AI agent (bd med-vcv.2), the
+	// same as an unknown command — the relay still parses nothing. This account
+	// has published no inbox key, so it too is DROPPED and the user is told how
+	// to fix that (rather than silently ignored, as before med-vcv.2).
 	if rec := postWebhook(t, top, childPath, bot.WebhookSecret,
 		`{"update_id":5,"message":{"message_id":4,"text":"I ate two eggs","chat":{"id":777,"type":"private"}}}`); rec.Code != http.StatusOK {
 		t.Fatalf("free text status = %d", rec.Code)
 	}
-	if got := sentSince(3); len(got) != 0 {
-		t.Fatalf("free text should not be answered, sent: %v", got)
+	if got := sentSince(3); len(got) != 1 || !strings.Contains(got[0], "finish setting up") {
+		t.Fatalf("free text not routed to the mailbox: %v", got)
 	}
 }
 
@@ -1450,6 +1452,60 @@ func TestGetPhoto_StreamsBytesForOwnAccount(t *testing.T) {
 	// No session → 401 (RequireSession rejects before the handler).
 	if noAuth := doReq(t, top, http.MethodGet, "http://"+host+"/api/telegram/photo?file_id=AgACPHOTO", host, nil, nil); noAuth.Code != http.StatusUnauthorized {
 		t.Errorf("no-session status = %d, want 401", noAuth.Code)
+	}
+}
+
+// TestChildWebhook_SealsFreeTextForTheAgent (bd med-vcv.2) pins that a non-command
+// message is sealed verbatim as a tg_text event (for the drain-time AI agent),
+// while a message with no text at all is dropped, not sealed empty.
+func TestChildWebhook_SealsFreeTextForTheAgent(t *testing.T) {
+	top, tg, host, childPath, session, accountID, priv := tgCommandFixture(t)
+	secret := childPath[strings.LastIndex(childPath, "/")+1:]
+
+	tg.mu.Lock()
+	before := len(tg.mu.sent)
+	tg.mu.Unlock()
+
+	const msg = "how did my blood pressure look this week?"
+	body := `{"update_id":9,"message":{"message_id":7,"text":"` + msg + `","chat":{"id":12345,"type":"private"}}}`
+	if rec := postWebhook(t, top, childPath, secret, body); rec.Code != http.StatusOK {
+		t.Fatalf("free-text status = %d", rec.Code)
+	}
+
+	tg.mu.Lock()
+	sent := append([]string(nil), tg.mu.sent[before:]...)
+	tg.mu.Unlock()
+	if len(sent) != 1 || !strings.Contains(sent[0], "Queued") {
+		t.Fatalf("expected a single queued reply, got %v", sent)
+	}
+
+	res := listInbox(t, top, host, session)
+	if len(res.Events) != 1 {
+		t.Fatalf("inbox events = %d, want 1", len(res.Events))
+	}
+	pt, err := openInbox(priv.Bytes(), accountID, res.Events[0].CT)
+	if err != nil {
+		t.Fatalf("openInbox: %v", err)
+	}
+	var ev tgTextEvent
+	if err := json.Unmarshal(pt, &ev); err != nil {
+		t.Fatalf("unmarshal sealed event: %v", err)
+	}
+	if ev.Kind != inboxEventKindTGText || ev.Text != msg {
+		t.Fatalf("sealed event = %+v, want kind=%s text=%q", ev, inboxEventKindTGText, msg)
+	}
+	if ev.ReplyMessageID == 0 || ev.AtUnix == 0 {
+		t.Errorf("sealed text event missing reply id / timestamp: %+v", ev)
+	}
+
+	// A message with no text (e.g. a sticker) has nothing to seal → dropped, no
+	// new event, no extra reply.
+	empty := `{"update_id":10,"message":{"message_id":8,"text":"","chat":{"id":12345,"type":"private"}}}`
+	if rec := postWebhook(t, top, childPath, secret, empty); rec.Code != http.StatusOK {
+		t.Fatalf("empty-message status = %d", rec.Code)
+	}
+	if res := listInbox(t, top, host, session); len(res.Events) != 1 {
+		t.Errorf("empty message sealed an event: inbox now has %d, want 1", len(res.Events))
 	}
 }
 

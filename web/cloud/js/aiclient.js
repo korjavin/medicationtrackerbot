@@ -107,6 +107,36 @@ async function postChatCompletion(endpoint, apiKey, body) {
   return JSON.parse(extractJSONContent(content));
 }
 
+// postChatRaw is the tool-calling sibling of postChatCompletion: it returns the
+// assistant message OBJECT (content + tool_calls) verbatim instead of
+// JSON-parsing the content, because a tool-calling turn may carry tool_calls and
+// no content at all (bd med-vcv.2). Same fetch + error contract.
+async function postChatRaw(endpoint, apiKey, body) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  let res;
+  let text;
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+    res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
+    text = await res.text();
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) {
+    const err = new Error(extractErrorMessage(text) || `API returned status code ${res.status}`);
+    err.apiError = true;
+    err.status = res.status;
+    err.body = text;
+    throw err;
+  }
+  const parsed = JSON.parse(text);
+  const msg = parsed && parsed.choices && parsed.choices[0] && parsed.choices[0].message;
+  if (!msg) throw new Error('API returned no message');
+  return msg;
+}
+
 // ponytail: image/* sniff relies on the browser-supplied File.type rather
 // than a magic-number byte sniff — this is a UX gate (fail fast before an
 // upload), not a security boundary, since the request goes straight to the
@@ -183,27 +213,48 @@ function trialFailureMessage(upstreamStatus) {
 // it names the case instead — bot mode's internal/ai/openai.go sniffs that
 // text directly), and anything else with a status gets a friendly message
 // worded by the relayed upstream_status instead of raw JSON in an alert.
+// mapTrialError turns a raw proxy failure into the right typed client error by
+// the machine-readable body (not status). Shared by the JSON meal path and the
+// raw tool-calling path so both map the proxy contract identically. Always
+// returns an Error to throw.
+function mapTrialError(err) {
+  const { code, upstreamStatus, scope } = trialErrorInfo(err.body);
+  if (code === 'trial_not_configured') return noKeyError();
+  if (code === 'trial_rate_limit') return trialLimitError();
+  if (code === 'trial_budget_exhausted') return trialBudgetError(scope);
+  if (code === 'trial_budget_unavailable') return trialBudgetUnavailableError();
+  if (err.status) {
+    // The proxy sanitizes the upstream body, so this is the only place a
+    // browser can observe what actually failed.
+    console.error('trial AI request failed', { status: err.status, code, upstream_status: upstreamStatus, body: err.body });
+    if (code === 'response_format_unsupported') return responseFormatUnsupportedError();
+    const friendly = new Error(trialFailureMessage(upstreamStatus));
+    friendly.status = err.status;
+    friendly.upstreamStatus = upstreamStatus;
+    return friendly;
+  }
+  return err;
+}
+
 async function postTrialChatCompletion(vision, body) {
   const { model: _serverForced, ...rest } = body;
   try {
     return await postChatCompletion(`/api/trial/openai/chat/completions${vision ? '?vision=1' : ''}`, '', rest);
   } catch (err) {
-    const { code, upstreamStatus, scope } = trialErrorInfo(err.body);
-    if (code === 'trial_not_configured') throw noKeyError();
-    if (code === 'trial_rate_limit') throw trialLimitError();
-    if (code === 'trial_budget_exhausted') throw trialBudgetError(scope);
-    if (code === 'trial_budget_unavailable') throw trialBudgetUnavailableError();
-    if (err.status) {
-      // The proxy sanitizes the upstream body, so this is the only place a
-      // browser can observe what actually failed.
-      console.error('trial AI request failed', { status: err.status, code, upstream_status: upstreamStatus, body: err.body });
-      if (code === 'response_format_unsupported') throw responseFormatUnsupportedError();
-      const friendly = new Error(trialFailureMessage(upstreamStatus));
-      friendly.status = err.status;
-      friendly.upstreamStatus = upstreamStatus;
-      throw friendly;
-    }
-    throw err;
+    throw mapTrialError(err);
+  }
+}
+
+// postTrialChatRaw is the tool-calling sibling for the trial proxy: same
+// model-stripping and error mapping as postTrialChatCompletion, but returns the
+// raw assistant message. Whether the operator's model honours `tools` is up to
+// that model; if it does not, it simply answers in content and the loop ends.
+async function postTrialChatRaw(body) {
+  const { model: _serverForced, ...rest } = body;
+  try {
+    return await postChatRaw('/api/trial/openai/chat/completions', '', rest);
+  } catch (err) {
+    throw mapTrialError(err);
   }
 }
 
@@ -301,5 +352,24 @@ export function createAIClient({ settingsDomain }) {
     }
   }
 
-  return { parseMealFromDescription, parseMealFromImage };
+  // chat is the general tool-calling primitive (bd med-vcv.2): one round of the
+  // OpenAI chat-completions loop over the text provider, returning the raw
+  // assistant message (content + tool_calls). The caller owns the loop. Uses the
+  // same vault-key/trial plumbing as meal parsing; the trial path degrades to a
+  // plain answer when the operator's model does not support tools.
+  async function chat({ messages, tools, temperature = 0.2 }) {
+    const { text } = await credentials();
+    const useTrial = !text.apiKey;
+    if (useTrial && !trialAIAvailable()) throw noKeyError();
+    const body = { model: text.model, temperature, messages };
+    if (tools && tools.length) {
+      body.tools = tools;
+      body.tool_choice = 'auto';
+    }
+    return useTrial
+      ? postTrialChatRaw(body)
+      : postChatRaw(`${text.url.replace(/\/$/, '')}/chat/completions`, text.apiKey, body);
+  }
+
+  return { parseMealFromDescription, parseMealFromImage, chat };
 }
