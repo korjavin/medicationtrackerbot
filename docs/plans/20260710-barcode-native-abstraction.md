@@ -209,13 +209,17 @@ mention in a `scanner.js` comment tripped the capability check and was reworded.
 
 ### Task 5: Verify acceptance criteria
 
-- [ ] verify all requirements from Overview are implemented
-- [ ] verify `scanner.js` contains no `navigator.`, `BarcodeDetector`, or
-      `Capacitor` reference at all
-- [ ] verify no new `window.*` global was introduced (methods only) — if one was,
+- [x] verify all requirements from Overview are implemented
+- [x] verify `scanner.js` contains no `navigator.`, `BarcodeDetector`, or
+      `Capacitor` reference at all — no *code* references remain; two comments
+      still name the Capacitor shell to explain why `scanWithNativeBarcode()`
+      closes the in-app modal. Prose, not a platform decision.
+- [x] verify no new `window.*` global was introduced (methods only) — if one was,
       add it to `tests/architecture.globals.test.js` with justification per rule 4
-- [ ] run `pnpm test` (vitest) — the full frontend suite must pass
-- [ ] verify no Go source changed (`git diff --name-only` shows no `.go` files)
+      (confirmed: no `window.X =` added outside the existing `registerImpl` seam)
+- [x] run `pnpm test` (vitest) — the full frontend suite must pass
+      (289 files / 3148 tests passed, 29 skipped)
+- [x] verify no Go source changed (`git diff --name-only` shows no `.go` files)
 
 ### Task 6: [Final] Update documentation
 
