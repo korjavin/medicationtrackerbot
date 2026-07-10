@@ -339,12 +339,16 @@ describe('mcp-responder dispatch', () => {
     expect(created.result.result.measured_at).toBe('constructor');
   });
 
-  // registry.ValidateInput never blocks (call.go:118): a mistyped or missing
-  // field warns, the call still runs, and the data comes back under `result`.
-  it('warns on a schema mismatch without blocking the call', async () => {
-    const dispatcher = makeDispatcher();
+  // A WRITE op missing a required field is a hard block (call.go:128), not a
+  // warning: forwarding it lets the domain layer silently persist a malformed
+  // record invisible to every windowed read (med-d5t.11). It must throw the
+  // -32602 write-reject error naming the field, and must NOT dispatch.
+  it('rejects a write op missing a required field without dispatching', async () => {
+    const records = createInMemoryRecordsPort();
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const dispatcher = createDispatcher({ router: makeRouter(now, records), now });
 
-    const created = await handleRequest(dispatcher, {
+    const rejected = await handleRequest(dispatcher, {
       jsonrpc: '2.0',
       id: 11,
       method: 'mcp_call',
@@ -352,25 +356,70 @@ describe('mcp-responder dispatch', () => {
         op: 'health.weight.create',
         mode: 'write',
         intent: 'log the weigh-in',
-        // weight is required and declared "number"; a string trips both checks
-        // the Go validator makes, and measured_at is absent entirely.
-        params: { weight: '81.2' },
+        // weight is present but measured_at (also required) is absent entirely.
+        params: { weight: 81.2 },
+      },
+    });
+    expect(rejected.result).toBeUndefined();
+    expect(rejected.error).toMatchObject({
+      code: -32602,
+      message: 'write op "health.weight.create" rejected: required field missing: body.measured_at',
+    });
+
+    // The record must not have been persisted — the block happens before dispatch.
+    const listed = await handleRequest(dispatcher, {
+      jsonrpc: '2.0', id: 12, method: 'mcp_call', params: { op: 'health.weight.list', params: { days: 30 } },
+    });
+    expect(listed.result.result).toHaveLength(0);
+  });
+
+  // Type mismatches stay warn-only, even for writes: coercion is defensible, so
+  // a present-but-mistyped required field warns and the call still runs.
+  it('warns (does not block) on a write type mismatch when all required fields are present', async () => {
+    const dispatcher = makeDispatcher();
+
+    const created = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 13,
+      method: 'mcp_call',
+      params: {
+        op: 'health.weight.create',
+        mode: 'write',
+        intent: 'log the weigh-in',
+        // Both required fields present; weight is declared "number" but a string.
+        params: { measured_at: '2026-07-06T09:00:00.000Z', weight: '81.2' },
       },
     });
     expect(created.error).toBeUndefined();
     expect(created.result.warnings).toEqual([
-      'body.measured_at: required field missing',
       'body.weight: expected number, got string',
     ]);
     expect(created.result.result).toMatchObject({ weight: '81.2' });
+  });
 
-    // A clean call carries the same envelope, minus `warnings` — the shape must
-    // not depend on whether the input happened to trip a warning.
+  // Reads stay entirely warn-only: a mistyped field on a read still warns and
+  // the call runs, returning the data under `result`.
+  it('warns without blocking on a read op schema mismatch', async () => {
+    const dispatcher = makeDispatcher();
+
+    const listed = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 14,
+      method: 'mcp_call',
+      // days is declared "integer"; a string trips the type check but must not block.
+      params: { op: 'health.weight.list', params: { days: 'seven' } },
+    });
+    expect(listed.error).toBeUndefined();
+    expect(listed.result.warnings).toEqual([
+      'params.days: expected integer, got string',
+    ]);
+    expect(Array.isArray(listed.result.result)).toBe(true);
+
+    // A clean read carries the same envelope, minus `warnings`.
     const clean = await handleRequest(dispatcher, {
-      jsonrpc: '2.0', id: 12, method: 'mcp_call', params: { op: 'health.weight.list', params: { days: 7 } },
+      jsonrpc: '2.0', id: 15, method: 'mcp_call', params: { op: 'health.weight.list', params: { days: 7 } },
     });
     expect(clean.result).toMatchObject({ status: 'ok', api_calls: 1 });
-    expect(Array.isArray(clean.result.result)).toBe(true);
     expect(clean.result.warnings).toBeUndefined();
   });
 });

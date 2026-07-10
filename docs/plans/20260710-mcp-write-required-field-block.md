@@ -89,14 +89,14 @@ mismatches stay warn-only (coercion is defensible). Read ops stay entirely warn-
       required field sees that api.call fail (not a silent success + warning); a read still warns.
 
 ### Task 4: Cloud responder blocks write ops with a missing required field
-- [ ] In `web/cloud/js/mcp-responder.js`, in the `mode: write` branch (near line 528), after
+- [x] In `web/cloud/js/mcp-responder.js`, in the `mode: write` branch (near line 528), after
       `validateInput`, when the op is a write (`op.risk === 'write'`), detect missing required
       fields (port Task 1's logic, or reuse the `"... required field missing"` warnings filtered
       to required-missing) and `throw new MCPError(-32602, ...)` naming the op and fields BEFORE
       `dispatch`. Reuse the existing `-32602` write-path error style just above.
-- [ ] Leave the read/passthrough path warn-only; keep the `{status:'ok', result, api_calls}`
+- [x] Leave the read/passthrough path warn-only; keep the `{status:'ok', result, api_calls}`
       success shape unchanged for valid writes.
-- [ ] Extend `web/cloud/js/tests/mcp-responder.test.js`: (a) a `mode:write` op missing a
+- [x] Extend `web/cloud/js/tests/mcp-responder.test.js`: (a) a `mode:write` op missing a
       required body field throws `MCPError` with the field named and does NOT dispatch; (b) a
       read passthrough still only warns; (c) a valid write still dispatches with the ok shape.
 
