@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import {
+  afterEach, beforeEach, describe, expect, it, vi,
+} from 'vitest';
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
 import { createNotesDomain } from '../../../domain/notes.js';
 import { createInMemoryRecordsPort } from '../../../static/js/tests/helpers/cloud-shim-harness.js';
 import {
-  CATALOG, createDispatcher, handleRequest, suggestOperations,
+  CATALOG, createDispatcher, createResponder, handleRequest,
+  STATUS_NO_PAIRING, suggestOperations,
 } from '../mcp-responder.js';
 
 function makeDispatcher() {
@@ -83,5 +86,93 @@ describe('mcp-responder dispatch', () => {
 
   it('suggestOperations falls back to Levenshtein distance for an unrelated typo', () => {
     expect(suggestOperations('notes.creat')).toContain('notes.create');
+  });
+});
+
+// --- Reconnect loop (med-253) --------------------------------------------
+// The relay's pairing table is in-memory and TTL'd; the vault record is not.
+// When they disagree the device leg is closed with STATUS_NO_PAIRING, and the
+// responder must give up instead of reconnecting forever.
+
+class FakeSocket {
+  constructor(url) {
+    this.url = url;
+    this.readyState = 0;
+    FakeSocket.instances.push(this);
+  }
+
+  close() { this.readyState = 3; }
+
+  // Drive the close handler the way a browser would.
+  fireClose(code) { this.readyState = 3; this.onclose({ code }); }
+}
+FakeSocket.instances = [];
+
+function makeResponder(overrides = {}) {
+  FakeSocket.instances = [];
+  const records = createInMemoryRecordsPort();
+  const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+  return createResponder({
+    pairingId: 'pair-1',
+    key: new Uint8Array(32),
+    records,
+    now,
+    timeZone: 'UTC',
+    relayURL: 'ws://relay.test/api/mcp/relay/device',
+    ...overrides,
+  });
+}
+
+describe('mcp-responder reconnect loop', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', FakeSocket);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('reconnects after a transient close', () => {
+    const responder = makeResponder();
+    responder.connect();
+    expect(FakeSocket.instances).toHaveLength(1);
+
+    FakeSocket.instances[0].fireClose(1006); // abnormal closure, e.g. network drop
+    expect(responder.getStatus()).toBe('idle');
+
+    vi.advanceTimersByTime(1000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    responder.stop();
+  });
+
+  it('stops permanently on STATUS_NO_PAIRING and reports the stale pairing', () => {
+    const onStalePairing = vi.fn();
+    const responder = makeResponder({ onStalePairing });
+    responder.connect();
+
+    FakeSocket.instances[0].fireClose(STATUS_NO_PAIRING);
+
+    expect(onStalePairing).toHaveBeenCalledTimes(1);
+    expect(responder.getStatus()).toBe('idle');
+
+    // The whole point: no reconnect is ever scheduled, however long we wait.
+    vi.advanceTimersByTime(120_000);
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
+  it('does not reconnect after a 4404 close even if a retry was already queued', () => {
+    const onStalePairing = vi.fn();
+    const responder = makeResponder({ onStalePairing });
+    responder.connect();
+
+    FakeSocket.instances[0].fireClose(1006);   // queues a reconnect at +1000ms
+    vi.advanceTimersByTime(1000);
+    expect(FakeSocket.instances).toHaveLength(2);
+
+    FakeSocket.instances[1].fireClose(STATUS_NO_PAIRING); // must cancel the backoff chain
+    vi.advanceTimersByTime(120_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(onStalePairing).toHaveBeenCalledTimes(1);
   });
 });

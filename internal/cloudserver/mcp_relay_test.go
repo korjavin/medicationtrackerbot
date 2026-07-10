@@ -336,3 +336,38 @@ func TestPairingTable_PermanentPairingSurvivesTTL(t *testing.T) {
 		t.Fatalf("permanent enabled pairing should survive cleanup")
 	}
 }
+
+// TestMCPRelay_DeviceWithoutPairingClosesWith4404 pins the fix for the
+// infinite reconnect loop (med-253): with no pairing the relay must ACCEPT
+// the upgrade and close with StatusNoPairing, not reject the handshake with
+// a 404. A browser cannot read a handshake status — only a close code — so a
+// 404 is indistinguishable from a network drop and the responder retries
+// forever. The pairing table is in-memory, so every redeploy strands a tab.
+func TestMCPRelay_DeviceWithoutPairingClosesWith4404(t *testing.T) {
+	h, host, claimToken := newTestMCPRelayHandler(t)
+	session := registerAndGetSession(t, h, host, claimToken)
+	// Deliberately no mintPairing: this account has never paired.
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	client := wsClientFor(srv.Listener.Addr().String())
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	deviceHeader := http.Header{}
+	deviceHeader.Set("Cookie", session.Name+"="+session.Value)
+	conn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device", &websocket.DialOptions{
+		HTTPClient: client,
+		HTTPHeader: deviceHeader,
+	})
+	if err != nil {
+		t.Fatalf("dial device: handshake must succeed so the close code is visible: %v", err)
+	}
+	defer conn.CloseNow()
+
+	_, _, err = conn.Read(ctx)
+	if got := websocket.CloseStatus(err); got != StatusNoPairing {
+		t.Fatalf("close status = %d, want %d (err %v)", got, StatusNoPairing, err)
+	}
+}

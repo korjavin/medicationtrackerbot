@@ -195,6 +195,17 @@ func (a *MCPRelayAPI) DeletePairing(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// StatusNoPairing tells the browser responder that this account has no live
+// pairing, so it must stop reconnecting and drop its stale vault record.
+//
+// It has to be a WebSocket close code rather than an HTTP status: the browser
+// WebSocket API exposes no handshake status, so rejecting the upgrade with a
+// 404 is indistinguishable from a network drop and the responder retries
+// forever (the pairing table is in-memory — every redeploy strands one).
+// Close codes ARE visible, in onclose's `code`. 4404 is in the 4000-4999
+// application range reserved by RFC 6455 §7.4.2.
+const StatusNoPairing websocket.StatusCode = 4404
+
 // DeviceSocket is the browser-tab leg: the unlocked PWA connects here to
 // answer relayed tool calls. Requires the account to already have an active
 // pairing (minted via CreatePairing) — there's nothing to bridge otherwise.
@@ -206,7 +217,11 @@ func (a *MCPRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	record, ok := a.pairings.byAccountID(session.AccountID)
 	if !ok {
-		http.Error(w, "no active pairing for this account", http.StatusNotFound)
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		conn.Close(StatusNoPairing, "no active pairing for this account")
 		return
 	}
 	conn, err := websocket.Accept(w, r, nil)
