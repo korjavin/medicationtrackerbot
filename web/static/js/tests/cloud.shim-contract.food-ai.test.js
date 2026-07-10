@@ -295,6 +295,81 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/trial limit/i));
     });
 
+    // bd med-d5t.5 — a daily budget is not a rate limit. "Wait a minute" and
+    // "the shared budget is gone until tomorrow" ask different things of the
+    // user, so the proxy sends its own code and the client says something
+    // actionable rather than reusing the rate-limit copy.
+    it('trial 429 trial_budget_exhausted (account): tells the user their allowance is spent', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        enableTrialAI(env);
+
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: false,
+            status: 429,
+            async text() { return JSON.stringify({ error: 'trial_budget_exhausted', scope: 'account', resets_at: '2026-07-11T00:00:00Z' }); }
+        }));
+
+        document.getElementById('food-id').value = '';
+        document.getElementById('food-parse-ai').checked = true;
+        document.getElementById('food-datetime').value = todayAt('09:00');
+        document.getElementById('food-name').value = 'a banana';
+
+        await window.saveFoodLog();
+        await flushPromises();
+
+        const [msg] = window.safeAlert.mock.calls.at(-1);
+        expect(msg).toMatch(/your AI allowance for today/i);
+        expect(msg).toMatch(/own OpenAI key/i);
+        // Not the per-minute copy: retrying in a minute will not help.
+        expect(msg).not.toMatch(/try again in a minute/i);
+    });
+
+    it('trial 429 trial_budget_exhausted (global): names the shared pool, not the user', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        enableTrialAI(env);
+
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: false,
+            status: 429,
+            async text() { return JSON.stringify({ error: 'trial_budget_exhausted', scope: 'global' }); }
+        }));
+
+        document.getElementById('food-id').value = '';
+        document.getElementById('food-parse-ai').checked = true;
+        document.getElementById('food-datetime').value = todayAt('09:00');
+        document.getElementById('food-name').value = 'a banana';
+
+        await window.saveFoodLog();
+        await flushPromises();
+
+        const [msg] = window.safeAlert.mock.calls.at(-1);
+        expect(msg).toMatch(/shared AI budget for this server/i);
+    });
+
+    it('trial 503 trial_budget_unavailable: the check failed, so nothing was spent', async () => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        enableTrialAI(env);
+
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: false,
+            status: 503,
+            async text() { return JSON.stringify({ error: 'trial_budget_unavailable' }); }
+        }));
+
+        document.getElementById('food-id').value = '';
+        document.getElementById('food-parse-ai').checked = true;
+        document.getElementById('food-datetime').value = todayAt('09:00');
+        document.getElementById('food-name').value = 'a banana';
+
+        await window.saveFoodLog();
+        await flushPromises();
+
+        expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/unavailable right now/i));
+    });
+
     it('trial 503: unconfigured proxy degrades to the plain no-key error', async () => {
         allowConsoleNoise();
         const { window, document } = env;

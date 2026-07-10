@@ -14,6 +14,11 @@ const (
 	trialDefaultOpenAIURL   = "https://api.openai.com/v1"
 	trialDefaultOpenAIModel = "gpt-4o-mini"
 	trialDefaultRatePerMin  = 10
+	// Daily SPEND caps on the operator's own provider key, unlike RatePerMinute
+	// which only smooths bursts. Sized for the "a few friends" deployment this
+	// mode exists for; raise them deliberately, with the bill in mind.
+	trialDefaultDailyPerAccount = 100
+	trialDefaultDailyGlobal     = 500
 )
 
 // TrialConfig holds operator-owned trial provider credentials for the
@@ -36,6 +41,15 @@ type TrialConfig struct {
 	ElevenLabsAgentID string
 	// Per-account sliding-window limit shared across all trial routes.
 	RatePerMinute int
+	// Persisted daily budgets for the AI chat proxy (bd med-d5t.5). The
+	// per-minute limiter bounds burst rate; these bound the operator's bill.
+	// <= 0 disables that scope. Voice mints are deliberately NOT metered here:
+	// once a signed URL is minted the browser talks to ElevenLabs directly, so a
+	// mint cap bounds how many calls start, never how long they run. That is
+	// tracked separately rather than papered over with a number that implies a
+	// cost ceiling it cannot deliver.
+	DailyPerAccount int
+	DailyGlobal     int
 }
 
 // TrialAIConfigured reports whether the OpenAI chat proxy can serve requests.
@@ -62,6 +76,8 @@ func TrialConfigFromEnv() (TrialConfig, error) {
 		ElevenLabsAPIKey:  os.Getenv("TRIAL_ELEVENLABS_API_KEY"),
 		ElevenLabsAgentID: os.Getenv("TRIAL_ELEVENLABS_AGENT_ID"),
 		RatePerMinute:     trialDefaultRatePerMin,
+		DailyPerAccount:   trialDefaultDailyPerAccount,
+		DailyGlobal:       trialDefaultDailyGlobal,
 	}
 	// Trim trailing slashes like internal/ai and aiclient.js do — the proxy
 	// concatenates "/chat/completions", and strict routers 404 on "//".
@@ -81,6 +97,20 @@ func TrialConfigFromEnv() (TrialConfig, error) {
 	}
 	if cfg.VisionModel == "" {
 		cfg.VisionModel = cfg.OpenAIModel
+	}
+	if v := os.Getenv("TRIAL_DAILY_PER_ACCOUNT"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return cfg, errors.New("TRIAL_DAILY_PER_ACCOUNT must be a non-negative integer (0 disables the per-account daily budget)")
+		}
+		cfg.DailyPerAccount = n
+	}
+	if v := os.Getenv("TRIAL_DAILY_GLOBAL"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return cfg, errors.New("TRIAL_DAILY_GLOBAL must be a non-negative integer (0 disables the global daily budget)")
+		}
+		cfg.DailyGlobal = n
 	}
 	if rate := os.Getenv("TRIAL_RATE_PER_MIN"); rate != "" {
 		n, err := strconv.Atoi(rate)
