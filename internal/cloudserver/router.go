@@ -139,13 +139,14 @@ func injectCloudBoot(idx []byte, foodDBURL string, trialAI, trialVoice bool, bui
 // /recover, /devices, /connectors) make no cross-origin calls and keep
 // connect-src 'self'.
 //
-// accountApp also loads the @elevenlabs/client voice SDK as an ES module from
-// esm.sh (elevenlabs-call.js), whose AudioWorklets (rawAudioProcessor /
-// audioConcatProcessor) run from blob: URLs — Chrome falls back worklet-src →
-// worker-src → script-src. This mirrors the bot-mode CSP (server.go). It is a
-// further weakening of the zero-third-party-script defense on the DEK-bearing
-// page: esm.sh script now executes on-origin. Vendoring the SDK locally to
-// restore script-src 'self' is the follow-up — deferred with the sandboxing above.
+// accountApp loads the @elevenlabs/client voice SDK as an ES module, but from
+// OUR OWN origin (/static/vendor/elevenlabs-client.min.js) — no third-party
+// script executes on the DEK-bearing page, so script-src keeps 'self' (bd
+// med-7e7.1). blob: and data: remain because the SDK builds its AudioWorklets
+// (rawAudioProcessor / audioConcatProcessor) from blob: URLs and Chrome falls
+// back worklet-src → worker-src → script-src. Those are same-origin-authored
+// blobs, not a foreign script host: an attacker who can mint a blob: script
+// already has script execution.
 func setSecurityHeaders(w http.ResponseWriter, accountApp bool) {
 	h := w.Header()
 	connectSrc := "connect-src 'self'"
@@ -158,7 +159,7 @@ func setSecurityHeaders(w http.ResponseWriter, accountApp bool) {
 		// scheme-coercion match is fragile across browsers (WebKit/iOS Safari
 		// has been inconsistent). Bot mode (server.go) also enumerates wss:.
 		connectSrc = "connect-src 'self' https: wss:"
-		scriptSrc = "script-src 'self' https://esm.sh blob: data:"
+		scriptSrc = "script-src 'self' blob: data:"
 		workerSrc = "worker-src 'self' blob:; "
 		mediaSrc = "media-src 'self' blob:; "
 	}
