@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, describeSyncStatus, getSyncStatus } from '../sync.js';
+import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, describeSyncStatus, getSyncStatus } from '../sync.js';
 import { openDb } from '../localdb.js';
 
 const accountId = 'amber-falcon-8k3q9x';
@@ -302,5 +302,114 @@ describe('maybeSnapshot surfaces a permanent snapshot failure instead of failing
 
     await pullOnOpen(ctx); // no backoff floor was set — retried at once
     expect(snapshotPosts).toBe(2);
+  });
+});
+
+// med-d5t.10 — the voice agent, the Claude connector, the sealed Telegram inbox
+// drain and incoming sync pulls all write through writeRecord/applyIncoming and
+// none of them repainted the screen. These assert the notification at both choke
+// points, and that a UI write (already repainting via applyOptimistic) does not
+// paint twice.
+describe('non-UI writes repaint the open tab (med-d5t.10)', () => {
+  let ctx;
+  let ds;
+
+  const stubDataStore = (overrides = {}) => {
+    ds = {
+      invalidateTags: vi.fn(async () => {}),
+      requestTabRefresh: vi.fn(),
+      hasAnyPendingOptimistic: vi.fn(() => false),
+      ...overrides,
+    };
+    vi.stubGlobal('window', { DataStore: ds });
+    return ds;
+  };
+
+  // Fresh account: 204 snapshot (cursor-0 bootstrap), empty tail, ops POST
+  // assigns contiguously from our cursor. `pulledOps` seeds the tail.
+  const stubSync = (pulledOps = []) => {
+    let assignNext = 1;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && !init) return new Response(null, { status: 204 });
+      if (u.startsWith('/api/sync/ops?')) {
+        const ops = pulledOps.splice(0, pulledOps.length);
+        return new Response(JSON.stringify({ ops, next: false }), { status: 200 });
+      }
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        const assigned = ops.map(() => assignNext++);
+        return new Response(JSON.stringify({ assigned }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+  };
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, dek: await generateDEK() };
+  });
+
+  it('a food log written outside the UI (voice agent / MCP relay) invalidates and repaints', async () => {
+    stubDataStore();
+    stubSync();
+
+    await writeRecord(ctx, 'foodlog', { recordId: 'foodlog-1', clientTs: 1, deleted: false, name: 'oats' });
+
+    expect(ds.invalidateTags).toHaveBeenCalledWith(['food']);
+    expect(ds.requestTabRefresh).toHaveBeenCalledWith(['food'], 'cloud-write');
+  });
+
+  it('a Telegram-drained /bp repaints the BP screen', async () => {
+    stubDataStore();
+    stubSync();
+
+    await writeRecord(ctx, 'bp', { recordId: 'bp-1', clientTs: 1, deleted: false, systolic: 120, diastolic: 80 });
+
+    expect(ds.requestTabRefresh).toHaveBeenCalledWith(['bp'], 'cloud-write');
+  });
+
+  it('does not repaint over the UI\'s own optimistic write', async () => {
+    stubDataStore({ hasAnyPendingOptimistic: vi.fn(() => true) });
+    stubSync();
+
+    await writeRecord(ctx, 'foodlog', { recordId: 'foodlog-1', clientTs: 1, deleted: false, name: 'oats' });
+
+    expect(ds.invalidateTags).not.toHaveBeenCalled();
+    expect(ds.requestTabRefresh).not.toHaveBeenCalled();
+  });
+
+  it('a record type no tag-cached screen reads (nk) emits nothing', async () => {
+    stubDataStore();
+    stubSync();
+
+    await writeRecord(ctx, 'nk', { recordId: 'nk', clientTs: 1, deleted: false, nk: 'AAAA' });
+
+    expect(ds.requestTabRefresh).not.toHaveBeenCalled();
+  });
+
+  it('an incoming sync pull repaints once per page, with the union of the pulled types', async () => {
+    stubDataStore();
+    const kData = await deriveKData(ctx.dek);
+    const seal = async (recordType, recordId, seq, record) => {
+      const { nonce, ct } = await encryptRecord({
+        kData, accountId, recordType, recordId, seq,
+        plaintext: new TextEncoder().encode(JSON.stringify(record)),
+      });
+      return { seq, record_type_tag: `${recordType}:${recordId}`, nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) };
+    };
+    stubSync([
+      await seal('bp', 'bp-1', 1, { recordId: 'bp-1', clientTs: 10, deleted: false, systolic: 120 }),
+      await seal('weight', 'w-1', 2, { recordId: 'w-1', clientTs: 10, deleted: false, weight: 80 }),
+    ]);
+
+    await pullOnOpen(ctx);
+
+    expect(ds.requestTabRefresh).toHaveBeenCalledTimes(1);
+    expect(ds.requestTabRefresh).toHaveBeenCalledWith(['bp', 'weight'], 'cloud-write');
   });
 });
