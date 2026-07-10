@@ -278,7 +278,11 @@ export function installApiShim(ctx, { records: recordsOverride, win } = {}) {
     if (path === '/api/notes') {
       if (method === 'POST') return notes.create(body);
       if (method === 'GET') {
-        return notes.list({ limit: intParam(params, 'limit', 50), beforeId: params.get('before_id') || undefined });
+        return notes.list({
+          days: intParam(params, 'days', undefined),
+          limit: intParam(params, 'limit', 50),
+          beforeId: params.get('before_id') || undefined,
+        });
       }
     }
     if (method === 'DELETE') {

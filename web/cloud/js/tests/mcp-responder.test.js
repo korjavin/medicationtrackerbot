@@ -52,6 +52,36 @@ describe('mcp-responder dispatch', () => {
     expect(listResp.result[0]).toMatchObject({ systolic: 120, diastolic: 80 });
   });
 
+  // The generated catalog advertises `days` on health.notes.list, so the
+  // dispatcher must honor it — not silently return the newest N regardless.
+  it('honors the advertised days window on health.notes.list', async () => {
+    const records = createInMemoryRecordsPort();
+    let clock = Date.parse('2026-06-01T12:00:00.000Z');
+    const dispatcher = createDispatcher({
+      bp: createBPDomain({ records, now: () => clock, timeZone: 'UTC' }),
+      weight: createWeightDomain({ records, now: () => clock, timeZone: 'UTC' }),
+      notes: createNotesDomain({ records, now: () => clock }),
+    });
+    const call = (params) => handleRequest(dispatcher, {
+      jsonrpc: '2.0', id: 9, method: 'mcp_call', params: { op: 'health.notes.list', params },
+    });
+
+    await handleRequest(dispatcher, {
+      jsonrpc: '2.0', id: 8, method: 'mcp_call',
+      params: { op: 'health.notes.create', params: { content: 'old note' } },
+    });
+    clock = Date.parse('2026-07-06T12:00:00.000Z');
+    await handleRequest(dispatcher, {
+      jsonrpc: '2.0', id: 8, method: 'mcp_call',
+      params: { op: 'health.notes.create', params: { content: 'fresh note' } },
+    });
+
+    expect((await call({ days: 7 })).result.map((n) => n.content)).toEqual(['fresh note']);
+    // Absent or non-positive days is unbounded, matching handleListNotes.
+    expect((await call({})).result).toHaveLength(2);
+    expect((await call({ days: 0 })).result).toHaveLength(2);
+  });
+
   it('returns a JSON-RPC error with a did-you-mean hint for an unknown op', async () => {
     const dispatcher = makeDispatcher();
     const response = await handleRequest(dispatcher, {

@@ -174,7 +174,7 @@ export function createDispatcher({ bp, weight, notes }) {
     'health.bp.create': (p) => bp.create(p || {}),
     'health.weight.list': (p) => weight.list(p || {}),
     'health.weight.create': (p) => weight.create(p || {}),
-    'health.notes.list': (p) => notes.list({ limit: p && p.limit, beforeId: p && p.before_id }),
+    'health.notes.list': (p) => notes.list({ days: p && p.days, limit: p && p.limit, beforeId: p && p.before_id }),
     'health.notes.create': (p) => notes.create(p || {}),
   });
 
