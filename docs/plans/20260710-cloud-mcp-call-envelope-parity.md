@@ -126,10 +126,10 @@ The sender picks a fresh random nonce (`rand.Read`, `frame.go:70-72`).
 - [x] integration test: a `risk: 'write'` op refused without `mode: 'write'`, accepted with `mode` + `intent`
 
 ### Task 4: Warn-only schema validation mirroring registry.ValidateInput
-- [ ] validate `params` against the op's catalog `params_schema` and `body` against `body_schema`, plus the catalog's precomputed `required` field names
-- [ ] attach the result as a `warnings` array on the successful response; **never block the call** — `call.go:118` is explicit that a missing or mistyped field produces a warning, not an error
-- [ ] keep the warning strings close in wording to `registry.ValidateInput`'s so an agent sees the same guidance on both surfaces
-- [ ] integration test: a schema-mismatched call still succeeds and carries `warnings`
+- [x] validate `params` against the op's catalog `params_schema` and `body` against `body_schema`, plus the catalog's precomputed `required` field names
+- [x] attach the result as a `warnings` array on the successful response; **never block the call** — `call.go:118` is explicit that a missing or mistyped field produces a warning, not an error
+- [x] keep the warning strings close in wording to `registry.ValidateInput`'s so an agent sees the same guidance on both surfaces
+- [x] integration test: a schema-mismatched call still succeeds and carries `warnings`
 
 ### Task 5: Anti-replay via a persisted seen-nonce cache (no wire change)
 - [ ] **Decision, do not re-open.** A replayed frame carries a byte-identical 12-byte GCM nonce (`frame.go:70-72` picks it randomly per frame). A seen-nonce set on the responder therefore rejects replays with **zero wire-protocol change** and no change to `mcpshim` or either relay tier. A repeated GCM nonce under one key is always either a replay or a catastrophic sender bug — reject either way. *(Rejected: deterministic record ids — `web/domain/notes.js` derives ids monotonically via `nextId` with `Number(recordId)` sorting and `before_id` pagination, and `bp.js` uses `genId(nowMs)`; threading caller ids would rewrite every domain module's id contract. Rejected: binding a per-connection counter into the AAD — that is a wire-format change across mcpshim + both tiers, i.e. inventing protocol, and is what `mcp-responder.js:372-374` sketches. Leave it for a future bead if the nonce cache proves insufficient.)*

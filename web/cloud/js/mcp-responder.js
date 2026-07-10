@@ -272,6 +272,68 @@ export function substitutePath(op, pathParams) {
   });
 }
 
+// --- Warn-only input validation (port of registry.ValidateInput) ---------
+// internal/mcp/registry/validate.go:64. It never blocks: a missing or mistyped
+// field produces a warning, unknown/extra fields are ignored, and an unparseable
+// value stays lenient. Wording matches the Go warnings so an agent sees the same
+// guidance on both surfaces.
+
+const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+
+function jsonTypeOf(v) {
+  if (v === null) return 'null';
+  switch (typeof v) {
+    case 'boolean': return 'boolean';
+    case 'number': return Number.isInteger(v) ? 'integer' : 'number';
+    case 'string': return 'string';
+    case 'object': return Array.isArray(v) ? 'array' : 'object';
+    default: return '';
+  }
+}
+
+// A whole number ("integer") satisfies an expected "number", per validate.go:188.
+function typeMatches(actual, expected) {
+  return expected.some((e) => e === actual || (e === 'number' && actual === 'integer'));
+}
+
+function checkObject(prefix, schema, obj) {
+  const warnings = [];
+  for (const req of schema.required || []) {
+    if (!has(obj, req)) warnings.push(`${prefix}.${req}: required field missing`);
+  }
+  for (const name of Object.keys(obj).sort()) {
+    const prop = (schema.properties || {})[name];
+    if (!prop) continue; // ignore unknown/extra fields
+    const expected = [].concat(prop.type || []);
+    if (expected.length === 0) continue;
+    const actual = jsonTypeOf(obj[name]);
+    if (!actual) continue;
+    if (!typeMatches(actual, expected)) {
+      warnings.push(`${prefix}.${name}: expected ${expected.join(' or ')}, got ${actual}`);
+    }
+  }
+  return warnings;
+}
+
+// The catalog's precomputed `required` is the union of the two schemas' own
+// `required` lists (catalogjs.go:88), so checking the schemas covers it and
+// keeps each warning labelled with the field's real source.
+export function validateInput(op, params, body) {
+  if (!op) return [];
+  const warnings = [];
+  if (op.params_schema) warnings.push(...checkObject('params', op.params_schema, isPlainObject(params) ? params : {}));
+  if (op.body_schema) {
+    // Cloud's wired write ops take their payload in `params` (bot mode splits
+    // query params from body), so an absent `body` validates `params` instead —
+    // unless the op declares both schemas, where `params` is already checked.
+    const raw = body != null || op.params_schema ? body : params;
+    // A non-object body can't be field-checked; stay lenient (validate.go:84).
+    if (raw == null) warnings.push(...checkObject('body', op.body_schema, {}));
+    else if (isPlainObject(raw)) warnings.push(...checkObject('body', op.body_schema, raw));
+  }
+  return warnings;
+}
+
 // createDispatcher builds the mcp_help/mcp_call handlers over the injected
 // domain instances (same construction path apishim.js uses for bp/weight/
 // notes).
@@ -342,7 +404,13 @@ export function createDispatcher({
       // one; none of the six wired ops do, so nothing consumes it yet.
       substitutePath(BY_ID[opID] || { id: opID }, p.path_params);
 
-      return fn(p.params);
+      // Warn-only, like call.go:118-121: a mismatch never blocks the call. The
+      // warned response nests the value under `result` — the same shape bot
+      // mode's CallResponse always uses — so an agent that ignores warnings
+      // still gets its data. A clean call returns the bare value, unchanged.
+      const warnings = validateInput(BY_ID[opID], p.params, p.body);
+      const result = await fn(p.params);
+      return warnings.length ? { result, warnings } : result;
     }
     throw new MCPError(-32601, `unknown method "${method}"`);
   }

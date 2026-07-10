@@ -175,6 +175,38 @@ describe('mcp-responder dispatch', () => {
     expect(ok.error).toBeUndefined();
     expect(ok.result).toMatchObject({ content: 'hi' });
   });
+
+  // registry.ValidateInput never blocks (call.go:118): a mistyped or missing
+  // field warns, the call still runs, and the data comes back under `result`.
+  it('warns on a schema mismatch without blocking the call', async () => {
+    const dispatcher = makeDispatcher();
+
+    const created = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 11,
+      method: 'mcp_call',
+      params: {
+        op: 'health.weight.create',
+        mode: 'write',
+        intent: 'log the weigh-in',
+        // weight is required and declared "number"; a string trips both checks
+        // the Go validator makes, and measured_at is absent entirely.
+        params: { weight: '81.2' },
+      },
+    });
+    expect(created.error).toBeUndefined();
+    expect(created.result.warnings).toEqual([
+      'body.measured_at: required field missing',
+      'body.weight: expected number, got string',
+    ]);
+    expect(created.result.result).toMatchObject({ weight: '81.2' });
+
+    const clean = await handleRequest(dispatcher, {
+      jsonrpc: '2.0', id: 12, method: 'mcp_call', params: { op: 'health.weight.list', params: { days: 7 } },
+    });
+    expect(Array.isArray(clean.result)).toBe(true);
+    expect(clean.result.warnings).toBeUndefined();
+  });
 });
 
 describe('mcp_help wire contract (generated catalog)', () => {
