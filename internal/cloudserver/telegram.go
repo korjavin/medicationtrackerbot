@@ -57,7 +57,7 @@ Reminders arrive in this chat; tap Confirm or Snooze right on the notification.
 
 This server cannot read what you send: your message is sealed the moment it arrives and only your unlocked app can open it. That is why logging replies "Queued" first, then updates itself once your app records it.
 
-Food and workouts still live in the app.`
+Food and workouts live in the app only — they aren't chat commands, even when you've enabled those features.`
 
 	// queuedMessage answers every sealed command. It is deliberately content-
 	// free: the relay sealed the text without parsing it, so it genuinely does
