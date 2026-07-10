@@ -47,6 +47,7 @@ describe('Settings → Integrations section', () => {
     beforeEach(() => {
         env = loadFrontendEnv();
         installApiCacheMap(env.window);
+        env.window.SettingsIntegrations._setTelegramLoader(vi.fn(() => Promise.resolve({ mountTelegram: vi.fn() })));
     });
 
     afterEach(() => {
@@ -113,6 +114,10 @@ describe('Settings → Integrations section', () => {
         });
         // load() re-applies note visibility for the (now cloud) mode.
         await window.SettingsIntegrations.load();
+
+        // Wait for dynamic imports to resolve
+        await new Promise(r => setTimeout(r, 0));
+
         const note = document.getElementById('integrations-restart-note');
         expect(note.hidden).toBe(true);
 
@@ -235,6 +240,53 @@ describe('Settings → Integrations section', () => {
         expect(aiHint.hidden).toBe(false);          // no vault key + trial flag → hint
         expect(voiceHint.hidden).toBe(true);        // vault key present → no hint
         expect(aiHint.textContent).toContain('Trial key active');
+    });
+
+    it('cloud mode mounts the Telegram module into #telegram-settings-mount exactly once', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+
+        const mountTelegram = vi.fn();
+        const loadTelegramModule = vi.fn(() => Promise.resolve({ mountTelegram }));
+        window.SettingsIntegrations._setTelegramLoader(loadTelegramModule);
+
+        window.apiCall = vi.fn(async () => ({}));
+
+        window.SettingsIntegrations._resetTelegramMounted();
+
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0)); // tick for import resolution
+
+        expect(loadTelegramModule).toHaveBeenCalledTimes(1);
+        expect(mountTelegram).toHaveBeenCalledTimes(1);
+        expect(mountTelegram.mock.calls[0][0]).toBe(document.getElementById('telegram-settings-mount'));
+
+        // Repeated calls shouldn't trigger another mount
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+
+        expect(loadTelegramModule).toHaveBeenCalledTimes(1);
+        expect(mountTelegram).toHaveBeenCalledTimes(1);
+    });
+
+    it('non-cloud mode does not call the Telegram loader and does not mount it', async () => {
+        const { window } = env;
+        // explicitly set non-cloud mode
+        window.__MEDTRACKER_CLOUD__ = false;
+
+        const mountTelegram = vi.fn();
+        const loadTelegramModule = vi.fn(() => Promise.resolve({ mountTelegram }));
+        window.SettingsIntegrations._setTelegramLoader(loadTelegramModule);
+
+        window.apiCall = vi.fn(async () => ({}));
+
+        window.SettingsIntegrations._resetTelegramMounted();
+
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+
+        expect(loadTelegramModule).not.toHaveBeenCalled();
+        expect(mountTelegram).not.toHaveBeenCalled();
     });
 
     it('hides the trial hints when no trial meta flags are injected (server mode / no trial envs)', async () => {

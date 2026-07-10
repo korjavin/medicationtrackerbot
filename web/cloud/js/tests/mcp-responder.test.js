@@ -1,12 +1,11 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
 import { createNotesDomain } from '../../../domain/notes.js';
 import { createInMemoryRecordsPort } from '../../../static/js/tests/helpers/cloud-shim-harness.js';
 import {
-  CATALOG, createDispatcher, handleRequest, suggestOperations, createResponder
+  CATALOG, createDispatcher, handleRequest, suggestOperations,
 } from '../mcp-responder.js';
-import * as mcpPairing from '../mcp-pairing.js';
 
 function makeDispatcher() {
   const records = createInMemoryRecordsPort();
@@ -84,115 +83,5 @@ describe('mcp-responder dispatch', () => {
 
   it('suggestOperations falls back to Levenshtein distance for an unrelated typo', () => {
     expect(suggestOperations('notes.creat')).toContain('notes.create');
-  });
-});
-
-describe('mcp-responder reconnect logic', () => {
-  let originalFetch;
-  let originalWebSocket;
-  let mockWebSocket;
-
-  beforeEach(() => {
-    originalFetch = global.fetch;
-    originalWebSocket = global.WebSocket;
-
-    // Mock fetch for preflight
-    global.fetch = vi.fn();
-
-    // Mock WebSocket to prevent actual connections
-    mockWebSocket = {
-      close: vi.fn(),
-      send: vi.fn(),
-      readyState: 1, // OPEN
-      addEventListener: vi.fn()
-    };
-    global.WebSocket = vi.fn(() => mockWebSocket);
-
-    // Mock the dynamic import of mcp-pairing.js
-    vi.mock('../mcp-pairing.js', () => ({
-      purgePairing: vi.fn()
-    }));
-  });
-
-  afterEach(() => {
-    global.fetch = originalFetch;
-    global.WebSocket = originalWebSocket;
-    vi.clearAllMocks();
-  });
-
-  function setupResponder() {
-    const records = createInMemoryRecordsPort();
-    const responder = createResponder({
-      pairingId: 'test-pairing',
-      key: new Uint8Array(32),
-      records,
-      now: () => Date.now(),
-      timeZone: 'UTC',
-      relayURL: 'wss://test.local/api/mcp/relay/device'
-    });
-    return responder;
-  }
-
-  it('fetch(wsURL-as-http) returning 404 deletes the mcppairing vault record and stops without opening a WebSocket', async () => {
-    // Simulate server dropped pairing (404)
-    global.fetch.mockResolvedValue({ status: 404 });
-
-    let stalePairingCalled = false;
-    const records = createInMemoryRecordsPort();
-    // Seed the singleton
-    await records.put('mcppairing', { recordId: 'mcppairing', pairingId: 'test-pairing', deleted: false });
-
-    const responder = createResponder({
-      pairingId: 'test-pairing',
-      key: new Uint8Array(32),
-      records,
-      now: () => Date.now(),
-      timeZone: 'UTC',
-      relayURL: 'wss://test.local/api/mcp/relay/device',
-      onStalePairing: () => { stalePairingCalled = true; },
-    });
-
-    await responder.connect();
-
-    // Ensure fetch was called on http scheme equivalent of the ws
-    expect(global.fetch).toHaveBeenCalledWith('https://test.local/api/mcp/relay/device');
-
-    // WebSocket should NOT be opened
-    expect(global.WebSocket).not.toHaveBeenCalled();
-
-    // Responder should stop, so its status goes back to idle or stays connecting but doesn't instantiate ws
-    // Wait for the async purge to finish processing - the import is async inside connect()
-    await new Promise(resolve => setTimeout(resolve, 50));
-
-    // Ensure the onStalePairing callback was called
-    expect(stalePairingCalled).toBe(true);
-    expect(responder.getStatus()).toBe('idle');
-  });
-
-  it('A non-404 preflight response, for example 400 from a valid websocket endpoint without upgrade headers, still proceeds to open the websocket', async () => {
-    // Simulate valid pairing but HTTP preflight yields 400
-    global.fetch.mockResolvedValue({ status: 400 });
-
-    const responder = setupResponder();
-    await responder.connect();
-
-    expect(global.fetch).toHaveBeenCalled();
-
-    // WebSocket SHOULD be instantiated
-    expect(global.WebSocket).toHaveBeenCalledWith('wss://test.local/api/mcp/relay/device');
-    expect(responder.getStatus()).toBe('connecting'); // Since onopen hasn't fired
-  });
-
-  it('A network error during preflight does not permanently stop the responder; it still attempts the websocket path', async () => {
-    // Simulate network error during preflight
-    global.fetch.mockRejectedValue(new TypeError('Failed to fetch'));
-
-    const responder = setupResponder();
-    await responder.connect();
-
-    expect(global.fetch).toHaveBeenCalled();
-
-    // WebSocket SHOULD be instantiated, falling through the catch
-    expect(global.WebSocket).toHaveBeenCalledWith('wss://test.local/api/mcp/relay/device');
   });
 });

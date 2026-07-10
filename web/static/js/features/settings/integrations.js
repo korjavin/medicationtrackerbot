@@ -157,6 +157,9 @@
         return out;
     }
 
+    let _telegramMounted = false;
+    let _telegramModuleLoader = () => import('/js/telegram.js');
+
     async function loadIntegrations() {
         if (typeof apiCall !== 'function') return null;
         // Demo mode hides #settings-integrations via DemoBanner.mount because
@@ -177,6 +180,20 @@
             if (window.DataStore && typeof window.DataStore.setCachedWithTags === 'function') {
                 try { await window.DataStore.setCachedWithTags(CACHE_KEY, payload, CACHE_TAGS); } catch (_) { /* best-effort cache */ }
             }
+
+            if (window.__MEDTRACKER_CLOUD__) {
+                const tgMount = document.getElementById('telegram-settings-mount');
+                if (tgMount && !_telegramMounted) {
+                    _telegramMounted = true;
+                    _telegramModuleLoader()
+                        .then(({ mountTelegram }) => mountTelegram(tgMount, {}))
+                        .catch((err) => {
+                            _telegramMounted = false;
+                            console.error('[settings] telegram module failed', err);
+                        });
+                }
+            }
+
             return payload;
         } catch (e) {
             console.error('Failed to load integrations:', e);
@@ -265,6 +282,8 @@
         _applyPayloadToDOM: applyPayloadToDOM,
         _readDOMIntoPayload: readDOMIntoPayload,
         _cacheKey: CACHE_KEY,
-        _cacheTags: CACHE_TAGS
+        _cacheTags: CACHE_TAGS,
+        _resetTelegramMounted: () => { _telegramMounted = false; },
+        _setTelegramLoader: (loader) => { _telegramModuleLoader = loader; }
     };
 })();

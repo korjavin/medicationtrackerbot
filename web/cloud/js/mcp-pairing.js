@@ -54,14 +54,6 @@ export async function connectClaude(ctx) {
   return { code };
 }
 
-// Silently drops the vault record and stops the responder without making a
-// server network request. Used when the responder detects the server has
-// already forgotten the pairing (e.g. after a server redeploy).
-export async function purgePairing(ctx) {
-  await recordsPort(ctx).del(MCPPAIRING_RECORD_TYPE, MCPPAIRING_RECORD_ID);
-  stopResponder();
-}
-
 // Revokes the pairing server-side and drops the vault record.
 export async function disconnectClaude(ctx) {
   const res = await fetch('/api/mcp/pairings', { method: 'DELETE' });

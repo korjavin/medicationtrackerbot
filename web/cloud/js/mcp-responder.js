@@ -214,7 +214,7 @@ const RECONNECT_MAX_MS = 30000;
 // module). records/now/timeZone are the same ports apishim.js's domain
 // instances take.
 export function createResponder({
-  pairingId, key, records, now, timeZone, relayURL, onStalePairing,
+  pairingId, key, records, now, timeZone, relayURL,
 }) {
   const dispatcher = createDispatcher({
     bp: createBPDomain({ records, now, timeZone }),
@@ -267,32 +267,7 @@ export function createResponder({
     reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
   }
 
-  async function connect() {
-    if (stopped) return;
-
-    // Pre-flight check to distinguish 404 (stale pairing) from network drops.
-    // fetch()ing the WS endpoint without Upgrade headers yields 404 if the
-    // server dropped the pairing, or 400 Bad Request if the pairing exists
-    // but we didn't upgrade.
-    const httpUrl = wsURL().replace(/^ws:/, 'http:').replace(/^wss:/, 'https:');
-    try {
-      const res = await fetch(httpUrl);
-      if (res.status === 404) {
-        console.warn('[mcp] server dropped pairing, stopping responder');
-        if (onStalePairing) {
-          onStalePairing();
-        } else {
-          import('./mcp-pairing.js').then(({ purgePairing }) => {
-            if (controllerCtx) purgePairing(controllerCtx);
-          });
-        }
-        stop();
-        return;
-      }
-    } catch (e) {
-      // Network error during pre-flight, let the WS try anyway or just fall through
-    }
-
+  function connect() {
     stopped = false;
     status = 'connecting';
     ws = new WebSocket(wsURL());
@@ -354,11 +329,6 @@ async function reconcile() {
     records: recordsPort(controllerCtx),
     now: () => Date.now(),
     timeZone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC',
-    onStalePairing: () => {
-      import('./mcp-pairing.js').then(({ purgePairing }) => {
-        if (controllerCtx) purgePairing(controllerCtx);
-      });
-    },
   });
   active = { pairingId: pairing.pairingId, responder };
   responder.connect();
