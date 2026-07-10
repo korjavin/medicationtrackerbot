@@ -654,6 +654,139 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         });
     });
 
+    // med-d5t.8 — self-service account deletion. The security gate (fresh passkey,
+    // stolen-session-can't-delete) is server-side; here we pin the UI flow:
+    // reveal, typed-confirm gate, export-first, and that confirm drives the
+    // cloud module's reauthAndDelete + redirect.
+    describe('delete account flow', () => {
+        const mountCloudWithDeleteModule = async (window, overrides = {}) => {
+            const mod = {
+                DELETE_CONFIRM_PHRASE: 'delete my account',
+                exportVaultToFile: vi.fn(async () => {}),
+                reauthAndDelete: vi.fn(async () => {}),
+                clearLocalVault: vi.fn(async () => {}),
+                baseDomainURL: () => 'https://app.example/',
+                ...overrides,
+            };
+            window.__MEDTRACKER_CLOUD__ = true;
+            window.loadAccountDeleteModule = () => Promise.resolve(mod);
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            window.fetch = vi.fn(async () => ({ ok: true, json: async () => [] }));
+            await window.loadSettings();
+            return mod;
+        };
+
+        it('reveals the danger section only in cloud mode', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+                await window.loadSettings();
+                expect(document.querySelector('.wg-settings-danger').classList.contains('wg-settings-hidden')).toBe(true);
+
+                await mountCloudWithDeleteModule(window);
+                expect(document.querySelector('.wg-settings-danger').classList.contains('wg-settings-hidden')).toBe(false);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('keeps delete disabled until the exact phrase is typed', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                await mountCloudWithDeleteModule(window);
+                document.getElementById('delete-account-open').click();
+
+                const input = document.getElementById('delete-account-confirm-input');
+                const btn = document.getElementById('delete-account-confirm');
+                expect(btn.disabled).toBe(true);
+
+                input.value = 'delete';
+                input.dispatchEvent(new window.Event('input'));
+                await Promise.resolve();
+                expect(btn.disabled).toBe(true);
+
+                input.value = 'Delete My Account';
+                input.dispatchEvent(new window.Event('input'));
+                await Promise.resolve();
+                expect(btn.disabled).toBe(false);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('the export-first button downloads the vault', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const mod = await mountCloudWithDeleteModule(window);
+                document.getElementById('delete-account-open').click();
+                document.getElementById('delete-account-export').click();
+                await vi.waitFor(() => expect(mod.exportVaultToFile).toHaveBeenCalled());
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('confirming runs reauthAndDelete, clears local state, and navigates to the base domain', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                // jsdom does not implement navigation, so pin the intent: after
+                // the delete, the code consults baseDomainURL to leave the
+                // now-deleted subdomain.
+                const baseDomainURL = vi.fn(() => 'https://app.example/');
+                const mod = await mountCloudWithDeleteModule(window, { baseDomainURL });
+                document.getElementById('delete-account-open').click();
+                const input = document.getElementById('delete-account-confirm-input');
+                input.value = 'delete my account';
+                input.dispatchEvent(new window.Event('input'));
+                await Promise.resolve();
+
+                document.getElementById('delete-account-confirm').click();
+
+                await vi.waitFor(() => expect(mod.reauthAndDelete).toHaveBeenCalled());
+                expect(mod.clearLocalVault).toHaveBeenCalled();
+                await vi.waitFor(() => expect(baseDomainURL).toHaveBeenCalled());
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('a failed delete shows an error and does not redirect', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const before = window.location.href;
+                const mod = await mountCloudWithDeleteModule(window, {
+                    reauthAndDelete: vi.fn(async () => { throw new Error('Passkey verification was cancelled.'); }),
+                });
+                document.getElementById('delete-account-open').click();
+                const input = document.getElementById('delete-account-confirm-input');
+                input.value = 'delete my account';
+                input.dispatchEvent(new window.Event('input'));
+                await Promise.resolve();
+                document.getElementById('delete-account-confirm').click();
+
+                await vi.waitFor(() => {
+                    expect(document.getElementById('delete-account-error').textContent).toMatch(/cancelled/i);
+                });
+                expect(mod.clearLocalVault).not.toHaveBeenCalled();
+                expect(window.location.href).toBe(before);
+                // The user can try again.
+                expect(document.getElementById('delete-account-confirm').disabled).toBe(false);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+    });
+
     // med-4pz.4 — nudge a single-device account to add a second one, so a lost
     // or broken phone doesn't lock the user out of their vault.
     describe('second-device nudge', () => {

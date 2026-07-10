@@ -203,6 +203,19 @@ func (a *MCPRemoteAPI) coordinateLegacyPairingMutation(ctx context.Context, acco
 	return nil
 }
 
+// TeardownForAccount tears down the account's hosted-remote (Tier 2) MCP for the
+// self-service account-delete path (med-d5t.8): closes the live hosted shim
+// client and deletes the persisted mcp_remote row. Best-effort — logged and
+// swallowed — since the account delete's transaction removes the row regardless
+// and a leftover live client is the thing this actually needs to close.
+func (a *MCPRemoteAPI) TeardownForAccount(ctx context.Context, accountID string) {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+	if err := a.disableForAccount(ctx, accountID); err != nil {
+		slog.Warn("account teardown: disable hosted MCP", "account_id", accountID, "error", err)
+	}
+}
+
 // disableForAccount tears down accountID's Tier 2 enablement — closes the
 // hosted shim client and deletes the persisted row — if one exists. Idempotent
 // and cheap when remote was never enabled (registry check first, no DB write).

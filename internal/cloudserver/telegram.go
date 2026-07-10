@@ -1165,6 +1165,30 @@ func (t *TelegramAPI) Delete(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// TeardownForAccount deletes the account's Telegram webhook and bot binding,
+// best-effort, for the self-service account-delete path (med-d5t.8). The DB row
+// is also removed by the account delete's transaction, but the webhook lives on
+// Telegram's side and must be torn down here, using the token before it is gone.
+// Every step is logged and swallowed: a friend must be able to leave even when
+// Telegram is unreachable.
+func (t *TelegramAPI) TeardownForAccount(ctx context.Context, accountID string) {
+	bot, err := t.store.BotByAccount(ctx, accountID)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			slog.Warn("account teardown: load telegram bot", "error", err, "account", accountID)
+		}
+		return
+	}
+	if client, cerr := t.botClient(bot); cerr == nil {
+		if werr := client.DeleteWebhook(ctx); werr != nil {
+			slog.Warn("account teardown: delete telegram webhook", "error", werr, "account", accountID)
+		}
+	}
+	if derr := t.store.DeleteBot(ctx, accountID); derr != nil {
+		slog.Warn("account teardown: delete telegram bot row", "error", derr, "account", accountID)
+	}
+}
+
 // childWebhookURL builds the base-host child-webhook URL for a bot secret.
 func (t *TelegramAPI) childWebhookURL(accountID, botSecret string) string {
 	return "https://" + t.baseDomain + "/tg/bot/" + accountID + "/" + botSecret

@@ -1,0 +1,89 @@
+// Self-service account deletion (bd med-d5t.8). Zero-knowledge means the server
+// can wipe the account but can never hand the data back, so the flow offers a
+// full-vault export FIRST, then gates the irreversible delete on a FRESH passkey
+// assertion — a stolen session cookie alone must not be able to delete a vault.
+//
+// The server side lives in internal/cloudserver/account.go; the re-auth ceremony
+// (POST /api/account/reauth → DELETE /api/account with the assertion) is verified
+// there, not merely on the client.
+
+// exportVaultToFile downloads a plaintext JSON copy of the whole vault, so a
+// friend about to delete keeps their data without having to know to export
+// beforehand. The featured export (optional passphrase) still lives in Settings
+// → Import/Export; this is the safety copy in the delete flow itself.
+export async function exportVaultToFile(nowMs = Date.now()) {
+  if (!window.CloudVault || typeof window.CloudVault.exportAll !== 'function') {
+    throw new Error('Vault not ready — unlock the app first.');
+  }
+  const json = await window.CloudVault.exportAll({ includeSecrets: true });
+  const stamp = new Date(nowMs).toISOString().slice(0, 10);
+  const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `medtracker-vault-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+// reauthAndDelete runs the fresh-passkey ceremony and deletes the account.
+// Throws on any failure with a message suitable to show the user; resolves only
+// once the server has confirmed the delete (204).
+export async function reauthAndDelete() {
+  const beginRes = await fetch('/api/account/reauth', { method: 'POST' });
+  if (!beginRes.ok) throw new Error('Could not start passkey verification.');
+  const { publicKey } = await beginRes.json();
+
+  const requestOptions = PublicKeyCredential.parseRequestOptionsFromJSON(publicKey);
+  let assertion;
+  try {
+    assertion = await navigator.credentials.get({
+      publicKey: { ...requestOptions, userVerification: 'required' },
+    });
+  } catch (e) {
+    // User dismissed the prompt, or no matching authenticator.
+    throw new Error('Passkey verification was cancelled.');
+  }
+  if (!assertion) throw new Error('Passkey verification failed.');
+
+  const delRes = await fetch('/api/account', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(assertion.toJSON()),
+  });
+  if (delRes.status !== 204) {
+    if (delRes.status === 403) throw new Error('That passkey did not verify. Try again.');
+    throw new Error('The account could not be deleted. Please try again.');
+  }
+}
+
+// clearLocalVault wipes this device's local mirror + warm-unlock cache after the
+// server delete, so the app can't try to reopen an account that no longer
+// exists. Best-effort: failures here don't undo the delete.
+export async function clearLocalVault() {
+  try {
+    if (typeof indexedDB !== 'undefined' && indexedDB.deleteDatabase) {
+      indexedDB.deleteDatabase('medtracker-cloud');
+    }
+  } catch { /* ignore */ }
+  try {
+    if (typeof caches !== 'undefined' && caches.keys) {
+      const names = await caches.keys();
+      await Promise.all(names.map((n) => caches.delete(n)));
+    }
+  } catch { /* ignore */ }
+}
+
+// The word the user types to confirm. Deliberately not the subdomain — a friend
+// may not know it offhand, and a fixed intent phrase is clearer.
+export const DELETE_CONFIRM_PHRASE = 'delete my account';
+
+// baseDomainURL strips the account's own subdomain label so we can send the user
+// somewhere that still exists after their subdomain is gone.
+export function baseDomainURL(loc = (typeof location !== 'undefined' ? location : null)) {
+  if (!loc) return '/';
+  const parts = loc.hostname.split('.');
+  const base = parts.length > 1 ? parts.slice(1).join('.') : loc.hostname;
+  return `${loc.protocol}//${base}${loc.port ? ':' + loc.port : ''}/`;
+}

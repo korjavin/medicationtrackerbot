@@ -464,20 +464,62 @@ func (r *Repo) ResetClaim(ctx context.Context, subdomain string, tokenHash []byt
 // scheduled_pushes), in a single transaction. Leaving scheduled_pushes behind
 // would strand a future-dated row the relay can never sign (its account's
 // VAPID keys are gone), so it would re-error on every 30s tick forever.
+// accountKeyedTables is EVERY table with an account_id column. A partial
+// account delete is worse than none — it leaves ciphertext, bindings, or a
+// dead pairing behind under a name the user believes is gone — so this list
+// must stay complete. TestDeleteAccountLeavesNoRows derives the true set from
+// sqlite_master at runtime and fails if this list drifts from the schema, so a
+// new account-keyed table added without an entry here breaks CI (med-d5t.8).
+//
+// The order matters only for foreign keys; there are none between these beyond
+// inbox_events → accounts (ON DELETE CASCADE), so accounts goes last.
+var accountKeyedTables = []string{
+	"envelopes",
+	"credentials",
+	"recovery_auth",
+	"transfer_slots",
+	"oplog",
+	"snapshots",
+	"sync_state",
+	"push_subscriptions",
+	"scheduled_pushes",
+	"mcp_remote",
+	"tg_bots",
+	"tg_pending",
+	"inbox_events",
+	"trial_usage",
+}
+
+// DeleteAccount removes an account by subdomain (the admin CLI path). Resolves
+// the id and delegates to DeleteAccountByID so both entry points delete the
+// same complete set.
 func (r *Repo) DeleteAccount(ctx context.Context, subdomain string) error {
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
 		var accountID string
 		if err := tx.QueryRowContext(ctx, `SELECT id FROM accounts WHERE subdomain = ?`, subdomain).Scan(&accountID); err != nil {
 			return err
 		}
-		for _, table := range []string{"envelopes", "credentials", "recovery_auth", "push_subscriptions", "scheduled_pushes"} {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE account_id = ?`, accountID); err != nil {
-				return err
-			}
-		}
-		_, err := tx.ExecContext(ctx, `DELETE FROM accounts WHERE id = ?`, accountID)
-		return err
+		return deleteAccountTx(ctx, tx, accountID)
 	})
+}
+
+// DeleteAccountByID removes every row keyed to accountID, in one transaction —
+// the whole account or nothing. Used by the self-service delete route
+// (med-d5t.8), where the caller already holds the session's account id.
+func (r *Repo) DeleteAccountByID(ctx context.Context, accountID string) error {
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		return deleteAccountTx(ctx, tx, accountID)
+	})
+}
+
+func deleteAccountTx(ctx context.Context, tx storedb.TX, accountID string) error {
+	for _, table := range accountKeyedTables {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE account_id = ?`, accountID); err != nil {
+			return err
+		}
+	}
+	_, err := tx.ExecContext(ctx, `DELETE FROM accounts WHERE id = ?`, accountID)
+	return err
 }
 
 // SetLossAck records that the user acknowledged the "we cannot recover your

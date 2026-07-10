@@ -11475,6 +11475,65 @@ textarea.wg-input {
    the modal and forces the page to scroll horizontally. Break it anywhere —
    `anywhere`, not `break-word`, because only `anywhere` also shrinks the
    element's min-content width, which is the part that stops the overflow. */
+/* Self-service account deletion (med-d5t.8). A clay accent marks the section
+   and its action as destructive; token-only, no hardcoded colors. */
+.wg-settings-action-btn--danger {
+    color: var(--wg-clay-soft);
+    border-color: var(--wg-clay-soft);
+}
+
+.wg-danger-modal__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-danger-modal__title {
+    font-family: var(--wg-font-mono);
+    color: var(--wg-fg-1);
+}
+
+.wg-danger-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-danger-modal__warn {
+    margin: 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-desc-size);
+    color: var(--wg-fg-1);
+    border-left: 3px solid var(--wg-clay-soft);
+    padding-left: var(--space-sm);
+}
+
+.wg-danger-modal__status {
+    margin: 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-desc-size);
+    color: var(--wg-fg-3);
+}
+
+.wg-danger-modal__confirm {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-desc-size);
+    color: var(--wg-fg-1);
+}
+
+.wg-danger-modal__error {
+    margin: 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-desc-size);
+    color: var(--wg-clay-soft);
+    min-height: 1em;
+}
+
 .wg-invite-modal__header {
     display: flex;
     align-items: flex-start;
