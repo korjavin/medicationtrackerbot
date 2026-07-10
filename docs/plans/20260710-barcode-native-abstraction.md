@@ -148,23 +148,37 @@ guard must distinguish the two:
 
 ### Task 3: Route scanner.js through the abstractions
 
-- [ ] in `web/static/js/features/food/scanner.js` `startFoodScanner()`, replace
+- [x] in `web/static/js/features/food/scanner.js` `startFoodScanner()`, replace
       the `isNativeShell() && window.Barcode && ...` branch with a
       `window.Barcode.hasNativeScanner()` check (defensively: treat a missing
       method as `false` so an old cached bundle degrades to the web path)
-- [ ] replace the direct `window.BarcodeDetector` probe with
+- [x] replace the direct `window.BarcodeDetector` probe with
       `window.Barcode.supportsLiveScan()`; keep the identical user-facing string
       ("Live scan is unavailable on this browser. Use \"Use Photo\".")
-- [ ] replace the `!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia`
+- [x] replace the `!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia`
       probe and the `navigator.mediaDevices.getUserMedia(...)` call with
       `await window.MediaCapture.openCameraStream({ facingMode: 'environment' })`,
       mapping its rejection onto the existing "Camera access denied or
       unavailable." / "Camera is unavailable." status strings. Preserve the
       `window.isSecureContext` check (that is not a device capability).
-- [ ] delete the now-unused local `isNativeShell()` helper
-- [ ] leave `stopFoodScanner()` semantics untouched: tracks stopped, `srcObject`
+- [x] delete the now-unused local `isNativeShell()` helper
+- [x] leave `stopFoodScanner()` semantics untouched: tracks stopped, `srcObject`
       nulled, `pagehide`/`beforeunload` listeners intact
-- [ ] run the food scanner's existing feature suite — must pass unchanged
+- [x] run the food scanner's existing feature suite — must pass unchanged
+
+⚠️ Scope deviation: three cases in `features.food-scanner-abstraction.test.js`
+stubbed the *old* seam (`window.Capacitor = { isNativePlatform: () => true }` +
+a bare `window.Barcode = { scan }`). They now stub `hasNativeScanner: () => true`
+/ `supportsLiveScan: () => false` instead. The assertions are unchanged — only
+the mocked seam moved, which is the point of the refactor. Task 4's guard would
+have failed on the `isNativePlatform` reference in that test file otherwise.
+
+Note: `startFoodScanner`'s two "camera unavailable" strings are now selected by
+`MediaCaptureError.code` (`UNAVAILABLE` → "Camera is unavailable. Use \"Use
+Photo\" or manual entry."; anything else → "Camera access denied or
+unavailable."), replacing the old pre-flight `getUserMedia`-presence probe.
+The `supportsLiveScan()` check now runs *before* the camera is opened rather
+than after the `getUserMedia` probe; both orderings surface the same strings.
 
 ### Task 4: Add the architecture guard that catches the next bypass
 
