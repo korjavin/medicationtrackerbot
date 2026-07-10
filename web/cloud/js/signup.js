@@ -278,6 +278,9 @@ export async function renderEmergencyKit(app, ctx) {
   qr.addData(`${kitUrl}\n${ctx.accountId}\n${formatted}`);
   qr.make();
 
+  const qrSvg = qr.createSvgTag(4);
+  const kitDoc = buildKitDocument({ kitUrl, accountId: ctx.accountId, formatted, qrSvg });
+
   app.innerHTML = `
     <section class="wizard-step kit">
       <h1>Your Emergency Kit</h1>
@@ -288,11 +291,16 @@ export async function renderEmergencyKit(app, ctx) {
         <dt>Account ID</dt><dd id="kit-account-id"></dd>
         <dt>Recovery code</dt><dd class="recovery-code">${formatted}</dd>
       </dl>
-      <div class="kit-qr">${qr.createSvgTag(4)}</div>
+      <div class="kit-qr">${qrSvg}</div>
+      <div class="kit-actions">
+        <button id="kit-download">Download Emergency Kit</button>
+        <button id="kit-print" class="secondary">Print it instead</button>
+      </div>
       <label class="wizard-ack">
-        <input type="checkbox" id="kit-saved-checkbox">
+        <input type="checkbox" id="kit-saved-checkbox" disabled>
         I saved my Emergency Kit.
       </label>
+      <p class="kit-hint" id="kit-hint">Download or print the kit to continue.</p>
       <button id="kit-continue" disabled>Enter Med Tracker</button>
     </section>`;
 
@@ -300,8 +308,130 @@ export async function renderEmergencyKit(app, ctx) {
   app.querySelector('#kit-account-id').textContent = ctx.accountId;
   const checkbox = app.querySelector('#kit-saved-checkbox');
   const button = app.querySelector('#kit-continue');
-  checkbox.addEventListener('change', () => { button.disabled = !checkbox.checked; });
+  const hint = app.querySelector('#kit-hint');
+
+  // Two gates, deliberately. Producing a file (or printing) is the one that
+  // actually saves the account; the checkbox stays as a second line of defence
+  // but can no longer be the ONLY one — ticking a box saved nobody's vault.
+  let kitProduced = false;
+  const sync = () => {
+    checkbox.disabled = !kitProduced;
+    button.disabled = !(kitProduced && checkbox.checked);
+  };
+  const markProduced = () => {
+    kitProduced = true;
+    hint.textContent = 'Kit saved. Now confirm below.';
+    sync();
+  };
+
+  checkbox.addEventListener('change', sync);
+  app.querySelector('#kit-download').addEventListener('click', () => {
+    // In-app browsers (and a few privacy modes) refuse Blob downloads. Fall
+    // through to the printable view rather than leaving the user stuck behind
+    // a gate they cannot open.
+    if (downloadKit(kitDoc, ctx.accountId)) markProduced();
+    else { printKit(kitDoc); markProduced(); }
+  });
+  app.querySelector('#kit-print').addEventListener('click', () => {
+    printKit(kitDoc);
+    markProduced();
+  });
+
   button.addEventListener('click', () => (ctx.onKitSaved ? ctx.onKitSaved() : renderTelegramStep(app, ctx)));
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+
+// A standalone document, because it has to survive being opened from the
+// Downloads folder years later with no network and no stylesheet: inline SVG
+// QR, inline CSS, no external references of any kind. HTML rather than .txt so
+// the QR comes along, and so the same bytes are both savable and printable.
+//
+// ponytail: the few literal colors here are intentional — this file renders
+// outside the app, where --wg-* tokens do not exist, and it is printed on
+// white paper.
+export function buildKitDocument({ kitUrl, accountId, formatted, qrSvg }) {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Med Tracker Emergency Kit — ${escapeHtml(accountId)}</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; color: #111; background: #fff;
+         max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.5rem; }
+  dt { font-weight: 600; margin-top: 1rem; }
+  dd { margin: 0.25rem 0 0; }
+  .code { font-family: ui-monospace, monospace; font-size: 1.25rem;
+          letter-spacing: 0.08em; word-break: break-all; }
+  .warn { border: 1px solid #111; padding: 0.75rem 1rem; margin: 1.5rem 0; }
+  svg { max-width: 12rem; height: auto; }
+  @media print { body { margin: 0; } }
+</style>
+</head>
+<body>
+<h1>Med Tracker — Emergency Kit</h1>
+<p class="warn"><strong>This is the only way back into your account if you
+lose every passkey.</strong> Anyone holding this page can unlock your health
+data. Keep it on paper, or somewhere offline that only you can reach. It is
+not stored anywhere else — not even on the server.</p>
+<dl>
+  <dt>URL</dt><dd>${escapeHtml(kitUrl)}</dd>
+  <dt>Account ID</dt><dd class="code">${escapeHtml(accountId)}</dd>
+  <dt>Recovery code</dt><dd class="code">${escapeHtml(formatted)}</dd>
+</dl>
+<p>Scan to recover:</p>
+${qrSvg}
+<p>To use it: open the URL above, choose “Recover account”, and enter the
+recovery code. You will be issued a new code afterwards — this page then
+becomes worthless, so replace it.</p>
+</body>
+</html>`;
+}
+
+// Returns false when the browser refuses the download, so the caller can fall
+// back to print. The recovery code lives in the Blob's *contents*; a blob: URL
+// is an opaque UUID, so it never lands in a URL, a request, or a log.
+function downloadKit(docHtml, accountId) {
+  try {
+    const url = URL.createObjectURL(new Blob([docHtml], { type: 'text/html' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `med-tracker-emergency-kit-${accountId}.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Deferred: revoking synchronously can cancel the download in Safari.
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    return true;
+  } catch (e) {
+    console.error('[signup] emergency kit download failed');
+    return false;
+  }
+}
+
+// An offscreen iframe rather than window.print(): it prints the kit document
+// itself, identically to the downloaded file, instead of the wizard chrome.
+function printKit(docHtml) {
+  const frame = document.createElement('iframe');
+  frame.className = 'kit-print-frame';
+  frame.setAttribute('aria-hidden', 'true');
+  frame.srcdoc = docHtml;
+  frame.addEventListener('load', () => {
+    try {
+      frame.contentWindow.focus();
+      frame.contentWindow.print();
+    } catch (e) {
+      console.error('[signup] emergency kit print failed');
+    }
+  });
+  document.body.appendChild(frame);
 }
 
 // Wizard step 5: optional Telegram linking. mountTelegram self-gates on the

@@ -114,7 +114,12 @@ describe('wizard tail (Emergency Kit -> app)', () => {
     globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200 }));
     const app = dom.window.document.getElementById('app');
     await renderEmergencyKit(app, ctx);
-    // #kit-continue is disabled until "I saved my Emergency Kit" is ticked.
+    // #kit-continue needs BOTH gates (med-d5t.2): the kit has to be produced
+    // before the checkbox even unlocks. Print rather than download — it opens
+    // the same gate without an <a download> click, which jsdom answers with a
+    // "navigation not implemented" error. The gate itself is covered in
+    // signup.emergency-kit.test.js.
+    app.querySelector('#kit-print').click();
     const checkbox = app.querySelector('#kit-saved-checkbox');
     checkbox.checked = true;
     checkbox.dispatchEvent(new dom.window.Event('change'));
