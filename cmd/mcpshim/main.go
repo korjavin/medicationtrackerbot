@@ -27,11 +27,32 @@ const version = "0.1.0-poc"
 // locked "Offline-device UX" decision) without having to fail a call first.
 const toolDescriptionSuffix = " This connector talks end-to-end encrypted directly to your unlocked Med Tracker browser tab, never to a server — if no device is unlocked and online, it returns a clear error instead of hanging."
 
+// helpInput is mcp_help's argument shape. Without it the SDK advertises no
+// arguments and the agent can never drill in — only an operation_id drill-in
+// returns full schemas (web/cloud/js/mcp-responder.js buildHelp). Keep it
+// field-for-field identical to internal/cloudserver's mcpEndpointHelpInput;
+// TestMCPHelpEnvelopeLockstep is what stops them drifting.
+type helpInput struct {
+	OperationID  string   `json:"operation_id,omitempty" jsonschema:"one operation id to return in full, with its params_schema and body_schema"`
+	OperationIDs []string `json:"operation_ids,omitempty" jsonschema:"several operation ids to return in full, with their params_schema and body_schema"`
+	Topic        string   `json:"topic,omitempty" jsonschema:"list only this topic's operations, e.g. workouts"`
+	Query        string   `json:"query,omitempty" jsonschema:"keyword-search the catalog, e.g. blood pressure"`
+}
+
 // callInput is mcp_call's argument shape, matching the wire contract
-// web/cloud/js/mcp-responder.js's dispatcher expects: {op, params}.
+// web/cloud/js/mcp-responder.js's dispatcher expects — the same envelope
+// bot mode's mcp_call takes (internal/mcp/call.go:19-26). Keep it
+// field-for-field identical to internal/cloudserver's mcpEndpointCallInput;
+// the two are duplicated rather than shared because cmd/mcpshim is package
+// main, and TestMCPCallEnvelopeLockstep is what stops them drifting.
 type callInput struct {
-	Op     string         `json:"op" jsonschema:"the operation id from mcp_help's catalog, e.g. bp.list"`
-	Params map[string]any `json:"params,omitempty" jsonschema:"parameters for the operation, per its input_schema in mcp_help"`
+	OperationID string         `json:"operation_id,omitempty" jsonschema:"the operation id from mcp_help's catalog, e.g. health.bp.list"`
+	Op          string         `json:"op,omitempty" jsonschema:"deprecated alias for operation_id; prefer operation_id"`
+	Params      map[string]any `json:"params,omitempty" jsonschema:"parameters for the operation, per its params_schema in mcp_help"`
+	PathParams  map[string]any `json:"path_params,omitempty" jsonschema:"values for the operation's {placeholder} path slots, per its path_params in mcp_help"`
+	Body        map[string]any `json:"body,omitempty" jsonschema:"request body for a write operation, per its body_schema in mcp_help"`
+	Mode        string         `json:"mode,omitempty" jsonschema:"read-only (default) or write; a write operation requires write"`
+	Intent      string         `json:"intent,omitempty" jsonschema:"required and non-empty when mode is write: why this write is being made"`
 }
 
 func main() {
@@ -60,9 +81,9 @@ func main() {
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        "mcp_help",
-		Description: "Discover the small catalog of Med Tracker operations this connector can run." + toolDescriptionSuffix,
-	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, _ any) (*sdkmcp.CallToolResult, any, error) {
-		result, err := client.Call(ctx, "mcp_help", struct{}{})
+		Description: "Discover the small catalog of Med Tracker operations this connector can run. Call with no arguments for the terse catalog, then pass operation_id (or operation_ids) to get an operation's full schemas." + toolDescriptionSuffix,
+	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, input helpInput) (*sdkmcp.CallToolResult, any, error) {
+		result, err := client.Call(ctx, "mcp_help", input)
 		if err != nil {
 			return nil, nil, err
 		}

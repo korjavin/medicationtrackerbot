@@ -1,14 +1,17 @@
+import 'fake-indexeddb/auto';
 import {
   afterEach, beforeEach, describe, expect, it, vi,
 } from 'vitest';
+import { openMCPFrame, sealMCPFrame, utf8 } from '../crypto.js';
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
 import { createNotesDomain } from '../../../domain/notes.js';
 import { createInMemoryRecordsPort } from '../../../static/js/tests/helpers/cloud-shim-harness.js';
 import {
-  CATALOG, createDispatcher, createResponder, handleRequest,
-  STATUS_NO_PAIRING, suggestOperations,
+  CATALOG, clearNonceRing, createDispatcher, createNonceRing, createResponder,
+  handleRequest, STATUS_NO_PAIRING, substitutePath, suggestOperations,
 } from '../mcp-responder.js';
+import { openDb } from '../localdb.js';
 
 function makeDispatcher() {
   const records = createInMemoryRecordsPort();
@@ -17,6 +20,7 @@ function makeDispatcher() {
     bp: createBPDomain({ records, now, timeZone: 'UTC' }),
     weight: createWeightDomain({ records, now, timeZone: 'UTC' }),
     notes: createNotesDomain({ records, now }),
+    now,
   });
 }
 
@@ -37,10 +41,21 @@ describe('mcp-responder dispatch', () => {
       jsonrpc: '2.0',
       id: 2,
       method: 'mcp_call',
-      params: { op: 'health.bp.create', params: { measured_at: '2026-07-06T09:00:00.000Z', systolic: 120, diastolic: 80 } },
+      params: {
+        op: 'health.bp.create',
+        mode: 'write',
+        intent: 'log the reading the user just dictated',
+        params: { measured_at: '2026-07-06T09:00:00.000Z', systolic: 120, diastolic: 80 },
+      },
     });
     expect(createResp.error).toBeUndefined();
-    expect(createResp).toMatchObject({ jsonrpc: '2.0', id: 2, result: { systolic: 120, diastolic: 80 } });
+    // Bot mode's CallResponse envelope: {status, result, api_calls} always.
+    expect(createResp).toMatchObject({
+      jsonrpc: '2.0',
+      id: 2,
+      result: { status: 'ok', api_calls: 1, result: { systolic: 120, diastolic: 80 } },
+    });
+    expect(createResp.result.warnings).toBeUndefined();
 
     const listResp = await handleRequest(dispatcher, {
       jsonrpc: '2.0',
@@ -51,8 +66,22 @@ describe('mcp-responder dispatch', () => {
     expect(listResp.error).toBeUndefined();
     expect(listResp.jsonrpc).toBe('2.0');
     expect(listResp.id).toBe(3);
-    expect(listResp.result).toHaveLength(1);
-    expect(listResp.result[0]).toMatchObject({ systolic: 120, diastolic: 80 });
+    expect(listResp.result.result).toHaveLength(1);
+    expect(listResp.result.result[0]).toMatchObject({ systolic: 120, diastolic: 80 });
+  });
+
+  // The write-gate and the anti-replay ring both read `risk` off the catalog,
+  // so a wired op the catalog doesn't carry would execute writes ungated and
+  // undeduped. createDispatcher throws on that; this pins the six wired ids as
+  // catalogued so an exclusion can't quietly reopen the hole.
+  it('catalogues every dispatchable operation, with write risk on the writes', () => {
+    const byID = new Map(CATALOG.map((op) => [op.id, op]));
+    for (const id of ['health.bp.list', 'health.weight.list', 'health.notes.list']) {
+      expect(byID.has(id), id).toBe(true);
+    }
+    for (const id of ['health.bp.create', 'health.weight.create', 'health.notes.create']) {
+      expect(byID.get(id)?.risk, id).toBe('write');
+    }
   });
 
   // The generated catalog advertises `days` on health.notes.list, so the
@@ -69,20 +98,20 @@ describe('mcp-responder dispatch', () => {
       jsonrpc: '2.0', id: 9, method: 'mcp_call', params: { op: 'health.notes.list', params },
     });
 
-    await handleRequest(dispatcher, {
+    const write = (content) => handleRequest(dispatcher, {
       jsonrpc: '2.0', id: 8, method: 'mcp_call',
-      params: { op: 'health.notes.create', params: { content: 'old note' } },
+      params: {
+        op: 'health.notes.create', mode: 'write', intent: 'seed a note', params: { content },
+      },
     });
+    await write('old note');
     clock = Date.parse('2026-07-06T12:00:00.000Z');
-    await handleRequest(dispatcher, {
-      jsonrpc: '2.0', id: 8, method: 'mcp_call',
-      params: { op: 'health.notes.create', params: { content: 'fresh note' } },
-    });
+    await write('fresh note');
 
-    expect((await call({ days: 7 })).result.map((n) => n.content)).toEqual(['fresh note']);
+    expect((await call({ days: 7 })).result.result.map((n) => n.content)).toEqual(['fresh note']);
     // Absent or non-positive days is unbounded, matching handleListNotes.
-    expect((await call({})).result).toHaveLength(2);
-    expect((await call({ days: 0 })).result).toHaveLength(2);
+    expect((await call({})).result.result).toHaveLength(2);
+    expect((await call({ days: 0 })).result.result).toHaveLength(2);
   });
 
   it('returns a JSON-RPC error with a did-you-mean hint for an unknown op', async () => {
@@ -104,7 +133,9 @@ describe('mcp-responder dispatch', () => {
       jsonrpc: '2.0',
       id: 5,
       method: 'mcp_call',
-      params: { op: 'health.notes.create', params: { content: '' } },
+      params: {
+        op: 'health.notes.create', mode: 'write', intent: 'log a note', params: { content: '' },
+      },
     });
     expect(response.result).toBeUndefined();
     // Must be numeric so the Go shim's int64 decode doesn't drop the frame.
@@ -115,6 +146,185 @@ describe('mcp-responder dispatch', () => {
 
   it('suggestOperations falls back to Levenshtein distance for an unrelated typo', () => {
     expect(suggestOperations('health.notes.creat')).toContain('health.notes.create');
+  });
+
+  it('rejects a path_param the catalog does not declare for the op', async () => {
+    const dispatcher = makeDispatcher();
+    const response = await handleRequest(dispatcher, {
+      jsonrpc: '2.0', id: 6, method: 'mcp_call',
+      params: { op: 'health.bp.list', params: {}, path_params: { id: '1' } },
+    });
+    expect(response.result).toBeUndefined();
+    expect(response.error.code).toBe(-32602);
+    expect(response.error.message).toContain('unknown path_param "id"');
+  });
+
+  // A caller-supplied value must not escape its `{id}` segment, and an unfilled
+  // slot must fail loudly rather than resolve to a literal "undefined".
+  it('substitutePath encodes values into their slot and rejects a missing one', () => {
+    const op = { id: 'food.log.delete', path: '/api/food/log/{id}', path_params: ['id'] };
+    expect(substitutePath(op, { id: '1/../2' })).toBe('/api/food/log/1%2F..%2F2');
+    expect(() => substitutePath(op, {})).toThrow('missing path_param "id"');
+  });
+
+  // A `risk: 'write'` op is refused unless the caller states mode + intent
+  // (call.go:74-80). Nothing is persisted by the refused call.
+  it('gates a write op on mode: write plus a non-empty intent', async () => {
+    const dispatcher = makeDispatcher();
+    const create = (extra) => handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 7,
+      method: 'mcp_call',
+      params: { op: 'health.notes.create', params: { content: 'hi' }, ...extra },
+    });
+
+    const noMode = await create({});
+    expect(noMode.error.code).toBe(-32602);
+    expect(noMode.error.message).toContain('mode: "write"');
+    expect(noMode.error.message).toContain('intent');
+
+    const blankIntent = await create({ mode: 'write', intent: '   ' });
+    expect(blankIntent.error.code).toBe(-32602);
+    expect(blankIntent.error.message).toContain('intent is required');
+
+    const badMode = await create({ mode: 'readonly' });
+    expect(badMode.error.code).toBe(-32602);
+
+    const listed = await handleRequest(dispatcher, {
+      jsonrpc: '2.0', id: 7, method: 'mcp_call', params: { op: 'health.notes.list', params: {} },
+    });
+    expect(listed.result.result).toHaveLength(0);
+
+    const ok = await create({ mode: 'write', intent: 'user dictated a note' });
+    expect(ok.error).toBeUndefined();
+    expect(ok.result.result).toMatchObject({ content: 'hi' });
+  });
+
+  // The wired write ops advertise only `body_schema`, so an agent following the
+  // catalog sends its payload in `body`. That payload must reach the domain call
+  // rather than being dropped for an empty `params`.
+  it('dispatches a write payload sent in body, not just params', async () => {
+    const dispatcher = makeDispatcher();
+    const created = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 20,
+      method: 'mcp_call',
+      params: {
+        operation_id: 'health.bp.create',
+        mode: 'write',
+        intent: 'log the morning reading',
+        body: { measured_at: '2026-07-10T08:00:00Z', systolic: 120, diastolic: 80 },
+      },
+    });
+    expect(created.error).toBeUndefined();
+    expect(created.result.warnings).toBeUndefined();
+    expect(created.result.result).toMatchObject({ systolic: 120, diastolic: 80 });
+  });
+
+  // registry.NormalizeCallInput (normalize_input.go:105) resolves the relative
+  // date tokens a clockless agent writes into a timestamp field. Without the
+  // repair the token persists verbatim and `Date.parse` makes the row invisible
+  // to every subsequent list — a silent write corruption, not an error.
+  it('resolves a relative date token in a write and warns about the repair', async () => {
+    const dispatcher = makeDispatcher();
+
+    const created = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 30,
+      method: 'mcp_call',
+      params: {
+        operation_id: 'health.bp.create',
+        mode: 'write',
+        intent: 'log the reading the user just dictated',
+        body: { measured_at: 'now', systolic: 118, diastolic: 76 },
+      },
+    });
+    expect(created.error).toBeUndefined();
+    expect(created.result.warnings).toEqual([
+      'resolved relative date measured_at="now" to "2026-07-06T12:00:00.000Z" using the device clock',
+    ]);
+    expect(created.result.result.measured_at).toBe('2026-07-06T12:00:00.000Z');
+
+    const listed = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 31,
+      method: 'mcp_call',
+      params: { operation_id: 'health.bp.list', params: {} },
+    });
+    expect(listed.result.result.map((r) => r.systolic)).toEqual([118]);
+  });
+
+  it('leaves a real timestamp and an unrecognized word untouched', async () => {
+    const dispatcher = makeDispatcher();
+    const created = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 32,
+      method: 'mcp_call',
+      params: {
+        operation_id: 'health.bp.create',
+        mode: 'write',
+        intent: 'log a backdated reading',
+        body: { measured_at: '2026-07-05T09:00:00.000Z', systolic: 120, diastolic: 80 },
+      },
+    });
+    expect(created.result.warnings).toBeUndefined();
+    expect(created.result.result.measured_at).toBe('2026-07-05T09:00:00.000Z');
+  });
+
+  // "constructor"/"valueOf" are inherited Object.prototype members, not date
+  // tokens. A prototype-carrying lookup map resolves them to a function, and
+  // `new Date(NaN).toISOString()` then throws — turning the warn-only repair
+  // into a -32603. Go's map lookup simply misses; so must this one.
+  it('leaves a prototype-member name in a date field untouched', async () => {
+    const dispatcher = makeDispatcher();
+    const created = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 33,
+      method: 'mcp_call',
+      params: {
+        operation_id: 'health.bp.create',
+        mode: 'write',
+        intent: 'log a reading',
+        body: { measured_at: 'constructor', systolic: 120, diastolic: 80 },
+      },
+    });
+    expect(created.error).toBeUndefined();
+    expect(created.result.result.measured_at).toBe('constructor');
+  });
+
+  // registry.ValidateInput never blocks (call.go:118): a mistyped or missing
+  // field warns, the call still runs, and the data comes back under `result`.
+  it('warns on a schema mismatch without blocking the call', async () => {
+    const dispatcher = makeDispatcher();
+
+    const created = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 11,
+      method: 'mcp_call',
+      params: {
+        op: 'health.weight.create',
+        mode: 'write',
+        intent: 'log the weigh-in',
+        // weight is required and declared "number"; a string trips both checks
+        // the Go validator makes, and measured_at is absent entirely.
+        params: { weight: '81.2' },
+      },
+    });
+    expect(created.error).toBeUndefined();
+    expect(created.result.warnings).toEqual([
+      'body.measured_at: required field missing',
+      'body.weight: expected number, got string',
+    ]);
+    expect(created.result.result).toMatchObject({ weight: '81.2' });
+
+    // A clean call carries the same envelope, minus `warnings` — the shape must
+    // not depend on whether the input happened to trip a warning.
+    const clean = await handleRequest(dispatcher, {
+      jsonrpc: '2.0', id: 12, method: 'mcp_call', params: { op: 'health.weight.list', params: { days: 7 } },
+    });
+    expect(clean.result).toMatchObject({ status: 'ok', api_calls: 1 });
+    expect(Array.isArray(clean.result.result)).toBe(true);
+    expect(clean.result.warnings).toBeUndefined();
   });
 });
 
@@ -285,8 +495,11 @@ class FakeSocket {
   constructor(url) {
     this.url = url;
     this.readyState = 0;
+    this.sent = [];
     FakeSocket.instances.push(this);
   }
+
+  send(data) { this.sent.push(data); }
 
   close() { this.readyState = 3; }
 
@@ -294,6 +507,7 @@ class FakeSocket {
   fireClose(code) { this.readyState = 3; this.onclose({ code }); }
 }
 FakeSocket.instances = [];
+FakeSocket.OPEN = 1;
 
 function makeResponder(overrides = {}) {
   FakeSocket.instances = [];
@@ -361,5 +575,113 @@ describe('mcp-responder reconnect loop', () => {
     vi.advanceTimersByTime(120_000);
     expect(FakeSocket.instances).toHaveLength(2);
     expect(onStalePairing).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- Anti-replay (med-csu.2) ---------------------------------------------
+// The dedupe lives at the frame layer, so this must drive a real sealed frame
+// through createResponder twice. Two dispatcher calls would prove nothing.
+
+describe('mcp-responder write-frame replay guard', () => {
+  const decoder = new TextDecoder();
+  const pairingId = 'pair-replay';
+  const key = new Uint8Array(32).fill(7);
+
+  beforeEach(() => { vi.stubGlobal('WebSocket', FakeSocket); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  function boot(records) {
+    FakeSocket.instances = [];
+    const responder = createResponder({
+      pairingId,
+      key,
+      records,
+      now: () => Date.parse('2026-07-06T12:00:00.000Z'),
+      timeZone: 'UTC',
+      relayURL: 'ws://relay.test/api/mcp/relay/device',
+    });
+    responder.connect();
+    const sock = FakeSocket.instances[0];
+    sock.readyState = 1;
+    return { responder, sock };
+  }
+
+  async function deliver(sock, frame) {
+    const before = sock.sent.length;
+    sock.onmessage({ data: frame.buffer });
+    await vi.waitFor(() => expect(sock.sent.length).toBe(before + 1));
+    const payload = await openMCPFrame(key, pairingId, sock.sent[sock.sent.length - 1]);
+    return JSON.parse(decoder.decode(payload));
+  }
+
+  it('applies a replayed write frame exactly once, even across a tab reload', async () => {
+    const records = createInMemoryRecordsPort();
+    const frame = await sealMCPFrame(key, pairingId, utf8(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 42,
+      method: 'mcp_call',
+      params: {
+        op: 'health.notes.create', mode: 'write', intent: 'user dictated a note', params: { content: 'once' },
+      },
+    })));
+
+    const first = boot(records);
+    expect((await deliver(first.sock, frame)).result.result).toMatchObject({ content: 'once' });
+
+    // Same sealed bytes again on the live connection: refused, not re-applied.
+    const replay = await deliver(first.sock, frame);
+    expect(replay.result).toBeUndefined();
+    expect(replay.error.code).toBe(-32600);
+    expect(replay.error.message).toContain('duplicate frame');
+    first.responder.stop();
+
+    // The ring is persisted, so a reload cannot clear the guard.
+    const reloaded = boot(records);
+    expect((await deliver(reloaded.sock, frame)).error.code).toBe(-32600);
+    const listed = await reloaded.responder.dispatcher.handle('mcp_call', { op: 'health.notes.list', params: {} });
+    expect(listed.result).toHaveLength(1);
+    reloaded.responder.stop();
+  });
+
+  // Every connectClaude mints a fresh pairing_id, so an un-cleared ring leaks
+  // one IndexedDB key per connect/disconnect cycle, forever.
+  it('clearNonceRing drops the pairing ring so its key does not outlive the pairing', async () => {
+    const ring = createNonceRing('pair-gc');
+    expect(await ring.seen('aa11')).toBe(false);
+    expect(await ring.seen('aa11')).toBe(true);
+
+    await clearNonceRing('pair-gc');
+
+    const db = await openDb();
+    try {
+      const stored = await new Promise((resolve, reject) => {
+        const req = db.transaction('device', 'readonly').objectStore('device').get('mcpSeenNonces:pair-gc');
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      expect(stored).toBeUndefined();
+    } finally {
+      db.close();
+    }
+    // A cleared ring means the old pairing's nonces are gone, not remembered.
+    expect(await createNonceRing('pair-gc').seen('aa11')).toBe(false);
+  });
+
+  it('clearNonceRing on a pairing that never wrote is a no-op', async () => {
+    await expect(clearNonceRing('pair-never-used')).resolves.toBeUndefined();
+    await expect(clearNonceRing(undefined)).resolves.toBeUndefined();
+  });
+
+  // A replayed read is idempotent — deduping it would break an agent polling
+  // the same op, and bloat the ring for no security gain.
+  it('lets a replayed read frame through', async () => {
+    const records = createInMemoryRecordsPort();
+    const frame = await sealMCPFrame(key, pairingId, utf8(JSON.stringify({
+      jsonrpc: '2.0', id: 43, method: 'mcp_call', params: { op: 'health.bp.list', params: {} },
+    })));
+    const { responder, sock } = boot(records);
+    expect((await deliver(sock, frame)).error).toBeUndefined();
+    expect((await deliver(sock, frame)).error).toBeUndefined();
+    responder.stop();
   });
 });

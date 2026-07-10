@@ -10,6 +10,7 @@ import { createBPDomain } from '../../domain/bp.js';
 import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
 import { openMCPFrame, sealMCPFrame, utf8 } from './crypto.js';
+import { openDb } from './localdb.js';
 import { CATALOG } from './mcp-catalog.generated.js';
 
 // Re-exported: the catalog is generated from internal/mcp/registry by
@@ -239,6 +240,169 @@ class MCPError extends Error {
   }
 }
 
+// Mirrors proxy.ModeReadOnly / proxy.ModeWrite (internal/mcp/proxy/proxy.go:26).
+export const MODE_READ_ONLY = 'read_only';
+export const MODE_WRITE = 'write';
+
+const PATH_PLACEHOLDER = /\{([^{}]+)\}/g;
+const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+// substitutePath ports registry.SubstitutePath (internal/mcp/registry/
+// registry.go:571): fill the op's `{name}` slots from the caller's path_params,
+// allowlisted by the catalog's path_params, values percent-encoded so a value
+// like "1/../2" cannot escape its segment. A slot with no value is an error, so
+// no path can be dispatched with an "undefined" segment.
+//
+// The resolved path has no consumer yet — cloud mode dispatches by function,
+// not by URL — so today this runs as validation only. med-csu.3 wires the
+// catalogued /{id}/ ops and will route on the returned path.
+export function substitutePath(op, pathParams) {
+  const allowed = op.path_params || [];
+  const values = pathParams || {};
+  for (const name of Object.keys(values)) {
+    if (!allowed.includes(name)) {
+      throw new MCPError(-32602, `unknown path_param "${name}" for operation "${op.id}"`
+        + ` — allowed: ${allowed.length ? allowed.join(', ') : 'none'}`);
+    }
+  }
+  return String(op.path || '').replace(PATH_PLACEHOLDER, (_, name) => {
+    if (!has(values, name) || values[name] === '' || values[name] == null) {
+      throw new MCPError(-32602, `missing path_param "${name}" for operation "${op.id}"`);
+    }
+    return encodeURIComponent(String(values[name]));
+  });
+}
+
+// --- Warn-only input validation (port of registry.ValidateInput) ---------
+// internal/mcp/registry/validate.go:64. It never blocks: a missing or mistyped
+// field produces a warning, unknown/extra fields are ignored, and an unparseable
+// value stays lenient. Wording matches the Go warnings so an agent sees the same
+// guidance on both surfaces.
+
+const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+
+function jsonTypeOf(v) {
+  if (v === null) return 'null';
+  switch (typeof v) {
+    case 'boolean': return 'boolean';
+    case 'number': return Number.isInteger(v) ? 'integer' : 'number';
+    case 'string': return 'string';
+    case 'object': return Array.isArray(v) ? 'array' : 'object';
+    default: return '';
+  }
+}
+
+// A whole number ("integer") satisfies an expected "number", per validate.go:188.
+function typeMatches(actual, expected) {
+  return expected.some((e) => e === actual || (e === 'number' && actual === 'integer'));
+}
+
+function checkObject(prefix, schema, obj) {
+  const warnings = [];
+  for (const req of schema.required || []) {
+    if (!has(obj, req)) warnings.push(`${prefix}.${req}: required field missing`);
+  }
+  for (const name of Object.keys(obj).sort()) {
+    const prop = (schema.properties || {})[name];
+    if (!prop) continue; // ignore unknown/extra fields
+    const expected = [].concat(prop.type || []);
+    if (expected.length === 0) continue;
+    const actual = jsonTypeOf(obj[name]);
+    if (!actual) continue;
+    if (!typeMatches(actual, expected)) {
+      warnings.push(`${prefix}.${name}: expected ${expected.join(' or ')}, got ${actual}`);
+    }
+  }
+  return warnings;
+}
+
+// Takes the merged `params` + `body` object cloud mode dispatches (see
+// mergeInput), checking it against whichever schemas the op declares so each
+// warning stays labelled with the field's real source. The catalog's
+// precomputed `required` is the union of the two schemas' own `required` lists
+// (catalogjs.go:88), so checking the schemas covers it. A non-object input
+// can't be field-checked; an empty object stands in (validate.go:84).
+export function validateInput(op, input) {
+  if (!op) return [];
+  const obj = isPlainObject(input) ? input : {};
+  const warnings = [];
+  if (op.params_schema) warnings.push(...checkObject('params', op.params_schema, obj));
+  if (op.body_schema) warnings.push(...checkObject('body', op.body_schema, obj));
+  return warnings;
+}
+
+// Bot mode splits query params from request body; cloud mode dispatches each op
+// as a single-argument domain call, so the two channels merge. The wired write
+// ops advertise only `body_schema`, so an agent that follows the catalog puts
+// its payload in `body` — without this merge that payload would be dropped and
+// the domain call would persist an empty record.
+const mergeInput = (params, body) => ({
+  ...(isPlainObject(params) ? params : {}),
+  ...(isPlainObject(body) ? body : {}),
+});
+
+// --- Relative-date repair (port of registry.NormalizeCallInput step 2/3) ---
+// internal/mcp/registry/normalize_input.go:18. A tool-only agent has no clock
+// and writes the literal string "today"/"now" into a timestamp field. Bot mode
+// resolves it before the call leaves the MCP layer; without the same repair the
+// cloud domain modules store the token verbatim, and since `Date.parse("now")`
+// is NaN the record is then invisible to every list and sorts unpredictably —
+// a silent write corruption, not a 400. Warn-only and never blocking, like Go.
+//
+// Cloud merges params+body into one object, so the two schemas' properties are
+// checked as a union. The misplaced-body-field repair (step 1) is unnecessary
+// here for the same reason.
+// Prototype-free: a date field whose value is the literal "constructor" /
+// "valueOf" would otherwise resolve to an inherited function, slip past the
+// `undefined` guard, and blow up `new Date(NaN).toISOString()` — turning a
+// warn-only repair into a -32603. Go's map lookup just misses.
+const RELATIVE_DATE_DAYS = Object.assign(Object.create(null), {
+  now: 0, today: 0, yesterday: -1, tomorrow: 1,
+});
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DATE_TIME_KEYWORDS = ['rfc3339', 'iso8601', 'iso 8601', 'timestamp'];
+
+const propDescription = (prop) => String((prop && prop.description) || '').toLowerCase();
+
+// isDateField / isDateOnly mirror normalize_input.go:208 and :224.
+function isDateField(name, prop) {
+  const ln = name.toLowerCase();
+  if (ln.endsWith('_at') || ln === 'date' || ln === 'from' || ln === 'to') return true;
+  const d = propDescription(prop);
+  return d.includes('yyyy-mm-dd') || DATE_TIME_KEYWORDS.some((kw) => d.includes(kw));
+}
+
+function isDateOnly(prop) {
+  const d = propDescription(prop);
+  return d.includes('yyyy-mm-dd') && !DATE_TIME_KEYWORDS.some((kw) => d.includes(kw));
+}
+
+// normalizeRelativeDates returns a repaired copy of the merged input plus one
+// note per resolved field. Non-token values (a real timestamp, a number, an
+// unrecognized word) are left untouched — exactly as Go leaves them for the
+// warn-only schema check downstream.
+export function normalizeRelativeDates(op, input, nowMs) {
+  if (!op || !isPlainObject(input)) return { input, notes: [] };
+  const props = {
+    ...((op.params_schema && op.params_schema.properties) || {}),
+    ...((op.body_schema && op.body_schema.properties) || {}),
+  };
+  const out = { ...input };
+  const notes = [];
+  for (const name of Object.keys(out).sort()) {
+    const prop = props[name];
+    if (!prop || !isDateField(name, prop)) continue;
+    const raw = out[name];
+    if (typeof raw !== 'string') continue;
+    const offset = RELATIVE_DATE_DAYS[raw.trim().toLowerCase()];
+    if (offset === undefined) continue;
+    const iso = new Date(nowMs + offset * DAY_MS).toISOString();
+    out[name] = isDateOnly(prop) ? iso.slice(0, 10) : iso;
+    notes.push(`resolved relative date ${name}="${raw}" to "${out[name]}" using the device clock`);
+  }
+  return { input: out, notes };
+}
+
 // createDispatcher builds the mcp_help/mcp_call handlers over the injected
 // domain instances (same construction path apishim.js uses for bp/weight/
 // notes).
@@ -261,6 +425,16 @@ export function createDispatcher({
     'health.notes.create': (p) => notes.create(p || {}),
   });
 
+  // Fail closed: the write-gate (`mode:write` + intent) and the anti-replay
+  // ring both read `risk` off BY_ID, so a wired-but-uncatalogued op would
+  // silently execute writes ungated and undeduped. Catch that at construction
+  // rather than at the security boundary — med-csu.3 wires many more ops, and
+  // catalogjs.Excluded can drop one out from under us.
+  const uncatalogued = Object.keys(ops).filter((id) => !BY_ID[id]);
+  if (uncatalogued.length) {
+    throw new Error(`mcp-responder: wired operations missing from the generated catalog: ${uncatalogued.join(', ')}`);
+  }
+
   async function handle(method, params) {
     if (method === 'mcp_help') {
       // Stamped here, where every mcp_help variant converges (help.go:76 does
@@ -268,7 +442,11 @@ export function createDispatcher({
       return { ...buildHelp(params), current_time: currentTimeHint(now()) };
     }
     if (method === 'mcp_call') {
-      const opID = params && params.op;
+      // Full bot-mode envelope (internal/mcp/call.go:20-27): operation_id is
+      // primary, `op` stays a back-compat alias because existing pairings and
+      // older mcpshim binaries still send it.
+      const p = params || {};
+      const opID = p.operation_id || p.op;
       const fn = ops[opID];
       if (!fn) {
         // The generated catalog mirrors the whole Go registry, but cloud mode
@@ -283,7 +461,41 @@ export function createDispatcher({
         const hint = suggestions.length ? ` — did you mean: ${suggestions.join(', ')}?` : '';
         throw new MCPError(-32602, `unknown operation "${opID}"${hint}`);
       }
-      return fn(params && params.params);
+
+      // Absent mode means read-only, matching call.go:70-73.
+      const mode = p.mode == null || p.mode === '' ? MODE_READ_ONLY : String(p.mode);
+      if (mode !== MODE_READ_ONLY && mode !== MODE_WRITE) {
+        throw new MCPError(-32602, `mode must be "${MODE_READ_ONLY}" or "${MODE_WRITE}", got "${mode}"`);
+      }
+      // call.go:78 — a write must carry a stated intent. Both errors name the
+      // fields to set so the agent self-corrects on its next call instead of
+      // re-issuing the identical one.
+      if (mode === MODE_WRITE && String(p.intent || '').trim() === '') {
+        throw new MCPError(-32602, `intent is required and must be non-empty when mode is "${MODE_WRITE}"`);
+      }
+      if (BY_ID[opID] && BY_ID[opID].risk === MODE_WRITE && mode !== MODE_WRITE) {
+        throw new MCPError(-32602, `operation "${opID}" is a write — re-issue it with mode: "${MODE_WRITE}" `
+          + 'and a non-empty intent describing why.');
+      }
+
+      // Validates the path_params against the catalog allowlist and rejects an
+      // unfilled slot.
+      substitutePath(BY_ID[opID] || { id: opID }, p.path_params);
+
+      // Repair-then-validate, in that order, so a field the normalizer just
+      // rewrote isn't reported as malformed (call.go:96-121). Both stages are
+      // warn-only: a mismatch never blocks the call.
+      const { input, notes } = normalizeRelativeDates(BY_ID[opID], mergeInput(p.params, p.body), now());
+      const warnings = [...notes, ...validateInput(BY_ID[opID], input)];
+      const result = await fn(input);
+      // Bot mode's CallResponse (call.go:33-39) unconditionally. The shape must
+      // not depend on the input: an agent that learned `health.bp.list` returns
+      // its rows at `.result` must still find them there on the call that
+      // happened to trip a warning. `warnings` is omitted when empty, matching
+      // Go's `json:"omitempty"`.
+      const resp = { status: 'ok', result, api_calls: 1 };
+      if (warnings.length) resp.warnings = warnings;
+      return resp;
     }
     throw new MCPError(-32601, `unknown method "${method}"`);
   }
@@ -295,9 +507,13 @@ export function createDispatcher({
 // request message. Pure and framework-free so it can be exercised without
 // any WebSocket/crypto plumbing.
 export async function handleRequest(dispatcher, request) {
-  const response = { jsonrpc: '2.0', id: request.id };
+  // A frame decoding to JSON `null` would throw on `.id` outside the try, and
+  // onFrame swallows that — the agent then waits out an offline-device timeout
+  // instead of seeing an error.
+  const req = request || {};
+  const response = { jsonrpc: '2.0', id: req.id };
   try {
-    response.result = await dispatcher.handle(request.method, request.params);
+    response.result = await dispatcher.handle(req.method, req.params);
   } catch (e) {
     // JSON-RPC error.code MUST be numeric — the Go shim decodes it into an
     // int64 (jsonrpc.WireError.Code) and drops the whole frame on a string,
@@ -315,6 +531,87 @@ export async function handleRequest(dispatcher, request) {
     }
   }
   return response;
+}
+
+// --- Anti-replay: seen-nonce ring for write frames -----------------------
+// A frame is nonce(12) ‖ AES-GCM(key, payload, aad) and the sender draws the
+// nonce randomly per frame (internal/mcpshim/frame.go:70). A repeated nonce
+// under one key is therefore always either a relay replaying a captured frame
+// or a catastrophic sender bug — reject either way, with zero wire change.
+//
+// The ring lives in localdb's `device` store: local-only and never synced.
+// The `records` port is the encrypted oplog and would replicate every nonce to
+// every device. Persistence is the point — an in-memory Set is defeated by a
+// relay that waits for a tab reload.
+const NONCE_RING_LIMIT = 4096;
+
+function idbRequest(req) {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// createNonceRing returns a bounded FIFO of seen write-frame nonces for one
+// pairing. seen() is serialized through a promise chain so two frames in
+// flight cannot both miss the same nonce and both dispatch.
+export function createNonceRing(pairingId, { openStore = openDb } = {}) {
+  const key = `mcpSeenNonces:${pairingId}`;
+  let chain = Promise.resolve();
+
+  async function check(nonceHex) {
+    const db = await openStore();
+    try {
+      const tx = db.transaction('device', 'readwrite');
+      const store = tx.objectStore('device');
+      const ring = (await idbRequest(store.get(key))) || [];
+      if (ring.includes(nonceHex)) return true;
+      ring.push(nonceHex);
+      // FIFO: a flood of distinct nonces evicts the oldest entries. See the
+      // plan's security note — an AAD-bound counter is the durable fix.
+      if (ring.length > NONCE_RING_LIMIT) ring.splice(0, ring.length - NONCE_RING_LIMIT);
+      await idbRequest(store.put(ring, key));
+      return false;
+    } finally {
+      db.close();
+    }
+  }
+
+  return {
+    seen(nonceHex) {
+      const next = chain.then(() => check(nonceHex));
+      chain = next.then(() => {}, () => {});
+      return next;
+    },
+  };
+}
+
+// Drops one pairing's ring. Every connectClaude mints a fresh pairing_id, so
+// without this each connect/disconnect cycle strands a ring key forever: the
+// per-ring FIFO cap bounds one ring's size, not how many rings exist.
+export async function clearNonceRing(pairingId, { openStore = openDb } = {}) {
+  if (!pairingId) return;
+  const db = await openStore();
+  try {
+    const tx = db.transaction('device', 'readwrite');
+    await idbRequest(tx.objectStore('device').delete(`mcpSeenNonces:${pairingId}`));
+  } finally {
+    db.close();
+  }
+}
+
+const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+
+// Write-ness is decided from the catalog's `risk` (plus an explicit write
+// mode), after decrypt and parse but before dispatch. A replayed read is
+// idempotent; deduping reads would bloat the ring and break a legitimate agent
+// polling the same op.
+function isWriteRequest(request) {
+  if (!request || request.method !== 'mcp_call') return false;
+  const p = request.params || {};
+  if (p.mode === MODE_WRITE) return true;
+  const op = BY_ID[p.operation_id || p.op];
+  return !!op && op.risk === MODE_WRITE;
 }
 
 const RECONNECT_MIN_MS = 1000;
@@ -337,6 +634,7 @@ export const STATUS_NO_PAIRING = 4404;
 // then, so the callback must not stop it again.
 export function createResponder({
   pairingId, key, records, now, timeZone, relayURL, onStalePairing = () => {},
+  nonceRing = createNonceRing(pairingId),
 }) {
   const dispatcher = createDispatcher({
     bp: createBPDomain({ records, now, timeZone }),
@@ -369,13 +667,26 @@ export function createResponder({
     } catch {
       return; // ponytail: drop undecryptable frames (tamper/wrong-key); full C4 may alert.
     }
-    // ponytail: no anti-replay/dedup — the blind relay could replay a captured
-    // write frame and this re-executes it. Binding a per-connection counter into
-    // the frame AAD + a seen-id window here is full-C4 scope (see the plan).
     let request;
     try {
       request = JSON.parse(decoder.decode(payload));
     } catch {
+      return;
+    }
+    // Anti-replay: a write frame whose GCM nonce we have already answered is a
+    // replay (the sender draws a fresh nonce per frame), so it is refused
+    // before dispatch. Answering with a JSON-RPC error rather than staying
+    // silent keeps id-correlation intact — a silently dropped frame surfaces
+    // to the caller as a bogus offline-device timeout.
+    //
+    // ponytail: read frames are NOT deduped (a replayed read is idempotent) and
+    // there is no counter bound into the frame AAD, so the ring is bounded and
+    // FIFO — a relay that floods distinct nonces can eventually replay a very
+    // old write frame. An AAD counter is the durable fix (see the plan).
+    if (isWriteRequest(request) && await nonceRing.seen(hex(bytes.slice(0, 12)))) {
+      const dup = { jsonrpc: '2.0', id: request.id, error: { code: -32600, message: 'duplicate frame: this write was already applied' } };
+      const dupFrame = await sealMCPFrame(key, pairingId, utf8(JSON.stringify(dup)));
+      if (sock.readyState === WebSocket.OPEN) sock.send(dupFrame);
       return;
     }
     const response = await handleRequest(dispatcher, request);

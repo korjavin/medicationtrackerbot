@@ -652,10 +652,14 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
             await t.get_blood_pressure({ days: 7 });
             expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'health.bp.list', params: { days: 7 } });
 
+            // Writes must carry mode/intent or the dispatcher's write gate
+            // rejects them before the domain call.
             await t.log_blood_pressure({ systolic: 120, diastolic: 80, pulse: 60 });
             const bpCreate = handle.mock.calls.find((c) => c[0] === 'mcp_call' && c[1].op === 'health.bp.create');
             expect(bpCreate[1].params).toMatchObject({ systolic: 120, diastolic: 80, pulse: 60 });
             expect(bpCreate[1].params.measured_at).toMatch(/^\d{4}-\d{2}-\d{2}T.*Z$/);
+            expect(bpCreate[1].mode).toBe('write');
+            expect(bpCreate[1].intent).toBeTruthy();
 
             await t.get_weight({ days: 30 });
             expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'health.weight.list', params: { days: 30 } });
@@ -664,12 +668,87 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
             const wCreate = handle.mock.calls.find((c) => c[0] === 'mcp_call' && c[1].op === 'health.weight.create');
             expect(wCreate[1].params).toMatchObject({ weight: 70.5 });
             expect(wCreate[1].params.measured_at).toMatch(/^\d{4}-\d{2}-\d{2}T.*Z$/);
+            expect(wCreate[1].mode).toBe('write');
 
             await t.get_notes();
             expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'health.notes.list', params: {} });
 
             await t.add_note({ text: 'slept well', tag: 'SLEEP' });
-            expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'health.notes.create', params: { content: 'slept well', tag: 'SLEEP' } });
+            const nCreate = handle.mock.calls.find((c) => c[0] === 'mcp_call' && c[1].op === 'health.notes.create');
+            expect(nCreate[1].params).toEqual({ content: 'slept well', tag: 'SLEEP' });
+            expect(nCreate[1].mode).toBe('write');
+            expect(nCreate[1].intent).toBeTruthy();
+        } finally {
+            cleanup();
+        }
+    });
+
+    // The tests above mock CloudMCPDispatcher, so they cannot see the real
+    // dispatcher's write gate (risk:"write" ops are refused without
+    // mode:"write" + intent). Drive the real one: this is the only test that
+    // fails if the voice tools stop stating their write intent.
+    it('write tools reach the real dispatcher through its write gate', async () => {
+        const { createDispatcher } = await import('../../../cloud/js/mcp-responder.js');
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const bp = { list: vi.fn(async () => []), create: vi.fn(async (p) => ({ id: 1, ...p })) };
+            const weight = { list: vi.fn(async () => []), create: vi.fn(async (p) => ({ id: 2, ...p })) };
+            const notes = { list: vi.fn(async () => []), create: vi.fn(async (p) => ({ id: 3, ...p })) };
+            window.CloudMCPDispatcher = createDispatcher({ bp, weight, notes });
+
+            const { opts } = await startCall(window);
+            const t = opts.clientTools;
+
+            // Each write must actually land in the domain, and the tool must
+            // not swallow a gate rejection into an {error} string.
+            const bpOut = JSON.parse(await t.log_blood_pressure({ systolic: 120, diastolic: 80 }));
+            expect(bpOut.error).toBeUndefined();
+            expect(bp.create).toHaveBeenCalledTimes(1);
+            expect(bp.create.mock.calls[0][0]).toMatchObject({ systolic: 120, diastolic: 80 });
+
+            const wOut = JSON.parse(await t.log_weight({ kg: 70.5 }));
+            expect(wOut.error).toBeUndefined();
+            expect(weight.create).toHaveBeenCalledTimes(1);
+
+            const nOut = JSON.parse(await t.add_note({ text: 'slept well' }));
+            expect(nOut.error).toBeUndefined();
+            expect(notes.create).toHaveBeenCalledTimes(1);
+            expect(notes.create.mock.calls[0][0]).toMatchObject({ content: 'slept well' });
+
+            // Reads still work without mode/intent.
+            expect(JSON.parse(await t.get_blood_pressure({ days: 7 })).error).toBeUndefined();
+            expect(bp.list).toHaveBeenCalledTimes(1);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('generic mcp_call forwards the agent-stated mode/intent to the real dispatcher', async () => {
+        const { createDispatcher } = await import('../../../cloud/js/mcp-responder.js');
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const notes = { list: vi.fn(async () => []), create: vi.fn(async (p) => ({ id: 3, ...p })) };
+            window.CloudMCPDispatcher = createDispatcher({
+                bp: { list: vi.fn(), create: vi.fn() },
+                weight: { list: vi.fn(), create: vi.fn() },
+                notes,
+            });
+            const { opts } = await startCall(window);
+
+            const ok = JSON.parse(await opts.clientTools.mcp_call({
+                op: 'health.notes.create', params: { content: 'hi' }, mode: 'write', intent: 'user asked',
+            }));
+            expect(ok.error).toBeUndefined();
+            expect(notes.create).toHaveBeenCalledTimes(1);
+
+            // Without mode, the same write is gated — not silently dropped.
+            const gated = JSON.parse(await opts.clientTools.mcp_call({
+                op: 'health.notes.create', params: { content: 'hi' },
+            }));
+            expect(gated.error).toMatch(/is a write/);
+            expect(notes.create).toHaveBeenCalledTimes(1);
         } finally {
             cleanup();
         }

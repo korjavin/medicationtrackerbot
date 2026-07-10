@@ -299,10 +299,49 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   (`id/topic/method/risk/description/required`) is ~30 KB. Precedence mirrors
   `internal/mcp/help.go`: `operation_id(s)` → full entries, `query` → compact matches (never
   auto-expanded), `topic`/no-args → compact catalog + `usage_protocol`.
+- **The `mcp_call` envelope matches bot mode** (`internal/mcp/call.go`): `operation_id` (with
+  `op` kept as a back-compat alias), `params`, `path_params`, `body`, `mode`, `intent`. The three
+  definitions that must stay in lockstep are `web/cloud/js/mcp-responder.js`,
+  `cmd/mcpshim/main.go`'s `callInput`, and `internal/cloudserver/mcp_endpoint.go`'s
+  `mcpEndpointCallInput` — `TestMCPCallEnvelopeLockstep` fails CI on drift. `path_params` are
+  allowlisted against the op's catalog entry and URL-encoded per slot (validation only for now:
+  cloud dispatches by function, not URL). Bot mode splits query `params` from request `body`;
+  cloud mode dispatches each op as a single-argument domain call, so the two merge (`body` wins on
+  a key collision) before validation and dispatch — the wired write ops advertise only
+  `body_schema`, so an agent following the catalog sends its payload in `body`. Schema mismatches
+  produce warn-only `warnings` on the response, exactly as `registry.ValidateInput` does — they
+  never block a call. The success response is bot mode's `CallResponse`
+  (`{status, result, api_calls, warnings?}`) unconditionally: the shape must not depend on the
+  input, or an agent that learned where `health.bp.list` puts its rows loses them on the one call
+  that happened to trip a warning.
+- **Write ops require `mode: 'write'` plus a non-empty `intent`.** Any catalog op with
+  `risk: 'write'` is refused otherwise, with an error naming both fields so an agent
+  self-corrects. This means an old shim calling `bp.create` with a bare `{op, params}` is now
+  refused — intended, not a regression; reads are unaffected. The in-tab callers must state their
+  intent too: `features/elevenlabs-call.js`'s voice tools (`log_blood_pressure`, `log_weight`,
+  `add_note`) send `mode: "write"` plus an intent, and its generic `mcp_call` forwards whatever
+  `mode`/`intent` the agent stated rather than stripping them.
+- **Write frames are deduped by GCM nonce.** The sender draws a fresh random nonce per frame, so
+  a byte-identical nonce is always a replay (or a catastrophic sender bug). The responder keeps a
+  bounded FIFO ring (4096 entries) of seen write-frame nonces, per pairing, persisted in
+  `localdb.js`'s local-only never-synced `device` store — so a tab reload does not reopen the
+  hole. A duplicate is answered with a JSON-RPC `-32600` rather than dropped silently, keeping
+  id-correlation intact. The ring is keyed by `pairing_id`, and every `connectClaude` mints a new
+  one, so `disconnectClaude`/`purgePairing` delete the ring alongside the vault record — otherwise
+  each connect/disconnect cycle would strand one ring key forever (the FIFO cap bounds one ring's
+  size, not how many rings exist). **Residual gaps**, all closed by the same durable fix (a counter
+  bound into the frame AAD), deliberately left to future work:
+  - Read frames are not deduped (a replayed read is idempotent).
+  - A relay that floods distinct nonces can eventually evict and replay a very old write frame.
+  - The ring is per-pairing **but also per-device** — `device` is a local-only store, never synced.
+    An honest relay keeps one device leg per pairing, but a *malicious* one can answer a captured
+    write frame on device A and then replay it to device B, whose ring has never seen that nonce.
+    Single-device use (the common case) is fully protected; two simultaneously-unlocked devices are
+    not. Sharing the ring through the oplog would replicate every nonce and is not worth it.
 - **Catalogued ≠ dispatchable (today).** `createDispatcher` still wires only six ops
   (`health.bp.*`, `health.weight.*`, `health.notes.*`); an `mcp_call` for any other catalogued
-  op returns the `unknown operation` + did-you-mean error. Wiring the rest to `web/domain/*` is
-  bd **med-csu.3**; `mcp_call` envelope parity (path_params / body / write-intent) is med-csu.2.
+  op returns its actionable "not yet callable" error. Wiring the rest to `web/domain/*` is
+  bd **med-csu.3**.
 - **The honest constraint: a device must be online with an unlocked vault.** A phone with the PWA backgrounded is not reliably reachable (iOS SW execution on push is too constrained to serve queries silently). Realistic availability = a desktop tab left open, or an old phone plugged in at home with the PWA foregrounded — at which point the user has voluntarily re-invented a tiny server, but it's *their* device, zero config, and the guarantee holds. When no device is online, the shim's tools return an actionable MCP error naming the E2E architecture and telling the user to open and unlock their app.
 - **PoC ceilings** (each `ponytail:`-marked in code): in-memory pairings, single pairing per
   account, only six dispatchable ops (med-csu.3), no QR pairing, no packaged shim

@@ -29,7 +29,10 @@ describe('cloud shim contract — in-tab MCP dispatcher (window.CloudMCPDispatch
     });
 
     it('mcp_call bp.list returns the vault readings over the in-memory records port', async () => {
-        const result = await env.window.CloudMCPDispatcher.handle('mcp_call', { op: 'health.bp.list', params: {} });
+        const resp = await env.window.CloudMCPDispatcher.handle('mcp_call', { op: 'health.bp.list', params: {} });
+        // Bot mode's CallResponse envelope wraps the payload, always.
+        expect(resp).toMatchObject({ status: 'ok', api_calls: 1 });
+        const result = resp.result;
         expect(Array.isArray(result)).toBe(true);
         expect(result.length).toBe(2);
         // Newest first — same wire shape the /api/bp GET route returns.
