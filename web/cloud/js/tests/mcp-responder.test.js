@@ -959,10 +959,6 @@ describe('cloud MCP response_example conformance', () => {
   }
 
   const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
-  // rotation.state is a map keyed by group id — its example's "1" is a sample
-  // key, not a contract. Compare the value shapes instead.
-  const isNumericKeyMap = (v) => isPlainObject(v) && Object.keys(v).length > 0
-    && Object.keys(v).every((k) => /^\d+$/.test(k));
 
   // Returns a mismatch string, or '' when the shapes agree.
   function compareShape(example, actual) {
@@ -970,12 +966,6 @@ describe('cloud MCP response_example conformance', () => {
       if (!Array.isArray(actual)) return `expected an array, got ${actual === null ? 'null' : typeof actual}`;
       if (!example.length || !actual.length || !isPlainObject(example[0])) return '';
       return missingKeys(example[0], actual[0], 'element');
-    }
-    if (isNumericKeyMap(example)) {
-      if (!isPlainObject(actual)) return `expected an object map, got ${actual === null ? 'null' : typeof actual}`;
-      const actualValues = Object.values(actual);
-      if (!actualValues.length) return '';
-      return missingKeys(Object.values(example)[0], actualValues[0], 'map value');
     }
     if (!isPlainObject(actual)) return `expected an object, got ${actual === null ? 'null' : typeof actual}`;
     return missingKeys(example, actual, 'top level');
