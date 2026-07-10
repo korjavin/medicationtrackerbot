@@ -140,12 +140,13 @@
             // Generic surface — harmless to keep; the concrete tools below are
             // the provisioned + actually-invoked path (Task 3).
             mcp_help: async () => dispatch('mcp_help', {}),
-            // Forwards mode/intent verbatim: a write op reaches the dispatcher's
-            // gate with whatever the agent stated, rather than being stripped
-            // down to a read and rejected.
+            // Forwards the whole envelope verbatim (operation_id/op, params,
+            // path_params, body, mode, intent): a write op reaches the
+            // dispatcher's gate with the payload and intent the agent stated,
+            // rather than being stripped down to an empty read.
             mcp_call: async (a) => {
-                const { op, params, mode, intent } = asObj(a);
-                return dispatch('mcp_call', { op, params: params || {}, mode, intent });
+                const p = asObj(a);
+                return dispatch('mcp_call', { ...p, params: p.params || {} });
             },
             // Concrete tools whose names match the provisioned ElevenLabs tools
             // (elevenlabs-agent.js TOOL_SPECS). Each maps 1:1 to a catalog op.

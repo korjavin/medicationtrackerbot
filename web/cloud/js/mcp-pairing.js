@@ -28,6 +28,11 @@ export async function getPairing(ctx) {
 // never sees it), stores both in the vault, and returns the one-time code
 // to paste into MEDTRACKER_MCP_CODE.
 export async function connectClaude(ctx) {
+  // Read the pairing this one replaces before overwriting the singleton
+  // record: its nonce ring is keyed by pairing_id, so re-connecting without
+  // disconnecting first would orphan one ring per old pairing in IndexedDB.
+  const previous = await getPairing(ctx);
+
   const res = await fetch('/api/mcp/pairings', { method: 'POST' });
   if (!res.ok) throw new Error('Could not create a pairing. Try again.');
   const { pairing_id: pairingId } = await res.json();
@@ -42,6 +47,9 @@ export async function connectClaude(ctx) {
     relayUrl,
     key: toBase64(key),
   });
+  if (previous && previous.pairingId && previous.pairingId !== pairingId) {
+    await clearNonceRing(previous.pairingId);
+  }
 
   // Start answering immediately: the tab that just minted the pairing is
   // typically the one still open when the shim connects, so it must become the
