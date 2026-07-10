@@ -704,13 +704,11 @@ export function createResponder({
   // id to the account's current pairing and closes a stale leg with 4409 rather
   // than letting it evict the tab that holds the live key (mcp_relay.go's
   // DeviceSocket).
-  function deviceURL() {
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${location.host}/api/mcp/relay/device`;
-  }
-
   function wsURL() {
-    return `${relayURL || deviceURL()}?pairing=${encodeURIComponent(pairingId)}`;
+    // `location` is only touched when no relayURL was injected — the fallback
+    // must stay inside the `||` so non-browser callers never evaluate it.
+    const base = relayURL || `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/mcp/relay/device`;
+    return `${base}?pairing=${encodeURIComponent(pairingId)}`;
   }
 
   async function onFrame(data) {

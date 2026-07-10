@@ -238,12 +238,14 @@ func (a *MCPRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	// Accept the upgrade before any check: a browser WebSocket cannot observe a
+	// handshake status, so every rejection has to be an application close code.
+	conn, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
 	record, ok := a.pairings.byAccountID(session.AccountID)
 	if !ok {
-		conn, err := websocket.Accept(w, r, nil)
-		if err != nil {
-			return
-		}
 		conn.Close(StatusNoPairing, "no active pairing for this account")
 		return
 	}
@@ -252,15 +254,7 @@ func (a *MCPRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) {
 	// treatment as one presenting a stale id: stop, don't purge. Admitting it
 	// on the session alone is exactly the unauthenticated squat this checks for.
 	if r.URL.Query().Get("pairing") != record.id {
-		conn, err := websocket.Accept(w, r, nil)
-		if err != nil {
-			return
-		}
 		conn.Close(StatusPairingReplaced, "pairing replaced")
-		return
-	}
-	conn, err := websocket.Accept(w, r, nil)
-	if err != nil {
 		return
 	}
 	a.serveLeg(r.Context(), conn, record, true)
