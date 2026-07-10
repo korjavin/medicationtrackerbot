@@ -272,10 +272,44 @@ func (c *Client) GetWebhookInfo(ctx context.Context) (WebhookInfo, error) {
 
 // SendMessage sends a plain-text message to chatID.
 func (c *Client) SendMessage(ctx context.Context, chatID int64, text string) error {
-	return c.call(ctx, "sendMessage", map[string]any{
+	_, err := c.SendMessageReturningID(ctx, chatID, text)
+	return err
+}
+
+// SendMessageReturningID sends a plain-text message and returns the sent
+// message's id, so the caller can later EditMessageText it. Used by the
+// child-bot command path: the relay replies "queued", then an unlocked client
+// that has actually applied the command asks the relay to edit that same
+// message into a confirmation (docs/cloud-mode.md → Inbound plaintext).
+func (c *Client) SendMessageReturningID(ctx context.Context, chatID int64, text string) (int64, error) {
+	var sent Message
+	if err := c.call(ctx, "sendMessage", map[string]any{
 		"chat_id": chatID,
 		"text":    text,
+	}, &sent); err != nil {
+		return 0, err
+	}
+	return sent.MessageID, nil
+}
+
+// EditMessageText rewrites a message this bot previously sent. Editing a bot's
+// own message has no time limit, so a command queued on Monday and drained on
+// Friday still updates in place. Telegram answers 400
+// "message is not modified" when the text is unchanged — a re-drain after a
+// crash, which callers treat as success.
+func (c *Client) EditMessageText(ctx context.Context, chatID, messageID int64, text string) error {
+	return c.call(ctx, "editMessageText", map[string]any{
+		"chat_id":    chatID,
+		"message_id": messageID,
+		"text":       text,
 	}, nil)
+}
+
+// IsMessageNotModified reports whether err is Telegram's benign "you asked me
+// to edit a message into exactly what it already says" response.
+func IsMessageNotModified(err error) bool {
+	var apiErr *apiError
+	return errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Description), "message is not modified")
 }
 
 // InlineKeyboardButton is one tappable button. Only callback buttons are used —

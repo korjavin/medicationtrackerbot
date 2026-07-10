@@ -71,7 +71,9 @@ function goalResponse(latestGoal, highestRecord) {
 //   now()   — current time in ms epoch
 //   timeZone — IANA zone string (unused here; kept for port-shape parity with bp.js)
 export function createWeightDomain({ records, now, timeZone }) {
-  async function create(input, { replacesId } = {}) {
+  // recordId: see createBPDomain — deterministic ids let the Telegram inbox
+  // drain re-apply an event without double-logging (drain protocol, rule 2).
+  async function create(input, { replacesId, recordId } = {}) {
     const nowMs = now();
     const all = await records.list(RECORD_TYPE);
     const previous = all
@@ -82,7 +84,7 @@ export function createWeightDomain({ records, now, timeZone }) {
       : null;
 
     const record = {
-      recordId: genId(nowMs),
+      recordId: recordId || genId(nowMs),
       clientTs: nowMs,
       deleted: false,
       measured_at: toISOString(input.measured_at),

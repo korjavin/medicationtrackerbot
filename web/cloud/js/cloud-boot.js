@@ -246,14 +246,22 @@ window.MedTrackerCloudReady = (async function boot() {
         // needs the private key it reads from the vault. Reminders are recomputed
         // afterwards because a confirmed dose removes its own re-reminders.
         import('/js/inbox.js')
-            .then(async ({ ensureInboxKey, drainInbox }) => {
+            .then(async ({ ensureInboxKey, drainInbox, startInboxPolling }) => {
                 await ensureInboxKey(ctx);
                 const { createInboxApplier } = await import('/js/inbox-apply.js');
-                const result = await drainInbox(ctx, { apply: createInboxApplier(ctx) });
-                if (result.applied > 0) {
+                const apply = createInboxApplier(ctx);
+                const afterApply = async () => {
                     const { scheduleReminderRecompute } = await import('/js/reminders.js');
                     scheduleReminderRecompute(ctx);
-                }
+                };
+
+                const result = await drainInbox(ctx, { apply });
+                if (result.applied > 0) await afterApply();
+
+                // Keep draining while the tab is open, so a /bp texted to the
+                // bot lands (and its "Queued" reply becomes "Recorded") within
+                // seconds instead of waiting for the next page load.
+                startInboxPolling(ctx, { apply, onApplied: afterApply });
             })
             .catch((e) => console.error('[cloud-boot] inbox key publish/drain failed', e));
 

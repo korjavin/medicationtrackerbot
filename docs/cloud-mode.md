@@ -60,7 +60,7 @@ Model the cloud as honest-but-curious **and** breachable. Design so that even a 
 | DEK, passkey PRF outputs, recovery code | Reminder **timing** (when pushes fire, not what) |
 | Reminder content (two-layer encrypted) | Push subscription endpoints (reveals browser vendor) |
 | Any plaintext record, ever | Optional: email (URL recovery only), TG bot token + chat id (opt-in) |
-| **Inbound** Telegram message content, at rest — sealed to the inbox key on arrival | **Outbound** Telegram reminder text, at the user's chosen verbosity (client-composed, forwarded verbatim) |
+| **Inbound** Telegram message content, at rest — sealed to the inbox key on arrival | **Outbound** Telegram reminder text *and* command confirmations, at the user's chosen verbosity (client-composed, forwarded verbatim) |
 | What an inbound message *means* — the relay never parses it and never calls AI on it | **Inbound** Telegram message content, **transiently in memory** — Telegram delivers bot updates in the clear; the relay cannot un-see them before sealing |
 | Meal photo pixels, at rest — only the Telegram `file_id` is sealed | That an inbound message arrived, its size, and its timestamp |
 
@@ -203,7 +203,7 @@ Zero-knowledge server vs. a chat bot is a real tension: the bot must exchange pl
   4. **Apply in server-timestamp order** within a drain, and backdate records from the sealed server timestamp (not drain time) — that's what makes the 09:00 tap record 09:00.
 - **Free-text logging works through the same mailbox**: `/bp 120/80`, `/food two eggs`, `/weight 81.5` are sealed as raw text and parsed *client-side at drain time* by the same JS domain layer the app uses — including AI food parsing, since provider keys live in the vault and the drain runs on an unlocked client. The bot's immediate reply is necessarily generic ("saved — recorded next time you open the app"): the server can't confirm what it can't parse. Richer confirmation can arrive after drain, composed by the client (user-chosen verbosity). This is now ratified policy, not just a sketch — see [Inbound plaintext — what the relay may do](#inbound-plaintext--what-the-relay-may-do) for what the relay is and is not permitted to do, and why relay-side parsing was rejected.
 
-  **Not yet implemented.** The only inbound kind the code seals today is the slot-scoped `intake_slot_action` (Confirm/Snooze taps). Until `med-eas.29.2` lands, an unrecognized command gets a static `"Unknown command. Try /help."` and free text is silently dropped (`ChildWebhook`, `internal/cloudserver/telegram.go`). Those two branches are the seam: `med-eas.29.2` replaces them with seal-and-reply-queued.
+  **Implemented for commands (`med-eas.29.2`).** `ChildWebhook` answers `/start` and `/help` locally and seals every other `/command` verbatim, replying `⏳ Queued`, which the client later edits into a confirmation. **Free text is still silently dropped** — routing it is `med-vcv`'s work. AI food parsing at drain time is designed for but not built.
 - **Not supported in cloud mode**: conversational queries ("what's my BP trend?") — answering requires reading data, which only clients can do; a live reply would need an online unlocked client anyway, at which point the user has the app open. That stays a server-mode feature.
 
 ### Inbound plaintext — what the relay may do
@@ -228,7 +228,7 @@ Everything else happens on an unlocked client: `drainInbox` decrypts, the existi
 **Alternatives rejected.**
 
 - **(a) Relay-side AI parse** (relay calls OpenAI with the operator trial key so the bot can reply "Logged 2 eggs, 12 g protein"). Rejected. It gives the relay the plaintext *and* the intent *and* a provider key, converting an honest-but-curious operator from someone who sees ciphertext and metadata into someone who reads every meal, reading, and diary line. The relay today holds **no** per-account key capable of decrypting anything (`accounts` stores only a VAPID keypair and the inbox **public** key — `012_inbox.sql` has no private column, deliberately). Option (a) would be the first thing in the system to break that, in exchange for a nicer bot reply. Not a trade worth making. The one existing carve-out — the trial AI proxy — stays what it is: an explicit, consent-gated, *outbound-initiated* choice the user makes in the app, not a silent property of receiving a text message.
-- **(c) Hybrid** (seal, reply "queued", relay later relays a client-composed answer back). Deferred, not rejected. It needs no new trust: the answer would be composed by the client and forwarded verbatim, exactly like `tg_text`. But it only pays off once the push→drain nudge exists, since otherwise the answer arrives when the user already has the app open. Revisit with that nudge.
+- **(c) Hybrid** (seal, reply "queued", relay later relays a client-composed answer back). **Adopted in `med-eas.29.2`** — see [Closing the loop](#closing-the-loop--queued--recorded) below. It needs no new trust: the answer is composed by the client and forwarded verbatim, exactly like `tg_text`. The original objection ("only pays off once a push→drain nudge exists") turned out to be wrong — a visible tab polling the mailbox is enough, and needs no notification permission.
 - **Structured-commands-only** (relay regex-parses `/bp 120 80` itself to reply exactly). Rejected: it buys a better reply by making the relay read the values, which is precisely the exposure the seal-only rule exists to prevent — and it cannot generalize to food or diary text anyway.
 
 **Photos — proxy, never store.** A photo is worse: the relay must download it, because only the relay holds the bot token. The rule:
@@ -236,6 +236,24 @@ Everything else happens on an unlocked client: `drainInbox` decrypts, the existi
 - Seal only the Telegram **`file_id`** (plus `mime`/`size`) into the mailbox. Never seal the bytes: multi-MB blobs in `inbox_events` would bloat every `GET /api/inbox` drain, and the mailbox is a control channel, not a blob store.
 - On drain, the client requests the image through a **session-gated, account-scoped relay endpoint** that resolves the `file_id` via `getFile` and **streams the bytes through** to the browser. Nothing is written to disk; nothing is logged but the status code. The vision parse then runs browser-side with the user's own key.
 - This is durable, contrary to first appearances: a Telegram **`file_id` is stable and re-usable** — it is the `file_path` returned by `getFile` that expires (~1h). The relay re-resolves on demand at drain time, so a photo sent on Monday and drained on Friday still fetches, as long as the file exists on Telegram's servers and the bot token is unchanged. A `getFile` failure is surfaced to the client as a normal error and the event is acked, not retried forever.
+
+#### Closing the loop — "Queued" → "Recorded"
+
+Seal-only forces the immediate reply to be generic: the relay cannot confirm what it cannot parse. But it does not force the reply to *stay* generic.
+
+1. The relay sends `⏳ Queued — recorded when you next open the app.` and keeps the `message_id` Telegram returns, sealing it into the event alongside the raw text (`tgCommandEvent.reply_message_id`).
+2. An unlocked client drains, parses, writes through the domain layer, and waits for the flush barrier.
+3. It then composes the confirmation *itself* — `✅ Recorded BP 128/84.` — and POSTs it to `POST /api/telegram/reply-edit`, which calls `editMessageText` on that exact message.
+
+**This adds no trust.** The relay forwards a string it never derived, from vault data it cannot read — the identical contract it already has for outbound `tg_text` (`SendReminder`: *"Nothing here derives text from account data"*). The chat is taken from the stored bot row, never from the request, so a session can only edit messages in its own chat. The confirmation honours the same `generic`/`detailed` verbosity as reminders: a user on `generic` gets `✅ Recorded.` with no health value crossing Telegram.
+
+**Latency.** Nothing in cloud mode polled — no SSE, no change stream — so a drain only happened on page load. `startInboxPolling` now drains every 5s **while the tab is visible**, and immediately on `visibilitychange`. A hidden tab does not poll (battery), and the drain-on-becoming-visible covers the gap. With the app open, "Queued" becomes "Recorded" in a few seconds; with it closed, on next unlock — exactly as the copy promises.
+
+*ponytail: a poll, not a push.* A silent web push waking the service worker would be lower-latency and lower-traffic, but it needs notification permission and browsers penalize pushes that show no notification. `GET /api/inbox` on an empty mailbox is one indexed lookup. Revisit if the mailbox gets chatty.
+
+**Commands implemented** (`web/domain/tgcommand.js` parses; the relay never does): `/bp 120 80 [pulse]`, `/weight 81.2`, `/note …`, `/intake` (confirms every dose already due). `/food` and `/workout` parse to `unsupported` and say so. An unknown command is answered too — and note that the *client* composes that refusal, because the relay is forbidden from telling `/bp` from `/bogus`.
+
+**Idempotency.** Writes use a deterministic `recordId` of `tg-<mailboxEventId>`, so a crash between flush and ack re-applies the event onto the same row instead of logging a second reading (drain rule 2). `/intake` needs no id — the domain's `PENDING` check is its own guard.
 
 **Retention and logging invariants** (test these, don't trust them):
 

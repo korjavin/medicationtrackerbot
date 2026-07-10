@@ -145,7 +145,10 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
     let failed = 0;
     for (const { id, event } of pending) {
       try {
-        await apply(event);
+        // The event id is passed so appliers can derive a DETERMINISTIC record
+        // id from it (drain rule 2): a crash between flush and ack re-applies
+        // this event, and the write must overwrite its own row, not add one.
+        await apply(event, id);
         // Rule 1: the barrier. `false` means ops are still pending — leave the
         // event queued rather than ack something that may never land.
         const flushed = await flush(ctx);
@@ -165,4 +168,56 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
   } finally {
     draining.delete(key);
   }
+}
+
+// How often a VISIBLE tab checks the mailbox. The relay answers a Telegram
+// command with "⏳ Queued" and only an unlocked client can turn that into
+// "✅ Recorded", so this interval is the latency the user actually feels.
+//
+// ponytail: a poll, not a push. The alternative — a silent web push waking the
+// service worker to nudge a drain — is lower-latency and lower-traffic, but it
+// needs notification permission, and browsers penalize pushes that show no
+// notification. GET /api/inbox on an empty mailbox is one indexed lookup
+// returning `{"events":[]}`. Revisit if the mailbox ever gets chatty.
+const INBOX_POLL_MS = 5000;
+
+// startInboxPolling drains the mailbox on a timer while the tab is visible, and
+// immediately whenever it becomes visible again. Without it a Confirm tapped in
+// Telegram sits unapplied until the next full page load, because nothing else
+// in cloud mode polls (no SSE, no change stream).
+//
+// Hidden tabs do not poll: a backgrounded phone browser draining every 5s is
+// pure battery burn, and the drain-on-becoming-visible below covers the gap.
+// Returns a stop() for tests and teardown.
+export function startInboxPolling(ctx, {
+  apply,
+  intervalMs = INBOX_POLL_MS,
+  doc = typeof document === 'undefined' ? null : document,
+  onApplied = () => {},
+  ...drainOpts
+} = {}) {
+  let stopped = false;
+
+  const tick = async () => {
+    if (stopped || !apply) return;
+    // drainInbox already no-ops when another drain is in flight for this
+    // account, so a slow drain cannot pile up behind the timer.
+    if (doc && doc.visibilityState !== 'visible') return;
+    try {
+      const result = await drainInbox(ctx, { apply, ...drainOpts });
+      if (result && result.applied > 0) onApplied(result);
+    } catch (e) {
+      console.error('[inbox] poll drain failed', e);
+    }
+  };
+
+  const timer = setInterval(tick, intervalMs);
+  const onVisible = () => { if (doc.visibilityState === 'visible') tick(); };
+  if (doc) doc.addEventListener('visibilitychange', onVisible);
+
+  return function stop() {
+    stopped = true;
+    clearInterval(timer);
+    if (doc) doc.removeEventListener('visibilitychange', onVisible);
+  };
 }

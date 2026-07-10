@@ -12,6 +12,12 @@ let cachedWeightLogs = [];
 const WEIGHT_RANGE_STORAGE_KEY = 'mt-weight-range';
 const WEIGHT_RANGE_OPTIONS = ['7d', '30d', '90d', 'all'];
 const WEIGHT_RANGE_DEFAULT = '30d';
+// Below this the trend is flat, not slow. computeWeightTrendPerDay is a linear
+// regression, so genuinely flat weigh-ins that sit a few milliseconds off a
+// whole number of days apart return ~1e-15 rather than exactly 0. An exact
+// `!== 0` guard let that through and divided by it. 1e-6 kg/day is under a gram
+// a year — no real trend lives there. (bd med-3oa)
+const FLAT_SLOPE_KG_PER_DAY = 1e-6;
 
 function getActiveWeightRange() {
     try {
@@ -700,9 +706,11 @@ function renderWeightPrognosisCard(logs, goalData) {
 
     // Days-to-goal projection. We want the slope to point TOWARDS the goal
     // (losing when above, gaining when below). If the slope is flat, zero,
-    // or NaN, or points away from the goal, we fall back to "—".
+    // or NaN, or points away from the goal, we fall back to "—". "Flat" is a
+    // magnitude test: -5 / -1e-15 is finite and positive, and rendered as
+    // "in 1616282084813448 days" (bd med-3oa).
     let daysToGoal = Infinity;
-    if (current != null && slopePerDay != null && slopePerDay !== 0) {
+    if (current != null && slopePerDay != null && Math.abs(slopePerDay) > FLAT_SLOPE_KG_PER_DAY) {
         const diff = goalValue - current;
         const projected = diff / slopePerDay;
         if (Number.isFinite(projected) && projected > 0) {

@@ -174,10 +174,14 @@ function buildDailyWeightedStats(bpRecords, nowMs, timeZone) {
 //   now()   — current time in ms epoch
 //   timeZone — IANA zone string for day-boundary calculations
 export function createBPDomain({ records, now, timeZone }) {
-  async function create(input) {
+  // recordId overrides the generated id so a caller that must be idempotent can
+  // supply a deterministic one (the Telegram inbox drain derives it from the
+  // mailbox event id, so a re-drain overwrites its own row instead of adding a
+  // second reading — docs/cloud-mode.md → drain protocol, rule 2).
+  async function create(input, { recordId } = {}) {
     const nowMs = now();
     const record = {
-      recordId: genId(nowMs),
+      recordId: recordId || genId(nowMs),
       clientTs: nowMs,
       deleted: false,
       measured_at: toISOString(input.measured_at),
