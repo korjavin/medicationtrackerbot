@@ -9,6 +9,8 @@ import { applyIntakeSlotAction, applyTGCommand, createInboxApplier, INTAKE_SLOT_
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
 import { createNotesDomain } from '../../../domain/notes.js';
+import { createFoodDomain } from '../../../domain/food.js';
+import { createFoodAIDomain } from '../../../domain/foodai.js';
 import { commandToken, parseCommand } from '../../../domain/tgcommand.js';
 
 const SLOT_UNIX = 1767225600; // 2026-01-01T00:00:00Z
@@ -213,12 +215,30 @@ describe('inbox-apply.js — a Telegram data command', () => {
     const CMD_MS = CMD_UNIX * 1000;
     const REPLY_ID = 4242;
 
-    function domainsFor(records, now) {
+    // The raw AI shape (per-100g macros), stubbed at the provider boundary — the
+    // real foodAI + food domains still run, so recordId threading and the actual
+    // meal write are exercised, not mocked.
+    const TWO_EGGS = [{ name: 'eggs', weight_grams: 100, carbs_100g: 1, protein_100g: 13, fat_100g: 11 }];
+    function stubAIClient(items) {
+        return { parseMealFromDescription: async () => ({ items }) };
+    }
+    function noKeyAIClient() {
+        return {
+            parseMealFromDescription: async () => {
+                const e = new Error('no api key');
+                e.code = 'no_api_key';
+                throw e;
+            },
+        };
+    }
+
+    function domainsFor(records, now, aiClient = stubAIClient(TWO_EGGS)) {
         return {
             bp: createBPDomain({ records, now, timeZone: 'UTC' }),
             weight: createWeightDomain({ records, now, timeZone: 'UTC' }),
             notes: createNotesDomain({ records, now }),
             intake: domainFor(records, now),
+            foodAI: createFoodAIDomain({ aiClient, foodDomain: createFoodDomain({ records, now, timeZone: 'UTC' }), now }),
             records,
             now,
         };
@@ -310,10 +330,57 @@ describe('inbox-apply.js — a Telegram data command', () => {
         const now = () => DRAIN_MS;
         const editReply = vi.fn();
         await applyTGCommand(commandEvent('/bogus'), 13, { ...domainsFor(records, now), editReply });
-        await applyTGCommand(commandEvent('/food two eggs'), 14, { ...domainsFor(records, now), editReply });
+        await applyTGCommand(commandEvent('/workout legs'), 14, { ...domainsFor(records, now), editReply });
 
         expect(editReply).toHaveBeenNthCalledWith(1, REPLY_ID, expect.stringMatching(/don't understand \/bogus/));
-        expect(editReply).toHaveBeenNthCalledWith(2, REPLY_ID, expect.stringMatching(/\/food isn't available over chat yet/));
+        expect(editReply).toHaveBeenNthCalledWith(2, REPLY_ID, expect.stringMatching(/\/workout isn't available over chat yet/));
+    });
+
+    it('/food parses the description client-side and logs the meal, backdated to arrival', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        await applyTGCommand(commandEvent('/food 2 eggs'), 20, { ...domainsFor(records, now), editReply });
+
+        const logs = await records.list('foodlog');
+        expect(logs).toHaveLength(1);
+        expect(logs[0]).toMatchObject({ name: 'eggs', weight: 100, recordId: 'tg-20-0' });
+        // Backdated to when the message arrived (drain rule 4), not the drain.
+        expect(Date.parse(logs[0].eaten_at)).toBe(CMD_MS);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Logged 1 food item/));
+    });
+
+    it('re-draining the same /food event overwrites its own rows instead of duplicating', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const opts = { ...domainsFor(records, now), editReply: vi.fn() };
+        await applyTGCommand(commandEvent('/food 2 eggs'), 20, opts);
+        await applyTGCommand(commandEvent('/food 2 eggs'), 20, opts);
+
+        expect(await records.list('foodlog')).toHaveLength(1);
+    });
+
+    it('bare /food is refused with a usage hint and logs nothing', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        await applyTGCommand(commandEvent('/food'), 21, { ...domainsFor(records, now), editReply });
+
+        expect(await records.list('foodlog')).toHaveLength(0);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Usage: \/food/));
+    });
+
+    it('/food with no configured key tells the user to add one, acks, and logs nothing', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        // Resolves (event acked) rather than throwing — a missing key is permanent
+        // for this message, so re-queuing forever would stall the mailbox.
+        await expect(applyTGCommand(commandEvent('/food 2 eggs'), 22, { ...domainsFor(records, now, noKeyAIClient()), editReply }))
+            .resolves.toBeUndefined();
+
+        expect(await records.list('foodlog')).toHaveLength(0);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/add an OpenAI key/));
     });
 
     it('a failed edit never fails the drain — the record is already in the vault', async () => {
@@ -363,9 +430,13 @@ describe('tgcommand.js — parsing', () => {
     });
 
     it('separates "not yet" from "no idea", because they are different apologies', () => {
-        expect(parseCommand('/food two eggs')).toMatchObject({ kind: 'unsupported', command: '/food' });
         expect(parseCommand('/workout')).toMatchObject({ kind: 'unsupported', command: '/workout' });
         expect(parseCommand('/bogus')).toMatchObject({ kind: 'unknown', command: '/bogus' });
+    });
+
+    it('/food keeps the free-text remainder verbatim for a client-side AI parse', () => {
+        expect(parseCommand('/food two eggs')).toMatchObject({ kind: 'food', command: '/food', text: 'two eggs' });
+        expect(parseCommand('/food').kind).toBe('invalid');
     });
 
     it('marks relay-answered commands local, and free text as not a command', () => {
