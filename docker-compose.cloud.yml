@@ -25,6 +25,10 @@ services:
       - VAPID_SUBJECT=${VAPID_SUBJECT:-}
       - MANAGER_BOT_TOKEN=${MANAGER_BOT_TOKEN:-}
       - CLOUD_FOOD_DB_URL=${CLOUD_FOOD_DB_URL:-}
+      # Operator key for a KEYED food DB, forwarded upstream as X-API-Key.
+      # Without it a keyed instance 401s and food search stays broken even
+      # though CLOUD_FOOD_DB_URL is set. Never reaches the browser.
+      - CLOUD_FOOD_DB_API_KEY=${CLOUD_FOOD_DB_API_KEY:-}
       - CLOUD_TG_API_BASE_URL=${CLOUD_TG_API_BASE_URL:-}
       # Operator TRIAL provider keys (all optional; unset = pure BYO, trial
       # proxy routes 503). Read by cmd/cloud/main.go via TrialConfigFromEnv.
