@@ -429,6 +429,17 @@
             return (pendingOptimistic.get(key) || 0) > 0;
         },
 
+        // Key-agnostic form of the above: "is the UI mid-write anywhere?".
+        // Cloud mode's sync layer (web/cloud/js/sync.js) repaints on every
+        // record write, because most writers there are not the UI (voice agent,
+        // MCP relay, Telegram drain, sync pulls). A UI write reaches the same
+        // choke point through the api shim while its own applyOptimistic is
+        // still in flight, and applyOptimistic already repainted — so the sync
+        // layer skips its emit while this is true.
+        hasAnyPendingOptimistic() {
+            return pendingOptimistic.size > 0;
+        },
+
         async fetchFresh(key, fetcher, tags = []) {
             registerKeyTags(key, tags);
             if (inFlight.has(key)) return await inFlight.get(key);

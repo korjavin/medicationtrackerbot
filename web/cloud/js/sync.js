@@ -199,13 +199,80 @@ async function clearPending(recordIds) {
   });
 }
 
+// --- repaint on write ----------------------------------------------------
+//
+// In cloud mode most writers are NOT the UI: the ElevenLabs voice agent's client
+// tools, the Claude connector over the MCP relay, the sealed Telegram inbox
+// drain, and incoming sync pulls all land records without any screen knowing.
+// Bot mode's /api/changes + SSE repaint loop is a deliberate no-op here
+// (data-store.js startChangePolling), so before this emit those writes were
+// durable but invisible until a reload.
+//
+// Every one of them funnels through writeRecord (via recordsPort) or
+// applyIncoming, so one notification at each covers today's writers and whatever
+// we add next. Sprinkling invalidateTags across the four call sites would be N
+// edits now and silently wrong for writer N+1.
+const RECORD_TAGS = {
+  bp: ['bp'],
+  bpgoal: ['bp'],
+  weight: ['weight'],
+  weightgoal: ['weight'],
+  foodlog: ['food'],
+  foodproduct: ['food'],
+  foodtargets: ['food', 'food_targets'],
+  medication: ['medications'],
+  restock: ['medications'],
+  intake: ['medications', 'history'],
+  note: ['notes', 'health-notes'],
+  sleep: ['health'],
+  hrsample: ['health'],
+  spo2sample: ['health'],
+  stresssample: ['health'],
+  daystats: ['health'],
+  workoutgroup: ['workout'],
+  workoutvariant: ['workout'],
+  workoutexercise: ['workout'],
+  workoutsession: ['workout'],
+  workoutrotation: ['workout'],
+  exerciselog: ['workout'],
+  exerciselibrary: ['workout', 'exercise_library'],
+  miband: ['workout', 'health'],
+  settings: ['settings'],
+  features: ['settings', 'feature_settings'],
+  taborder: ['settings'],
+  integrations: ['settings'],
+  // ponytail: unmapped types (nk, firstrun, tzplan, *reminderpref, voiceprovisioning)
+  // back no tag-cached screen, so they emit nothing. Add a row when one does.
+};
+
+// Fire-and-forget: a repaint must never fail a durable write. Runs in the page
+// (window.DataStore); a no-op in the service worker and in node tests that do
+// not stub a DataStore.
+function notifyRecordsChanged(recordTypes) {
+  const tags = [...new Set([...recordTypes].flatMap((t) => RECORD_TAGS[t] || []))];
+  if (tags.length === 0) return;
+  const ds = typeof window !== 'undefined' && window.DataStore;
+  if (!ds || typeof ds.requestTabRefresh !== 'function') return;
+  // A UI write reaches here inside its own applyOptimistic window, which already
+  // repainted from the optimistic cache and will repaint again on commit.
+  if (typeof ds.hasAnyPendingOptimistic === 'function' && ds.hasAnyPendingOptimistic()) return;
+  Promise.resolve(typeof ds.invalidateTags === 'function' ? ds.invalidateTags(tags) : undefined)
+    .then(() => ds.requestTabRefresh(tags, 'cloud-write'))
+    .catch(() => {});
+}
+
 // --- remote sync ---------------------------------------------------------
 
+// Returns the recordType when the incoming record actually won (LWW on
+// clientTs), so the caller can batch one repaint per pulled page rather than one
+// per record.
 async function applyIncoming(recordType, record) {
   const existing = await getRecord(record.recordId);
   if (!existing || record.clientTs > existing.clientTs) {
     await putRecord({ ...record, recordType });
+    return recordType;
   }
+  return null;
 }
 
 // Returns true once the local mirror is at a known cursor. False means "did not
@@ -302,6 +369,7 @@ async function pullTail(ctx) {
       if (!(await bootstrap(ctx))) return;
       continue;
     }
+    const applied = new Set();
     for (const op of body.ops || []) {
       const { recordType, recordId } = parseTag(op.record_type_tag);
       try {
@@ -314,7 +382,8 @@ async function pullTail(ctx) {
           nonce: fromBase64(op.nonce),
           ct: fromBase64(op.ct),
         });
-        await applyIncoming(recordType, JSON.parse(new TextDecoder().decode(plaintext)));
+        const won = await applyIncoming(recordType, JSON.parse(new TextDecoder().decode(plaintext)));
+        if (won) applied.add(won);
       } catch {
         // Unreadable op — almost always the benign seq-in-AAD mis-prediction
         // junk a concurrent writer leaves behind (flushPending re-posts a good
@@ -326,6 +395,7 @@ async function pullTail(ctx) {
       await writeMeta({ localLastSeq: op.seq });
     }
     await writeMeta({ lastSyncedAt: Date.now() });
+    notifyRecordsChanged(applied);
     if (!body.next) break;
   }
 }
@@ -729,6 +799,7 @@ export async function writeRecord(ctx, recordType, record) {
     await markPending(record.recordId, recordType);
   });
   await flushPending(ctx);
+  notifyRecordsChanged([recordType]);
   return record;
 }
 
