@@ -189,7 +189,121 @@ An empty/unclaimed account renders every section explicitly (`devices: none`,
 subscriptions`) rather than omitting them — a silently vanished section would
 hide exactly the bugs this tool exists to surface.
 
-## 6. Connect Claude (PoC)
+## 6. Backups and restore
+
+`cloud.db` is the whole system. It holds every account row, every device
+envelope, every recovery verifier, and all vault ciphertext. Because cloud
+mode is zero-knowledge, **the server ciphertext *is* the vault** — a user's
+Emergency Kit recovery code decrypts `envelope_rec`, and `envelope_rec` lives
+in this database (`internal/cloudserver/recovery.go`). Losing the volume does
+not merely lose the data: it simultaneously invalidates every recovery code
+that would have let anyone back in. There is no second copy anywhere else.
+
+So the `litestream` service in `docker-compose.cloud.yml` is not optional for
+a real deployment. It continuously replicates `cloud.db` to an S3-compatible
+bucket (Cloudflare R2), mirroring the bot stack's setup. Set `R2_BUCKET`,
+`R2_ENDPOINT`, `LITESTREAM_ACCESS_KEY_ID` and `LITESTREAM_SECRET_ACCESS_KEY`
+in `.env`; leaving the first two unset makes the container exit cleanly
+(intended for local dev, **not** for production).
+
+`LITESTREAM_SYNC_INTERVAL` (default `1h`) is your worst-case data-loss window.
+
+Litestream requires WAL journaling. `cloud.db` is opened through
+`internal/store/db`, which sets `PRAGMA journal_mode=WAL` unconditionally, so
+this holds by construction — verify with
+`docker exec medtracker-cloud sqlite3 /app/data/cloud.db 'PRAGMA journal_mode;'`
+if you ever change how the DB is opened.
+
+### Bucket security
+
+The bucket holds ciphertext only, so it never needs to be trusted with
+plaintext. But it *does* hold everything an attacker needs to mount an
+**offline** brute-force against every account at once — no rate limit, no
+server in the way. Use a **private** bucket with **its own** credentials,
+scoped to this prefix and nothing else, and do not reuse the bot stack's
+keys. If both stacks share a bucket, keep `LITESTREAM_PATH` distinct
+(`medtracker-cloud` vs the bot's `medtracker`).
+
+### Restore runbook
+
+*A backup nobody has restored is a rumour.* This procedure was performed
+end-to-end on 2026-07-10 against a real `cloud.db` (see "Verified" below).
+
+```bash
+# 1. Stop the app so nothing writes while you restore.
+docker compose -f docker-compose.cloud.yml stop cloud litestream
+
+# 2. Point litestream at the bucket. R2 needs a custom endpoint, which the
+#    bare s3:// URL form cannot express — so restore with a config file, the
+#    same dialect the compose service generates.
+cat > /tmp/restore.yml <<EOF
+dbs:
+  - path: /app/data/cloud.db
+    replica:
+      type: s3
+      bucket: ${R2_BUCKET}
+      path: ${LITESTREAM_PATH:-medtracker-cloud}
+      endpoint: ${R2_ENDPOINT}
+EOF
+
+# 3. Restore into a SCRATCH path — never straight over the live file.
+docker run --rm \
+  -e LITESTREAM_ACCESS_KEY_ID -e LITESTREAM_SECRET_ACCESS_KEY \
+  -v cloud_data:/app/data -v /tmp/restore.yml:/tmp/restore.yml:ro \
+  ghcr.io/korjavin/litestream:0.3.13 \
+  restore -config /tmp/restore.yml -o /app/data/cloud.restored.db /app/data/cloud.db
+
+# 4. Verify BEFORE you trust it. The app image has no sqlite3, so read the
+#    restored file with the app's own admin CLI: it opens the DB, runs
+#    migrations, and lists accounts. If this prints your accounts, the
+#    schema and rows survived.
+docker run --rm -v cloud_data:/app/data \
+  -e CLOUD_BASE_DOMAIN -e SESSION_SECRET \
+  -e CLOUD_DB_PATH=/app/data/cloud.restored.db \
+  ghcr.io/korjavin/medicationtrackerbot:latest ./cloud admin list
+
+# 5. Swap it in, keeping the corpse for forensics.
+docker run --rm -v cloud_data:/app/data \
+  ghcr.io/korjavin/medicationtrackerbot:latest sh -c \
+  'mv /app/data/cloud.db /app/data/cloud.db.bad 2>/dev/null; \
+   mv /app/data/cloud.restored.db /app/data/cloud.db; \
+   rm -f /app/data/cloud.db-wal /app/data/cloud.db-shm'
+
+# 6. Boot and confirm the server reads it.
+docker compose -f docker-compose.cloud.yml up -d cloud litestream
+docker exec medtracker-cloud ./cloud admin list      # accounts are back
+curl -fsS https://$CLOUD_BASE_DOMAIN/healthz         # -> 200
+```
+
+If you have `sqlite3` to hand, also run `PRAGMA integrity_check;` (expect
+`ok`) and spot-check `select count(*) from envelopes where credential_ref =
+'envelope_rec';` against the number of accounts.
+
+Then finish in a browser: open an account subdomain, unlock with a passkey,
+and confirm the vault decrypts and data renders. **Only the browser step
+proves the ciphertext is usable**, because the server cannot decrypt anything
+— steps 3–6 only prove the bytes came back.
+
+Step 5 deletes any stale `-wal` / `-shm` sidecars. A restored `.db` paired
+with the *old* WAL is a corrupted database, and SQLite will not always say so.
+
+### Verified
+
+Rehearsed on 2026-07-10 with litestream v0.3.13 against a file replica (the
+S3 replica differs only in transport):
+
+1. Created a real `cloud.db` via `cloud admin invite`, confirmed
+   `PRAGMA journal_mode` → `wal`, and seeded a known `envelope_rec` ciphertext.
+2. Started `litestream replicate`, then wrote a *second* account while
+   replication was live — so the test covers WAL shipping, not just the
+   initial snapshot.
+3. Deleted `cloud.db`, `-wal` and `-shm` (simulating volume loss) and ran
+   `litestream restore`.
+4. Result: both accounts present, `envelope_rec` ciphertext byte-identical,
+   `PRAGMA integrity_check` → `ok`, `cloud admin list` listed both accounts,
+   and `cmd/cloud` booted against the restored file with `/healthz` → 200.
+
+## 7. Connect Claude (PoC)
 
 MCP tier 1 (see [cloud-mode.md → MCP](cloud-mode.md#mcp)) lets Claude Desktop
 or Claude Code query your vault through a local shim + blind relay — no

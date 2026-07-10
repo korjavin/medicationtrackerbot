@@ -55,6 +55,72 @@ services:
       - "traefik.http.routers.cloud.tls.domains[0].sans=*.${CLOUD_BASE_DOMAIN}"
       - "traefik.http.services.cloud.loadbalancer.server.port=${PORT:-8080}"
 
+  # Litestream - SQLite replication of cloud.db to Cloudflare R2.
+  # cloud.db holds every account record, device envelope, recovery verifier
+  # and all vault ciphertext. Because the system is zero-knowledge, this DB
+  # *is* the vault: losing the volume loses the data AND every recovery code
+  # that would let an account back in. There is no second copy anywhere else.
+  #
+  # Mirrors the bot stack's litestream service (docker-compose.yml). Skipped
+  # via clean exit when R2_BUCKET / LITESTREAM_ACCESS_KEY_ID are not set;
+  # combined with restart: on-failure, a clean exit stays exited.
+  # Restore runbook: docs/cloud-deployment.md → Backups and restore.
+  litestream:
+    image: ghcr.io/korjavin/litestream:0.3.13
+    pull_policy: if_not_present
+    container_name: medtracker-cloud-litestream
+    restart: on-failure
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        if [ -z "$${R2_BUCKET}" ] || [ -z "$${LITESTREAM_ACCESS_KEY_ID}" ]; then
+          echo "[litestream] R2_BUCKET / LITESTREAM_ACCESS_KEY_ID not set, skipping"
+          exit 0
+        fi
+        cat << EOF > /tmp/litestream.yml
+        retention:
+          enabled: $${LITESTREAM_RETENTION_ENABLED:-false}
+        levels:
+          - interval: $${LITESTREAM_LEVEL_1_INTERVAL:-4h}
+          - interval: $${LITESTREAM_LEVEL_2_INTERVAL:-24h}
+          - interval: $${LITESTREAM_LEVEL_3_INTERVAL:-168h}
+        snapshot:
+          interval: $${LITESTREAM_SNAPSHOT_INTERVAL:-240h}
+          retention: $${LITESTREAM_RETENTION:-1680h}
+        l0-retention: $${LITESTREAM_L0_RETENTION:-24h}
+        l0-retention-check-interval: $${LITESTREAM_L0_RETENTION_CHECK_INTERVAL:-24h}
+        dbs:
+          - path: $${CLOUD_DB_PATH:-/app/data/cloud.db}
+            replica:
+              type: s3
+              bucket: $${R2_BUCKET}
+              path: $${LITESTREAM_PATH:-medtracker-cloud}
+              endpoint: $${R2_ENDPOINT}
+              sync-interval: $${LITESTREAM_SYNC_INTERVAL:-1h}
+        EOF
+        exec litestream replicate -config /tmp/litestream.yml
+    volumes:
+      - cloud_data:/app/data
+    environment:
+      - CLOUD_DB_PATH=${CLOUD_DB_PATH:-/app/data/cloud.db}
+      - LITESTREAM_ACCESS_KEY_ID=${LITESTREAM_ACCESS_KEY_ID}
+      - LITESTREAM_SECRET_ACCESS_KEY=${LITESTREAM_SECRET_ACCESS_KEY}
+      - R2_ENDPOINT=${R2_ENDPOINT}
+      - R2_BUCKET=${R2_BUCKET}
+      - LITESTREAM_PATH=${LITESTREAM_PATH:-medtracker-cloud}
+      - LITESTREAM_SYNC_INTERVAL=${LITESTREAM_SYNC_INTERVAL:-1h}
+      - LITESTREAM_SNAPSHOT_INTERVAL=${LITESTREAM_SNAPSHOT_INTERVAL:-240h}
+      - LITESTREAM_RETENTION=${LITESTREAM_RETENTION:-1680h}
+      - LITESTREAM_RETENTION_ENABLED=${LITESTREAM_RETENTION_ENABLED:-false}
+      - LITESTREAM_LEVEL_1_INTERVAL=${LITESTREAM_LEVEL_1_INTERVAL:-4h}
+      - LITESTREAM_LEVEL_2_INTERVAL=${LITESTREAM_LEVEL_2_INTERVAL:-24h}
+      - LITESTREAM_LEVEL_3_INTERVAL=${LITESTREAM_LEVEL_3_INTERVAL:-168h}
+      - LITESTREAM_L0_RETENTION=${LITESTREAM_L0_RETENTION:-24h}
+      - LITESTREAM_L0_RETENTION_CHECK_INTERVAL=${LITESTREAM_L0_RETENTION_CHECK_INTERVAL:-24h}
+    depends_on:
+      - cloud
+
 networks:
   proxy:
     external: true
