@@ -34,6 +34,7 @@ import { recordsPort, ORIGIN_EXTERNAL } from './sync.js';
 
 export const INTAKE_SLOT_ACTION = 'intake_slot_action';
 export const TG_COMMAND = 'tg_command';
+export const TG_PHOTO = 'tg_photo';
 
 const INTAKE_RECORD_TYPE = 'intake';
 
@@ -226,6 +227,67 @@ export async function applyTGCommand(event, eventId, { bp, weight, notes, intake
   await reply(confirmationText(intent, result, verbosity));
 }
 
+// fetchTelegramPhoto pulls the sealed photo's bytes through the account-scoped
+// relay proxy (bd med-vcv.1). Only the file_id crosses — the relay resolves it
+// with this account's bot token and streams the image back; it never sees the
+// AI parse. Ambient same-origin session cookie authenticates, like every other
+// drain-time relay call. Returns a Blob tagged with an image/* type so the
+// aiClient's data-URL path accepts it.
+async function fetchTelegramPhoto(fileId, mime, { fetchImpl = fetch } = {}) {
+  const res = await fetchImpl(`/api/telegram/photo?file_id=${encodeURIComponent(fileId)}`);
+  if (!res.ok) throw new Error(`photo fetch failed: ${res.status}`);
+  const blob = await res.blob();
+  if (blob && typeof blob.type === 'string' && blob.type.startsWith('image/')) return blob;
+  return new Blob([blob], { type: mime || 'image/jpeg' });
+}
+
+// applyTGPhoto fetches a sealed photo and logs the meal the AI reads from it,
+// through the SAME food-AI path the app's photo upload uses (no duplicate logic).
+// Per the med-vcv design, every failure — an expired file_id, a missing key, a
+// photo with no food — is answered and ACKED, never retried forever: a re-drain
+// would re-pull the bytes and re-bill the provider for a result that will not
+// improve. Idempotent on the happy path via per-item `tg-<eventId>-<i>` ids.
+export async function applyTGPhoto(event, eventId, { foodAI, verbosity = 'detailed', now = Date.now, editReply = editTelegramReply, fetchPhoto = fetchTelegramPhoto }) {
+  const reply = async (text) => {
+    try {
+      await editReply(event.reply_message_id, text);
+    } catch (e) {
+      console.warn('[inbox] could not update the Telegram reply', e);
+    }
+  };
+  // Backdated to when the photo arrived (drain rule 4), like every other command.
+  const atIso = new Date(event.at_unix * 1000).toISOString();
+
+  let blob;
+  try {
+    blob = await fetchPhoto(event.file_id, event.mime);
+  } catch (e) {
+    // Do not log the file_id — it is message-derived. Ack (return) rather than
+    // stall the mailbox on an expired handle.
+    console.warn('[inbox] could not fetch the Telegram photo', e && e.message);
+    await reply('📷 Couldn\'t fetch that photo — try sending it again.');
+    return;
+  }
+
+  let result;
+  try {
+    result = await foodAI.parseMealFromPhoto(blob, {
+      eatenAt: atIso,
+      recordIdFor: (i) => `tg-${eventId}-${i}`,
+    });
+  } catch (e) {
+    if (e && e.code === 'no_api_key') {
+      await reply('🔑 To log food from a photo, add an OpenAI key in Settings → Integrations (or the trial AI is unavailable right now).');
+      return;
+    }
+    console.warn('[inbox] could not parse the Telegram photo', e && e.code);
+    await reply('📷 I couldn\'t spot any food in that photo.');
+    return;
+  }
+
+  await reply(confirmationText({ kind: 'food' }, result, verbosity));
+}
+
 // confirmDueIntakes confirms every PENDING dose already due at `atMs` — the
 // chat equivalent of tapping Confirm on the most recent reminder. Doses due
 // later stay pending; confirming a dose you have not taken yet would be a lie
@@ -286,6 +348,12 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
         now,
         editReply,
       });
+      return;
+    }
+    if (event.kind === TG_PHOTO) {
+      const reminders = createRemindersDomain({ records, now });
+      const { verbosity } = await reminders.getDeliveryPref();
+      await applyTGPhoto(event, eventId, { foodAI, verbosity, now, editReply });
       return;
     }
     if (event.kind !== INTAKE_SLOT_ACTION) {

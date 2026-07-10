@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"strconv"
@@ -135,6 +136,46 @@ func (c *Client) GetMe(ctx context.Context) (User, error) {
 	var u User
 	err := c.call(ctx, "getMe", nil, &u)
 	return u, err
+}
+
+// File is the subset of Telegram's File we use. FilePath is a short-lived
+// (~1h) path under the file endpoint; FileID is stable and re-resolvable, so we
+// call GetFile again on each drain rather than persisting FilePath.
+type File struct {
+	FileID   string `json:"file_id"`
+	FilePath string `json:"file_path"`
+	FileSize int64  `json:"file_size"`
+}
+
+// GetFile resolves a file_id to a File (with a fresh, expiring file_path). A bot
+// token can only resolve files sent to THAT bot, which is the account-scoping
+// boundary the cloud photo-proxy relies on (bd med-vcv.1).
+func (c *Client) GetFile(ctx context.Context, fileID string) (File, error) {
+	var f File
+	err := c.call(ctx, "getFile", map[string]any{"file_id": fileID}, &f)
+	return f, err
+}
+
+// DownloadFile streams the bytes at filePath (from GetFile). The file endpoint
+// lives under a DIFFERENT path prefix than the API methods
+// (/file/bot<token>/<path>, not /bot<token>/<method>), and returns raw bytes,
+// not the {ok,result} envelope. The caller MUST close the returned body. The
+// content type is whatever Telegram serves (image/jpeg for photos).
+func (c *Client) DownloadFile(ctx context.Context, filePath string) (io.ReadCloser, string, error) {
+	url := fmt.Sprintf("%s/file/bot%s/%s", c.baseURL, c.token, filePath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, "", c.redact(err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, "", c.redact(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, "", c.redact(fmt.Errorf("telegram file download: status %d", resp.StatusCode))
+	}
+	return resp.Body, resp.Header.Get("Content-Type"), nil
 }
 
 // GetManagedBotToken fetches a child bot's token after a managed_bot update.
@@ -460,13 +501,34 @@ func (u *Update) ManagedBotCreatedInfo() (botID int64, username string, userID i
 }
 
 // Message is the subset of a Telegram message we read: text for /start linking,
-// and managed_bot_created for the manager-webhook bind.
+// managed_bot_created for the manager-webhook bind, and photo for cloud photo
+// food logging (bd med-vcv.1 — only the file_id is sealed, never the bytes).
 type Message struct {
 	MessageID         int64              `json:"message_id"`
 	Text              string             `json:"text"`
 	Chat              Chat               `json:"chat"`
 	From              *User              `json:"from,omitempty"`
 	ManagedBotCreated *ManagedBotCreated `json:"managed_bot_created,omitempty"`
+	Photo             []PhotoSize        `json:"photo,omitempty"`
+}
+
+// PhotoSize is one rendition of a photo. Telegram sends an ascending-size array;
+// the last element is the largest. We read only file_id (stable, re-resolvable)
+// and file_size (to skip an over-cap fetch).
+type PhotoSize struct {
+	FileID   string `json:"file_id"`
+	FileSize int64  `json:"file_size"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+}
+
+// LargestPhoto returns the highest-resolution rendition (the last entry), or nil
+// when the message carries no photo.
+func (m *Message) LargestPhoto() *PhotoSize {
+	if len(m.Photo) == 0 {
+		return nil
+	}
+	return &m.Photo[len(m.Photo)-1]
 }
 
 // ManagedBotCreated is the service field on the message Telegram posts to the
