@@ -98,6 +98,26 @@ export function requestNotificationPermission() {
   });
 }
 
+async function subscribeWithVapid(reg) {
+  const keyRes = await fetch('/api/push/vapid-public-key');
+  if (!keyRes.ok) throw new Error('Push is not configured on this server.');
+  const { public_key: publicKey } = await keyRes.json();
+  return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+}
+
+// POST is an upsert server-side, and it resets `disabled = 0`. So re-uploading
+// an endpoint the relay disabled after a 410 is exactly how a subscription
+// comes back to life — not a redundant write.
+async function uploadSubscription(sub) {
+  const json = sub.toJSON();
+  const res = await fetch('/api/push/subscriptions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth }),
+  });
+  if (!res.ok) throw new Error('Could not register this device for push.');
+}
+
 export async function subscribe() {
   // Request permission first, before any await — Safari/iOS drop the click's
   // transient activation across an await (the VAPID fetch / SW activation) and
@@ -110,18 +130,51 @@ export async function subscribe() {
   // InvalidStateError on first enable. serviceWorker.ready waits for an active
   // worker and returns its registration.
   const reg = await navigator.serviceWorker.ready;
-  const keyRes = await fetch('/api/push/vapid-public-key');
-  if (!keyRes.ok) throw new Error('Push is not configured on this server.');
-  const { public_key: publicKey } = await keyRes.json();
-  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
-  const json = sub.toJSON();
-  const res = await fetch('/api/push/subscriptions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth }),
-  });
-  if (!res.ok) throw new Error('Could not register this device for push.');
+  const sub = await subscribeWithVapid(reg);
+  await uploadSubscription(sub);
   return sub;
+}
+
+// ensurePushSubscription reconciles this device's push subscription on every
+// app boot. It is the load-bearing half of med-d5t.3.
+//
+// Safari evicts the push subscription of a PWA that goes unopened for a few
+// days. Before this existed, nothing noticed: the app kept rendering as though
+// reminders were armed, the SW's `pushsubscriptionchange` event was unhandled,
+// and the documented countermeasure — the server's stale-sync warning — is
+// itself a web push, so it could never arrive through the very subscription
+// that had just died. Medication reminders simply stopped, forever, silently.
+//
+// The subscribe() call needs no user gesture once permission is granted, so
+// this can run unattended at boot. Returns a state rather than throwing: the
+// caller is a best-effort boot step, and Settings renders the state.
+export async function ensurePushSubscription() {
+  if (!('serviceWorker' in navigator) || typeof PushManager === 'undefined') return { state: 'unsupported' };
+  // Permission is the user's standing intent to be reminded. Without it there
+  // is nothing to repair — enabling push is a deliberate, gestured act.
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
+    return { state: 'not-granted' };
+  }
+
+  try {
+    await registerServiceWorker();
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) {
+      // The browser still has it, but the server may have disabled the row on a
+      // 410 from a transient push-service failure. Re-upload to heal that.
+      await uploadSubscription(existing);
+      return { state: 'ok', subscription: existing };
+    }
+    const sub = await subscribeWithVapid(reg);
+    await uploadSubscription(sub);
+    return { state: 'resubscribed', subscription: sub };
+  } catch (e) {
+    // Offline, or the push service refused. Reminders are NOT armed; say so
+    // rather than letting the UI imply otherwise.
+    console.error('[push] could not restore the push subscription', e);
+    return { state: 'failed', error: e };
+  }
 }
 
 // sendTestPush sends an immediate, this-device-only test notification: no
