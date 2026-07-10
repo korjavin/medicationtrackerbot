@@ -181,14 +181,19 @@ of the bead. Two existing assertions were retargeted (`web/cloud/js/tests/mcp-re
 - [x] run `pnpm test` — must pass (285 files, 3049 tests)
 
 ### Task 6: Verify acceptance criteria
-- [ ] verify all requirements from Overview are implemented
-- [ ] verify the bead's acceptance criteria: generated catalog covering every non-excluded registry op is served by `mcp-responder.js`; cloud `mcp_help` returns the same op ids as bot mode minus the named exclusions; a CI test fails if a new registry op is neither covered nor listed as excluded
-- [ ] adversarially verify the guard actually guards: temporarily add a throwaway op to `registry.DefaultOperations()`, confirm `go test ./internal/mcp/...` **fails**, then revert. A drift guard that cannot fail is not a guard
-- [ ] verify edge cases: unknown `operation_ids` (all + partial), empty `query`, unknown `topic`, prototype-pollution op names (`toString`, `constructor`) still hit the unknown-op path via the `Object.create(null)` map
-- [ ] run `go build ./...` — must pass
-- [ ] run `go test ./...` — must pass
-- [ ] run `pnpm test` — must pass
-- [ ] run the linter — all issues must be fixed
+- [x] verify all requirements from Overview are implemented
+- [x] verify the bead's acceptance criteria: generated catalog covering every non-excluded registry op is served by `mcp-responder.js`; cloud `mcp_help` returns the same op ids as bot mode minus the named exclusions; a CI test fails if a new registry op is neither covered nor listed as excluded (`CATALOG` = 98, `EXCLUDED` = 8, topics `food,health,medications,workouts`, zero gamification ids)
+- [x] adversarially verify the guard actually guards: temporarily add a throwaway op to `registry.DefaultOperations()`, confirm `go test ./internal/mcp/...` **fails**, then revert. A drift guard that cannot fail is not a guard — both `TestCloudCatalog_EveryRegistryOpCoveredOrExcluded` (named `throwaway.drift.probe`) and `TestCloudCatalog_GeneratedFileIsUpToDate` (byte diff) failed as designed, then passed after revert
+- [x] verify edge cases: unknown `operation_ids` (all + partial), empty `query`, unknown `topic`, prototype-pollution op names (`toString`, `constructor`) still hit the unknown-op path via the `Object.create(null)` map — pinned as two new cases in `web/cloud/js/tests/mcp-responder.test.js` (partial-unknown was already covered by the Task 5 drill-in case; `__proto__` added alongside `toString`/`constructor`)
+- [x] run `go build ./...` — must pass
+- [x] run `go test ./...` — must pass
+- [x] run `pnpm test` — must pass (285 files, 3051 tests)
+- [x] run the linter — all issues must be fixed (repo has no golangci/eslint config; `gofmt -l` clean on `internal/mcp/catalogjs` + `cmd/genmcpcatalog`, `go vet ./...` clean)
+
+➕ **Unrelated flake fixed to make the `pnpm test` gate deterministic.** `web/static/js/tests/backup-crypto.test.js`
+timed out on 3 cases under full-suite CPU contention: age's scrypt work factor costs 1–5s per case standalone
+against vitest's 5s default. Pre-existing, touched by nothing in this bead; fixed with a `{ timeout: 30_000 }`
+option on the owning `describe`.
 
 ### Task 7: [Final] Update documentation
 - [ ] update `docs/cloud-mode.md`: the MCP section must state that the cloud catalog is generated from `internal/mcp/registry` by `cmd/genmcpcatalog`, that regeneration is `go run ./cmd/genmcpcatalog`, that gamification is the named exclusion, and that `mcp_help` is compact-by-default because of the 64 KiB relay frame cap

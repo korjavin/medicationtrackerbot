@@ -142,4 +142,40 @@ describe('mcp_help wire contract (generated catalog)', () => {
     expect(response.error.message).toContain('unknown operation "workouts.groups.list"');
     expect(response.error.message).toContain('did you mean');
   });
+
+  it('degrades to a topic list instead of throwing on all-unknown ids, empty query, or unknown topic', async () => {
+    const dispatcher = makeDispatcher();
+
+    const allUnknown = await dispatcher.handle('mcp_help', { operation_ids: ['nope.one', 'nope.two'] });
+    expect(allUnknown.count).toBe(0);
+    expect(allUnknown.topics).toContain('health');
+    expect(allUnknown.next_step).toContain('nope.one');
+
+    // An empty query is not a filter — it falls through to the full catalog.
+    const emptyQuery = await dispatcher.handle('mcp_help', { query: '  ' });
+    expect(emptyQuery.count).toBe(CATALOG.length);
+    expect(emptyQuery.usage_protocol).toEqual(expect.any(String));
+
+    const unknownTopic = await dispatcher.handle('mcp_help', { topic: 'gamification' });
+    expect(unknownTopic.count).toBe(0);
+    expect(unknownTopic.topics).toContain('workouts');
+  });
+
+  // BY_ID and the dispatch table are Object.create(null) maps: an inherited
+  // prototype member must never resolve as an operation.
+  it('treats prototype member names as unknown ops, not inherited members', async () => {
+    const dispatcher = makeDispatcher();
+
+    for (const name of ['toString', 'constructor', '__proto__']) {
+      const help = await dispatcher.handle('mcp_help', { operation_id: name });
+      expect(help.count).toBe(0);
+
+      const call = await handleRequest(dispatcher, {
+        jsonrpc: '2.0', id: 10, method: 'mcp_call', params: { op: name },
+      });
+      expect(call.result).toBeUndefined();
+      expect(call.error.code).toBe(-32602);
+      expect(call.error.message).toContain(`unknown operation "${name}"`);
+    }
+  });
 });
