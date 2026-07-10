@@ -1,8 +1,10 @@
 package cloudserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -302,5 +304,138 @@ func TestTrialConfigFromEnv_TrimsTrailingSlash(t *testing.T) {
 	}
 	if cfg.VisionURL != "https://vision.example/v1" {
 		t.Errorf("VisionURL = %q, want trailing slashes trimmed", cfg.VisionURL)
+	}
+}
+
+// TestTrialProxy_ResponseFormatUnsupported pins the med-0s9 root cause: a
+// trial model without json_schema support (deepseek-chat, most local models)
+// answers 400, and the proxy must name that case rather than flatten it into
+// upstream_error — otherwise aiclient.js can never run the fenced-prompt
+// retry that bot-mode's internal/ai/openai.go gets for free from the raw body.
+func TestTrialProxy_ResponseFormatUnsupported(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":{"message":"unknown variant response_format json_schema"}}`))
+	}))
+	defer upstream.Close()
+
+	cfg := TrialConfig{OpenAIAPIKey: "sk-trial", OpenAIURL: upstream.URL, OpenAIModel: "deepseek-chat", VisionAPIKey: "sk-trial", VisionURL: upstream.URL, VisionModel: "m", RatePerMinute: 100}
+	h, _, host, claimToken := newTrialTestHandlerAPI(t, cfg)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	// Carried response_format -> the retryable, named error.
+	rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"messages":[],"response_format":{"type":"json_schema"}}`, session)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", rec.Code)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
+	}
+	if got["error"] != "response_format_unsupported" {
+		t.Errorf("error = %v, want response_format_unsupported", got["error"])
+	}
+	if got["upstream_status"] != float64(http.StatusBadRequest) {
+		t.Errorf("upstream_status = %v, want 400", got["upstream_status"])
+	}
+
+	// Same upstream 400 WITHOUT response_format is a plain bad request — it
+	// must not masquerade as a retryable json_schema rejection.
+	rec = postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"messages":[]}`, session)
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if got["error"] != "upstream_error" {
+		t.Errorf("error = %v, want upstream_error (no response_format was sent)", got["error"])
+	}
+}
+
+// TestTrialProxy_UpstreamStatusRelayed: the proxy still always answers 502,
+// but the numeric upstream status rides along in the body so a bad operator
+// key (401) is distinguishable from operator quota (429) and an outage (5xx).
+// The status is not a TrialConfig field, so this does not widen the invariant.
+func TestTrialProxy_UpstreamStatusRelayed(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusTooManyRequests, http.StatusInternalServerError} {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(status)
+			w.Write([]byte(`{"error":{"message":"bad key sk-trial-secret-key"}}`))
+		}))
+
+		cfg := TrialConfig{OpenAIAPIKey: "sk-trial-secret-key", OpenAIURL: upstream.URL, OpenAIModel: "m", VisionAPIKey: "sk-trial-secret-key", VisionURL: upstream.URL, VisionModel: "m", RatePerMinute: 100}
+		h, _, host, claimToken := newTrialTestHandlerAPI(t, cfg)
+		session := registerAndGetSession(t, h, host, claimToken)
+		rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"messages":[]}`, session)
+		upstream.Close()
+
+		if rec.Code != http.StatusBadGateway {
+			t.Errorf("upstream %d: status = %d, want 502 (never passed through)", status, rec.Code)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("upstream %d: decode body %q: %v", status, rec.Body.String(), err)
+		}
+		if got["upstream_status"] != float64(status) {
+			t.Errorf("upstream %d: upstream_status = %v", status, got["upstream_status"])
+		}
+		// SECURITY INVARIANT: the key must never ride out in the relayed body.
+		if strings.Contains(rec.Body.String(), "sk-trial") {
+			t.Errorf("upstream %d: body leaked the trial key: %q", status, rec.Body.String())
+		}
+	}
+}
+
+// TestTrialProxy_BadUpstreamURLLogs (med-eas.29.3): the one 502 path that
+// logged nothing now logs — and must not leak the URL it choked on, since
+// http.NewRequestWithContext's error text embeds it verbatim.
+func TestTrialProxy_BadUpstreamURLLogs(t *testing.T) {
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	// A control character is what makes http.NewRequestWithContext fail; this
+	// is the shape a typo'd TRIAL_OPENAI_URL takes (trailing newline, quotes).
+	const badURL = "http://trial-secret-host.example\n/v1"
+	cfg := TrialConfig{OpenAIAPIKey: "sk-trial", OpenAIURL: badURL, OpenAIModel: "m", VisionAPIKey: "sk-trial", VisionURL: badURL, VisionModel: "m", RatePerMinute: 100}
+	h, _, host, claimToken := newTrialTestHandlerAPI(t, cfg)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"messages":[]}`, session)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", rec.Code)
+	}
+	logged := logBuf.String()
+	if !strings.Contains(logged, "trial chat proxy bad upstream url") {
+		t.Fatalf("silent 502: no log line emitted, got %q", logged)
+	}
+	if strings.Contains(logged, "trial-secret-host") {
+		t.Errorf("SECURITY INVARIANT: log leaked the upstream URL: %q", logged)
+	}
+}
+
+// TestTrialConfigFromEnv_RejectsMalformedURL: catch the operator's typo at
+// boot instead of on a user's first AI request. The error names the env var,
+// never the value (url.Parse's own error embeds it).
+func TestTrialConfigFromEnv_RejectsMalformedURL(t *testing.T) {
+	for _, tc := range []struct{ name, url string }{
+		{"control character", "https://trial-secret-host.example/v1\n"},
+		{"no scheme", "trial-secret-host.example/v1"},
+		{"no host", "https:///v1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("TRIAL_OPENAI_API_KEY", "sk-test")
+			t.Setenv("TRIAL_OPENAI_URL", tc.url)
+
+			_, err := TrialConfigFromEnv()
+			if err == nil {
+				t.Fatalf("TrialConfigFromEnv() = nil error, want rejection of %q", tc.url)
+			}
+			if !strings.Contains(err.Error(), "TRIAL_OPENAI_URL") {
+				t.Errorf("error %q should name the env var", err)
+			}
+			if strings.Contains(err.Error(), "trial-secret-host") {
+				t.Errorf("SECURITY INVARIANT: error leaked the URL: %q", err)
+			}
+		})
 	}
 }

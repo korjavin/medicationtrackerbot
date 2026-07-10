@@ -89,6 +89,8 @@ func (a *TrialProxyAPI) ElevenLabsSignedURL(w http.ResponseWriter, r *http.Reque
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		a.elevenLabsSignedURLBase+"?agent_id="+url.QueryEscape(a.cfg.ElevenLabsAgentID), nil)
 	if err != nil {
+		// SECURITY INVARIANT: err embeds the URL — log a fixed string only.
+		slog.Warn("trial elevenlabs mint bad upstream url", "account", account.ID)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
 	}
@@ -174,6 +176,7 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "streaming_not_supported"})
 		return
 	}
+	_, sentResponseFormat := payload["response_format"]
 	modelJSON, _ := json.Marshal(model)
 	payload["model"] = modelJSON
 	upstreamBody, err := json.Marshal(payload)
@@ -186,6 +189,11 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/chat/completions", bytes.NewReader(upstreamBody))
 	if err != nil {
+		// Only reachable with a malformed TRIAL_OPENAI_URL, which
+		// TrialConfigFromEnv now rejects at boot — but a 502 that logs nothing
+		// cost three rounds of diagnosis once, so never again.
+		// SECURITY INVARIANT: err embeds the URL — log a fixed string only.
+		slog.Warn("trial chat proxy bad upstream url", "account", account.ID, "vision", baseURL == a.cfg.VisionURL)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
 	}
@@ -206,7 +214,21 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 		// Always 502 (never the upstream status): 503 must stay reserved
 		// for trial_not_configured and 429 for our own rate limiter, or the
 		// client misreads a transient upstream outage as "add your own key".
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
+		// The numeric status is not a TrialConfig field, so relaying it in the
+		// body is safe — and it is the only thing that tells a 401 (bad
+		// operator key) from a 429 (operator quota) from a 5xx (outage).
+		//
+		// A 400 answering a request that carried response_format means the
+		// operator's model has no json_schema support (deepseek-chat, most
+		// local models). Name that case so the client can retry with the
+		// fenced prompt, exactly as the BYO path already does. Keyed off the
+		// status plus what we sent — never the body text, which every
+		// provider words differently and which we must not read back anyway.
+		errCode := "upstream_error"
+		if resp.StatusCode == http.StatusBadRequest && sentResponseFormat {
+			errCode = "response_format_unsupported"
+		}
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": errCode, "upstream_status": resp.StatusCode})
 		return
 	}
 	// SECURITY INVARIANT: the upstream 200 echoes the forced trial model in
