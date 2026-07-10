@@ -997,6 +997,14 @@ func (t *TelegramAPI) GetPhoto(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "getfile_failed"})
 		return
 	}
+	// Reject an over-cap file up front rather than streaming a silently-truncated
+	// (corrupt) image the client would AI-parse into a wrong meal. getFile reports
+	// the size before we download a byte.
+	if file.FileSize > maxPhotoProxyBytes {
+		slog.Warn("telegram photo: file over cap", "account", sess.AccountID, "size", file.FileSize)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "too_large"})
+		return
+	}
 	body, contentType, err := client.DownloadFile(r.Context(), file.FilePath)
 	if err != nil {
 		slog.Warn("telegram photo: download failed", "account", sess.AccountID, "error", err)
@@ -1010,8 +1018,13 @@ func (t *TelegramAPI) GetPhoto(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Cache-Control", "no-store")
+	// nosniff: the client consumes this via fetch()/blob() (never a top-level
+	// navigation) and re-checks the type, but this is cheap defense-in-depth
+	// against a future direct-navigation consumer.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	// Stream straight through — nothing buffered to disk, nothing logged but the
-	// byte count on error. LimitReader guards against an oversized upstream.
+	// byte count on error. LimitReader is a backstop; the size gate above is the
+	// real bound.
 	if _, err := io.Copy(w, io.LimitReader(body, maxPhotoProxyBytes)); err != nil {
 		slog.Warn("telegram photo: stream failed", "account", sess.AccountID, "error", err)
 	}
