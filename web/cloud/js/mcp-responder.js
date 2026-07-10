@@ -10,12 +10,12 @@ import { createBPDomain } from '../../domain/bp.js';
 import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
 import { openMCPFrame, sealMCPFrame, utf8 } from './crypto.js';
-import { CATALOG, EXCLUDED } from './mcp-catalog.generated.js';
+import { CATALOG } from './mcp-catalog.generated.js';
 
 // Re-exported: the catalog is generated from internal/mcp/registry by
 // cmd/genmcpcatalog, but this module stays its import site for the rest of
 // cloud mode. Regenerate with `go run ./cmd/genmcpcatalog`.
-export { CATALOG, EXCLUDED };
+export { CATALOG };
 
 const decoder = new TextDecoder();
 
