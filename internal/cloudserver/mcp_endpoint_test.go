@@ -351,3 +351,44 @@ func TestMCPCallEnvelopeLockstep(t *testing.T) {
 		}
 	}
 }
+
+// mcpHelpFields is the mcp_help wire envelope that buildHelp's precedence
+// chain (ids > query > topic > full catalog) reads.
+var mcpHelpFields = []string{"operation_id", "operation_ids", "topic", "query"}
+
+// TestMCPHelpEnvelopeLockstep is TestMCPCallEnvelopeLockstep's sibling for
+// mcp_help. Both tool wrappers once took `_ any` and sent `struct{}{}`, so the
+// SDK advertised no arguments and no agent could ever reach a drill-in — every
+// call returned the compact catalog and operation schemas were unreachable.
+func TestMCPHelpEnvelopeLockstep(t *testing.T) {
+	for _, tc := range []struct{ path, structName string }{
+		{"../../cmd/mcpshim/main.go", "helpInput"},
+		{"mcp_endpoint.go", "mcpEndpointHelpInput"},
+	} {
+		got := goStructJSONTags(t, tc.path, tc.structName)
+		if !slices.Equal(got, mcpHelpFields) {
+			t.Errorf("%s: json fields = %v, want %v", tc.structName, got, mcpHelpFields)
+		}
+	}
+
+	// Both wrappers must forward their typed input, not a discarded literal.
+	for _, path := range []string{"../../cmd/mcpshim/main.go", "mcp_endpoint.go"} {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		if !strings.Contains(string(src), `"mcp_help", input`) {
+			t.Errorf("%s: mcp_help handler does not forward its input to the responder", path)
+		}
+	}
+
+	responder, err := os.ReadFile("../../web/cloud/js/mcp-responder.js")
+	if err != nil {
+		t.Fatalf("read mcp-responder.js: %v", err)
+	}
+	for _, field := range mcpHelpFields {
+		if !strings.Contains(string(responder), "p."+field) {
+			t.Errorf("mcp-responder.js never reads mcp_help field %q", field)
+		}
+	}
+}

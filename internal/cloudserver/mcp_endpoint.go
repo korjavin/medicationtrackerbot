@@ -45,6 +45,17 @@ const (
 	hostedToolDescriptionSuffix = " This connector reaches your unlocked Med Tracker browser tab end-to-end encrypted via the relay; by enabling it you consented to this server seeing MCP requests and responses in transit (never stored). If no device is unlocked and online, it returns a clear error instead of hanging."
 )
 
+// mcpEndpointHelpInput mirrors cmd/mcpshim/main.go's helpInput. Without it
+// the SDK advertises mcp_help as taking no arguments and the agent can never
+// drill in for an operation's schemas. TestMCPHelpEnvelopeLockstep guards the
+// pair against drift.
+type mcpEndpointHelpInput struct {
+	OperationID  string   `json:"operation_id,omitempty" jsonschema:"one operation id to return in full, with its params_schema and body_schema"`
+	OperationIDs []string `json:"operation_ids,omitempty" jsonschema:"several operation ids to return in full, with their params_schema and body_schema"`
+	Topic        string   `json:"topic,omitempty" jsonschema:"list only this topic's operations, e.g. workouts"`
+	Query        string   `json:"query,omitempty" jsonschema:"keyword-search the catalog, e.g. blood pressure"`
+}
+
 // mcpEndpointCallInput mirrors cmd/mcpshim/main.go's callInput — the wire
 // contract web/cloud/js/mcp-responder.js's dispatcher expects, itself the
 // bot-mode envelope (internal/mcp/call.go:19-26) — duplicated rather than
@@ -98,9 +109,9 @@ func buildHostedMCPServer(client *mcpshim.Client) *sdkmcp.Server {
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        "mcp_help",
-		Description: "Discover the small catalog of Med Tracker operations this connector can run." + hostedToolDescriptionSuffix,
-	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, _ any) (*sdkmcp.CallToolResult, any, error) {
-		return call(ctx, "mcp_help", struct{}{})
+		Description: "Discover the small catalog of Med Tracker operations this connector can run. Call with no arguments for the terse catalog, then pass operation_id (or operation_ids) to get an operation's full schemas." + hostedToolDescriptionSuffix,
+	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, input mcpEndpointHelpInput) (*sdkmcp.CallToolResult, any, error) {
+		return call(ctx, "mcp_help", input)
 	})
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{

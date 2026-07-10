@@ -507,9 +507,13 @@ export function createDispatcher({
 // request message. Pure and framework-free so it can be exercised without
 // any WebSocket/crypto plumbing.
 export async function handleRequest(dispatcher, request) {
-  const response = { jsonrpc: '2.0', id: request.id };
+  // A frame decoding to JSON `null` would throw on `.id` outside the try, and
+  // onFrame swallows that — the agent then waits out an offline-device timeout
+  // instead of seeing an error.
+  const req = request || {};
+  const response = { jsonrpc: '2.0', id: req.id };
   try {
-    response.result = await dispatcher.handle(request.method, request.params);
+    response.result = await dispatcher.handle(req.method, req.params);
   } catch (e) {
     // JSON-RPC error.code MUST be numeric — the Go shim decodes it into an
     // int64 (jsonrpc.WireError.Code) and drops the whole frame on a string,
