@@ -8,6 +8,9 @@ export default defineConfig({
     restoreMocks: true,
     clearMocks: true,
     pool: 'threads',
+    // scrypt in backup-crypto.test.js is CPU-bound and takes 2.0-2.8s per case;
+    // the 5s default has no margin under thread contention on a loaded runner.
+    testTimeout: 20000,
     coverage: {
       provider: 'v8',
       reportsDirectory: 'coverage/frontend',
