@@ -120,10 +120,10 @@ The sender picks a fresh random nonce (`rand.Read`, `frame.go:70-72`).
 ➕ The resolved path has no consumer today — cloud mode dispatches by function, not URL — so `substitutePath` runs as validation only until med-csu.3 wires the catalogued `/{id}/` ops. Noted in a comment on the helper.
 
 ### Task 3: Write-intent gating
-- [ ] refuse any op whose catalog `risk === 'write'` unless `mode === 'write'` — the error must be actionable, naming both `mode: 'write'` and `intent` so an agent can self-correct on the next call
-- [ ] refuse `mode === 'write'` with an empty/whitespace `intent`, mirroring `call.go:78`
-- [ ] confirm the error surfaces as a **numeric** JSON-RPC code — `handleRequest` maps non-numeric `e.code` to `-32602` because the Go shim decodes `error.code` into an `int64` and silently drops the frame otherwise (that comment is in `handleRequest`; do not regress it)
-- [ ] integration test: a `risk: 'write'` op refused without `mode: 'write'`, accepted with `mode` + `intent`
+- [x] refuse any op whose catalog `risk === 'write'` unless `mode === 'write'` — the error must be actionable, naming both `mode: 'write'` and `intent` so an agent can self-correct on the next call
+- [x] refuse `mode === 'write'` with an empty/whitespace `intent`, mirroring `call.go:78`
+- [x] confirm the error surfaces as a **numeric** JSON-RPC code — `handleRequest` maps non-numeric `e.code` to `-32602` because the Go shim decodes `error.code` into an `int64` and silently drops the frame otherwise (that comment is in `handleRequest`; do not regress it)
+- [x] integration test: a `risk: 'write'` op refused without `mode: 'write'`, accepted with `mode` + `intent`
 
 ### Task 4: Warn-only schema validation mirroring registry.ValidateInput
 - [ ] validate `params` against the op's catalog `params_schema` and `body` against `body_schema`, plus the catalog's precomputed `required` field names

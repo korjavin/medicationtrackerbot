@@ -321,11 +321,20 @@ export function createDispatcher({
         throw new MCPError(-32602, `unknown operation "${opID}"${hint}`);
       }
 
-      // Absent mode means read-only, matching call.go:70-73. Write-intent
-      // gating on top of this lands in Task 3.
+      // Absent mode means read-only, matching call.go:70-73.
       const mode = p.mode == null || p.mode === '' ? MODE_READ_ONLY : String(p.mode);
       if (mode !== MODE_READ_ONLY && mode !== MODE_WRITE) {
         throw new MCPError(-32602, `mode must be "${MODE_READ_ONLY}" or "${MODE_WRITE}", got "${mode}"`);
+      }
+      // call.go:78 — a write must carry a stated intent. Both errors name the
+      // fields to set so the agent self-corrects on its next call instead of
+      // re-issuing the identical one.
+      if (mode === MODE_WRITE && String(p.intent || '').trim() === '') {
+        throw new MCPError(-32602, `intent is required and must be non-empty when mode is "${MODE_WRITE}"`);
+      }
+      if (BY_ID[opID] && BY_ID[opID].risk === MODE_WRITE && mode !== MODE_WRITE) {
+        throw new MCPError(-32602, `operation "${opID}" is a write — re-issue it with mode: "${MODE_WRITE}" `
+          + 'and a non-empty intent describing why.');
       }
 
       // Validates the path_params against the catalog allowlist and rejects an

@@ -37,7 +37,12 @@ describe('mcp-responder dispatch', () => {
       jsonrpc: '2.0',
       id: 2,
       method: 'mcp_call',
-      params: { op: 'health.bp.create', params: { measured_at: '2026-07-06T09:00:00.000Z', systolic: 120, diastolic: 80 } },
+      params: {
+        op: 'health.bp.create',
+        mode: 'write',
+        intent: 'log the reading the user just dictated',
+        params: { measured_at: '2026-07-06T09:00:00.000Z', systolic: 120, diastolic: 80 },
+      },
     });
     expect(createResp.error).toBeUndefined();
     expect(createResp).toMatchObject({ jsonrpc: '2.0', id: 2, result: { systolic: 120, diastolic: 80 } });
@@ -69,15 +74,15 @@ describe('mcp-responder dispatch', () => {
       jsonrpc: '2.0', id: 9, method: 'mcp_call', params: { op: 'health.notes.list', params },
     });
 
-    await handleRequest(dispatcher, {
+    const write = (content) => handleRequest(dispatcher, {
       jsonrpc: '2.0', id: 8, method: 'mcp_call',
-      params: { op: 'health.notes.create', params: { content: 'old note' } },
+      params: {
+        op: 'health.notes.create', mode: 'write', intent: 'seed a note', params: { content },
+      },
     });
+    await write('old note');
     clock = Date.parse('2026-07-06T12:00:00.000Z');
-    await handleRequest(dispatcher, {
-      jsonrpc: '2.0', id: 8, method: 'mcp_call',
-      params: { op: 'health.notes.create', params: { content: 'fresh note' } },
-    });
+    await write('fresh note');
 
     expect((await call({ days: 7 })).result.map((n) => n.content)).toEqual(['fresh note']);
     // Absent or non-positive days is unbounded, matching handleListNotes.
@@ -104,7 +109,9 @@ describe('mcp-responder dispatch', () => {
       jsonrpc: '2.0',
       id: 5,
       method: 'mcp_call',
-      params: { op: 'health.notes.create', params: { content: '' } },
+      params: {
+        op: 'health.notes.create', mode: 'write', intent: 'log a note', params: { content: '' },
+      },
     });
     expect(response.result).toBeUndefined();
     // Must be numeric so the Go shim's int64 decode doesn't drop the frame.
@@ -134,6 +141,39 @@ describe('mcp-responder dispatch', () => {
     const op = { id: 'food.log.delete', path: '/api/food/log/{id}', path_params: ['id'] };
     expect(substitutePath(op, { id: '1/../2' })).toBe('/api/food/log/1%2F..%2F2');
     expect(() => substitutePath(op, {})).toThrow('missing path_param "id"');
+  });
+
+  // A `risk: 'write'` op is refused unless the caller states mode + intent
+  // (call.go:74-80). Nothing is persisted by the refused call.
+  it('gates a write op on mode: write plus a non-empty intent', async () => {
+    const dispatcher = makeDispatcher();
+    const create = (extra) => handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 7,
+      method: 'mcp_call',
+      params: { op: 'health.notes.create', params: { content: 'hi' }, ...extra },
+    });
+
+    const noMode = await create({});
+    expect(noMode.error.code).toBe(-32602);
+    expect(noMode.error.message).toContain('mode: "write"');
+    expect(noMode.error.message).toContain('intent');
+
+    const blankIntent = await create({ mode: 'write', intent: '   ' });
+    expect(blankIntent.error.code).toBe(-32602);
+    expect(blankIntent.error.message).toContain('intent is required');
+
+    const badMode = await create({ mode: 'readonly' });
+    expect(badMode.error.code).toBe(-32602);
+
+    const listed = await handleRequest(dispatcher, {
+      jsonrpc: '2.0', id: 7, method: 'mcp_call', params: { op: 'health.notes.list', params: {} },
+    });
+    expect(listed.result).toHaveLength(0);
+
+    const ok = await create({ mode: 'write', intent: 'user dictated a note' });
+    expect(ok.error).toBeUndefined();
+    expect(ok.result).toMatchObject({ content: 'hi' });
   });
 });
 
