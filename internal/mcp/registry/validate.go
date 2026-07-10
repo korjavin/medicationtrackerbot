@@ -115,12 +115,14 @@ func RequiredMissing(op *Operation, params map[string]json.RawMessage, body json
 	if c.body != nil {
 		obj := map[string]json.RawMessage{}
 		if len(bytes.TrimSpace(body)) > 0 {
-			parsed, ok := asObject(body)
-			if !ok {
-				// A non-object body can't be field-checked; stay lenient.
-				return missing
+			// A present-but-non-object body (null / array / scalar) satisfies no
+			// required field, so leave obj empty and let every required body field
+			// be reported. Unlike ValidateInput (warn-only, stays lenient here),
+			// this is a hard gate: forwarding a `null` body would silently persist
+			// a malformed record — the exact med-d5t.11 shape this block prevents.
+			if parsed, ok := asObject(body); ok {
+				obj = parsed
 			}
-			obj = parsed
 		}
 		missing = append(missing, missingRequired("body", c.body, obj)...)
 	}

@@ -324,6 +324,38 @@ func TestMCPCall_WriteMissingRequiredBlocks(t *testing.T) {
 	}
 }
 
+// TestMCPCall_WriteNullBodyBlocks verifies an explicit non-object body (JSON
+// null) does not slip past the write block: it satisfies no required field, so
+// it must be rejected rather than forwarded as a malformed record. A bare `""`
+// (absent) body already blocks; `null`/array/scalar must behave the same.
+func TestMCPCall_WriteNullBodyBlocks(t *testing.T) {
+	dispatched := false
+	exec := &fakeExecutionService{
+		callFn: func(_ context.Context, _ CallRequest) (*CallResult, error) {
+			dispatched = true
+			return &CallResult{Status: ExecuteStatusOK, APICalls: 1}, nil
+		},
+	}
+	s := serverWithExecutor(exec, 0, 0)
+	s.reg = defaultRegistry(t)
+
+	_, err := callCall(t, s, CallInput{
+		OperationID: "medications.create",
+		Mode:        string(proxy.ModeWrite),
+		Intent:      "create med with null body",
+		Body:        json.RawMessage(`null`),
+	})
+	if err == nil {
+		t.Fatal("expected error for write op with a non-object (null) body")
+	}
+	if !strings.Contains(err.Error(), "required field missing") {
+		t.Errorf("error should name the missing fields: %v", err)
+	}
+	if dispatched {
+		t.Error("call must NOT dispatch when a non-object body carries no required field")
+	}
+}
+
 // TestMCPCall_ReadMissingRequiredStillWarns verifies the block is write-only: a
 // READ op missing a required param still forwards and only warns.
 // workouts.variants.list requires the group_id param.
