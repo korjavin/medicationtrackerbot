@@ -5,7 +5,7 @@
 // behavior, not of this module's bookkeeping.
 import { describe, expect, it, vi } from 'vitest';
 import { createIntakeDomain } from '../../../domain/medintake.js';
-import { applyIntakeSlotAction, applyTGCommand, applyTGPhoto, createInboxApplier, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO } from '../inbox-apply.js';
+import { applyIntakeSlotAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT } from '../inbox-apply.js';
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
 import { createNotesDomain } from '../../../domain/notes.js';
@@ -457,6 +457,63 @@ describe('inbox-apply.js — a Telegram data command', () => {
 
         expect(await records.list('foodlog')).toHaveLength(0);
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/add an OpenAI key/));
+    });
+
+    // --- Free-text AI agent (bd med-vcv.2) ---
+    // The loop itself is pinned in tg-agent.test.js; here the agent is a stub so
+    // only applyTGText's own responsibility — reply, verbosity, error-ack — is
+    // under test, the same way the food tests stub the provider boundary.
+    function textEvent(text) {
+        return { kind: TG_TEXT, text, at_unix: CMD_UNIX, reply_message_id: REPLY_ID };
+    }
+
+    it('a free-text message gets the agent answer as its edited reply', async () => {
+        const editReply = vi.fn();
+        const agent = { run: vi.fn().mockResolvedValue('Logged 2 eggs (140 kcal).') };
+        await applyTGText(textEvent('i ate two eggs'), 40, { agent, editReply });
+        expect(agent.run).toHaveBeenCalledWith('i ate two eggs');
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, 'Logged 2 eggs (140 kcal).');
+    });
+
+    it('generic verbosity suppresses the answer so no health value crosses Telegram', async () => {
+        const editReply = vi.fn();
+        const agent = { run: vi.fn().mockResolvedValue('Your BP this week averaged 128/84.') };
+        await applyTGText(textEvent('what was my bp?'), 41, { agent, verbosity: 'generic', editReply });
+        const [, text] = editReply.mock.calls[0];
+        expect(text).toBe('✅ Done.');
+        expect(text).not.toContain('128');
+    });
+
+    it('a long answer is truncated under the relay edit cap', async () => {
+        const editReply = vi.fn();
+        const agent = { run: vi.fn().mockResolvedValue('x'.repeat(5000)) };
+        await applyTGText(textEvent('tell me everything'), 42, { agent, editReply });
+        const [, text] = editReply.mock.calls[0];
+        expect([...text].length).toBeLessThanOrEqual(900);
+        expect(text.endsWith('…')).toBe(true);
+    });
+
+    it('a no-key agent tells the user to add one and acks', async () => {
+        const editReply = vi.fn();
+        const agent = { run: vi.fn().mockRejectedValue(Object.assign(new Error('no key'), { code: 'no_api_key' })) };
+        await expect(applyTGText(textEvent('hi'), 43, { agent, editReply })).resolves.toBeUndefined();
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/add an OpenAI key/));
+    });
+
+    it('any other agent failure is answered and acked, never left dangling', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const editReply = vi.fn();
+        const agent = { run: vi.fn().mockRejectedValue(new Error('provider exploded')) };
+        await expect(applyTGText(textEvent('hi'), 44, { agent, editReply })).resolves.toBeUndefined();
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/went wrong/));
+        warn.mockRestore();
+    });
+
+    it('an empty agent answer still edits the placeholder to a done ack', async () => {
+        const editReply = vi.fn();
+        const agent = { run: vi.fn().mockResolvedValue('   ') };
+        await applyTGText(textEvent('hi'), 45, { agent, editReply });
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, '✅ Done.');
     });
 });
 

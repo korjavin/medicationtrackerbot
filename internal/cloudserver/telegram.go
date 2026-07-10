@@ -107,6 +107,24 @@ type tgPhotoEvent struct {
 	ReplyMessageID int64 `json:"reply_message_id"`
 }
 
+// inboxEventKindTGText seals a free-text (non-command) message. Like every
+// inbound kind the relay parses NOTHING: at drain time an unlocked client runs
+// an OpenAI tool-calling loop over the MCP catalog with the user's own key, so
+// the model can log something or answer a question (bd med-vcv.2). The relay
+// never calls an AI provider on an inbound message (docs/cloud-mode.md →
+// "Inbound plaintext").
+const inboxEventKindTGText = "tg_text"
+
+type tgTextEvent struct {
+	Kind string `json:"kind"`
+	// Text is the message verbatim.
+	Text   string `json:"text"`
+	AtUnix int64  `json:"at_unix"`
+	// ReplyMessageID is the "queued" message the client edits into the agent's
+	// answer once the drain runs. 0 when the reply could not be sent.
+	ReplyMessageID int64 `json:"reply_message_id"`
+}
+
 // childCommands is the autocomplete menu registered on every linked bot. It
 // must list exactly what the bot answers — advertising a command that gets
 // dropped is the bug this exists to prevent (bd med-26y). /start and /help are
@@ -706,13 +724,19 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 	// forbidden to understand. Unknown commands are therefore sealed like any
 	// other and answered by the client at drain time.
 	//
-	// Free text (command == "") stays silently dropped: routing it is med-vcv's
-	// work, and echoing it would widen the zero-knowledge surface the consent
-	// screen declares.
+	// Free text (command == "") is sealed like a command and routed to the
+	// drain-time AI agent (bd med-vcv.2). The relay still parses nothing and
+	// calls no AI; it only seals the raw text, the same exposure the consent
+	// screen already declares. A truly empty message (a sticker, a location)
+	// carries no text to seal and is dropped.
 	switch cmd := botCommand(upd.Message.Text); cmd {
 	case "/start":
 		// fall through to the linking path below
 	case "":
+		if strings.TrimSpace(upd.Message.Text) != "" {
+			t.sealText(w, r, ref, bot, upd.Message)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		return
 	case "/help":
@@ -881,6 +905,64 @@ func (t *TelegramAPI) sealPhoto(w http.ResponseWriter, r *http.Request, ref stri
 		reply("Sorry — something went wrong. Try again.")
 	default:
 		slog.Info("telegram child webhook: photo queued", "ref", ref)
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// sealText seals a free-text message so the drain-time AI agent can act on it
+// (bd med-vcv.2). Structurally identical to sealCommand — the relay parses
+// nothing and calls no AI; it only seals the raw text and replies "Queued".
+func (t *TelegramAPI) sealText(w http.ResponseWriter, r *http.Request, ref string, bot *cloudstore.TGBot, msg *tgclient.Message) {
+	client, err := t.botClient(bot)
+	if err != nil {
+		slog.Error("telegram child webhook: open token", "error", err, "ref", ref)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	reply := func(text string) {
+		if err := client.SendMessage(r.Context(), msg.Chat.ID, text); err != nil {
+			slog.Error("telegram child webhook: send reply", "error", err, "ref", ref)
+		}
+	}
+
+	// No inbox key → the event MUST be dropped, never stored in the clear.
+	if pub, err := t.store.AccountInboxPublicKey(r.Context(), ref); err != nil || len(pub) == 0 {
+		if err != nil {
+			slog.Error("telegram child webhook: read inbox key", "error", err, "ref", ref)
+		}
+		reply(setupMessage)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	now := time.Now().UTC()
+	replyID, err := client.SendMessageReturningID(r.Context(), msg.Chat.ID, queuedMessage)
+	if err != nil {
+		slog.Error("telegram child webhook: send queued ack", "error", err, "ref", ref)
+	}
+
+	// SECURITY INVARIANT: msg.Text is message content — sealed here, never logged,
+	// never stored in the clear, never sent to an AI provider by the relay.
+	plaintext, err := json.Marshal(tgTextEvent{
+		Kind:           inboxEventKindTGText,
+		Text:           msg.Text,
+		AtUnix:         now.Unix(),
+		ReplyMessageID: replyID,
+	})
+	if err != nil {
+		slog.Error("telegram child webhook: marshal text event", "error", err, "ref", ref)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	switch err := SealAndQueue(r.Context(), t.store, ref, plaintext, now); {
+	case errors.Is(err, ErrNoInboxKey):
+		reply(setupMessage)
+	case err != nil:
+		slog.Error("telegram child webhook: seal text", "error", err, "ref", ref)
+		reply("Sorry — something went wrong. Try again.")
+	default:
+		slog.Info("telegram child webhook: text queued", "ref", ref)
 	}
 	w.WriteHeader(http.StatusOK)
 }

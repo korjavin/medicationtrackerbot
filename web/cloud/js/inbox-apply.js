@@ -30,11 +30,25 @@ import { createFoodAIDomain } from '../../domain/foodai.js';
 import { parseCommand } from '../../domain/tgcommand.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
+import { createApiRouter } from './apishim.js';
+import { createDispatcher } from './mcp-responder.js';
+import { createTGAgent } from './tg-agent.js';
 import { recordsPort, ORIGIN_EXTERNAL } from './sync.js';
 
 export const INTAKE_SLOT_ACTION = 'intake_slot_action';
 export const TG_COMMAND = 'tg_command';
 export const TG_PHOTO = 'tg_photo';
+export const TG_TEXT = 'tg_text';
+
+// Telegram's editMessageText caps at 4096; the relay's EditReply rejects >1000
+// runes (and empty). Keep a margin so an agent answer never trips it.
+const MAX_REPLY_RUNES = 900;
+
+function truncateRunes(s, n) {
+  const runes = [...s];
+  if (runes.length <= n) return s;
+  return `${runes.slice(0, n - 1).join('')}…`;
+}
 
 const INTAKE_RECORD_TYPE = 'intake';
 
@@ -288,6 +302,49 @@ export async function applyTGPhoto(event, eventId, { foodAI, verbosity = 'detail
   await reply(confirmationText({ kind: 'food' }, result, verbosity));
 }
 
+// applyTGText hands a free-text message to the drain-time AI agent (bd
+// med-vcv.2): the agent runs an OpenAI tool-loop over the MCP catalog with the
+// user's own key and returns a plain-text answer, which becomes the edited
+// reply. Like every inbound kind the failure posture is answer-and-ack, never
+// retry — the agent may have already written through its tools, and a re-drain
+// would re-run a non-deterministic loop and re-bill the provider.
+export async function applyTGText(event, eventId, { agent, verbosity = 'detailed', now = Date.now, editReply = editTelegramReply }) {
+  const reply = async (text) => {
+    try {
+      await editReply(event.reply_message_id, text);
+    } catch (e) {
+      console.warn('[inbox] could not update the Telegram reply', e);
+    }
+  };
+
+  let answer;
+  try {
+    answer = await agent.run(event.text);
+  } catch (e) {
+    if (e && e.code === 'no_api_key') {
+      await reply('🔑 To chat with the assistant, add an OpenAI key in Settings → Integrations (or the trial AI is unavailable right now).');
+      return;
+    }
+    console.warn('[inbox] free-text agent failed', e && e.code);
+    await reply('🤖 Something went wrong handling that — try again.');
+    return;
+  }
+
+  // Generic verbosity means no health value may cross Telegram (the same rule
+  // reminders and command confirmations honour). A free-text answer can contain
+  // readings the user asked to keep off chat, and we cannot reliably tell, so
+  // fall back to a content-free ack.
+  // ponytail: blanket-suppress under generic rather than scrubbing the answer —
+  // safe over clever; a greeting gets a terse "Done." which is harmless.
+  if (verbosity === 'generic') {
+    await reply('✅ Done.');
+    return;
+  }
+
+  const text = (answer || '').trim();
+  await reply(text ? truncateRunes(text, MAX_REPLY_RUNES) : '✅ Done.');
+}
+
 // confirmDueIntakes confirms every PENDING dose already due at `atMs` — the
 // chat equivalent of tapping Confirm on the most recent reminder. Doses due
 // later stay pending; confirming a dose you have not taken yet would be a lie
@@ -314,7 +371,7 @@ async function confirmDueIntakes({ intake, records, atMs, now }) {
 // decrypted event in, a domain write out. Unknown kinds are ignored rather than
 // thrown — a newer relay may queue kinds this client predates, and stalling the
 // whole drain on one of them would block the events it does understand.
-export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, foodAI: foodAIOverride } = {}) {
+export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, foodAI: foodAIOverride, agent: agentOverride } = {}) {
   // A Telegram-drained /bp must repaint an open BP screen (med-d5t.10), so this
   // is explicitly external even though that is already the default.
   const records = recordsOverride || recordsPort(ctx, ORIGIN_EXTERNAL);
@@ -330,6 +387,17 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     const foodDb = createFoodDbClient({ settingsDomain: settings });
     const food = createFoodDomain({ records, now, timeZone, foodDb });
     return createFoodAIDomain({ aiClient: createAIClient({ settingsDomain: settings }), foodDomain: food, now });
+  })();
+
+  // The free-text agent routes through the SAME apishim router + MCP responder
+  // the cloud UI and MCP connector use, so a message-driven write is one code
+  // path with the app (med-vcv.2). Tests inject agentOverride to stub the loop.
+  const agent = agentOverride || (() => {
+    const settings = createSettingsDomain({ records, now, timeZone });
+    const router = createApiRouter(ctx, { records, now, timeZone, origin: ORIGIN_EXTERNAL });
+    const dispatcher = createDispatcher({ router, now });
+    const aiClient = createAIClient({ settingsDomain: settings });
+    return createTGAgent({ chat: (a) => aiClient.chat(a), dispatcher });
   })();
 
   return async function apply(event, eventId) {
@@ -354,6 +422,12 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
       const reminders = createRemindersDomain({ records, now });
       const { verbosity } = await reminders.getDeliveryPref();
       await applyTGPhoto(event, eventId, { foodAI, verbosity, now, editReply });
+      return;
+    }
+    if (event.kind === TG_TEXT) {
+      const reminders = createRemindersDomain({ records, now });
+      const { verbosity } = await reminders.getDeliveryPref();
+      await applyTGText(event, eventId, { agent, verbosity, now, editReply });
       return;
     }
     if (event.kind !== INTAKE_SLOT_ACTION) {
