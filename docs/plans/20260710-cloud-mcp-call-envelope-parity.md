@@ -153,14 +153,28 @@ The sender picks a fresh random nonce (`rand.Read`, `frame.go:70-72`).
 ➕ The lockstep test reads the two Go structs from **source** (`regexp` over the `json:` tags), not reflection — `cmd/mcpshim` is `package main` and cannot be imported. The JS side is checked by asserting `mcp-responder.js` reads each `p.<field>`.
 
 ### Task 7: Verify acceptance criteria
-- [ ] verify the bead's criteria: a cloud `mcp_call` can express a path-param op and a write op with intent; a replayed write frame is applied exactly once; schema-mismatch produces the same warn-only warnings as bot mode
-- [ ] adversarially verify the replay guard: remove the dedupe line, confirm the replay test **fails**, restore it. A guard that cannot fail is not a guard
-- [ ] verify backward compatibility: an old-style `{op, params}` read call still works unchanged
-- [ ] verify edge cases: unknown `mode`; `mode: 'write'` with whitespace-only `intent`; a path param containing `/`; a write op replayed across a simulated reload (re-open the persisted ring)
-- [ ] run `go build ./...` — must pass
-- [ ] run `go test ./...` — must pass
-- [ ] run `pnpm test` — must pass
-- [ ] run the linter — all issues must be fixed
+- [x] verify the bead's criteria: a cloud `mcp_call` can express a path-param op and a write op with intent; a replayed write frame is applied exactly once; schema-mismatch produces the same warn-only warnings as bot mode
+- [x] adversarially verify the replay guard: remove the dedupe line, confirm the replay test **fails**, restore it. A guard that cannot fail is not a guard
+- [x] verify backward compatibility: an old-style `{op, params}` read call still works unchanged
+- [x] verify edge cases: unknown `mode`; `mode: 'write'` with whitespace-only `intent`; a path param containing `/`; a write op replayed across a simulated reload (re-open the persisted ring)
+- [x] run `go build ./...` — must pass
+- [x] run `go test ./...` — must pass
+- [x] run `pnpm test` — must pass
+- [x] run the linter — all issues must be fixed
+
+➕ Adversarial result: neutering the `isWriteRequest(request) && await nonceRing.seen(...)` condition in `onFrame`
+makes `applies a replayed write frame exactly once, even across a tab reload` fail — the second delivery returns a
+freshly created note instead of `-32600`. Restored; the guard is load-bearing.
+
+➕ Gate results: `go build ./...` clean; `go test ./...` clean (incl. `TestMCPCallEnvelopeLockstep`); `pnpm test`
+288 files / 3109 tests pass; `golangci-lint run ./...` reports 0 issues and `go vet ./...` is clean. There is no JS
+linter configured in this repo (no eslint dep, no config), so the linter item is Go-only by construction.
+
+➕ Every Task-7 criterion is already pinned by a test in the owning suites rather than checked by hand — envelope
+back-compat by the `op`-keyed `health.bp.list` round-trip, unknown `mode` / whitespace `intent` by
+`gates a write op on mode: write plus a non-empty intent`, a `/`-bearing path param by
+`substitutePath encodes values into their slot and rejects a missing one`, and replay-across-reload by the
+double-`boot(records)` case. No new tests were needed.
 
 ### Task 8: [Final] Update documentation
 - [ ] update `docs/cloud-mode.md`'s MCP section: the cloud `mcp_call` envelope now matches bot mode; write ops require `mode: 'write'` + `intent`; write frames are deduped by GCM nonce, persisted per-pairing and bounded
