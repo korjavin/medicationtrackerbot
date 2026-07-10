@@ -21,6 +21,8 @@ const transferSlotTTL = 10 * time.Minute
 type transferStore interface {
 	CreateTransferSlot(ctx context.Context, id, accountID string, enrollmentTokenHash, ct []byte, createdAt, expiresAt time.Time) error
 	ClaimTransferSlot(ctx context.Context, slotID string, newTokenHash []byte, now time.Time) (accountID string, ct []byte, err error)
+	TransferSlotStatus(ctx context.Context, slotID, accountID string, now time.Time) (string, error)
+	DeleteTransferSlot(ctx context.Context, slotID, accountID string) error
 	SweepExpiredTransferSlots(ctx context.Context, now time.Time) (int, error)
 	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
 }
@@ -42,6 +44,80 @@ func NewTransferAPI(store transferStore, sessionSecret string) *TransferAPI {
 func (a *TransferAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/transfer", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.CreateTransfer)))
 	mux.HandleFunc("POST /api/transfer/{slot_id}/claim", a.ClaimTransfer)
+	// Session-authed, unlike the claim: these two answer only to the device that
+	// opened the slot. Whoever merely holds the QR code learns nothing.
+	mux.Handle("GET /api/transfer/{slot_id}", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.GetTransfer)))
+	mux.Handle("DELETE /api/transfer/{slot_id}", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.DeleteTransfer)))
+}
+
+type transferStatusResponse struct {
+	Status string `json:"status"`
+}
+
+// GetTransfer reports whether the caller's own slot is still pending or has
+// been claimed, so the originating device can stop counting down and show that
+// enrollment succeeded (med-tuv). Before this, the screen offered a live
+// countdown and a Cancel button long after the new device had enrolled, and the
+// user had no way to tell whether it had worked.
+//
+// Unknown, expired, and other-account slots all 404 alike: a slot id must not
+// become a status oracle for whoever photographed the QR.
+func (a *TransferAPI) GetTransfer(w http.ResponseWriter, r *http.Request) {
+	session, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	slotID := r.PathValue("slot_id")
+	if slotID == "" {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	status, err := a.store.TransferSlotStatus(r.Context(), slotID, session.AccountID, time.Now().UTC())
+	if err != nil {
+		if errors.Is(err, cloudstore.ErrTransferSlotInvalid) {
+			http.Error(w, "transfer slot not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, transferStatusResponse{Status: status})
+}
+
+// DeleteTransfer invalidates the caller's own slot immediately.
+//
+// Cancel must mean cancelled. The button used to clear a local timer and
+// navigate away, leaving the slot live and claimable for the rest of its
+// 10-minute window — so a user who realised they had shown the QR to the wrong
+// person, or left it on a shared screen, pressed Cancel and reasonably believed
+// the code was dead. It was not. In an E2EE product that code enrolls a NEW
+// DEVICE onto the vault, so the button was teaching a false belief about a
+// live credential (med-tuv).
+func (a *TransferAPI) DeleteTransfer(w http.ResponseWriter, r *http.Request) {
+	session, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	slotID := r.PathValue("slot_id")
+	if slotID == "" {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if err := a.store.DeleteTransferSlot(r.Context(), slotID, session.AccountID); err != nil {
+		if errors.Is(err, cloudstore.ErrTransferSlotInvalid) {
+			// Already gone (expired, swept, or never ours). The caller's intent —
+			// "this code must not work" — holds either way.
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type createTransferRequest struct {

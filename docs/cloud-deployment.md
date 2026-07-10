@@ -362,6 +362,8 @@ Full ceremony details: [cloud-crypto.md](cloud-crypto.md).
 | `POST /api/loss-ack` | session | Record the "I understand data is unrecoverable" onboarding acknowledgment |
 | `POST /api/transfer` | session | Old device: create a transfer slot (`{ct}`) → `{slot_id, expires_at}`; the enrollment token is minted at claim time, not here |
 | `POST /api/transfer/{slot_id}/claim` | none | New device: single-fetch claim → `{ct, enrollment_token}`; 410 once fetched or expired |
+| `GET /api/transfer/{slot_id}` | session | Old device: poll `{status: pending\|claimed}` so the QR screen can report success. Scoped to the owning account — unknown, expired and other-account slots all 404 alike, so a slot id is never a status oracle for whoever holds the QR |
+| `DELETE /api/transfer/{slot_id}` | session | Old device: invalidate the slot immediately. Cancel means cancelled — the code stops being claimable at once, not when its 10-minute window runs out. 204 even if it was already gone |
 | `POST /api/recover` | none | Redeem a recovery-code verifier (rate-limited 5/hour/account) → recovery envelope + enrollment token |
 | `GET /api/devices` | session | List credentials joined with their envelopes, for the device-list/audit UI |
 | `DELETE /api/devices/{credential_id}` | session | Revoke a device: deletes credential + envelope in one tx; rejects removing the last verified credential unless usable recovery material (recovery envelope + verifier) exists |
