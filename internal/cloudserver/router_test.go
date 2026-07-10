@@ -120,7 +120,7 @@ func TestRouter_HostVariants(t *testing.T) {
 	}{
 		{"base domain serves landing page", "app.example.com", "/", http.StatusOK, "landing page"},
 		{"base domain with dev port", "app.example.com:8080", "/", http.StatusOK, "landing page"},
-		{"known subdomain serves the real app at root", "known-sub.app.example.com", "/", http.StatusOK, "<html><head>\n    <meta name=\"medtracker-food-db-url\" content=\"https://food.example.com\">\n    <meta name=\"medtracker-build-id\" content=\"dev\">\n    <meta name=\"medtracker-trial-ai\" content=\"1\">\n    <meta name=\"medtracker-trial-voice\" content=\"1\">\n    <script src=\"/js/cloud-boot.js\"></script></head><body>real app</body></html>"},
+		{"known subdomain serves the real app at root", "known-sub.app.example.com", "/", http.StatusOK, "<html><head>\n    <meta name=\"medtracker-food-db-url\" content=\"https://food.example.com\">\n    <meta name=\"medtracker-build-id\" content=\"dev\">\n    <meta name=\"medtracker-trial-ai\" content=\"1\">\n    <meta name=\"medtracker-trial-voice\" content=\"1\">\n    <script src=\"/js/cloud-boot.js\"></script>\n    <script type=\"module\" src=\"/js/update-check.js\"></script></head><body>real app</body></html>"},
 		{"known subdomain serves the unlock shell", "known-sub.app.example.com", "/unlock", http.StatusOK, "account shell"},
 		{"known subdomain claim serves the shell", "known-sub.app.example.com", "/claim", http.StatusOK, "account shell"},
 		{"known subdomain recover serves the shell", "known-sub.app.example.com", "/recover", http.StatusOK, "account shell"},
