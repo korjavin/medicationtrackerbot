@@ -305,8 +305,12 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   `cmd/mcpshim/main.go`'s `callInput`, and `internal/cloudserver/mcp_endpoint.go`'s
   `mcpEndpointCallInput` — `TestMCPCallEnvelopeLockstep` fails CI on drift. `path_params` are
   allowlisted against the op's catalog entry and URL-encoded per slot (validation only for now:
-  cloud dispatches by function, not URL). Schema mismatches produce warn-only `warnings` on the
-  response, exactly as `registry.ValidateInput` does — they never block a call.
+  cloud dispatches by function, not URL). Bot mode splits query `params` from request `body`;
+  cloud mode dispatches each op as a single-argument domain call, so the two merge (`body` wins on
+  a key collision) before validation and dispatch — the wired write ops advertise only
+  `body_schema`, so an agent following the catalog sends its payload in `body`. Schema mismatches
+  produce warn-only `warnings` on the response, exactly as `registry.ValidateInput` does — they
+  never block a call.
 - **Write ops require `mode: 'write'` plus a non-empty `intent`.** Any catalog op with
   `risk: 'write'` is refused otherwise, with an error naming both fields so an agent
   self-corrects. This means an old shim calling `bp.create` with a bare `{op, params}` is now

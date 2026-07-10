@@ -316,24 +316,30 @@ function checkObject(prefix, schema, obj) {
   return warnings;
 }
 
-// The catalog's precomputed `required` is the union of the two schemas' own
-// `required` lists (catalogjs.go:88), so checking the schemas covers it and
-// keeps each warning labelled with the field's real source.
-export function validateInput(op, params, body) {
+// Takes the merged `params` + `body` object cloud mode dispatches (see
+// mergeInput), checking it against whichever schemas the op declares so each
+// warning stays labelled with the field's real source. The catalog's
+// precomputed `required` is the union of the two schemas' own `required` lists
+// (catalogjs.go:88), so checking the schemas covers it. A non-object input
+// can't be field-checked; an empty object stands in (validate.go:84).
+export function validateInput(op, input) {
   if (!op) return [];
+  const obj = isPlainObject(input) ? input : {};
   const warnings = [];
-  if (op.params_schema) warnings.push(...checkObject('params', op.params_schema, isPlainObject(params) ? params : {}));
-  if (op.body_schema) {
-    // Cloud's wired write ops take their payload in `params` (bot mode splits
-    // query params from body), so an absent `body` validates `params` instead —
-    // unless the op declares both schemas, where `params` is already checked.
-    const raw = body != null || op.params_schema ? body : params;
-    // A non-object body can't be field-checked; stay lenient (validate.go:84).
-    if (raw == null) warnings.push(...checkObject('body', op.body_schema, {}));
-    else if (isPlainObject(raw)) warnings.push(...checkObject('body', op.body_schema, raw));
-  }
+  if (op.params_schema) warnings.push(...checkObject('params', op.params_schema, obj));
+  if (op.body_schema) warnings.push(...checkObject('body', op.body_schema, obj));
   return warnings;
 }
+
+// Bot mode splits query params from request body; cloud mode dispatches each op
+// as a single-argument domain call, so the two channels merge. The wired write
+// ops advertise only `body_schema`, so an agent that follows the catalog puts
+// its payload in `body` — without this merge that payload would be dropped and
+// the domain call would persist an empty record.
+const mergeInput = (params, body) => ({
+  ...(isPlainObject(params) ? params : {}),
+  ...(isPlainObject(body) ? body : {}),
+});
 
 // createDispatcher builds the mcp_help/mcp_call handlers over the injected
 // domain instances (same construction path apishim.js uses for bp/weight/
@@ -401,16 +407,16 @@ export function createDispatcher({
       }
 
       // Validates the path_params against the catalog allowlist and rejects an
-      // unfilled slot. `body` stays a pass-through for the write ops that take
-      // one; none of the six wired ops do, so nothing consumes it yet.
+      // unfilled slot.
       substitutePath(BY_ID[opID] || { id: opID }, p.path_params);
 
       // Warn-only, like call.go:118-121: a mismatch never blocks the call. The
       // warned response nests the value under `result` — the same shape bot
       // mode's CallResponse always uses — so an agent that ignores warnings
       // still gets its data. A clean call returns the bare value, unchanged.
-      const warnings = validateInput(BY_ID[opID], p.params, p.body);
-      const result = await fn(p.params);
+      const input = mergeInput(p.params, p.body);
+      const warnings = validateInput(BY_ID[opID], input);
+      const result = await fn(input);
       return warnings.length ? { result, warnings } : result;
     }
     throw new MCPError(-32601, `unknown method "${method}"`);

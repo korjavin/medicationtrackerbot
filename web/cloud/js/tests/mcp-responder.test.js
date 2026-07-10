@@ -178,6 +178,27 @@ describe('mcp-responder dispatch', () => {
     expect(ok.result).toMatchObject({ content: 'hi' });
   });
 
+  // The wired write ops advertise only `body_schema`, so an agent following the
+  // catalog sends its payload in `body`. That payload must reach the domain call
+  // rather than being dropped for an empty `params`.
+  it('dispatches a write payload sent in body, not just params', async () => {
+    const dispatcher = makeDispatcher();
+    const created = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 20,
+      method: 'mcp_call',
+      params: {
+        operation_id: 'health.bp.create',
+        mode: 'write',
+        intent: 'log the morning reading',
+        body: { measured_at: '2026-07-10T08:00:00Z', systolic: 120, diastolic: 80 },
+      },
+    });
+    expect(created.error).toBeUndefined();
+    expect(created.result.warnings).toBeUndefined();
+    expect(created.result).toMatchObject({ systolic: 120, diastolic: 80 });
+  });
+
   // registry.ValidateInput never blocks (call.go:118): a mistyped or missing
   // field warns, the call still runs, and the data comes back under `result`.
   it('warns on a schema mismatch without blocking the call', async () => {
