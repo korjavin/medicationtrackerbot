@@ -99,12 +99,22 @@ let _cloudNotificationsBound = false; // module-state: one-time guard so the clo
 function loadCloudPushModule() { return import('/js/push.js'); }
 function loadCloudRemindersModule() { return import('/js/reminders.js'); }
 
-async function refreshCloudPushToggleState(toggleBtn) {
+// status is passed only on the initial bind. After a deliberate Disable click
+// the granted-but-unsubscribed state is exactly what the user asked for, and
+// warning about it there would stomp the "Notifications disabled" confirmation.
+async function refreshCloudPushToggleState(toggleBtn, status) {
     try {
         const { getSubscription } = await loadCloudPushModule();
         const sub = await getSubscription();
         toggleBtn.dataset.subscribed = sub ? '1' : '0';
         toggleBtn.textContent = sub ? 'Disable' : 'Enable';
+        // Permission granted but no subscription means the push service evicted
+        // it and the boot-time repair could not restore it (med-d5t.3). A bare
+        // "Enable" button reads like a device that was never set up, so it would
+        // quietly imply reminders are fine. They are not — say so.
+        if (!sub && status && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            applyWebpushStatus(status, 'Reminders are not armed on this device — tap Enable to restore them.', 'error');
+        }
     } catch (e) {
         toggleBtn.dataset.subscribed = '0';
         toggleBtn.textContent = 'Enable';
@@ -138,7 +148,7 @@ function bindCloudNotifications() {
     // "Enable push notifications first."
     toggleBtn.disabled = true;
     testBtn.disabled = true;
-    const ready = refreshCloudPushToggleState(toggleBtn).finally(() => {
+    const ready = refreshCloudPushToggleState(toggleBtn, status).finally(() => {
         toggleBtn.disabled = false;
         testBtn.disabled = false;
     });

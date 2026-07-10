@@ -157,6 +157,57 @@ self.addEventListener('push', (event) => {
   );
 });
 
+// A push service can revoke and re-issue a subscription (Chrome fires this on
+// VAPID-key change or its own expiry housekeeping). Re-subscribe and re-upload,
+// or the endpoint the relay holds is dead and reminders stop silently.
+//
+// This is the BELT. Safari's support for this event is unreliable — and the
+// eviction case that actually bites iOS users (an unopened PWA) may fire it
+// never — so the braces are ensurePushSubscription() on every app boot
+// (web/cloud/js/push.js). Neither alone is enough; do not delete either.
+//
+// urlBase64ToUint8Array is duplicated from push.js rather than imported: this
+// worker is a classic script and deliberately self-contained (see top of file).
+function urlBase64ToUint8Array(base64) {
+  const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+  const raw = atob(padded.replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function resubscribeAndUpload(oldSubscription) {
+  // Reuse the exact applicationServerKey the dead subscription carried: this
+  // account's VAPID keypair is per-account and never rotated (rotation would
+  // orphan every subscription), so refetching is only a fallback for browsers
+  // that hand us no oldSubscription.
+  let key = oldSubscription && oldSubscription.options && oldSubscription.options.applicationServerKey;
+  if (!key) {
+    const keyRes = await fetch('/api/push/vapid-public-key', { credentials: 'same-origin' });
+    if (!keyRes.ok) throw new Error('vapid key unavailable');
+    const body = await keyRes.json();
+    key = urlBase64ToUint8Array(body.public_key);
+  }
+  const sub = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+  const json = sub.toJSON();
+  const res = await fetch('/api/push/subscriptions', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth }),
+  });
+  if (!res.ok) throw new Error('subscription upload failed: ' + res.status);
+}
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    resubscribeAndUpload(event.oldSubscription).catch((e) => {
+      // The session cookie may be gone, or we may be offline. The boot-time
+      // reconcile retries on the next app open — swallow rather than leaving
+      // an unhandled rejection in the worker.
+      console.error('[sw] push resubscribe failed', e);
+    })
+  );
+});
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const route = ACTION_ROUTES[event.action];

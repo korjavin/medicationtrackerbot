@@ -225,6 +225,17 @@ window.MedTrackerCloudReady = (async function boot() {
         import('/js/reminders.js')
             .then(({ scheduleReminderRecompute }) => scheduleReminderRecompute(ctx))
             .catch((e) => console.error('[cloud-boot] reminder recompute failed', e));
+        // Safari evicts the push subscription of a PWA left unopened for a few
+        // days, and nothing used to notice — reminders stopped forever, with no
+        // signal, on a medication tracker (med-d5t.3). If permission is still
+        // granted, re-subscribe and re-upload now. This is the load-bearing
+        // half of the fix; the SW's pushsubscriptionchange handler is the belt.
+        // Best-effort, never blocks boot; Settings reads the result.
+        import('/js/push.js')
+            .then(({ ensurePushSubscription }) => ensurePushSubscription())
+            .then((result) => { window.MedTrackerCloud.push = result; })
+            .catch((e) => console.error('[cloud-boot] push subscription check failed', e));
+
         // Task 4: if this account has a Claude pairing, this tab starts
         // answering MCP calls too — any unlocked device may be the one online
         // when the shim connects. refreshResponder reads the pairing from the
