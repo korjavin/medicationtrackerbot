@@ -896,10 +896,36 @@ func (s *Service) handleCall(w http.ResponseWriter, r *http.Request) {
 	// stringification (so typed schemas aren't false-failed by "7" vs
 	// {type:integer}). Accumulate per-run; merged into the final result's
 	// Warnings. Never blocks — the call forwards regardless.
-	if w := registry.ValidateInput(s.opts.Registry.Get(req.OperationID), req.Params, req.Body); len(w) > 0 {
+	op := s.opts.Registry.Get(req.OperationID)
+	if w := registry.ValidateInput(op, req.Params, req.Body); len(w) > 0 {
 		rs.warningsMu.Lock()
 		rs.warnings = append(rs.warnings, w...)
 		rs.warningsMu.Unlock()
+	}
+
+	// For a WRITE op, a missing required field is a hard block, not a warning:
+	// forwarding it lets the domain layer silently persist a malformed record
+	// (med-d5t.11: food.log.create with no eaten_at became invisible to every
+	// windowed read while the agent reported success). Mirror mcp_call: type
+	// mismatches stay warn-only above; only missing-required blocks, and only
+	// for writes. Synthesizing a proxy.CallError routes it through the same
+	// classify/emit path the proxy's own write-blocked rejection uses, so the
+	// script-side helper surfaces it as a ProxyDenied call failure.
+	if op != nil && op.Risk == registry.RiskWrite {
+		if missing := registry.RequiredMissing(op, req.Params, req.Body); len(missing) > 0 {
+			blockErr := &proxy.CallError{
+				Code: proxy.ErrRequiredFieldMissing,
+				Message: fmt.Sprintf("write op %q rejected: required field missing: %s",
+					op.ID, strings.Join(missing, ", ")),
+			}
+			outcome := classifyProxyResult(nil, blockErr)
+			rs.proxyDenials.Add(1)
+			if outcome.outcomeHeader != "" {
+				w.Header().Set("X-MCP-Outcome", outcome.outcomeHeader)
+			}
+			http.Error(w, outcome.errMsg, outcome.httpStatus)
+			return
+		}
 	}
 
 	// The bridge accepts string-valued query params, but scripts pass any JSON

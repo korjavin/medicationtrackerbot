@@ -79,13 +79,13 @@ mismatches stay warn-only (coercion is defensible). Read ops stay entirely warn-
       (c) a valid write still succeeds with no error.
 
 ### Task 3: mcp_execute blocks write ops with a missing required field
-- [ ] In `internal/mcp/executor/service.go` around line 899 (the per-`api.call` proxy
+- [x] In `internal/mcp/executor/service.go` around line 899 (the per-`api.call` proxy
       handler), when the resolved op is `RiskWrite` and `registry.RequiredMissing` is non-empty,
       fail that api.call (return an error to the script — an HTTP 4xx / error envelope the
       runner surfaces as a call failure) instead of appending a warning and forwarding via
       `rs.p.Call`. Use the same message shape as Task 2.
-- [ ] Keep the warn-only accumulation for reads/coercion and valid writes intact.
-- [ ] Extend the executor's existing test file: a script issuing a write op with a missing
+- [x] Keep the warn-only accumulation for reads/coercion and valid writes intact.
+- [x] Extend the executor's existing test file: a script issuing a write op with a missing
       required field sees that api.call fail (not a silent success + warning); a read still warns.
 
 ### Task 4: Cloud responder blocks write ops with a missing required field
