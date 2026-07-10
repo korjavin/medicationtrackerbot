@@ -12,6 +12,16 @@ import {
 } from '../mcp-responder.js';
 import { openDb } from '../localdb.js';
 
+// The coverage sweep drives medications.create, whose domain module calls the
+// rxnorm port — the real one fetches RxNav over the network. Stub it file-wide;
+// no test here asserts on interaction warnings.
+vi.mock('../rxnorm.js', () => ({
+  createRxnormPort: () => ({
+    searchRxNorm: async () => ({ rxcui: '', normalizedName: '' }),
+    checkInteractions: async () => [],
+  }),
+}));
+
 // The dispatcher under test routes through the real apishim router over an
 // in-memory records port — the same code path the cloud UI takes. Injecting a
 // stub router here would prove nothing about whether a catalogued op reaches a
@@ -717,5 +727,99 @@ describe('mcp-responder write-frame replay guard', () => {
     expect((await deliver(sock, frame)).error).toBeUndefined();
     expect((await deliver(sock, frame)).error).toBeUndefined();
     responder.stop();
+  });
+});
+
+// --- Coverage sweep (med-csu.3) ------------------------------------------
+// The acceptance proof: every catalogued op must reach a web/domain module
+// through the shared apishim router. apishim.js's unmapped-route 404 is what
+// makes that machine-checkable — the dispatcher maps it to a -32603 naming the
+// missing METHOD /path, and this sweep fails listing every op that trips it.
+//
+// Only that one failure mode counts. A domain error (no such medication, a
+// bogus schedule string) means the op *was* routed, which is all coverage
+// asserts.
+
+describe('cloud MCP coverage sweep', () => {
+  // Values are synthesized from each op's catalog `required` names, typed via
+  // whichever schema declares them. They only have to be well-formed enough to
+  // reach the router; the domain module is free to reject them.
+  function sampleValue(type) {
+    switch (type) {
+      case 'integer': case 'number': return 1;
+      case 'boolean': return true;
+      case 'array': return [];
+      case 'object': return {};
+      default: return '1';
+    }
+  }
+
+  function propType(op, name) {
+    const props = {
+      ...((op.params_schema && op.params_schema.properties) || {}),
+      ...((op.body_schema && op.body_schema.properties) || {}),
+    };
+    return [].concat((props[name] && props[name].type) || 'string')[0];
+  }
+
+  function synthesize(op) {
+    const pathParams = {};
+    for (const name of op.path_params || []) pathParams[name] = '1';
+    const input = {};
+    for (const name of op.required || []) {
+      if (!(name in pathParams)) input[name] = sampleValue(propType(op, name));
+    }
+    const params = { operation_id: op.id, params: input, path_params: pathParams };
+    if (op.risk === 'write') {
+      params.mode = 'write';
+      params.intent = 'coverage sweep';
+    }
+    return params;
+  }
+
+  it('routes every catalogued operation to a domain module', async () => {
+    allowConsoleNoise(); // the router warns once per unmapped route before throwing
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const router = createApiRouter(null, {
+      records: createInMemoryRecordsPort(), now, timeZone: 'UTC',
+    });
+    const dispatcher = createDispatcher({ router, now });
+
+    const unrouted = [];
+    for (const op of CATALOG) {
+      // Serial, not Promise.all: the writes share one records port and the
+      // failure list should read in catalog order.
+      const response = await handleRequest(dispatcher, {
+        jsonrpc: '2.0', id: 1, method: 'mcp_call', params: synthesize(op),
+      });
+      if (response.error && / has no route for /.test(response.error.message)) {
+        unrouted.push(`${op.id} → ${op.method} ${op.path}`);
+      }
+    }
+
+    expect(unrouted, `catalogued ops the cloud router cannot serve:\n  ${unrouted.join('\n  ')}`).toEqual([]);
+  });
+
+  // An op whose params carry an array or an object must survive the trip
+  // through the querystring — the sweep above would pass on a router that
+  // stringified them to "[object Object]" and ignored them.
+  it('round-trips an array-valued write param through the router', async () => {
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const router = createApiRouter(null, {
+      records: createInMemoryRecordsPort(), now, timeZone: 'UTC',
+    });
+    const dispatcher = createDispatcher({ router, now });
+    const response = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'mcp_call',
+      params: {
+        operation_id: 'medications.cancel_intake',
+        mode: 'write',
+        intent: 'coverage sweep',
+        params: { intake_ids: [] },
+      },
+    });
+    expect(response.error).toBeUndefined();
   });
 });

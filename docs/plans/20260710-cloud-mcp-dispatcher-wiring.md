@@ -131,16 +131,25 @@ A reviewer should be able to diff the responder and see only *adapter* code.
 - [x] ➕ the two `features.elevenlabs-call.test.js` voice-tool tests injected fake `bp`/`weight`/`notes` domains into `createDispatcher`; they now inject a stub router and assert the `(endpoint, method, body)` each voice tool produces
 
 ### Task 3: Coverage sweep — every catalog op reaches a domain module
-- [ ] integration test in `web/cloud/js/tests/mcp-responder.test.js`: iterate **all** of `CATALOG`, dispatch each op through the real dispatcher + real `createApiRouter` over an in-memory records port, and assert none throws the router's `404 Not found: …`
-- [ ] synthesize write payloads from each op's catalog `required` field names; pass `mode: 'write'` + an `intent` so the gate admits them
-- [ ] supply `path_params` for ops whose `path` has `{placeholder}` slots (seed a record first where an id is needed, so the op addresses something real)
-- [ ] the test must **name the failing op ids** in its failure message — a bare count tells the next author nothing
-- [ ] expect this to fail initially, listing roughly the 7 known-absent ops; that list is Task 4's real worklist (the substring scan is an estimate, the sweep is the truth)
+- [x] integration test in `web/cloud/js/tests/mcp-responder.test.js`: iterate **all** of `CATALOG`, dispatch each op through the real dispatcher + real `createApiRouter` over an in-memory records port, and assert none throws the router's `404 Not found: …` (matched via the dispatcher's `-32603 … has no route for …`, which is the router's 404 after mapping — a domain error means the op *was* routed and does not count)
+- [x] synthesize write payloads from each op's catalog `required` field names; pass `mode: 'write'` + an `intent` so the gate admits them (values typed off whichever schema declares the field: number→1, boolean→true, array→[], object→{}, else "1")
+- [x] supply `path_params` for ops whose `path` has `{placeholder}` slots. ⚠️ Scope note: no record is seeded — a not-found id still proves the route exists (a domain "no such medication" is not a routing gap), and the sweep stays free of per-op fixtures
+- [x] the test must **name the failing op ids** in its failure message — a bare count tells the next author nothing
+- [x] expect this to fail initially — it does, naming **8** ops (see Task 4's confirmed worklist). ➕ `workouts.miband.gps` was missed by the substring scan; the sweep found it. `medications.cancel_intake` pins the array-param querystring encoding, as promised in Task 2
+- ⚠️ This task lands a **red** suite by design (the plan's own instruction); Task 4 turns it green. `pnpm test` fails only on `mcp-responder.test.js` until then.
 
 ### Task 4: Route the ops the sweep proves are missing
 - [ ] for each op the sweep names, add its route to `apishim.js`'s `shimCall` — delegating to the matching `web/domain/*.js` function
 - [ ] where the domain module lacks the behavior, **add it to `web/domain/*.js`** (never to the responder or to apishim's router body), so apishim and MCP keep sharing one implementation. `architecture.domain-purity.test.js` guards that layer: no `window`, `document`, `fetch`, or IndexedDB
-- [ ] expected worklist (confirm against the sweep, do not trust this list): `POST /api/food/log/from-description`, `GET /api/food/products/search`, `GET /api/weight/goals/history`, `GET /api/workout/exercises/unique`, `POST /api/workout/rotation/initialize`, `GET /api/workout/rotation/state`, `POST /api/workout/sessions/schedule`
+- [ ] confirmed worklist, as named by the Task 3 sweep (8, not 7 — the scan missed `workouts.miband.gps`):
+  - `food.log.from_description` → `POST /api/food/log/from-description`
+  - `food.products.search` → `GET /api/food/products/search`
+  - `health.weight.goal.history.list` → `GET /api/weight/goals/history`
+  - `workouts.exercises.unique` → `GET /api/workout/exercises/unique`
+  - `workouts.miband.gps` → `GET /api/workout/miband/{id}/gps`
+  - `workouts.rotation.initialize` → `POST /api/workout/rotation/initialize`
+  - `workouts.rotation.state` → `GET /api/workout/rotation/state`
+  - `workouts.sessions.schedule` → `POST /api/workout/sessions/schedule`
 - [ ] `food.log.from-description` and `food.products.search` reach outside the vault (AI parsing / food DB). C2c ported those as **direct-from-browser** calls — reuse that path; do **not** route them through the relay, which would break the zero-knowledge boundary. If an op genuinely cannot be served in cloud mode, do not silently skip it: add it to `catalogjs.Excluded` with a reason, which the med-csu.1 drift guard then enforces
 - [ ] re-run the sweep until it passes with zero unrouted ops
 
