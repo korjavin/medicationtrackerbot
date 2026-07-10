@@ -91,6 +91,50 @@ describe('Settings → Import/Export section', () => {
         expect(env.document.getElementById('importexport-include-secrets').checked).toBe(true);
     });
 
+    // med-c2b: the import passphrase box is an answer to a question we can ask
+    // the file itself. It ships `hidden` and appears only for an age archive.
+    describe('import passphrase field', () => {
+        function pick(name, contents) {
+            const input = env.document.getElementById('importexport-import-file');
+            setFile(env.window, input, name, contents);
+            input.dispatchEvent(new env.window.Event('change'));
+            return env.document.getElementById('importexport-import-passphrase-field');
+        }
+
+        it('stays hidden for a plaintext archive', async () => {
+            env.window.BackupCrypto.isAgeFile = vi.fn(() => false);
+            const field = pick('vault.json', JSON.stringify(SAMPLE_VAULT));
+            await vi.waitFor(() => expect(env.window.BackupCrypto.isAgeFile).toHaveBeenCalled());
+            expect(field.hidden).toBe(true);
+        });
+
+        it('is revealed for an age-encrypted archive', async () => {
+            env.window.BackupCrypto.isAgeFile = vi.fn(() => true);
+            const field = pick('vault.json.gz.age', 'age-encryption.org/v1\n');
+            await vi.waitFor(() => expect(field.hidden).toBe(false));
+        });
+
+        it('is hidden again after switching back to a plaintext archive', async () => {
+            env.window.BackupCrypto.isAgeFile = vi.fn(() => true);
+            const field = pick('vault.json.gz.age', 'age-encryption.org/v1\n');
+            await vi.waitFor(() => expect(field.hidden).toBe(false));
+
+            env.window.BackupCrypto.isAgeFile = vi.fn(() => false);
+            pick('vault.json', JSON.stringify(SAMPLE_VAULT));
+            await vi.waitFor(() => expect(field.hidden).toBe(true));
+        });
+
+        // The `hidden` attribute above is only a UA `display:none`. The field's
+        // own class sets `display:flex`, which outranks it — so the JS hid the
+        // field and the CSS showed it anyway. Pin the guard rule.
+        it('has a CSS rule making [hidden] actually hide it', async () => {
+            const { readFile } = await import('node:fs/promises');
+            const css = await readFile(
+                new URL('../../css/styles.css', import.meta.url), 'utf8');
+            expect(css).toMatch(/\.wg-settings-integrations__field\[hidden\]\s*\{[^}]*display:\s*none/);
+        });
+    });
+
     it('bot export drops secrets when the checkbox is unchecked', async () => {
         const { window, document } = env;
         document.getElementById('importexport-include-secrets').checked = false;

@@ -11223,6 +11223,14 @@ textarea.wg-input {
     min-width: 0;
 }
 
+/* The [hidden] attribute is only a UA-stylesheet `display: none`, so the rule
+   above beat it: the import passphrase field ships `hidden` and importexport.js
+   reveals it only for age-encrypted archives, but it rendered unconditionally
+   (med-c2b). Same guard the weight-goal / call-indicator cards already carry. */
+.wg-settings-integrations__field[hidden] {
+    display: none;
+}
+
 .wg-settings-integrations__label {
     font-family: var(--wg-font-mono);
     font-size: var(--wg-settings-number-field-label-size);
