@@ -30,13 +30,60 @@ import (
 // provision — a user who never completes the BotFather dialog frees the row.
 const pendingTTL = time.Hour
 
-// welcomeMessage / testMessage are the only user-visible strings C3a sends —
-// server constants, no message content leaves the account beyond these (the
-// zero-knowledge posture the consent screen declares).
+// welcomeMessage / testMessage / helpMessage / unknownCommandMessage are the
+// only user-visible strings C3a sends — server constants, no message content
+// leaves the account beyond these (the zero-knowledge posture the consent
+// screen declares). helpMessage reads no vault data, so it is answerable
+// without the sealed inbound mailbox.
 const (
 	welcomeMessage = "✅ Your Med Tracker bot is connected."
 	testMessage    = "🔔 Test notification from Med Tracker — your bot works."
+
+	// Plain text: tgclient.SendMessage sends no parse_mode, so markdown would
+	// show up literally.
+	helpMessage = `Med Tracker — your self-hosted health tracker.
+
+/start — link this chat and connect your bot
+/help — show this message
+
+Reminders arrive in this chat; tap Confirm or Snooze right on the notification.
+
+Everything else lives in the app: medications, blood pressure, food, weight and workouts. Logging those by chat message is not available yet.`
+
+	unknownCommandMessage = "Unknown command. Try /help."
 )
+
+// childCommands is the autocomplete menu registered on every linked bot. It
+// must list exactly what ChildWebhook answers — advertising a command the
+// webhook drops is the bug this exists to prevent (bd med-26y).
+var childCommands = []tgclient.BotCommand{
+	{Command: "start", Description: "Link this chat and connect your bot"},
+	{Command: "help", Description: "Show the command list"},
+}
+
+// setChildCommands registers the autocomplete menu. Called at mint time (so
+// commands exist before the user's first /start) and again on /start (so bots
+// minted before this backfill on their next /start). Non-fatal: a bot with no
+// autocomplete still answers every command.
+func setChildCommands(ctx context.Context, client *tgclient.Client, accountID string) {
+	if err := client.SetMyCommands(ctx, childCommands); err != nil {
+		slog.Warn("telegram: set child commands", "error", err, "account", accountID)
+	}
+}
+
+// botCommand returns the normalized leading command ("/help") of a message, or
+// "" when the text is not a command. Telegram appends "@botname" when several
+// bots share a group, so strip that.
+func botCommand(text string) string {
+	if !strings.HasPrefix(text, "/") {
+		return ""
+	}
+	cmd := strings.Fields(text)[0]
+	if i := strings.Index(cmd, "@"); i >= 0 {
+		cmd = cmd[:i]
+	}
+	return strings.ToLower(cmd)
+}
 
 // TelegramAPI owns cmd/cloud's Telegram surface: the manager-bot bootstrap
 // (C3a Task 2), managed provisioning + webhooks (Tasks 3–4), and the
@@ -353,6 +400,9 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// Register autocomplete at mint, not just on /start — otherwise the menu
+	// is empty until the user guesses a command first (bd med-26y).
+	setChildCommands(r.Context(), child, accountID)
 	// Webhook is live — commit the bot row, gated on the pending row still
 	// existing: "start over" (reset) deletes it, and this atomic check makes a
 	// reset that lands mid-bind resolve cleanly. written=false means reset won the
@@ -572,7 +622,35 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if upd.Message == nil || !strings.HasPrefix(upd.Message.Text, "/start") {
+	if upd.Message == nil {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	// Non-/start commands need no chat link and touch no vault data — answer
+	// them before the linking path. Free-text (command == "") stays silently
+	// dropped: routing it anywhere is C3b's sealed-mailbox work, and echoing
+	// it would widen the zero-knowledge surface the consent screen declares.
+	switch cmd := botCommand(upd.Message.Text); cmd {
+	case "/start":
+		// fall through to the linking path below
+	case "":
+		w.WriteHeader(http.StatusOK)
+		return
+	default:
+		reply := unknownCommandMessage
+		if cmd == "/help" {
+			reply = helpMessage
+		}
+		client, err := t.botClient(bot)
+		if err != nil {
+			slog.Error("telegram child webhook: open token", "error", err, "ref", ref)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		// Never log cmd: a user's typo'd command is message content.
+		if err := client.SendMessage(r.Context(), upd.Message.Chat.ID, reply); err != nil {
+			slog.Error("telegram child webhook: send reply", "error", err, "ref", ref)
+		}
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -589,14 +667,8 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	// Automatically configure the bot's command menu
-	commands := []tgclient.BotCommand{
-		{Command: "start", Description: "Start the bot and open the App"},
-	}
-	if err := client.SetMyCommands(r.Context(), commands); err != nil {
-		slog.Warn("telegram child webhook: set commands", "error", err, "ref", ref)
-		// Non-fatal, just missing autocomplete
-	}
+	// Backfill autocomplete for bots minted before mint-time registration.
+	setChildCommands(r.Context(), client, ref)
 
 	if err := client.SendMessage(r.Context(), upd.Message.Chat.ID, welcomeMessage); err != nil {
 		slog.Error("telegram child webhook: send welcome", "error", err, "ref", ref)
@@ -667,6 +739,7 @@ func (t *TelegramAPI) BYO(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	setChildCommands(r.Context(), client, sess.AccountID)
 	if err := t.store.UpsertBot(r.Context(), cloudstore.TGBot{
 		AccountID:     sess.AccountID,
 		BotID:         me.ID,
