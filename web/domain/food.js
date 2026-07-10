@@ -45,6 +45,46 @@ function toISOString(v) {
   return v;
 }
 
+// A foodlog whose eaten_at cannot be parsed is invisible to EVERY windowed read,
+// permanently: Date.parse(undefined) is NaN, and `NaN >= start` is false, so the
+// row is silently dropped from listGrouped and stats on every reload (med-d5t.11).
+//
+// It happens because a caller may omit the field entirely. Food, unlike BP, has
+// no named voice tool that browser-stamps the timestamp, so the LLM writes
+// eaten_at itself — and it has no clock. The MCP required-field check is
+// warn-only and never blocks. So `undefined` sails into the record.
+//
+// Never let one into the store. from_description already got this right
+// (foodai.js: `eatenAt ?? now()`); this is the same guard at the shared write.
+function resolveEatenAt(value, fallbackIso) {
+  const iso = toISOString(value);
+  if (typeof iso === 'string' && iso && !Number.isNaN(Date.parse(iso))) return iso;
+  return fallbackIso;
+}
+
+// Read-side counterpart, for rows written before the guard existed. clientTs is
+// the write instant, so a corrupted row resurfaces on the day it was logged
+// rather than staying invisible forever. A record with neither a parseable
+// eaten_at nor a usable clientTs keeps the old NaN behavior (dropped from
+// windowed reads) rather than being dated to the epoch.
+function writeInstantMs(record) {
+  const ts = Number(record.clientTs);
+  return Number.isFinite(ts) ? ts : NaN;
+}
+
+function logInstantMs(record) {
+  const ms = Date.parse(record.eaten_at);
+  return Number.isNaN(ms) ? writeInstantMs(record) : ms;
+}
+
+// null (never a throw) when there is nothing to fall back to: `new
+// Date(undefined).toISOString()` is a RangeError, and a read path must not
+// explode on one bad row.
+function writeInstantIso(record) {
+  const ts = writeInstantMs(record);
+  return Number.isNaN(ts) ? null : new Date(ts).toISOString();
+}
+
 function genId(prefix, nowMs) {
   return `${prefix}_${nowMs}_${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -134,7 +174,9 @@ export function groupFoodLogs(logs, isMultiDay, timeZone) {
 function toLogResponse(record, isMeal) {
   const resp = {
     id: record.recordId,
-    eaten_at: record.eaten_at,
+    // Parseable values pass through byte-for-byte; a legacy corrupted one reads
+    // as its write instant instead of rendering "Invalid Date" in the UI.
+    eaten_at: resolveEatenAt(record.eaten_at, writeInstantIso(record)),
     weight: record.weight,
     carbs: record.carbs,
     protein: record.protein,
@@ -293,7 +335,9 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       recordId: genId('foodlog', nowMs),
       clientTs: nowMs,
       deleted: false,
-      eaten_at: toISOString(input.eaten_at),
+      // Missing or unparseable -> now(): a meal logged by voice with no clock
+      // was, in fact, eaten just now.
+      eaten_at: resolveEatenAt(input.eaten_at, new Date(nowMs).toISOString()),
       weight: input.weight || 0,
       carbs: input.carbs || 0,
       protein: input.protein || 0,
@@ -335,7 +379,12 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     const record = {
       ...existing,
       clientTs: now(),
-      eaten_at: toISOString(input.eaten_at),
+      // Fall back to the timestamp the row already had, not to now(): editing a
+      // meal's calories must not silently move it to the present. Before this,
+      // an update that omitted eaten_at (MCP food.log.update does not require
+      // it — validateInput is warn-only) overwrote a good timestamp with
+      // `undefined` and made the row vanish from every windowed read.
+      eaten_at: resolveEatenAt(input.eaten_at, resolveEatenAt(existing.eaten_at, new Date(now()).toISOString())),
       weight: input.weight || 0,
       carbs: input.carbs || 0,
       protein: input.protein || 0,
@@ -404,10 +453,10 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     const logs = all
       .filter((r) => !r.deleted)
       .filter((r) => {
-        const ms = Date.parse(r.eaten_at);
+        const ms = logInstantMs(r);
         return ms >= start && ms < endExclusive;
       })
-      .sort((a, b) => Date.parse(a.eaten_at) - Date.parse(b.eaten_at));
+      .sort((a, b) => logInstantMs(a) - logInstantMs(b));
 
     const responses = [];
     for (const record of logs) {
@@ -424,7 +473,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     const result = { calories: 0, carbs: 0, protein: 0, fat: 0 };
     for (const r of all) {
       if (r.deleted) continue;
-      const ms = Date.parse(r.eaten_at);
+      const ms = logInstantMs(r);
       if (ms < start || ms >= endExclusive) continue;
       result.calories += r.calories;
       result.carbs += r.carbs;
