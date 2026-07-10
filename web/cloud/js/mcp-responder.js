@@ -10,6 +10,7 @@ import { createBPDomain } from '../../domain/bp.js';
 import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
 import { openMCPFrame, sealMCPFrame, utf8 } from './crypto.js';
+import { openDb } from './localdb.js';
 import { CATALOG } from './mcp-catalog.generated.js';
 
 // Re-exported: the catalog is generated from internal/mcp/registry by
@@ -444,6 +445,73 @@ export async function handleRequest(dispatcher, request) {
   return response;
 }
 
+// --- Anti-replay: seen-nonce ring for write frames -----------------------
+// A frame is nonce(12) ‖ AES-GCM(key, payload, aad) and the sender draws the
+// nonce randomly per frame (internal/mcpshim/frame.go:70). A repeated nonce
+// under one key is therefore always either a relay replaying a captured frame
+// or a catastrophic sender bug — reject either way, with zero wire change.
+//
+// The ring lives in localdb's `device` store: local-only and never synced.
+// The `records` port is the encrypted oplog and would replicate every nonce to
+// every device. Persistence is the point — an in-memory Set is defeated by a
+// relay that waits for a tab reload.
+const NONCE_RING_LIMIT = 4096;
+
+function idbRequest(req) {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// createNonceRing returns a bounded FIFO of seen write-frame nonces for one
+// pairing. seen() is serialized through a promise chain so two frames in
+// flight cannot both miss the same nonce and both dispatch.
+export function createNonceRing(pairingId, { openStore = openDb } = {}) {
+  const key = `mcpSeenNonces:${pairingId}`;
+  let chain = Promise.resolve();
+
+  async function check(nonceHex) {
+    const db = await openStore();
+    try {
+      const tx = db.transaction('device', 'readwrite');
+      const store = tx.objectStore('device');
+      const ring = (await idbRequest(store.get(key))) || [];
+      if (ring.includes(nonceHex)) return true;
+      ring.push(nonceHex);
+      // FIFO: a flood of distinct nonces evicts the oldest entries. See the
+      // plan's security note — an AAD-bound counter is the durable fix.
+      if (ring.length > NONCE_RING_LIMIT) ring.splice(0, ring.length - NONCE_RING_LIMIT);
+      await idbRequest(store.put(ring, key));
+      return false;
+    } finally {
+      db.close();
+    }
+  }
+
+  return {
+    seen(nonceHex) {
+      const next = chain.then(() => check(nonceHex));
+      chain = next.then(() => {}, () => {});
+      return next;
+    },
+  };
+}
+
+const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+
+// Write-ness is decided from the catalog's `risk` (plus an explicit write
+// mode), after decrypt and parse but before dispatch. A replayed read is
+// idempotent; deduping reads would bloat the ring and break a legitimate agent
+// polling the same op.
+function isWriteRequest(request) {
+  if (!request || request.method !== 'mcp_call') return false;
+  const p = request.params || {};
+  if (p.mode === MODE_WRITE) return true;
+  const op = BY_ID[p.operation_id || p.op];
+  return !!op && op.risk === MODE_WRITE;
+}
+
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 
@@ -464,6 +532,7 @@ export const STATUS_NO_PAIRING = 4404;
 // then, so the callback must not stop it again.
 export function createResponder({
   pairingId, key, records, now, timeZone, relayURL, onStalePairing = () => {},
+  nonceRing = createNonceRing(pairingId),
 }) {
   const dispatcher = createDispatcher({
     bp: createBPDomain({ records, now, timeZone }),
@@ -496,13 +565,26 @@ export function createResponder({
     } catch {
       return; // ponytail: drop undecryptable frames (tamper/wrong-key); full C4 may alert.
     }
-    // ponytail: no anti-replay/dedup — the blind relay could replay a captured
-    // write frame and this re-executes it. Binding a per-connection counter into
-    // the frame AAD + a seen-id window here is full-C4 scope (see the plan).
     let request;
     try {
       request = JSON.parse(decoder.decode(payload));
     } catch {
+      return;
+    }
+    // Anti-replay: a write frame whose GCM nonce we have already answered is a
+    // replay (the sender draws a fresh nonce per frame), so it is refused
+    // before dispatch. Answering with a JSON-RPC error rather than staying
+    // silent keeps id-correlation intact — a silently dropped frame surfaces
+    // to the caller as a bogus offline-device timeout.
+    //
+    // ponytail: read frames are NOT deduped (a replayed read is idempotent) and
+    // there is no counter bound into the frame AAD, so the ring is bounded and
+    // FIFO — a relay that floods distinct nonces can eventually replay a very
+    // old write frame. An AAD counter is the durable fix (see the plan).
+    if (isWriteRequest(request) && await nonceRing.seen(hex(bytes.slice(0, 12)))) {
+      const dup = { jsonrpc: '2.0', id: request.id, error: { code: -32600, message: 'duplicate frame: this write was already applied' } };
+      const dupFrame = await sealMCPFrame(key, pairingId, utf8(JSON.stringify(dup)));
+      if (sock.readyState === WebSocket.OPEN) sock.send(dupFrame);
       return;
     }
     const response = await handleRequest(dispatcher, request);

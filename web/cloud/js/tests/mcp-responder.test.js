@@ -1,6 +1,8 @@
+import 'fake-indexeddb/auto';
 import {
   afterEach, beforeEach, describe, expect, it, vi,
 } from 'vitest';
+import { openMCPFrame, sealMCPFrame, utf8 } from '../crypto.js';
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
 import { createNotesDomain } from '../../../domain/notes.js';
@@ -376,8 +378,11 @@ class FakeSocket {
   constructor(url) {
     this.url = url;
     this.readyState = 0;
+    this.sent = [];
     FakeSocket.instances.push(this);
   }
+
+  send(data) { this.sent.push(data); }
 
   close() { this.readyState = 3; }
 
@@ -385,6 +390,7 @@ class FakeSocket {
   fireClose(code) { this.readyState = 3; this.onclose({ code }); }
 }
 FakeSocket.instances = [];
+FakeSocket.OPEN = 1;
 
 function makeResponder(overrides = {}) {
   FakeSocket.instances = [];
@@ -452,5 +458,83 @@ describe('mcp-responder reconnect loop', () => {
     vi.advanceTimersByTime(120_000);
     expect(FakeSocket.instances).toHaveLength(2);
     expect(onStalePairing).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- Anti-replay (med-csu.2) ---------------------------------------------
+// The dedupe lives at the frame layer, so this must drive a real sealed frame
+// through createResponder twice. Two dispatcher calls would prove nothing.
+
+describe('mcp-responder write-frame replay guard', () => {
+  const decoder = new TextDecoder();
+  const pairingId = 'pair-replay';
+  const key = new Uint8Array(32).fill(7);
+
+  beforeEach(() => { vi.stubGlobal('WebSocket', FakeSocket); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  function boot(records) {
+    FakeSocket.instances = [];
+    const responder = createResponder({
+      pairingId,
+      key,
+      records,
+      now: () => Date.parse('2026-07-06T12:00:00.000Z'),
+      timeZone: 'UTC',
+      relayURL: 'ws://relay.test/api/mcp/relay/device',
+    });
+    responder.connect();
+    const sock = FakeSocket.instances[0];
+    sock.readyState = 1;
+    return { responder, sock };
+  }
+
+  async function deliver(sock, frame) {
+    const before = sock.sent.length;
+    sock.onmessage({ data: frame.buffer });
+    await vi.waitFor(() => expect(sock.sent.length).toBe(before + 1));
+    const payload = await openMCPFrame(key, pairingId, sock.sent[sock.sent.length - 1]);
+    return JSON.parse(decoder.decode(payload));
+  }
+
+  it('applies a replayed write frame exactly once, even across a tab reload', async () => {
+    const records = createInMemoryRecordsPort();
+    const frame = await sealMCPFrame(key, pairingId, utf8(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 42,
+      method: 'mcp_call',
+      params: {
+        op: 'health.notes.create', mode: 'write', intent: 'user dictated a note', params: { content: 'once' },
+      },
+    })));
+
+    const first = boot(records);
+    expect((await deliver(first.sock, frame)).result).toMatchObject({ content: 'once' });
+
+    // Same sealed bytes again on the live connection: refused, not re-applied.
+    const replay = await deliver(first.sock, frame);
+    expect(replay.result).toBeUndefined();
+    expect(replay.error.code).toBe(-32600);
+    expect(replay.error.message).toContain('duplicate frame');
+    first.responder.stop();
+
+    // The ring is persisted, so a reload cannot clear the guard.
+    const reloaded = boot(records);
+    expect((await deliver(reloaded.sock, frame)).error.code).toBe(-32600);
+    expect(await reloaded.responder.dispatcher.handle('mcp_call', { op: 'health.notes.list', params: {} })).toHaveLength(1);
+    reloaded.responder.stop();
+  });
+
+  // A replayed read is idempotent — deduping it would break an agent polling
+  // the same op, and bloat the ring for no security gain.
+  it('lets a replayed read frame through', async () => {
+    const records = createInMemoryRecordsPort();
+    const frame = await sealMCPFrame(key, pairingId, utf8(JSON.stringify({
+      jsonrpc: '2.0', id: 43, method: 'mcp_call', params: { op: 'health.bp.list', params: {} },
+    })));
+    const { responder, sock } = boot(records);
+    expect((await deliver(sock, frame)).error).toBeUndefined();
+    expect((await deliver(sock, frame)).error).toBeUndefined();
+    responder.stop();
   });
 });
