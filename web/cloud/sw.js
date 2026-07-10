@@ -7,26 +7,21 @@
 // Safari < 16) and importScripts() can't load ES modules — so importing would
 // silently degrade every push to a generic notification on those browsers.
 
-const CACHE_NAME = 'medtracker-cloud-v1';
-const PRECACHE_URLS = [
-  '/index.html',
-  '/signup.html',
-  '/css/cloud.css',
-  '/js/app.js',
-  '/js/claim.js',
-  '/js/crypto.js',
-  '/js/devices.js',
-  '/js/localdb.js',
-  '/js/push.js',
-  '/js/recover.js',
-  '/js/signup.js',
-  '/js/sync.js',
-  '/js/transfer.js',
-  '/js/unlock.js',
-];
+// Rewritten to the deploy timestamp by .github/workflows/deploy.yml, exactly as
+// web/static/sw.js's CACHE_VERSION is. The value is never read — its only job is
+// to make this file's BYTES differ between deploys, which is the sole signal the
+// browser uses to decide a service worker has changed. Hardcode it and an
+// installed cloud SW is frozen forever, push handler and all (med-jb7.2).
+const SW_VERSION = 'CACHE_VERSION_PLACEHOLDER';
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS)));
+// This service worker is push-only: it handles install/activate/push/
+// notificationclick and has NO fetch handler, so it serves no assets and needs
+// no cache. It used to precache a list of shell URLs that nothing ever read.
+// Should cloud gain a real offline app-shell (deferred at
+// web/static/js/app-shell.js), a cache comes back with a fetch handler beside it.
+const CACHE_PREFIX = 'medtracker-cloud';
+
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
@@ -34,7 +29,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((names) => Promise.all(names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name))))
+      .then((names) => Promise.all(names.filter((name) => name.startsWith(CACHE_PREFIX)).map((name) => caches.delete(name))))
       .then(() => self.clients.claim())
   );
 });

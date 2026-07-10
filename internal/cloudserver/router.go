@@ -37,6 +37,7 @@ type Handler struct {
 	app        http.Handler // web/static assets, mounted under /static/
 	domain     http.Handler // web/domain modules, mounted under /domain/
 	appIndex   []byte       // web/static/index.html, served at "/" on subdomains
+	buildID    string       // asset fingerprint lifted out of appIndex; see version.go
 	api        http.Handler
 	mcp        http.Handler // Task 2: hosted-remote streamable-HTTP MCP endpoint, mounted at "/mcp/<token>"; nil until SetMCPHandler is called
 }
@@ -61,13 +62,15 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 	if err != nil {
 		panic("cloudserver: appFS missing index.html: " + err.Error())
 	}
+	buildID := buildIDFrom(idx)
 	return &Handler{
 		baseDomain: baseDomain,
 		store:      store,
 		shell:      http.FileServerFS(shellFS),
 		app:        http.StripPrefix("/static/", http.FileServerFS(appFS)),
 		domain:     http.StripPrefix("/domain/", http.FileServerFS(domainFS)),
-		appIndex:   injectCloudBoot(idx, foodDBURL, trialAI, trialVoice),
+		appIndex:   injectCloudBoot(idx, foodDBURL, trialAI, trialVoice, buildID),
+		buildID:    buildID,
 		api:        api,
 	}
 }
@@ -94,9 +97,10 @@ func (h *Handler) SetMCPHandler(mcp http.Handler) {
 // app-shell.js / data-store.js ever check it — so it goes first, ahead of
 // even native-bootstrap.js. web/static/index.html itself stays untouched;
 // this only rewrites the copy cmd/cloud serves.
-func injectCloudBoot(idx []byte, foodDBURL string, trialAI, trialVoice bool) []byte {
+func injectCloudBoot(idx []byte, foodDBURL string, trialAI, trialVoice bool, buildID string) []byte {
 	const marker = "<head>"
 	inject := "<head>\n    <meta name=\"medtracker-food-db-url\" content=\"" + html.EscapeString(foodDBURL) + "\">"
+	inject += "\n    <meta name=\"medtracker-build-id\" content=\"" + html.EscapeString(buildID) + "\">"
 	if trialAI {
 		inject += "\n    <meta name=\"medtracker-trial-ai\" content=\"1\">"
 	}
@@ -185,6 +189,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	r = r.WithContext(withAccount(r.Context(), account))
 
+	// Ahead of the /api/ forward: the build id lives on the Handler (it is read
+	// out of appIndex), not on any of the account-scoped API handlers.
+	if r.URL.Path == "/api/version" {
+		h.serveVersion(w, r)
+		return
+	}
+
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		if h.api == nil {
 			http.NotFound(w, r)
@@ -209,6 +220,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// one of those and also goes to the shell.
 	switch {
 	case r.URL.Path == "/unlock" || r.URL.Path == "/claim" || r.URL.Path == "/recover" || r.URL.Path == "/devices":
+		noStore(w)
 		r.URL.Path = "/signup.html"
 		h.shell.ServeHTTP(w, r)
 		return
@@ -230,9 +242,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("window.BOT_USERNAME = \"\";\nwindow.OIDC_CONFIG = {\"enabled\":false};\n"))
 		return
 	case strings.HasPrefix(r.URL.Path, "/static/"):
+		noStore(w)
 		h.app.ServeHTTP(w, r)
 		return
 	case strings.HasPrefix(r.URL.Path, "/domain/"):
+		noStore(w)
 		h.domain.ServeHTTP(w, r)
 		return
 	case strings.HasPrefix(r.URL.Path, "/mcp/"):
@@ -243,7 +257,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.mcp.ServeHTTP(w, r)
 		return
 	}
+	noStore(w)
 	h.shell.ServeHTTP(w, r)
+}
+
+// noStore is the explicit cache policy for every asset cmd/cloud serves, and
+// mirrors bot mode (internal/server/server.go). Cloud has two kinds of asset:
+// /static/* + /domain/* carry a `?v=<build_ts>` fingerprint, but the shell's own
+// files (/js/cloud-boot.js, /js/sync.js, /sw.js — injected and root-relative)
+// carry none at all, so nothing would ever bust them. Revalidating everything is
+// the one policy that is correct for both; long-lived immutable caching would
+// only be safe if EVERY path were fingerprinted, and the shell's are not.
+func noStore(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 }
 
 // accountCtxKey is the context key the resolved account is stashed under by
