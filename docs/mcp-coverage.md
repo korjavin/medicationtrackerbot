@@ -82,3 +82,15 @@ The bridge URL-escapes substitution values, so a path-param value of `1/2` is en
 ## Discoverability for agents
 
 `mcp_help` exposes every registered Operation's `path_params`, schemas, description, and example. The landing response (no-args call) includes a `Capabilities` map summarizing read/write counts per topic, so an agent looking for "can I do X?" can scan the topic list before drilling in. See `internal/mcp/help.go` and the `TestMCPHelp_*` tests.
+
+## Cloud mode: a two-tool surface, and a second coverage guard
+
+Everything above describes **bot mode**, where the MCP server runs beside the database and can read it. Cloud mode (`cmd/cloud`, see [cloud-mode.md](cloud-mode.md)) is zero-knowledge: the server never sees vault plaintext. That changes the coverage story in two ways.
+
+**`mcp_execute` has no cloud path, by design.** It forks `python3` subprocesses server-side (`internal/mcp/executor/service.go`). With no readable plaintext there is nothing for a server-side script runner to operate on, and giving it something would mean shipping plaintext to the server — the one property cloud mode exists to prevent. So cloud MCP is `mcp_help` + `mcp_call` only. Calling `mcp_execute` against a cloud connector returns an explicit error naming the reason, not an opaque "unknown method". Multi-step work chains `mcp_call`. Running the sandbox in-browser via Pyodide is the only zero-knowledge-preserving route and is parked as a research spike.
+
+This has a knock-on effect on the exemption reasons above: bucket 2 ("routes already served by an atomic MCP tool") justifies some exemptions by saying the route is reachable *through `mcp_execute`*. That reasoning holds in bot mode only. In cloud mode such a route is genuinely unreachable.
+
+**The cloud catalog has its own drift guard.** `web/cloud/js/mcp-catalog.generated.js` is generated from `registry.DefaultOperations()` by `cmd/genmcpcatalog` (logic in `internal/mcp/catalogjs`). `internal/mcp/catalogjs/drift_test.go` asserts every registry op is either in the generated catalog or in `catalogjs.Excluded` with a non-empty `Reason` — the same shape as `mcpCoverageExempt`, one layer out. A second test (`web/cloud/js/tests/mcp-responder.test.js`, "coverage sweep") drives every catalogued op through the shared `apishim` router and fails, naming the op, if any of them has no route.
+
+So a new registry operation must now satisfy **both** guards: reachable-or-exempt as an HTTP route (bot mode), and catalogued-and-routed-or-excluded (cloud mode). Regenerate with `go run ./cmd/genmcpcatalog`.

@@ -155,6 +155,29 @@ describe('mcp-responder dispatch', () => {
     expect(suggestOperations('health.notes.creat')).toContain('health.notes.create');
   });
 
+  // med-csu.4: cloud MCP is mcp_help + mcp_call by design. An agent that knows
+  // bot mode reaches for mcp_execute; a bare "unknown method" reads as an
+  // unimplemented method worth retrying, so the error must name the reason.
+  it('explains why mcp_execute does not exist in cloud mode', async () => {
+    const response = await handleRequest(makeDispatcher(), {
+      jsonrpc: '2.0', id: 7, method: 'mcp_execute', params: { script: 'output(1)' },
+    });
+    expect(response.result).toBeUndefined();
+    expect(response.error.code).toBe(-32601);
+    expect(response.error.message).toContain('not available in cloud mode');
+    expect(response.error.message).toContain('zero-knowledge');
+    // It must point the agent at the thing that does work, or it will retry.
+    expect(response.error.message).toContain('mcp_call');
+  });
+
+  it('still reports a genuinely unknown method as unknown', async () => {
+    const response = await handleRequest(makeDispatcher(), {
+      jsonrpc: '2.0', id: 8, method: 'mcp_nonsense', params: {},
+    });
+    expect(response.error.code).toBe(-32601);
+    expect(response.error.message).toContain('unknown method');
+  });
+
   it('rejects a path_param the catalog does not declare for the op', async () => {
     const dispatcher = makeDispatcher();
     const response = await handleRequest(dispatcher, {
