@@ -152,8 +152,8 @@ device leg's pairing identifier and the one close code.
 - [x] run the linter — `go vet ./...` and `gofmt -l` clean; no JS lint script in this repo
 
 ### Task 6: [Final] Update documentation
-- [ ] `docs/cloud-mode.md`: document both device-leg close codes and what each means for the vault record (4404 purge / 4409 step aside)
-- [ ] update the stale `ponytail:` comment in `mcp-responder.js` about cross-tab re-pair not being broadcast — a re-paired tab now learns via the close code, so state precisely what is still missing (a `BroadcastChannel`/storage-event nudge for a same-device, other-tab re-pair)
+- [x] `docs/cloud-mode.md`: document both device-leg close codes and what each means for the vault record (4404 purge / 4409 step aside)
+- [x] update the stale `ponytail:` comment in `mcp-responder.js` about cross-tab re-pair not being broadcast — a re-paired tab now learns via the close code, so state precisely what is still missing (a `BroadcastChannel`/storage-event nudge for a same-device, other-tab re-pair)
 
 ## Technical Details
 

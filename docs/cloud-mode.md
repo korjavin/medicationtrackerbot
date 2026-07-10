@@ -281,6 +281,22 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   inspection, no buffering beyond one in-flight frame per direction, 64 KiB frame cap,
   closes both ends when either drops. Pairings are in-memory (die with process restart) and
   currently one shim + one device per pairing.
+- **The device leg presents its pairing id** (`?pairing=<id>`) and the relay checks it against the
+  account's current pairing. A browser `WebSocket` cannot read a handshake HTTP status — a reject and
+  a network drop both surface as `onclose` — so both failures accept the upgrade and then close with
+  an application code the responder can branch on. The two codes are **not** interchangeable:
+
+  | code | meaning | responder |
+  |---|---|---|
+  | `4404` `StatusNoPairing` | the account has no pairing at all (relay table is in-memory, 24h TTL, lost on redeploy) | stop, and **purge** the vault record — it is a tombstone pointing at nothing |
+  | `4409` `StatusPairingReplaced` | the account has a live pairing, just not the one this leg presents | stop, and **do not purge** — release the Web-Lock election so the tab holding the current key takes over |
+
+  The `mcppairing` vault record is CRDT-synced across devices, so a tab that purges on `4409` would
+  delete the pairing every other device just adopted. A leg presenting *no* pairing id (an old
+  responder from a previous deploy) takes the `4409` path: it cannot prove which pairing it holds.
+  Without this check a stale tab reconnects onto the current pairing's device slot, evicts the tab
+  holding the right key (`pairingRecord.join` is last-writer-wins), and silently drops every frame it
+  cannot decrypt — the connector looks alive and every `mcp_call` times out.
 - The device answers using the *same operation catalog* as `internal/mcp/registry`, served by
   `web/cloud/js/mcp-responder.js` — `mcp_help` (discover) and `mcp_call` (executed by the
   in-browser domain layer against local data, same construction path as `apishim`).

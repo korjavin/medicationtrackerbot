@@ -807,9 +807,12 @@ export function createResponder({
 // tab across the account; the elected tab swaps its inner responder in place
 // as the pairing changes.
 //
-// ponytail: cross-tab re-pair isn't broadcast — if tab A holds the election
-// and the user re-pairs in tab B, tab A keeps the old key until it reloads.
-// A BroadcastChannel/storage-event nudge is full-C4 scope.
+// ponytail: a re-pair is not broadcast between tabs, but the elected tab no
+// longer squats with a dead key — it presents its pairing id, the relay closes
+// it with 4409, and it drops the election so the re-paired tab (queued on the
+// lock) takes over. What remains: the losing tab does not re-elect itself, so
+// on a same-device cross-tab re-pair it stays idle until its next unlock or
+// reload. A BroadcastChannel/storage-event nudge is full-C4 scope.
 let controllerCtx = null;
 let electing = false;
 let releaseLock = null;
