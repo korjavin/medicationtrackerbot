@@ -110,10 +110,10 @@ device leg's pairing identifier and the one close code.
 ## Implementation Steps
 
 ### Task 1: Reproduce the squat as a failing relay test
-- [ ] add a test to `internal/cloudserver/mcp_relay_test.go` that pairs an account (P1), re-pairs it (P2), then dials the **device** leg presenting P1
-- [ ] assert what current `master` actually does — the leg is accepted and joins P2's slot — so the bug is pinned in a test before it is fixed
-- [ ] extend it to show the eviction: with a device leg already attached on P2, a stale-P1 dial evicts it (`pairingRecord.join`, `:357`)
-- [ ] this test must **fail** after Task 2 lands and then be rewritten into the regression form (Task 4). Its purpose is to prove the bug exists on master, not to survive
+- [x] add a test to `internal/cloudserver/mcp_relay_test.go` that pairs an account (P1), re-pairs it (P2), then dials the **device** leg presenting P1
+- [x] assert what current `master` actually does — the leg is accepted and joins P2's slot — so the bug is pinned in a test before it is fixed
+- [x] extend it to show the eviction: with a device leg already attached on P2, a stale-P1 dial evicts it (`pairingRecord.join`, `:357`)
+- [x] this test must **fail** after Task 2 lands and then be rewritten into the regression form (Task 4). Its purpose is to prove the bug exists on master, not to survive
 
 ### Task 2: Device leg must present, and the relay must verify, its pairing id
 - [ ] in `internal/cloudserver/mcp_relay.go`, add `StatusPairingReplaced websocket.StatusCode = 4409` beside `StatusNoPairing`, with a comment stating the 4404-vs-4409 distinction from the table above

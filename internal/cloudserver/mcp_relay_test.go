@@ -371,3 +371,79 @@ func TestMCPRelay_DeviceWithoutPairingClosesWith4404(t *testing.T) {
 		t.Fatalf("close status = %d, want %d (err %v)", got, StatusNoPairing, err)
 	}
 }
+
+// TestMCPRelay_StaleDevicePairingSquatsCurrentSlot pins the BUG on master, so
+// the fix has something to break. The device leg resolves its pairing by
+// account (byAccountID) and never checks which pairing the connecting tab
+// actually holds — so a tab still holding the pre-re-pair id P1 is admitted
+// into P2's device slot, evicts the tab that holds P2, and then receives
+// frames sealed with a key it does not have (which it silently drops).
+//
+// Task 2 of docs/plans/20260710-cloud-mcp-replaced-pairing.md makes the relay
+// reject that dial with StatusPairingReplaced; this test is then rewritten
+// into its regression form (Task 4). It is expected to fail once the fix
+// lands — that is its whole purpose.
+func TestMCPRelay_StaleDevicePairingSquatsCurrentSlot(t *testing.T) {
+	h, host, claimToken := newTestMCPRelayHandler(t)
+	session := registerAndGetSession(t, h, host, claimToken)
+	stalePairingID := mintPairing(t, h, host, session) // P1
+	currentPairingID := mintPairing(t, h, host, session)
+	if stalePairingID == currentPairingID {
+		t.Fatalf("re-pair did not mint a new id")
+	}
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	client := wsClientFor(srv.Listener.Addr().String())
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	deviceHeader := http.Header{}
+	deviceHeader.Set("Cookie", session.Name+"="+session.Value)
+
+	// The shim is paired on P2 and seals with P2's key.
+	shimConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/shim?pairing="+currentPairingID, &websocket.DialOptions{HTTPClient: client})
+	if err != nil {
+		t.Fatalf("dial shim: %v", err)
+	}
+	defer shimConn.CloseNow()
+
+	// Tab B holds P2 — the legitimate device leg.
+	freshConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device?pairing="+currentPairingID, &websocket.DialOptions{
+		HTTPClient: client,
+		HTTPHeader: deviceHeader,
+	})
+	if err != nil {
+		t.Fatalf("dial fresh device: %v", err)
+	}
+	defer freshConn.CloseNow()
+
+	// Tab A still holds P1 and reconnects. On master it is accepted anyway.
+	staleConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device?pairing="+stalePairingID, &websocket.DialOptions{
+		HTTPClient: client,
+		HTTPHeader: deviceHeader,
+	})
+	if err != nil {
+		t.Fatalf("dial stale device: %v", err)
+	}
+	defer staleConn.CloseNow()
+
+	// The stale tab evicted the tab holding the current key (join, :357).
+	if _, _, err = freshConn.Read(ctx); err == nil {
+		t.Fatalf("fresh device leg should have been evicted by the stale dial")
+	}
+
+	// ...and now receives P2's frames, which it cannot decrypt.
+	want := []byte("sealed-with-P2-key")
+	if err := shimConn.Write(ctx, websocket.MessageBinary, want); err != nil {
+		t.Fatalf("shim write: %v", err)
+	}
+	_, got, err := staleConn.Read(ctx)
+	if err != nil {
+		t.Fatalf("stale device read: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("stale device got %q, want %q", got, want)
+	}
+}
