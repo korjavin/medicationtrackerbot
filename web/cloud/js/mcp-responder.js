@@ -861,7 +861,7 @@ async function reconcile() {
 // inner responder as the pairing changes.
 export function refreshResponder(ctx) {
   controllerCtx = ctx;
-  if (releaseLock || !(navigator.locks && navigator.locks.request)) {
+  if (releaseLock || !globalThis.navigator?.locks?.request) {
     // This tab already holds the election (or Web Locks is unsupported):
     // reconcile in place.
     reconcile().catch((e) => console.error('[mcp] responder reconcile failed', e));
