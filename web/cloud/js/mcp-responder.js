@@ -243,6 +243,35 @@ class MCPError extends Error {
 export const MODE_READ_ONLY = 'read_only';
 export const MODE_WRITE = 'write';
 
+const PATH_PLACEHOLDER = /\{([^{}]+)\}/g;
+const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+// substitutePath ports registry.SubstitutePath (internal/mcp/registry/
+// registry.go:571): fill the op's `{name}` slots from the caller's path_params,
+// allowlisted by the catalog's path_params, values percent-encoded so a value
+// like "1/../2" cannot escape its segment. A slot with no value is an error, so
+// no path can be dispatched with an "undefined" segment.
+//
+// The resolved path has no consumer yet — cloud mode dispatches by function,
+// not by URL — so today this runs as validation only. med-csu.3 wires the
+// catalogued /{id}/ ops and will route on the returned path.
+export function substitutePath(op, pathParams) {
+  const allowed = op.path_params || [];
+  const values = pathParams || {};
+  for (const name of Object.keys(values)) {
+    if (!allowed.includes(name)) {
+      throw new MCPError(-32602, `unknown path_param "${name}" for operation "${op.id}"`
+        + ` — allowed: ${allowed.length ? allowed.join(', ') : 'none'}`);
+    }
+  }
+  return String(op.path || '').replace(PATH_PLACEHOLDER, (_, name) => {
+    if (!has(values, name) || values[name] === '' || values[name] == null) {
+      throw new MCPError(-32602, `missing path_param "${name}" for operation "${op.id}"`);
+    }
+    return encodeURIComponent(String(values[name]));
+  });
+}
+
 // createDispatcher builds the mcp_help/mcp_call handlers over the injected
 // domain instances (same construction path apishim.js uses for bp/weight/
 // notes).
@@ -293,12 +322,16 @@ export function createDispatcher({
       }
 
       // Absent mode means read-only, matching call.go:70-73. Write-intent
-      // gating on top of this lands in Task 3; path_params/body plumbing in
-      // Task 2 — they are accepted here so the envelope is stable first.
+      // gating on top of this lands in Task 3.
       const mode = p.mode == null || p.mode === '' ? MODE_READ_ONLY : String(p.mode);
       if (mode !== MODE_READ_ONLY && mode !== MODE_WRITE) {
         throw new MCPError(-32602, `mode must be "${MODE_READ_ONLY}" or "${MODE_WRITE}", got "${mode}"`);
       }
+
+      // Validates the path_params against the catalog allowlist and rejects an
+      // unfilled slot. `body` stays a pass-through for the write ops that take
+      // one; none of the six wired ops do, so nothing consumes it yet.
+      substitutePath(BY_ID[opID] || { id: opID }, p.path_params);
 
       return fn(p.params);
     }

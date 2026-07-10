@@ -112,10 +112,12 @@ The sender picks a fresh random nonce (`rand.Read`, `frame.go:70-72`).
 - [x] keep the six wired dispatch entries unchanged (scope fence)
 
 ### Task 2: Path-param substitution validated against the catalog allowlist
-- [ ] add a helper that substitutes `path_params` into the op's `path` `{placeholder}` slots
-- [ ] validate against the op's catalog `path_params` allowlist: reject an unknown placeholder name, and reject a `path` placeholder left unsubstituted — both with a clear numeric-code JSON-RPC error
-- [ ] ensure a caller-supplied path param cannot inject a `/` or otherwise escape its slot (encode it)
-- [ ] leave `body` pass-through in place for write ops
+- [x] add a helper that substitutes `path_params` into the op's `path` `{placeholder}` slots (`substitutePath`, a port of `registry.SubstitutePath`; exported for the dispatcher test)
+- [x] validate against the op's catalog `path_params` allowlist: reject an unknown placeholder name, and reject a `path` placeholder left unsubstituted — both with a clear numeric-code JSON-RPC error (both `-32602`)
+- [x] ensure a caller-supplied path param cannot inject a `/` or otherwise escape its slot (encode it) — `encodeURIComponent` per slot, mirroring Go's `url.PathEscape`
+- [x] leave `body` pass-through in place for write ops (accepted in the envelope; no wired op consumes it yet)
+
+➕ The resolved path has no consumer today — cloud mode dispatches by function, not URL — so `substitutePath` runs as validation only until med-csu.3 wires the catalogued `/{id}/` ops. Noted in a comment on the helper.
 
 ### Task 3: Write-intent gating
 - [ ] refuse any op whose catalog `risk === 'write'` unless `mode === 'write'` — the error must be actionable, naming both `mode: 'write'` and `intent` so an agent can self-correct on the next call

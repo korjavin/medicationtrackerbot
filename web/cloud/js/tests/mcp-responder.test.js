@@ -7,7 +7,7 @@ import { createNotesDomain } from '../../../domain/notes.js';
 import { createInMemoryRecordsPort } from '../../../static/js/tests/helpers/cloud-shim-harness.js';
 import {
   CATALOG, createDispatcher, createResponder, handleRequest,
-  STATUS_NO_PAIRING, suggestOperations,
+  STATUS_NO_PAIRING, substitutePath, suggestOperations,
 } from '../mcp-responder.js';
 
 function makeDispatcher() {
@@ -115,6 +115,25 @@ describe('mcp-responder dispatch', () => {
 
   it('suggestOperations falls back to Levenshtein distance for an unrelated typo', () => {
     expect(suggestOperations('health.notes.creat')).toContain('health.notes.create');
+  });
+
+  it('rejects a path_param the catalog does not declare for the op', async () => {
+    const dispatcher = makeDispatcher();
+    const response = await handleRequest(dispatcher, {
+      jsonrpc: '2.0', id: 6, method: 'mcp_call',
+      params: { op: 'health.bp.list', params: {}, path_params: { id: '1' } },
+    });
+    expect(response.result).toBeUndefined();
+    expect(response.error.code).toBe(-32602);
+    expect(response.error.message).toContain('unknown path_param "id"');
+  });
+
+  // A caller-supplied value must not escape its `{id}` segment, and an unfilled
+  // slot must fail loudly rather than resolve to a literal "undefined".
+  it('substitutePath encodes values into their slot and rejects a missing one', () => {
+    const op = { id: 'food.log.delete', path: '/api/food/log/{id}', path_params: ['id'] };
+    expect(substitutePath(op, { id: '1/../2' })).toBe('/api/food/log/1%2F..%2F2');
+    expect(() => substitutePath(op, {})).toThrow('missing path_param "id"');
   });
 });
 
