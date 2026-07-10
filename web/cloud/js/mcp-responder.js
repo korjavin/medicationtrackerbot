@@ -419,6 +419,16 @@ export function createDispatcher({
     'health.notes.create': (p) => notes.create(p || {}),
   });
 
+  // Fail closed: the write-gate (`mode:write` + intent) and the anti-replay
+  // ring both read `risk` off BY_ID, so a wired-but-uncatalogued op would
+  // silently execute writes ungated and undeduped. Catch that at construction
+  // rather than at the security boundary — med-csu.3 wires many more ops, and
+  // catalogjs.Excluded can drop one out from under us.
+  const uncatalogued = Object.keys(ops).filter((id) => !BY_ID[id]);
+  if (uncatalogued.length) {
+    throw new Error(`mcp-responder: wired operations missing from the generated catalog: ${uncatalogued.join(', ')}`);
+  }
+
   async function handle(method, params) {
     if (method === 'mcp_help') {
       // Stamped here, where every mcp_help variant converges (help.go:76 does

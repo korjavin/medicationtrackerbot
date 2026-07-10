@@ -64,6 +64,20 @@ describe('mcp-responder dispatch', () => {
     expect(listResp.result[0]).toMatchObject({ systolic: 120, diastolic: 80 });
   });
 
+  // The write-gate and the anti-replay ring both read `risk` off the catalog,
+  // so a wired op the catalog doesn't carry would execute writes ungated and
+  // undeduped. createDispatcher throws on that; this pins the six wired ids as
+  // catalogued so an exclusion can't quietly reopen the hole.
+  it('catalogues every dispatchable operation, with write risk on the writes', () => {
+    const byID = new Map(CATALOG.map((op) => [op.id, op]));
+    for (const id of ['health.bp.list', 'health.weight.list', 'health.notes.list']) {
+      expect(byID.has(id), id).toBe(true);
+    }
+    for (const id of ['health.bp.create', 'health.weight.create', 'health.notes.create']) {
+      expect(byID.get(id)?.risk, id).toBe('write');
+    }
+  });
+
   // The generated catalog advertises `days` on health.notes.list, so the
   // dispatcher must honor it — not silently return the newest N regardless.
   it('honors the advertised days window on health.notes.list', async () => {
