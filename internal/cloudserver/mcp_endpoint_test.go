@@ -3,11 +3,10 @@ package cloudserver
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"regexp"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -302,43 +301,25 @@ func contains(ss []string, s string) bool {
 // older pairings and shim binaries still send.
 var mcpEnvelopeFields = []string{"operation_id", "op", "params", "path_params", "body", "mode", "intent"}
 
-var jsonTagRe = regexp.MustCompile(`json:"([^",]+)`)
-
-// goStructJSONTags returns the json tag names of the named struct, read from
-// source rather than reflected so the same helper works on cmd/mcpshim, whose
-// package main cannot be imported.
-func goStructJSONTags(t *testing.T, path, structName string) []string {
+// goStructJSONTags returns the json tag names of a wire-envelope struct in
+// declaration order.
+func goStructJSONTags(t *testing.T, v any) []string {
 	t.Helper()
-	src, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
-	re := regexp.MustCompile(fmt.Sprintf(`(?s)\ntype %s struct \{(.*?)\n\}`, regexp.QuoteMeta(structName)))
-	body := re.FindSubmatch(src)
-	if body == nil {
-		t.Fatalf("struct %s not found in %s", structName, path)
-	}
-	var fields []string
-	for _, m := range jsonTagRe.FindAllSubmatch(body[1], -1) {
-		fields = append(fields, string(m[1]))
+	rt := reflect.TypeOf(v)
+	fields := make([]string, 0, rt.NumField())
+	for i := 0; i < rt.NumField(); i++ {
+		fields = append(fields, strings.Split(rt.Field(i).Tag.Get("json"), ",")[0])
 	}
 	return fields
 }
 
-// TestMCPCallEnvelopeLockstep guards the three deliberately-duplicated
-// definitions of the mcp_call envelope: the Tier 1 shim's callInput, this
-// package's hosted mcpEndpointCallInput, and the browser responder that
-// decodes what they send. Nothing else couples them, so they drift silently —
-// a field dropped from one is a field the agent can never pass through it.
+// TestMCPCallEnvelopeLockstep guards the mcp_call envelope against the
+// browser responder that decodes it: nothing couples the Go type to
+// mcp-responder.js, so a field added or dropped on one side is a field the
+// agent can never pass through it.
 func TestMCPCallEnvelopeLockstep(t *testing.T) {
-	for _, tc := range []struct{ path, structName string }{
-		{"../../cmd/mcpshim/main.go", "callInput"},
-		{"mcp_endpoint.go", "mcpEndpointCallInput"},
-	} {
-		got := goStructJSONTags(t, tc.path, tc.structName)
-		if !slices.Equal(got, mcpEnvelopeFields) {
-			t.Errorf("%s: json fields = %v, want %v", tc.structName, got, mcpEnvelopeFields)
-		}
+	if got := goStructJSONTags(t, mcpshim.CallInput{}); !slices.Equal(got, mcpEnvelopeFields) {
+		t.Errorf("mcpshim.CallInput: json fields = %v, want %v", got, mcpEnvelopeFields)
 	}
 
 	responder, err := os.ReadFile("../../web/cloud/js/mcp-responder.js")
@@ -361,14 +342,8 @@ var mcpHelpFields = []string{"operation_id", "operation_ids", "topic", "query"}
 // SDK advertised no arguments and no agent could ever reach a drill-in — every
 // call returned the compact catalog and operation schemas were unreachable.
 func TestMCPHelpEnvelopeLockstep(t *testing.T) {
-	for _, tc := range []struct{ path, structName string }{
-		{"../../cmd/mcpshim/main.go", "helpInput"},
-		{"mcp_endpoint.go", "mcpEndpointHelpInput"},
-	} {
-		got := goStructJSONTags(t, tc.path, tc.structName)
-		if !slices.Equal(got, mcpHelpFields) {
-			t.Errorf("%s: json fields = %v, want %v", tc.structName, got, mcpHelpFields)
-		}
+	if got := goStructJSONTags(t, mcpshim.HelpInput{}); !slices.Equal(got, mcpHelpFields) {
+		t.Errorf("mcpshim.HelpInput: json fields = %v, want %v", got, mcpHelpFields)
 	}
 
 	// Both wrappers must forward their typed input, not a discarded literal.

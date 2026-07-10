@@ -41,6 +41,12 @@ var Excluded = []Exclusion{
 	{ID: "gamification.targets.read", Reason: gamificationReason},
 	{ID: "gamification.targets.set", Reason: gamificationReason},
 	{ID: "gamification.weekly_review", Reason: gamificationReason},
+	{
+		ID: "workouts.miband.gps",
+		Reason: "cloud vaults carry no GPS tracks: vaultToRecords drops workouts.miband[].gps on import " +
+			"(44% of a real vault, nothing renders it) — see docs/vault-format.md. The op could only ever " +
+			"return an empty track in cloud mode.",
+	},
 }
 
 // ExcludedIDs returns id → reason for cheap lookup.

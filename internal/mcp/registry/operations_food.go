@@ -24,13 +24,18 @@ func FoodOperations() []*Operation {
   }
 }`),
 			Description:     "List food log entries for a date window, grouped into meals. date defaults to today in the user's timezone. tz overrides with an IANA name (e.g. 'America/Los_Angeles'); tz_offset (minutes west of UTC) is a fallback only when the IANA name is unrecognized. The date string is interpreted in whichever timezone resolves first: tz, then tz_offset, then the user's stored timezone.",
-			ResponseSummary: "JSON array of food groups; each group has logs[] with id, eaten_at, weight, carbs, protein, fat, calories, name, product_id.",
+			ResponseSummary: "JSON array of meal groups {name, time (HH:MM), calories, carbs, protein, fat, logs[]}; each logs[] entry has id, eaten_at, weight, carbs, protein, fat, calories, is_meal, and (when set) name + product_id.",
 			ResponseExample: `[
   {
-    "date": "2026-04-29",
+    "name": "Breakfast",
+    "time": "08:00",
+    "calories": 415,
+    "carbs": 40,
+    "protein": 39,
+    "fat": 9,
     "logs": [
-      {"id": 901, "eaten_at": "2026-04-29T08:00:00Z", "weight": 200, "carbs": 40, "protein": 8, "fat": 5, "calories": 250, "name": "oatmeal", "product_id": 12},
-      {"id": 902, "eaten_at": "2026-04-29T12:30:00Z", "weight": 150, "carbs": 0, "protein": 31, "fat": 4, "calories": 165, "name": "chicken breast", "product_id": 7}
+      {"id": 901, "eaten_at": "2026-04-29T08:00:00Z", "weight": 200, "carbs": 40, "protein": 8, "fat": 5, "calories": 250, "name": "oatmeal", "product_id": 12, "is_meal": false},
+      {"id": 902, "eaten_at": "2026-04-29T08:05:00Z", "weight": 150, "carbs": 0, "protein": 31, "fat": 4, "calories": 165, "name": "chicken breast", "product_id": 7, "is_meal": false}
     ]
   }
 ]`,
@@ -52,15 +57,9 @@ output(result)`,
     "tz_offset": {"type": "integer"}
   }
 }`),
-			Description:     "Aggregated food stats over a date window: totals, daily averages, and breakdowns.",
-			ResponseSummary: "Stats object with calories, carbs, protein, fat totals plus per-day arrays.",
-			ResponseExample: `{
-  "totals": {"calories": 14210, "carbs": 1400, "protein": 700, "fat": 420},
-  "daily_average": {"calories": 2030, "carbs": 200, "protein": 100, "fat": 60},
-  "per_day": [
-    {"date": "2026-04-29", "calories": 2100, "carbs": 210, "protein": 105, "fat": 62}
-  ]
-}`,
+			Description:     "Total calories and macros consumed over a date window. Divide by `days` yourself for a daily average; there is no per-day breakdown here — use food.log.list for that.",
+			ResponseSummary: "Object with the window's total calories, carbs, protein, fat (integers, kcal and grams).",
+			ResponseExample: `{"calories": 14210, "carbs": 1400, "protein": 700, "fat": 420}`,
 			Example: `result = api.call("food.stats.read", params={"days": 7})
 output(result)`,
 		},

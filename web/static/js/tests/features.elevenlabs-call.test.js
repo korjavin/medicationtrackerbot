@@ -692,33 +692,36 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
         const { window, cleanup } = createConversationEnv();
         try {
             window.__MEDTRACKER_CLOUD__ = true;
-            const bp = { list: vi.fn(async () => []), create: vi.fn(async (p) => ({ id: 1, ...p })) };
-            const weight = { list: vi.fn(async () => []), create: vi.fn(async (p) => ({ id: 2, ...p })) };
-            const notes = { list: vi.fn(async () => []), create: vi.fn(async (p) => ({ id: 3, ...p })) };
-            window.CloudMCPDispatcher = createDispatcher({ bp, weight, notes });
+            // The dispatcher routes every op through apishim's router, so a
+            // stub router records the (endpoint, method, body) each voice tool
+            // produces. The route table itself is covered by the cloud suite.
+            const router = vi.fn(async (endpoint, method, body) => (method === 'GET' ? [] : { id: 1, ...body }));
+            window.CloudMCPDispatcher = createDispatcher({ router });
 
             const { opts } = await startCall(window);
             const t = opts.clientTools;
+            const routed = () => router.mock.calls.map(([endpoint, method, body]) => [endpoint, method, body]);
 
             // Each write must actually land in the domain, and the tool must
             // not swallow a gate rejection into an {error} string.
             const bpOut = JSON.parse(await t.log_blood_pressure({ systolic: 120, diastolic: 80 }));
             expect(bpOut.error).toBeUndefined();
-            expect(bp.create).toHaveBeenCalledTimes(1);
-            expect(bp.create.mock.calls[0][0]).toMatchObject({ systolic: 120, diastolic: 80 });
+            expect(routed()[0][0]).toBe('/api/bp');
+            expect(routed()[0][1]).toBe('POST');
+            expect(routed()[0][2]).toMatchObject({ systolic: 120, diastolic: 80 });
 
             const wOut = JSON.parse(await t.log_weight({ kg: 70.5 }));
             expect(wOut.error).toBeUndefined();
-            expect(weight.create).toHaveBeenCalledTimes(1);
+            expect(routed()[1].slice(0, 2)).toEqual(['/api/weight', 'POST']);
 
             const nOut = JSON.parse(await t.add_note({ text: 'slept well' }));
             expect(nOut.error).toBeUndefined();
-            expect(notes.create).toHaveBeenCalledTimes(1);
-            expect(notes.create.mock.calls[0][0]).toMatchObject({ content: 'slept well' });
+            expect(routed()[2][0]).toBe('/api/notes');
+            expect(routed()[2][2]).toMatchObject({ content: 'slept well' });
 
             // Reads still work without mode/intent.
             expect(JSON.parse(await t.get_blood_pressure({ days: 7 })).error).toBeUndefined();
-            expect(bp.list).toHaveBeenCalledTimes(1);
+            expect(routed()[3].slice(0, 2)).toEqual(['/api/bp?days=7', 'GET']);
         } finally {
             cleanup();
         }
@@ -729,26 +732,24 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
         const { window, cleanup } = createConversationEnv();
         try {
             window.__MEDTRACKER_CLOUD__ = true;
-            const notes = { list: vi.fn(async () => []), create: vi.fn(async (p) => ({ id: 3, ...p })) };
-            window.CloudMCPDispatcher = createDispatcher({
-                bp: { list: vi.fn(), create: vi.fn() },
-                weight: { list: vi.fn(), create: vi.fn() },
-                notes,
-            });
+            // The dispatcher routes through apishim's router; stub it here so
+            // this suite tests the voice tool's envelope, not the route table.
+            const router = vi.fn(async (endpoint, method, body) => ({ id: 3, ...body }));
+            window.CloudMCPDispatcher = createDispatcher({ router });
             const { opts } = await startCall(window);
 
             const ok = JSON.parse(await opts.clientTools.mcp_call({
                 op: 'health.notes.create', params: { content: 'hi' }, mode: 'write', intent: 'user asked',
             }));
             expect(ok.error).toBeUndefined();
-            expect(notes.create).toHaveBeenCalledTimes(1);
+            expect(router).toHaveBeenCalledWith('/api/notes', 'POST', { content: 'hi' });
 
             // Without mode, the same write is gated — not silently dropped.
             const gated = JSON.parse(await opts.clientTools.mcp_call({
                 op: 'health.notes.create', params: { content: 'hi' },
             }));
             expect(gated.error).toMatch(/is a write/);
-            expect(notes.create).toHaveBeenCalledTimes(1);
+            expect(router).toHaveBeenCalledTimes(1);
         } finally {
             cleanup();
         }
