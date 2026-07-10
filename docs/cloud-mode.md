@@ -60,6 +60,11 @@ Model the cloud as honest-but-curious **and** breachable. Design so that even a 
 | DEK, passkey PRF outputs, recovery code | Reminder **timing** (when pushes fire, not what) |
 | Reminder content (two-layer encrypted) | Push subscription endpoints (reveals browser vendor) |
 | Any plaintext record, ever | Optional: email (URL recovery only), TG bot token + chat id (opt-in) |
+| **Inbound** Telegram message content, at rest — sealed to the inbox key on arrival | **Outbound** Telegram reminder text, at the user's chosen verbosity (client-composed, forwarded verbatim) |
+| What an inbound message *means* — the relay never parses it and never calls AI on it | **Inbound** Telegram message content, **transiently in memory** — Telegram delivers bot updates in the clear; the relay cannot un-see them before sealing |
+| Meal photo pixels, at rest — only the Telegram `file_id` is sealed | That an inbound message arrived, its size, and its timestamp |
+
+The last three rows are the **inbound** posture, decided in `med-eas.29.1` and specified under [Inbound plaintext — what the relay may do](#inbound-plaintext--what-the-relay-may-do). The distinction that carries the whole design: *transiently in memory* is not the same exposure as *at rest*, *logged*, or *sent to a third party*. Telegram already sees every inbound message; the relay's job is to add nothing to that.
 
 **The honest caveat — code serving.** E2EE fully protects data at rest and in transit against the server. It cannot protect against the origin serving *poisoned JavaScript* that exfiltrates the key on next unlock — the fundamental limit of web-delivered cryptography (why Signal ships signed binaries). Mitigations, in increasing strength: subresource integrity + versioned immutable assets; service-worker-pinned bundles with update prompts (an installed PWA runs cached code — a hostile update requires the SW to accept it, which narrows the attack to update time); reproducible builds published to a transparency log; and ultimately, users who need stronger guarantees use the Capacitor store build against the same cloud (the cloud then serves only blobs + push, never code). The proposal accepts this residual risk for the PWA tier and documents it in user-facing security notes.
 
@@ -196,8 +201,57 @@ Zero-knowledge server vs. a chat bot is a real tension: the bot must exchange pl
   2. **At-least-once + idempotent apply**: re-draining an already-applied event must converge, not duplicate — guaranteed by deterministic record ids (e.g. a `Confirm` targets `intake-<medId>-<slotUnix>`) + LWW. Free-text events (`/food two eggs`) get a deterministic id derived from the mailbox event id, so a re-parse after a crash overwrites its own earlier result instead of double-logging.
   3. **Concurrent drainers are expected, not an error**: several unlocked clients may drain at once — including physical devices sharing one synced passkey (iCloud/Google-synced credentials look like a single device to the server; sync correctness never keys on credential identity — cursors and pending queues are per-client-local). Mailbox delete is per-event; the first ack wins, a second delete of the same event is a no-op, and duplicate applies converge per rule 2.
   4. **Apply in server-timestamp order** within a drain, and backdate records from the sealed server timestamp (not drain time) — that's what makes the 09:00 tap record 09:00.
-- **Free-text logging works through the same mailbox**: `/bp 120/80`, `/food two eggs`, `/weight 81.5` are sealed as raw text and parsed *client-side at drain time* by the same JS domain layer the app uses — including AI food parsing, since provider keys live in the vault and the drain runs on an unlocked client. The bot's immediate reply is necessarily generic ("saved — recorded next time you open the app"): the server can't confirm what it can't parse. Richer confirmation can arrive after drain, composed by the client (user-chosen verbosity).
+- **Free-text logging works through the same mailbox**: `/bp 120/80`, `/food two eggs`, `/weight 81.5` are sealed as raw text and parsed *client-side at drain time* by the same JS domain layer the app uses — including AI food parsing, since provider keys live in the vault and the drain runs on an unlocked client. The bot's immediate reply is necessarily generic ("saved — recorded next time you open the app"): the server can't confirm what it can't parse. Richer confirmation can arrive after drain, composed by the client (user-chosen verbosity). This is now ratified policy, not just a sketch — see [Inbound plaintext — what the relay may do](#inbound-plaintext--what-the-relay-may-do) for what the relay is and is not permitted to do, and why relay-side parsing was rejected.
+
+  **Not yet implemented.** The only inbound kind the code seals today is the slot-scoped `intake_slot_action` (Confirm/Snooze taps). Until `med-eas.29.2` lands, an unrecognized command gets a static `"Unknown command. Try /help."` and free text is silently dropped (`ChildWebhook`, `internal/cloudserver/telegram.go`). Those two branches are the seam: `med-eas.29.2` replaces them with seal-and-reply-queued.
 - **Not supported in cloud mode**: conversational queries ("what's my BP trend?") — answering requires reading data, which only clients can do; a live reply would need an online unlocked client anyway, at which point the user has the app open. That stays a server-mode feature.
+
+### Inbound plaintext — what the relay may do
+
+**Status: decided (`med-eas.29.1`), gates `med-eas.29.2` / `med-vcv` / `med-eas.30`.** The bullets above describe the mechanism; this section is the *policy*, and the constraint every downstream bead must implement against.
+
+**The tension.** Outbound is already settled: the client composes the reminder text at a verbosity it chose, and the relay forwards it verbatim (`SendReminder`, `internal/cloudserver/telegram.go` — "Nothing here derives text from account data"). Inbound is different in kind. Telegram delivers bot updates as **plaintext over a webhook**; there is no bot API that is end-to-end encrypted. The moment full chat management exists, food descriptions, BP numbers and diary text land in the relay's memory. The question was never *can we avoid the relay seeing it* — we cannot — but **what the relay is permitted to do with it once it has.**
+
+**Decision: seal-only. The relay never parses inbound content and never sends it to an AI provider.**
+
+Per inbound message the relay may:
+
+1. Read the leading command token, only to distinguish what it answers locally (`/start`, `/help`) from what it seals. It does **not** inspect arguments.
+2. `SealAndQueue` the **raw message text, verbatim** to the account's X25519 inbox public key, and append the ciphertext to `inbox_events`.
+3. Reply with a **fixed server constant** — "Queued — recorded when you next open the app." The reply is necessarily generic: the relay cannot confirm what it cannot parse. That is the feature, not a limitation.
+4. Forget the plaintext. It is never written to disk, never logged, never re-read.
+
+Everything else happens on an unlocked client: `drainInbox` decrypts, the existing JS domain layer parses (including AI food parsing, since provider keys live in the vault), and writes land through the normal domain path with an ack-after-flush barrier.
+
+**What this costs, stated plainly.** The sealed mailbox is drained only after a **tab unlocks** — the service worker never holds the DEK, so `web/cloud/sw.js` cannot drain (it has no fetch handler and never touches the vault). The push→drain nudge described above is *aspirational, not implemented*. So a `/bp 120 80` sent on the bus is recorded when the app is next opened, and the bot cannot echo the value back in the meantime. This matches the availability constraint MCP already lives with: **no live tab, no processing.** Accepted deliberately.
+
+**Alternatives rejected.**
+
+- **(a) Relay-side AI parse** (relay calls OpenAI with the operator trial key so the bot can reply "Logged 2 eggs, 12 g protein"). Rejected. It gives the relay the plaintext *and* the intent *and* a provider key, converting an honest-but-curious operator from someone who sees ciphertext and metadata into someone who reads every meal, reading, and diary line. The relay today holds **no** per-account key capable of decrypting anything (`accounts` stores only a VAPID keypair and the inbox **public** key — `012_inbox.sql` has no private column, deliberately). Option (a) would be the first thing in the system to break that, in exchange for a nicer bot reply. Not a trade worth making. The one existing carve-out — the trial AI proxy — stays what it is: an explicit, consent-gated, *outbound-initiated* choice the user makes in the app, not a silent property of receiving a text message.
+- **(c) Hybrid** (seal, reply "queued", relay later relays a client-composed answer back). Deferred, not rejected. It needs no new trust: the answer would be composed by the client and forwarded verbatim, exactly like `tg_text`. But it only pays off once the push→drain nudge exists, since otherwise the answer arrives when the user already has the app open. Revisit with that nudge.
+- **Structured-commands-only** (relay regex-parses `/bp 120 80` itself to reply exactly). Rejected: it buys a better reply by making the relay read the values, which is precisely the exposure the seal-only rule exists to prevent — and it cannot generalize to food or diary text anyway.
+
+**Photos — proxy, never store.** A photo is worse: the relay must download it, because only the relay holds the bot token. The rule:
+
+- Seal only the Telegram **`file_id`** (plus `mime`/`size`) into the mailbox. Never seal the bytes: multi-MB blobs in `inbox_events` would bloat every `GET /api/inbox` drain, and the mailbox is a control channel, not a blob store.
+- On drain, the client requests the image through a **session-gated, account-scoped relay endpoint** that resolves the `file_id` via `getFile` and **streams the bytes through** to the browser. Nothing is written to disk; nothing is logged but the status code. The vision parse then runs browser-side with the user's own key.
+- This is durable, contrary to first appearances: a Telegram **`file_id` is stable and re-usable** — it is the `file_path` returned by `getFile` that expires (~1h). The relay re-resolves on demand at drain time, so a photo sent on Monday and drained on Friday still fetches, as long as the file exists on Telegram's servers and the bot token is unchanged. A `getFile` failure is surfaced to the client as a normal error and the event is acked, not retried forever.
+
+**Retention and logging invariants** (test these, don't trust them):
+
+- **Never `slog` message content.** Not the text, not a typo'd command, not a caption, not the sealed ciphertext. Permitted fields: `ref`/account id, `update_id`, byte length, status codes. This extends the existing trial-proxy invariant (`slog.Info("trial chat proxy", …, "status", N)` logs a status, never a body) and the child-webhook rule already in the code: *"Do not log the raw Telegram payload, as it can contain PII."*
+- **No inbox key → drop, never store clear.** `SealAndQueue` returns `ErrNoInboxKey` when `accounts.inbox_public_key` is NULL; the caller must discard the event and reply "Open the app once to finish setting up." Already implemented for callback taps; free-text must follow it.
+- **No plaintext column, ever.** `inbox_events` holds `ct` and an ordering timestamp. Any bead proposing a `text` column has misread this section.
+- **The relay keeps no copy after the response is written.** Message text lives in the request goroutine and dies with it.
+
+**Consent copy implications** (feeds `med-eas.30`, which is blocked on this). Today's consent screen (`web/cloud/js/telegram.js` → `renderConsent`) covers *outbound* only: "it reads your reminder text." It says nothing about inbound, because inbound was two buttons. Once chat management ships, the copy must add, in the same plain register:
+
+- that messages you send the bot are **read by Telegram and pass through this server in the clear** — because Telegram bots cannot be end-to-end encrypted;
+- that the server **seals them immediately and never reads what they mean** — no parsing, no AI, no logs;
+- that this is why the bot answers "queued" instead of telling you what it recorded, and that the record appears **when you next open the app**;
+- for photos: that the image is **fetched through the server but never stored there**.
+
+The honest one-liner for the consent screen: *"Telegram sees your messages. This server passes them along sealed, and never reads them."*
 
 ### Managebot onboarding — invites over chat
 
