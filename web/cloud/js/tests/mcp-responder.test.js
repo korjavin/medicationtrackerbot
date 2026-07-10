@@ -8,7 +8,7 @@ import { createInMemoryRecordsPort } from '../../../static/js/tests/helpers/clou
 import { allowConsoleNoise } from '../../../static/js/tests/helpers/setup.js';
 import {
   CATALOG, clearNonceRing, createDispatcher, createNonceRing, createResponder,
-  handleRequest, STATUS_NO_PAIRING, substitutePath, suggestOperations,
+  handleRequest, STATUS_NO_PAIRING, STATUS_PAIRING_REPLACED, substitutePath, suggestOperations,
 } from '../mcp-responder.js';
 import { openDb } from '../localdb.js';
 
@@ -673,6 +673,80 @@ describe('mcp-responder reconnect loop', () => {
     vi.advanceTimersByTime(120_000);
     expect(FakeSocket.instances).toHaveLength(2);
     expect(onStalePairing).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops permanently on STATUS_PAIRING_REPLACED and reports the code', () => {
+    const onStalePairing = vi.fn();
+    const responder = makeResponder({ onStalePairing });
+    responder.connect();
+
+    FakeSocket.instances[0].fireClose(STATUS_PAIRING_REPLACED);
+
+    // The owner reacts differently to 4404 and 4409, so the code must reach it.
+    expect(onStalePairing).toHaveBeenCalledWith(STATUS_PAIRING_REPLACED);
+    expect(responder.getStatus()).toBe('idle');
+
+    vi.advanceTimersByTime(120_000);
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
+  it('presents its pairing id on the device leg', () => {
+    const responder = makeResponder({ pairingId: 'pair/1' });
+    responder.connect();
+    expect(FakeSocket.instances[0].url).toBe('ws://relay.test/api/mcp/relay/device?pairing=pair%2F1');
+    responder.stop();
+  });
+});
+
+// --- Vault-record safety on a replaced pairing (med-csu.5) -----------------
+// The vault pairing record syncs across devices. On 4409 the account still has
+// a live pairing — the record names the replacement — so purging it here would
+// destroy the pairing every other device just adopted. Only 4404 (no pairing at
+// all) leaves a tombstone worth purging. The two paths must not collapse.
+
+describe('mcp-responder controller vault-record safety', () => {
+  const KEY_B64 = `${'A'.repeat(43)}=`; // 32 zero bytes
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.stubGlobal('WebSocket', FakeSocket);
+    vi.stubGlobal('location', { protocol: 'https:', host: 'relay.test' });
+    FakeSocket.instances = [];
+  });
+  afterEach(() => {
+    vi.doUnmock('../mcp-pairing.js');
+    vi.doUnmock('../apishim.js');
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  async function bootController() {
+    const purgePairing = vi.fn(async () => {});
+    vi.doMock('../mcp-pairing.js', () => ({
+      getPairing: async () => ({ pairingId: 'pair-1', key: KEY_B64 }),
+      purgePairing,
+    }));
+    vi.doMock('../apishim.js', () => ({ createApiRouter: () => async () => ({ status: 200, body: {} }) }));
+    const mod = await import('../mcp-responder.js');
+    mod.refreshResponder({});
+    await vi.waitFor(() => expect(FakeSocket.instances).toHaveLength(1));
+    return { mod, purgePairing };
+  }
+
+  it('does not purge the vault record when the pairing was replaced (4409)', async () => {
+    const { mod, purgePairing } = await bootController();
+
+    FakeSocket.instances[0].fireClose(mod.STATUS_PAIRING_REPLACED);
+
+    expect(purgePairing).not.toHaveBeenCalled();
+  });
+
+  it('purges the vault record when the pairing is gone (4404)', async () => {
+    const { mod, purgePairing } = await bootController();
+
+    FakeSocket.instances[0].fireClose(mod.STATUS_NO_PAIRING);
+
+    expect(purgePairing).toHaveBeenCalledTimes(1);
   });
 });
 

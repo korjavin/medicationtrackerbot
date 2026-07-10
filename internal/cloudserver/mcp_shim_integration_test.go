@@ -31,7 +31,7 @@ func dialFakeDevice(t *testing.T, client *http.Client, host string, session *htt
 	header.Set("Cookie", session.Name+"="+session.Value)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	conn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device", &websocket.DialOptions{
+	conn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device?pairing="+pairingID, &websocket.DialOptions{
 		HTTPClient: client,
 		HTTPHeader: header,
 	})

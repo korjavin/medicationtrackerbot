@@ -671,6 +671,11 @@ const RECONNECT_MAX_MS = 30000;
 // no pairing for this account, so reconnecting is futile.
 export const STATUS_NO_PAIRING = 4404;
 
+// Mirrors StatusPairingReplaced: the account HAS a live pairing, just not the
+// one this tab presented. Also terminal, but the vault record must survive —
+// it names the replacement (see reconcile).
+export const STATUS_PAIRING_REPLACED = 4409;
+
 // createResponder wires a live relay connection: decrypts each inbound
 // frame, dispatches it via handleRequest, encrypts the response, and
 // reconnects with backoff while the tab lives (docs/cloud-mode.md "Tab
@@ -679,9 +684,10 @@ export const STATUS_NO_PAIRING = 4404;
 // module). `router` is an apishim createApiRouter over this account's records
 // port — the same route table the cloud UI dispatches through.
 //
-// onStalePairing fires when the relay reports the pairing is gone; the owner
-// (reconcile) drops the vault record. The responder is already stopped by
-// then, so the callback must not stop it again.
+// onStalePairing(code) fires when the relay refuses this pairing — 4404 (gone)
+// or 4409 (replaced). The owner (reconcile) reacts differently to each, so the
+// code is passed through. The responder is already stopped by then, so the
+// callback must not stop it again.
 export function createResponder({
   pairingId, key, router, now, relayURL, onStalePairing = () => {},
   nonceRing = createNonceRing(pairingId),
@@ -694,10 +700,15 @@ export function createResponder({
   let status = 'idle';
   let stopped = false;
 
+  // The device leg must prove which pairing it holds: the relay compares this
+  // id to the account's current pairing and closes a stale leg with 4409 rather
+  // than letting it evict the tab that holds the live key (mcp_relay.go's
+  // DeviceSocket).
   function wsURL() {
-    if (relayURL) return relayURL;
-    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${location.host}/api/mcp/relay/device`;
+    // `location` is only touched when no relayURL was injected — the fallback
+    // must stay inside the `||` so non-browser callers never evaluate it.
+    const base = relayURL || `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/api/mcp/relay/device`;
+    return `${base}?pairing=${encodeURIComponent(pairingId)}`;
   }
 
   async function onFrame(data) {
@@ -755,13 +766,14 @@ export function createResponder({
     ws.onmessage = (ev) => { onFrame(ev.data).catch(() => {}); };
     ws.onclose = (ev) => {
       status = 'idle';
-      // The relay forgot this pairing (see StatusNoPairing in mcp_relay.go).
-      // Reconnecting can never succeed: stop, and let the owner drop the
-      // stale vault record. Every other close is transient — back off.
-      if (ev && ev.code === STATUS_NO_PAIRING) {
+      // The relay refuses this pairing — it's gone (4404) or it was replaced
+      // (4409). Reconnecting can never succeed under either: stop, and let the
+      // owner decide what to do with the vault record. Every other close is
+      // transient — back off.
+      if (ev && (ev.code === STATUS_NO_PAIRING || ev.code === STATUS_PAIRING_REPLACED)) {
         stopped = true;
         clearTimeout(reconnectTimer);
-        onStalePairing();
+        onStalePairing(ev.code);
         return;
       }
       scheduleReconnect();
@@ -793,9 +805,12 @@ export function createResponder({
 // tab across the account; the elected tab swaps its inner responder in place
 // as the pairing changes.
 //
-// ponytail: cross-tab re-pair isn't broadcast — if tab A holds the election
-// and the user re-pairs in tab B, tab A keeps the old key until it reloads.
-// A BroadcastChannel/storage-event nudge is full-C4 scope.
+// ponytail: a re-pair is not broadcast between tabs, but the elected tab no
+// longer squats with a dead key — it presents its pairing id, the relay closes
+// it with 4409, and it drops the election so the re-paired tab (queued on the
+// lock) takes over. What remains: the losing tab does not re-elect itself, so
+// on a same-device cross-tab re-pair it stays idle until its next unlock or
+// reload. A BroadcastChannel/storage-event nudge is full-C4 scope.
 let controllerCtx = null;
 let electing = false;
 let releaseLock = null;
@@ -822,7 +837,17 @@ async function reconcile() {
     key: fromBase64(pairing.key),
     router: createApiRouter(controllerCtx, {}),
     now: () => Date.now(),
-    onStalePairing: () => {
+    onStalePairing: (code) => {
+      // 4409 (replaced): the account still HAS a pairing — the vault record
+      // names the replacement (or will, once this device syncs). Purging here
+      // deletes the live pairing on every synced device. So step aside: drop
+      // the election so the tab that re-paired — already queued on the lock —
+      // takes over with the right key. Only 4404 (no pairing at all) leaves a
+      // tombstone worth purging.
+      if (code === STATUS_PAIRING_REPLACED) {
+        stopResponder();
+        return;
+      }
       purgePairing(ctx).catch((e) => console.error('[mcp] stale pairing purge failed', e));
     },
   });

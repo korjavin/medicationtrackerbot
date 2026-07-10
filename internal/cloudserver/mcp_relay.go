@@ -206,26 +206,60 @@ func (a *MCPRelayAPI) DeletePairing(w http.ResponseWriter, r *http.Request) {
 // application range reserved by RFC 6455 §7.4.2.
 const StatusNoPairing websocket.StatusCode = 4404
 
+// StatusPairingReplaced tells the browser responder that this account DOES have
+// a live pairing, but this leg is not the one serving it — either the tab
+// presented a stale pairing id (DeviceSocket) or a newer leg took over the
+// device slot (pairingRecord.join). Either way the responder must stop rather
+// than retry: reconnecting re-runs the same losing race.
+//
+// The two codes must stay distinct because the responder reacts to them in
+// opposite ways:
+//
+//   - 4404 (no pairing at all): the vault record is a tombstone pointing at
+//     nothing, so the responder purges it.
+//   - 4409 (replaced): the vault record already names the *replacement* pairing
+//     (or will, once this device syncs). Purging it would delete the pairing
+//     every other device is happily using — account-wide. So the responder
+//     stops, and steps aside without purging.
+//
+// Accept-then-close, like 4404: a browser WebSocket cannot observe a handshake
+// HTTP status, so a 409 reject would be indistinguishable from a network drop
+// and the tab would reconnect forever.
+const StatusPairingReplaced websocket.StatusCode = 4409
+
 // DeviceSocket is the browser-tab leg: the unlocked PWA connects here to
 // answer relayed tool calls. Requires the account to already have an active
-// pairing (minted via CreatePairing) — there's nothing to bridge otherwise.
+// pairing (minted via CreatePairing) — there's nothing to bridge otherwise —
+// and the tab must present that pairing's id, so a tab still holding a
+// pre-re-pair pairing cannot squat the current pairing's device slot (join is
+// last-writer-wins and would evict the tab that actually holds the key).
+//
+// The pairing id is a selector, not a second authenticator: the session cookie
+// still authenticates the leg. It only says *which* pairing this tab believes
+// it holds.
 func (a *MCPRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	// Accept the upgrade before any check: a browser WebSocket cannot observe a
+	// handshake status, so every rejection has to be an application close code.
+	conn, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
 	record, ok := a.pairings.byAccountID(session.AccountID)
 	if !ok {
-		conn, err := websocket.Accept(w, r, nil)
-		if err != nil {
-			return
-		}
 		conn.Close(StatusNoPairing, "no active pairing for this account")
 		return
 	}
-	conn, err := websocket.Accept(w, r, nil)
-	if err != nil {
+	// A leg that presents no pairing id (an old responder from a previous
+	// deploy) cannot prove which pairing it holds, so it gets the same
+	// treatment as one presenting a stale id: stop, don't purge. Admitting it
+	// on the session alone is exactly the unauthenticated squat this checks for.
+	if r.URL.Query().Get("pairing") != record.id {
+		conn.Close(StatusPairingReplaced, "pairing replaced")
 		return
 	}
 	a.serveLeg(r.Context(), conn, record, true)
@@ -358,22 +392,35 @@ func (p *pairingRecord) join(isDevice bool, conn *websocket.Conn) chan *websocke
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// CloseNow (not the graceful Close) on every eviction below: Close blocks up
-	// to ~10s on the WebSocket close handshake against an unresponsive peer, and
-	// these run while p.mu / the pairing table's mu is held — a graceful close
-	// here would stall every account's pairing/relay endpoints. The evicted
-	// leg's serveLeg observes the read error and returns; its record.current
-	// check keeps it from closing the peer, which this replacement now bridges
-	// to (serveLeg re-reads the live peer via peerConn each frame).
+	// The evicted leg's serveLeg observes the read error and returns; its
+	// record.current check keeps it from closing the peer, which this
+	// replacement now bridges to (serveLeg re-reads the live peer via peerConn
+	// each frame).
+	//
+	// The device eviction closes in a goroutine, never inline: a graceful Close
+	// blocks on the WebSocket close handshake (~5s against an unresponsive peer)
+	// and this runs while p.mu is held — closing inline would stall the pairing
+	// under reconnect churn. coder/websocket's Close is safe to call while the
+	// evicted leg's own serveLeg sits in Read: it writes the close frame, then
+	// waits for that reader to observe the peer's reply.
 	slot := &legSlot{conn: conn, peerCh: make(chan *websocket.Conn, 1)}
 	var peer *legSlot
 	if isDevice {
 		if p.device != nil {
-			p.device.conn.CloseNow()
+			// 4409, not an abrupt CloseNow: an aborted socket reaches the browser
+			// as 1006, which the responder treats as a transient drop and retries.
+			// The retry presents the same (still-current) pairing id, passes
+			// DeviceSocket's check, and evicts whoever replaced it — two unlocked
+			// devices on one pairing then evict each other forever. 4409 tells the
+			// loser to step aside instead (mcp-responder.js's onclose).
+			go p.device.conn.Close(StatusPairingReplaced, "replaced by a newer device leg")
 		}
 		p.device = slot
 		peer = p.shim
 	} else {
+		// The shim leg keeps the abrupt close: mcpshim is independently versioned
+		// and 4409 is not in its wire contract. CloseNow does not block, so it is
+		// safe to call under p.mu.
 		if p.shim != nil {
 			p.shim.conn.CloseNow()
 		}
