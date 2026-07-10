@@ -103,6 +103,47 @@ describe('push.js PushManager', () => {
     }
   });
 
+  // med-1n6: bot mode carries the same WebKit/iOS quirks the cloud shell hit.
+  it('subscribe treats a legacy callback with no argument as the grant it is', async () => {
+    const { window, registration, makeSubscription, cleanup } = loadPushEnv();
+
+    try {
+      registration.pushManager.subscribe = vi.fn().mockResolvedValue(makeSubscription());
+      window.MedTrackerPush.vapidPublicKey = 'BEl6nA';
+      // WebKit: flips permission, calls back with nothing, returns undefined.
+      window.Notification.requestPermission = vi.fn((cb) => {
+        window.Notification.permission = 'granted';
+        cb();
+        return undefined;
+      });
+      window.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+      // Before the fix this awaited `undefined` and bailed out as "not granted".
+      expect(await window.MedTrackerPush.subscribe()).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('subscribe never re-prompts once permission is decided — that path can hang', async () => {
+    const { window, registration, makeSubscription, cleanup } = loadPushEnv();
+
+    try {
+      registration.pushManager.subscribe = vi.fn().mockResolvedValue(makeSubscription());
+      window.MedTrackerPush.vapidPublicKey = 'BEl6nA';
+      window.Notification.permission = 'granted';
+      // Settles neither a callback nor a promise, as WebKit may do here.
+      const requestPermission = vi.fn(() => undefined);
+      window.Notification.requestPermission = requestPermission;
+      window.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+      expect(await window.MedTrackerPush.subscribe()).toBe(true);
+      expect(requestPermission).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
   it('subscribe creates subscription and posts it to backend', async () => {
     const { window, registration, makeSubscription, cleanup } = loadPushEnv();
 
