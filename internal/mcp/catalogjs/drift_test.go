@@ -43,12 +43,16 @@ func catalogIDs(t *testing.T, src []byte) map[string]bool {
 		t.Fatal("generated catalog has no `export const CATALOG =` — regenerate: go run ./cmd/genmcpcatalog")
 	}
 	rest := src[i+len(open):]
-	j := bytes.Index(rest, []byte("];"))
+	// Anchor on Generate's exact separator, not the first `];`: an op whose
+	// description or response_example ever contains that literal would
+	// otherwise truncate the array mid-string.
+	const close = ";\n\nexport const EXCLUDED = "
+	j := bytes.Index(rest, []byte(close))
 	if j < 0 {
 		t.Fatal("generated catalog has an unterminated CATALOG array")
 	}
 	var entries []entry
-	if err := json.Unmarshal(rest[:j+1], &entries); err != nil {
+	if err := json.Unmarshal(rest[:j], &entries); err != nil {
 		t.Fatalf("CATALOG is not valid JSON: %v", err)
 	}
 	ids := make(map[string]bool, len(entries))
@@ -56,6 +60,22 @@ func catalogIDs(t *testing.T, src []byte) map[string]bool {
 		ids[e.ID] = true
 	}
 	return ids
+}
+
+// TestCloudCatalog_CatalogIDsStopsAtExcluded pins the parser boundary the
+// coverage guard rests on: if catalogIDs ever ran past the CATALOG array into
+// EXCLUDED, every excluded op would read as "covered" and the exclusion
+// mechanism would silently pass anything.
+func TestCloudCatalog_CatalogIDsStopsAtExcluded(t *testing.T) {
+	ids := catalogIDs(t, readGenerated(t))
+	if len(ids) == 0 {
+		t.Fatal("catalogIDs parsed no entries")
+	}
+	for id := range ExcludedIDs() {
+		if ids[id] {
+			t.Errorf("excluded op %q leaked into the parsed CATALOG ids", id)
+		}
+	}
 }
 
 // TestCloudCatalog_EveryRegistryOpCoveredOrExcluded is the load-bearing guard:

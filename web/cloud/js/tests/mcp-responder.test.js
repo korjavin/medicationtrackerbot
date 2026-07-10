@@ -163,6 +163,46 @@ describe('mcp_help wire contract (generated catalog)', () => {
     expect(bytes).toBeLessThan(64 * 1024);
   });
 
+  // The id drill-in is the only variant returning full schemas, and the caller
+  // picks how many. Every op at once is ~73 KB — over the cap, the relay closes
+  // the device leg and the responder reconnect-loops.
+  it('budgets a full-catalog operation_ids drill-in under the 64 KiB relay frame cap', async () => {
+    const allIDs = CATALOG.map((op) => op.id);
+    const result = await makeDispatcher().handle('mcp_help', { operation_ids: allIDs });
+    const bytes = new TextEncoder().encode(JSON.stringify(result)).length;
+    expect(bytes).toBeLessThan(64 * 1024);
+    // Truncated, not emptied — and it names the ids it dropped.
+    expect(result.count).toBeGreaterThan(0);
+    expect(result.count).toBeLessThan(allIDs.length);
+    expect(result.note).toContain('Omitted');
+    expect(result.note).toContain(allIDs[allIDs.length - 1]);
+  });
+
+  it('returns a small operation_ids drill-in in full, unbudgeted', async () => {
+    const result = await makeDispatcher().handle('mcp_help', {
+      operation_ids: ['health.bp.list', 'health.bp.create'],
+    });
+    expect(result.count).toBe(2);
+    expect(result.note).not.toContain('Omitted');
+  });
+
+  // internal/mcp/help.go:76 stamps current_time on every mcp_help response: a
+  // tool-only agent has no other clock, and health.bp.create requires an
+  // explicit measured_at, so an unstamped response invites a guessed year.
+  it.each([
+    ['no args', {}],
+    ['topic', { topic: 'health' }],
+    ['query', { query: 'blood pressure' }],
+    ['id drill-in', { operation_id: 'health.bp.create' }],
+    ['unknown id', { operation_id: 'nope.not.real' }],
+  ])('stamps current_time on the %s mcp_help variant', async (_label, params) => {
+    const dispatcher = createDispatcher({
+      bp: {}, weight: {}, notes: {}, now: () => Date.UTC(2026, 6, 10, 2, 30, 0),
+    });
+    const result = await dispatcher.handle('mcp_help', params);
+    expect(result.current_time).toBe('2026-07-10T02:30:00Z (Friday, UTC)');
+  });
+
   it('rejects a catalogued-but-unwired op as not-yet-callable, never as unknown (med-csu.3 scope fence)', async () => {
     const response = await handleRequest(makeDispatcher(), {
       jsonrpc: '2.0', id: 9, method: 'mcp_call', params: { op: 'workouts.groups.list', params: {} },

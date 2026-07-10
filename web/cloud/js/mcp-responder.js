@@ -26,7 +26,19 @@ export const USAGE_PROTOCOL = 'Decision rule: (1) Discover — call mcp_help wit
   + 'cannot see your plaintext, so there is no server-side script runtime — chain mcp_call instead. This connector '
   + 'talks directly to your unlocked Med Tracker browser tab over an end-to-end encrypted channel; the relay server '
   + 'never sees your data, only frame sizes and timing. If no device is unlocked and online, mcp_call returns an '
-  + 'actionable error instead of hanging.';
+  + "actionable error instead of hanging. For relative dates ('today', 'now', 'yesterday', 'last N days') use this "
+  + "response's current_time as the real clock — never guess the date or year.";
+
+// currentTimeHint mirrors internal/mcp/help.go's helper of the same name: a
+// tool-only agent has no other clock, and the wired writes take an explicit
+// timestamp (health.bp.create/health.weight.create require measured_at), so an
+// unstamped response invites a guessed year. Same layout as Go's, weekday
+// included.
+function currentTimeHint(nowMs) {
+  const d = new Date(nowMs);
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+  return `${d.toISOString().replace(/\.\d{3}Z$/, 'Z')} (${weekday}, UTC)`;
+}
 
 // Prototype-free so a caller-supplied id like "toString"/"constructor" misses
 // (→ the unknown-op path) instead of resolving an inherited prototype member.
@@ -81,6 +93,30 @@ function compactEntry(op) {
 
 const lower = (v) => String(v == null ? '' : v).trim().toLowerCase();
 
+// An id drill-in is the only mcp_help variant that returns full schemas, and
+// its size is caller-controlled: internal/cloudserver/mcp_relay.go caps a
+// sealed relay frame at 64 KiB (maxRelayFrameBytes), and the whole catalog as
+// full entries is ~73 KB. Over the cap the relay closes the device leg, so the
+// agent sees an offline-device timeout and the responder reconnect-loops.
+// Budget the entries by serialized size (not a count — entry sizes vary ~4x)
+// and leave headroom for the envelope, note/next_step, and frame overhead.
+const HELP_ENTRY_BUDGET_BYTES = 48 * 1024;
+
+// takeWithinBudget returns the longest prefix of ids whose entries fit the
+// budget, plus the ids that were dropped. At least one entry is always
+// returned, so a single oversized op still answers rather than returning empty.
+function takeWithinBudget(ids) {
+  const kept = [];
+  let bytes = 0;
+  for (const id of ids) {
+    const size = utf8(JSON.stringify(BY_ID[id])).length;
+    if (kept.length > 0 && bytes + size > HELP_ENTRY_BUDGET_BYTES) break;
+    bytes += size;
+    kept.push(id);
+  }
+  return { kept, dropped: ids.slice(kept.length) };
+}
+
 // buildHelp mirrors internal/mcp/help.go's precedence: ids > query > topic >
 // full catalog. Only an id drill-in returns full entries — internal/cloudserver/
 // mcp_relay.go caps a relay frame at 64 KiB and the full catalog is ~100 KB.
@@ -102,11 +138,16 @@ function buildHelp(params) {
         next_step: `Operation "${missing.join(', ')}" not found. Pick a topic (e.g. 'workouts') or call mcp_help with no args for the full catalog.`,
       };
     }
-    let note = `Showing full details for ${found.length} operation(s).`;
+    const { kept, dropped } = takeWithinBudget(found);
+    let note = `Showing full details for ${kept.length} operation(s).`;
     if (missing.length > 0) note += ` Not found: ${missing.join(', ')}.`;
+    if (dropped.length > 0) {
+      note += ` Omitted ${dropped.length} operation(s) to stay under the relay's frame limit`
+        + ` — request them in a follow-up mcp_help call: ${dropped.join(', ')}.`;
+    }
     return {
-      operations: found.map((id) => BY_ID[id]),
-      count: found.length,
+      operations: kept.map((id) => BY_ID[id]),
+      count: kept.length,
       note,
       next_step: 'Review the operation details, then run one with mcp_call({op, params}).',
     };
@@ -166,7 +207,9 @@ class MCPError extends Error {
 // createDispatcher builds the mcp_help/mcp_call handlers over the injected
 // domain instances (same construction path apishim.js uses for bp/weight/
 // notes).
-export function createDispatcher({ bp, weight, notes }) {
+export function createDispatcher({
+  bp, weight, notes, now = Date.now,
+}) {
   // Keyed by the registry's operation ids (health.bp.list, not bp.list) so the
   // ids mcp_call accepts are exactly the ids the generated catalog advertises.
   // Only these six are wired; med-csu.3 wires the rest of the catalog.
@@ -185,7 +228,9 @@ export function createDispatcher({ bp, weight, notes }) {
 
   async function handle(method, params) {
     if (method === 'mcp_help') {
-      return buildHelp(params);
+      // Stamped here, where every mcp_help variant converges (help.go:76 does
+      // the same), so no branch can ship an unclocked response.
+      return { ...buildHelp(params), current_time: currentTimeHint(now()) };
     }
     if (method === 'mcp_call') {
       const opID = params && params.op;
@@ -254,6 +299,7 @@ export function createResponder({
     bp: createBPDomain({ records, now, timeZone }),
     weight: createWeightDomain({ records, now, timeZone }),
     notes: createNotesDomain({ records, now }),
+    now,
   });
 
   let ws = null;
