@@ -58,14 +58,14 @@ mismatches stay warn-only (coercion is defensible). Read ops stay entirely warn-
 ## Implementation Steps
 
 ### Task 1: Registry helper that reports missing required fields
-- [ ] In `internal/mcp/registry/validate.go`, add an exported helper
+- [x] In `internal/mcp/registry/validate.go`, add an exported helper
       `RequiredMissing(op *Operation, params map[string]json.RawMessage, body json.RawMessage) []string`
       that returns the labels of required-but-absent fields (e.g. `"body.eaten_at"`,
       `"params.id"`), reusing `compiledFor`/`schema.Required` — the same source `checkObject`
       already walks for its missing-required warnings.
-- [ ] Do NOT change `ValidateInput`'s contract: it stays warn-only and still reports
+- [x] Do NOT change `ValidateInput`'s contract: it stays warn-only and still reports
       missing-required among its warnings (reads rely on this).
-- [ ] Return `nil` when the op is nil, has no schemas, or nothing is missing.
+- [x] Return `nil` when the op is nil, has no schemas, or nothing is missing.
 
 ### Task 2: mcp_call blocks write ops with a missing required field
 - [ ] In `internal/mcp/call.go`, after resolving `op` and before dispatch, when
