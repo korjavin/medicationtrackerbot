@@ -50,12 +50,17 @@ function levenshtein(a, b) {
 }
 
 // suggestOperations mirrors internal/mcp/proxy's did-you-mean semantics
-// (substring match first, Levenshtein ≤3 fallback, top 3).
+// (substring match first, Levenshtein ≤3 fallback, top 3). The query itself is
+// never a candidate: unlike bot mode, cloud mode's catalog is wider than its
+// dispatch table, so an id that fails to dispatch may still be catalogued, and
+// "did you mean: <the id you just called>?" would loop the calling agent.
 export function suggestOperations(opID) {
   const query = String(opID || '').toLowerCase();
-  const substring = CATALOG.filter((op) => query && (op.id.includes(query) || query.includes(op.id))).map((op) => op.id);
+  if (!query) return [];
+  const candidates = CATALOG.filter((op) => op.id.toLowerCase() !== query);
+  const substring = candidates.filter((op) => op.id.includes(query) || query.includes(op.id)).map((op) => op.id);
   if (substring.length > 0) return substring.slice(0, 3);
-  return CATALOG
+  return candidates
     .map((op) => ({ id: op.id, dist: levenshtein(query, op.id.toLowerCase()) }))
     .filter((s) => s.dist <= 3)
     .sort((a, b) => a.dist - b.dist)
@@ -186,6 +191,14 @@ export function createDispatcher({ bp, weight, notes }) {
       const opID = params && params.op;
       const fn = ops[opID];
       if (!fn) {
+        // The generated catalog mirrors the whole Go registry, but cloud mode
+        // dispatches only `ops` (med-csu.3 wires the rest). A catalogued id is
+        // not "unknown" — telling an agent it is, then suggesting that same id
+        // back, makes it re-issue the identical call forever.
+        if (BY_ID[opID]) {
+          throw new MCPError(-32602, `operation "${opID}" is catalogued but not yet callable in cloud mode. `
+            + `Callable now: ${Object.keys(ops).join(', ')}.`);
+        }
         const suggestions = suggestOperations(opID);
         const hint = suggestions.length ? ` — did you mean: ${suggestions.join(', ')}?` : '';
         throw new MCPError(-32602, `unknown operation "${opID}"${hint}`);

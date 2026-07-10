@@ -163,14 +163,27 @@ describe('mcp_help wire contract (generated catalog)', () => {
     expect(bytes).toBeLessThan(64 * 1024);
   });
 
-  it('rejects a catalogued-but-unwired op with a did-you-mean error (med-csu.3 scope fence)', async () => {
+  it('rejects a catalogued-but-unwired op as not-yet-callable, never as unknown (med-csu.3 scope fence)', async () => {
     const response = await handleRequest(makeDispatcher(), {
       jsonrpc: '2.0', id: 9, method: 'mcp_call', params: { op: 'workouts.groups.list', params: {} },
     });
     expect(response.result).toBeUndefined();
     expect(response.error.code).toBe(-32602);
-    expect(response.error.message).toContain('unknown operation "workouts.groups.list"');
-    expect(response.error.message).toContain('did you mean');
+    expect(response.error.message).toContain('"workouts.groups.list" is catalogued but not yet callable');
+    expect(response.error.message).toContain('health.bp.list');
+    // Calling it "unknown" and then suggesting it back loops the agent forever.
+    expect(response.error.message).not.toContain('unknown operation');
+    expect(response.error.message).not.toContain('did you mean');
+  });
+
+  // The catalog is wider than the dispatch table, so an id that fails to
+  // dispatch may still be catalogued — suggestOperations must never echo it.
+  it('never suggests the queried id back to the caller', () => {
+    for (const id of ['workouts.groups.list', 'medications.list', 'health.bp.list']) {
+      expect(suggestOperations(id)).not.toContain(id);
+    }
+    expect(suggestOperations('health.bp.lst')).toContain('health.bp.list');
+    expect(suggestOperations('')).toEqual([]);
   });
 
   it('degrades to a topic list instead of throwing on all-unknown ids, empty query, or unknown topic', async () => {
