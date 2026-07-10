@@ -178,15 +178,15 @@ A reviewer should be able to diff the responder and see only *adapter* code.
 - [x] `pnpm test`: 288 files / 3123 tests green; `go build ./...` + `go test ./...` green
 
 ### Task 6: Verify acceptance criteria
-- [ ] verify the bead's criteria: every non-excluded catalog op dispatches to a `web/domain` module and returns data matching the registry's `ResponseExample` shape
-- [ ] adversarially verify the coverage sweep: temporarily remove one route from `apishim.js`'s `shimCall`, confirm the sweep **fails naming that op**, then restore. A coverage test that cannot fail is not a coverage test
-- [ ] verify no domain logic leaked into `mcp-responder.js`: the diff there should be adapter code only (endpoint construction, router call, error mapping)
-- [ ] verify med-csu.2's guarantees still hold: a write op without `mode: 'write'` is refused; a replayed write frame applies exactly once
-- [ ] verify the 6 previously-wired ops (`health.bp.list`/`create`, `health.weight.*`, `health.notes.*`) behave identically to before
-- [ ] run `go build ./...` — must pass
-- [ ] run `go test ./...` — must pass
-- [ ] run `pnpm test` — must pass (including `architecture.domain-purity.test.js`)
-- [ ] run the linter — all issues must be fixed
+- [x] verify the bead's criteria: every non-excluded catalog op dispatches to a `web/domain` module and returns data matching the registry's `ResponseExample` shape — all **97** catalogued ops (63 writes) clear the coverage sweep; all **35** carrying a `response_example` clear shape conformance
+- [x] adversarially verify the coverage sweep: temporarily removed `apishim.js:531` (`GET /api/workout/exercises/unique`). The sweep **failed naming `workouts.exercises.unique` and the exact missing route**, and shape conformance failed on it independently — two guards, not one. Route restored; `git diff --stat` empty, so the restore is byte-exact
+- [x] verify no domain logic leaked into `mcp-responder.js`: `createDispatcher` (`:451-539`) is adapter-only — write gating, `substitutePath`, warn-only `validateInput`, `serializeQuery`, `router(...)`, 404→`-32603` mapping. The file's other top-levels are protocol concerns (help/search, nonce ring, relative-date repair); no health-domain computation anywhere
+- [x] verify med-csu.2's guarantees still hold: write gating runs at `:497-510`, **before** `dispatch` at `:525`. Covered by "gates a write op on mode: write plus a non-empty intent" and "applies a replayed write frame exactly once, even across a tab reload"
+- [x] verify the 6 previously-wired ops (`health.bp.list`/`create`, `health.weight.*`, `health.notes.*`) behave identically to before — each keeps its explicit test (bp round-trip, `notes.list` days window, risk assertions over all 6) *and* is now additionally covered by the sweep + conformance
+- [x] run `go build ./...` — passes
+- [x] run `go test ./...` — passes (exit 0)
+- [x] run `pnpm test` — passes: 288 files / 3123 tests, 29 skipped (including `architecture.domain-purity.test.js`)
+- [x] run the linter — `golangci-lint run ./...`: **0 issues**. (No JS lint script exists; `vitest` + the architecture suites are the frontend gate.)
 
 ### Task 7: [Final] Update documentation
 - [ ] update `docs/cloud-mode.md`: cloud MCP now dispatches every non-excluded catalog op, through the same `apishim` router the UI uses (one code path, no duplicate domain logic); name any op excluded for zero-knowledge reasons
