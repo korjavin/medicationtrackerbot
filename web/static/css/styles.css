@@ -6955,6 +6955,15 @@ textarea.wg-input {
     margin-bottom: var(--space-md);
 }
 
+/* The Start button sits beside the inset subtab track, not inside it, so the
+   row's align-items:stretch is the only thing that can match their heights —
+   and .wg-toolbar-btn's own align-self:center cancels it, leaving Start short
+   and floating mid-row against the taller padded track (med-xqt). Overridden
+   here rather than on .wg-toolbar-btn, which 12 other toolbars rely on. */
+.wg-workouts-subtabs-row .wg-toolbar-btn {
+    align-self: stretch;
+}
+
 .wg-workouts-subtabs {
     flex: 1;
     display: flex;
@@ -11244,6 +11253,35 @@ textarea.wg-input {
     font-size: var(--font-size-md);
     color: var(--wg-fg-1);
     min-width: 0;
+}
+
+/* A file input's "Choose file" button is a native shadow-DOM control: no class
+   on the <input> can reach it, which is why the import picker stayed OS-styled
+   while everything around it was wandergeek (med-kgb). ::file-selector-button
+   is the platform's own hook for it, so it takes the .wg-gloss treatment
+   without a hidden-input + <label> proxy. */
+.wg-settings-integrations__input[type="file"] {
+    font-family: var(--wg-font-ui);
+    cursor: pointer;
+}
+
+.wg-settings-integrations__input[type="file"]::file-selector-button {
+    margin-right: var(--space-md);
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--wg-fg-1);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-gloss);
+    background: var(--wg-gloss-bg);
+    box-shadow: var(--wg-gloss-shadow);
+    transition: filter 120ms ease;
+    cursor: pointer;
+}
+
+.wg-settings-integrations__input[type="file"]::file-selector-button:hover {
+    filter: brightness(1.07);
 }
 
 .wg-settings-integrations__input::placeholder {
