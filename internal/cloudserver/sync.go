@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -121,9 +122,14 @@ func (a *SyncAPI) PostOps(w http.ResponseWriter, r *http.Request) {
 	assigned, err := a.store.AppendOps(r.Context(), session.AccountID, ops, a.quotaBytes, time.Now().UTC())
 	if err != nil {
 		if errors.Is(err, cloudstore.ErrQuotaExceeded) {
+			// The only trace this leaves. Without it an operator grepping for a
+			// user's "my entries stopped syncing" finds nothing at all: the 413
+			// is answered and forgotten (med-d5t.7).
+			slog.Warn("sync: account storage quota exceeded", "accountID", session.AccountID, "quotaBytes", a.quotaBytes)
 			http.Error(w, "account storage quota exceeded", http.StatusRequestEntityTooLarge)
 			return
 		}
+		slog.Error("sync: append ops", "accountID", session.AccountID, "error", err)
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}

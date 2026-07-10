@@ -303,7 +303,74 @@ S3 replica differs only in transport):
    `PRAGMA integrity_check` → `ok`, `cloud admin list` listed both accounts,
    and `cmd/cloud` booted against the restored file with `/healthz` → 200.
 
-## 7. Connect Claude (PoC)
+## 7. Operating it (health, disk, 3am)
+
+**No metrics stack, deliberately.** Five friends do not need Prometheus. The
+structured `slog` lines already carry what you need, and this section says which
+to grep. Do not fill this gap with yaml.
+
+### Health endpoints
+
+| Endpoint | Means | Use it for |
+|---|---|---|
+| `GET /healthz` | The process is running. Always `200 ok`. | The container liveness probe. Restarting fixes a wedged process; it will not fix a full disk, so this must not fail on one. |
+| `GET /readyz` | This instance can actually **serve**: it just read the database. `{"status":"ready","build":"<id>"}`, or `503 {"status":"unready"}`. | Your uptime check, and the first thing to curl when something is wrong. |
+
+`/readyz` performs a real read of a real table rather than a `Ping` — a ping
+succeeds against a handle whose file has been deleted or whose schema never
+migrated. It reports the same build id as `GET /api/version`, so you can tell
+which build answered. It deliberately does **not** report the account count: it
+is unauthenticated, and how many friends are on the box is nobody else's
+business.
+
+```bash
+curl -fsS https://$CLOUD_BASE_DOMAIN/readyz     # -> {"status":"ready","build":"..."}
+```
+
+### The disk filled up
+
+This is the failure that hurts, because SQLite writes stop while reads keep
+working, so the app looks half-alive.
+
+```bash
+df -h                                             # confirm it
+docker exec medtracker-cloud ls -la /app/data     # cloud.db + -wal + -shm
+docker system df                                  # usually images/logs, not the vault
+docker image prune -a && docker builder prune     # reclaim first, investigate after
+```
+
+`cloud.db-wal` growing without bound means litestream is **not** checkpointing —
+check that the `litestream` container is up and not sitting in its
+"R2_BUCKET not set, skipping" clean exit (§6).
+
+A single runaway account cannot do this: `CLOUD_ACCOUNT_QUOTA_BYTES` is on by
+default (50MB per account) and the server answers an over-quota write with 413,
+which the client surfaces as "Vault is full", not as a sync failure.
+
+### What to grep at 3am
+
+Every line is `slog` JSON-ish key=value. Nothing below prints secrets — the
+redaction invariants in `trial.go` / `trial_proxy.go` are enforced by tests.
+
+```bash
+docker logs medtracker-cloud --since 1h 2>&1 | grep 'level=ERROR'
+```
+
+| Symptom | Grep for | What it means |
+|---|---|---|
+| "my reminders stopped" | `push relay: send failed` | The push service rejected a send. A 410/404 disables that subscription automatically (`push relay: disable subscription`); the client re-subscribes on the next app open. |
+| Reminders stopped for one account | `push relay: account has no VAPID keys` | Its VAPID keypair is missing. The boot backfill logs `VAPID key backfill complete` — if that ran, the DB write failed. |
+| "the app says my vault is full" | `sync: account storage quota exceeded` | That account hit `CLOUD_ACCOUNT_QUOTA_BYTES`. Raise it, or have them export and prune. The line carries the `accountID`. |
+| Sync fails for one account only | `sync: append ops` | A DB-level failure on their append. Anything else and the client would say "Offline". |
+| AI/voice suddenly 503s | `upstream_error` | Operator trial keys exhausted or the provider is down. BYO keys are unaffected. |
+| Telegram reminders silent | `push relay: telegram send` | Revoked bot token, or the user never tapped `/start`. |
+| Nothing works, `/healthz` still 200 | `readyz: database unreadable` | The database is gone or corrupt. Go to §6's restore runbook. |
+
+The account id is in most lines; `docker exec medtracker-cloud ./cloud admin
+inspect <subdomain>` turns a subdomain into everything known about that account
+(devices, envelopes, sync cursor, push subscriptions) without touching the vault.
+
+## 8. Connect Claude (PoC)
 
 MCP tier 1 (see [cloud-mode.md → MCP](cloud-mode.md#mcp)) lets Claude Desktop
 or Claude Code query your vault through a local shim + blind relay — no
@@ -355,6 +422,8 @@ Full ceremony details: [cloud-crypto.md](cloud-crypto.md).
 
 | Route | Auth | Purpose |
 |---|---|---|
+| `GET /healthz` | none | Liveness. Always `200 ok` — see §7 |
+| `GET /readyz` | none | Readiness: reads the database. `{"status":"ready","build":"<id>"}` or `503` — see §7 |
 | `POST /api/webauthn/register/begin`, `POST /api/webauthn/register/finish` | claim token, enrollment token, or session | Register a passkey — first device (C0a), transfer/recovery target, or an additional local passkey |
 | `POST /api/webauthn/login/begin`, `POST /api/webauthn/login/finish` | none | Cold-unlock assertion; issues a session token bound to `credential_id` |
 | `GET /api/envelopes`, `GET /api/envelopes/{credential_ref}`, `PUT /api/envelopes/{credential_ref}` | session | Fetch/upload wrapped-DEK envelopes. `credential_ref` is a credential id; `GET` also accepts `"recovery"`, but `PUT` of `"recovery"` is rejected (409) — write the recovery envelope via `PUT /api/recovery-material` |

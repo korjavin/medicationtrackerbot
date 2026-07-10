@@ -86,6 +86,12 @@ func (h *Handler) SetMCPHandler(mcp http.Handler) {
 	h.mcp = mcp
 }
 
+// BuildID exposes the asset fingerprint already served at GET /api/version, so
+// /readyz can report which build answered without a second source of truth.
+func (h *Handler) BuildID() string {
+	return h.buildID
+}
+
 // injectCloudBoot splices the operator's default food-DB URL (as a
 // CSP-safe <meta>, read by web/cloud/js/fooddb.js — an inline <script>
 // would be blocked by our own script-src 'self', see setSecurityHeaders)
