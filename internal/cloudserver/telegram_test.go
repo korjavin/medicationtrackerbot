@@ -1268,12 +1268,27 @@ func tgCommandFixture(t *testing.T) (http.Handler, *recordingTG, string, string,
 // no content, and replies with a fixed constant carrying the message id the
 // client will later edit.
 func TestChildWebhook_SealsCommandVerbatim(t *testing.T) {
+	// Drop the timestamp: the leak assertions below search for bare digits, and
+	// a wall-clock time like 12:37:54.184196 contains "84" a fraction of the
+	// time. The clock is not what is under test.
 	var logBuf bytes.Buffer
 	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.TimeKey {
+				return slog.Attr{}
+			}
+			return a
+		},
+	})))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	top, tg, host, childPath, session, accountID, priv := tgCommandFixture(t)
+
+	// Only the webhook's own logging is under test. Fixture setup logs the
+	// manager webhook URL, whose random hex secret can contain any digit pair.
+	logBuf.Reset()
 
 	tg.mu.Lock()
 	before := len(tg.mu.sent)
