@@ -168,6 +168,46 @@
     display: none;
 }
 
+/* Capability blurbs on the final screen (med-1mn) — MCP and the voice agent,
+   the two things onboarding otherwise never mentions. Same card shape as the
+   permission rows above; all values resolve via design tokens. */
+.wg-firstrun-capabilities {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+}
+
+.wg-firstrun-capability {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--wg-border-strong);
+    background: var(--wg-bg-card);
+}
+
+.wg-firstrun-capability__label {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    color: var(--wg-fg-1);
+}
+
+.wg-firstrun-capability__copy {
+    margin: 0;
+    color: var(--wg-fg-2);
+    font-size: var(--font-size-sm);
+    line-height: 1.4;
+}
+
+.wg-firstrun-capability__link {
+    align-self: flex-start;
+    color: var(--wg-fg-1);
+    font-size: var(--font-size-sm);
+    text-decoration: underline;
+}
+
 /* Integrations form (Task 6) — labelled inputs stacked vertically with
    a generous tap target. The inline error slot renders empty by default
    and surfaces a soft "save failed, try again or skip" message when a
