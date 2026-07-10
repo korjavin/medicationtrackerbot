@@ -26,10 +26,11 @@ const decoder = new TextDecoder();
 export const USAGE_PROTOCOL = 'Decision rule: (1) Discover — call mcp_help with no args (or topic=/query=) for the '
   + 'terse catalog, then drill in with operation_id=/operation_ids=[...] for full schemas. The catalog is too large '
   + 'to return in full; only an id drill-in returns schemas. (2) Run exactly ONE operation per call with '
-  + 'mcp_call({op, params}). There is no mcp_execute in cloud mode: this connector is zero-knowledge, the server '
-  + 'cannot see your plaintext, so there is no server-side script runtime — chain mcp_call instead. This connector '
-  + 'talks directly to your unlocked Med Tracker browser tab over an end-to-end encrypted channel; the relay server '
-  + 'never sees your data, only frame sizes and timing. If no device is unlocked and online, mcp_call returns an '
+  + 'mcp_call({op, params}). There is no mcp_execute in cloud mode: cloud mode runs no server-side domain or script '
+  + 'runtime — chain mcp_call instead. Every call is answered by '
+  + 'your unlocked Med Tracker browser tab over an end-to-end encrypted channel; the relay server sees only frame '
+  + 'sizes and timing (a hosted remote connector, if you enabled one, does see MCP request and response plaintext '
+  + 'in transit between you and the relay — that is what enabling it consents to). If no device is unlocked and online, mcp_call returns an '
   + "actionable error instead of hanging. For relative dates ('today', 'now', 'yesterday', 'last N days') use this "
   + "response's current_time as the real clock — never guess the date or year.";
 
