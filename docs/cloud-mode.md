@@ -281,16 +281,32 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   inspection, no buffering beyond one in-flight frame per direction, 64 KiB frame cap,
   closes both ends when either drops. Pairings are in-memory (die with process restart) and
   currently one shim + one device per pairing.
-- The device answers using the *same operation catalog semantics* as `internal/mcp/registry`,
-  via a hardcoded PoC catalog in `web/cloud/js/mcp-responder.js` (`bp.*`, `weight.*`,
-  `notes.*`) — `mcp_help` (catalog + `usage_protocol`) and `mcp_call` (executed by the
-  in-browser domain layer against local data, same construction path as `apishim`). The full
-  catalog generated from `internal/mcp/registry` (with drift guard + ported-set filtering)
-  is full-C4 scope, not the PoC. `mcp_execute` (Python) has no browser sandbox and stays
-  parked, as does its Pyodide alternative.
+- The device answers using the *same operation catalog* as `internal/mcp/registry`, served by
+  `web/cloud/js/mcp-responder.js` — `mcp_help` (discover) and `mcp_call` (executed by the
+  in-browser domain layer against local data, same construction path as `apishim`).
+  `mcp_execute` (Python) has no browser sandbox and stays parked, as does its Pyodide
+  alternative.
+- **The catalog is generated, not hand-written.** `web/cloud/js/mcp-catalog.generated.js` is
+  emitted from `registry.DefaultOperations()` by `cmd/genmcpcatalog` (logic in
+  `internal/mcp/catalogjs`); regenerate with `go run ./cmd/genmcpcatalog`. The only named
+  exclusion is **gamification** (8 ops, listed individually with a `Reason` in
+  `catalogjs.Excluded` — it is deferred project-wide and clamped out of `apishim.js`'s
+  `PORTED_SET`), leaving 98 of 106 ops. `internal/mcp/catalogjs/drift_test.go` fails CI when a
+  registry op is neither in the checked-in catalog nor excluded, and when the checked-in file
+  is stale — the same reasoned-exemption shape as `internal/server/mcp_coverage_exempt.go`.
+- **`mcp_help` is compact-by-default because of the 64 KiB relay frame cap.** Full entries for
+  all ops are ~106 KB, over `mcp_relay.go`'s `maxRelayFrameBytes`; the compact projection
+  (`id/topic/method/risk/description/required`) is ~30 KB. Precedence mirrors
+  `internal/mcp/help.go`: `operation_id(s)` → full entries, `query` → compact matches (never
+  auto-expanded), `topic`/no-args → compact catalog + `usage_protocol`.
+- **Catalogued ≠ dispatchable (today).** `createDispatcher` still wires only six ops
+  (`health.bp.*`, `health.weight.*`, `health.notes.*`); an `mcp_call` for any other catalogued
+  op returns the `unknown operation` + did-you-mean error. Wiring the rest to `web/domain/*` is
+  bd **med-csu.3**; `mcp_call` envelope parity (path_params / body / write-intent) is med-csu.2.
 - **The honest constraint: a device must be online with an unlocked vault.** A phone with the PWA backgrounded is not reliably reachable (iOS SW execution on push is too constrained to serve queries silently). Realistic availability = a desktop tab left open, or an old phone plugged in at home with the PWA foregrounded — at which point the user has voluntarily re-invented a tiny server, but it's *their* device, zero config, and the guarantee holds. When no device is online, the shim's tools return an actionable MCP error naming the E2E architecture and telling the user to open and unlock their app.
 - **PoC ceilings** (each `ponytail:`-marked in code): in-memory pairings, single pairing per
-  account, hardcoded catalog, no QR pairing, no packaged shim binary/release artifact.
+  account, only six dispatchable ops (med-csu.3), no QR pairing, no packaged shim
+  binary/release artifact.
 
 **Tier 2 — hosted-relay convenience mode (explicit consent, reduced guarantee). PoC implemented**, see
 `docs/plans/2026-07-06-cloud-c4-poc-remote-mcp-endpoint.md`. claude.ai's remote MCP cannot run a shim, so the server runs the shim itself: it dials the relay on the account's behalf and exposes a plain streamable-HTTP MCP endpoint that hosted clients connect to directly. The server therefore terminates the client's MCP connection and sees requests/responses **in transit** (never stored); vault data at rest stays E2EE. This is a deliberate, per-account, clearly-labelled downgrade switch, off by default.
@@ -503,7 +519,7 @@ Cloud mode runs the ElevenLabs conversational agent **browser-direct**, provisio
     4. **Server-timestamp order** — events are sorted by the sealed `at_unix` (not mailbox arrival order) and intakes are backdated to it, so a Confirm tapped at 09:00 records `taken_at` 09:00 even when the app first opens at noon.
 
     A tap on an account that has never unlocked a client has no inbox key to seal to; it is **dropped**, never stored readable, and the user is told to open the app once. Free-text commands (`/bp 120/80`, `/food two eggs`) ride the same mailbox and remain future work (med-vcv, med-eas.29).
-- **C4 — MCP tier 1 + tier 2 PoC (implemented)** — tier 1: blind relay (`internal/cloudserver/mcp_relay.go`) + Go shim (`cmd/mcpshim`, crypto/framing in `internal/mcpshim`) + browser responder (`web/cloud/js/mcp-responder.js`) with a hardcoded `bp`/`weight`/`notes` catalog (`docs/plans/2026-07-05-cloud-c4-poc-mcp-blind-relay.md`). Tier 2: consented hosted-relay mode — persistent `mcp_remote` registry + streamable-HTTP endpoint (`internal/cloudserver/mcp_remote.go`, `mcp_endpoint.go`) + devices-page mode picker (`docs/plans/2026-07-06-cloud-c4-poc-remote-mcp-endpoint.md`). See "MCP" section above. Full catalog codegen, multi-pairing (remote + local simultaneously), OAuth 2.1 + DCR, and shim binary distribution are the identified full-C4 follow-ups; go/no-go decided at the PoC's exit review.
+- **C4 — MCP tier 1 + tier 2 PoC (implemented)** — tier 1: blind relay (`internal/cloudserver/mcp_relay.go`) + Go shim (`cmd/mcpshim`, crypto/framing in `internal/mcpshim`) + browser responder (`web/cloud/js/mcp-responder.js`), originally with a hardcoded `bp`/`weight`/`notes` catalog (`docs/plans/2026-07-05-cloud-c4-poc-mcp-blind-relay.md`), now serving the 98-op catalog generated from `internal/mcp/registry` by `cmd/genmcpcatalog` (`docs/plans/20260710-cloud-mcp-catalog-codegen.md`). Tier 2: consented hosted-relay mode — persistent `mcp_remote` registry + streamable-HTTP endpoint (`internal/cloudserver/mcp_remote.go`, `mcp_endpoint.go`) + devices-page mode picker (`docs/plans/2026-07-06-cloud-c4-poc-remote-mcp-endpoint.md`). See "MCP" section above. Dispatch wiring for the catalogued ops (med-csu.3), multi-pairing (remote + local simultaneously), OAuth 2.1 + DCR, and shim binary distribution are the identified full-C4 follow-ups; go/no-go decided at the PoC's exit review.
 - **C5 — trial provider pool**: metered OpenAI-compatible relay, ElevenLabs signed-URL minting + client-tools voice agent, trial-consent wizard screen, quota admin. Depends on C2 (the PWA needs AI features to call it).
 - **C6 — bot-mode domain unification** (after C2 parity; optional but intended): embed the JS domain layer in the server build (goja preferred, Node sidecar fallback) behind a SQLite storage port; shadow-mirror real traffic (Go serves, JS diffs, divergences logged); flip per-domain when quiet; deprecate the Go domain layer. Ends the double maintenance — see "The client: porting the domain layer" §3.
 

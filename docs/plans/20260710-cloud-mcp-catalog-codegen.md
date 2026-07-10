@@ -196,9 +196,9 @@ against vitest's 5s default. Pre-existing, touched by nothing in this bead; fixe
 option on the owning `describe`.
 
 ### Task 7: [Final] Update documentation
-- [ ] update `docs/cloud-mode.md`: the MCP section must state that the cloud catalog is generated from `internal/mcp/registry` by `cmd/genmcpcatalog`, that regeneration is `go run ./cmd/genmcpcatalog`, that gamification is the named exclusion, and that `mcp_help` is compact-by-default because of the 64 KiB relay frame cap
-- [ ] update `CLAUDE.md` if a new invariant lands: adding a registry operation now also requires regenerating the cloud catalog or adding a reasoned exclusion (this parallels the existing MCP-coverage rule for HTTP routes)
-- [ ] note in `docs/cloud-mode.md` that catalogued ops are not yet dispatchable (med-csu.3) so the doc does not overclaim
+- [x] update `docs/cloud-mode.md`: the MCP section must state that the cloud catalog is generated from `internal/mcp/registry` by `cmd/genmcpcatalog`, that regeneration is `go run ./cmd/genmcpcatalog`, that gamification is the named exclusion, and that `mcp_help` is compact-by-default because of the 64 KiB relay frame cap (also refreshed the stale "hardcoded catalog" mentions in the PoC-ceilings bullet and the C4 roadmap entry)
+- [x] update `CLAUDE.md` if a new invariant lands: adding a registry operation now also requires regenerating the cloud catalog or adding a reasoned exclusion (this parallels the existing MCP-coverage rule for HTTP routes) — ➕ also corrected the same paragraph's stale "≤3-match `query` auto-expand" claim, which `internal/mcp/help.go` contradicts
+- [x] note in `docs/cloud-mode.md` that catalogued ops are not yet dispatchable (med-csu.3) so the doc does not overclaim
 
 ## Technical Details
 
