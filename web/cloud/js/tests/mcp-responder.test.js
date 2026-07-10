@@ -436,10 +436,16 @@ describe('mcp_help wire contract (generated catalog)', () => {
   // A catalogued op the router cannot serve is an internal inconsistency, not
   // bad params: the message must name the route so the next author can add it,
   // and the code must stay numeric or the Go shim drops the frame. Calling it
-  // "unknown" and suggesting it back would loop the agent forever.
+  // "unknown" and suggesting it back would loop the agent forever. Every real
+  // catalog op is routed now (the coverage sweep below is what keeps it that
+  // way), so the 404 comes from a stub standing in for a future gap.
   it('maps a catalogued op with no router route to a numeric internal error naming the route', async () => {
-    allowConsoleNoise(); // the router warns on the unmapped route before throwing its 404
-    const dispatcher = createDispatcher({ router: makeRouter(), now: () => 0 });
+    const notFound = () => {
+      const err = new Error('Not found: GET /api/workout/exercises/unique');
+      err.status = 404;
+      throw err;
+    };
+    const dispatcher = createDispatcher({ router: notFound, now: () => 0 });
     const response = await handleRequest(dispatcher, {
       jsonrpc: '2.0', id: 9, method: 'mcp_call', params: { op: 'workouts.exercises.unique', params: {} },
     });

@@ -1954,19 +1954,6 @@ export const CATALOG = [
     ]
   },
   {
-    "id": "workouts.miband.gps",
-    "topic": "workouts",
-    "method": "GET",
-    "path": "/api/workout/miband/{id}/gps",
-    "path_params": [
-      "id"
-    ],
-    "risk": "read",
-    "description": "Get GPS track points for a Mi Band workout (when GPS was recorded).",
-    "response_summary": "JSON array of GPS points with timestamp, lat, lon, ele.",
-    "response_example": "[\n  {\"timestamp\": \"2026-04-29T07:30:00Z\", \"lat\": 40.7128, \"lon\": -74.006, \"ele\": 12.0},\n  {\"timestamp\": \"2026-04-29T07:30:05Z\", \"lat\": 40.7129, \"lon\": -74.0061, \"ele\": 12.3}\n]"
-  },
-  {
     "id": "workouts.miband.list",
     "topic": "workouts",
     "method": "GET",
@@ -2663,5 +2650,9 @@ export const EXCLUDED = [
   {
     "id": "gamification.weekly_review",
     "reason": "gamification is deferred project-wide; clamped out of apishim.js PORTED_SET"
+  },
+  {
+    "id": "workouts.miband.gps",
+    "reason": "cloud vaults carry no GPS tracks: vaultToRecords drops workouts.miband[].gps on import (44% of a real vault, nothing renders it) — see docs/vault-format.md. The op could only ever return an empty track in cloud mode."
   }
 ];

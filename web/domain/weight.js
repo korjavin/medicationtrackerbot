@@ -6,6 +6,10 @@
 const RECORD_TYPE = 'weight';
 const GOAL_RECORD_TYPE = 'weightgoal';
 
+// Single-account cloud mode has exactly one user; user_id is echoed back only
+// where the server's JSON shape carries it (goal history). See workout.js.
+const CLOUD_USER_ID = 1;
+
 // Ported from internal/store/weight/repo.go:77 (CalculateWeightTrend).
 // alpha = 0.1 gives roughly a 20-day smoothing.
 export function calculateWeightTrend(currentWeight, previousTrend) {
@@ -127,6 +131,28 @@ export function createWeightDomain({ records, now, timeZone }) {
     return goalResponse(goal, highest);
   }
 
+  // listGoals ports handleListWeightGoals + weight.ListGoals: the append-only
+  // goal history, newest first, capped at 1..200 (default 100). No UI reads
+  // it; the MCP catalog does.
+  async function listGoals(limit) {
+    const n = limit > 0 ? Math.min(limit, 200) : 100;
+    return (await records.list(GOAL_RECORD_TYPE))
+      .filter((g) => !g.deleted)
+      .sort((a, b) => Date.parse(b.set_at) - Date.parse(a.set_at))
+      .slice(0, n)
+      .map((g) => {
+        const resp = {
+          id: g.recordId,
+          user_id: CLOUD_USER_ID,
+          set_at: g.set_at,
+          target_weight: g.target_weight,
+          target_date: g.target_date,
+        };
+        if (g.start_weight !== null && g.start_weight !== undefined) resp.start_weight = g.start_weight;
+        return resp;
+      });
+  }
+
   async function setGoal(goal) {
     const nowMs = now();
     const all = await records.list(RECORD_TYPE);
@@ -145,5 +171,7 @@ export function createWeightDomain({ records, now, timeZone }) {
     return getGoal();
   }
 
-  return { create, list, remove, getGoal, setGoal };
+  return {
+    create, list, remove, getGoal, setGoal, listGoals,
+  };
 }

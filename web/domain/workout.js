@@ -50,6 +50,10 @@ const WORKOUT_RECORD_TYPES = {
 // frontend's `group_id == -1 / variant_id == -1` checks keep working verbatim.
 const ADHOC_ID = -1;
 
+// Caps one schedule request, mirroring maxScheduledExercises in
+// internal/server/workout_schedule_handlers.go.
+const MAX_SCHEDULED_EXERCISES = 50;
+
 // mintNumericId ports the nextId technique used by medications.js/notes.js:
 // stamp from the millisecond clock (time-ordered) plus low-order random
 // digits for cross-device entropy, falling back to localMax+1 so a stalled
@@ -520,6 +524,35 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return toLibraryResponse(record);
   }
 
+  // listUniqueExercises ports ListAllUniqueExercises (repo.go:448): the
+  // exercise library when it has entries, else the highest-id row per distinct
+  // exercise name across every variant, alphabetical. Shape is WorkoutExercise
+  // either way (the catalog's response_example claiming a string array is
+  // wrong — see the plan's Task 5).
+  async function listUniqueExercises() {
+    const lib = await listLibrary();
+    if (lib.length > 0) {
+      return lib.map((item) => toExerciseResponse({
+        id: item.id,
+        variant_id: 0,
+        exercise_name: item.name,
+        target_sets: item.default_sets,
+        target_reps_min: item.default_reps_min,
+        target_reps_max: item.default_reps_max,
+        target_weight_kg: item.default_weight_kg,
+        order_index: 0,
+      }));
+    }
+    const latestByName = new Map();
+    for (const e of await activeRecords(WORKOUT_RECORD_TYPES.EXERCISE)) {
+      const prev = latestByName.get(e.exercise_name);
+      if (!prev || e.id > prev.id) latestByName.set(e.exercise_name, e);
+    }
+    return [...latestByName.values()]
+      .sort((a, b) => a.exercise_name.localeCompare(b.exercise_name))
+      .map(toExerciseResponse);
+  }
+
   async function listLibrary() {
     const all = await activeRecords(WORKOUT_RECORD_TYPES.LIBRARY);
     all.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -561,6 +594,12 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   }
 
   async function initializeRotation(groupId, startingVariantId) {
+    // Go's INSERT OR REPLACE happily writes a group_id=0 row from an empty
+    // request body; refuse instead, so a malformed MCP call can't strand an
+    // orphan rotation record in the vault (LWW never garbage-collects it).
+    if (!groupId || !startingVariantId) {
+      throw invalidRequest('group_id and starting_variant_id are required');
+    }
     const nowMs = now();
     const record = {
       recordId: rotationRecordId(groupId),
@@ -671,6 +710,117 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     };
     await records.put(WORKOUT_RECORD_TYPES.SESSION, record);
     return toSessionResponse(record);
+  }
+
+  // schedulePlannedAdHocSession ports handleScheduleAdHocWorkoutSession's
+  // validation (workout_schedule_handlers.go) plus SchedulePlannedAdHocSession
+  // (service.go:202) — in cloud mode the domain module is the only validation
+  // seam, so the handler's guards live here. Placeholders carry no
+  // sets/reps/weight, matching the Go LogExerciseWithSource(nil, nil, nil)
+  // call; the targets exist only to name the exercises up front.
+  async function schedulePlannedAdHocSession(input) {
+    const dateStr = (input && input.scheduled_date) || '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) throw invalidRequest('scheduled_date must be YYYY-MM-DD');
+    const timeStr = (input && input.scheduled_time) || '';
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(timeStr)) throw invalidRequest('scheduled_time must be HH:MM');
+
+    const requested = (input && input.exercises) || [];
+    if (requested.length === 0) throw invalidRequest('exercises must not be empty');
+    if (requested.length > MAX_SCHEDULED_EXERCISES) throw invalidRequest('too many exercises in a single request');
+
+    const nowMs = now();
+    const wallUtc = Date.UTC(
+      +dateStr.slice(0, 4), +dateStr.slice(5, 7) - 1, +dateStr.slice(8, 10),
+      +timeStr.slice(0, 2), +timeStr.slice(3, 5),
+    );
+    if (localWallToUtcMs(wallUtc, timeZone) <= nowMs) throw invalidRequest('scheduled time is in the past');
+
+    // The unique index on workout_exercise_logs is (session_id, exercise_id,
+    // source) WHERE exercise_id > 0, so it catches neither two free-form
+    // entries with the same name nor a library entry colliding with one.
+    const library = await listLibrary();
+    const seenIds = new Set();
+    const seenNames = new Set();
+    const planned = [];
+    for (const ex of requested) {
+      const exerciseId = Number(ex && ex.exercise_id) || 0;
+      if (exerciseId < 0) throw invalidRequest('exercises[].exercise_id must be >= 0');
+      let name = String((ex && ex.exercise_name) || '').trim();
+      if (!name && !exerciseId) throw invalidRequest('exercises[] requires exercise_id or exercise_name');
+      const sets = Number(ex && ex.target_sets) || 0;
+      const repsMin = Number(ex && ex.target_reps_min) || 0;
+      if (sets < 1 || repsMin < 1) throw invalidRequest('exercises[].target_sets and target_reps_min must be >= 1');
+      const repsMax = numOrNull(ex && ex.target_reps_max, true);
+      if (repsMax !== null && repsMax < repsMin) {
+        throw invalidRequest('exercises[].target_reps_max must be >= target_reps_min');
+      }
+      if (exerciseId > 0) {
+        if (seenIds.has(exerciseId)) {
+          throw invalidRequest('exercises[].exercise_id values must be unique within a request');
+        }
+        seenIds.add(exerciseId);
+        const item = library.find((l) => l.id === exerciseId);
+        if (!item) throw invalidRequest("exercises[].exercise_id not found in this user's library");
+        if (!name) name = item.name;
+      }
+      const nameKey = name.toLowerCase();
+      if (nameKey) {
+        if (seenNames.has(nameKey)) throw invalidRequest('exercises[] names must be unique within a request');
+        seenNames.add(nameKey);
+      }
+      planned.push({ exerciseId, name });
+    }
+
+    const session = {
+      recordId: genRecordId('session', nowMs),
+      clientTs: nowMs,
+      deleted: false,
+      id: mintNumericId(await records.list(WORKOUT_RECORD_TYPES.SESSION), nowMs),
+      user_id: CLOUD_USER_ID,
+      group_id: ADHOC_ID,
+      variant_id: ADHOC_ID,
+      scheduled_date: scheduledDateRFC(dateStr, timeZone),
+      scheduled_time: timeStr,
+      status: 'pending',
+      started_at: null,
+      completed_at: null,
+      snoozed_until: null,
+      snooze_count: 0,
+      notification_message_id: null,
+      notes: '',
+    };
+    await records.put(WORKOUT_RECORD_TYPES.SESSION, session);
+
+    try {
+      const logs = await records.list(WORKOUT_RECORD_TYPES.LOG);
+      for (const ex of planned) {
+        const record = {
+          recordId: genRecordId('log', nowMs),
+          clientTs: nowMs,
+          deleted: false,
+          id: mintNumericId(logs, nowMs),
+          session_id: session.id,
+          exercise_id: ex.exerciseId,
+          exercise_name: ex.name,
+          sets_completed: null,
+          reps_completed: null,
+          weight_kg: null,
+          status: '',
+          notes: '',
+          logged_at: new Date(nowMs).toISOString(),
+          source: ex.exerciseId > 0 ? 'library' : 'schedule',
+        };
+        logs.push(record);
+        await records.put(WORKOUT_RECORD_TYPES.LOG, record);
+      }
+    } catch (e) {
+      // Roll back rather than leave a session whose placeholders are partial
+      // (deleteSession also removes the ones already written).
+      await deleteSession(session.id);
+      throw e;
+    }
+
+    return { session: toSessionResponse(session), planned: planned.length };
   }
 
   // startSession ports StartSession + the service-level ClearSnooze that
@@ -1420,8 +1570,12 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     listLibrary,
     updateLibraryItem,
     deleteLibraryItem,
+    listUniqueExercises,
+    getRotationState,
+    initializeRotation,
     getNext,
     createAdHocSession,
+    schedulePlannedAdHocSession,
     startSession,
     snoozeSession,
     skipSession,

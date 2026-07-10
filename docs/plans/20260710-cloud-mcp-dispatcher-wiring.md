@@ -139,19 +139,21 @@ A reviewer should be able to diff the responder and see only *adapter* code.
 - ⚠️ This task lands a **red** suite by design (the plan's own instruction); Task 4 turns it green. `pnpm test` fails only on `mcp-responder.test.js` until then.
 
 ### Task 4: Route the ops the sweep proves are missing
-- [ ] for each op the sweep names, add its route to `apishim.js`'s `shimCall` — delegating to the matching `web/domain/*.js` function
-- [ ] where the domain module lacks the behavior, **add it to `web/domain/*.js`** (never to the responder or to apishim's router body), so apishim and MCP keep sharing one implementation. `architecture.domain-purity.test.js` guards that layer: no `window`, `document`, `fetch`, or IndexedDB
-- [ ] confirmed worklist, as named by the Task 3 sweep (8, not 7 — the scan missed `workouts.miband.gps`):
-  - `food.log.from_description` → `POST /api/food/log/from-description`
-  - `food.products.search` → `GET /api/food/products/search`
-  - `health.weight.goal.history.list` → `GET /api/weight/goals/history`
-  - `workouts.exercises.unique` → `GET /api/workout/exercises/unique`
-  - `workouts.miband.gps` → `GET /api/workout/miband/{id}/gps`
-  - `workouts.rotation.initialize` → `POST /api/workout/rotation/initialize`
+- [x] for each op the sweep names, add its route to `apishim.js`'s `shimCall` — delegating to the matching `web/domain/*.js` function
+- [x] where the domain module lacks the behavior, **add it to `web/domain/*.js`** (never to the responder or to apishim's router body), so apishim and MCP keep sharing one implementation. `architecture.domain-purity.test.js` guards that layer: no `window`, `document`, `fetch`, or IndexedDB (added: `weight.listGoals`, `workout.listUniqueExercises`, `workout.schedulePlannedAdHocSession`; exported the already-present `workout.getRotationState`/`initializeRotation`)
+- [x] confirmed worklist, as named by the Task 3 sweep (8, not 7 — the scan missed `workouts.miband.gps`):
+  - `food.log.from_description` → `POST /api/food/log/from-description` (routes to `foodAI.parseMealFromDescription`, browser-direct)
+  - `food.products.search` → `GET /api/food/products/search` (routes to `food.search`; the catalog's `limit` is ignored, matching the Go handler, which also ignores it)
+  - `health.weight.goal.history.list` → `GET /api/weight/goals/history` (new `weight.listGoals`)
+  - `workouts.exercises.unique` → `GET /api/workout/exercises/unique` (new `workout.listUniqueExercises`)
+  - `workouts.miband.gps` → `GET /api/workout/miband/{id}/gps` — **excluded**, see below
+  - `workouts.rotation.initialize` → `POST /api/workout/rotation/initialize` (now rejects a zero group_id/variant_id instead of Go's `INSERT OR REPLACE` of an orphan row)
   - `workouts.rotation.state` → `GET /api/workout/rotation/state`
-  - `workouts.sessions.schedule` → `POST /api/workout/sessions/schedule`
-- [ ] `food.log.from-description` and `food.products.search` reach outside the vault (AI parsing / food DB). C2c ported those as **direct-from-browser** calls — reuse that path; do **not** route them through the relay, which would break the zero-knowledge boundary. If an op genuinely cannot be served in cloud mode, do not silently skip it: add it to `catalogjs.Excluded` with a reason, which the med-csu.1 drift guard then enforces
-- [ ] re-run the sweep until it passes with zero unrouted ops
+  - `workouts.sessions.schedule` → `POST /api/workout/sessions/schedule` (new `workout.schedulePlannedAdHocSession`, porting the handler's validation + the service's placeholder loop and rollback)
+- [x] `food.log.from-description` and `food.products.search` reach outside the vault (AI parsing / food DB). C2c ported those as **direct-from-browser** calls — reuse that path; do **not** route them through the relay, which would break the zero-knowledge boundary. If an op genuinely cannot be served in cloud mode, do not silently skip it: add it to `catalogjs.Excluded` with a reason, which the med-csu.1 drift guard then enforces. Both routes call the very `foodAI`/`food` instances `installApiShim` hands to `CloudFoodAI`/`CloudFoodSearch`, so no plaintext crosses the relay
+- [x] ➕ `workouts.miband.gps` added to `catalogjs.Excluded`: `vaultToRecords` drops `workouts.miband[].gps` on import (44% of a real vault, nothing renders it — docs/vault-format.md), so the op could only ever return an empty track in cloud mode. Catalog regenerated (98 → 97 ops)
+- [x] ➕ Task 2's "catalogued but no route" test used `workouts.exercises.unique` as its example of an unrouted op; now that every op routes it injects a 404-throwing stub router instead. The coverage sweep is what guards the property from here on
+- [x] re-run the sweep until it passes with zero unrouted ops (`pnpm test`: 288 files / 3122 tests green)
 
 ### Task 5: ResponseExample shape conformance
 - [ ] integration test: for each catalog op carrying a `response_example`, dispatch it and assert the result's top-level shape agrees (array vs object; expected keys present on an object, or on the first element of a non-empty array)

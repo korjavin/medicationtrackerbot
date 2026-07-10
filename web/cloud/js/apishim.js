@@ -250,6 +250,9 @@ export function createApiRouter(ctx, {
     }
     if (path === '/api/weight/goal' && method === 'GET') return weight.getGoal();
     if (path === '/api/weight/goal' && method === 'POST') return weight.setGoal(body);
+    if (path === '/api/weight/goals/history' && method === 'GET') {
+      return { goals: await weight.listGoals(intParam(params, 'limit', 100)) };
+    }
 
     if (path === '/api/notes') {
       if (method === 'POST') return notes.create(body);
@@ -423,10 +426,22 @@ export function createApiRouter(ctx, {
     }
     if (path === '/api/tz-suggestion/dismiss' && method === 'POST') return tzplan.recordDismissal(body && body.detected_tz);
 
-    // --- Food logs + products (Task 2: C2c shim wiring). The NDJSON search
-    // route (food_handlers.go handleSearchFoodProducts) has no apiCall-shaped
-    // caller — products.js streams it via raw fetch, guarded separately
-    // (Task 4) — so it is intentionally not routed here.
+    // --- Food logs + products (Task 2: C2c shim wiring). The frontend still
+    // reaches the AI parser and the food DB browser-direct (CloudFoodAI /
+    // CloudFoodSearch below); the two routes here exist for MCP, and they call
+    // the very same domain instances, so neither the meal description nor the
+    // search term ever crosses the relay (med-csu.3).
+    if (path === '/api/food/log/from-description' && method === 'POST') {
+      const eatenAt = Date.parse((body && body.eaten_at) || '');
+      return foodAI.parseMealFromDescription(body && body.description, {
+        eatenAt: Number.isNaN(eatenAt) ? undefined : eatenAt,
+      });
+    }
+    // Bot mode streams NDJSON here and ignores the catalog's `limit`; the shim
+    // resolves the whole array at once, matching the apiCall contract.
+    if (path === '/api/food/products/search' && method === 'GET') {
+      return food.search(params.get('q'), { remote: params.get('remote') === 'true' });
+    }
     if (path === '/api/food/log') {
       if (method === 'POST') return food.create(body);
       if (method === 'GET') {
@@ -471,11 +486,11 @@ export function createApiRouter(ctx, {
     // (Task 6: C2d shim wiring). Unlike bp/weight/food, the CRUD routes use
     // separate /create, /update, /delete literal paths with a query-param
     // `?id=` (workout_crud_handlers.go's style), not a combined GET+POST
-    // base path. Intentionally NOT routed (no apiCall-shaped frontend
-    // caller — MCP/bot-only, per the plan): rotation/state,
-    // rotation/initialize, exercises/unique, sessions/schedule, the legacy
-    // session/snooze + session/skip compat routes, and the external Mi
-    // Notify webhook — these fall through to the unmapped-route warning.
+    // base path. rotation/state, rotation/initialize, exercises/unique and
+    // sessions/schedule have no frontend caller but are catalogued MCP ops, so
+    // they are routed too (med-csu.3). Intentionally NOT routed: the legacy
+    // session/snooze + session/skip compat routes and the external Mi Notify
+    // webhook — these fall through to the unmapped-route warning.
     if (path === '/api/workout/groups' && method === 'GET') return workout.listGroups();
     if (path === '/api/workout/groups/create' && method === 'POST') return workout.createGroup(body);
     if (path === '/api/workout/groups/update' && method === 'PUT') {
@@ -513,6 +528,19 @@ export function createApiRouter(ctx, {
       return true;
     }
 
+    if (path === '/api/workout/exercises/unique' && method === 'GET') return workout.listUniqueExercises();
+
+    if (path === '/api/workout/rotation/state' && method === 'GET') {
+      return workout.getRotationState(intParam(params, 'group_id', 0));
+    }
+    if (path === '/api/workout/rotation/initialize' && method === 'POST') {
+      await workout.initializeRotation(
+        Number(body && body.group_id) || 0,
+        Number(body && body.starting_variant_id) || 0,
+      );
+      return true;
+    }
+
     if (path === '/api/workout/exercise-library' && method === 'GET') return workout.listLibrary();
     if (path === '/api/workout/exercise-library/create' && method === 'POST') {
       return workout.createLibraryItem(body);
@@ -539,6 +567,9 @@ export function createApiRouter(ctx, {
     }
     if (path === '/api/workout/sessions/status' && method === 'PUT') {
       return workout.setSessionStatus(intParam(params, 'id', 0), body && body.status);
+    }
+    if (path === '/api/workout/sessions/schedule' && method === 'POST') {
+      return workout.schedulePlannedAdHocSession(body);
     }
     if (path === '/api/workout/sessions/adhoc' && method === 'POST') {
       const session = await workout.createAdHocSession();
