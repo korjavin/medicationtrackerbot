@@ -32,10 +32,15 @@ async function startTransfer(app, ctx, onExit) {
 
   const qrUrl = `${location.origin}/claim#${slotId}.${toBase64Url(tk)}`;
   const fallback = `${slotId}.${base32Encode(tk)}`;
-  await renderTransferScreen(app, ctx, onExit, { qrUrl, fallback, expiresAt: new Date(expiresAt).getTime() });
+  await renderTransferScreen(app, ctx, onExit, { slotId, qrUrl, fallback, expiresAt: new Date(expiresAt).getTime() });
 }
 
-async function renderTransferScreen(app, ctx, onExit, { qrUrl, fallback, expiresAt }) {
+// How often the originating device asks whether its slot was claimed. The
+// ceremony is a human scanning a QR, so 2s is well inside "feels instant"
+// while costing at most ~300 requests over the slot's whole 10-minute life.
+const POLL_INTERVAL_MS = 2000;
+
+async function renderTransferScreen(app, ctx, onExit, { slotId, qrUrl, fallback, expiresAt }) {
   const { qrcode } = await import('../vendor/qrcode.mjs');
   const qr = qrcode(0, 'M');
   qr.addData(qrUrl);
@@ -51,6 +56,7 @@ async function renderTransferScreen(app, ctx, onExit, { qrUrl, fallback, expires
         <dt>Fallback code</dt><dd class="recovery-code" id="transfer-fallback"></dd>
         <dt>Expires in</dt><dd id="transfer-countdown"></dd>
       </dl>
+      <p class="wizard-error" id="transfer-error"></p>
       <button id="transfer-cancel">Cancel</button>
     </section>`;
   // Server-controlled slot id rides in this code — set via textContent, never
@@ -58,11 +64,17 @@ async function renderTransferScreen(app, ctx, onExit, { qrUrl, fallback, expires
   app.querySelector('#transfer-fallback').textContent = fallback;
 
   const countdownEl = app.querySelector('#transfer-countdown');
-  const timer = setInterval(tick, 1000);
+  const cancelButton = app.querySelector('#transfer-cancel');
+
+  let timer;
+  let poller;
+  const stop = () => { clearInterval(timer); clearInterval(poller); };
+
+  timer = setInterval(tick, 1000);
   function tick() {
     const remainingMs = expiresAt - Date.now();
     if (remainingMs <= 0) {
-      clearInterval(timer);
+      stop();
       renderExpired(app, ctx, onExit);
       return;
     }
@@ -73,10 +85,77 @@ async function renderTransferScreen(app, ctx, onExit, { qrUrl, fallback, expires
   }
   tick();
 
-  app.querySelector('#transfer-cancel').addEventListener('click', () => {
-    clearInterval(timer);
-    onExit();
+  // Ask the server whether the other device finished. Without this the screen
+  // counted down and offered Cancel long after enrollment had succeeded, and
+  // the user could not tell whether it had worked (med-tuv).
+  poller = setInterval(() => { pollSlot(); }, POLL_INTERVAL_MS);
+  async function pollSlot() {
+    let res;
+    try {
+      res = await fetch(`/api/transfer/${encodeURIComponent(slotId)}`);
+    } catch {
+      return; // transient: the countdown keeps running, the next tick retries
+    }
+    if (res.status === 404) {
+      // Expired or swept server-side. The countdown will land on the same
+      // conclusion; let it, rather than racing it.
+      return;
+    }
+    if (!res.ok) return;
+    const { status } = await res.json();
+    if (status === 'claimed') {
+      stop();
+      renderTransferComplete(app, ctx, onExit);
+    }
+  }
+
+  cancelButton.addEventListener('click', () => {
+    cancelButton.disabled = true;
+    cancelTransfer(app, ctx, onExit, slotId, stop).catch(() => {
+      // Never navigate away on failure: leaving would imply the code is dead.
+      app.querySelector('#transfer-error').textContent =
+        'Could not cancel the transfer code — it may still work. Check your connection and try again.';
+      cancelButton.disabled = false;
+    });
   });
+}
+
+// Cancel must mean cancelled. The old handler cleared a local timer and left
+// the slot live and claimable for the rest of its 10-minute window, so a user
+// who had shown the QR to the wrong person pressed Cancel and believed the
+// code was dead. It was not.
+async function cancelTransfer(app, ctx, onExit, slotId, stop) {
+  const res = await fetch(`/api/transfer/${encodeURIComponent(slotId)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('cancel failed');
+  stop();
+  onExit();
+}
+
+// Names the newly enrolled device so an unexpected one is visible immediately.
+// Best-effort: the enrollment already succeeded, so a failed lookup must not
+// present as a failed transfer.
+async function renderTransferComplete(app, ctx, onExit) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>Device added</h1>
+      <p id="transfer-complete-detail">Your new device has been enrolled and can now open your vault.</p>
+      <p>If you did not expect this, remove it from your device list now.</p>
+      <button id="transfer-done">Back to devices</button>
+    </section>`;
+  app.querySelector('#transfer-done').addEventListener('click', onExit);
+
+  try {
+    const res = await fetch('/api/devices');
+    if (!res.ok) return;
+    const devices = await res.json();
+    if (!Array.isArray(devices) || devices.length === 0) return;
+    const newest = devices.reduce((a, b) => (new Date(a.created_at) > new Date(b.created_at) ? a : b));
+    const detail = app.querySelector('#transfer-complete-detail');
+    // Server-controlled — textContent, never innerHTML (this page holds the DEK).
+    if (detail) detail.textContent = `Passkey ${newest.credential_id.slice(0, 8)}… can now open your vault.`;
+  } catch {
+    // Leave the generic success copy.
+  }
 }
 
 function renderExpired(app, ctx, onExit) {

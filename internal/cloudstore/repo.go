@@ -39,6 +39,12 @@ var ErrAlreadyClaimed = errors.New("cloudstore: account already claimed")
 // distinguish these cases in responses (all map to 410 Gone).
 var ErrTransferSlotInvalid = errors.New("cloudstore: invalid, expired, or already-claimed transfer slot")
 
+// Transfer-slot states reported by TransferSlotStatus.
+const (
+	TransferSlotPending = "pending"
+	TransferSlotClaimed = "claimed"
+)
+
 // ErrRecoveryInvalid is returned by VerifyRecoveryAttempt when no recovery
 // verifier is set for the account, or the supplied one does not match.
 var ErrRecoveryInvalid = errors.New("cloudstore: invalid recovery verifier")
@@ -665,6 +671,51 @@ func (r *Repo) CreateTransferSlot(ctx context.Context, id, accountID string, enr
 		`INSERT INTO transfer_slots (id, account_id, enrollment_token_hash, ct, created_at_unix, expires_at_unix) VALUES (?, ?, ?, ?, ?, ?)`,
 		id, accountID, enrollmentTokenHash, ct, storedb.TimeToUnix(createdAt), storedb.TimeToUnix(expiresAt))
 	return err
+}
+
+// TransferSlotStatus reports whether accountID's slot is still pending or has
+// already been claimed. Scoped to accountID on purpose: a slot id must never be
+// a status oracle for whoever holds the QR code, only for the device that
+// created it. An unknown, expired, or other-account slot is indistinguishable —
+// all three return ErrTransferSlotInvalid (med-tuv).
+func (r *Repo) TransferSlotStatus(ctx context.Context, slotID, accountID string, now time.Time) (string, error) {
+	var fetched int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT fetched FROM transfer_slots WHERE id = ? AND account_id = ? AND expires_at_unix > ?`,
+		slotID, accountID, storedb.TimeToUnix(now)).Scan(&fetched)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrTransferSlotInvalid
+	}
+	if err != nil {
+		return "", err
+	}
+	if fetched != 0 {
+		return TransferSlotClaimed, nil
+	}
+	return TransferSlotPending, nil
+}
+
+// DeleteTransferSlot invalidates a slot server-side, scoped to accountID.
+// Returns ErrTransferSlotInvalid when nothing matched, so a Cancel that
+// silently deleted nothing cannot report success.
+//
+// Deliberately deletes a FETCHED slot too: cancelling after someone has already
+// claimed the code cannot un-enroll their device (that is what Revoke is for),
+// but leaving the row behind serves no purpose either.
+func (r *Repo) DeleteTransferSlot(ctx context.Context, slotID, accountID string) error {
+	result, err := r.db.ExecContext(ctx,
+		`DELETE FROM transfer_slots WHERE id = ? AND account_id = ?`, slotID, accountID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrTransferSlotInvalid
+	}
+	return nil
 }
 
 // ClaimTransferSlot atomically marks a transfer slot fetched — single use,
