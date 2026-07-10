@@ -175,6 +175,29 @@ body {
   border-radius: 0.25rem;
 }
 
+.kit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.kit-hint {
+  color: var(--wg-fg-3);
+  font-size: 0.9rem;
+  margin: 0 0 1rem;
+}
+
+/* Offscreen rather than display:none — a hidden iframe does not lay out, and
+   the print dialog needs a rendered document to print. */
+.kit-print-frame {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  left: -9999px;
+  border: 0;
+}
+
 .device-list {
   list-style: none;
   padding: 0;
