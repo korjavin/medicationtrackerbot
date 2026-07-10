@@ -1080,6 +1080,20 @@ func TestChildWebhook_CallbackQueryRedeliveryQueuesAgainAndStays200(t *testing.T
 // webhook answered only /start and CallbackQuery — every other message hit a
 // silent 200. /help therefore did nothing, and the autocomplete menu stayed
 // empty until the user's first /start (setMyCommands lived inside that branch).
+// TestHelpDoesNotAdvertiseUnsupportedCommands pins that /help never lists /food
+// or /workout as chat commands: they only exist in the app, and the relay
+// cannot read the E2EE vault to know which features are enabled (bd med-4kw).
+func TestHelpDoesNotAdvertiseUnsupportedCommands(t *testing.T) {
+	for _, cmd := range []string{"/food", "/workout"} {
+		if strings.Contains(helpMessage, cmd) {
+			t.Errorf("helpMessage advertises %s, but it is not a chat command", cmd)
+		}
+	}
+	if !strings.Contains(helpMessage, "app only") {
+		t.Errorf("helpMessage should state food/workouts are app-only: %q", helpMessage)
+	}
+}
+
 func TestChildWebhook_HelpAndUnknownCommands(t *testing.T) {
 	store := setupStore(t)
 	account, claimToken := setupInvite(t, store)
