@@ -3,16 +3,32 @@
 // write ciphertext it cannot produce — so it sealed the user's intent and an
 // unlocked client replays it here.
 //
-// The only event kind today is a Confirm/Snooze tap on a medication reminder.
-// Its callback_data is slot-scoped ("s:<slotUnix>"), because a cloud dose
-// reminder bundles every medication due at one instant into a single message
-// (web/domain/reminders.js groups targets bySlot). So "Confirm" means "I took
-// the meds due at 08:00", and expanding the slot to its intakes happens HERE,
-// on an unlocked client that can actually see which meds those are.
+// Two event kinds:
+//
+//   intake_slot_action — a Confirm/Snooze tap. Its callback_data is slot-scoped
+//     ("s:<slotUnix>"), because a cloud dose reminder bundles every medication
+//     due at one instant into a single message (web/domain/reminders.js groups
+//     targets bySlot). So "Confirm" means "I took the meds due at 08:00", and
+//     expanding the slot to its intakes happens HERE, on an unlocked client
+//     that can actually see which meds those are.
+//
+//   tg_command — the RAW text of a data command (/bp 120 80), sealed unparsed
+//     because the relay is forbidden from understanding it (bd med-eas.29.2).
+//     Parsing happens here via web/domain/tgcommand.js, and the write goes
+//     through the same domain modules the UI calls. Once the write is in the
+//     vault we ask the relay to edit its "⏳ Queued" placeholder into a
+//     confirmation WE composed — the relay forwards that string verbatim, the
+//     same contract it already has for outbound reminder text.
 import { createIntakeDomain } from '../../domain/medintake.js';
+import { createBPDomain } from '../../domain/bp.js';
+import { createWeightDomain } from '../../domain/weight.js';
+import { createNotesDomain } from '../../domain/notes.js';
+import { createRemindersDomain } from '../../domain/reminders.js';
+import { parseCommand } from '../../domain/tgcommand.js';
 import { recordsPort } from './sync.js';
 
 export const INTAKE_SLOT_ACTION = 'intake_slot_action';
+export const TG_COMMAND = 'tg_command';
 
 const INTAKE_RECORD_TYPE = 'intake';
 
@@ -71,16 +87,164 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   }
 }
 
+// editTelegramReply asks the relay to rewrite the "⏳ Queued" placeholder into
+// `text`. This adds no trust: WE composed `text` from vault data the relay
+// cannot read, and it forwards the string verbatim — the same contract as the
+// outbound reminder text it already relays (docs/cloud-mode.md → Inbound
+// plaintext). Best-effort: a failed edit must never fail the drain, because the
+// record is already in the vault and the receipt is cosmetic.
+async function editTelegramReply(messageId, text, { fetchImpl = fetch } = {}) {
+  if (!messageId || !text) return;
+  try {
+    const res = await fetchImpl('/api/telegram/reply-edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message_id: messageId, text }),
+    });
+    if (!res.ok) console.warn('[inbox] could not update the Telegram reply', res.status);
+  } catch (e) {
+    console.warn('[inbox] could not update the Telegram reply', e);
+  }
+}
+
+// Confirmations respect the SAME verbosity the user picked for outbound
+// reminders (web/domain/reminders.js getDeliveryPref). "generic" exists so no
+// health value ever crosses Telegram — honouring it here too, or a user who
+// chose generic reminders would still get "Recorded BP 120/80" echoed back.
+function confirmationText(intent, result, verbosity) {
+  if (verbosity === 'generic') return '✅ Recorded.';
+  switch (intent.kind) {
+    case 'bp': {
+      const pulse = intent.pulse ? `, pulse ${intent.pulse}` : '';
+      return `✅ Recorded BP ${intent.systolic}/${intent.diastolic}${pulse}.`;
+    }
+    case 'weight':
+      return `✅ Recorded weight ${intent.weight} kg.`;
+    case 'note':
+      return '✅ Note saved.';
+    case 'intake': {
+      const n = result && result.confirmed;
+      if (!n) return 'ℹ️ Nothing was due — no medications to confirm.';
+      return `✅ Confirmed ${n} medication${n === 1 ? '' : 's'}.`;
+    }
+    default:
+      return '✅ Recorded.';
+  }
+}
+
+// The message the bot shows when it cannot act on a command. Composed HERE, not
+// on the relay: the relay is forbidden from telling /bp apart from /bogus, so
+// only the client knows which of these applies.
+function refusalText(intent) {
+  switch (intent.kind) {
+    case 'invalid': return `⚠️ ${intent.hint}`;
+    case 'unsupported': return `🚧 ${intent.command} isn't available over chat yet — open the app for that.`;
+    case 'unknown': return `❓ I don't understand ${intent.command}. Send /help for the list.`;
+    default: return '❓ I don\'t understand that. Send /help for the list.';
+  }
+}
+
+// applyTGCommand parses the sealed raw text and writes it through the ordinary
+// JS domain layer — the same modules the UI calls, so there is exactly one
+// implementation of "what logging a BP means" (CLAUDE.md's no-duplicate-logic
+// rule; med-07y's unification constraint).
+//
+// eventId makes the write idempotent. Re-draining after a crash between flush
+// and ack must overwrite the same record, not append a second one — so the id
+// is derived from the mailbox event, which is stable across retries. The intake
+// path needs no id: its own PENDING check is the idempotency guard.
+export async function applyTGCommand(event, eventId, { bp, weight, notes, intake, records, verbosity = 'detailed', now = Date.now, editReply = editTelegramReply }) {
+  // The receipt is cosmetic; the record is not. A Telegram outage must never
+  // strand an event that already reached the vault, so the edit can never
+  // reject out of here — not even an injected one.
+  const reply = async (text) => {
+    try {
+      await editReply(event.reply_message_id, text);
+    } catch (e) {
+      console.warn('[inbox] could not update the Telegram reply', e);
+    }
+  };
+  const intent = parseCommand(event.text);
+  const recordId = `tg-${eventId}`;
+  // at_unix is the SERVER's timestamp for when the message arrived, so a /bp
+  // sent at 09:00 and drained at noon is recorded as measured at 09:00 — the
+  // same backdating rule the Confirm/Snooze tap follows (drain rule 4).
+  const atIso = new Date(event.at_unix * 1000).toISOString();
+
+  let result = null;
+  switch (intent.kind) {
+    case 'bp':
+      await bp.create({ measured_at: atIso, systolic: intent.systolic, diastolic: intent.diastolic, pulse: intent.pulse }, { recordId });
+      break;
+    case 'weight':
+      await weight.create({ measured_at: atIso, weight: intent.weight }, { recordId });
+      break;
+    case 'note':
+      await notes.create({ content: intent.content }, { recordId });
+      break;
+    case 'intake':
+      result = await confirmDueIntakes({ intake, records, atMs: event.at_unix * 1000, now });
+      break;
+    default:
+      // Nothing to write — but the user still gets an answer. The event is
+      // acked either way; re-queuing a message we will never understand would
+      // stall the mailbox forever.
+      await reply(refusalText(intent));
+      return;
+  }
+
+  await reply(confirmationText(intent, result, verbosity));
+}
+
+// confirmDueIntakes confirms every PENDING dose already due at `atMs` — the
+// chat equivalent of tapping Confirm on the most recent reminder. Doses due
+// later stay pending; confirming a dose you have not taken yet would be a lie
+// the inventory count then inherits.
+async function confirmDueIntakes({ intake, records, atMs, now }) {
+  await intake.materializeDueDoses();
+  const due = (await records.list(INTAKE_RECORD_TYPE)).filter((i) => !i.deleted
+    && i.status === 'PENDING'
+    && Date.parse(i.scheduled_at) <= atMs);
+
+  let confirmed = 0;
+  for (const i of due) {
+    try {
+      await intake.confirm(i.recordId, atMs);
+      confirmed++;
+    } catch (e) {
+      if (!isAlreadyApplied(e)) throw e;
+    }
+  }
+  return { confirmed };
+}
+
 // createInboxApplier returns the `apply` callback drainInbox expects: one
 // decrypted event in, a domain write out. Unknown kinds are ignored rather than
 // thrown — a newer relay may queue kinds this client predates, and stalling the
 // whole drain on one of them would block the events it does understand.
-export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now } = {}) {
+export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply } = {}) {
   const records = recordsOverride || recordsPort(ctx);
-  const intake = createIntakeDomain({ records, now, timeZone: defaultTimeZone() });
+  const timeZone = defaultTimeZone();
+  const intake = createIntakeDomain({ records, now, timeZone });
 
-  return async function apply(event) {
-    if (!event || event.kind !== INTAKE_SLOT_ACTION) {
+  return async function apply(event, eventId) {
+    if (!event) return;
+    if (event.kind === TG_COMMAND) {
+      const reminders = createRemindersDomain({ records, now });
+      const { verbosity } = await reminders.getDeliveryPref();
+      await applyTGCommand(event, eventId, {
+        bp: createBPDomain({ records, now, timeZone }),
+        weight: createWeightDomain({ records, now, timeZone }),
+        notes: createNotesDomain({ records, now }),
+        intake,
+        records,
+        verbosity,
+        now,
+        editReply,
+      });
+      return;
+    }
+    if (event.kind !== INTAKE_SLOT_ACTION) {
       console.warn('[inbox] ignoring unknown event kind', event && event.kind);
       return;
     }

@@ -48,7 +48,9 @@ function toResponse(record) {
 //   records — { list(type), put(type, record), del(type, id) }
 //   now()   — current time in ms epoch
 export function createNotesDomain({ records, now }) {
-  async function create(input) {
+  // recordId: see createBPDomain — deterministic ids let the Telegram inbox
+  // drain re-apply an event without double-logging (drain protocol, rule 2).
+  async function create(input, { recordId } = {}) {
     const content = (input && input.content ? String(input.content) : '').trim();
     if (!content) {
       const err = new Error('content is required');
@@ -62,7 +64,7 @@ export function createNotesDomain({ records, now }) {
     }
     const nowMs = now();
     const record = {
-      recordId: nextId(await records.list(RECORD_TYPE), nowMs),
+      recordId: recordId || nextId(await records.list(RECORD_TYPE), nowMs),
       clientTs: nowMs,
       deleted: false,
       content,

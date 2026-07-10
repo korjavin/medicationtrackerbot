@@ -8,7 +8,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -217,6 +219,7 @@ type recordMu struct {
 	sent     []string
 	answered []string
 	commands []string
+	edits    []string
 }
 
 func newRecordingTG(t *testing.T) *recordingTG {
@@ -239,6 +242,15 @@ func newRecordingTG(t *testing.T) *recordingTG {
 			b, _ := io.ReadAll(r.Body)
 			rec.mu.Lock()
 			rec.mu.sent = append(rec.mu.sent, string(b))
+			n := len(rec.mu.sent)
+			rec.mu.Unlock()
+			// Real Telegram returns the sent Message; the seal path reads its
+			// message_id so a client can later edit that exact message.
+			fmt.Fprintf(w, `{"ok":true,"result":{"message_id":%d}}`, 1000+n)
+		case "editMessageText":
+			b, _ := io.ReadAll(r.Body)
+			rec.mu.Lock()
+			rec.mu.edits = append(rec.mu.edits, string(b))
 			rec.mu.Unlock()
 			io.WriteString(w, `{"ok":true,"result":{}}`)
 		case "setMyCommands":
@@ -1148,12 +1160,16 @@ func TestChildWebhook_HelpAndUnknownCommands(t *testing.T) {
 		t.Fatalf("/help@bot did not produce the help reply: %v", got)
 	}
 
-	// An unknown command is answered, not silently dropped.
+	// An unknown command is answered, not silently dropped. Since med-eas.29.2
+	// the relay may NOT tell /bogus from /bp (that would mean reading the
+	// command surface of a message it must not understand), so it tries to seal
+	// it. This account has published no inbox key, so the event is DROPPED —
+	// never stored in the clear — and the user is told how to fix that.
 	if rec := postWebhook(t, top, childPath, bot.WebhookSecret,
 		`{"update_id":4,"message":{"message_id":3,"text":"/bogus","chat":{"id":777,"type":"private"}}}`); rec.Code != http.StatusOK {
 		t.Fatalf("/bogus status = %d", rec.Code)
 	}
-	if got := sentSince(2); len(got) != 1 || !strings.Contains(got[0], "Unknown command") {
+	if got := sentSince(2); len(got) != 1 || !strings.Contains(got[0], "finish setting up") {
 		t.Fatalf("unknown command not answered: %v", got)
 	}
 
@@ -1182,5 +1198,231 @@ func TestBotCommand(t *testing.T) {
 		if got := botCommand(tc.in); got != tc.want {
 			t.Errorf("botCommand(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// tgCommandFixture links a bot AND publishes an inbox key, so sealCommand has
+// somewhere to put events. Returns the child webhook path and the X25519
+// private key the "client" uses to open what the relay sealed.
+func tgCommandFixture(t *testing.T) (http.Handler, *recordingTG, string, string, *http.Cookie, string, *ecdh.PrivateKey) {
+	t.Helper()
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	tg := newRecordingTG(t)
+	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
+	inboxAPI := NewInboxAPI(store, tgTestSecret)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, 14*24*time.Hour)
+	if err := tgAPI.Bootstrap(t.Context()); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	apiMux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(apiMux)
+	inboxAPI.RegisterRoutes(apiMux)
+	tgAPI.RegisterAPIRoutes(apiMux)
+	router := New("localhost", store, testFS(), testAppFS(), testDomainFS(), apiMux, "", false, false)
+	top := http.NewServeMux()
+	tgAPI.RegisterWebhookRoutes(top)
+	top.Handle("/", router)
+
+	session := registerAndGetSession(t, top, host, claimToken)
+
+	provRec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/provision", host, session, nil)
+	if provRec.Code != http.StatusOK {
+		t.Fatalf("provision status = %d", provRec.Code)
+	}
+	var prov struct {
+		Suggested string `json:"suggested_username"`
+	}
+	json.Unmarshal(provRec.Body.Bytes(), &prov)
+	managerSecret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
+	update := `{"update_id":1,"message":{"message_id":1,"from":{"id":6918132008},"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":909,"username":"` + prov.Suggested + `"}}}}`
+	if whRec := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, update); whRec.Code != http.StatusOK {
+		t.Fatalf("manager webhook status = %d", whRec.Code)
+	}
+	bot, err := store.BotByAccount(t.Context(), account.ID)
+	if err != nil {
+		t.Fatalf("BotByAccount: %v", err)
+	}
+	// /start links the chat, which EditReply needs (it takes the chat from the
+	// bot row, never from the request).
+	startBody := `{"update_id":2,"message":{"message_id":2,"text":"/start","chat":{"id":12345,"type":"private"}}}`
+	if rec := postWebhook(t, top, "/tg/bot/"+account.ID+"/"+bot.WebhookSecret, bot.WebhookSecret, startBody); rec.Code != http.StatusOK {
+		t.Fatalf("/start status = %d", rec.Code)
+	}
+
+	priv, err := ecdh.X25519().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("genkey: %v", err)
+	}
+	if code := putInboxKey(t, top, host, session, priv.PublicKey().Bytes()); code != http.StatusNoContent && code != http.StatusOK {
+		t.Fatalf("PUT /api/inbox/key = %d", code)
+	}
+	childPath := "/tg/bot/" + account.ID + "/" + bot.WebhookSecret
+	return top, tg, host, childPath, session, account.ID, priv
+}
+
+// TestChildWebhook_SealsCommandVerbatim (bd med-eas.29.2) pins the core
+// zero-knowledge contract: the relay seals the RAW text, parses nothing, logs
+// no content, and replies with a fixed constant carrying the message id the
+// client will later edit.
+func TestChildWebhook_SealsCommandVerbatim(t *testing.T) {
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	top, tg, host, childPath, session, accountID, priv := tgCommandFixture(t)
+
+	tg.mu.Lock()
+	before := len(tg.mu.sent)
+	tg.mu.Unlock()
+
+	const cmd = "/bp 128 84 66"
+	secret := childPath[strings.LastIndex(childPath, "/")+1:]
+	body := `{"update_id":9,"message":{"message_id":7,"text":"` + cmd + `","chat":{"id":12345,"type":"private"}}}`
+	if rec := postWebhook(t, top, childPath, secret, body); rec.Code != http.StatusOK {
+		t.Fatalf("/bp status = %d", rec.Code)
+	}
+
+	// Replied "queued" — never anything derived from the numbers.
+	tg.mu.Lock()
+	sent := append([]string(nil), tg.mu.sent[before:]...)
+	tg.mu.Unlock()
+	if len(sent) != 1 || !strings.Contains(sent[0], "Queued") {
+		t.Fatalf("expected a single queued reply, got %v", sent)
+	}
+	if strings.Contains(sent[0], "128") || strings.Contains(sent[0], "84") {
+		t.Fatalf("SECURITY: reply echoed the reading: %q", sent[0])
+	}
+
+	// The mailbox holds the message VERBATIM, sealed.
+	res := listInbox(t, top, host, session)
+	if len(res.Events) != 1 {
+		t.Fatalf("inbox events = %d, want 1", len(res.Events))
+	}
+	pt, err := openInbox(priv.Bytes(), accountID, res.Events[0].CT)
+	if err != nil {
+		t.Fatalf("openInbox: %v", err)
+	}
+	var ev tgCommandEvent
+	if err := json.Unmarshal(pt, &ev); err != nil {
+		t.Fatalf("unmarshal sealed event: %v", err)
+	}
+	if ev.Kind != inboxEventKindTGCommand || ev.Text != cmd {
+		t.Fatalf("sealed event = %+v, want kind=%s text=%q", ev, inboxEventKindTGCommand, cmd)
+	}
+	if ev.ReplyMessageID == 0 {
+		t.Errorf("sealed event carries no reply_message_id — the client cannot edit the placeholder")
+	}
+	if ev.AtUnix == 0 {
+		t.Errorf("sealed event carries no server timestamp — backdating (drain rule 4) breaks")
+	}
+
+	// SECURITY INVARIANT: message content never reaches a log line.
+	logged := logBuf.String()
+	for _, leak := range []string{"128", "84", "/bp", cmd} {
+		if strings.Contains(logged, leak) {
+			t.Errorf("SECURITY: log leaked message content (%q): %s", leak, logged)
+		}
+	}
+	// The ciphertext must not be logged either.
+	if strings.Contains(logged, "ct=") || strings.Contains(logged, "\"ct\"") {
+		t.Errorf("SECURITY: log leaked the sealed ciphertext: %s", logged)
+	}
+}
+
+// TestChildWebhook_CommandWithoutInboxKeyIsDropped: no key means the plaintext
+// has nowhere safe to go, so it must be discarded — never stored in the clear.
+func TestChildWebhook_CommandWithoutInboxKeyIsDropped(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+	tg := newRecordingTG(t)
+	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
+	inboxAPI := NewInboxAPI(store, tgTestSecret)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, 14*24*time.Hour)
+	if err := tgAPI.Bootstrap(t.Context()); err != nil {
+		t.Fatalf("Bootstrap: %v", err)
+	}
+	apiMux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(apiMux)
+	inboxAPI.RegisterRoutes(apiMux)
+	tgAPI.RegisterAPIRoutes(apiMux)
+	router := New("localhost", store, testFS(), testAppFS(), testDomainFS(), apiMux, "", false, false)
+	top := http.NewServeMux()
+	tgAPI.RegisterWebhookRoutes(top)
+	top.Handle("/", router)
+	session := registerAndGetSession(t, top, host, claimToken)
+	provRec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/provision", host, session, nil)
+	var prov struct {
+		Suggested string `json:"suggested_username"`
+	}
+	json.Unmarshal(provRec.Body.Bytes(), &prov)
+	managerSecret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
+	postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret,
+		`{"update_id":1,"message":{"message_id":1,"from":{"id":6918132008},"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":909,"username":"`+prov.Suggested+`"}}}}`)
+	bot, _ := store.BotByAccount(t.Context(), account.ID)
+
+	rec := postWebhook(t, top, "/tg/bot/"+account.ID+"/"+bot.WebhookSecret, bot.WebhookSecret,
+		`{"update_id":9,"message":{"message_id":7,"text":"/bp 128 84","chat":{"id":12345,"type":"private"}}}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (a non-2xx makes Telegram redeliver)", rec.Code)
+	}
+	if res := listInbox(t, top, host, session); len(res.Events) != 0 {
+		t.Fatalf("event stored despite no inbox key: %d events", len(res.Events))
+	}
+	tg.mu.Lock()
+	sent := append([]string(nil), tg.mu.sent...)
+	tg.mu.Unlock()
+	last := sent[len(sent)-1]
+	if !strings.Contains(last, "finish setting up") {
+		t.Fatalf("user not told how to fix it: %q", last)
+	}
+	if strings.Contains(last, "128") {
+		t.Errorf("SECURITY: reply echoed the dropped reading: %q", last)
+	}
+}
+
+// TestEditReply drives the client-composed confirmation through the relay. The
+// relay must forward the text verbatim and take the chat from the bot row, so a
+// session can never edit a message in someone else's chat.
+func TestEditReply(t *testing.T) {
+	top, tg, host, _, session, _, _ := tgCommandFixture(t)
+
+	body := []byte(`{"message_id":1001,"text":"✅ Recorded BP 128/84."}`)
+	rec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/reply-edit", host, session, body)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("edit status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	tg.mu.Lock()
+	edits := append([]string(nil), tg.mu.edits...)
+	tg.mu.Unlock()
+	if len(edits) != 1 {
+		t.Fatalf("editMessageText calls = %d, want 1: %v", len(edits), edits)
+	}
+	if !strings.Contains(edits[0], "Recorded BP 128/84") {
+		t.Errorf("client text not forwarded verbatim: %s", edits[0])
+	}
+	// chat_id comes from the linked bot row (/start linked chat 12345).
+	if !strings.Contains(edits[0], "12345") {
+		t.Errorf("edit did not target the linked chat: %s", edits[0])
+	}
+	if !strings.Contains(edits[0], "1001") {
+		t.Errorf("edit did not target the requested message: %s", edits[0])
+	}
+
+	// Guard rails.
+	for _, bad := range []string{`{"message_id":0,"text":"x"}`, `{"message_id":5,"text":""}`, `not json`} {
+		r := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/reply-edit", host, session, []byte(bad))
+		if r.Code != http.StatusBadRequest {
+			t.Errorf("edit %q = %d, want 400", bad, r.Code)
+		}
+	}
+	// Unauthenticated.
+	r := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/reply-edit", host, nil, body)
+	if r.Code != http.StatusUnauthorized {
+		t.Errorf("unauthenticated edit = %d, want 401", r.Code)
 	}
 }

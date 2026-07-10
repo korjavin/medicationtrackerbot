@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ackInboxEvent, drainInbox, ensureInboxKey, listInboxEvents, readInboxKey } from '../inbox.js';
+import { ackInboxEvent, drainInbox, ensureInboxKey, listInboxEvents, readInboxKey, startInboxPolling } from '../inbox.js';
 import { inboxPublicFromPrivate, fromBase64, toBase64 } from '../crypto.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -172,7 +172,9 @@ describe('inbox.js — drainInbox', () => {
         const res = await drainInbox(ctx, { apply, records, fetchImpl, flush });
 
         expect(res).toEqual({ applied: 1, failed: 0 });
-        expect(apply).toHaveBeenCalledWith(JSON.parse(VECTOR.plaintext));
+        // The mailbox event id rides along so appliers can derive a deterministic
+        // record id from it (drain rule 2).
+        expect(apply).toHaveBeenCalledWith(JSON.parse(VECTOR.plaintext), 7);
         expect(deleted).toEqual([7]);
         // Rule 1: apply → flush → ack. Never ack ahead of the barrier.
         expect(order).toEqual(['apply', 'flush']);
@@ -264,5 +266,70 @@ describe('inbox.js — drainInbox', () => {
         release();
         await first;
         expect(apply).toHaveBeenCalledTimes(1);
+    });
+});
+
+// bd med-eas.29.2 — nothing else in cloud mode polls (no SSE, no change stream),
+// so without this a command texted to the bot sits unapplied until the next full
+// page load, and its "⏳ Queued" reply never becomes "✅ Recorded".
+describe('startInboxPolling', () => {
+    const ctx = { accountId: VECTOR.account_id };
+
+    async function pollRecords() {
+        const { rawX25519PrivateToPkcs8 } = await import('../crypto.js');
+        const priv = await rawX25519PrivateToPkcs8(fromBase64(VECTOR.recipient_private_b64));
+        return fakeRecords({ inboxkey: [{ recordId: 'inboxkey', deleted: false, privateKey: toBase64(priv) }] });
+    }
+
+    function emptyMailbox() {
+        return vi.fn(async () => okJson({ events: [] }));
+    }
+
+    function fakeDoc(state = 'visible') {
+        const listeners = {};
+        return {
+            visibilityState: state,
+            addEventListener: (ev, fn) => { listeners[ev] = fn; },
+            removeEventListener: (ev) => { delete listeners[ev]; },
+            fire: (ev) => listeners[ev] && listeners[ev](),
+        };
+    }
+
+    it('drains on an interval while the tab is visible', async () => {
+        vi.useFakeTimers();
+        const fetchImpl = emptyMailbox();
+        const doc = fakeDoc('visible');
+        const stop = startInboxPolling(ctx, {
+            apply: vi.fn(), intervalMs: 1000, doc, fetchImpl, records: await pollRecords(),
+        });
+
+        await vi.advanceTimersByTimeAsync(3100);
+        expect(fetchImpl).toHaveBeenCalled();
+        stop();
+
+        const calls = fetchImpl.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(fetchImpl.mock.calls.length).toBe(calls); // stop() really stops
+        vi.useRealTimers();
+    });
+
+    it('does not poll a hidden tab — a backgrounded phone must not drain every 5s', async () => {
+        vi.useFakeTimers();
+        const fetchImpl = emptyMailbox();
+        const doc = fakeDoc('hidden');
+        const stop = startInboxPolling(ctx, {
+            apply: vi.fn(), intervalMs: 1000, doc, fetchImpl, records: await pollRecords(),
+        });
+
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(fetchImpl).not.toHaveBeenCalled();
+
+        // ...but drains the moment it comes back, covering the hidden gap.
+        doc.visibilityState = 'visible';
+        doc.fire('visibilitychange');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(fetchImpl).toHaveBeenCalled();
+        stop();
+        vi.useRealTimers();
     });
 });

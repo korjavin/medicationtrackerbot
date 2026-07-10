@@ -120,6 +120,7 @@ Session-authed endpoints served on the account subdomain by `cmd/cloud` (see [cl
 | POST | `/api/telegram/skip` | Record explicit opt-out |
 | POST | `/api/telegram/reset` | Clear the caller's `tg_pending` row so status returns to `none` (idempotent; touches nothing else). The pending page's "Start over" — escape hatch when the managed `managed_bot_created` update was lost, no need to wait out the TTL. Returns `{"reset": true}` |
 | POST | `/api/telegram/test` | Send a test notification through the linked bot |
+| POST | `/api/telegram/reply-edit` | Rewrite one of the bot's own messages (`{message_id, text}` → `204`). Cloud-only. The client calls this after draining a sealed command, to turn the relay's `⏳ Queued` placeholder into a confirmation **it** composed. The relay forwards `text` verbatim and takes the chat from the stored bot row, so a session can only edit messages in its own chat. See [cloud-mode.md → Closing the loop](cloud-mode.md#closing-the-loop--queued--recorded) |
 | DELETE | `/api/telegram` | Unlink and delete the bot binding |
 
 ## Cloud Trial Proxy (cloud-only, `cmd/cloud`)

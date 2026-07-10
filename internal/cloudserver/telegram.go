@@ -30,11 +30,12 @@ import (
 // provision — a user who never completes the BotFather dialog frees the row.
 const pendingTTL = time.Hour
 
-// welcomeMessage / testMessage / helpMessage / unknownCommandMessage are the
-// only user-visible strings C3a sends — server constants, no message content
-// leaves the account beyond these (the zero-knowledge posture the consent
-// screen declares). helpMessage reads no vault data, so it is answerable
-// without the sealed inbound mailbox.
+// Every user-visible string the relay itself composes is a server constant
+// here — no message content leaves the account beyond these (the zero-knowledge
+// posture the consent screen declares). None reads vault data, so all are
+// answerable without the sealed inbound mailbox. The one exception is the
+// confirmation text passed to EditReply, which the CLIENT composes and the
+// relay forwards verbatim, exactly as it does outbound reminder text.
 const (
 	welcomeMessage = "✅ Your Med Tracker bot is connected."
 	testMessage    = "🔔 Test notification from Med Tracker — your bot works."
@@ -46,19 +47,56 @@ const (
 /start — link this chat and connect your bot
 /help — show this message
 
+Log by message:
+/bp 120 80 — blood pressure (add a third number for pulse)
+/weight 81.2 — weight in kg
+/note felt dizzy after lunch — a diary entry
+/intake — confirm the medications due now
+
 Reminders arrive in this chat; tap Confirm or Snooze right on the notification.
 
-Everything else lives in the app: medications, blood pressure, food, weight and workouts. Logging those by chat message is not available yet.`
+This server cannot read what you send: your message is sealed the moment it arrives and only your unlocked app can open it. That is why logging replies "Queued" first, then updates itself once your app records it.
 
-	unknownCommandMessage = "Unknown command. Try /help."
+Food and workouts still live in the app.`
+
+	// queuedMessage answers every sealed command. It is deliberately content-
+	// free: the relay sealed the text without parsing it, so it genuinely does
+	// not know what it just accepted. An unlocked client edits this message in
+	// place once it has applied the command (see EditReply).
+	queuedMessage = "⏳ Queued — recorded when you next open the app."
+
+	// setupMessage is sent when the account has no inbox key yet, so the event
+	// was dropped rather than stored in the clear.
+	setupMessage = "Open the app once to finish setting up, then try again."
 )
 
+// inboxEventKindTGCommand seals the RAW message text of a data command. The
+// relay never parses arguments; web/domain/tgcommand.js does, at drain time on
+// an unlocked client (docs/cloud-mode.md → "Inbound plaintext").
+const inboxEventKindTGCommand = "tg_command"
+
+type tgCommandEvent struct {
+	Kind string `json:"kind"`
+	// Text is the message verbatim, including the leading command token.
+	Text   string `json:"text"`
+	AtUnix int64  `json:"at_unix"`
+	// ReplyMessageID is the "queued" message the client should edit once it has
+	// applied this command. 0 when the reply could not be sent.
+	ReplyMessageID int64 `json:"reply_message_id"`
+}
+
 // childCommands is the autocomplete menu registered on every linked bot. It
-// must list exactly what ChildWebhook answers — advertising a command the
-// webhook drops is the bug this exists to prevent (bd med-26y).
+// must list exactly what the bot answers — advertising a command that gets
+// dropped is the bug this exists to prevent (bd med-26y). /start and /help are
+// answered by the relay; the rest are sealed and applied by an unlocked client
+// (bd med-eas.29.2), which is still "answered" from the user's point of view.
 var childCommands = []tgclient.BotCommand{
 	{Command: "start", Description: "Link this chat and connect your bot"},
 	{Command: "help", Description: "Show the command list"},
+	{Command: "bp", Description: "Log blood pressure: /bp 120 80"},
+	{Command: "weight", Description: "Log weight: /weight 81.2"},
+	{Command: "note", Description: "Add a diary note: /note felt dizzy"},
+	{Command: "intake", Description: "Confirm the medications due now"},
 }
 
 // setChildCommands registers the autocomplete menu. Called at mint time (so
@@ -149,6 +187,7 @@ func (t *TelegramAPI) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/telegram/skip", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Skip)))
 	mux.Handle("POST /api/telegram/reset", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Reset)))
 	mux.Handle("POST /api/telegram/test", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Test)))
+	mux.Handle("POST /api/telegram/reply-edit", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.EditReply)))
 	mux.Handle("DELETE /api/telegram", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Delete)))
 }
 
@@ -626,32 +665,35 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	// Non-/start commands need no chat link and touch no vault data — answer
-	// them before the linking path. Free-text (command == "") stays silently
-	// dropped: routing it anywhere is C3b's sealed-mailbox work, and echoing
-	// it would widen the zero-knowledge surface the consent screen declares.
+	// The relay reads ONLY the leading token, and only to tell what it answers
+	// itself from what it seals. It must not distinguish /bp from /bogus —
+	// that would mean inspecting the command surface of a message it is
+	// forbidden to understand. Unknown commands are therefore sealed like any
+	// other and answered by the client at drain time.
+	//
+	// Free text (command == "") stays silently dropped: routing it is med-vcv's
+	// work, and echoing it would widen the zero-knowledge surface the consent
+	// screen declares.
 	switch cmd := botCommand(upd.Message.Text); cmd {
 	case "/start":
 		// fall through to the linking path below
 	case "":
 		w.WriteHeader(http.StatusOK)
 		return
-	default:
-		reply := unknownCommandMessage
-		if cmd == "/help" {
-			reply = helpMessage
-		}
+	case "/help":
 		client, err := t.botClient(bot)
 		if err != nil {
 			slog.Error("telegram child webhook: open token", "error", err, "ref", ref)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		// Never log cmd: a user's typo'd command is message content.
-		if err := client.SendMessage(r.Context(), upd.Message.Chat.ID, reply); err != nil {
-			slog.Error("telegram child webhook: send reply", "error", err, "ref", ref)
+		if err := client.SendMessage(r.Context(), upd.Message.Chat.ID, helpMessage); err != nil {
+			slog.Error("telegram child webhook: send help", "error", err, "ref", ref)
 		}
 		w.WriteHeader(http.StatusOK)
+		return
+	default:
+		t.sealCommand(w, r, ref, bot, upd.Message)
 		return
 	}
 
@@ -677,6 +719,132 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("telegram bot linked", "account", ref, "chat_id", upd.Message.Chat.ID)
 	w.WriteHeader(http.StatusOK)
+}
+
+// sealCommand handles every child-bot command the relay does not answer itself.
+// It seals the message VERBATIM — no parsing, no AI, no logging of content —
+// and replies with a fixed constant. Order matters: the "queued" reply is sent
+// first so its message id can be sealed alongside the text, letting the client
+// edit that exact message into a confirmation once it has applied the command.
+//
+// Always answers 200: a non-2xx makes Telegram redeliver, and a duplicate
+// delivery would queue the command twice. Apply is idempotent, but the second
+// "queued" message would be visible noise.
+func (t *TelegramAPI) sealCommand(w http.ResponseWriter, r *http.Request, ref string, bot *cloudstore.TGBot, msg *tgclient.Message) {
+	client, err := t.botClient(bot)
+	if err != nil {
+		slog.Error("telegram child webhook: open token", "error", err, "ref", ref)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	reply := func(text string) {
+		if err := client.SendMessage(r.Context(), msg.Chat.ID, text); err != nil {
+			slog.Error("telegram child webhook: send reply", "error", err, "ref", ref)
+		}
+	}
+
+	// No inbox key → the event MUST be dropped, never stored in the clear.
+	if pub, err := t.store.AccountInboxPublicKey(r.Context(), ref); err != nil || len(pub) == 0 {
+		if err != nil {
+			slog.Error("telegram child webhook: read inbox key", "error", err, "ref", ref)
+		}
+		reply(setupMessage)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	now := time.Now().UTC()
+	// Send the placeholder BEFORE sealing so the client learns which message to
+	// edit. If this send fails we still seal (the data matters more than the
+	// receipt) — ReplyMessageID stays 0 and the client simply skips the edit.
+	replyID, err := client.SendMessageReturningID(r.Context(), msg.Chat.ID, queuedMessage)
+	if err != nil {
+		slog.Error("telegram child webhook: send queued ack", "error", err, "ref", ref)
+	}
+
+	// SECURITY INVARIANT: msg.Text is message content. It is sealed here and
+	// never logged, never stored in the clear, never sent anywhere else.
+	plaintext, err := json.Marshal(tgCommandEvent{
+		Kind:           inboxEventKindTGCommand,
+		Text:           msg.Text,
+		AtUnix:         now.Unix(),
+		ReplyMessageID: replyID,
+	})
+	if err != nil {
+		slog.Error("telegram child webhook: marshal command event", "error", err, "ref", ref)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	switch err := SealAndQueue(r.Context(), t.store, ref, plaintext, now); {
+	case errors.Is(err, ErrNoInboxKey):
+		// Raced with a key deletion between the check above and here.
+		reply(setupMessage)
+	case err != nil:
+		slog.Error("telegram child webhook: seal command", "error", err, "ref", ref)
+		reply("Sorry — something went wrong. Try again.")
+	default:
+		slog.Info("telegram child webhook: command queued", "ref", ref, "bytes", len(msg.Text))
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// editReplyRequest is what an unlocked client posts after it has applied a
+// sealed command and confirmed the write flushed.
+type editReplyRequest struct {
+	MessageID int64  `json:"message_id"`
+	Text      string `json:"text"`
+}
+
+// maxEditTextRunes bounds the client-composed confirmation. Telegram's own cap
+// is 4096; reject earlier so a bug can't turn the relay into a message cannon.
+const maxEditTextRunes = 1000
+
+// EditReply rewrites a "queued" placeholder into a confirmation the CLIENT
+// composed. This adds no trust: the relay forwards a string it never derived,
+// exactly as it already does for outbound reminder text (SendReminder), and it
+// still cannot read the vault. The chat is taken from the stored bot row, never
+// from the request — a session may only edit messages in its own bot's chat.
+func (t *TelegramAPI) EditReply(w http.ResponseWriter, r *http.Request) {
+	sess, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req editReplyRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<14)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	if req.MessageID <= 0 || req.Text == "" || len([]rune(req.Text)) > maxEditTextRunes {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
+
+	bot, err := t.store.BotByAccount(r.Context(), sess.AccountID)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && bot.ChatID == nil) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no_linked_chat"})
+		return
+	}
+	if err != nil {
+		slog.Error("telegram edit reply: load bot", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	client, err := t.botClient(bot)
+	if err != nil {
+		slog.Error("telegram edit reply: open token", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	// Never log req.Text — it is a confirmation derived from vault data.
+	err = client.EditMessageText(r.Context(), *bot.ChatID, req.MessageID, req.Text)
+	if err != nil && !tgclient.IsMessageNotModified(err) {
+		slog.Warn("telegram edit reply: edit failed", "account", sess.AccountID, "error", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "edit_failed"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // BYO validates an operator-supplied bot token via getMe, seals it, stores it
