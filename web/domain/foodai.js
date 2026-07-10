@@ -104,13 +104,19 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
   // item is attempted as a log create, per-item failures are counted (not
   // thrown), and only a fully-empty result is an error — same
   // {status:"created", items, failed} contract as the server.
-  async function saveParsedItems(parsedMeal, eatenAt) {
+  // recordIdFor(index) → a stable recordId for item `index`, so a caller that
+  // needs idempotent re-creates (e.g. a re-drained Telegram /food) overwrites its
+  // own rows. Absent → the food domain generates ids, unchanged for the UI path.
+  async function saveParsedItems(parsedMeal, eatenAt, recordIdFor) {
     const items = convertParsedMeal(parsedMeal);
     const saved = [];
     let failed = 0;
-    for (const item of items) {
+    for (let i = 0; i < items.length; i++) {
       try {
-        saved.push(await foodDomain.create({ ...item, eaten_at: eatenAt }, { skipProductUpsert: true }));
+        saved.push(await foodDomain.create(
+          { ...items[i], eaten_at: eatenAt },
+          { skipProductUpsert: true, recordId: recordIdFor ? recordIdFor(i) : undefined },
+        ));
       } catch {
         failed++;
       }
@@ -119,14 +125,14 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
     return { status: 'created', items: saved, failed };
   }
 
-  async function parseMealFromDescription(description, { eatenAt } = {}) {
+  async function parseMealFromDescription(description, { eatenAt, recordIdFor } = {}) {
     const trimmed = (description || '').trim();
     if (!trimmed) throw invalid('Description is required');
     if (new TextEncoder().encode(trimmed).length > MAX_DESCRIPTION_BYTES) {
       throw invalid(`Description too long (max ${MAX_DESCRIPTION_BYTES} bytes)`);
     }
     const parsed = await aiClient.parseMealFromDescription(trimmed);
-    return saveParsedItems(parsed, eatenAt ?? now());
+    return saveParsedItems(parsed, eatenAt ?? now(), recordIdFor);
   }
 
   async function parseMealFromPhoto(file, { eatenAt } = {}) {

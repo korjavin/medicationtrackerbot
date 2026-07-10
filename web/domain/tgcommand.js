@@ -15,13 +15,17 @@
 const LOCAL_COMMANDS = new Set(['/start', '/help']);
 
 // Snooze default mirrors web/domain/medintake.js's DEFAULT_SNOOZE_MINUTES.
-const KNOWN = new Set(['/bp', '/weight', '/note', '/intake']);
+// /food is natural-language logging: the relay still seals the raw text
+// verbatim and the AI parse runs client-side at drain time (bd med-eas.29.4).
+const KNOWN = new Set(['/bp', '/weight', '/note', '/intake', '/food']);
 
 // Commands that exist in bot mode but whose cloud write path is not built yet.
 // Naming them explicitly gives the user "not yet" instead of "I don't
 // understand", which is a materially different message when they are copying a
-// command that demonstrably works in the other deployment.
-const NOT_YET = new Set(['/food', '/workout', '/activity', '/week', '/log', '/next', '/stock', '/bpstats', '/bpgoal', '/goal', '/tz']);
+// command that demonstrably works in the other deployment. /workout stays here:
+// bot mode drives it as a stateful button conversation, which the fire-and-
+// forget seal-and-drain model has no equivalent for (bd med-eas.29.4).
+const NOT_YET = new Set(['/workout', '/activity', '/week', '/log', '/next', '/stock', '/bpstats', '/bpgoal', '/goal', '/tz']);
 
 // commandToken returns the normalized leading command of a message ("/bp"), or
 // "" when the text is not a command. Telegram appends "@botname" in groups.
@@ -77,6 +81,16 @@ function parseNote(text) {
   return { kind: 'note', content };
 }
 
+// parseFood keeps the whole free-text remainder verbatim — the NL parse happens
+// later, on an unlocked client, via the food-AI domain with the user's own key.
+// Parsing here would need an AI call, which this pure module (and the relay) must
+// never make.
+function parseFood(text) {
+  const description = text.trim().slice(commandToken(text).length).trim();
+  if (!description) return { kind: 'invalid', command: '/food', hint: 'Usage: /food 200g chicken breast' };
+  return { kind: 'food', command: '/food', text: description };
+}
+
 function inRange(n, lo, hi) {
   return Number.isFinite(n) && n >= lo && n <= hi;
 }
@@ -96,6 +110,7 @@ export function parseCommand(text) {
     case '/bp': return parseBP(text);
     case '/weight': return parseWeight(text);
     case '/note': return parseNote(text);
+    case '/food': return parseFood(text);
     case '/intake': return { kind: 'intake' };
     default: return { kind: 'unknown', command };
   }

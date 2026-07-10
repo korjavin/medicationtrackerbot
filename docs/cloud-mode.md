@@ -264,9 +264,9 @@ Seal-only forces the immediate reply to be generic: the relay cannot confirm wha
 
 *ponytail: a poll, not a push.* A silent web push waking the service worker would be lower-latency and lower-traffic, but it needs notification permission and browsers penalize pushes that show no notification. `GET /api/inbox` on an empty mailbox is one indexed lookup. Revisit if the mailbox gets chatty.
 
-**Commands implemented** (`web/domain/tgcommand.js` parses; the relay never does): `/bp 120 80 [pulse]`, `/weight 81.2`, `/note …`, `/intake` (confirms every dose already due). `/food` and `/workout` parse to `unsupported` and say so. An unknown command is answered too — and note that the *client* composes that refusal, because the relay is forbidden from telling `/bp` from `/bogus`.
+**Commands implemented** (`web/domain/tgcommand.js` parses; the relay never does): `/bp 120 80 [pulse]`, `/weight 81.2`, `/food 200g chicken breast` (natural-language meal — the relay seals the raw text and the AI parse runs client-side at drain with the user's own or the trial key, bd med-eas.29.4), `/note …`, `/intake` (confirms every dose already due). `/workout` parses to `unsupported` and says so — its bot-mode button conversation has no fire-and-forget seal-and-drain equivalent. An unknown command is answered too — and note that the *client* composes that refusal, because the relay is forbidden from telling `/bp` from `/bogus`.
 
-**Idempotency.** Writes use a deterministic `recordId` of `tg-<mailboxEventId>`, so a crash between flush and ack re-applies the event onto the same row instead of logging a second reading (drain rule 2). `/intake` needs no id — the domain's `PENDING` check is its own guard.
+**Idempotency.** Writes use a deterministic `recordId` of `tg-<mailboxEventId>`, so a crash between flush and ack re-applies the event onto the same row instead of logging a second reading (drain rule 2). `/food` yields many rows from one message, so each item is keyed `tg-<mailboxEventId>-<index>`; a re-drain overwrites its own rows rather than appending. `/intake` needs no id — the domain's `PENDING` check is its own guard.
 
 **Retention and logging invariants** (test these, don't trust them):
 

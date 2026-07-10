@@ -24,7 +24,12 @@ import { createBPDomain } from '../../domain/bp.js';
 import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
 import { createRemindersDomain } from '../../domain/reminders.js';
+import { createSettingsDomain } from '../../domain/settings.js';
+import { createFoodDomain } from '../../domain/food.js';
+import { createFoodAIDomain } from '../../domain/foodai.js';
 import { parseCommand } from '../../domain/tgcommand.js';
+import { createAIClient } from './aiclient.js';
+import { createFoodDbClient } from './fooddb.js';
 import { recordsPort, ORIGIN_EXTERNAL } from './sync.js';
 
 export const INTAKE_SLOT_ACTION = 'intake_slot_action';
@@ -122,6 +127,11 @@ function confirmationText(intent, result, verbosity) {
       return `✅ Recorded weight ${intent.weight} kg.`;
     case 'note':
       return '✅ Note saved.';
+    case 'food': {
+      const n = result && result.items ? result.items.length : 0;
+      if (!n) return 'ℹ️ Could not log any food from that.';
+      return `✅ Logged ${n} food item${n === 1 ? '' : 's'}.`;
+    }
     case 'intake': {
       const n = result && result.confirmed;
       if (!n) return 'ℹ️ Nothing was due — no medications to confirm.';
@@ -153,7 +163,7 @@ function refusalText(intent) {
 // and ack must overwrite the same record, not append a second one — so the id
 // is derived from the mailbox event, which is stable across retries. The intake
 // path needs no id: its own PENDING check is the idempotency guard.
-export async function applyTGCommand(event, eventId, { bp, weight, notes, intake, records, verbosity = 'detailed', now = Date.now, editReply = editTelegramReply }) {
+export async function applyTGCommand(event, eventId, { bp, weight, notes, intake, foodAI, records, verbosity = 'detailed', now = Date.now, editReply = editTelegramReply }) {
   // The receipt is cosmetic; the record is not. A Telegram outage must never
   // strand an event that already reached the vault, so the edit can never
   // reject out of here — not even an injected one.
@@ -181,6 +191,26 @@ export async function applyTGCommand(event, eventId, { bp, weight, notes, intake
       break;
     case 'note':
       await notes.create({ content: intent.content }, { recordId });
+      break;
+    case 'food':
+      // The NL parse runs HERE (unlocked client, user's own key), never on the
+      // relay — the relay only ever sealed the raw text. Per-item ids derived
+      // from the event id keep a re-drain idempotent (overwrite, not append).
+      try {
+        result = await foodAI.parseMealFromDescription(intent.text, {
+          eatenAt: atIso,
+          recordIdFor: (i) => `${recordId}-${i}`,
+        });
+      } catch (e) {
+        // No key (and no trial) is a permanent condition for THIS message —
+        // reply and ack rather than re-queue forever. Anything else (a provider
+        // hiccup, a transient write failure) propagates so the next drain retries.
+        if (e && e.code === 'no_api_key') {
+          await reply('🔑 To log food by message, add an OpenAI key in Settings → Integrations (or the trial AI is unavailable right now).');
+          return;
+        }
+        throw e;
+      }
       break;
     case 'intake':
       result = await confirmDueIntakes({ intake, records, atMs: event.at_unix * 1000, now });
@@ -222,12 +252,23 @@ async function confirmDueIntakes({ intake, records, atMs, now }) {
 // decrypted event in, a domain write out. Unknown kinds are ignored rather than
 // thrown — a newer relay may queue kinds this client predates, and stalling the
 // whole drain on one of them would block the events it does understand.
-export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply } = {}) {
+export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, foodAI: foodAIOverride } = {}) {
   // A Telegram-drained /bp must repaint an open BP screen (med-d5t.10), so this
   // is explicitly external even though that is already the default.
   const records = recordsOverride || recordsPort(ctx, ORIGIN_EXTERNAL);
   const timeZone = defaultTimeZone();
   const intake = createIntakeDomain({ records, now, timeZone });
+
+  // The /food chain mirrors apishim's createApiRouter: settings → foodDb → food →
+  // aiClient → foodAI. All are pure over the ports the applier already has, so
+  // the NL parse reuses exactly the UI's meal-logging path (no duplicate logic).
+  // Tests inject foodAIOverride to stub the provider call.
+  const foodAI = foodAIOverride || (() => {
+    const settings = createSettingsDomain({ records, now, timeZone });
+    const foodDb = createFoodDbClient({ settingsDomain: settings });
+    const food = createFoodDomain({ records, now, timeZone, foodDb });
+    return createFoodAIDomain({ aiClient: createAIClient({ settingsDomain: settings }), foodDomain: food, now });
+  })();
 
   return async function apply(event, eventId) {
     if (!event) return;
@@ -239,6 +280,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
         weight: createWeightDomain({ records, now, timeZone }),
         notes: createNotesDomain({ records, now }),
         intake,
+        foodAI,
         records,
         verbosity,
         now,

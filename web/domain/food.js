@@ -308,7 +308,10 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
   // name upserts the product with the computed per-100g macros up front.
   // skipProductUpsert matches the AI handlers (handleCreateFoodLogFrom*), which
   // CreateLog a bare-named entry with no product_id and no UpsertProduct.
-  async function create(input, { skipProductUpsert = false } = {}) {
+  // recordId overrides the generated id so a caller with its own stable key can
+  // make re-creates idempotent (a re-drained Telegram /food overwrites its own
+  // rows instead of appending — bd med-eas.29.4). Absent → generated, unchanged.
+  async function create(input, { skipProductUpsert = false, recordId } = {}) {
     assertNonNegativeMacros(input, { checkWeight: true });
     const nowMs = now();
     let resolvedName = input.name || '';
@@ -332,7 +335,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     }
 
     const record = {
-      recordId: genId('foodlog', nowMs),
+      recordId: recordId || genId('foodlog', nowMs),
       clientTs: nowMs,
       deleted: false,
       // Missing or unparseable -> now(): a meal logged by voice with no clock
