@@ -3,8 +3,12 @@ package cloudserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -291,4 +295,59 @@ func contains(ss []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// mcpEnvelopeFields is the mcp_call wire envelope, matching bot mode's
+// mcp.CallInput (internal/mcp/call.go) plus the `op` back-compat alias that
+// older pairings and shim binaries still send.
+var mcpEnvelopeFields = []string{"operation_id", "op", "params", "path_params", "body", "mode", "intent"}
+
+var jsonTagRe = regexp.MustCompile(`json:"([^",]+)`)
+
+// goStructJSONTags returns the json tag names of the named struct, read from
+// source rather than reflected so the same helper works on cmd/mcpshim, whose
+// package main cannot be imported.
+func goStructJSONTags(t *testing.T, path, structName string) []string {
+	t.Helper()
+	src, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	re := regexp.MustCompile(fmt.Sprintf(`(?s)\ntype %s struct \{(.*?)\n\}`, regexp.QuoteMeta(structName)))
+	body := re.FindSubmatch(src)
+	if body == nil {
+		t.Fatalf("struct %s not found in %s", structName, path)
+	}
+	var fields []string
+	for _, m := range jsonTagRe.FindAllSubmatch(body[1], -1) {
+		fields = append(fields, string(m[1]))
+	}
+	return fields
+}
+
+// TestMCPCallEnvelopeLockstep guards the three deliberately-duplicated
+// definitions of the mcp_call envelope: the Tier 1 shim's callInput, this
+// package's hosted mcpEndpointCallInput, and the browser responder that
+// decodes what they send. Nothing else couples them, so they drift silently —
+// a field dropped from one is a field the agent can never pass through it.
+func TestMCPCallEnvelopeLockstep(t *testing.T) {
+	for _, tc := range []struct{ path, structName string }{
+		{"../../cmd/mcpshim/main.go", "callInput"},
+		{"mcp_endpoint.go", "mcpEndpointCallInput"},
+	} {
+		got := goStructJSONTags(t, tc.path, tc.structName)
+		if !slices.Equal(got, mcpEnvelopeFields) {
+			t.Errorf("%s: json fields = %v, want %v", tc.structName, got, mcpEnvelopeFields)
+		}
+	}
+
+	responder, err := os.ReadFile("../../web/cloud/js/mcp-responder.js")
+	if err != nil {
+		t.Fatalf("read mcp-responder.js: %v", err)
+	}
+	for _, field := range mcpEnvelopeFields {
+		if !strings.Contains(string(responder), "p."+field) {
+			t.Errorf("mcp-responder.js never reads envelope field %q", field)
+		}
+	}
 }

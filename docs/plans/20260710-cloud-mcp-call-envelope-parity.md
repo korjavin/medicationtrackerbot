@@ -142,11 +142,15 @@ The sender picks a fresh random nonce (`rand.Read`, `frame.go:70-72`).
 - [x] integration test: seal ONE frame for a write op, deliver it to `createResponder`'s frame handler twice, assert exactly one record exists afterward. Drive real `sealMCPFrame`/`openMCPFrame` — not two dispatcher calls
 
 ### Task 6: Bring the two Go envelope definitions to parity
-- [ ] widen `cmd/mcpshim/main.go`'s `callInput` (`:30-34`) to the full envelope: `operation_id` primary, `op` alias, plus `params`, `path_params`, `body`, `mode`, `intent`
-- [ ] widen `internal/cloudserver/mcp_endpoint.go`'s `mcpEndpointCallInput` (`:51-54`) identically
-- [ ] update the `jsonschema:` tags so the hosted endpoint and the shim both advertise the new fields to the MCP client (an agent cannot pass `mode` if the tool schema does not declare it)
-- [ ] keep the two structs field-for-field identical — they are duplicated deliberately and drift silently
-- [ ] integration test: assert the three definitions carry the same field set (a table-driven check over the JSON tags is enough; it is the only thing standing between them and silent drift)
+- [x] widen `cmd/mcpshim/main.go`'s `callInput` (`:30-34`) to the full envelope: `operation_id` primary, `op` alias, plus `params`, `path_params`, `body`, `mode`, `intent`
+- [x] widen `internal/cloudserver/mcp_endpoint.go`'s `mcpEndpointCallInput` (`:51-54`) identically
+- [x] update the `jsonschema:` tags so the hosted endpoint and the shim both advertise the new fields to the MCP client (an agent cannot pass `mode` if the tool schema does not declare it)
+- [x] keep the two structs field-for-field identical — they are duplicated deliberately and drift silently
+- [x] integration test: assert the three definitions carry the same field set (a table-driven check over the JSON tags is enough; it is the only thing standing between them and silent drift) — `TestMCPCallEnvelopeLockstep` in `internal/cloudserver/mcp_endpoint_test.go`
+
+➕ Every field is `omitempty`: the go-sdk infers `required` from non-omitempty fields, and `operation_id`/`op` are mutually substitutable, so neither can be required on its own. The responder rejects a missing id at dispatch.
+
+➕ The lockstep test reads the two Go structs from **source** (`regexp` over the `json:` tags), not reflection — `cmd/mcpshim` is `package main` and cannot be imported. The JS side is checked by asserting `mcp-responder.js` reads each `p.<field>`.
 
 ### Task 7: Verify acceptance criteria
 - [ ] verify the bead's criteria: a cloud `mcp_call` can express a path-param op and a write op with intent; a replayed write frame is applied exactly once; schema-mismatch produces the same warn-only warnings as bot mode
