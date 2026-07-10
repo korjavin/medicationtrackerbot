@@ -63,7 +63,13 @@ function renderLocked(app, errorText) {
   });
 }
 
-async function coldUnlock(app) {
+// The cold-unlock ceremony proper: assert a passkey, evaluate PRF, and unwrap
+// that credential's envelope into the DEK. Exported because it is also the
+// *reauthentication* primitive — devices.js requires a fresh assertion before
+// rotating the recovery code, so an unlocked tab left open on a shared laptop
+// cannot invalidate someone's Emergency Kit (med-d5t.12). Its success proves
+// the user is physically present, and hands back the DEK the rotation re-wraps.
+export async function assertPasskey() {
   const beginRes = await fetch('/api/webauthn/login/begin', { method: 'POST' });
   if (!beginRes.ok) throw new Error('Could not start unlock — no passkey is registered yet.');
   const { publicKey } = await beginRes.json();
@@ -99,6 +105,11 @@ async function coldUnlock(app) {
   const envJson = await envRes.json();
   const envelope = { nonce: fromBase64(envJson.nonce), ct: fromBase64(envJson.ct) };
   const dek = await unwrapEnvelope({ kek, envelope, accountId, credentialId });
+  return { accountId, dek, credentialId };
+}
+
+async function coldUnlock(app) {
+  const { accountId, dek } = await assertPasskey();
 
   try {
     await establishLdkCache(dek, accountId);

@@ -240,10 +240,16 @@ function renderLossProtectionError(app, err) {
 }
 
 // Exported so recover.js re-renders the identical Emergency Kit screen for
-// the forced code rotation after a successful recovery redemption, rather
-// than a second copy of this ceremony. ctx.onKitSaved, if given, replaces the
-// default telegram-step-then-enter-app tail (recover.js redirects to the
-// already-unlocked vault itself).
+// the forced code rotation after a successful recovery redemption, and so
+// devices.js can offer "Regenerate Emergency Kit" (med-d5t.12), rather than a
+// second copy of this ceremony. ctx.onKitSaved, if given, replaces the default
+// telegram-step-then-enter-app tail (recover.js redirects to the
+// already-unlocked vault itself); ctx.continueLabel renames its button.
+//
+// Every caller is a rotation of the same shape: mint a code, re-wrap the DEK,
+// upload envelope + verifier atomically, make the user actually save it. The
+// upload happens BEFORE the kit renders, so any failure leaves the previous
+// recovery material untouched and the old code still working.
 export async function renderEmergencyKit(app, ctx) {
   const { codeBytes, formatted } = await generateRecoveryCode();
   const kekRec = await deriveKEKRec(codeBytes, ctx.accountId);
@@ -301,7 +307,7 @@ export async function renderEmergencyKit(app, ctx) {
         I saved my Emergency Kit.
       </label>
       <p class="kit-hint" id="kit-hint">Download or print the kit to continue.</p>
-      <button id="kit-continue" disabled>Enter Med Tracker</button>
+      <button id="kit-continue" disabled>${escapeHtml(ctx.continueLabel || 'Enter Med Tracker')}</button>
     </section>`;
 
   // Server-controlled value — set via textContent, never innerHTML.
