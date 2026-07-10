@@ -136,7 +136,8 @@ func injectCloudBoot(idx []byte, foodDBURL string, trialAI, trialVoice bool, bui
 // exfiltration path). Sandboxing the browser-direct provider calls into a
 // worker/iframe is the only way to restore 'self' on the DEK page — deferred.
 // The base-domain shell and the passkey ceremony pages (/unlock, /claim,
-// /recover, /devices) make no cross-origin calls and keep connect-src 'self'.
+// /recover, /devices, /connectors) make no cross-origin calls and keep
+// connect-src 'self'.
 //
 // accountApp also loads the @elevenlabs/client voice SDK as an ES module from
 // esm.sh (elevenlabs-call.js), whose AudioWorklets (rawAudioProcessor /
@@ -218,13 +219,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// URL fragment, which browsers never send to the server), /recover is
 	// the Emergency Kit redemption page (see web/cloud/js/recover.js), /devices
 	// is the device-list page (warm-unlocks silently via the LDK cache, then
-	// renders devices.js's list — see web/cloud/js/app.js). The shell's own
-	// assets (css/js/vendor/sw.js) are root-relative — anything that isn't
-	// "/", the shell's explicit paths, "/static/*" (the real app, C1), or
-	// "/domain/*" (the runtime-agnostic BP/weight modules) is assumed to be
-	// one of those and also goes to the shell.
+	// renders devices.js's list — see web/cloud/js/app.js), and /connectors is
+	// the Claude/MCP connector picker split out of it (connectors.js, med-lyv).
+	// /connectors rather than /mcp: the relay's capability endpoint owns the
+	// "/mcp/<token>" prefix below, and a shell page one slash away from it is a
+	// trap for both readers and path matching.
+	// The shell's own assets (css/js/vendor/sw.js) are root-relative — anything
+	// that isn't "/", the shell's explicit paths, "/static/*" (the real app,
+	// C1), or "/domain/*" (the runtime-agnostic BP/weight modules) is assumed
+	// to be one of those and also goes to the shell.
 	switch {
-	case r.URL.Path == "/unlock" || r.URL.Path == "/claim" || r.URL.Path == "/recover" || r.URL.Path == "/devices":
+	case r.URL.Path == "/unlock" || r.URL.Path == "/claim" || r.URL.Path == "/recover" ||
+		r.URL.Path == "/devices" || r.URL.Path == "/connectors":
 		noStore(w)
 		r.URL.Path = "/signup.html"
 		h.shell.ServeHTTP(w, r)
