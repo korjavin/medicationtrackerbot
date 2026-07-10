@@ -415,6 +415,35 @@ async function bindSecondDeviceNudge() {
     nudge.classList.toggle('wg-settings-hidden', count !== 1);
 }
 
+// "What can the operator see?" transparency section (med-d5t.9). The content
+// lives in web/cloud/js/privacy.js (cloud-only) and is dynamic-imported here,
+// the same seam Settings uses for the cloud push/reminders modules — so a test
+// overrides window.loadPrivacyModule instead of resolving a real import.
+// ponytail: no memoization — import() caches by specifier. This is only the
+// test seam.
+function loadPrivacyModule() { return import('/js/privacy.js'); }
+
+let _operatorVisibilityRendered = false; // module-state: render the static content once across repeated loadSettings() calls
+
+async function bindOperatorVisibility() {
+    const section = document.querySelector('.wg-settings-privacy');
+    const mount = document.getElementById('privacy-content');
+    if (!section || !mount) return;
+    section.classList.remove('wg-settings-hidden');
+    if (_operatorVisibilityRendered) return;
+    try {
+        const { renderPrivacyInto } = await loadPrivacyModule();
+        // Pass document explicitly: privacy.js is a cloud-only module that may be
+        // evaluated in a context without a global `document` (the test seam).
+        renderPrivacyInto(mount, document);
+        _operatorVisibilityRendered = true;
+    } catch (e) {
+        // Transparency that fails to render must not break Settings; leave the
+        // section's own description standing.
+        console.error('[settings] operator-visibility render failed', e);
+    }
+}
+
 function bindCloudInvite() {
     document.querySelector('.wg-settings-cloud-invite')?.classList.remove('wg-settings-hidden');
     if (_inviteBound) return;
@@ -482,6 +511,7 @@ async function loadSettings() {
         // mode — server/mobile builds have no /devices shell route.
         document.querySelector('.wg-settings-cloud-devices')?.classList.remove('wg-settings-hidden');
         await bindSecondDeviceNudge();
+        await bindOperatorVisibility();
         bindCloudInvite();
     }
     const applyBundle = async (rawBundle) => {

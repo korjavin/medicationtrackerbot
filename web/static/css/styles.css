@@ -10986,6 +10986,73 @@ textarea.wg-input {
     text-decoration: underline;
 }
 
+/* "What can the operator see?" transparency section (med-d5t.9). Collapsed by
+   default via native <details> so it never bloats the Settings scroll, grouped
+   into protected / visible / leaves. Token-only; no hardcoded colors. */
+.wg-privacy-summary {
+    cursor: pointer;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-title-size);
+    color: var(--wg-fg-1);
+    padding: var(--space-xs) 0;
+}
+
+.wg-privacy-content {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+    margin-top: var(--space-sm);
+}
+
+.wg-privacy-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-privacy-group__title {
+    margin: 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-title-size);
+    font-weight: var(--font-weight-medium);
+    color: var(--wg-fg-1);
+}
+
+.wg-privacy-group__intro {
+    margin: 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-desc-size);
+    color: var(--wg-fg-3);
+}
+
+.wg-privacy-list {
+    list-style: none;
+    margin: var(--space-xs) 0 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-privacy-item {
+    padding-left: var(--space-sm);
+    border-left: 2px solid var(--wg-border-strong);
+}
+
+.wg-privacy-item__title {
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-desc-size);
+    font-weight: var(--font-weight-medium);
+    color: var(--wg-fg-1);
+}
+
+.wg-privacy-item__detail {
+    margin-top: var(--space-xs);
+    font-family: var(--wg-font-ui);
+    font-size: var(--wg-settings-desc-size);
+    color: var(--wg-fg-3);
+}
+
 /* Sectioned card shell (Phase 9, Task 2) — groups titled settings rows into
    a `.wg-card` with a mono header, optional uppercase eyebrow, and an
    optional muted description. The `.wg-settings-row-list` child container

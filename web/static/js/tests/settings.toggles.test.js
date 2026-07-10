@@ -593,6 +593,67 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         }
     });
 
+    // med-d5t.9 — "What can the operator see?" transparency section. settings.js
+    // dynamic-imports web/cloud/js/privacy.js via the bare loadPrivacyModule();
+    // the harness can't resolve that specifier, so override the window global
+    // with the real module imported statically here — the same seam the cloud
+    // push modules use — so the actual render runs against jsdom.
+    describe('operator-visibility section', () => {
+        const mountCloudWithPrivacy = async (window, privacyModule) => {
+            window.__MEDTRACKER_CLOUD__ = true;
+            window.loadPrivacyModule = () => Promise.resolve(privacyModule);
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            window.fetch = vi.fn(async () => ({ ok: true, json: async () => [] }));
+            await window.loadSettings();
+        };
+
+        it('reveals the section and renders the three transparency groups in cloud mode', async () => {
+            allowConsoleNoise();
+            const privacy = await import('../../../cloud/js/privacy.js');
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                // Server/mobile build: hidden.
+                window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+                await window.loadSettings();
+                expect(document.querySelector('.wg-settings-privacy').classList.contains('wg-settings-hidden')).toBe(true);
+
+                await mountCloudWithPrivacy(window, privacy);
+
+                expect(document.querySelector('.wg-settings-privacy').classList.contains('wg-settings-hidden')).toBe(false);
+                const mount = document.getElementById('privacy-content');
+                expect(mount.querySelectorAll('.wg-privacy-group').length).toBe(privacy.PRIVACY_CATEGORIES.length);
+                expect(mount.querySelectorAll('.wg-privacy-item').length).toBe(privacy.PRIVACY_ITEMS.length);
+                // The reassuring frame is present.
+                expect(mount.textContent).toMatch(/encrypted on your device/i);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('does not break Settings if the transparency module fails to load', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                window.__MEDTRACKER_CLOUD__ = true;
+                window.loadPrivacyModule = () => Promise.reject(new Error('load failed'));
+                window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+                window.fetch = vi.fn(async () => ({ ok: true, json: async () => [] }));
+
+                await window.loadSettings();
+
+                // Section still revealed with its own description; other cloud
+                // sections still bound.
+                expect(document.querySelector('.wg-settings-privacy').classList.contains('wg-settings-hidden')).toBe(false);
+                expect(document.getElementById('privacy-content').children.length).toBe(0);
+                expect(document.querySelector('.wg-settings-cloud-devices').classList.contains('wg-settings-hidden')).toBe(false);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+    });
+
     // med-4pz.4 — nudge a single-device account to add a second one, so a lost
     // or broken phone doesn't lock the user out of their vault.
     describe('second-device nudge', () => {
