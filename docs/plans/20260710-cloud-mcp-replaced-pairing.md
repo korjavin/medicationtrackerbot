@@ -126,12 +126,12 @@ device leg's pairing identifier and the one close code.
 - ➕ [x] Task 4's first item done early: the Task 1 pin test is rewritten into its regression form (`TestMCPRelay_StaleDevicePairingCannotSquatCurrentSlot`) in the same commit, rather than committing a knowingly-failing suite
 
 ### Task 3: Responder presents its pairing id and distinguishes the two close codes
-- [ ] `wsURL()` in `mcp-responder.js` currently returns the bare device-leg URL. Append the responder's `pairingId` as a query param, encoded
-- [ ] export `STATUS_PAIRING_REPLACED = 4409` alongside `STATUS_NO_PAIRING`
-- [ ] widen the callback to `onStalePairing(code)` — the owner must know which case fired. Update every call site
-- [ ] `onclose`: treat **both** codes as terminal (set `stopped`, clear the reconnect timer, do not back off); every other close stays transient and reconnects. Pass the code to `onStalePairing`
-- [ ] in the owner (`reconcile`): on `4404` keep purging the vault record via `purgePairing`. On `4409` **do not purge** — the vault record now names the replacement pairing, which this device may not have synced yet, so purging would delete the user's live pairing account-wide. Release the Web-Lock election instead (`stopResponder`), so the tab that re-paired — already queued on the lock — takes over with the right key
-- [ ] comment why the two paths differ; this is the single most reversible-looking, most dangerous line in the change
+- [x] `wsURL()` in `mcp-responder.js` currently returns the bare device-leg URL. Append the responder's `pairingId` as a query param, encoded
+- [x] export `STATUS_PAIRING_REPLACED = 4409` alongside `STATUS_NO_PAIRING`
+- [x] widen the callback to `onStalePairing(code)` — the owner must know which case fired. Update every call site
+- [x] `onclose`: treat **both** codes as terminal (set `stopped`, clear the reconnect timer, do not back off); every other close stays transient and reconnects. Pass the code to `onStalePairing`
+- [x] in the owner (`reconcile`): on `4404` keep purging the vault record via `purgePairing`. On `4409` **do not purge** — the vault record now names the replacement pairing, which this device may not have synced yet, so purging would delete the user's live pairing account-wide. Release the Web-Lock election instead (`stopResponder`), so the tab that re-paired — already queued on the lock — takes over with the right key
+- [x] comment why the two paths differ; this is the single most reversible-looking, most dangerous line in the change
 
 ### Task 4: Regression tests for both close codes
 - [x] rewrite Task 1's reproduction into its regression form: a stale-pairing device dial is now closed with `StatusPairingReplaced`, and a current-pairing dial is served and **never** sees that code (done in Task 2's commit to keep the tree green)
