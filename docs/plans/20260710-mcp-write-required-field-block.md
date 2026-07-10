@@ -68,13 +68,13 @@ mismatches stay warn-only (coercion is defensible). Read ops stay entirely warn-
 - [x] Return `nil` when the op is nil, has no schemas, or nothing is missing.
 
 ### Task 2: mcp_call blocks write ops with a missing required field
-- [ ] In `internal/mcp/call.go`, after resolving `op` and before dispatch, when
+- [x] In `internal/mcp/call.go`, after resolving `op` and before dispatch, when
       `op.Risk == registry.RiskWrite`, call `registry.RequiredMissing`; if it returns any
       fields, return the `CallResponse` error path (do NOT dispatch) with a message naming the
       op and the fields, e.g. `write op "food.log.create" rejected: required field missing: body.eaten_at`.
-- [ ] Leave the warn-only `ValidateInput` path unchanged for the non-blocked cases (reads,
+- [x] Leave the warn-only `ValidateInput` path unchanged for the non-blocked cases (reads,
       type mismatches, valid writes) so their `warnings` still surface.
-- [ ] Extend `internal/mcp/call_test.go`: (a) a write op missing a required field returns the
+- [x] Extend `internal/mcp/call_test.go`: (a) a write op missing a required field returns the
       error and does NOT dispatch; (b) a read op missing a required field still warns + succeeds;
       (c) a valid write still succeeds with no error.
 

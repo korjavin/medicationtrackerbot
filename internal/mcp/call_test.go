@@ -292,6 +292,73 @@ func TestMCPCall_NormalizesMisplacedBodyAndRelativeDate(t *testing.T) {
 	}
 }
 
+// TestMCPCall_WriteMissingRequiredBlocks verifies a WRITE op missing a required
+// field is rejected before dispatch (not merely warned about): the domain layer
+// never sees the malformed record. medications.create requires name/dosage/
+// schedule; omit schedule.
+func TestMCPCall_WriteMissingRequiredBlocks(t *testing.T) {
+	dispatched := false
+	exec := &fakeExecutionService{
+		callFn: func(_ context.Context, _ CallRequest) (*CallResult, error) {
+			dispatched = true
+			return &CallResult{Status: ExecuteStatusOK, APICalls: 1}, nil
+		},
+	}
+	s := serverWithExecutor(exec, 0, 0)
+	s.reg = defaultRegistry(t)
+
+	_, err := callCall(t, s, CallInput{
+		OperationID: "medications.create",
+		Mode:        string(proxy.ModeWrite),
+		Intent:      "create med missing schedule",
+		Body:        json.RawMessage(`{"name":"Lisinopril","dosage":"5 mg"}`),
+	})
+	if err == nil {
+		t.Fatal("expected error for write op missing a required field")
+	}
+	if !strings.Contains(err.Error(), "required field missing") || !strings.Contains(err.Error(), "body.schedule") {
+		t.Errorf("error should name the missing field: %v", err)
+	}
+	if dispatched {
+		t.Error("call must NOT dispatch when a required write field is missing")
+	}
+}
+
+// TestMCPCall_ReadMissingRequiredStillWarns verifies the block is write-only: a
+// READ op missing a required param still forwards and only warns.
+// workouts.variants.list requires the group_id param.
+func TestMCPCall_ReadMissingRequiredStillWarns(t *testing.T) {
+	dispatched := false
+	exec := &fakeExecutionService{
+		callFn: func(_ context.Context, _ CallRequest) (*CallResult, error) {
+			dispatched = true
+			return &CallResult{Status: ExecuteStatusOK, APICalls: 1}, nil
+		},
+	}
+	s := serverWithExecutor(exec, 0, 0)
+	s.reg = defaultRegistry(t)
+
+	resp, err := callCall(t, s, CallInput{OperationID: "workouts.variants.list"})
+	if err != nil {
+		t.Fatalf("read op must not be blocked: %v", err)
+	}
+	if !dispatched {
+		t.Error("read op must still dispatch despite missing required param")
+	}
+	if resp.Status != ExecuteStatusOK {
+		t.Errorf("status = %q, want %q", resp.Status, ExecuteStatusOK)
+	}
+	var found bool
+	for _, w := range resp.Warnings {
+		if strings.Contains(w, "params.group_id") && strings.Contains(w, "required field missing") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a missing-required warning for params.group_id, got %v", resp.Warnings)
+	}
+}
+
 // demoCallServer mirrors demoExecuteServer but for the mcp_call path.
 func demoCallServer(maxPerHour int) *Server {
 	exec := &fakeExecutionService{

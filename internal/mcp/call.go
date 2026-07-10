@@ -120,6 +120,19 @@ func (s *Server) handleMCPCall(
 	warnings := append([]string(nil), repairNotes...)
 	warnings = append(warnings, registry.ValidateInput(op, params, body)...)
 
+	// For a WRITE op, a missing required field is a hard block, not a warning:
+	// forwarding it lets the domain layer silently persist a malformed record
+	// (med-d5t.11: food.log.create with no eaten_at became invisible to every
+	// windowed read while the agent reported success). Type mismatches stay
+	// warn-only above; only missing-required blocks, and only for writes.
+	if op != nil && op.Risk == registry.RiskWrite {
+		if missing := registry.RequiredMissing(op, params, body); len(missing) > 0 {
+			return nil, CallResponse{}, fmt.Errorf(
+				"write op %q rejected: required field missing: %s",
+				op.ID, strings.Join(missing, ", "))
+		}
+	}
+
 	result, err := s.executor.Call(ctx, callReq)
 	if err != nil {
 		return nil, CallResponse{}, fmt.Errorf("executor: %w", err)
