@@ -663,6 +663,11 @@
     --wg-workouts-modal-input-pad-x: 12px;
     --wg-workouts-modal-label-size: 10.5px;
 
+    /* Invite-a-friend modal (med-5h9) — same dual-line header scale as the
+       BP / workout modals. */
+    --wg-invite-modal-eyebrow-size: 10.5px;
+    --wg-invite-modal-title-size: 18px;
+
     /* Rotation-slot semantic aliases (Phase 7, Task 1) — wrap the shared tag
        triplets so the rotation-slot classifier (PUSH / PULL / LEGS / REST /
        AD-HOC) can return a token-group name without duplicating tag styles.
@@ -11329,5 +11334,92 @@ textarea.wg-input {
 }
 
 .wg-settings-version__value {
+    color: var(--wg-fg-3);
+}
+
+/* Invite-a-friend modal (med-5h9). The markup already followed the shared
+   modal shape (dual-line heading + `__header-actions`), but no rules existed
+   for it, so the header stacked and Close landed under the title on the left.
+   These mirror the BP/workout modal headers, putting Close top-right and clear
+   of a focused mobile keyboard.
+
+   The claim URL is one long unbreakable token; with no break rule it widens
+   the modal and forces the page to scroll horizontally. Break it anywhere —
+   `anywhere`, not `break-word`, because only `anywhere` also shrinks the
+   element's min-content width, which is the part that stops the overflow. */
+.wg-invite-modal__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.wg-invite-modal__heading {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    min-width: 0;
+}
+
+.wg-invite-modal__eyebrow {
+    padding: 0;
+    font-size: var(--wg-invite-modal-eyebrow-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.wg-invite-modal__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-invite-modal-title-size);
+    color: var(--wg-fg-1);
+    line-height: 1.1;
+}
+
+.wg-invite-modal__header-actions {
+    display: flex;
+    gap: var(--space-xs);
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.wg-invite-modal__header-btn {
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-sm);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.wg-invite-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    min-width: 0;
+}
+
+.wg-invite-modal__qr {
+    display: flex;
+    justify-content: center;
+}
+
+.wg-invite-modal__url-wrap {
+    padding: var(--space-sm);
+    min-width: 0;
+}
+
+.wg-invite-modal__url {
+    display: block;
+    font-size: var(--font-size-sm);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.wg-invite-modal__note {
+    margin: 0;
+    font-size: var(--font-size-sm);
     color: var(--wg-fg-3);
 }
