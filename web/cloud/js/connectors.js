@@ -26,8 +26,8 @@ export function renderConnectors(app, ctx, onExit) {
 
 async function loadConnectors(app, ctx, onExit) {
   const pairing = await getPairing(ctx);
-  const remoteEnabled = await getRemoteStatus();
-  renderPicker(app, ctx, onExit, pairing, remoteEnabled);
+  const remote = await getRemoteStatus();
+  renderPicker(app, ctx, onExit, pairing, remote);
 }
 
 // Mutually exclusive per Task 1's PoC ceiling (single relay pairing per
@@ -52,8 +52,8 @@ const REMOTE_CONSENT_TEXT =
   'and the answers while relaying — nothing is stored. The connector key is kept on the server so the URL keeps ' +
   'working across restarts, until you Disconnect.';
 
-function renderPicker(app, ctx, onExit, pairing, remoteEnabled) {
-  const mode = claudeMode(pairing, remoteEnabled);
+function renderPicker(app, ctx, onExit, pairing, remote) {
+  const mode = claudeMode(pairing, remote.enabled);
   app.innerHTML = `
     <section class="wizard-step">
       <h1>Connectors</h1>
@@ -62,6 +62,12 @@ function renderPicker(app, ctx, onExit, pairing, remoteEnabled) {
         <h3>Remote connector (claude.ai, ChatGPT) — primary</h3>
         <p>The server relays MCP traffic to your unlocked browser tab end-to-end encrypted via the relay. By enabling it
            you consent to the server seeing MCP requests and responses in transit — nothing is stored.</p>
+        <div id="claude-remote-url-block" hidden>
+          <dl>
+            <dt>Connector URL</dt><dd class="claude-remote-url" id="claude-remote-url-current"></dd>
+          </dl>
+          <button id="claude-remote-copy-current">Copy URL</button>
+        </div>
         <button id="claude-remote-connect-button">Enable remote connector</button>
       </div>
       <div class="claude-mode">
@@ -82,6 +88,14 @@ function renderPicker(app, ctx, onExit, pairing, remoteEnabled) {
   // above, and the disconnect-then-connect logic below).
   app.querySelector('#claude-remote-connect-button').hidden = mode === 'remote';
   app.querySelector('#claude-local-connect-button').hidden = mode === 'local';
+
+  // Capability URL — textContent only, never innerHTML.
+  if (mode === 'remote' && remote.url) {
+    app.querySelector('#claude-remote-url-block').hidden = false;
+    app.querySelector('#claude-remote-url-current').textContent = remote.url;
+    app.querySelector('#claude-remote-copy-current')
+      .addEventListener('click', () => navigator.clipboard.writeText(remote.url));
+  }
 
   app.querySelector('#claude-remote-connect-button').addEventListener('click', () => {
     if (!confirm(REMOTE_CONSENT_TEXT)) return;
@@ -109,14 +123,14 @@ function renderPicker(app, ctx, onExit, pairing, remoteEnabled) {
 }
 
 // The connector URL carries the human token in the clear (it's a capability
-// URL, that's the point) and is shown exactly once, right after minting —
-// same "shown once" rule as the local shim's pairing code.
+// URL, that's the point). Unlike the local shim's pairing code — whose E2E key
+// the server never sees and so cannot re-show — the token lives server-side, so
+// the connectors page can render it again (med-24d).
 function renderRemoteURL(app, ctx, onExit, token, url) {
   app.innerHTML = `
     <section class="wizard-step">
       <h1>Remote connector enabled</h1>
-      <p>Copy this URL now — it will not be shown again (the connector itself keeps working; to see it again, Disconnect
-         and re-enable, which mints a new one).</p>
+      <p>Paste this URL into claude.ai or ChatGPT. You can look it up again on the Connectors page.</p>
       <dl>
         <dt>Connector URL</dt><dd class="claude-remote-url" id="claude-remote-url"></dd>
       </dl>

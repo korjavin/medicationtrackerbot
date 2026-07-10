@@ -25,6 +25,7 @@ let dom;
 let app;
 let onExit;
 const ctx = { dek: 'fake-dek' };
+const REMOTE_URL = 'https://acct.example.test/mcp/abc-def';
 
 beforeEach(() => {
   dom = new JSDOM('<!doctype html><div id="app"></div>', { url: 'https://acct.example.test/' });
@@ -54,7 +55,7 @@ async function renderAndSettle() {
 describe('connectors.js Claude connector mode picker', () => {
   it('gates remote enable on consent: declining the confirm dialog never calls connectRemote', async () => {
     getPairing.mockResolvedValue(null);
-    getRemoteStatus.mockResolvedValue(false);
+    getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
     global.confirm.mockReturnValue(false);
     await renderAndSettle();
 
@@ -67,7 +68,7 @@ describe('connectors.js Claude connector mode picker', () => {
   // Nothing connected: both connectors are on offer, neither is hidden (med-3mx).
   it('offers both connectors when no pairing is active', async () => {
     getPairing.mockResolvedValue(null);
-    getRemoteStatus.mockResolvedValue(false);
+    getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
     await renderAndSettle();
 
     expect(app.querySelector('#claude-remote-connect-button').hidden).toBe(false);
@@ -77,7 +78,7 @@ describe('connectors.js Claude connector mode picker', () => {
 
   it('renders the connector URL once consent is given and enable succeeds', async () => {
     getPairing.mockResolvedValue(null);
-    getRemoteStatus.mockResolvedValue(false);
+    getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
     connectRemote.mockResolvedValue({ token: 'abc-def', url: 'https://acct.example.test/mcp/abc-def' });
     await renderAndSettle();
 
@@ -91,7 +92,7 @@ describe('connectors.js Claude connector mode picker', () => {
 
   it('shows the remote-linked status and disconnects the old pairing before switching to local', async () => {
     getPairing.mockResolvedValue({ recordId: 'mcppairing' });
-    getRemoteStatus.mockResolvedValue(true);
+    getRemoteStatus.mockResolvedValue({ enabled: true, url: REMOTE_URL });
     disconnectRemote.mockResolvedValue();
     connectClaude.mockResolvedValue({ code: 'mtmcp1.fake' });
     await renderAndSettle();
@@ -112,9 +113,30 @@ describe('connectors.js Claude connector mode picker', () => {
     expect(app.querySelector('#claude-code').textContent).toBe('mtmcp1.fake');
   });
 
+  // med-24d: the URL is the thing the user has to paste into claude.ai, so the
+  // page must show it whenever remote is linked — not only once, at mint time.
+  it('shows the connector URL with a copy control while remote is linked', async () => {
+    getPairing.mockResolvedValue({ recordId: 'mcppairing' });
+    getRemoteStatus.mockResolvedValue({ enabled: true, url: REMOTE_URL });
+    await renderAndSettle();
+
+    expect(app.querySelector('#claude-remote-url-block').hidden).toBe(false);
+    expect(app.querySelector('#claude-remote-url-current').textContent).toBe(REMOTE_URL);
+    expect(app.querySelector('#claude-remote-copy-current')).not.toBeNull();
+  });
+
+  it('hides the connector URL block when remote is not linked', async () => {
+    getPairing.mockResolvedValue({ recordId: 'mcppairing' });
+    getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
+    await renderAndSettle();
+
+    expect(app.querySelector('#claude-remote-url-block').hidden).toBe(true);
+    expect(app.querySelector('#claude-remote-url-current').textContent).toBe('');
+  });
+
   it('disconnect calls disconnectRemote when the remote mode is active', async () => {
     getPairing.mockResolvedValue({ recordId: 'mcppairing' });
-    getRemoteStatus.mockResolvedValue(true);
+    getRemoteStatus.mockResolvedValue({ enabled: true, url: REMOTE_URL });
     disconnectRemote.mockResolvedValue();
     await renderAndSettle();
 
@@ -129,7 +151,7 @@ describe('connectors.js Claude connector mode picker', () => {
 
   it('disconnect calls disconnectClaude when the local mode is active', async () => {
     getPairing.mockResolvedValue({ recordId: 'mcppairing' });
-    getRemoteStatus.mockResolvedValue(false);
+    getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
     disconnectClaude.mockResolvedValue();
     await renderAndSettle();
 

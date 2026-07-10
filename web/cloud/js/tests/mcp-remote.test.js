@@ -22,9 +22,14 @@ afterEach(() => {
 });
 
 describe('getRemoteStatus', () => {
-  it('returns the enabled flag from the status endpoint', async () => {
-    global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ enabled: true }) }));
-    await expect(getRemoteStatus()).resolves.toBe(true);
+  it('returns the enabled flag and rebuilds the connector URL from the token', async () => {
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ enabled: true, token: 'abc-def' }) }));
+    await expect(getRemoteStatus()).resolves.toEqual({ enabled: true, url: 'https://acct.example.test/mcp/abc-def' });
+  });
+
+  it('reports disabled with no URL when the endpoint omits the token', async () => {
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ enabled: false }) }));
+    await expect(getRemoteStatus()).resolves.toEqual({ enabled: false, url: '' });
   });
 
   it('throws on a failed request rather than reporting disabled', async () => {

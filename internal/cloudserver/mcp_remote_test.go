@@ -130,8 +130,12 @@ func TestMCPRemote_EnableDisableStatusLifecycle(t *testing.T) {
 		t.Fatalf("empty token on enable")
 	}
 
+	// The status endpoint hands the token back to the account's own session so
+	// the connectors page can re-show the URL without rotating it (med-24d).
 	if resp := getMCPRemoteStatus(t, h, host, session); !resp.Enabled {
 		t.Fatalf("status after enable = disabled, want enabled")
+	} else if resp.Token != enableResp.Token {
+		t.Fatalf("status token = %q, want the enable token %q", resp.Token, enableResp.Token)
 	}
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/mcp/remote", nil)
@@ -143,8 +147,8 @@ func TestMCPRemote_EnableDisableStatusLifecycle(t *testing.T) {
 		t.Fatalf("DELETE /api/mcp/remote status = %d, body %q", recDel.Code, recDel.Body.String())
 	}
 
-	if resp := getMCPRemoteStatus(t, h, host, session); resp.Enabled {
-		t.Fatalf("status after disable = enabled, want disabled")
+	if resp := getMCPRemoteStatus(t, h, host, session); resp.Enabled || resp.Token != "" {
+		t.Fatalf("status after disable = %+v, want disabled with no token", resp)
 	}
 }
 
