@@ -314,13 +314,19 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
 - **Write ops require `mode: 'write'` plus a non-empty `intent`.** Any catalog op with
   `risk: 'write'` is refused otherwise, with an error naming both fields so an agent
   self-corrects. This means an old shim calling `bp.create` with a bare `{op, params}` is now
-  refused — intended, not a regression; reads are unaffected.
+  refused — intended, not a regression; reads are unaffected. The in-tab callers must state their
+  intent too: `features/elevenlabs-call.js`'s voice tools (`log_blood_pressure`, `log_weight`,
+  `add_note`) send `mode: "write"` plus an intent, and its generic `mcp_call` forwards whatever
+  `mode`/`intent` the agent stated rather than stripping them.
 - **Write frames are deduped by GCM nonce.** The sender draws a fresh random nonce per frame, so
   a byte-identical nonce is always a replay (or a catastrophic sender bug). The responder keeps a
   bounded FIFO ring (4096 entries) of seen write-frame nonces, per pairing, persisted in
   `localdb.js`'s local-only never-synced `device` store — so a tab reload does not reopen the
   hole. A duplicate is answered with a JSON-RPC `-32600` rather than dropped silently, keeping
-  id-correlation intact. **Residual gap:** read frames are not deduped (a replayed read is
+  id-correlation intact. The ring is keyed by `pairing_id`, and every `connectClaude` mints a new
+  one, so `disconnectClaude`/`purgePairing` delete the ring alongside the vault record — otherwise
+  each connect/disconnect cycle would strand one ring key forever (the FIFO cap bounds one ring's
+  size, not how many rings exist). **Residual gap:** read frames are not deduped (a replayed read is
   idempotent), and there is no counter bound into the frame AAD, so a relay that floods distinct
   nonces can eventually evict and replay a very old write frame. The AAD counter is the durable
   fix and is deliberately left to future work.

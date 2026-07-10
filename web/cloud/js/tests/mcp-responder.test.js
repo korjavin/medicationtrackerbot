@@ -8,9 +8,10 @@ import { createWeightDomain } from '../../../domain/weight.js';
 import { createNotesDomain } from '../../../domain/notes.js';
 import { createInMemoryRecordsPort } from '../../../static/js/tests/helpers/cloud-shim-harness.js';
 import {
-  CATALOG, createDispatcher, createResponder, handleRequest,
-  STATUS_NO_PAIRING, substitutePath, suggestOperations,
+  CATALOG, clearNonceRing, createDispatcher, createNonceRing, createResponder,
+  handleRequest, STATUS_NO_PAIRING, substitutePath, suggestOperations,
 } from '../mcp-responder.js';
+import { openDb } from '../localdb.js';
 
 function makeDispatcher() {
   const records = createInMemoryRecordsPort();
@@ -544,6 +545,35 @@ describe('mcp-responder write-frame replay guard', () => {
     expect((await deliver(reloaded.sock, frame)).error.code).toBe(-32600);
     expect(await reloaded.responder.dispatcher.handle('mcp_call', { op: 'health.notes.list', params: {} })).toHaveLength(1);
     reloaded.responder.stop();
+  });
+
+  // Every connectClaude mints a fresh pairing_id, so an un-cleared ring leaks
+  // one IndexedDB key per connect/disconnect cycle, forever.
+  it('clearNonceRing drops the pairing ring so its key does not outlive the pairing', async () => {
+    const ring = createNonceRing('pair-gc');
+    expect(await ring.seen('aa11')).toBe(false);
+    expect(await ring.seen('aa11')).toBe(true);
+
+    await clearNonceRing('pair-gc');
+
+    const db = await openDb();
+    try {
+      const stored = await new Promise((resolve, reject) => {
+        const req = db.transaction('device', 'readonly').objectStore('device').get('mcpSeenNonces:pair-gc');
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      expect(stored).toBeUndefined();
+    } finally {
+      db.close();
+    }
+    // A cleared ring means the old pairing's nonces are gone, not remembered.
+    expect(await createNonceRing('pair-gc').seen('aa11')).toBe(false);
+  });
+
+  it('clearNonceRing on a pairing that never wrote is a no-op', async () => {
+    await expect(clearNonceRing('pair-never-used')).resolves.toBeUndefined();
+    await expect(clearNonceRing(undefined)).resolves.toBeUndefined();
   });
 
   // A replayed read is idempotent — deduping it would break an agent polling

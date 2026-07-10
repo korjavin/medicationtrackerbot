@@ -504,6 +504,20 @@ export function createNonceRing(pairingId, { openStore = openDb } = {}) {
   };
 }
 
+// Drops one pairing's ring. Every connectClaude mints a fresh pairing_id, so
+// without this each connect/disconnect cycle strands a ring key forever: the
+// per-ring FIFO cap bounds one ring's size, not how many rings exist.
+export async function clearNonceRing(pairingId, { openStore = openDb } = {}) {
+  if (!pairingId) return;
+  const db = await openStore();
+  try {
+    const tx = db.transaction('device', 'readwrite');
+    await idbRequest(tx.objectStore('device').delete(`mcpSeenNonces:${pairingId}`));
+  } finally {
+    db.close();
+  }
+}
+
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
 // Write-ness is decided from the catalog's `risk` (plus an explicit write

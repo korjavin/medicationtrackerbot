@@ -7,7 +7,7 @@
 // internal/mcpshim/pairingcode.go.
 import { recordsPort } from './sync.js';
 import { toBase64, toBase64Url, utf8 } from './crypto.js';
-import { refreshResponder, stopResponder } from './mcp-responder.js';
+import { refreshResponder, stopResponder, clearNonceRing } from './mcp-responder.js';
 
 export const MCPPAIRING_RECORD_TYPE = 'mcppairing';
 export const MCPPAIRING_RECORD_ID = 'mcppairing';
@@ -54,14 +54,23 @@ export async function connectClaude(ctx) {
   return { code };
 }
 
+// Drops the vault record, the pairing's local anti-replay nonce ring, and this
+// tab's responder. Reads the pairing first: the ring is keyed by pairing_id,
+// which is only recoverable from the record we are about to delete.
+async function forgetPairing(ctx) {
+  const pairing = await getPairing(ctx);
+  await recordsPort(ctx).del(MCPPAIRING_RECORD_TYPE, MCPPAIRING_RECORD_ID);
+  if (pairing) await clearNonceRing(pairing.pairingId);
+  // Stop this tab's responder so it doesn't loop reconnecting to a pairing
+  // that is now revoked or already forgotten by the relay.
+  stopResponder();
+}
+
 // Revokes the pairing server-side and drops the vault record.
 export async function disconnectClaude(ctx) {
   const res = await fetch('/api/mcp/pairings', { method: 'DELETE' });
   if (!res.ok) throw new Error('Could not disconnect. Try again.');
-  await recordsPort(ctx).del(MCPPAIRING_RECORD_TYPE, MCPPAIRING_RECORD_ID);
-  // Stop this tab's responder so it doesn't loop reconnecting to the now-
-  // revoked pairing.
-  stopResponder();
+  await forgetPairing(ctx);
 }
 
 // Drops the vault record for a pairing the relay has already forgotten — its
@@ -70,16 +79,5 @@ export async function disconnectClaude(ctx) {
 // disconnectClaude this makes NO request: there is nothing left to revoke,
 // and DELETE /api/mcp/pairings would also run the tier-2 teardown path.
 export async function purgePairing(ctx) {
-  await recordsPort(ctx).del(MCPPAIRING_RECORD_TYPE, MCPPAIRING_RECORD_ID);
-  stopResponder();
-}
-
-// Drops the vault record for a pairing the relay has already forgotten — its
-// table is in-memory (lost on redeploy) and entries expire after 24h, while
-// the vault record has no TTL and syncs across devices. Unlike
-// disconnectClaude this makes NO request: there is nothing left to revoke,
-// and DELETE /api/mcp/pairings would also run the tier-2 teardown path.
-export async function purgePairing(ctx) {
-  await recordsPort(ctx).del(MCPPAIRING_RECORD_TYPE, MCPPAIRING_RECORD_ID);
-  stopResponder();
+  await forgetPairing(ctx);
 }

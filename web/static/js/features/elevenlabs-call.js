@@ -130,24 +130,36 @@
         // now() as a stable seam so tests can stamp a deterministic timestamp.
         const nowISO = () => new Date().toISOString();
         const call = (op, params) => dispatch('mcp_call', { op, params });
+        // Catalog ops with risk:"write" are refused unless the envelope carries
+        // mode:"write" and a non-empty intent. The user spoke the request, so
+        // the intent is the voice call itself.
+        const write = (op, params) => dispatch('mcp_call', {
+            op, params, mode: 'write', intent: 'logged by the user during an ElevenLabs voice call',
+        });
         return {
             // Generic surface — harmless to keep; the concrete tools below are
             // the provisioned + actually-invoked path (Task 3).
             mcp_help: async () => dispatch('mcp_help', {}),
-            mcp_call: async ({ op, params } = {}) => call(op, params || {}),
+            // Forwards mode/intent verbatim: a write op reaches the dispatcher's
+            // gate with whatever the agent stated, rather than being stripped
+            // down to a read and rejected.
+            mcp_call: async (a) => {
+                const { op, params, mode, intent } = asObj(a);
+                return dispatch('mcp_call', { op, params: params || {}, mode, intent });
+            },
             // Concrete tools whose names match the provisioned ElevenLabs tools
             // (elevenlabs-agent.js TOOL_SPECS). Each maps 1:1 to a catalog op.
             get_blood_pressure: async (a) => call('health.bp.list', { days: asObj(a).days }),
             log_blood_pressure: async (a) => {
                 const { systolic, diastolic, pulse } = asObj(a);
-                return call('health.bp.create', { measured_at: nowISO(), systolic, diastolic, pulse });
+                return write('health.bp.create', { measured_at: nowISO(), systolic, diastolic, pulse });
             },
             get_weight: async (a) => call('health.weight.list', { days: asObj(a).days }),
-            log_weight: async (a) => call('health.weight.create', { measured_at: nowISO(), weight: asObj(a).kg }),
+            log_weight: async (a) => write('health.weight.create', { measured_at: nowISO(), weight: asObj(a).kg }),
             get_notes: async () => call('health.notes.list', {}),
             add_note: async (a) => {
                 const { text, tag } = asObj(a);
-                return call('health.notes.create', { content: text, tag });
+                return write('health.notes.create', { content: text, tag });
             },
         };
     }
