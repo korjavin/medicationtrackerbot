@@ -1,8 +1,45 @@
+/* Cloud shell styling for /unlock, /claim, /recover, /devices, /connectors and
+   the base-domain landing page (med-t05.2).
+
+   The shell cannot load web/static/css/styles.css: that sheet carries global
+   element selectors that would restyle the whole wizard at once, and it lives
+   under /static/, which only exists on account subdomains — the base-domain
+   landing page loads this file too. So the shell keeps its own class names and
+   re-declares the handful of --wg-* tokens it needs, below.
+
+   That duplication is deliberate and guarded: architecture.cloud-tokens.test.js
+   fails if any token here drifts from its value in styles.css's :root. Add a
+   token to this block only if a rule below uses it.
+
+   Fonts: the shell does not load fonts.css either, so 'Space Grotesk' /
+   'JetBrains Mono' resolve to the fallbacks in these stacks. That is the same
+   stack styles.css declares, so the shell degrades to system fonts rather than
+   to some other family. */
+:root {
+    --wg-teal-stage: #0f2522;
+    --wg-bg-stage: var(--wg-teal-stage);
+    --wg-bg-card-inset: #1F3F3B;
+    --wg-paper: #F4FBF7;
+    --wg-ink: #0F5042;
+    --wg-fg-1: var(--wg-paper);
+    --wg-fg-3: rgba(244, 251, 247, 0.55);
+    --wg-fg-4: rgba(244, 251, 247, 0.42);
+    --wg-border-hairline: rgba(255, 255, 255, 0.06);
+    --wg-border-strong: rgba(255, 255, 255, 0.12);
+    --wg-mint-soft: #9CE4CC;
+    --wg-clay-soft: #F3A693;
+    --wg-font-ui: 'Space Grotesk', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --wg-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --wg-gloss-bg-sun: linear-gradient(180deg, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, #FFD14A 0%, #E5A600 100%);
+    --wg-gloss-shadow-sun: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -1px 0 rgba(0, 0, 0, 0.18), 0 2px 0 rgba(160, 110, 0, 0.4), 0 6px 18px -4px rgba(251, 189, 13, 0.45);
+    --wg-radius-gloss: 10px;
+}
+
 body {
   margin: 0;
-  font-family: system-ui, sans-serif;
-  background: #0f172a;
-  color: #e2e8f0;
+  font-family: var(--wg-font-ui);
+  background: var(--wg-bg-stage);
+  color: var(--wg-fg-1);
 }
 
 .landing {
@@ -19,16 +56,31 @@ body {
   line-height: 1.5;
 }
 
+/* The primary action wears the app's "sun" gloss (.wg-gloss--sun in
+   styles.css): warm gradient, ink text, raised shadow. */
 .wizard-step button {
+  font-family: var(--wg-font-ui);
   font-size: 1rem;
+  font-weight: 600;
   padding: 0.75rem 1.25rem;
-  border-radius: 0.5rem;
+  border-radius: var(--wg-radius-gloss);
   /* Transparent rather than none, so .secondary's 1px border does not make it
      2px taller than the primary button beside it in a .wizard-actions row. */
   border: 1px solid transparent;
-  background: #38bdf8;
-  color: #0f172a;
+  background: var(--wg-gloss-bg-sun);
+  box-shadow: var(--wg-gloss-shadow-sun);
+  color: var(--wg-ink);
   cursor: pointer;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+
+.wizard-step button:hover {
+  filter: brightness(1.07);
+}
+
+.wizard-step button:active {
+  transform: translateY(1px);
+  filter: brightness(0.95);
 }
 
 /* A wizard step mounted inside another one (Settings → Devices embeds the
@@ -51,12 +103,15 @@ body {
 /* Anchors that act as buttons (the Telegram deep links). */
 .wizard-step a.button {
   display: inline-block;
+  font-family: var(--wg-font-ui);
   font-size: 1rem;
+  font-weight: 600;
   padding: 0.75rem 1.25rem;
-  border-radius: 0.5rem;
+  border-radius: var(--wg-radius-gloss);
   border: 1px solid transparent;
-  background: #38bdf8;
-  color: #0f172a;
+  background: var(--wg-gloss-bg-sun);
+  box-shadow: var(--wg-gloss-shadow-sun);
+  color: var(--wg-ink);
   text-decoration: none;
   cursor: pointer;
 }
@@ -65,21 +120,23 @@ body {
    must not compete with it (Unlink, Skip, Start over). */
 .wizard-step button.secondary {
   background: transparent;
-  color: #e2e8f0;
-  border: 1px solid #334155;
+  box-shadow: none;
+  color: var(--wg-fg-1);
+  border: 1px solid var(--wg-border-strong);
 }
 
 .muted,
 .claude-mode-note {
-  color: #94a3b8;
+  color: var(--wg-fg-3);
   font-size: 0.9rem;
 }
 
 /* Last, so it beats .secondary at equal specificity. */
 .wizard-step button:disabled {
-  background: #334155;
-  color: #94a3b8;
-  border-color: #334155;
+  background: var(--wg-bg-card-inset);
+  box-shadow: none;
+  color: var(--wg-fg-4);
+  border-color: var(--wg-border-hairline);
   cursor: not-allowed;
 }
 
@@ -89,7 +146,7 @@ body {
 }
 
 .wizard-error {
-  color: #f87171;
+  color: var(--wg-clay-soft);
 }
 
 .kit dl {
@@ -100,15 +157,18 @@ body {
 
 .kit dt {
   font-weight: bold;
-  color: #94a3b8;
+  color: var(--wg-fg-3);
 }
 
 .recovery-code {
-  font-family: ui-monospace, monospace;
+  font-family: var(--wg-font-mono);
   font-size: 1.1rem;
   letter-spacing: 0.05em;
 }
 
+/* Pure white, not --wg-paper: this is the QR code's quiet zone, and its
+   contrast against the black modules is a scanner requirement, not a design
+   choice. */
 .kit-qr svg {
   background: #fff;
   padding: 0.5rem;
@@ -125,7 +185,7 @@ body {
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 0;
-  border-bottom: 1px solid #334155;
+  border-bottom: 1px solid var(--wg-border-strong);
 }
 
 .device-row span:first-child {
@@ -133,16 +193,16 @@ body {
 }
 
 .device-verified {
-  color: #4ade80;
+  color: var(--wg-mint-soft);
 }
 
 .device-unverified {
-  color: #f87171;
+  color: var(--wg-clay-soft);
   font-weight: bold;
 }
 
 .sync-status {
-  color: #94a3b8;
+  color: var(--wg-fg-3);
   font-size: 0.9rem;
 }
 
@@ -155,10 +215,11 @@ body {
 .note-form input {
   flex: 1;
   padding: 0.5rem;
-  border-radius: 0.5rem;
-  border: 1px solid #334155;
-  background: #1e293b;
-  color: #e2e8f0;
+  border-radius: var(--wg-radius-gloss);
+  border: 1px solid var(--wg-border-strong);
+  background: var(--wg-bg-card-inset);
+  color: var(--wg-fg-1);
+  font-family: var(--wg-font-ui);
 }
 
 .note-list {
@@ -171,7 +232,7 @@ body {
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 0;
-  border-bottom: 1px solid #334155;
+  border-bottom: 1px solid var(--wg-border-strong);
 }
 
 .note-row span:first-child {
