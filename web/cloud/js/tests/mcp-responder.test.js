@@ -3,25 +3,26 @@ import {
   afterEach, beforeEach, describe, expect, it, vi,
 } from 'vitest';
 import { openMCPFrame, sealMCPFrame, utf8 } from '../crypto.js';
-import { createBPDomain } from '../../../domain/bp.js';
-import { createWeightDomain } from '../../../domain/weight.js';
-import { createNotesDomain } from '../../../domain/notes.js';
+import { createApiRouter } from '../apishim.js';
 import { createInMemoryRecordsPort } from '../../../static/js/tests/helpers/cloud-shim-harness.js';
+import { allowConsoleNoise } from '../../../static/js/tests/helpers/setup.js';
 import {
   CATALOG, clearNonceRing, createDispatcher, createNonceRing, createResponder,
   handleRequest, STATUS_NO_PAIRING, substitutePath, suggestOperations,
 } from '../mcp-responder.js';
 import { openDb } from '../localdb.js';
 
+// The dispatcher under test routes through the real apishim router over an
+// in-memory records port — the same code path the cloud UI takes. Injecting a
+// stub router here would prove nothing about whether a catalogued op reaches a
+// domain module.
+function makeRouter(now = () => Date.parse('2026-07-06T12:00:00.000Z'), records = createInMemoryRecordsPort()) {
+  return createApiRouter(null, { records, now, timeZone: 'UTC' });
+}
+
 function makeDispatcher() {
-  const records = createInMemoryRecordsPort();
   const now = () => Date.parse('2026-07-06T12:00:00.000Z');
-  return createDispatcher({
-    bp: createBPDomain({ records, now, timeZone: 'UTC' }),
-    weight: createWeightDomain({ records, now, timeZone: 'UTC' }),
-    notes: createNotesDomain({ records, now }),
-    now,
-  });
+  return createDispatcher({ router: makeRouter(now), now });
 }
 
 describe('mcp-responder dispatch', () => {
@@ -87,13 +88,8 @@ describe('mcp-responder dispatch', () => {
   // The generated catalog advertises `days` on health.notes.list, so the
   // dispatcher must honor it — not silently return the newest N regardless.
   it('honors the advertised days window on health.notes.list', async () => {
-    const records = createInMemoryRecordsPort();
     let clock = Date.parse('2026-06-01T12:00:00.000Z');
-    const dispatcher = createDispatcher({
-      bp: createBPDomain({ records, now: () => clock, timeZone: 'UTC' }),
-      weight: createWeightDomain({ records, now: () => clock, timeZone: 'UTC' }),
-      notes: createNotesDomain({ records, now: () => clock }),
-    });
+    const dispatcher = createDispatcher({ router: makeRouter(() => clock), now: () => clock });
     const call = (params) => handleRequest(dispatcher, {
       jsonrpc: '2.0', id: 9, method: 'mcp_call', params: { op: 'health.notes.list', params },
     });
@@ -421,23 +417,63 @@ describe('mcp_help wire contract (generated catalog)', () => {
     ['unknown id', { operation_id: 'nope.not.real' }],
   ])('stamps current_time on the %s mcp_help variant', async (_label, params) => {
     const dispatcher = createDispatcher({
-      bp: {}, weight: {}, notes: {}, now: () => Date.UTC(2026, 6, 10, 2, 30, 0),
+      router: () => {}, now: () => Date.UTC(2026, 6, 10, 2, 30, 0),
     });
     const result = await dispatcher.handle('mcp_help', params);
     expect(result.current_time).toBe('2026-07-10T02:30:00Z (Friday, UTC)');
   });
 
-  it('rejects a catalogued-but-unwired op as not-yet-callable, never as unknown (med-csu.3 scope fence)', async () => {
-    const response = await handleRequest(makeDispatcher(), {
-      jsonrpc: '2.0', id: 9, method: 'mcp_call', params: { op: 'workouts.groups.list', params: {} },
+  // A catalogued op the router cannot serve is an internal inconsistency, not
+  // bad params: the message must name the route so the next author can add it,
+  // and the code must stay numeric or the Go shim drops the frame. Calling it
+  // "unknown" and suggesting it back would loop the agent forever.
+  it('maps a catalogued op with no router route to a numeric internal error naming the route', async () => {
+    allowConsoleNoise(); // the router warns on the unmapped route before throwing its 404
+    const dispatcher = createDispatcher({ router: makeRouter(), now: () => 0 });
+    const response = await handleRequest(dispatcher, {
+      jsonrpc: '2.0', id: 9, method: 'mcp_call', params: { op: 'workouts.exercises.unique', params: {} },
     });
     expect(response.result).toBeUndefined();
-    expect(response.error.code).toBe(-32602);
-    expect(response.error.message).toContain('"workouts.groups.list" is catalogued but not yet callable');
-    expect(response.error.message).toContain('health.bp.list');
-    // Calling it "unknown" and then suggesting it back loops the agent forever.
+    expect(response.error.code).toBe(-32603);
+    expect(response.error.message).toContain('GET /api/workout/exercises/unique');
     expect(response.error.message).not.toContain('unknown operation');
     expect(response.error.message).not.toContain('did you mean');
+  });
+
+  // Dispatch is a lookup + an endpoint build, never a second dispatch table:
+  // the router receives the substituted path, the querystring-serialized
+  // params, and the body — and nothing else translates them.
+  it('dispatches through the injected router with a built endpoint', async () => {
+    const calls = [];
+    const router = (endpoint, method, body) => { calls.push([endpoint, method, body]); return []; };
+    const dispatcher = createDispatcher({ router, now: () => 0 });
+
+    await dispatcher.handle('mcp_call', {
+      op: 'medications.restocks.list',
+      params: { limit: 5 },
+      path_params: { id: '1/../2' },
+    });
+    expect(calls[0]).toEqual(['/api/medications/1%2F..%2F2/restocks?limit=5', 'GET', null]);
+
+    await dispatcher.handle('mcp_call', {
+      op: 'health.bp.create',
+      mode: 'write',
+      intent: 'log the reading',
+      body: { systolic: 120, diastolic: 80, measured_at: '2026-07-06T09:00:00.000Z' },
+    });
+    expect(calls[1]).toEqual(['/api/bp', 'POST', { systolic: 120, diastolic: 80, measured_at: '2026-07-06T09:00:00.000Z' }]);
+  });
+
+  // Array and object params need a defined encoding or the router's
+  // URLSearchParams read silently sees "[object Object]".
+  it('serializes array params as repeated keys and object params as JSON', async () => {
+    const calls = [];
+    const dispatcher = createDispatcher({ router: (endpoint) => { calls.push(endpoint); return []; }, now: () => 0 });
+    await dispatcher.handle('mcp_call', {
+      op: 'health.bp.list',
+      params: { tags: ['a', 'b'], filter: { min: 1 }, days: 7 },
+    });
+    expect(calls[0]).toBe('/api/bp?tags=a&tags=b&filter=%7B%22min%22%3A1%7D&days=7');
   });
 
   // The catalog is wider than the dispatch table, so an id that fails to
@@ -511,14 +547,12 @@ FakeSocket.OPEN = 1;
 
 function makeResponder(overrides = {}) {
   FakeSocket.instances = [];
-  const records = createInMemoryRecordsPort();
   const now = () => Date.parse('2026-07-06T12:00:00.000Z');
   return createResponder({
     pairingId: 'pair-1',
     key: new Uint8Array(32),
-    records,
+    router: makeRouter(now),
     now,
-    timeZone: 'UTC',
     relayURL: 'ws://relay.test/api/mcp/relay/device',
     ...overrides,
   });
@@ -592,12 +626,12 @@ describe('mcp-responder write-frame replay guard', () => {
 
   function boot(records) {
     FakeSocket.instances = [];
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
     const responder = createResponder({
       pairingId,
       key,
-      records,
-      now: () => Date.parse('2026-07-06T12:00:00.000Z'),
-      timeZone: 'UTC',
+      router: makeRouter(now, records),
+      now,
       relayURL: 'ws://relay.test/api/mcp/relay/device',
     });
     responder.connect();

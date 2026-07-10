@@ -95,11 +95,16 @@ function debugOnce(key, ...args) {
 // installApiShim needs the very same instances for its window globals; building
 // a second set would give the UI and the shim's browser-direct clients
 // (CloudFoodAI, CloudMCPDispatcher, …) divergent state.
-export function createApiRouter(ctx, { records: recordsOverride, win } = {}) {
+// opts.now/opts.timeZone override the clock the domain instances read, which is
+// what lets a test drive the router across a date boundary deterministically.
+export function createApiRouter(ctx, {
+  records: recordsOverride, win, now: nowOverride, timeZone: timeZoneOverride,
+} = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || recordsPort(ctx);
-  const now = () => Date.now();
-  const timeZone = (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
+  const now = nowOverride || (() => Date.now());
+  const timeZone = timeZoneOverride
+    || (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
   const bp = createBPDomain({ records, now, timeZone });
   const weight = createWeightDomain({ records, now, timeZone });
   const notes = createNotesDomain({ records, now });
@@ -661,7 +666,7 @@ export function installApiShim(ctx, { records, win } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const shimCall = createApiRouter(ctx, { records, win });
   const {
-    bp, weight, notes, settings, food, foodAI, foodDb, intake, tzplan, now,
+    settings, food, foodAI, foodDb, intake, tzplan, now,
   } = shimCall.domains;
 
   // Task 4's frontend bypass guards (photo.js/log.js/products.js — raw fetch
@@ -683,13 +688,11 @@ export function installApiShim(ctx, { records, win } = {}) {
   // signed URL. See web/cloud/js/elevenlabs-agent.js.
   targetWindow.CloudElevenLabsAgent = createElevenLabsAgentProvisioner({ settingsDomain: settings });
   // Voice MCP tools: elevenlabs-call.js registers mcp_help/mcp_call clientTools
-  // (cloud only) that dispatch straight into this in-tab catalog — same
-  // bp/weight/notes instances above, no relay/crypto (the relay responder in
-  // mcp-responder.js only exists in the Claude-connector-elected tab and builds
-  // its own instances, so this is the clean reuse seam).
-  targetWindow.CloudMCPDispatcher = createDispatcher({
-    bp, weight, notes, now,
-  });
+  // (cloud only) that dispatch straight into this in-tab catalog — through this
+  // very router, no relay/crypto (the relay responder in mcp-responder.js only
+  // exists in the Claude-connector-elected tab and builds its own router over
+  // the same records port, so this is the clean reuse seam).
+  targetWindow.CloudMCPDispatcher = createDispatcher({ router: shimCall, now });
 
   // Due-dose materialization + tz-plan status refresh: neither domain module
   // owns a timer (Task 3/4's modules stay pure functions of their inputs), so

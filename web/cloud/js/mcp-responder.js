@@ -1,14 +1,17 @@
 // Browser-side responder for the MCP blind relay (Tier 1 PoC,
 // docs/cloud-mode.md "MCP"; wire contract in internal/mcpshim/frame.go).
 // Connects to /api/mcp/relay/device, decrypts each inbound frame, dispatches
-// mcp_help/mcp_call to the same in-browser domain modules apishim.js wires
-// (bp/weight/notes), encrypts the response, and reconnects with backoff
-// while the tab lives. Wired from the unlocked boot path (cloud-boot.js),
-// never from web/static — zero bot-mode surface.
+// mcp_help/mcp_call through the same apishim router the cloud UI calls (so MCP
+// and the UI share one map from HTTP route to web/domain/ module), encrypts the
+// response, and reconnects with backoff while the tab lives. Wired from the
+// unlocked boot path (cloud-boot.js), never from web/static — zero bot-mode
+// surface.
+//
+// The router is injected, never imported: apishim.js imports createDispatcher
+// for its in-tab voice dispatcher, so importing it back here would close a
+// module cycle, and the injection is what lets the dispatcher be exercised
+// without a window.
 
-import { createBPDomain } from '../../domain/bp.js';
-import { createWeightDomain } from '../../domain/weight.js';
-import { createNotesDomain } from '../../domain/notes.js';
 import { openMCPFrame, sealMCPFrame, utf8 } from './crypto.js';
 import { openDb } from './localdb.js';
 import { CATALOG } from './mcp-catalog.generated.js';
@@ -253,9 +256,7 @@ const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 // like "1/../2" cannot escape its segment. A slot with no value is an error, so
 // no path can be dispatched with an "undefined" segment.
 //
-// The resolved path has no consumer yet — cloud mode dispatches by function,
-// not by URL — so today this runs as validation only. med-csu.3 wires the
-// catalogued /{id}/ ops and will route on the returned path.
+// The resolved path is the endpoint the dispatcher hands to the apishim router.
 export function substitutePath(op, pathParams) {
   const allowed = op.path_params || [];
   const values = pathParams || {};
@@ -331,15 +332,53 @@ export function validateInput(op, input) {
   return warnings;
 }
 
-// Bot mode splits query params from request body; cloud mode dispatches each op
-// as a single-argument domain call, so the two channels merge. The wired write
-// ops advertise only `body_schema`, so an agent that follows the catalog puts
-// its payload in `body` — without this merge that payload would be dropped and
-// the domain call would persist an empty record.
+// The two input channels merge before normalization and validation: agents in
+// the wild put a write payload in `params` as often as in `body`, and the
+// catalog's precomputed `required` spans both schemas. splitInput puts each
+// field back on the channel the router expects.
 const mergeInput = (params, body) => ({
   ...(isPlainObject(params) ? params : {}),
   ...(isPlainObject(body) ? body : {}),
 });
+
+// splitInput routes each merged field to the querystring or the request body
+// using the catalog's own schemas as the authority, so an agent that misplaces
+// a field still dispatches correctly. GET/DELETE carry no body, so everything
+// goes to the querystring; otherwise a field the body schema declares goes to
+// the body, one the params schema declares goes to the querystring, and an
+// undeclared field defaults to the body (a write's payload is the likelier
+// home for an extra field than its querystring).
+function splitInput(op, input) {
+  const takesBody = op.method !== 'GET' && op.method !== 'DELETE';
+  if (!takesBody) return { query: input, body: null };
+  const paramProps = (op.params_schema && op.params_schema.properties) || {};
+  const bodyProps = (op.body_schema && op.body_schema.properties) || {};
+  const query = {};
+  const body = {};
+  for (const name of Object.keys(input)) {
+    if (!has(bodyProps, name) && has(paramProps, name)) query[name] = input[name];
+    else body[name] = input[name];
+  }
+  return { query, body };
+}
+
+// serializeQuery encodes `params` for the router's parseQuery, which reads them
+// back with URLSearchParams. Scalars encode as themselves; an array repeats its
+// key (`tags=a&tags=b`, readable via params.getAll); an object encodes as JSON,
+// which is the only lossless option a flat querystring affords. null/undefined
+// are omitted rather than encoded as the strings "null"/"undefined".
+const queryScalar = (v) => (v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v));
+
+function serializeQuery(obj) {
+  const qs = new URLSearchParams();
+  for (const name of Object.keys(obj)) {
+    const value = obj[name];
+    if (value === undefined || value === null) continue;
+    if (Array.isArray(value)) value.forEach((item) => qs.append(name, queryScalar(item)));
+    else qs.append(name, queryScalar(value));
+  }
+  return qs.toString();
+}
 
 // --- Relative-date repair (port of registry.NormalizeCallInput step 2/3) ---
 // internal/mcp/registry/normalize_input.go:18. A tool-only agent has no clock
@@ -403,36 +442,34 @@ export function normalizeRelativeDates(op, input, nowMs) {
   return { input: out, notes };
 }
 
-// createDispatcher builds the mcp_help/mcp_call handlers over the injected
-// domain instances (same construction path apishim.js uses for bp/weight/
-// notes).
-export function createDispatcher({
-  bp, weight, notes, now = Date.now,
-}) {
-  // Keyed by the registry's operation ids (health.bp.list, not bp.list) so the
-  // ids mcp_call accepts are exactly the ids the generated catalog advertises.
-  // Only these six are wired; med-csu.3 wires the rest of the catalog.
-  //
-  // Prototype-free so a caller-supplied op like "toString"/"constructor"
-  // resolves to undefined (→ the unknown-op did-you-mean path) instead of an
-  // inherited Object.prototype member that would dispatch a bogus result.
-  const ops = Object.assign(Object.create(null), {
-    'health.bp.list': (p) => bp.list(p || {}),
-    'health.bp.create': (p) => bp.create(p || {}),
-    'health.weight.list': (p) => weight.list(p || {}),
-    'health.weight.create': (p) => weight.create(p || {}),
-    'health.notes.list': (p) => notes.list({ days: p && p.days, limit: p && p.limit, beforeId: p && p.before_id }),
-    'health.notes.create': (p) => notes.create(p || {}),
-  });
+// createDispatcher builds the mcp_help/mcp_call handlers over an injected
+// router — apishim.js's createApiRouter, the same `(endpoint, method, body)`
+// function the cloud UI calls. Every catalog entry carries the `method` +
+// `path` the router is already keyed by, so dispatch is a lookup plus an
+// endpoint build; there is no second dispatch table to drift from the first,
+// and no domain logic in this module.
+export function createDispatcher({ router, now = Date.now }) {
+  if (typeof router !== 'function') {
+    throw new Error('mcp-responder: createDispatcher requires a router (apishim.js createApiRouter)');
+  }
 
-  // Fail closed: the write-gate (`mode:write` + intent) and the anti-replay
-  // ring both read `risk` off BY_ID, so a wired-but-uncatalogued op would
-  // silently execute writes ungated and undeduped. Catch that at construction
-  // rather than at the security boundary — med-csu.3 wires many more ops, and
-  // catalogjs.Excluded can drop one out from under us.
-  const uncatalogued = Object.keys(ops).filter((id) => !BY_ID[id]);
-  if (uncatalogued.length) {
-    throw new Error(`mcp-responder: wired operations missing from the generated catalog: ${uncatalogued.join(', ')}`);
+  // The router throws an Error carrying `.status` (apishim's apiError). A 404
+  // means the op is catalogued but the router has no route for it — an internal
+  // inconsistency between the generated catalog and apishim.js, not bad params,
+  // so it reads as -32603 and names the route the next author has to add. The
+  // coverage sweep in tests/mcp-responder.test.js exists to make this
+  // unreachable. Every other error (a domain validation failure, a 409) is left
+  // alone for handleRequest's own mapping.
+  async function dispatch(op, endpoint, body) {
+    try {
+      return await router(endpoint, op.method, body);
+    } catch (e) {
+      if (e && e.status === 404) {
+        throw new MCPError(-32603, `operation "${op.id}" is catalogued but the cloud router has no route for `
+          + `${op.method} ${endpoint} — add it to web/cloud/js/apishim.js.`);
+      }
+      throw e;
+    }
   }
 
   async function handle(method, params) {
@@ -447,16 +484,10 @@ export function createDispatcher({
       // older mcpshim binaries still send it.
       const p = params || {};
       const opID = p.operation_id || p.op;
-      const fn = ops[opID];
-      if (!fn) {
-        // The generated catalog mirrors the whole Go registry, but cloud mode
-        // dispatches only `ops` (med-csu.3 wires the rest). A catalogued id is
-        // not "unknown" — telling an agent it is, then suggesting that same id
-        // back, makes it re-issue the identical call forever.
-        if (BY_ID[opID]) {
-          throw new MCPError(-32602, `operation "${opID}" is catalogued but not yet callable in cloud mode. `
-            + `Callable now: ${Object.keys(ops).join(', ')}.`);
-        }
+      // BY_ID is prototype-free, so a caller-supplied id like "toString" /
+      // "constructor" misses here instead of resolving an inherited member.
+      const op = BY_ID[opID];
+      if (!op) {
         const suggestions = suggestOperations(opID);
         const hint = suggestions.length ? ` — did you mean: ${suggestions.join(', ')}?` : '';
         throw new MCPError(-32602, `unknown operation "${opID}"${hint}`);
@@ -473,21 +504,25 @@ export function createDispatcher({
       if (mode === MODE_WRITE && String(p.intent || '').trim() === '') {
         throw new MCPError(-32602, `intent is required and must be non-empty when mode is "${MODE_WRITE}"`);
       }
-      if (BY_ID[opID] && BY_ID[opID].risk === MODE_WRITE && mode !== MODE_WRITE) {
+      if (op.risk === MODE_WRITE && mode !== MODE_WRITE) {
         throw new MCPError(-32602, `operation "${opID}" is a write — re-issue it with mode: "${MODE_WRITE}" `
           + 'and a non-empty intent describing why.');
       }
 
-      // Validates the path_params against the catalog allowlist and rejects an
-      // unfilled slot.
-      substitutePath(BY_ID[opID] || { id: opID }, p.path_params);
+      // Fills the op's `{slot}`s from path_params, allowlisted by the catalog
+      // and percent-encoded; an unfilled slot is an error, never an "undefined"
+      // path segment.
+      const path = substitutePath(op, p.path_params);
 
       // Repair-then-validate, in that order, so a field the normalizer just
       // rewrote isn't reported as malformed (call.go:96-121). Both stages are
       // warn-only: a mismatch never blocks the call.
-      const { input, notes } = normalizeRelativeDates(BY_ID[opID], mergeInput(p.params, p.body), now());
-      const warnings = [...notes, ...validateInput(BY_ID[opID], input)];
-      const result = await fn(input);
+      const { input, notes } = normalizeRelativeDates(op, mergeInput(p.params, p.body), now());
+      const warnings = [...notes, ...validateInput(op, input)];
+
+      const { query, body } = splitInput(op, input);
+      const qs = serializeQuery(query);
+      const result = await dispatch(op, `${path}${qs ? `?${qs}` : ''}`, body);
       // Bot mode's CallResponse (call.go:33-39) unconditionally. The shape must
       // not depend on the input: an agent that learned `health.bp.list` returns
       // its rows at `.result` must still find them there on the call that
@@ -626,22 +661,17 @@ export const STATUS_NO_PAIRING = 4404;
 // reconnects with backoff while the tab lives (docs/cloud-mode.md "Tab
 // lifecycle honesty" — a backgrounded/closed tab is the accepted tier-1
 // offline state, surfaced through the shim's timeout error, not this
-// module). records/now/timeZone are the same ports apishim.js's domain
-// instances take.
+// module). `router` is an apishim createApiRouter over this account's records
+// port — the same route table the cloud UI dispatches through.
 //
 // onStalePairing fires when the relay reports the pairing is gone; the owner
 // (reconcile) drops the vault record. The responder is already stopped by
 // then, so the callback must not stop it again.
 export function createResponder({
-  pairingId, key, records, now, timeZone, relayURL, onStalePairing = () => {},
+  pairingId, key, router, now, relayURL, onStalePairing = () => {},
   nonceRing = createNonceRing(pairingId),
 }) {
-  const dispatcher = createDispatcher({
-    bp: createBPDomain({ records, now, timeZone }),
-    weight: createWeightDomain({ records, now, timeZone }),
-    notes: createNotesDomain({ records, now }),
-    now,
-  });
+  const dispatcher = createDispatcher({ router, now });
 
   let ws = null;
   let reconnectTimer = null;
@@ -767,15 +797,16 @@ async function reconcile() {
   if ((active && active.pairingId) === nextId) return; // unchanged
   if (active) { active.responder.stop(); active = null; }
   if (!pairing) return;
-  const { recordsPort } = await import('./sync.js');
   const { fromBase64 } = await import('./crypto.js');
+  // Dynamic: apishim.js imports createDispatcher from this module for its
+  // in-tab voice dispatcher, so a static import back would close the cycle.
+  const { createApiRouter } = await import('./apishim.js');
   const ctx = controllerCtx;
   const responder = createResponder({
     pairingId: pairing.pairingId,
     key: fromBase64(pairing.key),
-    records: recordsPort(controllerCtx),
+    router: createApiRouter(controllerCtx, {}),
     now: () => Date.now(),
-    timeZone: (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC',
     onStalePairing: () => {
       purgePairing(ctx).catch((e) => console.error('[mcp] stale pairing purge failed', e));
     },
