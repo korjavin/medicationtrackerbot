@@ -64,3 +64,13 @@ export async function disconnectClaude(ctx) {
   // onclose would otherwise reconnect forever).
   stopResponder();
 }
+
+// Drops the vault record for a pairing the relay has already forgotten — its
+// table is in-memory (lost on redeploy) and entries expire after 24h, while
+// the vault record has no TTL and syncs across devices. Unlike
+// disconnectClaude this makes NO request: there is nothing left to revoke,
+// and DELETE /api/mcp/pairings would also run the tier-2 teardown path.
+export async function purgePairing(ctx) {
+  await recordsPort(ctx).del(MCPPAIRING_RECORD_TYPE, MCPPAIRING_RECORD_ID);
+  stopResponder();
+}

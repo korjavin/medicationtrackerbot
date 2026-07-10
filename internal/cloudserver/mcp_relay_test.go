@@ -336,3 +336,92 @@ func TestPairingTable_PermanentPairingSurvivesTTL(t *testing.T) {
 		t.Fatalf("permanent enabled pairing should survive cleanup")
 	}
 }
+
+// The browser responder can only see WebSocket close codes, so a device leg
+// with no pairing (relay restart / TTL expiry) must be upgraded and then
+// closed with StatusNoPairing — otherwise it reconnects forever against a
+// pairing that will never come back. Mirrors the STATUS_NO_PAIRING branch in
+// web/cloud/js/mcp-responder.js.
+func TestMCPRelay_DeviceWithoutPairingClosesNoPairing(t *testing.T) {
+	h, host, claimToken := newTestMCPRelayHandler(t)
+	session := registerAndGetSession(t, h, host, claimToken)
+	// deliberately no mintPairing
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	client := wsClientFor(srv.Listener.Addr().String())
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	header := http.Header{}
+	header.Set("Cookie", session.Name+"="+session.Value)
+	conn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device", &websocket.DialOptions{
+		HTTPClient: client,
+		HTTPHeader: header,
+	})
+	if err != nil {
+		t.Fatalf("dial device: %v", err)
+	}
+	defer conn.CloseNow()
+
+	_, _, err = conn.Read(ctx)
+	if got := websocket.CloseStatus(err); got != StatusNoPairing {
+		t.Fatalf("close status = %v (err %v), want %v", got, err, StatusNoPairing)
+	}
+}
+
+// A tab holding a pairing that a re-pair (mint) has since replaced must not be
+// bridged onto the fresh pairing's device leg: its key is dead, so it would sit
+// in the device slot dropping every frame while the real responder is evicted.
+// The device leg carries its pairing id for exactly this check.
+func TestMCPRelay_DeviceWithStalePairingIDClosesReplaced(t *testing.T) {
+	h, host, claimToken := newTestMCPRelayHandler(t)
+	session := registerAndGetSession(t, h, host, claimToken)
+	stale := mintPairing(t, h, host, session)
+	fresh := mintPairing(t, h, host, session) // re-pair: evicts `stale`
+	if stale == fresh {
+		t.Fatalf("re-mint returned the same pairing id %q", fresh)
+	}
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	client := wsClientFor(srv.Listener.Addr().String())
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	header := http.Header{}
+	header.Set("Cookie", session.Name+"="+session.Value)
+	dial := func(pairingID string) error {
+		conn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device?pairing="+pairingID, &websocket.DialOptions{
+			HTTPClient: client,
+			HTTPHeader: header,
+		})
+		if err != nil {
+			t.Fatalf("dial device: %v", err)
+		}
+		defer conn.CloseNow()
+		_, _, err = conn.Read(ctx)
+		return err
+	}
+
+	if got := websocket.CloseStatus(dial(stale)); got != StatusPairingReplaced {
+		t.Fatalf("stale pairing close status = %v, want %v", got, StatusPairingReplaced)
+	}
+	// The fresh id is accepted: it waits for its shim peer, then times out —
+	// never StatusPairingReplaced.
+	freshCtx, freshCancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	defer freshCancel()
+	conn, _, err := websocket.Dial(freshCtx, "ws://"+host+"/api/mcp/relay/device?pairing="+fresh, &websocket.DialOptions{
+		HTTPClient: client,
+		HTTPHeader: header,
+	})
+	if err != nil {
+		t.Fatalf("dial device (fresh): %v", err)
+	}
+	defer conn.CloseNow()
+	if _, _, err := conn.Read(freshCtx); websocket.CloseStatus(err) == StatusPairingReplaced {
+		t.Fatalf("fresh pairing was rejected as replaced")
+	}
+}

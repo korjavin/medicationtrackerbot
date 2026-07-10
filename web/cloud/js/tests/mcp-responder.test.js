@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import {
+  afterEach, beforeEach, describe, expect, it, vi,
+} from 'vitest';
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
 import { createNotesDomain } from '../../../domain/notes.js';
 import { createInMemoryRecordsPort } from '../../../static/js/tests/helpers/cloud-shim-harness.js';
 import {
-  CATALOG, createDispatcher, handleRequest, suggestOperations,
+  CATALOG, createDispatcher, createResponder, handleRequest,
+  STATUS_NO_PAIRING, STATUS_PAIRING_REPLACED, suggestOperations,
 } from '../mcp-responder.js';
 
 function makeDispatcher() {
@@ -155,6 +158,17 @@ describe('mcp_help wire contract (generated catalog)', () => {
     }
   });
 
+  // Parity with registry.Search's tokenized fallback: a natural multi-word
+  // query that matches no whole-phrase must still land on the workout ops
+  // rather than dead-ending at count: 0.
+  it('falls back to token matching for multi-word queries with no phrase match', async () => {
+    const result = await makeDispatcher().handle('mcp_help', { query: 'first workout group exercises' });
+    expect(result.count).toBeGreaterThan(0);
+    expect(result.compact_operations.some((op) => op.topic === 'workouts')).toBe(true);
+    // One common token can't drag in the whole catalog.
+    expect(result.count).toBeLessThan(CATALOG.length);
+  });
+
   // internal/cloudserver/mcp_relay.go: maxRelayFrameBytes = 64 << 10 caps a
   // sealed relay frame, so the plaintext help payload must stay under it.
   it('keeps the no-args mcp_help payload under the 64 KiB relay frame cap', async () => {
@@ -260,5 +274,117 @@ describe('mcp_help wire contract (generated catalog)', () => {
       expect(call.error.code).toBe(-32602);
       expect(call.error.message).toContain(`unknown operation "${name}"`);
     }
+  });
+});
+// --- Reconnect loop (med-253) --------------------------------------------
+// The relay's pairing table is in-memory and TTL'd; the vault record is not.
+// When they disagree the device leg is closed with STATUS_NO_PAIRING, and the
+// responder must give up instead of reconnecting forever.
+
+class FakeSocket {
+  constructor(url) {
+    this.url = url;
+    this.readyState = 0;
+    FakeSocket.instances.push(this);
+  }
+
+  close() { this.readyState = 3; }
+
+  // Drive the close handler the way a browser would.
+  fireClose(code) { this.readyState = 3; this.onclose({ code }); }
+}
+FakeSocket.instances = [];
+
+function makeResponder(overrides = {}) {
+  FakeSocket.instances = [];
+  const records = createInMemoryRecordsPort();
+  const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+  return createResponder({
+    pairingId: 'pair-1',
+    key: new Uint8Array(32),
+    records,
+    now,
+    timeZone: 'UTC',
+    relayURL: 'ws://relay.test/api/mcp/relay/device',
+    ...overrides,
+  });
+}
+
+describe('mcp-responder reconnect loop', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', FakeSocket);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('reconnects after a transient close', () => {
+    const responder = makeResponder();
+    responder.connect();
+    expect(FakeSocket.instances).toHaveLength(1);
+
+    FakeSocket.instances[0].fireClose(1006); // abnormal closure, e.g. network drop
+    expect(responder.getStatus()).toBe('idle');
+
+    vi.advanceTimersByTime(1000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    responder.stop();
+  });
+
+  it('stops permanently on STATUS_NO_PAIRING and reports the stale pairing', () => {
+    const onStalePairing = vi.fn();
+    const responder = makeResponder({ onStalePairing });
+    responder.connect();
+
+    FakeSocket.instances[0].fireClose(STATUS_NO_PAIRING);
+
+    expect(onStalePairing).toHaveBeenCalledTimes(1);
+    expect(responder.getStatus()).toBe('idle');
+
+    // The whole point: no reconnect is ever scheduled, however long we wait.
+    vi.advanceTimersByTime(120_000);
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
+  // The relay validates it against the account's live pairing, so a tab whose
+  // pairing was replaced elsewhere is rejected instead of squatting the fresh
+  // pairing's device slot with a dead key.
+  it('sends its pairing id on the device leg URL', () => {
+    const responder = makeResponder();
+    responder.connect();
+
+    expect(FakeSocket.instances[0].url).toBe('ws://relay.test/api/mcp/relay/device?pairing=pair-1');
+    responder.stop();
+  });
+
+  it('stops permanently on STATUS_PAIRING_REPLACED, reporting the code', () => {
+    const onStalePairing = vi.fn();
+    const responder = makeResponder({ onStalePairing });
+    responder.connect();
+
+    FakeSocket.instances[0].fireClose(STATUS_PAIRING_REPLACED);
+
+    // The code is what tells the owner to step aside rather than purge the
+    // vault record — which by now names the replacement pairing.
+    expect(onStalePairing).toHaveBeenCalledWith(STATUS_PAIRING_REPLACED);
+    vi.advanceTimersByTime(120_000);
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
+  it('does not reconnect after a 4404 close even if a retry was already queued', () => {
+    const onStalePairing = vi.fn();
+    const responder = makeResponder({ onStalePairing });
+    responder.connect();
+
+    FakeSocket.instances[0].fireClose(1006);   // queues a reconnect at +1000ms
+    vi.advanceTimersByTime(1000);
+    expect(FakeSocket.instances).toHaveLength(2);
+
+    FakeSocket.instances[1].fireClose(STATUS_NO_PAIRING); // must cancel the backoff chain
+    vi.advanceTimersByTime(120_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(onStalePairing).toHaveBeenCalledTimes(1);
   });
 });
