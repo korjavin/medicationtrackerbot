@@ -205,6 +205,10 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 	}
 }
 
+// fakePhotoBytes is what the fake file endpoint streams for a getFile download,
+// standing in for JPEG bytes the relay proxy forwards without inspecting.
+const fakePhotoBytes = "\xff\xd8\xffFAKEJPEG"
+
 // recordingTG is a fake api.telegram.org that records sendMessage payloads and
 // rejects getMe for a sentinel bad token — enough to exercise the linking +
 // BYO-validation contract of Task 4.
@@ -227,9 +231,18 @@ func newRecordingTG(t *testing.T) *recordingTG {
 	rec := &recordingTG{mu: &recordMu{}}
 	rec.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
+		// The file-download endpoint (/file/bot<token>/<path>) streams raw bytes,
+		// not the {ok,result} envelope — handle it before the JSON content type.
+		if len(parts) > 0 && parts[0] == "file" {
+			w.Header().Set("Content-Type", "image/jpeg")
+			io.WriteString(w, fakePhotoBytes)
+			return
+		}
 		method := parts[len(parts)-1]
 		w.Header().Set("Content-Type", "application/json")
 		switch method {
+		case "getFile":
+			io.WriteString(w, `{"ok":true,"result":{"file_id":"AgACPHOTO","file_path":"photos/food_0.jpg","file_size":`+strconv.Itoa(len(fakePhotoBytes))+`}}`)
 		case "getMe":
 			if strings.Contains(parts[0], "BAD:TOKEN") {
 				io.WriteString(w, `{"ok":false,"error_code":401,"description":"Unauthorized"}`)
@@ -1358,6 +1371,85 @@ func TestChildWebhook_SealsCommandVerbatim(t *testing.T) {
 	// The ciphertext must not be logged either.
 	if strings.Contains(logged, "ct=") || strings.Contains(logged, "\"ct\"") {
 		t.Errorf("SECURITY: log leaked the sealed ciphertext: %s", logged)
+	}
+}
+
+// TestChildWebhook_SealsPhotoFileIDNotBytes (bd med-vcv.1) pins the photo half of
+// the zero-knowledge contract: a photo message seals only the LARGEST rendition's
+// file_id (+mime/size), never pixels, and replies "Queued" like any command.
+func TestChildWebhook_SealsPhotoFileIDNotBytes(t *testing.T) {
+	top, tg, host, childPath, session, accountID, priv := tgCommandFixture(t)
+
+	tg.mu.Lock()
+	before := len(tg.mu.sent)
+	tg.mu.Unlock()
+
+	secret := childPath[strings.LastIndex(childPath, "/")+1:]
+	// Ascending sizes — the relay must seal the LAST (largest) file_id.
+	body := `{"update_id":9,"message":{"message_id":7,"chat":{"id":12345,"type":"private"},` +
+		`"photo":[{"file_id":"small","file_size":100,"width":90,"height":90},` +
+		`{"file_id":"large","file_size":9000,"width":900,"height":900}]}}`
+	if rec := postWebhook(t, top, childPath, secret, body); rec.Code != http.StatusOK {
+		t.Fatalf("photo webhook status = %d", rec.Code)
+	}
+
+	tg.mu.Lock()
+	sent := append([]string(nil), tg.mu.sent[before:]...)
+	tg.mu.Unlock()
+	if len(sent) != 1 || !strings.Contains(sent[0], "Queued") {
+		t.Fatalf("expected a single queued reply, got %v", sent)
+	}
+
+	res := listInbox(t, top, host, session)
+	if len(res.Events) != 1 {
+		t.Fatalf("inbox events = %d, want 1", len(res.Events))
+	}
+	pt, err := openInbox(priv.Bytes(), accountID, res.Events[0].CT)
+	if err != nil {
+		t.Fatalf("openInbox: %v", err)
+	}
+	var ev tgPhotoEvent
+	if err := json.Unmarshal(pt, &ev); err != nil {
+		t.Fatalf("unmarshal sealed event: %v", err)
+	}
+	if ev.Kind != inboxEventKindTGPhoto {
+		t.Fatalf("sealed kind = %q, want %q", ev.Kind, inboxEventKindTGPhoto)
+	}
+	if ev.FileID != "large" {
+		t.Errorf("sealed file_id = %q, want the largest rendition %q", ev.FileID, "large")
+	}
+	if ev.Mime != "image/jpeg" || ev.Size != 9000 {
+		t.Errorf("sealed mime/size = %q/%d, want image/jpeg/9000", ev.Mime, ev.Size)
+	}
+	if ev.ReplyMessageID == 0 || ev.AtUnix == 0 {
+		t.Errorf("sealed photo event missing reply id / timestamp: %+v", ev)
+	}
+}
+
+// TestGetPhoto_StreamsBytesForOwnAccount (bd med-vcv.1) pins the byte-proxy: a
+// session resolves a file_id through its OWN bot token and gets the raw image
+// streamed back, with a missing file_id and a missing session both rejected.
+func TestGetPhoto_StreamsBytesForOwnAccount(t *testing.T) {
+	top, _, host, _, session, _, _ := tgCommandFixture(t)
+
+	rec := doReq(t, top, http.MethodGet, "http://"+host+"/api/telegram/photo?file_id=AgACPHOTO", host, session, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET photo status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "image/jpeg" {
+		t.Errorf("content-type = %q, want image/jpeg", ct)
+	}
+	if rec.Body.String() != fakePhotoBytes {
+		t.Errorf("streamed body = %q, want the upstream bytes verbatim", rec.Body.String())
+	}
+
+	// Missing file_id → 400.
+	if bad := doReq(t, top, http.MethodGet, "http://"+host+"/api/telegram/photo", host, session, nil); bad.Code != http.StatusBadRequest {
+		t.Errorf("missing file_id status = %d, want 400", bad.Code)
+	}
+	// No session → 401 (RequireSession rejects before the handler).
+	if noAuth := doReq(t, top, http.MethodGet, "http://"+host+"/api/telegram/photo?file_id=AgACPHOTO", host, nil, nil); noAuth.Code != http.StatusUnauthorized {
+		t.Errorf("no-session status = %d, want 401", noAuth.Code)
 	}
 }
 

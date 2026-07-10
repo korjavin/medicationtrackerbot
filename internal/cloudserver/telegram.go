@@ -86,6 +86,27 @@ type tgCommandEvent struct {
 	ReplyMessageID int64 `json:"reply_message_id"`
 }
 
+// inboxEventKindTGPhoto seals only a photo's file_id (+mime/size), never the
+// bytes (bd med-vcv.1). The client fetches the image at drain time through the
+// account-scoped /api/telegram/photo proxy and AI-parses it with the user's own
+// key — the relay never sees pixels or the parse (docs/cloud-mode.md →
+// "Inbound plaintext").
+const inboxEventKindTGPhoto = "tg_photo"
+
+type tgPhotoEvent struct {
+	Kind string `json:"kind"`
+	// FileID is Telegram's stable, re-resolvable handle. It is NOT the bytes and
+	// not a secret — a getFile with this account's bot token is the only way to
+	// turn it into pixels, which is the account-scoping boundary.
+	FileID string `json:"file_id"`
+	Mime   string `json:"mime"`
+	Size   int64  `json:"size"`
+	AtUnix int64  `json:"at_unix"`
+	// ReplyMessageID is the "queued" message the client edits into a confirmation
+	// once the meal is logged. 0 when the reply could not be sent.
+	ReplyMessageID int64 `json:"reply_message_id"`
+}
+
 // childCommands is the autocomplete menu registered on every linked bot. It
 // must list exactly what the bot answers — advertising a command that gets
 // dropped is the bug this exists to prevent (bd med-26y). /start and /help are
@@ -190,6 +211,7 @@ func (t *TelegramAPI) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/telegram/reset", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Reset)))
 	mux.Handle("POST /api/telegram/test", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Test)))
 	mux.Handle("POST /api/telegram/reply-edit", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.EditReply)))
+	mux.Handle("GET /api/telegram/photo", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.GetPhoto)))
 	mux.Handle("DELETE /api/telegram", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Delete)))
 }
 
@@ -670,6 +692,14 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+	// A photo carries no command token in Text (a caption lives in a separate
+	// field), so it must be handled BEFORE the botCommand switch — which would
+	// otherwise drop it as empty. Only the file_id is sealed; the bytes never
+	// touch the relay (bd med-vcv.1).
+	if photo := upd.Message.LargestPhoto(); photo != nil {
+		t.sealPhoto(w, r, ref, bot, upd.Message, photo)
+		return
+	}
 	// The relay reads ONLY the leading token, and only to tell what it answers
 	// itself from what it seals. It must not distinguish /bp from /bogus —
 	// that would mean inspecting the command surface of a message it is
@@ -794,6 +824,67 @@ func (t *TelegramAPI) sealCommand(w http.ResponseWriter, r *http.Request, ref st
 	w.WriteHeader(http.StatusOK)
 }
 
+// sealPhoto seals a photo message's file_id into the mailbox — never the bytes
+// (bd med-vcv.1). Structurally identical to sealCommand (queued ack first, then
+// seal, always 200), differing only in the payload: a file_id handle instead of
+// text. The client resolves and AI-parses it at drain time.
+func (t *TelegramAPI) sealPhoto(w http.ResponseWriter, r *http.Request, ref string, bot *cloudstore.TGBot, msg *tgclient.Message, photo *tgclient.PhotoSize) {
+	client, err := t.botClient(bot)
+	if err != nil {
+		slog.Error("telegram child webhook: open token", "error", err, "ref", ref)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	reply := func(text string) {
+		if err := client.SendMessage(r.Context(), msg.Chat.ID, text); err != nil {
+			slog.Error("telegram child webhook: send reply", "error", err, "ref", ref)
+		}
+	}
+
+	// No inbox key → the event MUST be dropped, never stored in the clear.
+	if pub, err := t.store.AccountInboxPublicKey(r.Context(), ref); err != nil || len(pub) == 0 {
+		if err != nil {
+			slog.Error("telegram child webhook: read inbox key", "error", err, "ref", ref)
+		}
+		reply(setupMessage)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	now := time.Now().UTC()
+	replyID, err := client.SendMessageReturningID(r.Context(), msg.Chat.ID, queuedMessage)
+	if err != nil {
+		slog.Error("telegram child webhook: send queued ack", "error", err, "ref", ref)
+	}
+
+	// Telegram photos are always JPEG; there is no per-size mime field. The bytes
+	// are never touched here — only this opaque handle is sealed.
+	plaintext, err := json.Marshal(tgPhotoEvent{
+		Kind:           inboxEventKindTGPhoto,
+		FileID:         photo.FileID,
+		Mime:           "image/jpeg",
+		Size:           photo.FileSize,
+		AtUnix:         now.Unix(),
+		ReplyMessageID: replyID,
+	})
+	if err != nil {
+		slog.Error("telegram child webhook: marshal photo event", "error", err, "ref", ref)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	switch err := SealAndQueue(r.Context(), t.store, ref, plaintext, now); {
+	case errors.Is(err, ErrNoInboxKey):
+		reply(setupMessage)
+	case err != nil:
+		slog.Error("telegram child webhook: seal photo", "error", err, "ref", ref)
+		reply("Sorry — something went wrong. Try again.")
+	default:
+		slog.Info("telegram child webhook: photo queued", "ref", ref)
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 // editReplyRequest is what an unlocked client posts after it has applied a
 // sealed command and confirmed the write flushed.
 type editReplyRequest struct {
@@ -850,6 +941,80 @@ func (t *TelegramAPI) EditReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// maxPhotoProxyBytes caps what the photo proxy streams, matching the client's
+// 8 MB image ceiling (web/cloud/js/aiclient.js). Telegram photos are far smaller;
+// this only bounds a misbehaving upstream.
+const maxPhotoProxyBytes = 8 << 20
+
+// GetPhoto streams the bytes of a sealed photo's file_id to the unlocked client
+// so it can AI-parse the meal locally (bd med-vcv.1). The relay resolves and
+// forwards bytes but never inspects, stores, or logs them — the same
+// forward-verbatim contract as EditReply, in the other direction.
+//
+// SECURITY: the file_id is resolved through THIS account's own bot token
+// (getFile), which only Telegram can turn into pixels and only for files sent to
+// this bot. That token — bound to the session's account via BotByAccount — is
+// the whole access boundary; the relay cannot cross-check the file_id against
+// the sealed mailbox because it is zero-knowledge ciphertext. A getFile failure
+// (e.g. an expired handle) is a normal error the client acks rather than retries
+// forever.
+func (t *TelegramAPI) GetPhoto(w http.ResponseWriter, r *http.Request) {
+	sess, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	fileID := r.URL.Query().Get("file_id")
+	if fileID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing_file_id"})
+		return
+	}
+
+	bot, err := t.store.BotByAccount(r.Context(), sess.AccountID)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && bot.ChatID == nil) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no_linked_chat"})
+		return
+	}
+	if err != nil {
+		slog.Error("telegram photo: load bot", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	client, err := t.botClient(bot)
+	if err != nil {
+		slog.Error("telegram photo: open token", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	file, err := client.GetFile(r.Context(), fileID)
+	if err != nil {
+		// Expired/invalid handle or upstream hiccup — surface as a plain 502 the
+		// client acks (never log the file_id: it is message-derived).
+		slog.Warn("telegram photo: getFile failed", "account", sess.AccountID, "error", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "getfile_failed"})
+		return
+	}
+	body, contentType, err := client.DownloadFile(r.Context(), file.FilePath)
+	if err != nil {
+		slog.Warn("telegram photo: download failed", "account", sess.AccountID, "error", err)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "download_failed"})
+		return
+	}
+	defer body.Close()
+
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "no-store")
+	// Stream straight through — nothing buffered to disk, nothing logged but the
+	// byte count on error. LimitReader guards against an oversized upstream.
+	if _, err := io.Copy(w, io.LimitReader(body, maxPhotoProxyBytes)); err != nil {
+		slog.Warn("telegram photo: stream failed", "account", sess.AccountID, "error", err)
+	}
 }
 
 // BYO validates an operator-supplied bot token via getMe, seals it, stores it

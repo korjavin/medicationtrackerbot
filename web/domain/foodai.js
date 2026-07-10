@@ -135,9 +135,9 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
     return saveParsedItems(parsed, eatenAt ?? now(), recordIdFor);
   }
 
-  async function parseMealFromPhoto(file, { eatenAt } = {}) {
+  async function parseMealFromPhoto(file, { eatenAt, recordIdFor } = {}) {
     const parsed = await aiClient.parseMealFromImage(file);
-    return saveParsedItems(parsed, eatenAt ?? now());
+    return saveParsedItems(parsed, eatenAt ?? now(), recordIdFor);
   }
 
   return { parseMealFromDescription, parseMealFromPhoto };

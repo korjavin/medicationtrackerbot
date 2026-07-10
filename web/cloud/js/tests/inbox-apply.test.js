@@ -5,7 +5,7 @@
 // behavior, not of this module's bookkeeping.
 import { describe, expect, it, vi } from 'vitest';
 import { createIntakeDomain } from '../../../domain/medintake.js';
-import { applyIntakeSlotAction, applyTGCommand, createInboxApplier, INTAKE_SLOT_ACTION, TG_COMMAND } from '../inbox-apply.js';
+import { applyIntakeSlotAction, applyTGCommand, applyTGPhoto, createInboxApplier, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO } from '../inbox-apply.js';
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
 import { createNotesDomain } from '../../../domain/notes.js';
@@ -220,16 +220,18 @@ describe('inbox-apply.js — a Telegram data command', () => {
     // meal write are exercised, not mocked.
     const TWO_EGGS = [{ name: 'eggs', weight_grams: 100, carbs_100g: 1, protein_100g: 13, fat_100g: 11 }];
     function stubAIClient(items) {
-        return { parseMealFromDescription: async () => ({ items }) };
+        return {
+            parseMealFromDescription: async () => ({ items }),
+            parseMealFromImage: async () => ({ items }),
+        };
     }
     function noKeyAIClient() {
-        return {
-            parseMealFromDescription: async () => {
-                const e = new Error('no api key');
-                e.code = 'no_api_key';
-                throw e;
-            },
+        const noKey = () => {
+            const e = new Error('no api key');
+            e.code = 'no_api_key';
+            throw e;
         };
+        return { parseMealFromDescription: noKey, parseMealFromImage: noKey };
     }
 
     function domainsFor(records, now, aiClient = stubAIClient(TWO_EGGS)) {
@@ -394,6 +396,67 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(await records.list('bp')).toHaveLength(1);
         expect(warn).toHaveBeenCalled();
         warn.mockRestore();
+    });
+
+    // --- Photo food logging (bd med-vcv.1) ---
+    function photoEvent() {
+        return { kind: TG_PHOTO, file_id: 'large', mime: 'image/jpeg', size: 9000, at_unix: CMD_UNIX, reply_message_id: REPLY_ID };
+    }
+    // A fetch that returns a Blob-like the aiClient stub never actually reads.
+    function okFetchPhoto() {
+        return vi.fn().mockResolvedValue({ type: 'image/jpeg', size: 3, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer });
+    }
+    // foodAI only (the piece applyTGPhoto needs) built from a real domain + stub aiClient.
+    function foodAIFor(records, now, aiClient = stubAIClient(TWO_EGGS)) {
+        return createFoodAIDomain({ aiClient, foodDomain: createFoodDomain({ records, now, timeZone: 'UTC' }), now });
+    }
+
+    it('a photo is fetched, AI-parsed, and logged — backdated to arrival', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        await applyTGPhoto(photoEvent(), 30, { foodAI: foodAIFor(records, now), editReply, fetchPhoto: okFetchPhoto() });
+
+        const logs = await records.list('foodlog');
+        expect(logs).toHaveLength(1);
+        expect(logs[0]).toMatchObject({ name: 'eggs', weight: 100, recordId: 'tg-30-0' });
+        expect(Date.parse(logs[0].eaten_at)).toBe(CMD_MS);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Logged 1 food item/));
+    });
+
+    it('re-draining the same photo event overwrites its own rows instead of duplicating', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const opts = { foodAI: foodAIFor(records, now), editReply: vi.fn(), fetchPhoto: okFetchPhoto() };
+        await applyTGPhoto(photoEvent(), 30, opts);
+        await applyTGPhoto(photoEvent(), 30, opts);
+
+        expect(await records.list('foodlog')).toHaveLength(1);
+    });
+
+    it('a photo the relay cannot fetch is answered and acked, logging nothing', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const editReply = vi.fn();
+        const fetchPhoto = vi.fn().mockRejectedValue(new Error('photo fetch failed: 502'));
+        await expect(applyTGPhoto(photoEvent(), 31, { foodAI: foodAIFor(records, now), editReply, fetchPhoto }))
+            .resolves.toBeUndefined();
+
+        expect(await records.list('foodlog')).toHaveLength(0);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Couldn't fetch that photo/));
+        warn.mockRestore();
+    });
+
+    it('a photo with no configured key tells the user to add one, acks, and logs nothing', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        await expect(applyTGPhoto(photoEvent(), 32, { foodAI: foodAIFor(records, now, noKeyAIClient()), editReply, fetchPhoto: okFetchPhoto() }))
+            .resolves.toBeUndefined();
+
+        expect(await records.list('foodlog')).toHaveLength(0);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/add an OpenAI key/));
     });
 });
 
