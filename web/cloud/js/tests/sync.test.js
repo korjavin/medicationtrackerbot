@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, describeSyncStatus, getSyncStatus } from '../sync.js';
 import { openDb } from '../localdb.js';
 
 const accountId = 'amber-falcon-8k3q9x';
@@ -183,5 +183,124 @@ describe('listRecords reads via the recordType index (med-9z3.4)', () => {
 
     const bp = await listRecords({}, 'bp'); // openDb() triggers the v2 -> v3 upgrade
     expect(bp.map((r) => r.recordId)).toEqual(['bp-old']);
+  });
+});
+
+// med-9z3.5 — a permanent 4xx on the threshold-gated snapshot means compaction
+// has STOPPED: the oplog grows without bound and every new device pages the
+// whole thing on first sync. It used to be discarded silently. Drive the real
+// pullOnOpen path (maybeSnapshot is private, and going through the public entry
+// point is what actually regressed).
+describe('maybeSnapshot surfaces a permanent snapshot failure instead of failing silently (med-9z3.5)', () => {
+  const SNAPSHOT_THRESHOLD = 500;
+  let ctx;
+  let snapshotPosts;
+  let snapshotStatus;
+
+  const seedMeta = async (meta) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('sync_meta', 'readwrite');
+        const store = tx.objectStore('sync_meta');
+        for (const [k, v] of Object.entries(meta)) store.put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const readMetaKey = async (key) => {
+    const db = await openDb();
+    try {
+      const tx = db.transaction('sync_meta', 'readonly');
+      return await new Promise((resolve, reject) => {
+        const req = tx.objectStore('sync_meta').get(key);
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, dek: await generateDEK() };
+    snapshotPosts = 0;
+    snapshotStatus = 413; // account storage quota exceeded — permanent
+
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      if (String(url).startsWith('/api/sync/ops')) {
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') {
+        snapshotPosts++;
+        if (snapshotStatus === 200) return new Response('{}', { status: 200 });
+        return new Response('account storage quota exceeded', { status: snapshotStatus });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+  });
+
+  it('records a durable error and surfaces it in the status line on a permanent 4xx', async () => {
+    await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD, lastSnapshotSeq: 0 });
+
+    await pullOnOpen(ctx);
+
+    expect(snapshotPosts).toBe(1);
+    const status = await getSyncStatus(ctx);
+    expect(status.snapshotError).toMatchObject({ status: 413 });
+    expect(await describeSyncStatus(ctx)).toContain('Vault too large to sync');
+    // The compaction floor did NOT advance — the snapshot never landed.
+    expect(await readMetaKey('lastSnapshotSeq')).toBeFalsy();
+    expect(await readMetaKey('snapshotErrorSeq')).toBe(SNAPSHOT_THRESHOLD);
+  });
+
+  it('backs off: does not re-upload the oversized snapshot on every later flush', async () => {
+    await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD, lastSnapshotSeq: 0 });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(1);
+
+    // A few more ops land, still short of another full threshold past the failure.
+    await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD + 10 });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(1); // no re-gzip + re-encrypt of the whole vault
+  });
+
+  it('retries once the oplog grows another threshold past the failed attempt, and heals on success', async () => {
+    await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD, lastSnapshotSeq: 0 });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(1);
+
+    // Cap raised / vault shrank: the retry lands.
+    snapshotStatus = 200;
+    await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD * 2 });
+    await pullOnOpen(ctx);
+
+    expect(snapshotPosts).toBe(2);
+    expect(await readMetaKey('lastSnapshotSeq')).toBe(SNAPSHOT_THRESHOLD * 2);
+    expect(await readMetaKey('snapshotError')).toBeNull();
+    expect(await readMetaKey('snapshotErrorSeq')).toBeNull();
+    expect(await describeSyncStatus(ctx)).not.toContain('Vault too large to sync');
+  });
+
+  it('leaves a transient 5xx unrecorded so the next flush retries immediately', async () => {
+    snapshotStatus = 503;
+    await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD, lastSnapshotSeq: 0 });
+
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(1);
+    expect(await readMetaKey('snapshotError')).toBeNull();
+    expect(await readMetaKey('snapshotErrorSeq')).toBeNull();
+
+    await pullOnOpen(ctx); // no backoff floor was set — retried at once
+    expect(snapshotPosts).toBe(2);
   });
 });

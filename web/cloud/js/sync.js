@@ -90,13 +90,14 @@ async function readMeta() {
   try {
     const tx = db.transaction('sync_meta', 'readonly');
     const store = tx.objectStore('sync_meta');
-    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, forceSnapshotError] = await Promise.all([
+    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq] = await Promise.all([
       reqToPromise(store.get('localLastSeq')),
       reqToPromise(store.get('lastSnapshotSeq')),
       reqToPromise(store.get('lastSyncedAt')),
       reqToPromise(store.get('integrityErrors')),
       reqToPromise(store.get('forceSnapshotPending')),
-      reqToPromise(store.get('forceSnapshotError')),
+      reqToPromise(store.get('snapshotError')),
+      reqToPromise(store.get('snapshotErrorSeq')),
     ]);
     return {
       localLastSeq: localLastSeq ?? null,
@@ -104,7 +105,8 @@ async function readMeta() {
       lastSyncedAt: lastSyncedAt ?? null,
       integrityErrors: integrityErrors ?? 0,
       forceSnapshotPending: forceSnapshotPending ?? false,
-      forceSnapshotError: forceSnapshotError ?? null,
+      snapshotError: snapshotError ?? null,
+      snapshotErrorSeq: snapshotErrorSeq ?? null,
     };
   } finally {
     db.close();
@@ -356,17 +358,43 @@ async function snapshotAt(ctx, snapshotSeq) {
   if (!res.ok) return { ok: false, status: res.status }; // 4xx=won't-fit, 5xx=retryable; caller decides offline
   offline = false;
   // A successful snapshot means the store now fits the server cap, so clear any
-  // stale "too large" error a prior oversized import recorded. Covers both the
+  // stale "too large" error a prior oversized snapshot recorded. Covers both the
   // forced path and the threshold-gated maybeSnapshot (e.g. the store shrank, or
   // a peer re-bootstrap healed this device) — otherwise the banner sticks forever.
-  await writeMeta({ lastSnapshotSeq: snapshotSeq, forceSnapshotError: null });
+  // snapshotErrorSeq goes with it, so the backoff floor drops back to lastSnapshotSeq.
+  await writeMeta({ lastSnapshotSeq: snapshotSeq, snapshotError: null, snapshotErrorSeq: null });
   return { ok: true, status: res.status };
 }
 
+// maybeSnapshot compacts the oplog once it has grown SNAPSHOT_THRESHOLD ops past
+// the last snapshot. Its failure mode is the quiet one that matters: a permanent
+// 4xx (body over the server cap, account quota exhausted) means the snapshot will
+// never land, so compaction STOPS and the oplog grows without bound — and every
+// new device then pages the whole thing on first sync. snapshotAt's {ok,status}
+// used to be discarded here, so that state was invisible and unbounded: each
+// later flush re-read, re-gzipped and re-encrypted the entire vault into a body
+// the server would refuse again.
+//
+// So: record the permanent failure durably (surfaced by describeSyncStatus, and
+// cleared by any later successful snapshotAt), and back off to one retry per
+// SNAPSHOT_THRESHOLD ops by holding snapshotErrorSeq as an additional floor. A
+// vault that shrinks, or a server whose cap is raised, still heals on its own —
+// it just doesn't re-attempt the oversized upload on every single flush.
+//
+// Transient failures (5xx, network) record nothing: snapshotAt has already set
+// `offline` where appropriate, the floor stays put, and the next flush retries.
 async function maybeSnapshot(ctx) {
   const meta = await readMeta();
-  if (meta.localLastSeq === null || meta.localLastSeq - meta.lastSnapshotSeq < SNAPSHOT_THRESHOLD) return;
-  await snapshotAt(ctx, meta.localLastSeq);
+  if (meta.localLastSeq === null) return;
+  const floor = Math.max(meta.lastSnapshotSeq, meta.snapshotErrorSeq ?? 0);
+  if (meta.localLastSeq - floor < SNAPSHOT_THRESHOLD) return;
+  const snap = await snapshotAt(ctx, meta.localLastSeq);
+  if (!snap.ok && isPermanentSyncStatus(snap.status)) {
+    await writeMeta({
+      snapshotError: { status: snap.status, at: Date.now() },
+      snapshotErrorSeq: meta.localLastSeq,
+    });
+  }
 }
 
 // A throwaway tombstone whose only purpose is to advance the account seq below.
@@ -405,7 +433,7 @@ export async function forceSnapshot(ctx) {
 export async function markForceSnapshotPending() {
   // Clear any stale error from a previous oversized import so this fresh
   // attempt doesn't inherit a "too large" banner while it's merely pending.
-  await writeMeta({ forceSnapshotPending: true, forceSnapshotError: null });
+  await writeMeta({ forceSnapshotPending: true, snapshotError: null, snapshotErrorSeq: null });
 }
 
 // A permanent 4xx means the request reached a server that refused it and will
@@ -475,7 +503,7 @@ async function tryForceSnapshot(ctx) {
     // oversized-snapshot re-encrypt wedge). The user must free account quota for
     // the import to sync.
     if (isPermanentSyncStatus(res.status)) {
-      await writeMeta({ forceSnapshotError: { status: res.status, at: Date.now() } });
+      await writeMeta({ snapshotError: { status: res.status, at: Date.now() } });
       offline = false;
       return;
     }
@@ -501,7 +529,7 @@ async function tryForceSnapshot(ctx) {
   const snap = await snapshotAt(ctx, snapshotSeq);
   if (!snap.ok) {
     if (isPermanentSyncStatus(snap.status)) {
-      await writeMeta({ forceSnapshotPending: false, forceSnapshotError: { status: snap.status, at: Date.now() } });
+      await writeMeta({ forceSnapshotPending: false, snapshotError: { status: snap.status, at: Date.now() } });
       offline = false;
       return;
     }
@@ -509,7 +537,7 @@ async function tryForceSnapshot(ctx) {
     return;
   }
   if ((await readMeta()).lastSnapshotSeq >= snapshotSeq) {
-    await writeMeta({ forceSnapshotPending: false, forceSnapshotError: null });
+    await writeMeta({ forceSnapshotPending: false, snapshotError: null, snapshotErrorSeq: null });
   }
 }
 
@@ -774,7 +802,7 @@ export async function getSyncStatus(ctx) {
     pendingCount,
     offline,
     integrityErrors: meta.integrityErrors,
-    forceSnapshotError: meta.forceSnapshotError || null,
+    snapshotError: meta.snapshotError || null,
   };
 }
 
@@ -784,6 +812,6 @@ export async function describeSyncStatus(ctx) {
   parts.push(status.offline ? 'Offline' : status.lastSyncedAt ? `Synced ${new Date(status.lastSyncedAt).toLocaleTimeString()}` : 'Not yet synced');
   if (status.pendingCount > 0) parts.push(`${status.pendingCount} pending`);
   if (status.integrityErrors > 0) parts.push(`${status.integrityErrors} sync-integrity warning(s)`);
-  if (status.forceSnapshotError) parts.push('Import too large to sync');
+  if (status.snapshotError) parts.push('Vault too large to sync');
   return parts.join(' · ');
 }
