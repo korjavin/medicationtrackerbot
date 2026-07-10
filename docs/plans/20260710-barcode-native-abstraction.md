@@ -223,11 +223,11 @@ mention in a `scanner.js` comment tripped the capability check and was reworded.
 
 ### Task 6: [Final] Update documentation
 
-- [ ] update `docs/frontend.md` -> "Native Platform Abstractions": document
+- [x] update `docs/frontend.md` -> "Native Platform Abstractions": document
       `Barcode.hasNativeScanner()` / `Barcode.supportsLiveScan()` /
       `MediaCapture.openCameraStream()`, and name the new architecture test as
       the guard, alongside the existing `tests/native.<cap>.test.js` requirement
-- [ ] if the new guard changes what rule 10 promises, reflect it in `CLAUDE.md`
+- [x] if the new guard changes what rule 10 promises, reflect it in `CLAUDE.md`
       rule 10 (one sentence: the invariant is now enforced by a test)
 
 ## Technical Details
