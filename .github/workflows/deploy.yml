@@ -118,7 +118,7 @@ jobs:
           BUILD_TS="$(date +%Y%m%d-%H%M)"
           sed -i "s|VERSION_PLACEHOLDER|$(git rev-parse --short HEAD)|g" web/static/index.html web/static/wg-primitives.html
           sed -i "s|TIMESTAMP_PLACEHOLDER|${BUILD_TS}|g" web/static/index.html web/static/wg-primitives.html
-          sed -i "s|CACHE_VERSION_PLACEHOLDER|v${BUILD_TS}|g" web/static/sw.js
+          sed -i "s|CACHE_VERSION_PLACEHOLDER|v${BUILD_TS}|g" web/static/sw.js web/cloud/sw.js
 
       - name: Build and push Docker image
         id: build-and-push
