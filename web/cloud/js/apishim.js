@@ -531,7 +531,12 @@ export function createApiRouter(ctx, {
     if (path === '/api/workout/exercises/unique' && method === 'GET') return workout.listUniqueExercises();
 
     if (path === '/api/workout/rotation/state' && method === 'GET') {
-      return workout.getRotationState(intParam(params, 'group_id', 0));
+      // handleGetRotationState 404s on a missing state (workout_handlers.go:367);
+      // returning null here would hand an MCP agent `result: null` where bot mode
+      // errors.
+      const state = await workout.getRotationState(intParam(params, 'group_id', 0));
+      if (!state) throw apiError(404, 'Rotation state not found');
+      return state;
     }
     if (path === '/api/workout/rotation/initialize' && method === 'POST') {
       await workout.initializeRotation(
@@ -685,7 +690,12 @@ export function createApiRouter(ctx, {
     // make every unshimmed write (Test-BP, journey targets) look like it
     // succeeded while doing nothing; a thrown error routes into the caller's
     // existing failure path (api.js apiCall → safeAlert / toast) instead.
-    throw apiError(404, `Not found: ${method} ${path}`);
+    // `noRoute` distinguishes this from the domain 404s above (session /
+    // rotation state not found), which are real answers, not missing wiring —
+    // mcp-responder's dispatch keys off the flag, not off the status.
+    const err = apiError(404, `Not found: ${method} ${path}`);
+    err.noRoute = true;
+    throw err;
   }
 
   shimCall.domains = {

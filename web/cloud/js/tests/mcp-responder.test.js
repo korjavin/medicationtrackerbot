@@ -444,6 +444,7 @@ describe('mcp_help wire contract (generated catalog)', () => {
     const notFound = () => {
       const err = new Error('Not found: GET /api/workout/exercises/unique');
       err.status = 404;
+      err.noRoute = true;
       throw err;
     };
     const dispatcher = createDispatcher({ router: notFound, now: () => 0 });
@@ -455,6 +456,29 @@ describe('mcp_help wire contract (generated catalog)', () => {
     expect(response.error.message).toContain('GET /api/workout/exercises/unique');
     expect(response.error.message).not.toContain('unknown operation');
     expect(response.error.message).not.toContain('did you mean');
+  });
+
+  // The router's own 404s (a missing session, a group with no rotation state)
+  // are answers, not missing wiring. Reporting them as "add it to apishim.js"
+  // would send the agent editing a route that is already there.
+  it('surfaces a domain 404 from the router as invalid-params, not a missing-route error', async () => {
+    const router = () => {
+      const err = new Error('session not found');
+      err.status = 404;
+      throw err;
+    };
+    const dispatcher = createDispatcher({ router, now: () => 0 });
+    const response = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 11,
+      method: 'mcp_call',
+      params: {
+        op: 'workouts.sessions.status', mode: 'write', intent: 'complete it', body: { id: 404, status: 'completed' },
+      },
+    });
+    expect(response.error.code).toBe(-32602);
+    expect(response.error.message).toBe('session not found');
+    expect(response.error.message).not.toContain('apishim.js');
   });
 
   // Dispatch is a lookup + an endpoint build, never a second dispatch table:

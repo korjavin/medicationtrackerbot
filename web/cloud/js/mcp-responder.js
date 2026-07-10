@@ -453,20 +453,26 @@ export function createDispatcher({ router, now = Date.now }) {
     throw new Error('mcp-responder: createDispatcher requires a router (apishim.js createApiRouter)');
   }
 
-  // The router throws an Error carrying `.status` (apishim's apiError). A 404
-  // means the op is catalogued but the router has no route for it — an internal
-  // inconsistency between the generated catalog and apishim.js, not bad params,
-  // so it reads as -32603 and names the route the next author has to add. The
-  // coverage sweep in tests/mcp-responder.test.js exists to make this
-  // unreachable. Every other error (a domain validation failure, a 409) is left
-  // alone for handleRequest's own mapping.
+  // The router throws an Error carrying `.status` (apishim's apiError), and sets
+  // `.noRoute` on the one throw that means "no branch matched this method+path"
+  // — an internal inconsistency between the generated catalog and apishim.js,
+  // not bad params, so it reads as -32603 and names the route the next author
+  // has to add. The coverage sweep in tests/mcp-responder.test.js exists to make
+  // it unreachable. Keying off `.status === 404` instead would swallow the
+  // router's domain 404s (a missing session, a group with no rotation state) and
+  // tell the agent to go add a route that is already there. Those surface as
+  // -32602 with the router's own message; everything else is left alone for
+  // handleRequest's mapping.
   async function dispatch(op, endpoint, body) {
     try {
       return await router(endpoint, op.method, body);
     } catch (e) {
-      if (e && e.status === 404) {
+      if (e && e.noRoute) {
         throw new MCPError(-32603, `operation "${op.id}" is catalogued but the cloud router has no route for `
           + `${op.method} ${endpoint} — add it to web/cloud/js/apishim.js.`);
+      }
+      if (e && typeof e.status === 'number' && e.status >= 400 && e.status < 500) {
+        throw new MCPError(-32602, e.message);
       }
       throw e;
     }
