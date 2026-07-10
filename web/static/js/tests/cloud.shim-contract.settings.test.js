@@ -159,7 +159,7 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
 
         document.getElementById('integrations-openai-api-key').value = 'sk-test-dummy-key';
         document.getElementById('integrations-openai-url').value = 'https://api.openai.example/v1';
-        document.getElementById('integrations-food-domain').value = 'usda';
+        document.getElementById('integrations-food-url').value = 'https://usda.example/v1';
 
         await window.SettingsIntegrations.save();
 
@@ -175,6 +175,6 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
 
         expect(document.getElementById('integrations-openai-api-key').value).toBe('***');
         expect(document.getElementById('integrations-openai-url').value).toBe('https://api.openai.example/v1');
-        expect(document.getElementById('integrations-food-domain').value).toBe('usda');
+        expect(document.getElementById('integrations-food-url').value).toBe('https://usda.example/v1');
     });
 });

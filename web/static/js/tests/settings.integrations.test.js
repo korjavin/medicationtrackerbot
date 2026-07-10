@@ -71,7 +71,6 @@ describe('Settings → Integrations section', () => {
             'integrations-openai-vision-model',
             'integrations-food-api-key',
             'integrations-food-url',
-            'integrations-food-domain',
             'integrations-elevenlabs-api-key',
             'integrations-elevenlabs-agent-id'
         ];
@@ -150,7 +149,7 @@ describe('Settings → Integrations section', () => {
                     vision_url: '',
                     vision_model: ''
                 },
-                food: { api_key: '***', url: '', domain: 'fastfood.example.com' },
+                food: { api_key: '***', url: 'https://fastfood.example.com', domain: 'legacy.example.com' },
                 elevenlabs: { api_key: '', agent_id: 'agent_abc' }
             };
         });
@@ -161,9 +160,37 @@ describe('Settings → Integrations section', () => {
         expect(document.getElementById('integrations-openai-url').value).toBe('https://api.openai.com/v1');
         expect(document.getElementById('integrations-openai-model').value).toBe('gpt-5');
         expect(document.getElementById('integrations-food-api-key').value).toBe('***');
-        expect(document.getElementById('integrations-food-domain').value).toBe('fastfood.example.com');
+        expect(document.getElementById('integrations-food-url').value).toBe('https://fastfood.example.com');
+        // med-xrr: a stored legacy food.domain has no input to land in.
+        expect(document.getElementById('integrations-food-domain')).toBeNull();
         expect(document.getElementById('integrations-elevenlabs-api-key').value).toBe('');
         expect(document.getElementById('integrations-elevenlabs-agent-id').value).toBe('agent_abc');
+    });
+
+    // med-xrr: the Domain input is gone, but a value stored by an older build
+    // must survive a save — readDOMIntoPayload sends '' for any absent input,
+    // and '' means "clear" to both patch paths, so `domain` has to be absent
+    // from the payload entirely rather than merely absent from the DOM.
+    it('save() omits food.domain so a legacy stored value is preserved, not cleared', async () => {
+        const { window, document } = env;
+
+        const calls = [];
+        window.apiCall = vi.fn(async (url, method, body) => {
+            calls.push({ url, method, body });
+            if (url === '/api/settings/integrations' && method === 'PATCH') return { ok: true };
+            return {
+                openai: { api_key: '', url: '', model: '', vision_api_key: '', vision_url: '', vision_model: '' },
+                food: { api_key: '', url: '', domain: 'legacy.example.com' },
+                elevenlabs: { api_key: '', agent_id: '' }
+            };
+        });
+
+        await window.SettingsIntegrations.save();
+
+        const patch = calls.find((c) => c.method === 'PATCH');
+        expect(patch).toBeTruthy();
+        expect(patch.body.food).toBeTruthy();
+        expect(Object.prototype.hasOwnProperty.call(patch.body.food, 'domain')).toBe(false);
     });
 
     it('save() routes the write through DataStore.applyOptimistic and PATCHes the form payload', async () => {
