@@ -101,11 +101,11 @@ mismatches stay warn-only (coercion is defensible). Read ops stay entirely warn-
       read passthrough still only warns; (c) a valid write still dispatches with the ok shape.
 
 ### Task 5: Verify acceptance criteria
-- [ ] `go build ./...` and `go build -tags mobile ./...` both clean.
-- [ ] `go test ./internal/mcp/...` passes.
-- [ ] `pnpm test` passes (at minimum the mcp-responder suite).
-- [ ] `golangci-lint run` (or the project's lint target) clean for touched files.
-- [ ] Confirm reads and type-coercion remain warn-only; only missing-required-on-write blocks.
+- [x] `go build ./...` and `go build -tags mobile ./...` both clean.
+- [x] `go test ./internal/mcp/...` passes.
+- [x] `pnpm test` passes (at minimum the mcp-responder suite).
+- [x] `golangci-lint run` (or the project's lint target) clean for touched files.
+- [x] Confirm reads and type-coercion remain warn-only; only missing-required-on-write blocks.
 
 ## Technical Details
 - Write signal: `op.Risk == registry.RiskWrite` (Go) / `op.risk === 'write'` (JS catalog).
