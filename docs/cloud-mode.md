@@ -310,7 +310,10 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   a key collision) before validation and dispatch — the wired write ops advertise only
   `body_schema`, so an agent following the catalog sends its payload in `body`. Schema mismatches
   produce warn-only `warnings` on the response, exactly as `registry.ValidateInput` does — they
-  never block a call.
+  never block a call. The success response is bot mode's `CallResponse`
+  (`{status, result, api_calls, warnings?}`) unconditionally: the shape must not depend on the
+  input, or an agent that learned where `health.bp.list` puts its rows loses them on the one call
+  that happened to trip a warning.
 - **Write ops require `mode: 'write'` plus a non-empty `intent`.** Any catalog op with
   `risk: 'write'` is refused otherwise, with an error naming both fields so an agent
   self-corrects. This means an old shim calling `bp.create` with a bare `{op, params}` is now

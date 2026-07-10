@@ -352,7 +352,13 @@ const mergeInput = (params, body) => ({
 // Cloud merges params+body into one object, so the two schemas' properties are
 // checked as a union. The misplaced-body-field repair (step 1) is unnecessary
 // here for the same reason.
-const RELATIVE_DATE_DAYS = { now: 0, today: 0, yesterday: -1, tomorrow: 1 };
+// Prototype-free: a date field whose value is the literal "constructor" /
+// "valueOf" would otherwise resolve to an inherited function, slip past the
+// `undefined` guard, and blow up `new Date(NaN).toISOString()` — turning a
+// warn-only repair into a -32603. Go's map lookup just misses.
+const RELATIVE_DATE_DAYS = Object.assign(Object.create(null), {
+  now: 0, today: 0, yesterday: -1, tomorrow: 1,
+});
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DATE_TIME_KEYWORDS = ['rfc3339', 'iso8601', 'iso 8601', 'timestamp'];
 
@@ -478,14 +484,18 @@ export function createDispatcher({
 
       // Repair-then-validate, in that order, so a field the normalizer just
       // rewrote isn't reported as malformed (call.go:96-121). Both stages are
-      // warn-only: a mismatch never blocks the call. The warned response nests
-      // the value under `result` — the same shape bot mode's CallResponse
-      // always uses — so an agent that ignores warnings still gets its data. A
-      // clean call returns the bare value, unchanged.
+      // warn-only: a mismatch never blocks the call.
       const { input, notes } = normalizeRelativeDates(BY_ID[opID], mergeInput(p.params, p.body), now());
       const warnings = [...notes, ...validateInput(BY_ID[opID], input)];
       const result = await fn(input);
-      return warnings.length ? { result, warnings } : result;
+      // Bot mode's CallResponse (call.go:33-39) unconditionally. The shape must
+      // not depend on the input: an agent that learned `health.bp.list` returns
+      // its rows at `.result` must still find them there on the call that
+      // happened to trip a warning. `warnings` is omitted when empty, matching
+      // Go's `json:"omitempty"`.
+      const resp = { status: 'ok', result, api_calls: 1 };
+      if (warnings.length) resp.warnings = warnings;
+      return resp;
     }
     throw new MCPError(-32601, `unknown method "${method}"`);
   }

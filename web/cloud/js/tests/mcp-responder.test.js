@@ -49,7 +49,13 @@ describe('mcp-responder dispatch', () => {
       },
     });
     expect(createResp.error).toBeUndefined();
-    expect(createResp).toMatchObject({ jsonrpc: '2.0', id: 2, result: { systolic: 120, diastolic: 80 } });
+    // Bot mode's CallResponse envelope: {status, result, api_calls} always.
+    expect(createResp).toMatchObject({
+      jsonrpc: '2.0',
+      id: 2,
+      result: { status: 'ok', api_calls: 1, result: { systolic: 120, diastolic: 80 } },
+    });
+    expect(createResp.result.warnings).toBeUndefined();
 
     const listResp = await handleRequest(dispatcher, {
       jsonrpc: '2.0',
@@ -60,8 +66,8 @@ describe('mcp-responder dispatch', () => {
     expect(listResp.error).toBeUndefined();
     expect(listResp.jsonrpc).toBe('2.0');
     expect(listResp.id).toBe(3);
-    expect(listResp.result).toHaveLength(1);
-    expect(listResp.result[0]).toMatchObject({ systolic: 120, diastolic: 80 });
+    expect(listResp.result.result).toHaveLength(1);
+    expect(listResp.result.result[0]).toMatchObject({ systolic: 120, diastolic: 80 });
   });
 
   // The write-gate and the anti-replay ring both read `risk` off the catalog,
@@ -102,10 +108,10 @@ describe('mcp-responder dispatch', () => {
     clock = Date.parse('2026-07-06T12:00:00.000Z');
     await write('fresh note');
 
-    expect((await call({ days: 7 })).result.map((n) => n.content)).toEqual(['fresh note']);
+    expect((await call({ days: 7 })).result.result.map((n) => n.content)).toEqual(['fresh note']);
     // Absent or non-positive days is unbounded, matching handleListNotes.
-    expect((await call({})).result).toHaveLength(2);
-    expect((await call({ days: 0 })).result).toHaveLength(2);
+    expect((await call({})).result.result).toHaveLength(2);
+    expect((await call({ days: 0 })).result.result).toHaveLength(2);
   });
 
   it('returns a JSON-RPC error with a did-you-mean hint for an unknown op', async () => {
@@ -187,11 +193,11 @@ describe('mcp-responder dispatch', () => {
     const listed = await handleRequest(dispatcher, {
       jsonrpc: '2.0', id: 7, method: 'mcp_call', params: { op: 'health.notes.list', params: {} },
     });
-    expect(listed.result).toHaveLength(0);
+    expect(listed.result.result).toHaveLength(0);
 
     const ok = await create({ mode: 'write', intent: 'user dictated a note' });
     expect(ok.error).toBeUndefined();
-    expect(ok.result).toMatchObject({ content: 'hi' });
+    expect(ok.result.result).toMatchObject({ content: 'hi' });
   });
 
   // The wired write ops advertise only `body_schema`, so an agent following the
@@ -212,7 +218,7 @@ describe('mcp-responder dispatch', () => {
     });
     expect(created.error).toBeUndefined();
     expect(created.result.warnings).toBeUndefined();
-    expect(created.result).toMatchObject({ systolic: 120, diastolic: 80 });
+    expect(created.result.result).toMatchObject({ systolic: 120, diastolic: 80 });
   });
 
   // registry.NormalizeCallInput (normalize_input.go:105) resolves the relative
@@ -245,7 +251,7 @@ describe('mcp-responder dispatch', () => {
       method: 'mcp_call',
       params: { operation_id: 'health.bp.list', params: {} },
     });
-    expect(listed.result.map((r) => r.systolic)).toEqual([118]);
+    expect(listed.result.result.map((r) => r.systolic)).toEqual([118]);
   });
 
   it('leaves a real timestamp and an unrecognized word untouched', async () => {
@@ -262,7 +268,28 @@ describe('mcp-responder dispatch', () => {
       },
     });
     expect(created.result.warnings).toBeUndefined();
-    expect(created.result.measured_at).toBe('2026-07-05T09:00:00.000Z');
+    expect(created.result.result.measured_at).toBe('2026-07-05T09:00:00.000Z');
+  });
+
+  // "constructor"/"valueOf" are inherited Object.prototype members, not date
+  // tokens. A prototype-carrying lookup map resolves them to a function, and
+  // `new Date(NaN).toISOString()` then throws — turning the warn-only repair
+  // into a -32603. Go's map lookup simply misses; so must this one.
+  it('leaves a prototype-member name in a date field untouched', async () => {
+    const dispatcher = makeDispatcher();
+    const created = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 33,
+      method: 'mcp_call',
+      params: {
+        operation_id: 'health.bp.create',
+        mode: 'write',
+        intent: 'log a reading',
+        body: { measured_at: 'constructor', systolic: 120, diastolic: 80 },
+      },
+    });
+    expect(created.error).toBeUndefined();
+    expect(created.result.result.measured_at).toBe('constructor');
   });
 
   // registry.ValidateInput never blocks (call.go:118): a mistyped or missing
@@ -290,10 +317,13 @@ describe('mcp-responder dispatch', () => {
     ]);
     expect(created.result.result).toMatchObject({ weight: '81.2' });
 
+    // A clean call carries the same envelope, minus `warnings` — the shape must
+    // not depend on whether the input happened to trip a warning.
     const clean = await handleRequest(dispatcher, {
       jsonrpc: '2.0', id: 12, method: 'mcp_call', params: { op: 'health.weight.list', params: { days: 7 } },
     });
-    expect(Array.isArray(clean.result)).toBe(true);
+    expect(clean.result).toMatchObject({ status: 'ok', api_calls: 1 });
+    expect(Array.isArray(clean.result.result)).toBe(true);
     expect(clean.result.warnings).toBeUndefined();
   });
 });
@@ -596,7 +626,7 @@ describe('mcp-responder write-frame replay guard', () => {
     })));
 
     const first = boot(records);
-    expect((await deliver(first.sock, frame)).result).toMatchObject({ content: 'once' });
+    expect((await deliver(first.sock, frame)).result.result).toMatchObject({ content: 'once' });
 
     // Same sealed bytes again on the live connection: refused, not re-applied.
     const replay = await deliver(first.sock, frame);
@@ -608,7 +638,8 @@ describe('mcp-responder write-frame replay guard', () => {
     // The ring is persisted, so a reload cannot clear the guard.
     const reloaded = boot(records);
     expect((await deliver(reloaded.sock, frame)).error.code).toBe(-32600);
-    expect(await reloaded.responder.dispatcher.handle('mcp_call', { op: 'health.notes.list', params: {} })).toHaveLength(1);
+    const listed = await reloaded.responder.dispatcher.handle('mcp_call', { op: 'health.notes.list', params: {} });
+    expect(listed.result).toHaveLength(1);
     reloaded.responder.stop();
   });
 
