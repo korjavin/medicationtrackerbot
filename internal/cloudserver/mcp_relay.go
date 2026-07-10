@@ -206,9 +206,32 @@ func (a *MCPRelayAPI) DeletePairing(w http.ResponseWriter, r *http.Request) {
 // application range reserved by RFC 6455 §7.4.2.
 const StatusNoPairing websocket.StatusCode = 4404
 
+// StatusPairingReplaced tells the browser responder that this account DOES have
+// a live pairing — just not the one this tab presented. The two codes must stay
+// distinct because the responder reacts to them in opposite ways:
+//
+//   - 4404 (no pairing at all): the vault record is a tombstone pointing at
+//     nothing, so the responder purges it.
+//   - 4409 (replaced): the vault record already names the *replacement* pairing
+//     (or will, once this device syncs). Purging it would delete the pairing
+//     every other device is happily using — account-wide. So the responder
+//     stops, and steps aside without purging.
+//
+// Accept-then-close, like 4404: a browser WebSocket cannot observe a handshake
+// HTTP status, so a 409 reject would be indistinguishable from a network drop
+// and the tab would reconnect forever.
+const StatusPairingReplaced websocket.StatusCode = 4409
+
 // DeviceSocket is the browser-tab leg: the unlocked PWA connects here to
 // answer relayed tool calls. Requires the account to already have an active
-// pairing (minted via CreatePairing) — there's nothing to bridge otherwise.
+// pairing (minted via CreatePairing) — there's nothing to bridge otherwise —
+// and the tab must present that pairing's id, so a tab still holding a
+// pre-re-pair pairing cannot squat the current pairing's device slot (join is
+// last-writer-wins and would evict the tab that actually holds the key).
+//
+// The pairing id is a selector, not a second authenticator: the session cookie
+// still authenticates the leg. It only says *which* pairing this tab believes
+// it holds.
 func (a *MCPRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
@@ -222,6 +245,18 @@ func (a *MCPRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		conn.Close(StatusNoPairing, "no active pairing for this account")
+		return
+	}
+	// A leg that presents no pairing id (an old responder from a previous
+	// deploy) cannot prove which pairing it holds, so it gets the same
+	// treatment as one presenting a stale id: stop, don't purge. Admitting it
+	// on the session alone is exactly the unauthenticated squat this checks for.
+	if r.URL.Query().Get("pairing") != record.id {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		conn.Close(StatusPairingReplaced, "pairing replaced")
 		return
 	}
 	conn, err := websocket.Accept(w, r, nil)

@@ -81,7 +81,7 @@ func TestMCPRelay_FramesPassOpaqueBothWays(t *testing.T) {
 
 	deviceHeader := http.Header{}
 	deviceHeader.Set("Cookie", session.Name+"="+session.Value)
-	deviceConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device", &websocket.DialOptions{
+	deviceConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device?pairing="+pairingID, &websocket.DialOptions{
 		HTTPClient: client,
 		HTTPHeader: deviceHeader,
 	})
@@ -137,7 +137,7 @@ func TestMCPRelay_ShimReconnectRebridgesBothWays(t *testing.T) {
 
 	deviceHeader := http.Header{}
 	deviceHeader.Set("Cookie", session.Name+"="+session.Value)
-	deviceConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device", &websocket.DialOptions{
+	deviceConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device?pairing="+pairingID, &websocket.DialOptions{
 		HTTPClient: client,
 		HTTPHeader: deviceHeader,
 	})
@@ -248,7 +248,7 @@ func TestMCPRelay_DeadPeerClosePropagates(t *testing.T) {
 
 	deviceHeader := http.Header{}
 	deviceHeader.Set("Cookie", session.Name+"="+session.Value)
-	deviceConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device", &websocket.DialOptions{
+	deviceConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device?pairing="+pairingID, &websocket.DialOptions{
 		HTTPClient: client,
 		HTTPHeader: deviceHeader,
 	})
@@ -372,18 +372,13 @@ func TestMCPRelay_DeviceWithoutPairingClosesWith4404(t *testing.T) {
 	}
 }
 
-// TestMCPRelay_StaleDevicePairingSquatsCurrentSlot pins the BUG on master, so
-// the fix has something to break. The device leg resolves its pairing by
-// account (byAccountID) and never checks which pairing the connecting tab
-// actually holds — so a tab still holding the pre-re-pair id P1 is admitted
-// into P2's device slot, evicts the tab that holds P2, and then receives
-// frames sealed with a key it does not have (which it silently drops).
-//
-// Task 2 of docs/plans/20260710-cloud-mcp-replaced-pairing.md makes the relay
-// reject that dial with StatusPairingReplaced; this test is then rewritten
-// into its regression form (Task 4). It is expected to fail once the fix
-// lands — that is its whole purpose.
-func TestMCPRelay_StaleDevicePairingSquatsCurrentSlot(t *testing.T) {
+// TestMCPRelay_StaleDevicePairingCannotSquatCurrentSlot is the regression for
+// the squat: the device leg used to resolve its pairing by account
+// (byAccountID) without checking which pairing the connecting tab actually
+// held, so a tab still holding the pre-re-pair id P1 was admitted into P2's
+// device slot, evicted the tab holding P2, and then received frames sealed
+// with a key it did not have (which it silently dropped).
+func TestMCPRelay_StaleDevicePairingCannotSquatCurrentSlot(t *testing.T) {
 	h, host, claimToken := newTestMCPRelayHandler(t)
 	session := registerAndGetSession(t, h, host, claimToken)
 	stalePairingID := mintPairing(t, h, host, session) // P1
@@ -419,7 +414,8 @@ func TestMCPRelay_StaleDevicePairingSquatsCurrentSlot(t *testing.T) {
 	}
 	defer freshConn.CloseNow()
 
-	// Tab A still holds P1 and reconnects. On master it is accepted anyway.
+	// Tab A still holds P1 and reconnects. The handshake succeeds (so the close
+	// code is visible to a browser WebSocket) but the leg is closed at once.
 	staleConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device?pairing="+stalePairingID, &websocket.DialOptions{
 		HTTPClient: client,
 		HTTPHeader: deviceHeader,
@@ -429,21 +425,20 @@ func TestMCPRelay_StaleDevicePairingSquatsCurrentSlot(t *testing.T) {
 	}
 	defer staleConn.CloseNow()
 
-	// The stale tab evicted the tab holding the current key (join, :357).
-	if _, _, err = freshConn.Read(ctx); err == nil {
-		t.Fatalf("fresh device leg should have been evicted by the stale dial")
+	if _, _, err = staleConn.Read(ctx); websocket.CloseStatus(err) != StatusPairingReplaced {
+		t.Fatalf("stale device close status = %d, want %d (err %v)", websocket.CloseStatus(err), StatusPairingReplaced, err)
 	}
 
-	// ...and now receives P2's frames, which it cannot decrypt.
+	// Tab B was never evicted, and still bridges P2's frames.
 	want := []byte("sealed-with-P2-key")
 	if err := shimConn.Write(ctx, websocket.MessageBinary, want); err != nil {
 		t.Fatalf("shim write: %v", err)
 	}
-	_, got, err := staleConn.Read(ctx)
+	_, got, err := freshConn.Read(ctx)
 	if err != nil {
-		t.Fatalf("stale device read: %v", err)
+		t.Fatalf("fresh device read: %v", err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatalf("stale device got %q, want %q", got, want)
+		t.Fatalf("fresh device got %q, want %q", got, want)
 	}
 }

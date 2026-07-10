@@ -116,12 +116,14 @@ device leg's pairing identifier and the one close code.
 - [x] this test must **fail** after Task 2 lands and then be rewritten into the regression form (Task 4). Its purpose is to prove the bug exists on master, not to survive
 
 ### Task 2: Device leg must present, and the relay must verify, its pairing id
-- [ ] in `internal/cloudserver/mcp_relay.go`, add `StatusPairingReplaced websocket.StatusCode = 4409` beside `StatusNoPairing`, with a comment stating the 4404-vs-4409 distinction from the table above
-- [ ] have the device-leg handler read the pairing id the responder presents (query param, mirroring the `/claude` leg's existing `r.URL.Query().Get("pairing")` at `:30`) and compare it to `byAccountID`'s current record
-- [ ] no pairing at all → keep the existing `StatusNoPairing` (4404) behavior exactly as PR #521 left it
-- [ ] pairing exists but the presented id is not the current one → accept the upgrade, then `conn.Close(StatusPairingReplaced, "pairing replaced")`. Accept-then-close, not a handshake rejection: a browser `WebSocket` cannot observe a handshake HTTP status, which is the whole reason #521 exists
-- [ ] a device leg presenting **no** pairing id must not be silently trusted — decide and comment the behavior (reject, or treat as stale); an unauthenticated squat is what this bead is closing
-- [ ] verify the pairing id is not a second authenticator: the session cookie still authenticates the leg (`:24-26` says so for the shim leg's absence of one). The id selects *which* pairing, it does not grant access
+- [x] in `internal/cloudserver/mcp_relay.go`, add `StatusPairingReplaced websocket.StatusCode = 4409` beside `StatusNoPairing`, with a comment stating the 4404-vs-4409 distinction from the table above
+- [x] have the device-leg handler read the pairing id the responder presents (query param, mirroring the `/claude` leg's existing `r.URL.Query().Get("pairing")` at `:30`) and compare it to `byAccountID`'s current record
+- [x] no pairing at all → keep the existing `StatusNoPairing` (4404) behavior exactly as PR #521 left it
+- [x] pairing exists but the presented id is not the current one → accept the upgrade, then `conn.Close(StatusPairingReplaced, "pairing replaced")`. Accept-then-close, not a handshake rejection: a browser `WebSocket` cannot observe a handshake HTTP status, which is the whole reason #521 exists
+- [x] a device leg presenting **no** pairing id must not be silently trusted — decided: an empty param never equals `record.id`, so it takes the 4409 path (stop, don't purge) and is commented as such. An old responder from a previous deploy is exactly a leg that cannot prove which pairing it holds
+- [x] verify the pairing id is not a second authenticator: the session cookie still authenticates the leg (`:24-26` says so for the shim leg's absence of one). The id selects *which* pairing, it does not grant access
+- ➕ [x] existing device-leg dials in `mcp_relay_test.go` / `mcp_shim_integration_test.go` now pass `?pairing=<id>` (the 4404 test still dials bare — it has no pairing to present)
+- ➕ [x] Task 4's first item done early: the Task 1 pin test is rewritten into its regression form (`TestMCPRelay_StaleDevicePairingCannotSquatCurrentSlot`) in the same commit, rather than committing a knowingly-failing suite
 
 ### Task 3: Responder presents its pairing id and distinguishes the two close codes
 - [ ] `wsURL()` in `mcp-responder.js` currently returns the bare device-leg URL. Append the responder's `pairingId` as a query param, encoded
@@ -132,7 +134,7 @@ device leg's pairing identifier and the one close code.
 - [ ] comment why the two paths differ; this is the single most reversible-looking, most dangerous line in the change
 
 ### Task 4: Regression tests for both close codes
-- [ ] rewrite Task 1's reproduction into its regression form: a stale-pairing device dial is now closed with `StatusPairingReplaced`, and a current-pairing dial is served and **never** sees that code
+- [x] rewrite Task 1's reproduction into its regression form: a stale-pairing device dial is now closed with `StatusPairingReplaced`, and a current-pairing dial is served and **never** sees that code (done in Task 2's commit to keep the tree green)
 - [ ] vitest: on `STATUS_PAIRING_REPLACED` the responder stops permanently (advance timers, assert no new socket), reports the code to `onStalePairing`, and **does not** call `purgePairing`
 - [ ] vitest: on `STATUS_NO_PAIRING` the responder still stops **and** purges — the distinction is the point of the bead and must be pinned in both directions
 - [ ] confirm the pre-existing #521 reconnect-loop tests still pass untouched
