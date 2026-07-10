@@ -555,3 +555,196 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     expect(line).not.toContain('Vault is full');
   });
 });
+
+// bd med-d5t.6 — convergence is last-writer-wins on clientTs, and clientTs was
+// the writing device's raw Date.now(). No server timestamp, no Lamport counter,
+// no monotonic guard.
+//
+// The failure needs no exotic assumptions: a friend's phone clock runs 10
+// minutes fast. They edit a medication dose on the phone. Ten minutes later, on
+// a correctly-clocked laptop, they fix a typo in the same record — and that edit
+// carries an EARLIER clientTs, so applyIncoming drops it. The wrong dose
+// persists, silently.
+describe('clock skew must not silently drop the newer edit (med-d5t.6)', () => {
+  let ctx;
+  let serverDate;
+
+  const readMetaKey = async (key) => {
+    const db = await openDb();
+    try {
+      const tx = db.transaction('sync_meta', 'readonly');
+      return await new Promise((resolve, reject) => {
+        const req = tx.objectStore('sync_meta').get(key);
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const seedMeta = async (meta) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('sync_meta', 'readwrite');
+        const store = tx.objectStore('sync_meta');
+        for (const [k, v] of Object.entries(meta)) store.put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  // A record already in the local mirror, as a pull from the fast phone left it.
+  const seedRecord = async (record) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('records', 'readwrite');
+        tx.objectStore('records').put(record);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const getRecordRaw = async (recordId) => {
+    const db = await openDb();
+    try {
+      const tx = db.transaction('records', 'readonly');
+      return await new Promise((resolve, reject) => {
+        const req = tx.objectStore('records').get(recordId);
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, dek: await generateDEK() };
+    serverDate = null;
+
+    let posted = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const headers = new Headers();
+      if (serverDate) headers.set('Date', serverDate);
+      const method = (init && init.method) || 'GET';
+      if (String(url).startsWith('/api/sync/ops') && method !== 'POST') {
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200, headers });
+      }
+      if (String(url) === '/api/sync/ops') {
+        posted++;
+        return new Response(JSON.stringify({ assigned: [posted] }), { status: 200, headers });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200, headers });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+  });
+
+  it('a fresh edit outranks the record it overwrites, even from a slow clock', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    // The fast phone's write, already merged into this laptop's mirror.
+    const phoneTs = Date.now() + 10 * 60 * 1000;
+    await seedRecord({ recordId: 'med-1', recordType: 'medication', clientTs: phoneTs, deleted: false, dose: 'WRONG' });
+
+    // The laptop, whose clock is correct, fixes the typo. Its raw Date.now() is
+    // ten minutes BEHIND the value the phone stamped.
+    await writeRecord(ctx, 'medication', { recordId: 'med-1', clientTs: Date.now(), deleted: false, dose: 'RIGHT' });
+
+    const stored = await getRecordRaw('med-1');
+    expect(stored.dose).toBe('RIGHT');
+    // And it must beat the phone's stamp, or the next pull would resurrect it.
+    expect(stored.clientTs).toBeGreaterThan(phoneTs);
+  });
+
+  it('the corrected write survives a pull of the older record it replaced', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    const phoneTs = Date.now() + 10 * 60 * 1000;
+    await seedRecord({ recordId: 'med-1', recordType: 'medication', clientTs: phoneTs, deleted: false, dose: 'WRONG' });
+
+    const written = await writeRecord(ctx, 'medication', { recordId: 'med-1', clientTs: Date.now(), deleted: false, dose: 'RIGHT' });
+
+    // Simulate the phone's op arriving again on a later pull: LWW must keep ours.
+    expect(written.clientTs).toBeGreaterThan(phoneTs);
+    expect(await listRecords(ctx, 'medication')).toEqual([expect.objectContaining({ dose: 'RIGHT' })]);
+  });
+
+  it('leaves a first write of a brand-new record alone when the clock is right', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    const t = Date.now();
+
+    const written = await writeRecord(ctx, 'note', { recordId: 'note-1', clientTs: t, deleted: false, text: 'hi' });
+
+    expect(written.clientTs).toBe(t);
+  });
+
+  it("learns the server's clock from the Date header and corrects new writes", async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    // Server says it is 10 minutes earlier than this device believes.
+    const skewMs = 10 * 60 * 1000;
+    serverDate = new Date(Date.now() - skewMs).toUTCString();
+
+    await pullOnOpen(ctx);
+
+    const learned = await readMetaKey('clockSkewMs');
+    expect(learned).toBeGreaterThan(skewMs - 5000);
+    expect(learned).toBeLessThan(skewMs + 5000);
+
+    // A new record on this fast device is stamped on the SERVER's scale, so a
+    // correctly-clocked peer's later edit still reads as later.
+    const before = Date.now();
+    const written = await writeRecord(ctx, 'note', { recordId: 'note-1', clientTs: Date.now(), deleted: false, text: 'hi' });
+    expect(written.clientTs).toBeLessThan(before - skewMs + 5000);
+  });
+
+  it('tells the user their clock is wrong instead of losing edits quietly', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    serverDate = new Date(Date.now() - 10 * 60 * 1000).toUTCString();
+
+    await pullOnOpen(ctx);
+
+    const line = await describeSyncStatus(ctx);
+    expect(line).toMatch(/clock is 10 min fast/);
+    expect(line).toMatch(/losing edits/);
+  });
+
+  it('reports a slow clock as slow', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    serverDate = new Date(Date.now() + 10 * 60 * 1000).toUTCString();
+
+    await pullOnOpen(ctx);
+
+    expect(await describeSyncStatus(ctx)).toMatch(/clock is 10 min slow/);
+  });
+
+  it('says nothing about ordinary sub-threshold drift', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    serverDate = new Date(Date.now() - 3000).toUTCString(); // 3 seconds
+
+    await pullOnOpen(ctx);
+
+    expect(await describeSyncStatus(ctx)).not.toMatch(/clock/);
+  });
+
+  it('survives a response with no usable Date header', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    serverDate = 'not a date';
+
+    await pullOnOpen(ctx);
+
+    expect(await readMetaKey('clockSkewMs')).toBeNull();
+    expect(await describeSyncStatus(ctx)).not.toMatch(/clock/);
+  });
+});
