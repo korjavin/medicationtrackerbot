@@ -127,12 +127,32 @@ async function refreshCloudPushToggleState(toggleBtn, status) {
 // "not granted" even after the user taps Allow (med-eas.19). Normalize both
 // forms. The requestPermission call runs synchronously inside the Promise
 // executor, so calling this as the first await in the click handler preserves
-// Safari's transient-activation requirement. Mirrors push.js's
-// requestNotificationPermission (settings.js can't import it before the gesture).
+// Safari's transient-activation requirement.
+//
+// med-1n6: resolve with Notification.permission read AFTER the request settles,
+// never with the value the callback/promise handed us — WebKit has been seen
+// calling the legacy callback with no argument, and that `undefined` beat the
+// promise, so a user who tapped Allow was told they had denied. And skip the
+// prompt entirely once the permission is decided: on that path WebKit may settle
+// nothing at all, hanging the caller (the "second tap does nothing" half of the
+// bug).
+//
+// Deliberate duplicate of push.js's requestNotificationPermission: settings.js
+// must reach requestPermission() synchronously inside the click's transient
+// activation, before the dynamic import('/js/push.js') await. Keep the two in
+// step — settings.ios-push-permission.test.js pins both to the same behavior.
 function requestNotificationPermissionNormalized() {
+    if (typeof Notification === 'undefined') return Promise.resolve('denied');
+    if (Notification.permission !== 'default') return Promise.resolve(Notification.permission);
+    // Trust a real permission string; otherwise read the authoritative property.
+    // WebKit's no-argument callback lands in the fallback.
+    const normalize = (v) => (['granted', 'denied', 'default'].includes(v)
+        ? v
+        : (typeof Notification === 'undefined' ? 'denied' : Notification.permission));
     return new Promise((resolve) => {
-        const maybe = Notification.requestPermission(resolve);
-        if (maybe && typeof maybe.then === 'function') maybe.then(resolve);
+        const settle = (value) => resolve(normalize(value));
+        const maybe = Notification.requestPermission(settle);
+        if (maybe && typeof maybe.then === 'function') maybe.then(settle, () => settle(undefined));
     });
 }
 
@@ -176,20 +196,31 @@ function bindCloudNotifications() {
                 // helper handles WebKit's callback form (med-eas.19). subscribe()
                 // re-checks and no-ops when already granted.
                 const permission = await requestNotificationPermissionNormalized();
-                if (permission !== 'granted') {
+                if (permission === 'denied') {
+                    applyWebpushStatus(status, 'Notifications are blocked in your browser settings.', 'error');
+                } else if (permission !== 'granted') {
+                    // 'default' — the user dismissed the prompt without choosing.
                     applyWebpushStatus(status, 'Notification permission was not granted.', 'error');
                 } else {
                     applyWebpushStatus(status, 'Requesting permission...', null);
                     const { subscribe } = await loadCloudPushModule();
+                    // Anything thrown from here on is a SUBSCRIPTION failure, not
+                    // a permission one — the user granted it a moment ago. The
+                    // catch below surfaces subscribe()'s own message, which says
+                    // so (med-1n6).
                     await subscribe();
                     applyWebpushStatus(status, 'Notifications enabled', 'success');
                 }
             }
         } catch (err) {
             applyWebpushStatus(status, err.message || 'Failed to update notifications', 'error');
+        } finally {
+            // ALWAYS re-arm the button. Whatever went wrong, the next tap must
+            // retry — a user stuck behind a permanently disabled Enable button
+            // has no path to reminders at all (med-1n6).
+            await refreshCloudPushToggleState(toggleBtn).catch(() => {});
+            toggleBtn.disabled = false;
         }
-        await refreshCloudPushToggleState(toggleBtn);
-        toggleBtn.disabled = false;
         setTimeout(() => hideWebpushStatus(status), 3000);
     });
 

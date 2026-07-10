@@ -92,9 +92,14 @@ describe('cloud Notifications controls (bindCloudNotifications)', () => {
             // WebKit/iOS: requestPermission delivers the result via callback and
             // returns undefined (not a promise). A plain await would yield
             // undefined -> "not granted" and never subscribe.
+            //
+            // The stub now also flips Notification.permission before invoking the
+            // callback, as a real browser does. It didn't before, which let the
+            // med-1n6 defect hide: the code trusted the callback's ARGUMENT, and
+            // no test ever disagreed with it.
             window.Notification = {
                 permission: 'default',
-                requestPermission: vi.fn((cb) => { cb('granted'); return undefined; }),
+                requestPermission: vi.fn((cb) => { window.Notification.permission = 'granted'; cb('granted'); return undefined; }),
             };
             const subscribe = vi.fn().mockResolvedValue(undefined);
             const getSubscription = vi.fn()
@@ -314,5 +319,164 @@ describe('sendTestPush this-device-only send (web/cloud/js/push.js, real impleme
 
         const { sendTestPush } = await import('../../../../web/cloud/js/push.js');
         await expect(sendTestPush({ accountId: 'acc-1' })).rejects.toThrow(/enable push/i);
+    });
+});
+
+// bd med-1n6 — owner report on iOS: home-screen PWA, tapped "Enable", the system
+// dialogue appeared, tapped Allow, and the app said permission was NOT granted.
+// Worse, tapping Enable again did nothing at all.
+//
+// Two defects. (1) The code resolved with whatever WebKit's legacy callback
+// handed it — and WebKit has been seen invoking it with no argument, so
+// `undefined !== 'granted'` reported a denial for a permission the user had just
+// granted. (2) Nothing re-armed the button, and re-prompting on an
+// already-decided permission can settle neither callback nor promise, hanging
+// the handler with the button left disabled.
+describe('iOS Enable-push permission handling (med-1n6)', () => {
+    function mountCloud(window, { push, notification }) {
+        window.__MEDTRACKER_CLOUD__ = true;
+        window.Notification = notification;
+        stubCloudModules(window, { push, reminders: { sendTestPush: vi.fn() } });
+        window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+        return window.loadSettings();
+    }
+
+    it('treats a callback invoked with NO argument as the grant it is', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            // The exact WebKit shape that produced the report: permission flips to
+            // 'granted', but the callback carries nothing.
+            const notification = {
+                permission: 'default',
+                requestPermission: vi.fn((cb) => { notification.permission = 'granted'; cb(); return undefined; }),
+            };
+            const subscribe = vi.fn().mockResolvedValue(undefined);
+            await mountCloud(window, {
+                push: {
+                    subscribe,
+                    unsubscribe: vi.fn(),
+                    getSubscription: vi.fn().mockResolvedValueOnce(null).mockResolvedValue({}),
+                },
+                notification,
+            });
+
+            document.getElementById('cloud-push-toggle').click();
+
+            await vi.waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1));
+            const status = document.getElementById('cloud-push-status');
+            expect(status.textContent).not.toMatch(/not granted/i);
+            expect(status.textContent).toMatch(/enabled/i);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('never re-prompts once the permission is decided — that path can hang forever', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            // A WebKit that settles NOTHING when the permission is already granted.
+            // Before the fix this await never resolved, so the button stayed
+            // disabled and the second tap "did nothing".
+            const notification = {
+                permission: 'granted',
+                requestPermission: vi.fn(() => undefined),
+            };
+            const subscribe = vi.fn().mockResolvedValue(undefined);
+            await mountCloud(window, {
+                push: {
+                    subscribe,
+                    unsubscribe: vi.fn(),
+                    getSubscription: vi.fn().mockResolvedValueOnce(null).mockResolvedValue({}),
+                },
+                notification,
+            });
+
+            const toggleBtn = document.getElementById('cloud-push-toggle');
+            toggleBtn.click();
+
+            await vi.waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1));
+            expect(notification.requestPermission).not.toHaveBeenCalled();
+            await vi.waitFor(() => expect(toggleBtn.disabled).toBe(false));
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('re-arms the button after a failure, so the next tap retries', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            const notification = { permission: 'granted', requestPermission: vi.fn() };
+            const subscribe = vi.fn()
+                .mockRejectedValueOnce(new Error('Subscription failed: push service down'))
+                .mockResolvedValue(undefined);
+            await mountCloud(window, {
+                push: {
+                    subscribe,
+                    unsubscribe: vi.fn(),
+                    getSubscription: vi.fn().mockResolvedValue(null),
+                },
+                notification,
+            });
+
+            const toggleBtn = document.getElementById('cloud-push-toggle');
+            toggleBtn.click();
+            await vi.waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1));
+            // The whole point: not latched disabled.
+            await vi.waitFor(() => expect(toggleBtn.disabled).toBe(false));
+
+            toggleBtn.click();
+            await vi.waitFor(() => expect(subscribe).toHaveBeenCalledTimes(2));
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('reports a failed subscribe as a SUBSCRIPTION failure, not a denied permission', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            const notification = { permission: 'granted', requestPermission: vi.fn() };
+            await mountCloud(window, {
+                push: {
+                    subscribe: vi.fn().mockRejectedValue(new Error('Subscription failed: push service down')),
+                    unsubscribe: vi.fn(),
+                    getSubscription: vi.fn().mockResolvedValue(null),
+                },
+                notification,
+            });
+
+            document.getElementById('cloud-push-toggle').click();
+
+            const status = document.getElementById('cloud-push-status');
+            await vi.waitFor(() => expect(status.textContent).toMatch(/subscription failed/i));
+            // The user granted the permission; blaming them for it is the bug.
+            expect(status.textContent).not.toMatch(/permission was not granted/i);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('says "blocked in your browser settings" when the permission really is denied', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            const notification = { permission: 'denied', requestPermission: vi.fn() };
+            const subscribe = vi.fn();
+            await mountCloud(window, {
+                push: { subscribe, unsubscribe: vi.fn(), getSubscription: vi.fn().mockResolvedValue(null) },
+                notification,
+            });
+
+            document.getElementById('cloud-push-toggle').click();
+
+            const status = document.getElementById('cloud-push-status');
+            await vi.waitFor(() => expect(status.textContent).toMatch(/blocked in your browser settings/i));
+            expect(subscribe).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
     });
 });

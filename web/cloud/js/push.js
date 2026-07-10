@@ -91,10 +91,39 @@ export async function unsubscribe() {
 // the user taps Allow (med-eas.19). Normalize both forms. The requestPermission
 // call happens synchronously inside the Promise executor, so callers that invoke
 // this before any other await keep the click's transient activation.
+//
+// med-1n6: normalizing the two SHAPES was not enough. Resolve with
+// `Notification.permission` — read after the request settles — rather than with
+// whatever the callback or the promise handed us. WebKit has been observed
+// invoking the legacy callback with no argument at all, and that `undefined`
+// won the race against the promise, so the app told a user who had just tapped
+// Allow that they had denied permission.
+//
+// And never call requestPermission() when the choice is already made: on that
+// path WebKit may settle neither the callback nor a promise, hanging every
+// caller forever — which is why the user's second tap on "Enable" did nothing
+// at all. A decided permission needs no prompt anyway.
+const PERMISSIONS = ['granted', 'denied', 'default'];
+
+// Take the reported value only when it is a real permission string; otherwise
+// fall back to Notification.permission, which is authoritative. WebKit's
+// no-argument callback lands in the fallback; a spec-compliant browser (whose
+// permission property might in principle lag its resolution) lands in the
+// first branch. Either way the caller never sees `undefined`.
+function normalizePermission(value) {
+  if (PERMISSIONS.includes(value)) return value;
+  return typeof Notification === 'undefined' ? 'denied' : Notification.permission;
+}
+
 export function requestNotificationPermission() {
+  if (typeof Notification === 'undefined') return Promise.resolve('denied');
+  if (Notification.permission !== 'default') return Promise.resolve(Notification.permission);
   return new Promise((resolve) => {
-    const maybe = Notification.requestPermission(resolve);
-    if (maybe && typeof maybe.then === 'function') maybe.then(resolve);
+    const settle = (value) => resolve(normalizePermission(value));
+    const maybe = Notification.requestPermission(settle);
+    // Reject → settle too: the browser refused to ask (no gesture, insecure
+    // context). Leaving the promise pending would re-hang the caller.
+    if (maybe && typeof maybe.then === 'function') maybe.then(settle, () => settle(undefined));
   });
 }
 
@@ -102,7 +131,15 @@ async function subscribeWithVapid(reg) {
   const keyRes = await fetch('/api/push/vapid-public-key');
   if (!keyRes.ok) throw new Error('Push is not configured on this server.');
   const { public_key: publicKey } = await keyRes.json();
-  return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+  try {
+    return await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+  } catch (e) {
+    // Permission was granted and the browser still refused (Safari outside a
+    // gesture, a bad applicationServerKey, a push service that is down). Say
+    // that, rather than letting the caller report "permission denied" for a
+    // permission the user just granted (med-1n6).
+    throw new Error(`Subscription failed: ${e.message || e.name || e}`);
+  }
 }
 
 // POST is an upsert server-side, and it resets `disabled = 0`. So re-uploading

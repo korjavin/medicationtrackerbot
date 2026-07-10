@@ -55,9 +55,13 @@ export function loadPushEnv({ support = true } = {}) {
     });
   }
 
+  // `permission` matters: subscribe() skips the prompt once the choice is made,
+  // and reads this property when a browser's callback reports nothing useful
+  // (med-1n6). A real Notification always exposes it; the stub used not to.
   Object.defineProperty(window, 'Notification', {
     configurable: true,
     value: {
+      permission: 'default',
       async requestPermission() { return 'granted'; }
     }
   });

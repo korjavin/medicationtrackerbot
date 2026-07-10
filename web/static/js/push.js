@@ -34,10 +34,32 @@ class PushManager {
         return true;
     }
 
+    // WebKit/iOS still implement the legacy callback form of
+    // Notification.requestPermission(), and have been seen invoking that
+    // callback with no argument — so `await Notification.requestPermission()`
+    // yields undefined and reads as "denied" even after the user taps Allow.
+    // Resolve with Notification.permission instead, read once the request
+    // settles. Skip the prompt entirely when the choice is already made: on
+    // that path WebKit may settle nothing, hanging this await forever.
+    //
+    // Third copy of this shim (see web/cloud/js/push.js and
+    // features/settings.js) — the two cloud ones cannot be imported from a
+    // classic script before the click's transient activation. med-1n6.
+    requestPermission() {
+        if (typeof Notification === 'undefined') return Promise.resolve('denied');
+        if (Notification.permission !== 'default') return Promise.resolve(Notification.permission);
+        const normalize = (v) => (['granted', 'denied', 'default'].includes(v) ? v : Notification.permission);
+        return new Promise((resolve) => {
+            const settle = (value) => resolve(normalize(value));
+            const maybe = Notification.requestPermission(settle);
+            if (maybe && typeof maybe.then === 'function') maybe.then(settle, () => settle(undefined));
+        });
+    }
+
     async subscribe() {
         if (!this.vapidPublicKey) return false;
 
-        const permission = await Notification.requestPermission();
+        const permission = await this.requestPermission();
         if (permission !== 'granted') {
             return false;
         }
