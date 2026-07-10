@@ -40,6 +40,14 @@ export const TG_COMMAND = 'tg_command';
 export const TG_PHOTO = 'tg_photo';
 export const TG_TEXT = 'tg_text';
 
+// A once-marker per free-text event. Unlike /bp or /food, the agent's tool
+// writes get fresh (non-deterministic) record ids, so a re-drain — the barrier
+// re-runs apply() whenever the ops flush failed (offline, quota, seq clash) —
+// would double-write AND re-bill the provider. A deterministic marker written
+// before the agent runs makes that re-drain skip instead. ponytail: markers
+// accumulate one per message; add a sweep only if that ever matters.
+const TG_AGENT_MARKER_TYPE = 'tgagentrun';
+
 // Telegram's editMessageText caps at 4096; the relay's EditReply rejects >1000
 // runes (and empty). Keep a margin so an agent answer never trips it.
 const MAX_REPLY_RUNES = 900;
@@ -308,7 +316,7 @@ export async function applyTGPhoto(event, eventId, { foodAI, verbosity = 'detail
 // reply. Like every inbound kind the failure posture is answer-and-ack, never
 // retry — the agent may have already written through its tools, and a re-drain
 // would re-run a non-deterministic loop and re-bill the provider.
-export async function applyTGText(event, eventId, { agent, verbosity = 'detailed', now = Date.now, editReply = editTelegramReply }) {
+export async function applyTGText(event, eventId, { agent, records, verbosity = 'detailed', now = Date.now, editReply = editTelegramReply }) {
   const reply = async (text) => {
     try {
       await editReply(event.reply_message_id, text);
@@ -316,6 +324,15 @@ export async function applyTGText(event, eventId, { agent, verbosity = 'detailed
       console.warn('[inbox] could not update the Telegram reply', e);
     }
   };
+
+  // At-most-once: if a prior drain already ran the agent for this event (even
+  // one whose ops flush then failed and re-queued the event), skip — re-running
+  // a non-idempotent, billed loop is strictly worse than trusting the pending
+  // ops to flush on their own. The marker is deterministic, so writing it is
+  // itself idempotent, and it rides the same pending batch as the agent's writes.
+  const marked = (await records.list(TG_AGENT_MARKER_TYPE)).some((r) => !r.deleted && r.recordId === `tgtext-${eventId}`);
+  if (marked) return;
+  await records.put(TG_AGENT_MARKER_TYPE, { recordId: `tgtext-${eventId}`, clientTs: now(), deleted: false });
 
   let answer;
   try {
@@ -427,7 +444,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     if (event.kind === TG_TEXT) {
       const reminders = createRemindersDomain({ records, now });
       const { verbosity } = await reminders.getDeliveryPref();
-      await applyTGText(event, eventId, { agent, verbosity, now, editReply });
+      await applyTGText(event, eventId, { agent, records, verbosity, now, editReply });
       return;
     }
     if (event.kind !== INTAKE_SLOT_ACTION) {

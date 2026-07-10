@@ -468,17 +468,27 @@ describe('inbox-apply.js — a Telegram data command', () => {
     }
 
     it('a free-text message gets the agent answer as its edited reply', async () => {
+        const records = fakeRecords();
         const editReply = vi.fn();
         const agent = { run: vi.fn().mockResolvedValue('Logged 2 eggs (140 kcal).') };
-        await applyTGText(textEvent('i ate two eggs'), 40, { agent, editReply });
+        await applyTGText(textEvent('i ate two eggs'), 40, { agent, records, editReply });
         expect(agent.run).toHaveBeenCalledWith('i ate two eggs');
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, 'Logged 2 eggs (140 kcal).');
+    });
+
+    it('re-draining the same free-text event does NOT re-run the (non-idempotent, billed) agent', async () => {
+        const records = fakeRecords();
+        const agent = { run: vi.fn().mockResolvedValue('done') };
+        const opts = { agent, records, editReply: vi.fn() };
+        await applyTGText(textEvent('log my weight 80kg'), 40, opts);
+        await applyTGText(textEvent('log my weight 80kg'), 40, opts);
+        expect(agent.run).toHaveBeenCalledTimes(1);
     });
 
     it('generic verbosity suppresses the answer so no health value crosses Telegram', async () => {
         const editReply = vi.fn();
         const agent = { run: vi.fn().mockResolvedValue('Your BP this week averaged 128/84.') };
-        await applyTGText(textEvent('what was my bp?'), 41, { agent, verbosity: 'generic', editReply });
+        await applyTGText(textEvent('what was my bp?'), 41, { agent, records: fakeRecords(), verbosity: 'generic', editReply });
         const [, text] = editReply.mock.calls[0];
         expect(text).toBe('✅ Done.');
         expect(text).not.toContain('128');
@@ -487,7 +497,7 @@ describe('inbox-apply.js — a Telegram data command', () => {
     it('a long answer is truncated under the relay edit cap', async () => {
         const editReply = vi.fn();
         const agent = { run: vi.fn().mockResolvedValue('x'.repeat(5000)) };
-        await applyTGText(textEvent('tell me everything'), 42, { agent, editReply });
+        await applyTGText(textEvent('tell me everything'), 42, { agent, records: fakeRecords(), editReply });
         const [, text] = editReply.mock.calls[0];
         expect([...text].length).toBeLessThanOrEqual(900);
         expect(text.endsWith('…')).toBe(true);
@@ -496,7 +506,7 @@ describe('inbox-apply.js — a Telegram data command', () => {
     it('a no-key agent tells the user to add one and acks', async () => {
         const editReply = vi.fn();
         const agent = { run: vi.fn().mockRejectedValue(Object.assign(new Error('no key'), { code: 'no_api_key' })) };
-        await expect(applyTGText(textEvent('hi'), 43, { agent, editReply })).resolves.toBeUndefined();
+        await expect(applyTGText(textEvent('hi'), 43, { agent, records: fakeRecords(), editReply })).resolves.toBeUndefined();
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/add an OpenAI key/));
     });
 
@@ -504,7 +514,7 @@ describe('inbox-apply.js — a Telegram data command', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const editReply = vi.fn();
         const agent = { run: vi.fn().mockRejectedValue(new Error('provider exploded')) };
-        await expect(applyTGText(textEvent('hi'), 44, { agent, editReply })).resolves.toBeUndefined();
+        await expect(applyTGText(textEvent('hi'), 44, { agent, records: fakeRecords(), editReply })).resolves.toBeUndefined();
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/went wrong/));
         warn.mockRestore();
     });
@@ -512,7 +522,7 @@ describe('inbox-apply.js — a Telegram data command', () => {
     it('an empty agent answer still edits the placeholder to a done ack', async () => {
         const editReply = vi.fn();
         const agent = { run: vi.fn().mockResolvedValue('   ') };
-        await applyTGText(textEvent('hi'), 45, { agent, editReply });
+        await applyTGText(textEvent('hi'), 45, { agent, records: fakeRecords(), editReply });
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, '✅ Done.');
     });
 });
