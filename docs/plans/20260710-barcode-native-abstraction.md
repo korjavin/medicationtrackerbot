@@ -134,15 +134,15 @@ guard must distinguish the two:
 
 ### Task 2: Let Barcode own the platform decision
 
-- [ ] in `web/static/js/native/web/barcode.js`, add `hasNativeScanner()`
+- [x] in `web/static/js/native/web/barcode.js`, add `hasNativeScanner()`
       returning `false` (the web impl has no full-screen UI of its own) and
       `supportsLiveScan()` returning `!!window.BarcodeDetector` (probe at call
       time, not module load — tests and real browsers install it late)
-- [ ] in `web/static/js/native/capacitor/barcode.js`, add `hasNativeScanner()`
+- [x] in `web/static/js/native/capacitor/barcode.js`, add `hasNativeScanner()`
       returning `true` and `supportsLiveScan()` returning `false` (MLKit needs no
       video element; the in-app frame loop must never run there)
-- [ ] export both from each `impl` object
-- [ ] extend `web/static/js/tests/native.barcode.test.js` to pin both methods on
+- [x] export both from each `impl` object
+- [x] extend `web/static/js/tests/native.barcode.test.js` to pin both methods on
       both impls, including `supportsLiveScan()` flipping with
       `window.BarcodeDetector` presence
 
