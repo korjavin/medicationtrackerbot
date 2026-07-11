@@ -65,7 +65,7 @@ Both modes share the `web/static` frontend, so this is mode-agnostic; the change
 - [x] integration test (real boundary): added "creates a brand-new name in the library and references it on the session log" to `features.workout-sessions.test.js`; also updated the stale refusal assertion in `workout.session-and-stats.test.js`
 
 ### Task 6: Cloud parity check
-- [ ] confirm no `/api` request/response shape changed (naming is UI-only); if the shared picker altered any payload, mirror it in `web/domain/workout.js` and update the shim contract test / regen `cmd/genmcpcatalog` + `ResponseExample` if a registry op changed. Run `web/cloud/js/tests/mcp-responder.test.js` and `cloud.shim-contract.workout-crud.test.js`.
+- [x] confirm no `/api` request/response shape changed (naming is UI-only); if the shared picker altered any payload, mirror it in `web/domain/workout.js` and update the shim contract test / regen `cmd/genmcpcatalog` + `ResponseExample` if a registry op changed. Run `web/cloud/js/tests/mcp-responder.test.js` and `cloud.shim-contract.workout-crud.test.js`.
 
 ### Task 7: Verify acceptance criteria
 - [ ] `go build ./...` and `go build -tags mobile ./...`
