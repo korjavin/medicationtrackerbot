@@ -51,9 +51,9 @@ Both modes share the `web/static` frontend, so this is mode-agnostic; the change
 - [x] relabel the `workout-group-rotating` checkbox to "Rotate through days" + variant modal eyebrow/title/section label in `index.html` (kept the element ids)
 
 ### Task 3: Simple-default create flow (no phantom "Main"/Day UI)
-- [ ] a newly created Plan defaults to non-rotating and shows a single flat exercise list with **no** Day/Variant/rotation words; do not surface the auto-created hidden variant name to the user (`groups.js:315-343`, `toggleRotatingFields` `:369-391`, `resolveVariantForExercise` in `exercises.js:120-148`) — keep the one hidden variant server-side (schema unchanged) but suppress its label everywhere in the simple view
-- [ ] the "Rotate through days" toggle (Task 2) is the only place Day UI appears; off = flat list, on = reveals the Days editor
-- [ ] integration test (real boundary): create a Plan in the default (simple) flow → assert no "Day"/"Variant"/"Main" label is rendered and an exercise can be added and listed (workout feature suite via `frontend-harness.js`)
+- [x] a newly created Plan defaults to non-rotating and shows a single flat exercise list with **no** Day/Variant/rotation words; do not surface the auto-created hidden variant name to the user (`groups.js:315-343`, `toggleRotatingFields` `:369-391`, `resolveVariantForExercise` in `exercises.js:120-148`) — keep the one hidden variant server-side (schema unchanged) but suppress its label everywhere in the simple view (already satisfied by Tasks 1/2: `showAddWorkoutGroupModal` defaults rotating off → variants-section hidden, flat "Exercises" list shown; hidden "Main" created silently, never labeled)
+- [x] the "Rotate through days" toggle (Task 2) is the only place Day UI appears; off = flat list, on = reveals the Days editor (`toggleRotatingFields` in `groups.js`)
+- [x] integration test (real boundary): create a Plan in the default (simple) flow → assert no "Day"/"Variant"/"Main" label is rendered and an exercise can be added and listed (added to `features.workout-groups.test.js`; also fixed stale Task-2 relabel assertion in `workout.loaders-and-card.test.js`)
 
 ### Task 4: Rotation off-switch guard
 - [ ] in the Plan edit / rotation-toggle path, block turning rotation **off** while the Plan has more than one Day; show a message to delete the extra Days first (zero data loss). Single Day (or simple plan) toggles freely.

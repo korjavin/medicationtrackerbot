@@ -131,7 +131,7 @@ describe('workout.js loaders and next-card behavior', () => {
 
       window.apiCall = vi.fn().mockRejectedValueOnce(new Error('variants fail')).mockRejectedValueOnce(new Error('ex fail'));
       await window.loadVariantsForGroup(10);
-      expect(document.getElementById('workout-variants-list').innerHTML).toContain('Error loading variants');
+      expect(document.getElementById('workout-variants-list').innerHTML).toContain('Error loading days');
 
       await window.loadExercisesForVariant(2);
       expect(document.getElementById('workout-exercises-list').innerHTML).toContain('Error loading exercises');
