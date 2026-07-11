@@ -549,6 +549,35 @@ The C6 unification endgame only holds if goja can actually run the `web/domain/*
 - **ESM-strip loader**: goja has no ESM; `loadModule` (`harness.go`) strips only the leading `export ` (`^export `, multiline regex) on an in-memory copy so `createBPDomain`/`createWeightDomain` become globals — `web/domain/*.js` untouched. Cheap for these files; a real module loader is needed once modules `import` each other.
 - **Records port + Intl shim**: `RecordsPort` (`port.go`) backs the `records.{list,put,del}` contract with a `records(type,id,data JSON)` table, each method returning an already-settled `vm.NewPromise` (DB/JSON errors → rejection, never dropped). `injectIntlShim` (`harness.go`) supplies the one `Intl.DateTimeFormat().formatToParts` primitive the domains need, backed by Go's `time` (same tz DB as the native store). C6's production embedding must provide both.
 
+### Production host (med-07y.2) — measured findings
+
+The spike proved feasibility for two domains; the **production host** (`internal/gojahost/`) promotes it into reusable, pooled infrastructure that loads the **whole** `web/domain` layer. **Still additive-only — nothing is on a request path** (that is med-07y.3 shadow-mirroring). It supersedes `internal/gojaspike/` (the spike can be removed in a follow-up).
+
+**What the host is.** `gojahost.New(db, now, tz)` links all 15 `web/domain/*.js` modules into a program, warms VMs in a `sync.Pool`, and serves `Host.Call(domain, method, argsJSON)` off a borrowed warm VM. Each VM carries the Intl shim, the records port over a **real `internal/store/db`-opened database** (the generic record table coexists with the real domain tables), and `now`/`timeZone` ports. `web/domain/*.js` remain unmodified.
+
+**Real ESM linker (past the spike's `export`-strip).** The spike loaded one *import-free* module per VM. Ten of the fifteen modules `import` from each other (`food`←`bp`, `medintake`←`medschedule`+`tzplan`, `workout`←`medschedule`+`reminders`, …), and many redeclare the same top-level names (`RECORD_TYPE`, `DAY_MS`, `toISOString`). `loader.go` parses each module's imports/exports, strips the keywords, wraps each body in an **IIFE** (so top-level declarations can't collide across modules), topo-sorts by import edge, and binds each import from the already-linked `__exports[key]`. Transpile-free; `web/domain` untouched.
+
+**Measurement method.** `go test -bench` on Apple M4, darwin/arm64, `CGO_ENABLED=0`, in-memory SQLite opened via `internal/store/db`, fixed clock/tz (`America/New_York`). Memory is `runtime.ReadMemStats` bracketing a GC + a 50-VM batch — noisy, order-of-magnitude only.
+
+| Benchmark | Result | Notes |
+|---|---|---|
+| `BenchmarkPooledCall` | ~18.6 µs/op, 15.6 KB, 260 allocs | one `bp.create` off a **pooled warm VM** — the production per-request path |
+| `BenchmarkNativeCreate` | ~10.6 µs/op, 720 B, 12 allocs | native `CreateReading` — pooled goja ≈ **1.75× native** |
+| `BenchmarkFreshVMPerCall` | ~5.84 ms/op, 6.7 MB, ~110k allocs | build a full **all-modules** VM + one create — **~315× the pooled call** |
+| `BenchmarkBuildVM` | ~5.88 ms/op | VM standup alone (Intl + records port + link 15 modules + construct 12 domains) |
+| `BenchmarkVMMemory` | ~1.6 MB heap/VM | 50-VM batch, GC-bracketed; noisy — heavier than the spike's single-module VM because the whole layer is loaded |
+
+**The pooling verdict is now sharper than the spike's.** Loading the whole domain layer costs **~5.8 ms per fresh VM** (vs the spike's ~382 µs single-module VM), while a pooled call stays at **~18.6 µs**. Pooling is not an optimization, it is mandatory: a VM-per-request design would be ~300× slower. The pooled per-call sits *below* the spike's warm ~38 µs (M4, and the BP create is compute-light), still ~1.75× native — acceptable.
+
+**Parity proven (value-exact, pooled VM vs native).** BP (`internal/store/bp`): category buckets, create/list field-by-field, daily-weighted stats 14/30/60. Weight (`internal/store/weight`): EWMA trend (bit-exact), create/list. Notes/diary (`internal/domain/notes` + `internal/store/diary`): tag normalization (invalid→dropped), content, `created_at` — set-compared, not order-compared (see below).
+
+**Parity deferred — and exactly why (not faked).**
+- **Ordering under a fixed clock (notes).** `notes.js` orders by its string id (`nowMs*1000 + random`); the Go store orders by an autoincrement PK. With a pinned clock the two id spaces order independently, so insertion order is the only stable key — the notes test compares the note *set* (by content), not sequence. A real clock removes the ambiguity; this is a test-determinism choice, not a logic gap.
+- **`settings`, `vitals`, `medications`, `medintake`, `tzplan`, `reminders`, `food`, `foodai`, `workout`.** These **load and construct** in a pooled VM (asserted by `TestAllModulesLinkAndConstruct`) but are **not yet value-exact parity-proven**. Reasons, per group: `foodai`/`food` need real `aiClient`/`foodDb` ports (inert noops here — the LLM/DB-search methods aren't drivable offline); `vitals` needs the `records.listRange` day-keyed streams seeded to match the Go day-stats aggregation; `medintake`/`reminders`/`tzplan`/`workout` are **stateful state machines** whose Go counterparts (`internal/domain/*`, `internal/store/workout`) need a matching multi-record fixture per flow — each a substantial parity harness in its own right. None are blocked by the host; they are follow-up parity work (med-07y.3+).
+- **Typed-table records adapter.** The records port uses the **generic `(type,id,data JSON)` model** the JS modules were authored against (the browser's encrypted IndexedDB shape), *not* the typed per-domain store tables. The blocker is concrete: the JS modules mint **string** record ids and round-trip them through `list`/`remove`, which cannot map onto the typed tables' **integer autoincrement** PKs without a per-domain id-translation adapter. That adapter is C6 production wiring, deliberately out of scope here.
+
+**Reusable, now in `internal/gojahost/`.** The pool (`host.go`), the ESM linker (`loader.go`), the records port + `listRange` + Intl-backed `wallParts` (`port.go`). `now` is injected as a callback so pooled VMs report current time per call; `tz` is fixed per host (the factories capture `timeZone` by value at construct, so a different zone needs a differently-built VM — a documented single-tz constraint, same as the spike).
+
 ## Migrating an existing server-mode install
 
 Migration is a special case of the general **no-lock-in guarantee (C2e)**: one canonical one-user-all-domains JSON format (meds + intake log, BP, weight, food, workouts, vitals, sleep, diary, tz history, settings), exportable **and** importable in **both** modes — a full 2×2 matrix, so any instance pair can migrate in either direction and a plain file on the user's disk is always an exit door.
