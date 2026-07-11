@@ -73,12 +73,12 @@ Closes med-spp as a byproduct (the Exercises tab / library becomes the canonical
 - [x] in the library edit modal (`web/static/js/features/workout/library.js`), add a short note that renaming updates the exercise everywhere it's used (plans + history) — hint element in `index.html` (`#exercise-library-rename-hint`), shown only in edit mode, hidden in add mode; `.wg-workouts-library-modal__hint` token-based style
 
 ### Task 8: Verify acceptance criteria
-- [ ] `go build ./...` (server) and `go build -tags mobile ./...` (mobile build still compiles)
-- [ ] `go test ./...` — all pass
-- [ ] `pnpm test` — all pass, **including** the repo-wide `tests/architecture.*.test.js` (feature-suite green ≠ CI green — run the full suite)
-- [ ] migration number contiguity: `076` is the sole new migration, no gaps
-- [ ] if a registry `ResponseExample` changed: `internal/mcp/catalogjs/drift_test.go` and MCP coverage tests pass; cloud catalog regenerated
-- [ ] verify the dedupe + rename acceptance criteria from Overview are satisfied by the Task 6 test
+- [x] `go build ./...` (server) and `go build -tags mobile ./...` (mobile build still compiles)
+- [x] `go test ./...` — all pass
+- [x] `pnpm test` — all pass (302 files, 3361 passed), **including** the repo-wide `tests/architecture.*.test.js`
+- [x] migration number contiguity: `076` is the sole new migration, no gaps
+- [x] if a registry `ResponseExample` changed: `internal/mcp/catalogjs/drift_test.go` and MCP coverage tests pass; cloud catalog regenerated
+- [x] verify the dedupe + rename acceptance criteria from Overview are satisfied by the Task 6 test (Go `TestExerciseLibraryReference_CreateDedupeRename` + shim `cloud.shim-contract.workout-crud.test.js` both green)
 
 ### Task 9: [Final] Update docs
 - [ ] note the new reference model in `docs/features.md` (workouts) if it documents the exercise/library relationship
