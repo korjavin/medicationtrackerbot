@@ -126,6 +126,7 @@ const STATIC_ASSETS = [
     '/static/js/features/today.js',
     '/static/js/features/journey.js',
     '/static/js/features/tz-plan-banner.js',
+    '/static/js/features/forecast-card.js',
     '/static/js/features/elevenlabs-call.js',
     '/static/js/features/call-indicator.js',
     '/static/js/features/workout/modals.js',

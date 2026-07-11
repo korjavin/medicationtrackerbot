@@ -15,6 +15,22 @@ import { dayStartMs } from './bp.js';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_DAYS = 90; // trailing window (§4.1)
 
+// Tomorrow Forecast (§3.4). One fixed, pre-registered lever→outcome pairing —
+// NOT a best-of scan (guardrail §5: no fishing). Lever: an adequate night
+// (≥ 7h sleep, the tonight-actionable behavior in the design's example).
+// Outcome: the same morning's first BP reading landing in range. Same-day
+// bucketing (the probe catalog's short_sleep_next_morning_bp is lag 0). The
+// forecast never reads weight — only bp + sleep + the user's own bp goal band.
+const FORECAST_SLEEP_WINDOW_MIN = 7 * 60;
+const FORECAST_GATE_PER_ARM = 8;          // min resolvable nights in EACH arm
+const DEFAULT_IN_RANGE_SYSTOLIC = 130;    // High-BP Stage-1 threshold (bp.js)
+const BP_GOAL_RECORD_TYPE = 'bpgoal';
+const BP_GOAL_RECORD_ID = 'bpgoal';
+
+function pct(x) {
+  return Math.round(x * 100);
+}
+
 // Vault record types read (never written — the owning domain modules own writes).
 const BP_RECORD_TYPE = 'bp';
 const SLEEP_RECORD_TYPE = 'sleep';
@@ -338,5 +354,151 @@ export function createGamificationDomain({ records, now, timeZone }) {
     return { seen };
   }
 
-  return { getAtlas, markDiscoverySeen };
+  // inRangeBand reads the user's own bp goal (systolic) so the forecast is
+  // never a black box — in-range means "at or below your target", or the
+  // High-BP Stage-1 threshold when no goal is set. Weight is never consulted.
+  async function inRangeBand() {
+    const goals = await records.list(BP_GOAL_RECORD_TYPE);
+    const g = goals.find((r) => r.recordId === BP_GOAL_RECORD_ID);
+    const target = g && g.target_systolic;
+    if (Number.isFinite(target) && target > 0) {
+      return { max: target, source: 'goal' };
+    }
+    return { max: DEFAULT_IN_RANGE_SYSTOLIC, source: 'default' };
+  }
+
+  // forecastPairs buckets the trailing window into the two lever arms. A day is
+  // "resolvable" only when it has BOTH a classifiable night (sleepMinutes) and a
+  // first-morning systolic — the exact same-day pairing the probe catalog uses.
+  // Each entry carries the outcome boolean (in range) so calibration can replay
+  // the model's majority-class call per arm. Pure over the day map.
+  function forecastPairs(days, band) {
+    const good = []; // { key, inRange, systolic, sleepMinutes }
+    const short = [];
+    for (const d of days.values()) {
+      if (d.sleepMinutes === null || d.sleepMinutes === undefined) continue;
+      if (d.firstMorningSystolic === null || d.firstMorningSystolic === undefined) continue;
+      const inRange = d.firstMorningSystolic <= band.max;
+      const entry = {
+        key: d.key, inRange, systolic: d.firstMorningSystolic, sleepMinutes: d.sleepMinutes,
+      };
+      (d.sleepMinutes >= FORECAST_SLEEP_WINDOW_MIN ? good : short).push(entry);
+    }
+    return { good, short };
+  }
+
+  function share(arm) {
+    return arm.length ? arm.reduce((a, e) => a + (e.inRange ? 1 : 0), 0) / arm.length : 0;
+  }
+
+  function fmtHours(min) {
+    const h = Math.floor(min / 60);
+    const m = Math.round(min % 60);
+    return m === 0 ? `${h}h` : `${h}h ${m}m`;
+  }
+
+  // getForecast — tonight's prospective card + this morning's resolution + the
+  // "how well do we know you" calibration meter (§3.4). Recompute-on-read: the
+  // model, the resolution, and the trailing hit-rate are all pure functions of
+  // the log (§4.2), so nothing here is persisted. Self-suppresses below the gate:
+  // when either arm holds fewer than FORECAST_GATE_PER_ARM nights it declines to
+  // quote a probability and the calibration meter carries the progress instead.
+  async function getForecast() {
+    const nowMs = now();
+    const [days, band] = await Promise.all([buildDays(), inRangeBand()]);
+    const { good, short } = forecastPairs(days, band);
+    const nGood = good.length;
+    const nShort = short.length;
+    const have = Math.min(nGood, nShort);
+    const needed = FORECAST_GATE_PER_ARM;
+    const total = nGood + nShort;
+    const calibrated = have >= needed;
+
+    const goodShare = share(good);
+    const shortShare = share(short);
+    const phase = localHour(nowMs, timeZone) < 12 ? 'morning' : 'evening';
+
+    // Evening card — the tonight-actionable, lever-conditioned chance. Below the
+    // gate it names no number (honesty over theater, §5 forecast guardrail).
+    let evening;
+    if (!calibrated) {
+      evening = {
+        state: 'insufficient',
+        lever: 'sleep_window',
+        text: 'We don’t know your mornings well enough yet — keep logging a morning BP after each night and this fills in.',
+      };
+    } else {
+      evening = {
+        state: 'ready',
+        lever: 'sleep_window',
+        goodShare: pct(goodShare),
+        otherShare: pct(shortShare),
+        n: total,
+        text: `A 7h+ night tonight → mornings like that have been in range ${pct(goodShare)}% for you (vs ${pct(shortShare)}% after shorter nights).`,
+      };
+    }
+
+    // Morning resolution — the most recent resolvable morning, today or
+    // yesterday, scored against the model's majority-class call for its arm.
+    // Only meaningful once calibrated; a miss is always framed as noise.
+    let resolution = null;
+    if (calibrated) {
+      const todayKey = localDayString(nowMs, timeZone);
+      const yesterdayKey = localDayString(nowMs - DAY_MS, timeZone);
+      let latest = null;
+      for (const e of [...good, ...short]) {
+        if (e.key !== todayKey && e.key !== yesterdayKey) continue;
+        if (!latest || e.key > latest.key) latest = e;
+      }
+      if (latest) {
+        const wasGoodNight = latest.sleepMinutes >= FORECAST_SLEEP_WINDOW_MIN;
+        const armShare = wasGoodNight ? goodShare : shortShare;
+        const predictedInRange = armShare >= 0.5;
+        const matched = predictedInRange === latest.inRange;
+        resolution = {
+          day: latest.key,
+          nightMinutes: latest.sleepMinutes,
+          systolic: latest.systolic,
+          inRange: latest.inRange,
+          matched,
+          text: `Last night ${fmtHours(latest.sleepMinutes)} · this morning ${latest.systolic} — ${latest.inRange ? 'in range ✓' : 'above your range'}. ${matched ? 'Your body agreed ✓' : 'Not this time — one morning is noise; the pattern needs weeks.'}`,
+        };
+      }
+    }
+
+    // Calibration meter — the honest progress bar. While learning, the fill is
+    // data readiness toward the gate; once calibrated, the fill IS the model's
+    // trailing hit-rate over every resolvable morning (majority-class call vs
+    // actual), which can honestly be modest.
+    let calibration;
+    if (!calibrated) {
+      calibration = {
+        state: 'learning',
+        have,
+        needed,
+        fraction: needed > 0 ? Math.min(1, have / needed) : 0,
+        label: `Getting to know your mornings — ${have} of ${needed} paired nights each way.`,
+      };
+    } else {
+      let hits = 0;
+      for (const e of good) if ((goodShare >= 0.5) === e.inRange) hits += 1;
+      for (const e of short) if ((shortShare >= 0.5) === e.inRange) hits += 1;
+      const hitRate = total ? hits / total : 0;
+      calibration = {
+        state: 'calibrated',
+        have,
+        needed,
+        n: total,
+        hitRate: pct(hitRate),
+        fraction: hitRate,
+        label: `Calibrated on ${total} mornings — the pattern held ${pct(hitRate)}% of the time so far.`,
+      };
+    }
+
+    return {
+      enabled: true, phase, band, evening, resolution, calibration,
+    };
+  }
+
+  return { getAtlas, markDiscoverySeen, getForecast };
 }

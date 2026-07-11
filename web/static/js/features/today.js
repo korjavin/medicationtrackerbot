@@ -1349,6 +1349,16 @@
             rendered += 1;
         }
 
+        // Tomorrow Forecast card (Gamification Phase 3): the evening in-range
+        // chance / morning resolution + the "how well do we know you"
+        // calibration meter. Cloud-only — the module mounts nothing when the
+        // forecast route is absent (bot mode) or below the confidence gate.
+        if (typeof window !== 'undefined' && window.WGForecastCard
+            && typeof window.WGForecastCard.mountCard === 'function') {
+            const forecastCard = window.WGForecastCard.mountCard(root);
+            if (forecastCard) { rendered += 1; }
+        }
+
         const shortcutRows = renderShortcutRow(state, {
             onLogFood, onScanFood, onPhotoMeal, onAddBp, onAddWeight
         });
