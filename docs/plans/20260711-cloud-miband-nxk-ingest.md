@@ -84,11 +84,11 @@ Dependencies identified: none new. Reuses inbox key, seal crypto, drain, existin
 
 ### Task 2: Session-gated HTTP upload endpoint
 
-- [ ] add a `VitalsImportAPI` (or fold onto `InboxAPI`) in `internal/cloudserver` with `RegisterRoutes(mux)`, modeled on `food_proxy.go` (RequireSession-gated). Route: `POST /api/vitals/import` accepting a multipart `.nxk` upload.
-- [ ] handler: resolve session account → write upload to a temp file → `parseNXKToVitalsEvents` (Task 1) → for each event `SealAndQueue` to the account inbox; return a small JSON summary `{queued: n}`. Honor the `ErrNoInboxKey` guard (no inbox key published → 409/412, never store plaintext).
-- [ ] register the API where the other cloud APIs register (same call site as `InboxAPI.RegisterRoutes`).
-- [ ] add the route to `internal/server/mcp_coverage_exempt.go` with a `Reason` (UI/import action — file upload, not an agent op). Confirm `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` passes. Do NOT add a registry op (avoids the catalog/responder cascade).
-- [ ] confirm this is a cloud **server** endpoint (like `inbox.go`), NOT an apishim domain route — so `web/cloud/js/apishim.js` `createApiRouter` does not need a branch; the browser POSTs directly and it hits the Go handler.
+- [x] add a `VitalsImportAPI` (or fold onto `InboxAPI`) in `internal/cloudserver` with `RegisterRoutes(mux)`, modeled on `food_proxy.go` (RequireSession-gated). Route: `POST /api/vitals/import` accepting a multipart `.nxk` upload. — new `internal/cloudserver/vitals_import_api.go`.
+- [x] handler: resolve session account → write upload to a temp file → `parseNXKToVitalsEvents` (Task 1) → for each event `SealAndQueue` to the account inbox; return a small JSON summary `{queued: n}`. Honor the `ErrNoInboxKey` guard (no inbox key published → 409/412, never store plaintext). — returns 412 Precondition Failed on `ErrNoInboxKey`.
+- [x] register the API where the other cloud APIs register (same call site as `InboxAPI.RegisterRoutes`). — `cmd/cloud/main.go:221`.
+- [x] ~~add the route to `internal/server/mcp_coverage_exempt.go`~~ — **scope correction:** `/api/vitals/import` is a cloud-only route on `cmd/cloud`'s mux; the MCP coverage guard only scans the **bot-mode** `internal/server` routes (food-proxy + inbox cloud routes are likewise absent from `mcpCoverageExempt`). Adding an entry would trip `TestMCPCoverage_NoStaleExemptions` (no matching bot-mode route). No exempt entry added; `TestMCPCoverage_*` all pass unchanged. No registry op added (correct — avoids the catalog/responder cascade).
+- [x] confirm this is a cloud **server** endpoint (like `inbox.go`), NOT an apishim domain route — so `web/cloud/js/apishim.js` `createApiRouter` does not need a branch; the browser POSTs directly and it hits the Go handler. — confirmed; browser POSTs multipart directly to the Go handler.
 
 ### Task 3: Cloud Telegram `.nxk` document branch
 
