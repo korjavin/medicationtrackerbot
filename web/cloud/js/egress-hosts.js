@@ -5,12 +5,26 @@
 // unlock and whenever a provider URL changes. It carries HOSTNAMES ONLY —
 // never provider API keys, never health data.
 
+// canAllowlist mirrors the server's validEgressHost (egress.go): a bare DNS
+// hostname only. `new URL().hostname` can yield values the server rejects — an
+// IPv6 literal (`[::1]`), an underscore host (`food_db.internal`), a
+// trailing-dot FQDN — and the endpoint rejects the WHOLE batch on any invalid
+// host, so a single such host would strand every provider's allowlist entry.
+// Drop the unallowlistable one client-side instead; the good hosts still
+// register (the dropped host simply can't be a clean `https://<host>` source).
+function canAllowlist(host) {
+  if (!host || host.length > 253) return false;
+  if (host.startsWith('.') || host.startsWith('-')
+    || host.endsWith('.') || host.endsWith('-') || host.includes('..')) return false;
+  return /^[a-z0-9.-]+$/.test(host);
+}
+
 // hostsFromIntegrations extracts the unique lowercased hostnames the DEK page
 // connects to browser-direct: the BYO AI provider (openai.url / vision_url)
 // and the BYO food-DB (food.url). api.elevenlabs.io is fixed and always
 // allowed server-side, so it is intentionally NOT included here. Unparseable
-// or empty URLs (e.g. an unset provider, or a bare host with no scheme) are
-// skipped rather than registered.
+// or empty URLs (e.g. an unset provider, or a bare host with no scheme) and
+// hosts the server would reject (see canAllowlist) are skipped.
 export function hostsFromIntegrations(integrations) {
   const urls = [
     integrations && integrations.openai && integrations.openai.url,
@@ -26,7 +40,7 @@ export function hostsFromIntegrations(integrations) {
     } catch {
       continue; // not an absolute URL — nothing to allowlist
     }
-    if (host && !hosts.includes(host)) hosts.push(host);
+    if (host && canAllowlist(host) && !hosts.includes(host)) hosts.push(host);
   }
   return hosts;
 }

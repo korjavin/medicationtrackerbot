@@ -24,6 +24,18 @@ describe('hostsFromIntegrations', () => {
     expect(hostsFromIntegrations({})).toEqual([]);
     expect(hostsFromIntegrations(null)).toEqual([]);
   });
+
+  it('drops server-unallowlistable hosts but keeps valid ones alongside them', () => {
+    // IPv6 literal + underscore host would each be 400-rejected by the server;
+    // dropping them client-side keeps the good host from being stranded.
+    expect(hostsFromIntegrations({
+      openai: { url: 'http://[::1]:8080/v1' },
+      food: { url: 'https://good.example.com/search' },
+    })).toEqual(['good.example.com']);
+    expect(hostsFromIntegrations({
+      openai: { url: 'http://food_db.internal/v1', vision_url: 'https://vision.example.com/' },
+    })).toEqual(['vision.example.com']);
+  });
 });
 
 describe('registerEgressHosts', () => {
