@@ -73,7 +73,7 @@ describe('workout.js loaders and next-card behavior', () => {
 
       window.apiCall = vi.fn().mockRejectedValue(new Error('nope'));
       await window.nextWorkoutVariant(34);
-      expect(alertSpy).toHaveBeenCalledWith('Failed to switch variant. Please try again.');
+      expect(alertSpy).toHaveBeenCalledWith('Failed to switch day. Please try again.');
     } finally {
       cleanup();
     }
@@ -124,7 +124,7 @@ describe('workout.js loaders and next-card behavior', () => {
     try {
       window.apiCall = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]);
       await window.loadVariantsForGroup(9);
-      expect(document.getElementById('workout-variants-list').innerHTML).toContain('No variants yet');
+      expect(document.getElementById('workout-variants-list').innerHTML).toContain('No days yet');
 
       await window.loadExercisesForVariant(1);
       expect(document.getElementById('workout-exercises-list').innerHTML).toContain('No exercises yet');

@@ -56,7 +56,7 @@ describe('features/workout/variants.js — split-file integration', () => {
     window.showAddVariantModal();
 
     expect(window.WorkoutEdit.editingVariantId).toBeNull();
-    expect(document.getElementById('workout-variant-modal-title').textContent).toBe('Add Variant');
+    expect(document.getElementById('workout-variant-modal-title').textContent).toBe('Add Day');
     expect(document.getElementById('workout-variant-name').value).toBe('');
   });
 

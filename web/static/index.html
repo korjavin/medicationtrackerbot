@@ -1117,11 +1117,11 @@
 
             <label class="wg-workouts-group-modal__toggle">
                 <input type="checkbox" id="workout-group-rotating">
-                <span class="wg-workouts-group-modal__toggle-label">Rotating workout (A/B/C/D)</span>
+                <span class="wg-workouts-group-modal__toggle-label">Rotate through days</span>
             </label>
 
             <div class="wg-workouts-group-modal__field">
-                <span class="wg-workouts-group-modal__label">Days of week</span>
+                <span class="wg-workouts-group-modal__label">Repeats on</span>
                 <div class="wg-gloss--inset wg-workouts-group-modal__input-wrap wg-workouts-group-modal__days-wrap">
                     <div class="days-select wg-workouts-group-modal__days">
                         <span data-day="1">Mon</span>
@@ -1158,10 +1158,10 @@
 
             <!-- Variants Section (only shown when editing existing group) -->
             <div id="workout-variants-section" class="wg-workouts-group-modal__section">
-                <span class="wg-section-label wg-workouts-group-modal__section-label">Workout variants</span>
+                <span class="wg-section-label wg-workouts-group-modal__section-label">Days</span>
                 <div id="workout-variants-list" class="wg-workouts-group-modal__variants"></div>
                 <button id="add-variant-btn" type="button" class="wg-gloss wg-workouts-group-modal__section-add">
-                    + Add variant
+                    + Add day
                 </button>
             </div>
 
@@ -1183,8 +1183,8 @@
     <mt-modal id="workout-variant-modal" class="hidden wg-modal wg-workouts-variant-modal">
         <div class="wg-workouts-variant-modal__header">
             <div class="wg-workouts-variant-modal__heading">
-                <span class="wg-section-label wg-workouts-variant-modal__eyebrow">Workout variant</span>
-                <span class="wg-mono-display wg-workouts-variant-modal__title" id="workout-variant-modal-title">Add Variant</span>
+                <span class="wg-section-label wg-workouts-variant-modal__eyebrow">Workout day</span>
+                <span class="wg-mono-display wg-workouts-variant-modal__title" id="workout-variant-modal-title">Add Day</span>
             </div>
             <div class="wg-workouts-variant-modal__header-actions">
                 <button type="button" id="variant-cancel-btn"

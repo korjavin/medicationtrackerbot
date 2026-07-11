@@ -113,7 +113,7 @@ async function resolveVariantForExercise() {
 
     const group = window.WorkoutEdit.cachedGroups.find(g => g.id === groupId);
     if (group && group.is_rotating) {
-        safeAlert('Open a variant first to add exercises.');
+        safeAlert('Open a day first to add exercises.');
         return false;
     }
 

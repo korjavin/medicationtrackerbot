@@ -44,11 +44,11 @@ Both modes share the `web/static` frontend, so this is mode-agnostic; the change
 - [x] grep the workout frontend for visible "group"/"Group" strings to confirm none are missed (excluding identifiers/data-attrs/ids)
 
 ### Task 2: Relabel "Variant" → "Day" and schedule copy → "Repeats on"
-- [ ] `variants.js`: "Add/Edit Variant" → "Add/Edit Day", "Variant name is required!" → "Day name is required", "No variants yet…" → "No days yet", row `name (Order: N)` → day label (keep `rotation_order` internal)
-- [ ] `next-card.js`: "Next Variant" button (`:355,361`) → "Next Day"; subtitle "{variant_name} · …" wording as a Day
-- [ ] `exercises.js`: any "variant" user-facing text → "Day"
-- [ ] schedule UI "days of week" → "Repeats on" in `groups.js` + `index.html` (label/copy only; keep the underlying `days_of_week` field/ids)
-- [ ] relabel the `workout-group-rotating` checkbox to "Rotate through days" (keep the element id)
+- [x] `variants.js`: "Add/Edit Variant" → "Add/Edit Day", "Variant name is required!" → "Day name is required", "No variants yet…" → "No days yet" (kept `(Order: N)` — no "Variant" word; also relabeled delete-confirm, "save first" alert, and "Error loading days"); `rotation_order` kept internal
+- [x] `next-card.js`: "Next Variant" button (`:355,361`) → "Next Day"; "Failed to switch day" alert; subtitle is data-driven (`variant_name`), no literal word
+- [x] `exercises.js`: "Open a variant first…" → "Open a day first…"
+- [x] schedule UI "days of week" → "Repeats on" in `index.html` (no literal "days of week" string in `groups.js`); kept underlying `days_of_week` field/ids
+- [x] relabel the `workout-group-rotating` checkbox to "Rotate through days" + variant modal eyebrow/title/section label in `index.html` (kept the element ids)
 
 ### Task 3: Simple-default create flow (no phantom "Main"/Day UI)
 - [ ] a newly created Plan defaults to non-rotating and shows a single flat exercise list with **no** Day/Variant/rotation words; do not surface the auto-created hidden variant name to the user (`groups.js:315-343`, `toggleRotatingFields` `:369-391`, `resolveVariantForExercise` in `exercises.js:120-148`) — keep the one hidden variant server-side (schema unchanged) but suppress its label everywhere in the simple view

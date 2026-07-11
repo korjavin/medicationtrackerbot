@@ -39,7 +39,7 @@ async function loadVariantsForGroup(groupId) {
         if (!variants || variants.length === 0) {
             const empty = document.createElement('p');
             empty.className = 'workout-pending-msg';
-            empty.textContent = 'No variants yet. Add one to get started!';
+            empty.textContent = 'No days yet. Add one to get started!';
             container.replaceChildren(empty);
             return;
         }
@@ -84,7 +84,7 @@ async function loadVariantsForGroup(groupId) {
         console.error('Error loading variants:', error);
         const message = document.createElement('p');
         message.className = 'text-danger';
-        message.textContent = 'Error loading variants';
+        message.textContent = 'Error loading days';
         container.replaceChildren(message);
     }
 }
@@ -92,14 +92,14 @@ async function loadVariantsForGroup(groupId) {
 function showAddVariantModal() {
     const groupId = window.WorkoutEdit.groupForVariant || window.WorkoutEdit.editingGroupId;
     if (!groupId) {
-        safeAlert('Save this plan first to add variants.');
+        safeAlert('Save this plan first to add days.');
         return;
     }
 
     window.WorkoutEdit.groupForVariant = groupId;
 
     window.WorkoutEdit.editingVariantId = null;
-    document.getElementById('workout-variant-modal-title').textContent = 'Add Variant';
+    document.getElementById('workout-variant-modal-title').textContent = 'Add Day';
     window.ModalManager.workoutVariant.open();
 
     document.getElementById('workout-variant-name').value = '';
@@ -124,7 +124,7 @@ async function showEditVariantModal(variantId) {
     const variant = variants && variants.find(v => v.id === variantId);
     if (!variant) return;
 
-    document.getElementById('workout-variant-modal-title').textContent = 'Edit Variant';
+    document.getElementById('workout-variant-modal-title').textContent = 'Edit Day';
     window.ModalManager.workoutVariant.open();
 
     document.getElementById('workout-variant-name').value = variant.name;
@@ -154,7 +154,7 @@ async function saveVariant() {
     const rotation = rotationRaw !== '' ? parseInt(rotationRaw) : null;
 
     if (!name) {
-        safeAlert('Variant name is required!');
+        safeAlert('Day name is required');
         return;
     }
 
@@ -182,7 +182,7 @@ async function saveVariant() {
 
 async function deleteVariant(variantId, event) {
     event.stopPropagation();
-    await safeConfirm('Delete this variant and all its exercises?', async (ok) => {
+    await safeConfirm('Delete this day and all its exercises?', async (ok) => {
         if (ok) {
             await _deleteVariantApi(variantId);
         }
