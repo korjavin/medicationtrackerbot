@@ -344,6 +344,16 @@ export function createApiRouter(ctx, {
       if (method === 'PATCH') return settings.patchIntegrations(body);
     }
 
+    // The Telegram agent glossary note (bd med-vcv.4): Settings' full-replace
+    // view over the same vault singleton the free-text agent reads/appends
+    // to (inbox-apply.js's TG_PREFS_TYPE). PATCH always replaces `note`
+    // whole — an absent/empty value clears it, matching the "" = cleared
+    // convention every other settings field routed through this shim uses.
+    if (path === '/api/settings/tgprefs') {
+      if (method === 'GET') return { note: await settings.getTGPrefsNote() };
+      if (method === 'PATCH') return { note: await settings.setTGPrefsNote(body && body.note) };
+    }
+
     if (path === '/api/health/overview' && method === 'GET') return vitals.overview();
     if (path === '/api/health/sleep' && method === 'GET') {
       return vitals.sleep({

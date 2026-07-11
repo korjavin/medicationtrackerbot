@@ -27,6 +27,27 @@ const BYO_DETAILS_HTML = `
           <button id="tg-byo-submit" class="wg-gloss wg-settings-action-btn">Link this bot</button>
         </details>`;
 
+// Cap mirrors TG_PREFS_MAX_CHARS in web/domain/settings.js (the vault
+// record's actual enforcement point); this is just the textarea's client-side
+// hint.
+const TG_PREFS_MAX_CHARS = 4096;
+
+// Static shell for the Settings-only glossary editor — no server-supplied
+// values interpolated here either; the note itself is set via .value, never
+// innerHTML, once fetched through wireTGPrefs().
+const TG_PREFS_SECTION_HTML = `
+        <h3 class="wg-settings-section__title">Chat agent glossary</h3>
+        <p class="muted wg-settings-section__desc">Phrasing the chat assistant
+           has learned from your messages (e.g. "by 'my usual' I mean 2 eggs
+           and toast"). Edit or clear it below — saving replaces the whole
+           note.</p>
+        <textarea id="tg-prefs-note" class="wg-input" maxlength="${TG_PREFS_MAX_CHARS}"
+                  placeholder="No glossary yet — the assistant fills this in as you chat."></textarea>
+        <div class="wizard-actions wg-settings-row__control">
+          <button id="tg-prefs-save" class="wg-gloss wg-settings-action-btn">Save glossary</button>
+        </div>
+        <p id="tg-prefs-result" class="muted wg-settings-section__desc"></p>`;
+
 async function apiJSON(url, opts) {
   const res = await fetch(url, opts);
   if (!res.ok) {
@@ -36,6 +57,22 @@ async function apiJSON(url, opts) {
   }
   return res.json();
 }
+
+// tgprefs is vault data (the free-text agent's self-refining glossary,
+// web/cloud/js/inbox-apply.js, bd med-vcv.3) — unlike everything else on this
+// page it must never cross the network, so it does NOT go through apiJSON's
+// raw fetch(). It goes through window.apiCall, the seam the cloud shim
+// (apishim.js) intercepts locally to read/write the vault record in-browser.
+const DEFAULT_PREFS_PORT = {
+  async get() {
+    const res = await window.apiCall('/api/settings/tgprefs', 'GET');
+    return (res && res.note) || '';
+  },
+  async set(note) {
+    const res = await window.apiCall('/api/settings/tgprefs', 'PATCH', { note });
+    return (res && res.note) || '';
+  },
+};
 
 // getStatus returns the parsed status object, or { enabled: false } when the
 // endpoint is absent (Telegram disabled → routes not registered → non-2xx).
@@ -52,9 +89,12 @@ export async function getStatus() {
 // account's current status. opts.onDone (optional) is a "step complete"
 // callback the wizard passes to advance past the step (used by Skip and the
 // post-link Continue button); settings omits it and shows an idle done state.
+// opts.prefsPort (optional) overrides the tgprefs glossary read/write port —
+// tests inject a stub; production defaults to DEFAULT_PREFS_PORT (real vault).
 export async function mountTelegram(container, opts = {}) {
   const onDone = opts.onDone;
   const inWizard = typeof onDone === 'function';
+  const prefsPort = opts.prefsPort || DEFAULT_PREFS_PORT;
   // In the wizard this section is the whole page, so it owns the <h1>. In
   // Settings it is one block under the page's own <h1>, alongside <h2>
   // siblings like "Claude connector".
@@ -306,7 +346,7 @@ export async function mountTelegram(container, opts = {}) {
           <button id="tg-unlink" class="secondary wg-gloss wg-settings-action-btn">Unlink</button>
         </div>
         <p id="tg-test-result" class="muted wg-settings-section__desc"></p>
-        ${inWizard ? '<button id="tg-continue" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Continue</button>' : ''}
+        ${inWizard ? '<button id="tg-continue" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Continue</button>' : TG_PREFS_SECTION_HTML}
       </section>`;
     container.querySelector('#tg-bot-username').textContent = `@${status.bot_username}`;
 
@@ -340,7 +380,47 @@ export async function mountTelegram(container, opts = {}) {
 
     if (inWizard) {
       container.querySelector('#tg-continue').addEventListener('click', () => onDone());
+    } else {
+      wireTGPrefs();
     }
+  }
+
+  // --- Chat agent glossary (bd med-vcv.4) --------------------------------
+  //
+  // The glossary is only meaningful once Telegram is linked (only then can
+  // the free-text agent run), and only in Settings — the wizard's job is
+  // linking the bot, not curating a note the agent hasn't written anything
+  // into yet. FULL-REPLACE on save, never append: an emptied textarea clears
+  // the note (prefsPort.set('') writes '' verbatim), which is the deliberate
+  // "clear" affordance, distinct from the agent's own append-only writes.
+  function wireTGPrefs() {
+    const textarea = container.querySelector('#tg-prefs-note');
+    const btn = container.querySelector('#tg-prefs-save');
+    const result = container.querySelector('#tg-prefs-result');
+    if (!textarea || !btn || !result) return;
+
+    prefsPort.get()
+      .then((note) => { textarea.value = note; })
+      .catch((e) => {
+        result.textContent = 'Could not load — try again.';
+        console.error('[telegram] prefs load failed', e);
+      });
+
+    btn.addEventListener('click', () => {
+      btn.disabled = true;
+      result.textContent = 'Saving…';
+      prefsPort.set(textarea.value)
+        .then((saved) => {
+          textarea.value = saved;
+          btn.disabled = false;
+          result.textContent = 'Saved.';
+        })
+        .catch((e) => {
+          btn.disabled = false;
+          result.textContent = 'Could not save — try again.';
+          console.error('[telegram] prefs save failed', e);
+        });
+    });
   }
 
   // Kick off from the current server state.
