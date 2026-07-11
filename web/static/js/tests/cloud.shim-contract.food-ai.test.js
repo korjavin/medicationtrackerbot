@@ -448,7 +448,9 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
     // fire here — trial food-by-description failed 100% of the time. The proxy
     // now names the case and the trial path retries just like BYO does.
     it('trial response_format_unsupported: retries once without response_format and still logs the item', async () => {
-        allowConsoleNoise();
+        // No allowConsoleNoise(): the recovered retry must not leave a red
+        // console.error behind (med-aqr) — the harness fails on any un-opted
+        // console.error, so this asserts the clean path.
         const { window, document } = env;
         enableTrialAI(env);
 

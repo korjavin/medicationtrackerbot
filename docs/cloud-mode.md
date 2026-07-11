@@ -409,9 +409,16 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   server-side fallback — by design, for the same reason. If no device is unlocked and online,
   the call returns an actionable error instead of hanging.
 - Running the Python sandbox **in the browser** via Pyodide is the only route that would preserve
-  zero-knowledge. It is recorded as a future research spike (see Open questions), deliberately not
-  opened: it would ship a ~10 MB WASM runtime into the DEK-bearing page, which interacts with the
-  strict-CSP work in med-7e7.1.
+  zero-knowledge — the script would run in the unlocked tab against the already-decrypted vault, and
+  only its output would cross the relay. The spike (bd med-csu.6) weighed it and **decided not to
+  build it.** Three reasons: (1) it ships a ~10 MB WASM runtime into the DEK-bearing page — the most
+  security-sensitive surface in the app; (2) instantiating that WASM needs `'wasm-unsafe-eval'` added
+  to `script-src`, directly reverting the strict `script-src 'self'` that med-7e7.1 *just restored*
+  (pure `runPython` avoids full `'unsafe-eval'`, but the relaxation is still on the DEK page); (3) the
+  value is unproven — `mcp_call` chaining already covers multi-step work (the MCP agent evals pass on
+  it), and the `python/` helper package assumes `api.call` over the signed server bridge, so a browser
+  runner would need its whole transport rerouted through the in-process `apishim` router. Revisit only
+  if a concrete agent task emerges that provably can't be expressed as chained `mcp_call`s.
 - **The catalog is generated, not hand-written.** `web/cloud/js/mcp-catalog.generated.js` is
   emitted from `registry.DefaultOperations()` by `cmd/genmcpcatalog` (logic in
   `internal/mcp/catalogjs`); regenerate with `go run ./cmd/genmcpcatalog`. Nine of the 106
@@ -515,6 +522,33 @@ This is the dominant cost of the proposal and it must be stated, not hidden: the
 
 Port order tracks user value: meds + intakes + reminder computation first (C1 below), then the remaining domains.
 
+### Goja spike (med-07y.1) — measured findings
+
+The C6 unification endgame only holds if goja can actually run the `web/domain/*.js` layer server-side. A throwaway spike (`internal/gojaspike/`) proved it can, with caveats. **This is spike evidence for a decision, not production wiring** — nothing here is on a request path.
+
+**What the spike is.** BP (`web/domain/bp.js`) and weight (`web/domain/weight.js`) run **unmodified** under goja (pure-Go JS engine, `CGO_ENABLED=0` intact), backed by a SQLite-backed records port, driven by deterministic parity tests (fixed clock, fixed tz `America/New_York`, in-memory SQLite) that assert value-exact equality against the native Go store — plus Go benchmarks.
+
+**Measurement method.** Numbers below are `go test -bench` on Apple M4, darwin/arm64, `CGO_ENABLED=0`, in-memory SQLite, fixed clock/tz. Per-VM memory is `runtime.ReadMemStats` bracketing a GC + a 100-VM allocation batch — order-of-magnitude only, noisy (GC timing, allocator slack), not a precise per-VM figure.
+
+| Benchmark | Result | Notes |
+|---|---|---|
+| `BenchmarkColdStart` | ~340 µs/op, 363 KB, 5019 allocs | fresh VM: runtime + Intl shim + module read/strip/eval + factory; source re-read each iter |
+| `BenchmarkPerCallGoja` | ~38 µs/op, 15 KB, 252 allocs | reused/warm VM, one create |
+| `BenchmarkPerCallNative` | ~17 µs/op, 720 B, 12 allocs | native `CreateReading` — goja ≈ **2.2× native latency** |
+| `BenchmarkPerRequestVM` | ~382 µs/op | fresh VM + create ≈ **10× the warm per-call** — pooling matters |
+| `BenchmarkVMMemory` | ~80 KB heap/VM | 100-VM batch, GC-bracketed; noisy, order-of-magnitude only |
+
+**Proven.** Value-exact parity JS-via-goja vs `internal/store/{bp,weight}` for: BP category buckets, BP create/list (field-by-field: category, ordering, values, pulse/notes/tag/ignore_calc), BP daily-weighted stats (14/30/60), weight EWMA trend (alpha=0.1, bit-exact IEEE-754), and weight create/list. Promise execution is deterministic: every async call captures the returned `*goja.Promise`, drains microtasks, and asserts `Fulfilled` (fails on `Rejected`/`Pending`) — the synchronous records port settles the `await` chain within the top-level call as it unwinds.
+
+**Not proven.** Only **2 of N** domains (BP, weight — the smallest, purest). ESM is handled by a leading-`export `-strip transform in the Go loader, **not** a real module loader — fine for these two files, unverified against imports/circular deps/more complex modules. goja has **no `Intl`**; the harness installs a minimal `time`-backed `Intl.DateTimeFormat.formatToParts` shim (same tz DB as the native store) so tz day-boundary math works — an environment shim, not a module change, but a real dependency the production embedding must also provide. Single-user, single fixed tz. **No concurrency test, no sustained GC-pressure test, no pooling implementation** — only the per-request-vs-warm gap was measured.
+
+**Recommendation (input to C6, not a production decision).** goja is viable and preferred over a Node sidecar on this evidence: it runs the domain files unmodified, keeps `CGO_ENABLED=0` / single binary / mobile cross-compile intact (a sidecar breaks all three), and ~2.2× native per-call latency on a warm VM is acceptable for these compute-light domains. The load-bearing caveat is **VM lifecycle**: cold start (~340 µs) and per-request VMs (~10× warm) mean C6 needs a **pooled/reused-VM** design, not a VM per request — and pooling under real concurrency is exactly what this spike did **not** measure. Before committing goja for all domains, C6 should (a) port one *stateful, Intl-heavy* domain (meds/reminders) to expose loader/shim gaps, and (b) benchmark a real VM pool under concurrent load for latency tails and GC pressure. Sidecar stays the fallback only if those two reveal a blocker.
+
+**Reusable idioms (for C6 — the spike proved these three, lift them rather than re-deriving).** All in `internal/gojaspike/`:
+- **Promise-drain**: a synchronous port settles the `await` chain within the top-level `RunString`/`FunctionCall` as it unwinds, so the returned `*goja.Promise` is already `Fulfilled` when the Go call returns — no manual microtask pump. `awaitCall` (`harness.go`) captures the promise and switches on `State()` (`Fulfilled`→`Result()`, else error); it asserts `Fulfilled` rather than assuming it, failing loudly on `Rejected`/`Pending`.
+- **ESM-strip loader**: goja has no ESM; `loadModule` (`harness.go`) strips only the leading `export ` (`^export `, multiline regex) on an in-memory copy so `createBPDomain`/`createWeightDomain` become globals — `web/domain/*.js` untouched. Cheap for these files; a real module loader is needed once modules `import` each other.
+- **Records port + Intl shim**: `RecordsPort` (`port.go`) backs the `records.{list,put,del}` contract with a `records(type,id,data JSON)` table, each method returning an already-settled `vm.NewPromise` (DB/JSON errors → rejection, never dropped). `injectIntlShim` (`harness.go`) supplies the one `Intl.DateTimeFormat().formatToParts` primitive the domains need, backed by Go's `time` (same tz DB as the native store). C6's production embedding must provide both.
+
 ## Migrating an existing server-mode install
 
 Migration is a special case of the general **no-lock-in guarantee (C2e)**: one canonical one-user-all-domains JSON format (meds + intake log, BP, weight, food, workouts, vitals, sleep, diary, tz history, settings), exportable **and** importable in **both** modes — a full 2×2 matrix, so any instance pair can migrate in either direction and a plain file on the user's disk is always an exit door.
@@ -531,7 +565,7 @@ Migration is a special case of the general **no-lock-in guarantee (C2e)**: one c
 | Reminder timing | cloud | inherent to a blind alarm clock; content stays sealed |
 | Subdomain (≈ account existence) | network observers (DNS/SNI), cloud | wildcard cert+zone keep it out of CT/zone files; DoH/ECH close the rest over time |
 | Sync cadence, blob sizes, IPs | cloud | standard for any sync service; no content |
-| TG bot token, chat id, TG message text at user-chosen verbosity | cloud + Telegram | opt-in; **the relay reads `tg_text` in plaintext by construction** — a bot channel cannot be end-to-end encrypted. Verbosity defaults to `detailed` (names the medication); Settings → Notifications → *Telegram Reminder Detail* switches it to `generic` ("Medication time", no names). Only entries with `delivery` of `telegram`/`both` carry any text at all; `ct` stays opaque. Sealed inbound is C3b part 2 |
+| TG bot token, chat id, TG message text (both directions) in transit | cloud + Telegram | opt-in; **a bot channel cannot be end-to-end encrypted, so text crosses the relay in plaintext both ways**. Outbound reminder text defaults to `detailed` (names the medication); Settings → Notifications → *Telegram Reminder Detail* switches it to `generic` ("Medication time", no names). Only entries with `delivery` of `telegram`/`both` carry outbound text; `ct` stays opaque. Inbound messages transit the relay in the clear too, but the server **seals each on arrival and never parses it** — only the unlocked app opens and acts on them (the bot replies "Queued", then fills in once the app records it); photos are fetched through the server but never stored |
 | MCP query content | nobody (tier 1) / cloud in transit (tier 2) | tier 2 off by default, explicit consent |
 | MCP frame sizes + timing | cloud (tier 1) | inherent to a blind relay; pairing ids only, content stays sealed |
 | MCP pairing key at rest (tier 2 only) | cloud, while remote mode is enabled | opt-in only; deleted on Disconnect; token itself is never logged (mind Traefik access logs — it travels in the URL path) |
@@ -706,4 +740,4 @@ Cloud mode runs the ElevenLabs conversational agent **browser-direct**, provisio
 - **C5 — trial provider pool**: metered OpenAI-compatible relay, ElevenLabs signed-URL minting + client-tools voice agent, trial-consent wizard screen, quota admin. Depends on C2 (the PWA needs AI features to call it).
 - **C6 — bot-mode domain unification** (after C2 parity; optional but intended): embed the JS domain layer in the server build (goja preferred, Node sidecar fallback) behind a SQLite storage port; shadow-mirror real traffic (Go serves, JS diffs, divergences logged); flip per-domain when quiet; deprecate the Go domain layer. Ends the double maintenance — see "The client: porting the domain layer" §3.
 
-Open questions: trial VOICE cost bounding (bd med-d5t.5 — the AI chat proxy now carries persisted per-account and global daily budgets, but a minted ElevenLabs signed URL runs browser-to-provider with no server-side lever on call duration; the choice is an operator-side agent limit or BYO-only voice); Managed-Bots empirics (per-manager bot limits, user revocation/takeover semantics, library vs raw Bot API HTTP); end-to-end validation of ElevenLabs SDK client tools (designed in `docs/plans/2026-05-18-elevenlabs-dynamic-mcp-client-tools.md`, never implemented); ElevenLabs agents-API coverage of tool/agent provisioning; Pyodide for `mcp_execute`; account deletion + full-vault export format; oplog schema versioning across client updates; how far to take SW-pinned-code / reproducible-build mitigations for the code-serving caveat.
+Open questions: trial VOICE cost bounding (bd med-d5t.5 — the AI chat proxy now carries persisted per-account and global daily budgets, but a minted ElevenLabs signed URL runs browser-to-provider with no server-side lever on call duration; the choice is an operator-side agent limit or BYO-only voice); Managed-Bots empirics (per-manager bot limits, user revocation/takeover semantics, library vs raw Bot API HTTP); end-to-end validation of ElevenLabs SDK client tools (designed in `docs/plans/2026-05-18-elevenlabs-dynamic-mcp-client-tools.md`, never implemented); ElevenLabs agents-API coverage of tool/agent provisioning; account deletion + full-vault export format; oplog schema versioning across client updates; how far to take SW-pinned-code / reproducible-build mitigations for the code-serving caveat.

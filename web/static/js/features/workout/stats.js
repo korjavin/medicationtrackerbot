@@ -24,6 +24,117 @@ function setActiveWorkoutsStatsRange(range) {
     try { window.localStorage.setItem(WORKOUTS_STATS_RANGE_KEY, range); } catch (_) { /* ignore */ }
 }
 
+// Body-part split (med-s5m.3). Match logged exercise names against the vendored
+// static catalog (med-s5m.1) to derive a body_part label at read time — no
+// migration, no stored column. Matching is client-side, so in cloud mode the
+// decrypted names never leave the browser. The 913 KB asset is fetched once,
+// lazily; a failed fetch is silent (no split shown) and retried next render.
+let _exerciseBodyPartMapPromise = null; // module-state: single-flight cache for the catalog name->body_part map (med-s5m.3)
+function _loadExerciseBodyPartMap() {
+    if (!_exerciseBodyPartMapPromise) {
+        _exerciseBodyPartMapPromise = fetch('/static/data/exercises-catalog.json')
+            .then((r) => (r.ok ? r.json() : Promise.reject(new Error('catalog ' + r.status))))
+            .then((cat) => {
+                const map = new Map();
+                for (const e of (cat.exercises || [])) {
+                    const key = String(e.name || '').toLowerCase().trim();
+                    if (key && e.body_part) map.set(key, e.body_part);
+                }
+                return map;
+            })
+            .catch((err) => {
+                console.error('Error loading exercise catalog:', err);
+                _exerciseBodyPartMapPromise = null; // allow a later retry
+                return new Map();
+            });
+    }
+    return _exerciseBodyPartMapPromise;
+}
+
+// Aggregate a top-exercises list into a body-part distribution by session_count
+// (training frequency reads better than tonnage, and stays non-zero for
+// bodyweight moves). Unmatched names bucket as 'uncategorized'.
+//
+// ponytail: coverage is bounded by the source list — top_exercises is the
+// top 8 by volume, weight-bearing only (ListExerciseStats / web/domain
+// getStats). Bodyweight-heavy training is under-counted here. Upgrade path when
+// it matters: aggregate over ALL logged exercises for the period instead of the
+// top-8 volume slice. Matches the CEILING in bead med-s5m.3.
+function _computeBodyPartSplit(topExercises, bodyPartMap) {
+    const totals = new Map();
+    for (const ex of (topExercises || [])) {
+        const key = String(ex.exercise_name || '').toLowerCase().trim();
+        const bp = bodyPartMap.get(key) || 'uncategorized';
+        const count = ex.session_count || 0;
+        totals.set(bp, (totals.get(bp) || 0) + count);
+    }
+    return Array.from(totals.entries())
+        .filter(([, count]) => count > 0)
+        .map(([body_part, count]) => ({ body_part, count }))
+        .sort((a, b) => b.count - a.count);
+}
+
+const _BODY_PART_LABELS = {
+    'upper legs': 'Upper legs', 'lower legs': 'Lower legs', 'upper arms': 'Upper arms',
+    'lower arms': 'Lower arms', 'back': 'Back', 'chest': 'Chest', 'shoulders': 'Shoulders',
+    'waist': 'Waist', 'neck': 'Neck', 'cardio': 'Cardio', 'uncategorized': 'Uncategorized'
+};
+function _bodyPartLabel(bp) {
+    return _BODY_PART_LABELS[bp] || (bp.charAt(0).toUpperCase() + bp.slice(1));
+}
+
+// Append the body-part split section to an already-built stats root. Async
+// because it awaits the catalog; fire-and-forget from _renderWorkoutStats.
+async function _renderBodyPartSplit(root, topExercises) {
+    if (!topExercises || topExercises.length === 0) return;
+    const map = await _loadExerciseBodyPartMap();
+    if (map.size === 0) return; // catalog unavailable — skip rather than show an all-uncategorized split
+    const split = _computeBodyPartSplit(topExercises, map);
+    if (split.length === 0) return;
+
+    const heading = document.createElement('div');
+    heading.className = 'wg-section-label wg-workouts-stats__section-label';
+    heading.textContent = 'Body-part Split · Sessions';
+    root.appendChild(heading);
+
+    const maxCount = split[0].count || 1;
+    const list = document.createElement('ul');
+    list.className = 'wg-workouts-stats__top-exercises wg-workouts-stats__body-split';
+
+    split.forEach(({ body_part, count }) => {
+        const pct = maxCount > 0 ? (count / maxCount * 100).toFixed(1) : 0;
+        const row = document.createElement('li');
+        row.className = 'wg-card wg-workouts-stats__top-row';
+
+        const head = document.createElement('div');
+        head.className = 'wg-workouts-stats__top-row-head';
+
+        const name = document.createElement('span');
+        name.className = 'wg-workouts-stats__top-row-name';
+        name.textContent = _bodyPartLabel(body_part);
+
+        const value = document.createElement('span');
+        value.className = 'wg-workouts-stats__top-row-volume';
+        value.textContent = count === 1 ? '1 session' : `${count} sessions`;
+
+        head.appendChild(name);
+        head.appendChild(value);
+
+        const bar = document.createElement('div');
+        bar.className = 'wg-workouts-stats__top-row-bar';
+        const fill = document.createElement('div');
+        fill.className = 'wg-workouts-stats__top-row-bar-fill';
+        fill.style.setProperty('--fill-pct', `${pct}%`);
+        bar.appendChild(fill);
+
+        row.appendChild(head);
+        row.appendChild(bar);
+        list.appendChild(row);
+    });
+
+    root.appendChild(list);
+}
+
 async function loadWorkoutStatsTab() {
     const container = document.getElementById('workout-stats-display');
     await window.DataStore.loadSWR({
@@ -235,6 +346,10 @@ function _renderWorkoutStats(container, stats) {
 
         root.appendChild(list);
     }
+
+    // Body-part split (med-s5m.3) — appended asynchronously once the static
+    // catalog resolves; root is already mounted by then.
+    _renderBodyPartSplit(root, stats.top_exercises);
 
     container.replaceChildren(root);
 }

@@ -70,4 +70,78 @@ describe('features/workout/library.js — split-file integration', () => {
 
     expect(window.WorkoutEdit.editingLibraryItemId).toBeNull();
   });
+
+  // med-s5m.2 — canonical exercise-name suggestions from the static catalog.
+  describe('catalog autocomplete (med-s5m.2)', () => {
+    const CATALOG = {
+      exercises: [
+        { name: 'Barbell bench press' },
+        { name: '3/4 sit-up' },
+        { name: '' }, // dropped (empty)
+      ],
+    };
+
+    function stubCatalogFetch(window, response) {
+      const fetchSpy = vi.fn(async (url) => {
+        if (String(url).includes('/static/data/exercises-catalog.json')) return response;
+        return { ok: true, status: 200, json: async () => ({}) };
+      });
+      window.fetch = fetchSpy;
+      return fetchSpy;
+    }
+
+    it('opening the add-exercise modal fills the catalog datalist with canonical names', async () => {
+      const { window, document } = env;
+      const fetchSpy = stubCatalogFetch(window, { ok: true, status: 200, json: async () => CATALOG });
+
+      window.showExerciseLibraryModal();
+      await window.WorkoutLibrary.ensureCatalogSuggestions(document.getElementById('exercise-catalog-datalist'));
+
+      const values = Array.from(document.getElementById('exercise-catalog-datalist').options).map((o) => o.value);
+      expect(values).toContain('Barbell bench press');
+      expect(values).toContain('3/4 sit-up');
+      expect(values).not.toContain(''); // empty names filtered out
+      expect(fetchSpy).toHaveBeenCalled();
+    });
+
+    it('fetches the 913 KB asset only once across repeated opens', async () => {
+      const { window, document } = env;
+      const fetchSpy = stubCatalogFetch(window, { ok: true, status: 200, json: async () => CATALOG });
+      const datalist = document.getElementById('exercise-catalog-datalist');
+
+      await window.WorkoutLibrary.ensureCatalogSuggestions(datalist);
+      await window.WorkoutLibrary.ensureCatalogSuggestions(datalist);
+
+      const catalogFetches = fetchSpy.mock.calls.filter((c) => String(c[0]).includes('exercises-catalog.json'));
+      expect(catalogFetches).toHaveLength(1);
+    });
+
+    it('does not add duplicate options when a name is already present', async () => {
+      const { window, document } = env;
+      stubCatalogFetch(window, { ok: true, status: 200, json: async () => CATALOG });
+      const datalist = document.getElementById('exercise-catalog-datalist');
+      const pre = document.createElement('option');
+      pre.value = 'Barbell bench press';
+      datalist.appendChild(pre);
+
+      await window.WorkoutLibrary.ensureCatalogSuggestions(datalist);
+
+      const count = Array.from(datalist.options).filter((o) => o.value === 'Barbell bench press').length;
+      expect(count).toBe(1);
+    });
+
+    it('a failed catalog fetch is silent and leaves the name field freely typable', async () => {
+      const { window, document } = env;
+      stubCatalogFetch(window, { ok: false, status: 500, json: async () => ({}) });
+      const datalist = document.getElementById('exercise-catalog-datalist');
+
+      await window.WorkoutLibrary.ensureCatalogSuggestions(datalist);
+
+      expect(Array.from(datalist.options)).toHaveLength(0);
+      // Free typing is unaffected: the input is a plain text field, datalist is suggest-only.
+      const input = document.getElementById('exercise-library-name');
+      input.value = 'My totally custom lift';
+      expect(input.value).toBe('My totally custom lift');
+    });
+  });
 });

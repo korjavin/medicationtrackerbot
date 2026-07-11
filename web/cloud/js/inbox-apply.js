@@ -50,6 +50,46 @@ export const VITALS_IMPORT = 'vitals_import';
 // accumulate one per message; add a sweep only if that ever matters.
 const TG_AGENT_MARKER_TYPE = 'tgagentrun';
 
+// A single user-scoped freeform note the free-text agent reads into its prompt
+// and appends durable phrasing mappings to (bd med-vcv.3). Singleton vault
+// record, same shape as reminderdeliverypref. Cap on char count (not bytes) to
+// stay browser-global-free — no TextEncoder/Buffer; oldest whole lines drop
+// first. ponytail: bounded text note, no compaction/embeddings — revisit only
+// if 4096 chars ever proves too tight.
+const TG_PREFS_TYPE = 'tgprefs';
+const TG_PREFS_RECORD_ID = 'tgprefs';
+const TG_PREFS_MAX_CHARS = 4096;
+
+async function readTGPrefs(records) {
+  const all = await records.list(TG_PREFS_TYPE);
+  const rec = all.find((r) => r.recordId === TG_PREFS_RECORD_ID && !r.deleted);
+  return (rec && rec.note) || '';
+}
+
+async function appendTGPref(records, line, now) {
+  const clean = String(line || '').replace(/[\r\n]+/g, ' ').trim();
+  if (!clean) return;
+  const prev = await readTGPrefs(records);
+  let note = prev ? `${prev}\n${clean}` : clean;
+  // Drop WHOLE oldest lines from the front until under the cap.
+  while (note.length > TG_PREFS_MAX_CHARS) {
+    const nl = note.indexOf('\n');
+    if (nl < 0) { note = note.slice(note.length - TG_PREFS_MAX_CHARS); break; }
+    note = note.slice(nl + 1);
+  }
+  await records.put(TG_PREFS_TYPE, { recordId: TG_PREFS_RECORD_ID, clientTs: now(), deleted: false, note });
+}
+
+// makeTGPrefsPort is the `prefs` port createTGAgent consumes: get() reads the
+// note into the prompt, append(line) records a durable phrasing mapping. One
+// factory so the applier and its integration test share the real vault boundary.
+export function makeTGPrefsPort(records, now) {
+  return {
+    get: () => readTGPrefs(records),
+    append: (line) => appendTGPref(records, line, now),
+  };
+}
+
 // Telegram's editMessageText caps at 4096; the relay's EditReply rejects >1000
 // runes (and empty). Keep a margin so an agent answer never trips it.
 const MAX_REPLY_RUNES = 900;
@@ -390,7 +430,7 @@ async function confirmDueIntakes({ intake, records, atMs, now }) {
 // decrypted event in, a domain write out. Unknown kinds are ignored rather than
 // thrown — a newer relay may queue kinds this client predates, and stalling the
 // whole drain on one of them would block the events it does understand.
-export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, foodAI: foodAIOverride, agent: agentOverride } = {}) {
+export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, foodAI: foodAIOverride, agent: agentOverride, prefs: prefsOverride } = {}) {
   // A Telegram-drained /bp must repaint an open BP screen (med-d5t.10), so this
   // is explicitly external even though that is already the default.
   const records = recordsOverride || recordsPort(ctx, ORIGIN_EXTERNAL);
@@ -408,6 +448,11 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     return createFoodAIDomain({ aiClient: createAIClient({ settingsDomain: settings }), foodDomain: food, now });
   })();
 
+  // The self-refining note port: the agent reads it into its prompt each turn
+  // and appends durable phrasing mappings via remember_preference (med-vcv.3).
+  // Tests inject prefsOverride to stub the vault boundary.
+  const prefs = prefsOverride || makeTGPrefsPort(records, now);
+
   // The free-text agent routes through the SAME apishim router + MCP responder
   // the cloud UI and MCP connector use, so a message-driven write is one code
   // path with the app (med-vcv.2). Tests inject agentOverride to stub the loop.
@@ -416,7 +461,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     const router = createApiRouter(ctx, { records, now, timeZone, origin: ORIGIN_EXTERNAL });
     const dispatcher = createDispatcher({ router, now });
     const aiClient = createAIClient({ settingsDomain: settings });
-    return createTGAgent({ chat: (a) => aiClient.chat(a), dispatcher });
+    return createTGAgent({ chat: (a) => aiClient.chat(a), dispatcher, prefs });
   })();
 
   return async function apply(event, eventId) {

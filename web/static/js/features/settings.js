@@ -469,13 +469,22 @@ function bindDeleteAccount() {
     const errorEl = document.getElementById('delete-account-error');
     if (!modal || !openBtn || !confirmBtn) return;
 
-    const closeModal = () => { modal.classList.add('hidden'); };
+    // Prefer the <mt-modal>.open()/.close() methods so the `inert` attribute
+    // the component's connectedCallback set (while `.hidden` was present) is
+    // cleared on open and restored on close. A raw classList toggle leaves the
+    // subtree inert, so the Cancel button never receives the click (med-hzy).
+    // Fall back to classList for any shell that mounts without the element.
+    const closeModal = () => {
+        if (typeof modal.close === 'function') modal.close();
+        else modal.classList.add('hidden');
+    };
     openBtn.addEventListener('click', () => {
         if (errorEl) errorEl.textContent = '';
         if (exportStatus) exportStatus.textContent = '';
         if (confirmInput) confirmInput.value = '';
         confirmBtn.disabled = true;
-        modal.classList.remove('hidden');
+        if (typeof modal.open === 'function') modal.open();
+        else modal.classList.remove('hidden');
     });
     cancelBtn?.addEventListener('click', closeModal);
 
