@@ -48,9 +48,9 @@ Closes med-spp as a byproduct (the Exercises tab / library becomes the canonical
 - [x] `go build ./...` and confirm migration runs on a fresh DB (existing migration test / `go test ./internal/store/...`)
 
 ### Task 2: Go store — write FK on create/update
-- [ ] `CreateExerciseInVariant` (`repo.go:359-406`): after the `ON CONFLICT DO NOTHING` library upsert, `SELECT id FROM exercise_library WHERE user_id=? AND name=?` and set `exercise_library_id` on the just-inserted `workout_exercises` row (all inside the existing `WithTx`)
-- [ ] `UpdateExercise` (`repo.go:464-471`): when the name changes, run the same upsert-by-name into `exercise_library` for the owning user and set `exercise_library_id` alongside `exercise_name`
-- [ ] add `ExerciseLibraryID *int64` (nullable) to the exercise row struct returned by the store
+- [x] `CreateExerciseInVariant` (`repo.go:359-406`): after the `ON CONFLICT DO NOTHING` library upsert, `SELECT id FROM exercise_library WHERE user_id=? AND name=?` and set `exercise_library_id` on the just-inserted `workout_exercises` row (all inside the existing `WithTx`)
+- [x] `UpdateExercise` (`repo.go:464-471`): when the name changes, run the same upsert-by-name into `exercise_library` for the owning user and set `exercise_library_id` alongside `exercise_name`
+- [x] add `ExerciseLibraryID *int64` (nullable) to the exercise row struct returned by the store
 
 ### Task 3: Go store — resolve canonical name on read
 - [ ] `ListExercisesByVariant` (`repo.go:408-437`) and `GetExercise` (`repo.go:439-462`): `LEFT JOIN exercise_library el ON el.id = workout_exercises.exercise_library_id`, select `COALESCE(el.name, workout_exercises.exercise_name) AS exercise_name`, and also return `exercise_library_id`
