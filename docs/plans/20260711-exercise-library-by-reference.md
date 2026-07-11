@@ -41,11 +41,11 @@ Closes med-spp as a byproduct (the Exercises tab / library becomes the canonical
 ## Implementation Steps
 
 ### Task 1: Migration 076 — add `exercise_library_id` FK + backfill
-- [ ] create `internal/store/migrations/076_workout_exercise_library_ref.sql` (goose Up/Down)
-- [ ] Up: `ALTER TABLE workout_exercises ADD COLUMN exercise_library_id INTEGER REFERENCES exercise_library(id)` (nullable; SQLite adds nullable columns without table rebuild)
-- [ ] Up backfill: for each `workout_exercises` row, ensure a library row exists for its owner+name (`INSERT INTO exercise_library(user_id,name,default_sets,default_reps_min,default_reps_max,default_weight_kg) SELECT ... ON CONFLICT(user_id,name) DO NOTHING`, owner resolved via `variant → group.user_id`), then `UPDATE workout_exercises SET exercise_library_id = (SELECT el.id FROM exercise_library el JOIN workout_variants wv ON ... JOIN workout_groups wg ON ... WHERE el.user_id=wg.user_id AND el.name=workout_exercises.exercise_name)`
-- [ ] Down: `DROP` the column (SQLite: recreate table without it, or use the project's standard down pattern for column drops — check a prior migration that drops a column)
-- [ ] `go build ./...` and confirm migration runs on a fresh DB (existing migration test / `go test ./internal/store/...`)
+- [x] create `internal/store/migrations/076_workout_exercise_library_ref.sql` (goose Up/Down)
+- [x] Up: `ALTER TABLE workout_exercises ADD COLUMN exercise_library_id INTEGER REFERENCES exercise_library(id)` (nullable; SQLite adds nullable columns without table rebuild)
+- [x] Up backfill: for each `workout_exercises` row, ensure a library row exists for its owner+name (`INSERT INTO exercise_library(user_id,name,default_sets,default_reps_min,default_reps_max,default_weight_kg) SELECT ... ON CONFLICT(user_id,name) DO NOTHING`, owner resolved via `variant → group.user_id`), then `UPDATE workout_exercises SET exercise_library_id = (SELECT el.id FROM exercise_library el JOIN workout_variants wv ON ... JOIN workout_groups wg ON ... WHERE el.user_id=wg.user_id AND el.name=workout_exercises.exercise_name)`
+- [x] Down: `DROP` the column (verified modernc SQLite 3.50.4 allows `ALTER TABLE ... DROP COLUMN` even with the inline FK, since FK enforcement is off — no table rebuild needed)
+- [x] `go build ./...` and confirm migration runs on a fresh DB (existing migration test / `go test ./internal/store/...`)
 
 ### Task 2: Go store — write FK on create/update
 - [ ] `CreateExerciseInVariant` (`repo.go:359-406`): after the `ON CONFLICT DO NOTHING` library upsert, `SELECT id FROM exercise_library WHERE user_id=? AND name=?` and set `exercise_library_id` on the just-inserted `workout_exercises` row (all inside the existing `WithTx`)
