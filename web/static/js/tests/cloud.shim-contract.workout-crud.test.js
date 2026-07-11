@@ -129,6 +129,41 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
         expect(after.filter((i) => i.name === 'Bench Press')).toHaveLength(1);
     });
 
+    // med-prk.2 cross-mode contract-parity test (shim half; Go half is
+    // TestExerciseLibraryReference_CreateDedupeRename). Create "Bench" twice
+    // (dedupe to one library row), rename the library row, and assert the plan
+    // reads follow the rename through exercise_library_id.
+    it('renaming a library exercise renames it in plans (reference by id)', async () => {
+        const { window } = env;
+        const group = await window.apiCall('/api/workout/groups/create', 'POST', { name: 'Push' });
+        const varA = await window.apiCall('/api/workout/variants/create', 'POST', { group_id: group.id, name: 'A' });
+        const varB = await window.apiCall('/api/workout/variants/create', 'POST', { group_id: group.id, name: 'B' });
+
+        await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: varA.id, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8
+        });
+        await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: varB.id, exercise_name: 'Bench', target_sets: 5, target_reps_min: 3
+        });
+
+        // (a) exactly one library row for the duplicated name.
+        const lib = await window.apiCall('/api/workout/exercise-library');
+        const bench = lib.filter((i) => i.name === 'Bench');
+        expect(bench).toHaveLength(1);
+
+        // (b) rename it → both plans' reads follow through the FK.
+        await window.apiCall(`/api/workout/exercise-library/update?id=${bench[0].id}`, 'PUT', {
+            name: 'Bench Press', default_sets: 3, default_reps_min: 8
+        });
+        for (const v of [varA.id, varB.id]) {
+            const exs = await window.apiCall(`/api/workout/exercises?variant_id=${v}`);
+            expect(exs).toHaveLength(1);
+            expect(exs[0].exercise_name).toBe('Bench Press');
+        }
+        const after = await window.apiCall('/api/workout/exercise-library');
+        expect(after.filter((i) => i.name === 'Bench Press')).toHaveLength(1);
+    });
+
     it('exercise library create/list/update/delete round-trips with name-uniqueness enforced', async () => {
         const { window } = env;
         const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', {

@@ -209,6 +209,36 @@ window.MedTrackerCloudReady = (async function boot() {
             // finish — otherwise the app could read stale cache mid-clear.
             await window.DataStore.invalidateTags(['bp', 'weight', 'medications', 'history', 'workout']);
         }
+        // med-prk.2: one-time backfill linking pre-migration plan exercises to
+        // their exercise_library row, so a later library rename shows through in
+        // plans/history (the JS mirror of migration 076). Idempotent by
+        // construction — a rerun finds zero ref-less exercises and no-ops, so no
+        // separate "has run" flag is needed. Reuses the normal exercise-update
+        // path (shimCall), which dedups by name into the library and sets
+        // exercise_library_id exactly like createExercise; per-record writes
+        // (not a full-vault snapshot) keep this additive backfill from dropping
+        // tombstones or racing bootstrap. Best-effort; never blocks boot.
+        try {
+            const { readAllLiveRecords } = await import('/js/sync.js');
+            const refless = (await readAllLiveRecords(ctx)).filter((r) => (
+                r.recordType === 'workoutexercise'
+                && (r.exercise_name || '').trim()
+                && r.exercise_library_id == null
+            ));
+            for (const ex of refless) {
+                await shimCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+                    exercise_name: ex.exercise_name,
+                    target_sets: ex.target_sets,
+                    target_reps_min: ex.target_reps_min,
+                    target_reps_max: ex.target_reps_max,
+                    target_weight_kg: ex.target_weight_kg,
+                    order_index: ex.order_index,
+                });
+            }
+            if (refless.length) console.info(`[cloud-boot] linked ${refless.length} plan exercise(s) to the library`);
+        } catch (e) {
+            console.error('[cloud-boot] exercise-library backfill failed', e);
+        }
         // Warm workout_next the same way applyBootstrapPayload warms bp/weight,
         // so Today's workout card paints instantly instead of waiting on
         // next-card.js's own fetch. No res.workout bootstrap key exists on
