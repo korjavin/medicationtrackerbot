@@ -68,19 +68,19 @@ Verified on local master @5e2eca7c (after ff to origin/master, which merged med-
 ## Implementation Steps
 
 ### Task 1: Add tgprefs vault helpers + a prefs port in the applier
-- [ ] In `web/cloud/js/inbox-apply.js`, add `const TG_PREFS_TYPE = 'tgprefs'`, a recordId
+- [x] In `web/cloud/js/inbox-apply.js`, add `const TG_PREFS_TYPE = 'tgprefs'`, a recordId
       constant (`'tgprefs'`), and a hard cap `const TG_PREFS_MAX_CHARS = 4096` (a few KB).
-- [ ] Add `readTGPrefs(records)` returning the current note string (or `''`): `records.list(TG_PREFS_TYPE)`
+- [x] Add `readTGPrefs(records)` returning the current note string (or `''`): `records.list(TG_PREFS_TYPE)`
       then the same `findSingleton` shape used in `web/domain/reminders.js`; read the `.note` field.
-- [ ] Add `appendTGPref(records, line, now)`: normalize `line` to a single trimmed line (strip
+- [x] Add `appendTGPref(records, line, now)`: normalize `line` to a single trimmed line (strip
       newlines, ignore empty), append it as a new line to the existing note, then enforce the cap by
       dropping WHOLE oldest lines from the front until `note.length <= TG_PREFS_MAX_CHARS`. Cap on
       string length (char count) to stay browser-global-free — no TextEncoder/Buffer. Persist via
       `records.put(TG_PREFS_TYPE, { recordId:'tgprefs', clientTs: now(), deleted:false, note })`.
-- [ ] In `createInboxApplier`, build a `prefs` port `{ get: () => readTGPrefs(records),
+- [x] In `createInboxApplier`, build a `prefs` port `{ get: () => readTGPrefs(records),
       append: (line) => appendTGPref(records, line, now) }` with a `prefs`/`prefsOverride`
       injection point (same pattern as `agentOverride`, `foodAIOverride`) so tests can stub it.
-- [ ] Pass the `prefs` port into the `createTGAgent({ chat, dispatcher, prefs })` factory call.
+- [x] Pass the `prefs` port into the `createTGAgent({ chat, dispatcher, prefs })` factory call.
 
 ### Task 2: READ — inject the tgprefs note into the agent system prompt
 - [ ] In `web/cloud/js/tg-agent.js`, accept `prefs` in `createTGAgent({ chat, dispatcher, prefs, maxRounds })`.
