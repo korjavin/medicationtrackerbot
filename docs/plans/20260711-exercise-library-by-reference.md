@@ -61,9 +61,9 @@ Closes med-spp as a byproduct (the Exercises tab / library becomes the canonical
 - [x] updated the `workouts.exercises.list` registry op's `ResponseExample` + `ResponseSummary` to include `exercise_library_id`, ran `go run ./cmd/genmcpcatalog` (regenerated `web/cloud/js/mcp-catalog.generated.js`); drift + coverage tests pass
 
 ### Task 5: Cloud — mirror reference + resolve-on-read in `web/domain/workout.js`
-- [ ] `promoteExerciseToLibrary` (`:482-503`): return the (existing or new) `exerciselibrary` record's numeric id
-- [ ] `createExercise` (`:455-477`) and `updateExercise` (`:511-524`): store `exercise_library_id` on the `workoutexercise` record (upsert-by-name, dedupe via `assertNoDuplicateLibraryName`/the non-deleted-name lookup at `:486`)
-- [ ] `toExerciseResponse` (`:162-174`): resolve `exercise_name` from the referenced `exerciselibrary` record when the id is set (fallback to stored name), and include `exercise_library_id` — matching the Go JSON shape exactly
+- [x] `promoteExerciseToLibrary`: return the (existing or new) `exerciselibrary` record's numeric id
+- [x] `createExercise` and `updateExercise`: store `exercise_library_id` on the `workoutexercise` record (upsert-by-name, dedupe via the non-deleted-name lookup)
+- [x] `toExerciseResponse`: resolve `exercise_name` from the referenced `exerciselibrary` record when the id is set (fallback to stored name, via new `libraryById` map — the JS side of the Go LEFT JOIN), and include `exercise_library_id` (`omitempty`-matching the Go JSON shape exactly)
 
 ### Task 6: Cloud — one-time vault migration + the contract-parity test
 - [ ] add a one-time, idempotent boot migration (after unlock, `web/cloud/js/cloud-boot.js` near `:96`) that backfills `exerciselibrary` records from distinct `workoutexercise` names and sets `exercise_library_id` refs, landing via the `importAll` snapshot shape (`markForceSnapshotPending → dropPendingForTypes(['workoutexercise','exerciselibrary']) → replaceAllRecords → forceSnapshot`); guard so it runs at most once (skip if every non-deleted `workoutexercise` already has a ref)
