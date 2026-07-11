@@ -91,11 +91,18 @@ The maintainer's blocker list **is the acceptance criteria** — every item must
 - Note: Go trend seeding replicates `handleCreateWeight` (GetLastLog → previous trend → CalculateWeightTrend → CreateLog), since `CreateLog` itself does not compute the EWMA — the handler does. Trends compare bit-exact (identical IEEE-754 op order both sides).
 
 ### Task 5: Benchmarks — cold-start, per-call, memory, pooled-vs-per-request
-- [ ] Create `internal/gojaspike/benchmark_test.go`: `BenchmarkColdStart` measures `newVM` + module eval per iteration (fresh VM each time).
-- [ ] `BenchmarkPerCallGoja` (reused VM: one create/list per iteration) and `BenchmarkPerCallNative` (the equivalent Go store call) for a like-for-like latency comparison.
-- [ ] `BenchmarkPerRequestVM` (new VM per iteration incl. create) to contrast one-VM-per-request against the pooled/reused path.
-- [ ] Create `internal/gojaspike/benchmark_mem_test.go`: measure per-VM heap via `runtime.ReadMemStats` (GC, snapshot, allocate N VMs, snapshot) and report bytes/VM; comment the measurement method and its noise caveat.
-- [ ] Confirm `go test -run x -bench . ./internal/gojaspike/` runs cleanly; capture the actual numbers (they feed Task 6).
+- [x] Create `internal/gojaspike/benchmark_test.go`: `BenchmarkColdStart` measures `newVM` + module eval per iteration (fresh VM each time).
+- [x] `BenchmarkPerCallGoja` (reused VM: one create/list per iteration) and `BenchmarkPerCallNative` (the equivalent Go store call) for a like-for-like latency comparison.
+- [x] `BenchmarkPerRequestVM` (new VM per iteration incl. create) to contrast one-VM-per-request against the pooled/reused path.
+- [x] Create `internal/gojaspike/benchmark_mem_test.go`: measure per-VM heap via `runtime.ReadMemStats` (GC, snapshot, allocate N VMs, snapshot) and report bytes/VM; comment the measurement method and its noise caveat.
+- [x] Confirm `go test -run x -bench . ./internal/gojaspike/` runs cleanly; capture the actual numbers (they feed Task 6).
+
+**Measured (Apple M4, darwin/arm64, `CGO_ENABLED=0`, in-memory SQLite, fixed clock/tz — feed Task 6):**
+- `BenchmarkColdStart`     ~340 µs/op, 363 KB, 5019 allocs (fresh VM: runtime + Intl shim + module read/strip/eval + factory; module source re-read each iter).
+- `BenchmarkPerCallGoja`   ~38 µs/op, 15 KB, 252 allocs (reused/warm VM, one create).
+- `BenchmarkPerCallNative` ~17 µs/op, 720 B, 12 allocs (native `CreateReading`) → goja per-call ≈ 2.2× native latency.
+- `BenchmarkPerRequestVM`  ~382 µs/op (fresh VM + create) → ~10× the warm per-call: pooling matters.
+- `BenchmarkVMMemory`      ~80 KB heap/VM (100-VM batch, GC-bracketed; noisy — order-of-magnitude only).
 
 ### Task 6: Document measured findings + defensible go/no-go in docs/cloud-mode.md
 - [ ] Under "The client: porting the domain layer", add a "Goja spike (med-07y.1) — measured findings" subsection.
