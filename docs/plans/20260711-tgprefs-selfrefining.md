@@ -122,12 +122,12 @@ boundary (readTGPrefs/appendTGPref) rather than a copy. New describe block added
 `web/cloud/js/tests/inbox-apply.test.js`; full suite green (302 files, 3360 passed).
 
 ### Task 5: Verify acceptance criteria
-- [ ] Verify the note is injected into the agent prompt on every turn when present (Task 2).
-- [ ] Verify the agent can append a durable one-line preference, size-capped oldest-out (Tasks 1+3).
-- [ ] Verify re-drain idempotency holds with no second gate added (Task 4c).
-- [ ] Confirm `web/cloud/js/tg-agent.js` still has no browser globals.
-- [ ] Run the full `pnpm test` suite — must pass. Run `go build ./...` (no Go changed, sanity only).
-- [ ] Run whatever JS lint/architecture checks the repo runs under `pnpm test` — clean.
+- [x] Verify the note is injected into the agent prompt on every turn when present (Task 2). Covered by the INJECT integration case (green).
+- [x] Verify the agent can append a durable one-line preference, size-capped oldest-out (Tasks 1+3). Covered by the APPEND+CAP integration case (green).
+- [x] Verify re-drain idempotency holds with no second gate added (Task 4c). Covered by the IDEMPOTENCY integration case (green).
+- [x] Confirm `web/cloud/js/tg-agent.js` still has no browser globals. Grep for window/document/localStorage/navigator/fetch — none.
+- [x] Run the full `pnpm test` suite — must pass (302 files, 3360 passed, 29 skipped). Run `go build ./...` — clean (no Go changed).
+- [x] Run whatever JS lint/architecture checks the repo runs under `pnpm test` — clean (architecture.domain-purity, cloud-tokens, etc. all green).
 
 ## Technical Details
 - **Record shape** (`tgprefs`): `{ recordId: 'tgprefs', note: string, clientTs, deleted:false }`.
