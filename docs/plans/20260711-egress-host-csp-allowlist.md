@@ -111,9 +111,9 @@ close. Also: the operator learns *which* provider hostname each account uses
 - [x] update the `setSecurityHeaders` comment: describe the egress-allowlist model and the honest residual (the current "sandboxing deferred" note is obsolete)
 
 ### Task 4: Client registers hostnames after unlock and on provider change
-- [ ] in `apishim.js` `installApiShim` (post-unlock), read `readIntegrationsUnmasked()`, extract hostnames from `openai.url` / `openai.vision_url` / `food.url` (hostname only — never keys), and `PUT /api/egress-hosts`
-- [ ] on the Settings integrations save path, re-register the hosts and surface a "reload to apply new provider" hint (the scoped CSP updates on the next document load)
-- [ ] confirm no provider secret (api_key) is ever sent to the endpoint — only hostnames
+- [x] in `apishim.js` `installApiShim` (post-unlock), read `readIntegrationsUnmasked()`, extract hostnames from `openai.url` / `openai.vision_url` / `food.url` (hostname only — never keys), and `PUT /api/egress-hosts` (new pure module `web/cloud/js/egress-hosts.js`: `hostsFromIntegrations` + best-effort `registerEgressHosts`; fired once from `installApiShim`)
+- [x] on the Settings integrations save path, re-register the hosts and surface a "reload to apply new provider" hint (the scoped CSP updates on the next document load) — `installApiShim` now wraps the router as `offlineAwareApiCall`; a PATCH `/api/settings/integrations` re-registers and, only when the host set actually changed, shows a `SyncManager.showToast` reload hint
+- [x] confirm no provider secret (api_key) is ever sent to the endpoint — only hostnames (`hostsFromIntegrations` reads only `*.url` fields; test asserts the PUT body is `{hosts:[…]}` and never contains the key)
 
 ### Task 5: Extend TestRouter_HostVariants + cloudstore storage test
 - [ ] `TestRouter_HostVariants`: add a case with egress hosts stored — assert the app-page `connect-src` contains `'self'`, each `https://<host>`, `https://api.elevenlabs.io`, `wss://api.elevenlabs.io`, and NO bare `https:`/`wss:` token (extend the med-7e7.1 no-`//` directive helper to `connect-src` where applicable); add a case with no hosts (still no bare `https:`)
