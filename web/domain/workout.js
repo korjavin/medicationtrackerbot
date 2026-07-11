@@ -487,7 +487,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const libId = await promoteExerciseToLibrary(record);
     if (libId) record.exercise_library_id = libId;
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, record);
-    return toExerciseResponse(record, await libraryById());
+    // On create the resolved name is just record.exercise_name (the name we
+    // promoted from), so skip the extra libraryById() scan and match Go, which
+    // returns the raw (untrimmed) name in both columns.
+    return toExerciseResponse(record);
   }
 
   // libraryById maps id → non-deleted library record, for resolving the
