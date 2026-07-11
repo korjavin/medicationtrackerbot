@@ -166,6 +166,8 @@ func TestBPCategoryParity(t *testing.T) {
 		{140, 85},  // High BP Stage 2 (sys >= 140)
 		{130, 90},  // High BP Stage 2 (dia >= 90)
 		{150, 100}, // High BP Stage 2
+		{180, 100}, // High BP Stage 2 (sys == 180, NOT crisis: guards the > boundary)
+		{150, 120}, // High BP Stage 2 (dia == 120, NOT crisis: guards the > boundary)
 		{181, 100}, // Hypertensive Crisis (sys > 180)
 		{150, 121}, // Hypertensive Crisis (dia > 120)
 		{200, 130}, // Hypertensive Crisis
