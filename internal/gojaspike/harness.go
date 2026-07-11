@@ -83,8 +83,7 @@ func injectIntlShim(vm *goja.Runtime) error {
 // vmHarness holds a runtime with a single domain module loaded and its factory
 // invoked, so tests can drive `domain.create(...)` etc. through awaitCall.
 type vmHarness struct {
-	vm   *goja.Runtime
-	port *RecordsPort
+	vm *goja.Runtime
 }
 
 // newVM loads the module at path, injects the records/now/timeZone ports, and
@@ -131,7 +130,7 @@ func newVM(db *sql.DB, path, factoryName string, nowMs int64, tz string) (*vmHar
 		return nil, fmt.Errorf("construct domain via %s: %w", factoryName, err)
 	}
 
-	return &vmHarness{vm: vm, port: port}, nil
+	return &vmHarness{vm: vm}, nil
 }
 
 // awaitCall runs jsExpr (which must evaluate to a Promise), then reads its
