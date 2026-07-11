@@ -163,4 +163,55 @@ describe('features/workout/groups.js — split-file integration', () => {
     expect(flatText).toContain('Squat');
     expect(flatText).not.toMatch(/Variant|Main|\bDay\b/);
   });
+
+  // med-prk.3 Task 4 — rotation off-switch guard. Turning "Rotate through days"
+  // off is only safe when the plan has at most one Day; with more, collapsing
+  // to a flat list would strand the extra Days' exercises.
+  it('rotation off-guard: >1 Day blocks the toggle, 1 Day allows collapse', async () => {
+    const { window, document } = env;
+    let variantList = [];
+    window.apiCall = vi.fn(async (url) => {
+      if (url.startsWith('/api/workout/variants?group_id=')) return variantList;
+      if (url === '/api/workout/exercise-library') return [];
+      if (url.startsWith('/api/workout/exercises?variant_id=')) return [];
+      return null;
+    });
+    window.Telegram.WebApp.showAlert = vi.fn();
+    window.WorkoutEdit.editingGroupId = 5;
+
+    // Two Days: unchecking rotation must be reverted with an alert.
+    variantList = [{ id: 1, group_id: 5, name: 'A' }, { id: 2, group_id: 5, name: 'B' }];
+    document.getElementById('workout-group-rotating').checked = false;
+    await window.toggleRotatingFields();
+    expect(document.getElementById('workout-group-rotating').checked).toBe(true);
+    expect(document.getElementById('workout-variants-section').style.display).toBe('block');
+    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
+
+    // One Day: collapse is allowed — no alert, flat section shown.
+    window.Telegram.WebApp.showAlert.mockClear();
+    variantList = [{ id: 1, group_id: 5, name: 'Main' }];
+    document.getElementById('workout-group-rotating').checked = false;
+    await window.toggleRotatingFields();
+    expect(document.getElementById('workout-group-rotating').checked).toBe(false);
+    expect(document.getElementById('workout-group-flat-exercises-section').style.display).toBe('block');
+    expect(window.Telegram.WebApp.showAlert).not.toHaveBeenCalled();
+  });
+
+  // A failed Day read (offline/5xx → apiCall null) must not fall open and
+  // collapse a possibly-multi-Day plan.
+  it('rotation off-guard: failed Day read keeps rotation on and bails', async () => {
+    const { window, document } = env;
+    window.apiCall = vi.fn(async () => null); // simulate offline/5xx everywhere
+    window.Telegram.WebApp.showAlert = vi.fn();
+    window.WorkoutEdit.editingGroupId = 7;
+
+    document.getElementById('workout-group-rotating').checked = false;
+    await window.toggleRotatingFields();
+
+    expect(document.getElementById('workout-group-rotating').checked).toBe(true);
+    expect(document.getElementById('workout-variants-section').style.display).toBe('block');
+    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
+    // Must not have attempted to create a "Main" variant.
+    expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/variants/create')).toBe(false);
+  });
 });

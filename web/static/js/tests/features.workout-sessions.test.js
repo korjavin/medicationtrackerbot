@@ -226,6 +226,25 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(library.map(i => i.name)).toContain('Zercher Squat');
   });
 
+  // med-prk.3 Task 5 — the shared picker now surfaces catalog-only names in
+  // the session datalist. Those options carry no dataset.id; selecting one must
+  // leave the hidden id empty so save-time resolution creates/matches a library
+  // id, rather than posting exercise_id "undefined"/NaN.
+  it('onSessionExerciseSelect leaves the hidden id empty for a catalog-only option', () => {
+    const { window, document } = env;
+    const datalist = document.getElementById('unique-exercises-list');
+    datalist.replaceChildren();
+    const opt = document.createElement('option');
+    opt.value = 'Farmer Carry'; // catalog-only: no dataset.id
+    datalist.appendChild(opt);
+
+    document.getElementById('session-add-exercise-name').value = 'Farmer Carry';
+    document.getElementById('session-add-exercise-id').value = 'stale';
+    window.onSessionExerciseSelect();
+
+    expect(document.getElementById('session-add-exercise-id').value).toBe('');
+  });
+
   it('saveNewSessionExercise rolls back the optimistic log when the POST returns null', async () => {
     const { window, document } = env;
     installApiCache(window);

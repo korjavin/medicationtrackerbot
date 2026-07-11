@@ -854,7 +854,10 @@ function onSessionExerciseSelect() {
     if (titleEl) titleEl.textContent = val ? `Log set · ${val}` : 'Add exercise';
 
     if (option) {
-        hiddenId.value = option.dataset.id;
+        // Catalog-only suggestions carry no dataset.id; leave the hidden field
+        // empty so saveNewSessionExercise routes them through resolveOrCreateLibraryId
+        // instead of posting exercise_id "undefined"/NaN (med-prk.3).
+        hiddenId.value = option.dataset.id || '';
         // Autofill if empty
         if (!document.getElementById('session-add-exercise-sets').value)
             document.getElementById('session-add-exercise-sets').value = option.dataset.sets;

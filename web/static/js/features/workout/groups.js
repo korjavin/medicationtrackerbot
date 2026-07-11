@@ -365,7 +365,17 @@ async function toggleRotatingFields() {
             // The variant POST is a workout mutation, so invalidate the
             // workout-tagged caches if the implicit create succeeds.
             let variants = await apiCall(`/api/workout/variants?group_id=${window.WorkoutEdit.editingGroupId}`);
-            variants = Array.isArray(variants) ? variants : [];
+            // A failed read (offline/5xx) returns null. Don't fall open to []:
+            // that would skip the >1-Day guard below and flatten a genuinely
+            // multi-Day plan, stranding the extra Days' exercises. Treat unknown
+            // Day count as "can't collapse" — keep rotation on and bail.
+            if (!Array.isArray(variants)) {
+                document.getElementById('workout-group-rotating').checked = true;
+                document.getElementById('workout-variants-section').style.display = 'block';
+                document.getElementById('workout-group-flat-exercises-section').style.display = 'none';
+                safeAlert('Couldn\'t check this plan\'s Days — try again when back online.');
+                return;
+            }
 
             // Guard (Task 4): a Plan with more than one Day can't switch rotation
             // off — collapsing to a single flat list would strand the extra Days'
