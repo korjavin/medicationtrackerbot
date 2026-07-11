@@ -19,10 +19,10 @@
 
     <header class="hero">
         <div class="container">
-            <h1 class="hero-title">From Fragmented Data to <span class="highlight">Personal Health Intelligence</span>
+            <h1 class="hero-title">Your Health, <span class="highlight">End-to-End Encrypted</span>
             </h1>
-            <p class="hero-subtitle">How we turned a mess of health apps into a single, private, and intelligent
-                companion.</p>
+            <p class="hero-subtitle">How we turned a mess of health apps into one private companion —
+                installable in your browser, encrypted on your device, and unlocked only by you.</p>
         </div>
     </header>
 
@@ -34,9 +34,9 @@
                 <span class="chapter-tag">The Challenge</span>
                 <h2>Health Data Was Everywhere. And Nowhere.</h2>
                 <p>We started with a simple frustration: keeping track of medications, blood pressure, weight, and sleep
-                    required <strong>four different apps</strong>.</p>
+                    required <strong>four different apps</strong> — each one another company holding your medical data.</p>
                 <p>None of them talked to each other. None of them gave the full picture. We needed a single source of
-                    truth.</p>
+                    truth that <strong>only you can read</strong>.</p>
             </div>
             <!-- Telegram and Web Interface Side-by-Side -->
             <!-- No visual as requested -->
@@ -50,12 +50,13 @@
             <div class="chapter-content">
                 <span class="chapter-tag">Step 1: The Hub</span>
                 <h2>Unifying the Experience</h2>
-                <p>We built a unified hub. A single interface—available on Web and Telegram—that adapts to the user.</p>
+                <p>We built a unified hub. A single interface—an installable browser app, with Telegram as an
+                    optional extra—that adapts to the user.</p>
                 <p>It's not just a logbook; it's a proactive assistant. It knows your schedule, reminds you gently, and
                     tracks everything from pill dosages to daily weight trends.</p>
                 <ul class="check-list">
                     <li>Unified Timeline</li>
-                    <li>Instant Telegram Logging</li>
+                    <li>Installable Browser App (PWA)</li>
                     <li>Smarter Reminders</li>
                 </ul>
             </div>
@@ -173,17 +174,19 @@
         <!-- Chapter 7: Safety -->
         <section class="chapter reverse">
             <div class="chapter-content">
-                <span class="chapter-tag">Step 6: True Ownership</span>
-                <h2>Private by Design</h2>
-                <p>It's all your data, on your infrastructure. A single database that you, and only you, own.</p>
-                <p>Worried about backups? Use optional capabilities to stream incremental changes to any S3-compatible
-                    cloud.</p>
-                <p><strong>No vendor lock.</strong> Your data is not cryptic. You own it, build any integrations you
-                    want.</p>
+                <span class="chapter-tag">Step 6: Zero-Knowledge Privacy</span>
+                <h2>Encrypted Before It Leaves Your Device</h2>
+                <p>This is the heart of it. In the cloud edition, every record is <strong>end-to-end encrypted in
+                    your browser</strong> before it's ever sent. The server stores only ciphertext — a full breach,
+                    a subpoena, or a curious operator yields nothing readable.</p>
+                <p>You unlock with a <strong>passkey</strong> (Face ID or fingerprint) — there's no password to steal
+                    and nothing crackable stored on the server. Devices sync through an encrypted log, and reminders
+                    ring via a <strong>blind push relay</strong> that never learns what they say.</p>
+                <p><strong>No vendor lock.</strong> Export everything anytime, or self-host the whole cloud yourself.</p>
                 <ul class="check-list">
-                    <li>Self-Hosted Foundation</li>
-                    <li>Optional Cloud Streaming</li>
-                    <li>Zero Vendor Lock-in</li>
+                    <li>Zero-Knowledge, End-to-End Encrypted</li>
+                    <li>Passkey Unlock — No Passwords</li>
+                    <li>Blind Push Relay &amp; Encrypted Sync</li>
                 </ul>
             </div>
             <div class="chapter-visual">

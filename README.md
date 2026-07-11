@@ -1,8 +1,10 @@
-# Medication Tracker Bot
+# Medication Tracker
 
-**Your health, in one place — on your server, on your terms.**
+**Your health, in one place — end-to-end encrypted, on your terms.**
 
-A self-hosted companion that lives in your Telegram chat and in your browser. It tracks your medications, your blood pressure, your weight, your workouts, your meals, your sleep — and hands the whole picture to your AI assistant when you ask for it. No SaaS lock-in. No ads. No one looking over your shoulder.
+A private health companion that runs as an installable browser app (PWA) backed by a **zero-knowledge cloud**: the server stores only ciphertext, unlock is a passkey, and the operator is *cryptographically unable* to read your data. It tracks your medications, your blood pressure, your weight, your workouts, your meals, your sleep — and hands the whole picture to your AI assistant when you ask for it. No SaaS lock-in. No ads. No one looking over your shoulder — not even the person running the server.
+
+Prefer a chat-native experience or full server control? A self-hosted **server mode** with a Telegram bot and web app is still here — see [Two ways to run it](#two-ways-to-run-it).
 
 ---
 
@@ -20,22 +22,23 @@ You are the only person with the full picture of your health. The tools should l
 
 ## The idea
 
-One private system you actually use every day.
+One private system you actually use every day — with no one else able to read it.
 
-- **Log in seconds** from the chat you already have open.
+- **Install in seconds** from one URL. Create a passkey (Face ID / fingerprint), save your Emergency Kit, add to home screen. Done.
+- **Encrypt on your device.** Every record is encrypted client-side before it leaves your browser. The server sees ciphertext and timing metadata — nothing else.
 - **Get a real dashboard** when you want context, trends, and charts.
-- **Keep your data at home**, in a single SQLite file you can back up, import, export, or hand to an AI model of your choice.
-- **Replace the sprawl** with one place that covers the boring-but-important parts of everyday health.
+- **Sync across devices** through an encrypted oplog, with reminders delivered by a *blind* push relay that rings the alarm without knowing what it's for.
+- **Bring your own everything** — your own AI keys, your own data, and (optionally) your own Telegram bot. Take it all home whenever you want.
 
-If you lose your internet, the app still works. If you switch AI assistants, your data comes along. If you decide to move servers, you copy one file.
+If you lose your internet, the app still works. If you switch AI assistants, your data comes along.
 
 ## Why it is different
 
-- **Self-hosted.** Your data stays on your infrastructure. Always.
-- **Two interfaces, one source of truth.** A fast Telegram bot for *"did I take it?"* moments. A polished web app for trends, planning, and deeper review.
+- **Zero-knowledge by design.** A full server breach, subpoena, or malicious operator yields ciphertext, not your health. Unlock is passkey-only (WebAuthn PRF over a random key) — there's no passphrase to steal and no server-side secret to crack.
+- **Self-hosted, either way.** Run the encrypted cloud for yourself and others, or the classic single-user server. Your data stays on infrastructure *you* control.
 - **Daily-use focus.** Snooze, skip, re-log, bulk-confirm — not just a static database.
-- **Offline-first web app.** Log a BP reading on the subway; it syncs when you are back.
-- **AI-ready, on your terms.** An optional MCP endpoint lets Claude (or any MCP-compatible assistant) read your health data with OAuth protection — only when *you* connect it.
+- **Offline-first.** Log a BP reading on the subway; it syncs when you are back.
+- **AI-ready, on your terms.** Point your own assistant at your data — in the cloud PWA via your own provider keys, or via an optional OAuth-protected MCP endpoint in server mode. Only when *you* connect it.
 - **Open to the world around it.** Apple Health imports, Mi Band / Mi Fitness ingestion, CSV exports, Open Food Facts lookup.
 
 ## What you get
@@ -58,21 +61,37 @@ If you lose your internet, the app still works. If you switch AI assistants, you
 
 **Delivery & fit-and-finish** — web push notifications · offline-first PWA · Today dashboard as home with deep-link navigation · automatic timezone detection with user confirmation · Telegram WebApp auth or OIDC for browser access.
 
-## Two ways to use it
+## Two ways to run it
 
-### Telegram
+### Cloud (recommended) — zero-knowledge, passkey, PWA
 
-The fastest interface for real life. Answer a reminder, log a reading, ask what's due next — all in the chat you already have open. Feature-specific commands disappear automatically when you turn that feature off. Workout sessions batch prompts so your chat never gets spammed.
+The default. A self-hosted **encrypted cloud** serves one static PWA per user (their own subdomain); all health logic runs in the browser and every record is end-to-end encrypted. Highlights:
 
-### Web app
+- **Passkey-only unlock** — WebAuthn PRF unwraps a random data key; no passwords anywhere.
+- **Operator sees only ciphertext** — health data, provider keys, and reminder *content* are all encrypted; the server learns only metadata (account exists, blob sizes, when reminders fire — not what they say).
+- **Encrypted sync + blind push relay** — an encrypted oplog syncs your devices; a blind relay delivers web-push reminders it can't read.
+- **Emergency Kit** — a high-entropy recovery code re-enrolls a new device if you lose all your others.
+- **Bring your own keys** — OpenAI-compatible AI, vision, ElevenLabs, and food-DB keys live inside your vault and are called directly from your browser.
+- **Optional Telegram** — bring your own bot token for chat reminders; inbound messages land in a sealed mailbox. Off by default.
 
-For when you want the bigger picture. Trends, history, editing, meal planning, workout design, settings. The shell is cached, feeds refresh in the background, and the most time-sensitive writes (BP, weight, medication confirmations) work offline and sync later.
+Registration is invite-only (the operator mints accounts). See [docs/cloud-mode.md](./docs/cloud-mode.md) and [docs/cloud-crypto.md](./docs/cloud-crypto.md).
+
+### Server (legacy) — single-user, Telegram-native, MCP
+
+The original mode: a single Go binary running the Telegram bot, web app, scheduler, and an optional OAuth-protected MCP endpoint against a local SQLite file you own outright.
+
+- **Telegram** — the fastest interface for real life. Answer a reminder, log a reading, ask what's due next — in the chat you already have open. Feature-specific commands disappear when you turn a feature off, and workout sessions batch prompts so your chat never gets spammed.
+- **Web app** — trends, history, editing, meal planning, workout design, settings. The shell is cached, feeds refresh in the background, and time-sensitive writes (BP, weight, medication confirmations) work offline and sync later.
+
+See the [installation guide](./docs/installer.md).
 
 ## Your AI, your data
 
 Want your assistant to analyze your blood pressure against your sleep and medications? Want a fitness summary that blends workouts, steps, nutrition, weight, and your own notes?
 
-Run the optional MCP server. It is a separate process, OAuth-protected via Pocket-ID, and exposes:
+In **cloud mode**, your AI runs in your browser against your own provider keys (stored inside the encrypted vault) — the operator never sees the prompt or the data.
+
+In **server mode**, run the optional MCP server. It is a separate process, OAuth-protected via Pocket-ID, and exposes:
 
 - `mcp_help` and `mcp_execute` — the recommended entry point. The assistant discovers backend operations with `mcp_help` and runs sandboxed Python scripts against them with `mcp_execute`, so multi-step analyses ("look up my last workout, then summarize the week") are one call instead of many.
 - Granular read tools per category (`get_blood_pressure`, `get_weight`, `get_medication_intake`, …) and the `workout_log` write tool for clients that don't run scripts.
@@ -86,16 +105,25 @@ Point Claude (or any MCP-compatible client) at your endpoint and you are done. C
 
 ## Get it running
 
-- **[Installation guide →](./docs/installer.md)** — one installer provisions the app, Traefik, Pocket-ID, and the optional MCP sidecar.
+- **Cloud (encrypted PWA):** **[Cloud deployment →](./docs/cloud-deployment.md)** — stand up the zero-knowledge cloud (Traefik + wildcard cert + `cmd/cloud`), then mint an invite. Users just open a URL and create a passkey.
+- **Server (Telegram + web + MCP):** **[Installation guide →](./docs/installer.md)** — one installer provisions the app, Traefik, Pocket-ID, and the optional MCP sidecar.
 - Works from a published container image or your own build.
 
 ## Designed with security in mind
 
+**Cloud mode — zero-knowledge:**
+- End-to-end encryption: records are encrypted client-side; the server stores only ciphertext + timing metadata
+- Passkey-only unlock (WebAuthn PRF over a random 256-bit data key) — no passwords, no server-side crackable secret
+- Per-user subdomains, wildcard cert (names never hit Certificate Transparency logs)
+- Blind push relay (delivers encrypted reminders it cannot read) and encrypted oplog sync
+- Emergency Kit recovery code; invite-only registration
+- *Honest caveat:* web-delivered crypto can't defend against a hostile origin serving poisoned JS — mitigated by pinned service-worker bundles and, for the strongest guarantees, the Capacitor store build against the same cloud. See [docs/cloud-mode.md](./docs/cloud-mode.md#trust-model--what-the-server-can-and-cannot-see).
+
+**Server mode:**
 - Single-user allowlist via `ALLOWED_USER_ID`
 - Telegram WebApp and Login Widget HMAC validation
 - Optional OIDC browser auth with email/subject restrictions
-- OAuth-protected MCP endpoint
-- HMAC validation for MCP write-back and audit callbacks
+- OAuth-protected MCP endpoint; HMAC validation for MCP write-back and audit callbacks
 - Optional bearer-token-protected external workout ingestion
 - SQLite stays local to your deployment
 
