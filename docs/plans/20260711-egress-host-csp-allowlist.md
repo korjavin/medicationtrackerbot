@@ -95,8 +95,8 @@ close. Also: the operator learns *which* provider hostname each account uses
 ## Implementation Steps
 
 ### Task 1: Per-account egress-host storage in cloudstore
-- [ ] add a cloudstore goose migration for per-account allowed egress hosts (a hosts list — e.g. `account_egress_hosts(account_id, host)` or a TEXT/JSON column on the account row; follow the existing cloudstore migration + repo pattern)
-- [ ] add repo methods `SetEgressHosts(ctx, accountID, hosts []string)` and `EgressHosts(ctx, accountID) ([]string, error)`; normalize/dedupe hostnames on write
+- [x] add a cloudstore goose migration for per-account allowed egress hosts (a hosts list — e.g. `account_egress_hosts(account_id, host)` or a TEXT/JSON column on the account row; follow the existing cloudstore migration + repo pattern)
+- [x] add repo methods `SetEgressHosts(ctx, accountID, hosts []string)` and `EgressHosts(ctx, accountID) ([]string, error)`; normalize/dedupe hostnames on write
 
 ### Task 2: Authenticated endpoint to register egress hosts
 - [ ] add `PUT /api/egress-hosts` on the cloud router: authenticated to the calling account, body `{ "hosts": ["api.openai.com", "fooddb.example.com"] }`
