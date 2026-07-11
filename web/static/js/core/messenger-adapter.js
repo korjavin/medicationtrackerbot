@@ -163,11 +163,33 @@
         let backHandler = null;
         let backButtonEl = null;
         let popstateListenerAttached = false;
+        // guardPushed tracks a synthetic history entry we push whenever a
+        // section back-affordance is shown (showBack). Without it a browser/
+        // system Back on a non-Today section pops the *page* off the stack and
+        // leaves the app entirely (bd med-z1n.2: "back on Journey sends me to the
+        // previous site"). With the guard entry present, Back pops it instead,
+        // fires popstate, and routes to Today in-app. Reset in onPopstate before
+        // the handler runs so the resulting hideBack() doesn't pop a second
+        // (real) entry.
+        let guardPushed = false;
+
+        function hasHistory() {
+            return typeof window !== 'undefined' && window.history
+                && typeof window.history.pushState === 'function';
+        }
 
         function invokeHandler() {
             if (typeof backHandler === 'function') {
                 try { backHandler(); } catch (e) { /* swallow */ }
             }
+        }
+
+        // popstate fired: the browser already consumed the top entry (our guard,
+        // if any). Clear the flag first so the handler's downstream hideBack()
+        // treats the guard as gone and never calls history.back() again.
+        function onPopstate() {
+            guardPushed = false;
+            invokeHandler();
         }
 
         function ensureBackButton() {
@@ -247,7 +269,7 @@
                 backHandler = (typeof handler === 'function') ? handler : null;
                 if (!popstateListenerAttached && typeof window !== 'undefined'
                     && typeof window.addEventListener === 'function') {
-                    window.addEventListener('popstate', invokeHandler);
+                    window.addEventListener('popstate', onPopstate);
                     popstateListenerAttached = true;
                 }
             },
@@ -255,10 +277,25 @@
             showBack: function () {
                 const el = ensureBackButton();
                 if (el) el.hidden = false;
+                // Push a guard entry so a browser/system Back is captured in-app
+                // instead of exiting to the previous site (bd med-z1n.2). Once
+                // per section visit; modal-history pushes its own entry on top.
+                if (!guardPushed && hasHistory()) {
+                    window.history.pushState({ wgSectionBack: true }, '');
+                    guardPushed = true;
+                }
             },
 
             hideBack: function () {
                 if (backButtonEl) backButtonEl.hidden = true;
+                // Returning to Today via a nav tap (not a Back press): consume
+                // the stale guard entry so the stack stays clean. In the Back /
+                // popstate path onPopstate already cleared guardPushed, so this
+                // does nothing there (never pops a real page entry).
+                if (guardPushed && hasHistory()) {
+                    guardPushed = false;
+                    window.history.back();
+                }
             },
 
             isPresent: function () { return false; },

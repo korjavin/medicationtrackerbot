@@ -14,6 +14,7 @@ import { createTzPlanDomain } from '../../domain/tzplan.js';
 import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
 import { createWorkoutDomain } from '../../domain/workout.js';
+import { createGamificationDomain } from '../../domain/gamification.js';
 import { recordsPort, ORIGIN_UI, ORIGIN_EXTERNAL } from './sync.js';
 import { scheduleReminderRecompute, sendTestPush } from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
@@ -131,13 +132,14 @@ export function createApiRouter(ctx, {
     aiClient: createAIClient({ settingsDomain: settings }), foodDomain: food, now,
   });
   const workout = createWorkoutDomain({ records, now, timeZone });
+  const gamification = createGamificationDomain({ records, now, timeZone });
 
   // PORTED_SET: the feature domains this shim can actually serve end-to-end
   // (records + domain module + shim routes wired). Clamped onto every read
   // of the features map so a stored/toggled flag for an unported domain
   // (food/workout/gamification/weekly_digest — C2c/d) can never surface as
   // enabled, per docs/cloud-mode.md "C2 shim architecture".
-  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication', 'food', 'workout']);
+  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication', 'food', 'workout', 'gamification']);
   function clampFeatures(flags) {
     const out = {};
     for (const key of Object.keys(flags)) out[key] = PORTED_SET.has(key) ? !!flags[key] : false;
@@ -643,6 +645,25 @@ export function createApiRouter(ctx, {
     if (method === 'DELETE') {
       const m = /^\/api\/workout\/miband\/([^/]+)$/.exec(path);
       if (m) { await workout.deleteMiBand(Number(m[1])); return true; }
+    }
+
+    // --- Gamification: Discovery Atlas POC (Phase 1). The substrate routes
+    // (journey/insights/gauges/weekly-review) return {enabled:false} stubs in
+    // cloud mode — the HP/levels/rings engine is a later phase (med-eyb). Only
+    // the Atlas is live: getAtlas() recomputes discovery cards client-side from
+    // vault records (zero server-side health reads), and /atlas/seen persists
+    // reveal-once flags. journey.js renders the feed above the (empty) substrate.
+    if (path === '/api/gamification/atlas' && method === 'GET') return gamification.getAtlas();
+    if (path === '/api/gamification/atlas/seen' && method === 'POST') {
+      return gamification.markDiscoverySeen(body && body.id);
+    }
+    if (method === 'GET' && (
+      path === '/api/gamification/journey'
+      || path === '/api/gamification/insights'
+      || path === '/api/gamification/gauges'
+      || path === '/api/gamification/weekly-review'
+    )) {
+      return { enabled: false };
     }
 
     if (path === '/api/bp/reminder/toggle' && method === 'POST') {

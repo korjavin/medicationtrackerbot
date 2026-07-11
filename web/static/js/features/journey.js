@@ -480,6 +480,78 @@
         return card;
     }
 
+    // --- Discovery Atlas feed (Phase 1, cloud POC) ------------------------
+    // Reads `journey.atlas` (attached by load() from GET /api/gamification/atlas,
+    // recomputed client-side from vault records in cloud mode). Three card
+    // states, all rendered as first-class findings:
+    //   developing — locked; a progress meter names the EXACT next log action.
+    //   revealed   — the gate cleared; the finding with its numbers.
+    //   no_effect  — the gate cleared and found nothing; a genuine, dignified
+    //                result, not a hidden failure (the §14.8 honesty gate).
+    // In bot mode the /atlas route 404s, loadAtlas() returns null, and this card
+    // is simply omitted — the full substrate Journey renders unchanged.
+
+    // Reveal-once: mark a terminal card seen the first time it renders, so the
+    // backend can suppress a repeat "reveal" moment. Fire-and-forget — a failed
+    // write never blocks the paint (the card still shows its finding).
+    function markDiscoverySeen(card) {
+        if (!card || card.seen) return;
+        if (card.state !== 'revealed' && card.state !== 'no_effect') return;
+        const call = window.offlineAwareApiCall || window.apiCallDirect;
+        if (typeof call !== 'function') return;
+        try {
+            Promise.resolve(call('/api/gamification/atlas/seen', 'POST', { id: card.id }))
+                .catch(() => {});
+        } catch (_) { /* best-effort */ }
+    }
+
+    function atlasCardEl(card) {
+        const item = el('div', 'wg-journey-atlas__card wg-journey-atlas__card--' + card.state);
+        item.appendChild(el('p', 'wg-journey-atlas__question', card.question));
+
+        if (card.state === 'developing') {
+            const needed = Number(card.needed) || 0;
+            const have = Number(card.have) || 0;
+            item.appendChild(progressBar(needed > 0 ? have / needed : 0, 'wg-journey-bar__fill--sun'));
+            item.appendChild(el('p', 'wg-journey-atlas__meter wg-muted',
+                `${have} of ${needed} paired observations · ${Number(card.remaining) || 0} more to develop`));
+            if (card.next) item.appendChild(el('p', 'wg-journey-atlas__next wg-muted', card.next));
+            return item;
+        }
+
+        // revealed / no_effect — both terminal findings with equal dignity.
+        item.appendChild(el('p', 'wg-journey-atlas__finding', card.text || card.question));
+        const revealed = card.state === 'revealed';
+        item.appendChild(el('span', 'wg-tag wg-tag--mono wg-journey-atlas__tag',
+            revealed ? 'Discovery' : 'No effect — a finding'));
+        markDiscoverySeen(card);
+        return item;
+    }
+
+    function renderAtlas(j) {
+        const atlas = j && j.atlas;
+        if (!atlas) return null;
+
+        const card = el('section', 'wg-card wg-journey-atlas');
+        card.id = 'journey-atlas-card';
+        card.appendChild(el('div', 'wg-section-label', 'DISCOVERY ATLAS'));
+
+        if (atlas.emptyState) {
+            card.appendChild(el('p', 'wg-journey-atlas__empty wg-muted', atlas.emptyState));
+            return card;
+        }
+
+        const cards = Array.isArray(atlas.cards) ? atlas.cards : [];
+        if (cards.length === 0) return null;
+
+        card.appendChild(el('p', 'wg-journey-atlas__why wg-muted',
+            'Log honestly and your body’s patterns develop — each card is a question your own data answers.'));
+        const list = el('div', 'wg-journey-atlas__list');
+        cards.forEach((c) => list.appendChild(atlasCardEl(c)));
+        card.appendChild(list);
+        return card;
+    }
+
     function renderRings(j) {
         const card = el('section', 'wg-card wg-journey-rings');
         card.id = 'journey-rings-card';
@@ -833,12 +905,23 @@
         const content = document.getElementById('journey-content');
         if (!content) return;
 
+        // The Atlas leads the feed and stands on its own: in cloud mode the HP/
+        // levels/rings substrate is a later phase (returns {enabled:false}), so a
+        // disabled substrate with a live Atlas still renders the discovery feed
+        // rather than the "gamification is off" empty state (insight leads).
+        const atlasCard = journey ? renderAtlas(journey) : null;
+
         if (!journey || journey.enabled === false) {
+            if (atlasCard) {
+                content.replaceChildren(atlasCard);
+                return;
+            }
             renderEmpty(content, 'Gamification is off. Enable it in Settings to start your Journey.');
             return;
         }
 
         const cards = [
+            atlasCard,
             renderHeader(journey),
             renderExplainer(),
             renderHealthScore(journey),
@@ -933,6 +1016,30 @@
         }
     }
 
+    // Fetches the Discovery Atlas read model through its own cachedFetch entry
+    // (Phase 1). Cloud mode serves it from the vault client-side; bot mode 404s
+    // the route, which surfaces here as a null (no Atlas card) — the substrate
+    // Journey renders unchanged. A cold-cache offline read shows an explicit
+    // empty state on the card rather than omitting it silently.
+    const ATLAS_CACHE_KEY = 'gamification_atlas';
+    const ATLAS_URL = '/api/gamification/atlas';
+    async function loadAtlas() {
+        try {
+            const result = await window.cachedFetch(ATLAS_CACHE_KEY, ATLAS_URL, {
+                tags: ['gamification'],
+                freshAfterMs: 60_000,
+                staleAfterMs: STALE_AFTER_MS,
+            });
+            return result ? result.data : null;
+        } catch (e) {
+            if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {
+                return { emptyState: 'No cached discoveries — connect to load.' };
+            }
+            // A 404 (bot mode, no Atlas route) or any other error → no card.
+            return null;
+        }
+    }
+
     // Loads the Journey read model and paints the screen. Routes through
     // cachedFetch so a cold relaunch offline renders last-known data; a cold
     // cache offline surfaces an explicit empty state (OfflineNoCacheError).
@@ -969,6 +1076,16 @@
             if (data) {
                 data.gauges = await loadGauges();
                 data.weekly_review = await loadWeeklyReview();
+            }
+            // The Atlas is fetched whether or not the substrate is enabled: in
+            // cloud mode the substrate returns {enabled:false} but the Atlas is
+            // the whole point of the screen, so it must still render.
+            const atlas = await loadAtlas();
+            if (atlas) {
+                if (!data) render({ enabled: false, atlas });
+                else { data.atlas = atlas; render(data); }
+                await mountBadge();
+                return;
             }
             render(data);
             await mountBadge();
