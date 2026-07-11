@@ -111,10 +111,10 @@ The maintainer's blocker list **is the acceptance criteria** — every item must
 - [x] Give a defensible **goja vs Node-sidecar** recommendation grounded in the measured evidence and caveats, framed as input to C6 — not a production decision.
 
 ### Task 7: Verify acceptance criteria
-- [ ] Re-check each maintainer blocker: (1) no log-only tests — grep the package for `t.Logf` as sole outcome; (2) deterministic promise resolution proven (no `Pending`); (3) no ignored errors — every `Exec`/`Open`/`RunString`/`Marshal` checked; (4) docs report caveats not overconfidence.
-- [ ] `CGO_ENABLED=0 go build ./...` succeeds; goja imported only from `internal/gojaspike` (`go list -deps` sanity: no other package pulls it).
-- [ ] `go vet ./internal/gojaspike/...` clean; `go test ./internal/gojaspike/...` passes deterministically (run twice to confirm no flakiness).
-- [ ] `go test ./...` still passes; `pnpm test` unaffected (no frontend change — `web/domain/*.js` untouched).
+- [x] Re-check each maintainer blocker: (1) no log-only tests — grep the package for `t.Logf` as sole outcome; (2) deterministic promise resolution proven (no `Pending`); (3) no ignored errors — every `Exec`/`Open`/`RunString`/`Marshal` checked; (4) docs report caveats not overconfidence. Verified: no `t.Logf`; `TestDrainIsDeterministic` asserts Fulfilled; only remaining `, _ :=` are `t.Cleanup(Close)` + comma-ok type asserts (not setup errors); docs subsection lists caveats.
+- [x] `CGO_ENABLED=0 go build ./...` succeeds; goja imported only from `internal/gojaspike` (grep across `internal/`,`cmd/`,`web/` finds no other importer).
+- [x] `go vet ./internal/gojaspike/...` clean; `go test ./internal/gojaspike/...` passes deterministically (ran twice, no flakiness).
+- [x] `go test ./...` still passes; `pnpm test` unaffected (no frontend change — `web/domain/*.js` untouched).
 
 ### Task 8: [Final] Update project knowledge
 - [ ] If a non-obvious pattern emerged (goja promise-drain idiom, ESM-strip loader, records-port shape), note it briefly in `docs/cloud-mode.md` where future C6 work will look.
