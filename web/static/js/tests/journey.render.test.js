@@ -570,4 +570,74 @@ describe('Journey render', () => {
         env.window.Gamification.render(journey({ gauges: { enabled: false } }));
         expect(env.document.querySelector('.wg-journey-gauges')).toBeNull();
     });
+
+    // --- Discovery Atlas feed (gamification redesign Phase 1) ---
+
+    it('developing Atlas card shows a progress meter naming the exact next log action', () => {
+        env.window.Gamification.render(journey({
+            atlas: {
+                cards: [{
+                    id: 'workout_next_morning_bp', question: 'Do workout days lower your next-morning blood pressure?',
+                    state: 'developing', have: 6, needed: 8, remaining: 2,
+                    next: 'Log a workout, then your BP the next morning, to add a pair.',
+                }],
+            },
+        }));
+        const atlas = env.document.querySelector('.wg-journey-atlas');
+        expect(atlas).not.toBeNull();
+        const card = atlas.querySelector('.wg-journey-atlas__card--developing');
+        expect(card.querySelector('.wg-journey-atlas__question').textContent)
+            .toContain('next-morning blood pressure');
+        expect(card.querySelector('.wg-journey-atlas__meter').textContent)
+            .toContain('6 of 8 paired observations');
+        expect(card.querySelector('.wg-journey-atlas__next').textContent).toMatch(/Log a workout/);
+        expect(card.querySelector('.wg-journey-bar__fill')).not.toBeNull();
+    });
+
+    it('revealed Atlas card shows the finding and a Discovery tag', () => {
+        env.window.Gamification.render(journey({
+            atlas: {
+                cards: [{
+                    id: 'workout_next_morning_bp', question: 'Q',
+                    state: 'revealed', delta: -16, n: 23,
+                    text: 'Mornings after workout days: systolic ~16 mmHg lower · 23 paired days',
+                    seen: true,
+                }],
+            },
+        }));
+        const card = env.document.querySelector('.wg-journey-atlas__card--revealed');
+        expect(card.querySelector('.wg-journey-atlas__finding').textContent).toContain('16 mmHg lower');
+        expect(card.querySelector('.wg-journey-atlas__tag').textContent).toBe('Discovery');
+    });
+
+    it('no_effect Atlas card is rendered as a genuine finding, not a blank', () => {
+        env.window.Gamification.render(journey({
+            atlas: {
+                cards: [{
+                    id: 'workout_next_morning_bp', question: 'Q',
+                    state: 'no_effect', n: 40,
+                    text: 'Your next-morning BP holds steady whether or not you worked out · 40 days',
+                    seen: true,
+                }],
+            },
+        }));
+        const card = env.document.querySelector('.wg-journey-atlas__card--no_effect');
+        expect(card.querySelector('.wg-journey-atlas__finding').textContent).toContain('holds steady');
+        expect(card.querySelector('.wg-journey-atlas__tag').textContent).toBe('No effect — a finding');
+    });
+
+    it('renders the Atlas feed even when the HP/levels substrate is disabled (cloud POC)', () => {
+        env.window.Gamification.render({
+            enabled: false,
+            atlas: {
+                cards: [{
+                    id: 'workout_next_morning_bp', question: 'Q', state: 'revealed',
+                    delta: -6, n: 12, text: 'a finding', seen: true,
+                }],
+            },
+        });
+        // The Atlas renders; the "gamification is off" empty state does not.
+        expect(env.document.querySelector('.wg-journey-atlas')).not.toBeNull();
+        expect(env.document.querySelector('.wg-journey-empty')).toBeNull();
+    });
 });

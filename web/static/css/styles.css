@@ -5909,6 +5909,56 @@ textarea.wg-input {
     text-align: center;
 }
 
+/* Discovery Atlas feed (gamification redesign Phase 1). One card per probe in
+   three states — developing / revealed / no_effect — stacked in the section. */
+.wg-journey-atlas__why {
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--space-sm);
+}
+
+.wg-journey-atlas__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-journey-atlas__card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+    border-radius: var(--radius-md);
+    background: var(--wg-bg-card-inset);
+    border-left: 3px solid var(--wg-fg-3);
+}
+
+.wg-journey-atlas__card--revealed {
+    border-left-color: var(--wg-mint);
+}
+
+.wg-journey-atlas__card--developing {
+    border-left-color: var(--wg-sun);
+}
+
+.wg-journey-atlas__question {
+    font-weight: var(--font-weight-medium);
+    color: var(--wg-fg-1);
+}
+
+.wg-journey-atlas__finding {
+    color: var(--wg-fg-1);
+}
+
+.wg-journey-atlas__meter,
+.wg-journey-atlas__next,
+.wg-journey-atlas__empty {
+    font-size: var(--font-size-sm);
+}
+
+.wg-journey-atlas__tag {
+    align-self: flex-start;
+}
+
 /* Weight range selector + chart panel (Phase 6, Task 4; Round-2 Task 12
    defect #15). Outer container is a flex row holding the inset
    7d/30d/90d/All track and the trailing inline +Log pill (via the
