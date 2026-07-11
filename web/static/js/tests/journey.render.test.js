@@ -627,4 +627,82 @@ describe('Journey render', () => {
         env.window.Gamification.render(journey({ keystones: { enabled: true, keystones: [] } }));
         expect(env.document.getElementById('journey-keystones-card')).toBeNull();
     });
+
+    // --- AI narration (Phase 6): opt-in prose OVER the deterministic cards ---
+
+    it('mounts the AI Story card only when the narration capability is present', () => {
+        // No capability field (bot mode 404s the probe) → no card.
+        env.window.Gamification.render(journey());
+        expect(env.document.getElementById('journey-narrator-card')).toBeNull();
+
+        env.window.Gamification.render(journey({ narration: { enabled: true } }));
+        const card = env.document.getElementById('journey-narrator-card');
+        expect(card).not.toBeNull();
+        // Honest leakage note is present, and the weekly/workout buttons always show.
+        expect(card.querySelector('.wg-journey-narrator__note').textContent).toMatch(/never raw logs/i);
+        const labels = [...card.querySelectorAll('button')].map((b) => b.textContent);
+        expect(labels).toContain('Narrate my week');
+        expect(labels).toContain('Workout insight');
+    });
+
+    it('shows the chapter/experiment buttons only when their deterministic data exists', () => {
+        env.window.Gamification.render(journey({
+            narration: { enabled: true },
+            chapter: { enabled: true, review: { title: 'The Steady Month', text: 'recap' } },
+            experiments: { enabled: true, can_start: true, templates: [] },
+        }));
+        const labels = [...env.document.querySelectorAll('#journey-narrator-card button')].map((b) => b.textContent);
+        expect(labels).toContain('Chapter recap');
+        expect(labels).toContain('Experiment idea');
+    });
+
+    it('AI prose lands in a SEPARATE attributed block and never displaces deterministic values', async () => {
+        // Deterministic chapter review carries real numbers; the model reply is
+        // full of hallucinated ones. The narration must be additive only.
+        const calls = [];
+        env.window.offlineAwareApiCall = (url, method) => {
+            calls.push([url, method]);
+            return Promise.resolve({ text: 'Your BP hit 999 and you slept 40 hours!', source: 'ai' });
+        };
+        env.window.Gamification.render(journey({
+            narration: { enabled: true },
+            chapter: {
+                enabled: true,
+                review: { title: 'The Steady Month', text: 'Your Steady Month: 24 days logged, 18 nights of 7h+ sleep.' },
+            },
+        }));
+
+        // Deterministic card renders its true numbers up front.
+        const review = env.document.querySelector('.wg-journey-chapter__recap');
+        expect(review.textContent).toMatch(/24 days logged, 18 nights/);
+
+        // Tap "Narrate my week".
+        const btn = [...env.document.querySelectorAll('#journey-narrator-card button')]
+            .find((b) => b.textContent === 'Narrate my week');
+        btn.dispatchEvent(new env.window.Event('click'));
+        await new Promise((r) => setTimeout(r, 0));
+
+        expect(calls).toEqual([['/api/gamification/narrate/weekly', 'POST']]);
+        // Prose appears in its own attributed block, tagged as AI-authored.
+        const prose = env.document.querySelector('.wg-journey-narrator__prose');
+        expect(prose).not.toBeNull();
+        expect(prose.querySelector('.wg-journey-narrator__attr').textContent).toBe('narrated by your AI');
+        expect(prose.querySelector('.wg-journey-narrator__text').textContent).toMatch(/999/);
+        // The deterministic review is UNCHANGED — the hallucinated numbers live
+        // only inside the narration block, never in a computed field.
+        expect(env.document.querySelector('.wg-journey-chapter__recap').textContent).toMatch(/24 days logged, 18 nights/);
+    });
+
+    it('a no-key/error narration ({text:null}) shows an honest hint, deterministic cards intact', async () => {
+        env.window.offlineAwareApiCall = () => Promise.resolve({ text: null, source: 'deterministic' });
+        env.window.Gamification.render(journey({ narration: { enabled: true } }));
+        const btn = [...env.document.querySelectorAll('#journey-narrator-card button')]
+            .find((b) => b.textContent === 'Workout insight');
+        btn.dispatchEvent(new env.window.Event('click'));
+        await new Promise((r) => setTimeout(r, 0));
+        expect(env.document.querySelector('.wg-journey-narrator__status').textContent).toMatch(/add an OpenAI key/i);
+        expect(env.document.querySelector('.wg-journey-narrator__prose')).toBeNull();
+        // The rest of the Journey rendered normally.
+        expect(env.document.querySelector('.wg-journey-atlas, .wg-card')).not.toBeNull();
+    });
 });

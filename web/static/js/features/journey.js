@@ -1079,6 +1079,69 @@
         return card;
     }
 
+    // --- AI narration (Phase 6) -------------------------------------------
+    // Opt-in, BYO-key prose OVER the deterministic cards. The card only mounts
+    // in cloud mode (bot mode 404s /api/gamification/narrate → null → omitted).
+    // Every button is purely additive: tapping POSTs a narrate route that hands
+    // the user's OWN provider the already-computed stats-JSON and returns prose,
+    // dropped into a SEPARATE attributed block. Numbers on screen still come
+    // from the deterministic cards above — this never replaces a value, and a
+    // no-key/error response ({text:null}) shows an honest hint instead.
+    function narrateInto(kind, outEl, btn) {
+        outEl.replaceChildren(el('p', 'wg-journey-narrator__status wg-muted', 'Narrating with your AI…'));
+        btn.disabled = true;
+        return Promise.resolve(experimentApiCall(`/api/gamification/narrate/${kind}`, 'POST', {}))
+            .then((res) => {
+                btn.disabled = false;
+                if (res && res.text) {
+                    const block = el('div', 'wg-journey-narrator__prose');
+                    block.appendChild(el('span', 'wg-tag wg-tag--mono wg-journey-narrator__attr', 'narrated by your AI'));
+                    block.appendChild(el('p', 'wg-journey-narrator__text', res.text));
+                    outEl.replaceChildren(block);
+                } else {
+                    outEl.replaceChildren(el('p', 'wg-journey-narrator__status wg-muted',
+                        'AI narration unavailable — add an OpenAI key in Settings → Integrations to enable it.'));
+                }
+            })
+            .catch(() => {
+                btn.disabled = false;
+                outEl.replaceChildren(el('p', 'wg-journey-narrator__status wg-muted',
+                    'AI narration is unavailable right now — your story above is unaffected.'));
+            });
+    }
+
+    function narratorButton(label, kind, outEl) {
+        const btn = el('button', 'btn btn-sm btn-secondary', label);
+        btn.type = 'button';
+        btn.addEventListener('click', () => narrateInto(kind, outEl, btn));
+        return btn;
+    }
+
+    function renderNarrator(j) {
+        const n = j && j.narration;
+        if (!n || n.enabled === false) return null;
+
+        const card = el('section', 'wg-card wg-journey-narrator');
+        card.id = 'journey-narrator-card';
+        card.appendChild(el('div', 'wg-section-label', 'AI STORY'));
+        card.appendChild(el('p', 'wg-journey-narrator__note wg-muted',
+            'Optional. Each button sends your already-computed health summaries — never raw logs — to your own AI provider for a few sentences of prose. Every number above stays deterministic.'));
+
+        const out = el('div', 'wg-journey-narrator__out');
+        const buttons = el('div', 'wg-journey-narrator__buttons');
+        buttons.appendChild(narratorButton('Narrate my week', 'weekly', out));
+        buttons.appendChild(narratorButton('Workout insight', 'workout', out));
+        if (j && j.chapter && j.chapter.review) {
+            buttons.appendChild(narratorButton('Chapter recap', 'chapter', out));
+        }
+        if (j && j.experiments && j.experiments.can_start) {
+            buttons.appendChild(narratorButton('Experiment idea', 'experiments', out));
+        }
+        card.appendChild(buttons);
+        card.appendChild(out);
+        return card;
+    }
+
     function render(journey) {
         const content = document.getElementById('journey-content');
         if (!content) return;
@@ -1093,7 +1156,8 @@
         const experimentCard = journey ? renderExperiment(journey) : null;
         const traitsCard = journey ? renderTraits(journey) : null;
         const keystonesCard = journey ? renderKeystones(journey) : null;
-        const narrativeCards = [chapterCard, experimentCard, atlasCard, traitsCard, keystonesCard];
+        const narratorCard = journey ? renderNarrator(journey) : null;
+        const narrativeCards = [chapterCard, experimentCard, atlasCard, traitsCard, keystonesCard, narratorCard];
 
         if (!journey || journey.enabled === false) {
             const live = narrativeCards.filter(Boolean);
@@ -1121,6 +1185,7 @@
             renderInsightCard(journey),
             renderGoodDayCard(journey),
             keystonesCard,
+            narratorCard,
         ].filter(Boolean);
         content.replaceChildren(...cards);
     }
@@ -1290,14 +1355,15 @@
             // enabled: in cloud mode the substrate returns {enabled:false} but
             // the Atlas/chapters/traits/keystones are the whole point of the
             // screen, so they must still render.
-            const [atlas, experiments, chapter, traits, keystones] = await Promise.all([
+            const [atlas, experiments, chapter, traits, keystones, narration] = await Promise.all([
                 loadAtlas(), loadExperiments(),
                 loadNarrative('/api/gamification/chapter'),
                 loadNarrative('/api/gamification/traits'),
                 loadNarrative('/api/gamification/keystones'),
+                loadNarrative('/api/gamification/narrate'),
             ]);
-            if (atlas || experiments || chapter || traits || keystones) {
-                const narrative = { atlas, experiments, chapter, traits, keystones };
+            if (atlas || experiments || chapter || traits || keystones || narration) {
+                const narrative = { atlas, experiments, chapter, traits, keystones, narration };
                 if (!data) render({ enabled: false, ...narrative });
                 else { Object.assign(data, narrative); render(data); }
                 await mountBadge();
