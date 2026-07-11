@@ -56,7 +56,7 @@ Both modes share the `web/static` frontend, so this is mode-agnostic; the change
 - [x] integration test (real boundary): create a Plan in the default (simple) flow → assert no "Day"/"Variant"/"Main" label is rendered and an exercise can be added and listed (added to `features.workout-groups.test.js`; also fixed stale Task-2 relabel assertion in `workout.loaders-and-card.test.js`)
 
 ### Task 4: Rotation off-switch guard
-- [ ] in the Plan edit / rotation-toggle path, block turning rotation **off** while the Plan has more than one Day; show a message to delete the extra Days first (zero data loss). Single Day (or simple plan) toggles freely.
+- [x] in the Plan edit / rotation-toggle path, block turning rotation **off** while the Plan has more than one Day; show a message to delete the extra Days first (zero data loss). Single Day (or simple plan) toggles freely. (`toggleRotatingFields` in `groups.js`: fetch variants; if >1, re-check the toggle, keep the Days editor visible, `safeAlert` "Delete the extra Days first…"; single/zero-Day path unchanged)
 
 ### Task 5: One shared add-exercise picker (plan + session)
 - [ ] extract a single picker helper used by both the plan-exercise add modal (`exercises.js:172-212`) and the in-session add modal (`sessions.js:804`, `:887`): search the library OR create-new (create-new upserts into the library and references it via the med-prk.2 model)

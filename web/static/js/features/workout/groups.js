@@ -360,14 +360,28 @@ async function toggleRotatingFields() {
             await loadVariantsForGroup(window.WorkoutEdit.editingGroupId);
         }
     } else {
-        document.getElementById('workout-variants-section').style.display = 'none';
-        document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
         if (window.WorkoutEdit.editingGroupId) {
             // Re-run the logic to fetch/create default variant and load exercises.
             // The variant POST is a workout mutation, so invalidate the
             // workout-tagged caches if the implicit create succeeds.
             let variants = await apiCall(`/api/workout/variants?group_id=${window.WorkoutEdit.editingGroupId}`);
-            if (!variants || variants.length === 0) {
+            variants = Array.isArray(variants) ? variants : [];
+
+            // Guard (Task 4): a Plan with more than one Day can't switch rotation
+            // off — collapsing to a single flat list would strand the extra Days'
+            // exercises. Keep the toggle on + Days editor visible; user deletes
+            // the extras first. Zero data loss.
+            if (variants.length > 1) {
+                document.getElementById('workout-group-rotating').checked = true;
+                document.getElementById('workout-variants-section').style.display = 'block';
+                document.getElementById('workout-group-flat-exercises-section').style.display = 'none';
+                safeAlert('Delete the extra Days first — a plan with more than one Day can\'t switch off "Rotate through days".');
+                return;
+            }
+
+            document.getElementById('workout-variants-section').style.display = 'none';
+            document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
+            if (variants.length === 0) {
                 const newVariant = await apiCall('/api/workout/variants/create', 'POST', {
                     group_id: window.WorkoutEdit.editingGroupId,
                     name: 'Main',
@@ -378,12 +392,9 @@ async function toggleRotatingFields() {
                     await invalidateWorkoutCache();
                     variants = [newVariant];
                 } else {
-                    variants = [];
+                    setFlatExercisesPendingSaveMessage();
+                    return;
                 }
-            }
-            if (variants.length === 0) {
-                setFlatExercisesPendingSaveMessage();
-                return;
             }
             const defaultVariantId = variants[0].id;
             window.WorkoutEdit.groupForVariant = window.WorkoutEdit.editingGroupId;
@@ -391,6 +402,8 @@ async function toggleRotatingFields() {
             await loadExercisesForVariant(defaultVariantId, 'workout-group-flat-exercises-list');
         } else {
             // New group, just show message
+            document.getElementById('workout-variants-section').style.display = 'none';
+            document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
             setFlatExercisesPendingSaveMessage();
         }
     }
