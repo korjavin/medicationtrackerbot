@@ -224,10 +224,14 @@ function mapTrialError(err) {
   if (code === 'trial_budget_exhausted') return trialBudgetError(scope);
   if (code === 'trial_budget_unavailable') return trialBudgetUnavailableError();
   if (err.status) {
+    // response_format_unsupported is a handled case — the caller retries
+    // without response_format and usually recovers, so don't surface a red
+    // console.error on a path that ultimately succeeds. If that retry also
+    // fails, its own mapTrialError call logs the real failure.
+    if (code === 'response_format_unsupported') return responseFormatUnsupportedError();
     // The proxy sanitizes the upstream body, so this is the only place a
     // browser can observe what actually failed.
     console.error('trial AI request failed', { status: err.status, code, upstream_status: upstreamStatus, body: err.body });
-    if (code === 'response_format_unsupported') return responseFormatUnsupportedError();
     const friendly = new Error(trialFailureMessage(upstreamStatus));
     friendly.status = err.status;
     friendly.upstreamStatus = upstreamStatus;
