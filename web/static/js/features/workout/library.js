@@ -276,19 +276,19 @@ async function _deleteExerciseLibraryApi(id) {
 // ever constraining free typing. The 913 KB asset is fetched once, lazily
 // (only when a name-entry modal opens); a failed fetch is silent — the inputs
 // just fall back to no catalog suggestions — and is retried on the next open.
-let _catalogNamesPromise = null;
+let _exerciseCatalogNamesPromise = null; // module-state: single-flight cache for the one-time static exercise-catalog fetch (med-s5m.2)
 function _loadExerciseCatalogNames() {
-    if (!_catalogNamesPromise) {
-        _catalogNamesPromise = fetch('/static/data/exercises-catalog.json')
+    if (!_exerciseCatalogNamesPromise) {
+        _exerciseCatalogNamesPromise = fetch('/static/data/exercises-catalog.json')
             .then(r => (r.ok ? r.json() : Promise.reject(new Error('catalog ' + r.status))))
             .then(cat => (cat.exercises || []).map(e => e.name).filter(Boolean))
             .catch(err => {
                 console.error('Error loading exercise catalog:', err);
-                _catalogNamesPromise = null; // allow a later retry (e.g. offline -> online)
+                _exerciseCatalogNamesPromise = null; // allow a later retry (e.g. offline -> online)
                 return [];
             });
     }
-    return _catalogNamesPromise;
+    return _exerciseCatalogNamesPromise;
 }
 
 // Append catalog names to a <datalist>, skipping any value already present so
