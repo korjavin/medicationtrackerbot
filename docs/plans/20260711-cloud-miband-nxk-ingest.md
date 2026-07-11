@@ -115,12 +115,12 @@ Dependencies identified: none new. Reuses inbox key, seal crypto, drain, existin
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] `go build ./...` and `go build -tags mobile ./...` both pass (`internal/cloudserver` is server-build; ensure no mobile-tag breakage).
-- [ ] `go test ./internal/cloudserver/... ./internal/cloudstore/...` pass.
-- [ ] `pnpm test` passes (incl. domain-purity + architecture guards).
-- [ ] end-to-end demonstrated in tests: fixture `.nxk` → events sealed to a test inbox → client applier writes sleep+hr+spo2+stress+daystats+workout (no GPS) vault records with deterministic ids → re-drain is a no-op. GPS is asserted absent.
-- [ ] `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` passes with the new exempt entry.
-- [ ] run linter — all issues fixed.
+- [x] `go build ./...` and `go build -tags mobile ./...` both pass (`internal/cloudserver` is server-build; ensure no mobile-tag breakage).
+- [x] `go test ./internal/cloudserver/... ./internal/cloudstore/...` pass.
+- [x] `pnpm test` passes (incl. domain-purity + architecture guards) — 302 files, 3362 tests pass.
+- [x] end-to-end demonstrated in tests: fixture `.nxk` → events sealed to a test inbox → client applier writes sleep+hr+spo2+stress+daystats+workout (no GPS) vault records with deterministic ids → re-drain is a no-op. GPS is asserted absent. (Go: Task 1 helper test + Task 3 `TestChildWebhook_NXKDocumentSealsVitalsToMailbox`; JS: Task 4 `inbox-apply.test.js` idempotency case.)
+- [x] `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` passes — no new exempt entry needed (per Task 2 scope correction: `/api/vitals/import` is a cloud-only `cmd/cloud` route, not scanned by the bot-mode coverage guard).
+- [x] run linter — `golangci-lint run ./internal/cloudserver/... ./internal/domain/nxk/...` reports 0 issues.
 
 ### Task 7: [Final] Update documentation
 
