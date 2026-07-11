@@ -30,6 +30,10 @@ const DAYSTATS_RECORD_TYPE = 'daystats';
 const HR_RECORD_TYPE = 'hrsample';
 const SPO2_RECORD_TYPE = 'spo2sample';
 const STRESS_RECORD_TYPE = 'stresssample';
+// Mi-Band workouts live in the workout domain's 'miband' record type (see
+// web/domain/workout.js WORKOUT_RECORD_TYPES.MIBAND). The NXK import writes them
+// directly by natural key so re-drain converges; the read/edit side is workout.js.
+const MIBAND_RECORD_TYPE = 'miband';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -270,5 +274,117 @@ export function createVitalsDomain({ records, now, timeZone }) {
     return limited.map(sleepToResponse);
   }
 
-  return { overview, sleep };
+  // importDayBatched merges an incoming NXK sample stream into the day-batch
+  // records the read side already expects ({day, samples:[{date_time, tz_offset,
+  // value[, type, info]}]}, recordId '<type>-YYYY-MM-DD'). Samples are grouped by
+  // UTC day, then merged into any existing batch keyed by sample instant so a
+  // re-applied import overwrites its own samples instead of appending duplicates
+  // (LWW: the incoming sample wins). Idempotent — re-draining converges.
+  async function importDayBatched(recordType, samples) {
+    if (!Array.isArray(samples) || samples.length === 0) return;
+    const byDay = new Map();
+    for (const s of samples) {
+      if (!s || !s.date_time) continue;
+      const ms = Date.parse(s.date_time);
+      if (Number.isNaN(ms)) continue;
+      const day = utcDayString(ms);
+      let arr = byDay.get(day);
+      if (!arr) { arr = []; byDay.set(day, arr); }
+      arr.push(s);
+    }
+    const existing = new Map((await records.list(recordType)).map((r) => [r.recordId, r]));
+    for (const [day, incoming] of byDay) {
+      const recordId = `${recordType}-${day}`;
+      const prev = existing.get(recordId);
+      // Keyed by the sample instant (ms) so two RFC3339 spellings of the same
+      // moment still dedupe; the incoming sample overwrites (LWW).
+      const merged = new Map();
+      if (prev && Array.isArray(prev.samples)) {
+        for (const s of prev.samples) merged.set(Date.parse(s.date_time), s);
+      }
+      for (const s of incoming) merged.set(Date.parse(s.date_time), { ...s });
+      const samplesOut = [...merged.values()]
+        .sort((a, b) => (a.date_time < b.date_time ? -1 : a.date_time > b.date_time ? 1 : 0));
+      await records.put(recordType, {
+        recordId, clientTs: now(), deleted: false, day, samples: samplesOut,
+      });
+    }
+  }
+
+  // importSamples writes a drained NXK vitals_import event into vault records.
+  // Every stream is upserted by a deterministic natural key so re-applying the
+  // same import (the drain's ack-after-flush barrier may replay it) is a no-op:
+  //   sleep     — recordId 'sleep-<startInstantMs>'
+  //   daystats  — recordId 'daystats-<day>'
+  //   hr/spo2/stress — day-batched, samples merged by instant (importDayBatched)
+  //   workouts  — recordId 'miband-<source_start_ms>' (no GPS; the wire never
+  //               carries it — locked scope decision)
+  // importId (the server's content-hash grouping) is accepted for parity with
+  // the sealed event; the natural keys already make every write idempotent, so
+  // no separate once-marker is needed (unlike the free-text agent path).
+  // ponytail: no marker — natural keys converge; add one only if a stream ever
+  // gains non-deterministic write ids.
+  async function importSamples({
+    sleep: sleepLogs = [], hr = [], spo2 = [], stress = [], daystats = [], workouts = [],
+  } = {}, { importId } = {}) { // eslint-disable-line no-unused-vars
+    for (const s of sleepLogs) {
+      if (!s || !s.start_time) continue;
+      const startMs = Date.parse(s.start_time);
+      const key = Number.isNaN(startMs) ? s.day : startMs;
+      await records.put(SLEEP_RECORD_TYPE, {
+        recordId: `sleep-${key}`, clientTs: now(), deleted: false, ...s,
+      });
+    }
+
+    for (const d of daystats) {
+      if (!d || !d.day) continue;
+      await records.put(DAYSTATS_RECORD_TYPE, {
+        recordId: `daystats-${d.day}`,
+        clientTs: now(),
+        deleted: false,
+        day: d.day,
+        steps: d.steps || 0,
+        calories: d.calories || 0,
+        distance: d.distance || 0,
+      });
+    }
+
+    await importDayBatched(HR_RECORD_TYPE, hr);
+    await importDayBatched(SPO2_RECORD_TYPE, spo2);
+    await importDayBatched(STRESS_RECORD_TYPE, stress);
+
+    if (workouts.length) {
+      const existing = new Map(
+        (await records.list(MIBAND_RECORD_TYPE)).map((r) => [r.recordId, r]),
+      );
+      for (const w of workouts) {
+        if (!w || !w.source_start_ms) continue;
+        const recordId = `miband-${w.source_start_ms}`;
+        const prev = existing.get(recordId);
+        await records.put(MIBAND_RECORD_TYPE, {
+          recordId,
+          clientTs: now(),
+          deleted: false,
+          // Preserve a prior numeric id (edits key on it) else derive one
+          // deterministically from the source instant so re-drain converges.
+          id: prev ? prev.id : w.source_start_ms,
+          activity_type: w.activity_type,
+          activity_name: w.activity_name,
+          source_start_ms: w.source_start_ms,
+          source_end_ms: w.source_end_ms,
+          duration_sec: w.duration_sec,
+          distance_m: w.distance_m,
+          steps: w.steps,
+          calories: w.calories,
+          heart_rate_avg: w.heart_rate_avg,
+          spo2_avg: w.spo2_avg,
+          pause_ms: w.pause_ms,
+          tz_offset: w.tz_offset,
+          source: 'miband',
+        });
+      }
+    }
+  }
+
+  return { overview, sleep, importSamples };
 }

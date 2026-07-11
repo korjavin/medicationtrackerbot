@@ -99,13 +99,13 @@ Dependencies identified: none new. Reuses inbox key, seal crypto, drain, existin
 
 ### Task 4: Client `vitals_import` applier + `web/domain/vitals.js` write methods
 
-- [ ] add write methods to `web/domain/vitals.js` (keep the file pure — no `window`/`document`/`fetch`/IndexedDB; enforced by `architecture.domain-purity.test.js`):
+- [x] add write methods to `web/domain/vitals.js` (keep the file pure — no `window`/`document`/`fetch`/IndexedDB; enforced by `architecture.domain-purity.test.js`):
   - `importSamples({sleep, hr, spo2, stress, daystats, workouts}, {importId})` that, per stream, upserts vault records via the injected `records` port.
-  - day-batched HR/SpO2/stress: read existing `${type}-${utcDay}` (`records.list`/`listRange`), **merge** new samples into `samples[]` de-duped by sample instant (LWW), `records.put`. Re-applying the same import converges (idempotent).
-  - `sleep`/`daystats`: upsert by natural key (day / start instant) so re-drain is a no-op.
-  - workouts: reuse the existing mi-band create/put path (no GPS).
-- [ ] add a `vitals_import` branch to `createInboxApplier` in `web/cloud/js/inbox-apply.js` that calls `vitals.importSamples(...)`, deriving deterministic ids from `eventId` + sample instant (matching the `tg-${eventId}` discipline) so the drain's ack-after-flush barrier stays exactly-once.
-- [ ] integration test (`frontend-harness.js`): apply a `vitals_import` event, assert sleep+hr+spo2+stress+daystats+workout vault records exist and GPS is absent; apply the **same** event again, assert no duplicates / records converge.
+  - day-batched HR/SpO2/stress: read existing `${type}-${utcDay}` (`records.list`), **merge** new samples into `samples[]` de-duped by sample instant (LWW), `records.put`. Re-applying the same import converges (idempotent).
+  - `sleep`/`daystats`: upsert by natural key (start instant / day) so re-drain is a no-op.
+  - workouts: written directly to the `miband` record type by natural key (`miband-<source_start_ms>`), no GPS; preserves a prior numeric `id` so the workout read/edit path stays consistent.
+- [x] add a `vitals_import` branch to `createInboxApplier` in `web/cloud/js/inbox-apply.js` that calls `vitals.importSamples(...)`. Natural keys already make every write idempotent (no per-event marker needed), so the drain's ack-after-flush barrier stays exactly-once via LWW convergence rather than derived-from-eventId ids.
+- [x] integration test (`inbox-apply.test.js` — the applier's owning suite, real `createVitalsDomain` + in-memory records port): apply a `vitals_import` event, assert sleep+hr+spo2+stress+daystats+workout vault records exist and GPS is absent; apply the **same** event again, assert no duplicates / records converge.
 
 ### Task 5: Upload UI control
 

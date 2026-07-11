@@ -27,6 +27,7 @@ import { createRemindersDomain } from '../../domain/reminders.js';
 import { createSettingsDomain } from '../../domain/settings.js';
 import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
+import { createVitalsDomain } from '../../domain/vitals.js';
 import { parseCommand } from '../../domain/tgcommand.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
@@ -39,6 +40,7 @@ export const INTAKE_SLOT_ACTION = 'intake_slot_action';
 export const TG_COMMAND = 'tg_command';
 export const TG_PHOTO = 'tg_photo';
 export const TG_TEXT = 'tg_text';
+export const VITALS_IMPORT = 'vitals_import';
 
 // A once-marker per free-text event. Unlike /bp or /food, the agent's tool
 // writes get fresh (non-deterministic) record ids, so a re-drain — the barrier
@@ -419,6 +421,25 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
 
   return async function apply(event, eventId) {
     if (!event) return;
+    if (event.kind === VITALS_IMPORT) {
+      // Server-parsed NXK streams sealed as one event (upload or Telegram .nxk).
+      // Every stream upserts by a deterministic natural key, so the barrier's
+      // replay-on-failed-flush is a no-op — no per-event marker needed. The
+      // server already sent any user-facing ack (bot path), so there is no reply.
+      const vitals = createVitalsDomain({ records, now, timeZone });
+      await vitals.importSamples(
+        {
+          sleep: event.sleep,
+          hr: event.hr,
+          spo2: event.spo2,
+          stress: event.stress,
+          daystats: event.daystats,
+          workouts: event.workouts,
+        },
+        { importId: event.import || eventId },
+      );
+      return;
+    }
     if (event.kind === TG_COMMAND) {
       const reminders = createRemindersDomain({ records, now });
       const { verbosity } = await reminders.getDeliveryPref();
