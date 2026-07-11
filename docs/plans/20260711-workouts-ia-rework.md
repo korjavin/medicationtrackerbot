@@ -75,8 +75,8 @@ Both modes share the `web/static` frontend, so this is mode-agnostic; the change
 - [x] verify the Overview requirements: no "Group"/"Variant" user-facing strings remain (grep of JS/HTML found only ids/CSS classes/console logs); simple plan shows no Day UI + shared picker works in both plan and session (covered by the passing Task 3 & 5 integration tests)
 
 ### Task 8: [Final] Update docs
-- [ ] update `docs/frontend.md` (navigation) and/or `docs/features.md` (workouts) where they name "Group"/"Variant" for the UI, to "Plan"/"Day"
-- [ ] note med-prk.3 implements the design doc; leave the internal-id/label split explicit (Vitals-slot precedent)
+- [x] update `docs/frontend.md` (navigation) and/or `docs/features.md` (workouts) where they name "Group"/"Variant" for the UI, to "Plan"/"Day" (features.md: sub-tab list, Skip/Stop/Next Day, Edit Day modal, hierarchy line; frontend.md: toolbar-btn "Next Day", sub-tab-groups list — visible labels relabeled, internal `groups`/`variants` ids kept)
+- [x] note med-prk.3 implements the design doc; leave the internal-id/label split explicit (Vitals-slot precedent) — added a "Naming" bullet to the Workout Tracking section spelling out Plan/Day/"Repeats on" as relabel-only with ids unchanged
 
 ## Technical Details
 - **Relabel discipline**: change only string literals rendered to the user and static HTML text nodes / labels. Leave `id=`, `data-tab=`, `class=`, `name=`, JS variable/field names, `is_rotating`, `rotation_order`, `days_of_week`, and localStorage keys untouched.
