@@ -127,8 +127,8 @@ type WorkoutStore interface {
 	ListExerciseLibrary(userID int64) ([]store.ExerciseLibraryItem, error)
 	GetExerciseLibraryItem(id int64) (*store.ExerciseLibraryItem, error)
 	CreateExerciseLibraryItem(userID int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) (*store.ExerciseLibraryItem, error)
-	UpdateExerciseLibraryItem(id int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) error
-	DeleteExerciseLibraryItem(id int64) error
+	UpdateExerciseLibraryItem(userID, id int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) error
+	DeleteExerciseLibraryItem(userID, id int64) error
 	GetExerciseLogByID(id int64) (*store.WorkoutExerciseLog, error)
 	SetExerciseLogSource(id int64, source string) error
 	PropagateExerciseToSchedule(sessionID int64, exerciseID int64, exerciseName string, sets *int, reps *int, weight *float64) error

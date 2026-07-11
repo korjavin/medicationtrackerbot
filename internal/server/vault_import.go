@@ -320,10 +320,10 @@ func importWorkouts(ctx context.Context, tx *sql.Tx, userID int64, d *VaultData)
 	for _, e := range w.Exercises {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO workout_exercises
-			  (id, variant_id, exercise_name, target_sets, target_reps_min, target_reps_max, target_weight_kg, order_index)
-			VALUES (?,?,?,?,?,?,?,?)`,
+			  (id, variant_id, exercise_name, target_sets, target_reps_min, target_reps_max, target_weight_kg, order_index, exercise_library_id)
+			VALUES (?,?,?,?,?,?,?,?,?)`,
 			e.ID, e.VariantID, e.ExerciseName, e.TargetSets, e.TargetRepsMin,
-			nullInt(e.TargetRepsMax), nullFloat(e.TargetWeightKg), e.OrderIndex); err != nil {
+			nullInt(e.TargetRepsMax), nullFloat(e.TargetWeightKg), e.OrderIndex, nullInt64(e.ExerciseLibraryID)); err != nil {
 			return err
 		}
 	}

@@ -159,17 +159,30 @@ function toVariantResponse(record) {
   return resp;
 }
 
-function toExerciseResponse(record) {
+// toExerciseResponse mirrors the Go read: the canonical name comes from the
+// referenced library row (COALESCE(el.name, we.exercise_name)) so a library
+// rename shows through in plans. (History logs snapshot exercise_name at log
+// time and are intentionally unaffected.) libById is the id→library-record map
+// for non-deleted library rows; omit it (or a dangling/null FK) to fall back to
+// the cached exercise_name.
+function toExerciseResponse(record, libById) {
+  const libId = record.exercise_library_id;
+  let name = record.exercise_name;
+  if (hasValue(libId) && libById) {
+    const lib = libById.get(libId);
+    if (lib) name = lib.name;
+  }
   const resp = {
     id: record.id,
     variant_id: record.variant_id,
-    exercise_name: record.exercise_name,
+    exercise_name: name,
     target_sets: record.target_sets,
     target_reps_min: record.target_reps_min,
     order_index: record.order_index,
   };
   if (hasValue(record.target_reps_max)) resp.target_reps_max = record.target_reps_max;
   if (hasValue(record.target_weight_kg)) resp.target_weight_kg = record.target_weight_kg;
+  if (hasValue(libId)) resp.exercise_library_id = libId;
   return resp;
 }
 
@@ -460,36 +473,53 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       deleted: false,
       id: mintNumericId(await records.list(WORKOUT_RECORD_TYPES.EXERCISE), nowMs),
       variant_id: Number(input && input.variant_id) || 0,
-      exercise_name: (input && input.exercise_name) || '',
+      exercise_name: ((input && input.exercise_name) || '').trim(),
       target_sets: Number(input && input.target_sets) || 0,
       target_reps_min: Number(input && input.target_reps_min) || 0,
       target_reps_max: numOrNull(input && input.target_reps_max, true),
       target_weight_kg: numOrNull(input && input.target_weight_kg),
       order_index: Number(input && input.order_index) || 0,
     };
+    // med-spp / med-prk.2: promote the plan exercise into the library
+    // (Exercises tab), deduped by name to match the Go (user_id, name) unique
+    // index, and link back via exercise_library_id so a later library rename
+    // shows through in this plan exercise. Mirrors CreateExerciseInVariant's
+    // ON CONFLICT DO NOTHING upsert + FK write.
+    const libId = await promoteExerciseToLibrary(record);
+    if (libId) record.exercise_library_id = libId;
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, record);
-    // med-spp: promote the plan exercise into the library (Exercises tab),
-    // deduped by name to match the Go (user_id, name) unique index. Mirrors
-    // CreateExerciseInVariant's ON CONFLICT DO NOTHING upsert so both modes
-    // return the same exercise-library entries for the same create sequence.
-    await promoteExerciseToLibrary(record);
+    // On create the resolved name is just record.exercise_name (the trimmed name
+    // we promoted from), so skip the extra libraryById() scan and match Go, which
+    // trims and stores the same name in both columns.
     return toExerciseResponse(record);
   }
 
+  // libraryById maps id → non-deleted library record, for resolving the
+  // canonical exercise name on read (the JS side of the Go LEFT JOIN).
+  async function libraryById() {
+    const m = new Map();
+    for (const item of await activeRecords(WORKOUT_RECORD_TYPES.LIBRARY)) m.set(item.id, item);
+    return m;
+  }
+
   // promoteExerciseToLibrary upserts a library record from a plan exercise,
-  // seeding defaults from its targets. No-op when the name is blank or already
-  // present (non-deleted) — the create-time counterpart of the Go upsert.
+  // seeding defaults from its targets, and returns the library row's numeric id
+  // (existing or newly minted). No-op returning null when the name is blank.
+  // The upsert-by-name counterpart of the Go upsert; returning the existing id
+  // makes "same name twice = one library row" hold on both create and update.
   async function promoteExerciseToLibrary(exercise) {
     const name = (exercise.exercise_name || '').trim();
-    if (!name) return;
+    if (!name) return null;
     const all = await records.list(WORKOUT_RECORD_TYPES.LIBRARY);
-    if (all.some((item) => !item.deleted && item.name === name)) return;
+    const existing = all.find((item) => !item.deleted && item.name === name);
+    if (existing) return existing.id;
     const nowMs = now();
+    const id = mintNumericId(all, nowMs);
     await records.put(WORKOUT_RECORD_TYPES.LIBRARY, {
       recordId: genRecordId('library', nowMs),
       clientTs: nowMs,
       deleted: false,
-      id: mintNumericId(all, nowMs),
+      id,
       user_id: CLOUD_USER_ID,
       name,
       default_sets: exercise.target_sets,
@@ -500,27 +530,36 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       created_at: new Date(nowMs).toISOString(),
       updated_at: new Date(nowMs).toISOString(),
     });
+    return id;
   }
 
   async function listExercises(variantId) {
     const all = (await activeRecords(WORKOUT_RECORD_TYPES.EXERCISE)).filter((e) => e.variant_id === variantId);
     all.sort((a, b) => a.order_index - b.order_index);
-    return all.map(toExerciseResponse);
+    const libById = await libraryById();
+    return all.map((e) => toExerciseResponse(e, libById));
   }
 
   async function updateExercise(id, input) {
     const exercise = await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, id);
     if (!exercise) return;
-    await records.put(WORKOUT_RECORD_TYPES.EXERCISE, {
+    const updated = {
       ...exercise,
-      exercise_name: (input && input.exercise_name) || '',
+      exercise_name: ((input && input.exercise_name) || '').trim(),
       target_sets: Number(input && input.target_sets) || 0,
       target_reps_min: Number(input && input.target_reps_min) || 0,
       target_reps_max: numOrNull(input && input.target_reps_max, true),
       target_weight_kg: numOrNull(input && input.target_weight_kg),
       order_index: Number(input && input.order_index) || 0,
       clientTs: now(),
-    });
+    };
+    // Mirror the Go UpdateExercise upsert-by-name: relink the FK to the library
+    // row for the (possibly changed) name.
+    // Clear the FK on a blank name (promote returns null) so the read falls back
+    // to the cached exercise_name and no whitespace-only library row is created —
+    // matching Go, which nulls the FK on a blank name (repo.go UpdateExercise).
+    updated.exercise_library_id = (await promoteExerciseToLibrary(updated)) ?? null;
+    await records.put(WORKOUT_RECORD_TYPES.EXERCISE, updated);
   }
 
   async function deleteExercise(id) {
@@ -580,7 +619,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     }
     return [...latestByName.values()]
       .sort((a, b) => a.exercise_name.localeCompare(b.exercise_name))
-      .map(toExerciseResponse);
+      .map((e) => toExerciseResponse(e));
   }
 
   async function listLibrary() {
@@ -612,7 +651,22 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
   async function deleteLibraryItem(id) {
     const item = await findByNumericId(records, WORKOUT_RECORD_TYPES.LIBRARY, id);
-    if (item) await records.del(WORKOUT_RECORD_TYPES.LIBRARY, item.recordId);
+    if (!item) return;
+    // Mirror Go's DeleteExerciseLibraryItem: snapshot this library row's
+    // (possibly renamed) name into every plan exercise that still references it
+    // and clear the FK, so deleting a library item leaves plans showing its last
+    // name instead of reverting to a stale cached exercise_name + dangling ref.
+    const refless = (await activeRecords(WORKOUT_RECORD_TYPES.EXERCISE))
+      .filter((e) => e.exercise_library_id === id);
+    for (const ex of refless) {
+      await records.put(WORKOUT_RECORD_TYPES.EXERCISE, {
+        ...ex,
+        exercise_name: item.name,
+        exercise_library_id: null,
+        clientTs: now(),
+      });
+    }
+    await records.del(WORKOUT_RECORD_TYPES.LIBRARY, item.recordId);
   }
 
   // -- Rotation state --

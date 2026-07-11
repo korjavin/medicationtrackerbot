@@ -1,10 +1,13 @@
 package server
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 // Trivial entity-CRUD handlers for workout variants, exercises, and the
@@ -274,7 +277,7 @@ func (s *Server) handleCreateExerciseLibraryItem(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if req.Name == "" {
+	if strings.TrimSpace(req.Name) == "" {
 		http.Error(w, "Name is required", http.StatusBadRequest)
 		return
 	}
@@ -293,6 +296,12 @@ func (s *Server) handleCreateExerciseLibraryItem(w http.ResponseWriter, r *http.
 }
 
 func (s *Server) handleUpdateExerciseLibraryItem(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserID(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -315,12 +324,16 @@ func (s *Server) handleUpdateExerciseLibraryItem(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if req.Name == "" {
+	if strings.TrimSpace(req.Name) == "" {
 		http.Error(w, "Name is required", http.StatusBadRequest)
 		return
 	}
 
-	if err := s.workouts.UpdateExerciseLibraryItem(id, req.Name, req.DefaultSets, req.DefaultRepsMin, req.DefaultRepsMax, req.DefaultWeightKg, req.Notes); err != nil {
+	if err := s.workouts.UpdateExerciseLibraryItem(userID, id, req.Name, req.DefaultSets, req.DefaultRepsMin, req.DefaultRepsMax, req.DefaultWeightKg, req.Notes); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -329,6 +342,12 @@ func (s *Server) handleUpdateExerciseLibraryItem(w http.ResponseWriter, r *http.
 }
 
 func (s *Server) handleDeleteExerciseLibraryItem(w http.ResponseWriter, r *http.Request) {
+	userID, err := getUserID(r)
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
@@ -336,7 +355,11 @@ func (s *Server) handleDeleteExerciseLibraryItem(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if err := s.workouts.DeleteExerciseLibraryItem(id); err != nil {
+	if err := s.workouts.DeleteExerciseLibraryItem(userID, id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

@@ -238,6 +238,10 @@ type VaultWorkoutExercise struct {
 	TargetRepsMax  *int     `json:"target_reps_max"`
 	TargetWeightKg *float64 `json:"target_weight_kg"`
 	OrderIndex     int      `json:"order_index"`
+	// ExerciseLibraryID is the FK to the exercise_library row the name resolves
+	// through (med-prk.2). Carried so a library rename keeps propagating to
+	// imported plans; the cloud vault already round-trips it via stripMeta.
+	ExerciseLibraryID *int64 `json:"exercise_library_id,omitempty"`
 }
 
 type VaultLibraryEntry struct {

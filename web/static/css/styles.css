@@ -8108,6 +8108,13 @@ textarea.wg-input {
     gap: var(--wg-workouts-modal-row-gap);
 }
 
+.wg-workouts-library-modal__hint {
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+    margin: var(--space-xs) 0 0;
+}
+
 .wg-workouts-library-modal__label {
     font-size: var(--wg-workouts-modal-label-size);
     letter-spacing: 0.14em;
