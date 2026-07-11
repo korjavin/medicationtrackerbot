@@ -24,6 +24,7 @@ How to work:
 - Run exactly one operation per mcp_call. Put the operation's arguments in "params". For a WRITE (logging/creating/updating/deleting) you MUST pass mode:"write" and a short "intent".
 - To LOG FOOD from a free-text description, prefer the food description/AI operation if one exists; do not invent macros.
 - Only act on what the user actually said. If they just chat or greet, reply briefly without calling tools. Never fabricate data you did not read.
+- When the user reveals a durable shorthand or term mapping worth applying next time (e.g. "by 'my usual' I mean 2 eggs and toast"), call remember_preference once with a single concise line. Only durable phrasing — not per-message content, not health-data values.
 - Keep your final reply short and plain (a sentence or two, no markdown) — it is shown as a Telegram message.`;
 
 const TOOLS = [
@@ -56,6 +57,18 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'remember_preference',
+      description: 'Record ONE short durable phrasing or term mapping about how this user talks (e.g. \'"my usual" = 2 eggs + toast\'). NOT per-message content, NOT health-data values.',
+      parameters: {
+        type: 'object',
+        properties: { note: { type: 'string', description: 'one concise line' } },
+        required: ['note'],
+      },
+    },
+  },
 ];
 
 function parseArgs(raw) {
@@ -70,7 +83,9 @@ function parseArgs(raw) {
 // createTGAgent wires the loop over injected ports. dispatcher.handle throws
 // MCPError on a bad op/arg; we hand the error text back to the model as the tool
 // result so it can self-correct rather than aborting the whole turn.
-export function createTGAgent({ chat, dispatcher, maxRounds = DEFAULT_MAX_ROUNDS }) {
+const NOOP_PREFS = { get: async () => '', append: async () => {} };
+
+export function createTGAgent({ chat, dispatcher, prefs = NOOP_PREFS, maxRounds = DEFAULT_MAX_ROUNDS }) {
   async function execTool(call) {
     const name = call.function && call.function.name;
     const args = parseArgs(call.function && call.function.arguments);
@@ -87,6 +102,12 @@ export function createTGAgent({ chat, dispatcher, maxRounds = DEFAULT_MAX_ROUNDS
           intent: args.intent,
         });
       }
+      if (name === 'remember_preference') {
+        const line = args.note ? String(args.note).trim() : '';
+        if (!line) return { error: 'note is required' };
+        await prefs.append(line);
+        return { ok: true };
+      }
       return { error: `unknown tool "${name}"` };
     } catch (e) {
       // Surface the error to the model, don't throw — self-correction beats abort.
@@ -97,8 +118,12 @@ export function createTGAgent({ chat, dispatcher, maxRounds = DEFAULT_MAX_ROUNDS
   // run drives the conversation and returns the model's final plain-text answer
   // (may be empty if the model chose to stay silent).
   async function run(userText) {
+    const note = (await prefs.get()) || '';
+    const systemContent = note
+      ? `${SYSTEM_PROMPT}\n\nWhat you already know about how THIS user talks (apply it when interpreting them):\n${note}`
+      : SYSTEM_PROMPT;
     const messages = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemContent },
       { role: 'user', content: userText },
     ];
 
