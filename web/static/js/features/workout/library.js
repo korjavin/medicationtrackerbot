@@ -189,6 +189,8 @@ function showExerciseLibraryModal(id) {
     document.getElementById('exercise-library-reps-max').value = '';
     document.getElementById('exercise-library-weight').value = '';
     document.getElementById('exercise-library-notes').value = '';
+
+    ensureExerciseCatalogSuggestions(document.getElementById('exercise-catalog-datalist'));
 }
 
 async function showEditExerciseLibraryModal(id) {
@@ -199,6 +201,8 @@ async function showEditExerciseLibraryModal(id) {
     window.WorkoutEdit.editingLibraryItemId = id;
     document.getElementById('exercise-library-modal-title').textContent = 'Edit Exercise';
     window.ModalManager.exerciseLibrary.open();
+
+    ensureExerciseCatalogSuggestions(document.getElementById('exercise-catalog-datalist'));
 
     document.getElementById('exercise-library-name').value = item.name;
     document.getElementById('exercise-library-sets').value = item.default_sets || '';
@@ -266,11 +270,52 @@ async function _deleteExerciseLibraryApi(id) {
     }
 }
 
+// Canonical exercise-name suggestions from the vendored static catalog
+// (med-s5m.2). Suggest-only: fills a <datalist> so the name inputs surface
+// canonical names ("Barbell bench press") and cut near-duplicates, without
+// ever constraining free typing. The 913 KB asset is fetched once, lazily
+// (only when a name-entry modal opens); a failed fetch is silent — the inputs
+// just fall back to no catalog suggestions — and is retried on the next open.
+let _exerciseCatalogNamesPromise = null; // module-state: single-flight cache for the one-time static exercise-catalog fetch (med-s5m.2)
+function _loadExerciseCatalogNames() {
+    if (!_exerciseCatalogNamesPromise) {
+        _exerciseCatalogNamesPromise = fetch('/static/data/exercises-catalog.json')
+            .then(r => (r.ok ? r.json() : Promise.reject(new Error('catalog ' + r.status))))
+            .then(cat => (cat.exercises || []).map(e => e.name).filter(Boolean))
+            .catch(err => {
+                console.error('Error loading exercise catalog:', err);
+                _exerciseCatalogNamesPromise = null; // allow a later retry (e.g. offline -> online)
+                return [];
+            });
+    }
+    return _exerciseCatalogNamesPromise;
+}
+
+// Append catalog names to a <datalist>, skipping any value already present so
+// user-library options (which carry autofill dataset) win over bare catalog
+// suggestions. Fire-and-forget: modals call this without awaiting.
+async function ensureExerciseCatalogSuggestions(datalist) {
+    if (!datalist) return;
+    const names = await _loadExerciseCatalogNames();
+    if (!names.length) return;
+    const existing = new Set(Array.from(datalist.options).map(o => o.value));
+    const frag = document.createDocumentFragment();
+    for (const name of names) {
+        if (existing.has(name)) continue;
+        existing.add(name);
+        const option = document.createElement('option');
+        option.value = name;
+        frag.appendChild(option);
+    }
+    datalist.appendChild(frag);
+}
+
 window.WorkoutLibrary = {
     load: loadExerciseLibrary,
     save: saveExerciseLibraryItem,
     openAdd: showExerciseLibraryModal,
     openEdit: showEditExerciseLibraryModal,
     close: closeExerciseLibraryModal,
-    delete: deleteExerciseLibraryItem
+    delete: deleteExerciseLibraryItem,
+    ensureCatalogSuggestions: ensureExerciseCatalogSuggestions
 };
