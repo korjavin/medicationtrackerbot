@@ -279,6 +279,40 @@ describe('inbox-apply.js — a server-parsed NXK vitals_import', () => {
         expect(await records.list('stresssample')).toHaveLength(1);
         expect(await records.list('miband')).toHaveLength(1);
     });
+
+    it('a stale/partial re-import never downgrades richer stored data (mirrors bot-mode MAX/COALESCE)', async () => {
+        const records = fakeRecords();
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS });
+        // First a full/newer import, then an older partial one for the SAME
+        // day/session/workout (the drain's replay-on-failed-flush can reorder).
+        await apply(vitalsEvent(), 42);
+        const stale = vitalsEvent();
+        stale.daystats = [{ day: '2026-01-01', steps: 3000, calories: 100, distance: 2000 }];
+        stale.sleep = [{
+            start_time: SLEEP_START, end_time: SLEEP_END, timezone_offset: 0,
+            day: '2026-01-01', total_minutes: 200, user_modified: false,
+        }];
+        stale.workouts = [{
+            source_start_ms: 1767250800000, source_end_ms: 1767252600000,
+            activity_type: 0, activity_name: '', duration_sec: 0,
+            distance_m: 0, steps: 0, calories: 0, heart_rate_avg: 0,
+            spo2_avg: 0, pause_ms: 0, tz_offset: 0,
+        }];
+        await apply(stale, 43);
+
+        // daystats: MAX wins — the higher earlier totals survive.
+        expect((await records.list('daystats'))[0].steps).toBe(8000);
+        // sleep: the longer session (and its deep_minutes / heart_rate_avg) survives.
+        const sleep = (await records.list('sleep'))[0];
+        expect(sleep.total_minutes).toBe(480);
+        expect(sleep.deep_minutes).toBe(120);
+        expect(sleep.heart_rate_avg).toBe(58);
+        // workout: zeroed incoming fields fall back to the populated stored row.
+        const miband = (await records.list('miband'))[0];
+        expect(miband.steps).toBe(6000);
+        expect(miband.distance_m).toBe(5000);
+        expect(miband.activity_name).toBe('Outdoor Run');
+    });
 });
 
 // bd med-eas.29.2 — a data command sealed as RAW text by the relay, parsed and

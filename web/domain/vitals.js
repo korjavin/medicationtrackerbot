@@ -323,29 +323,60 @@ export function createVitalsDomain({ records, now, timeZone }) {
   // once-marker is needed (unlike the free-text agent path).
   // ponytail: no marker — natural keys converge; add one only if a stream ever
   // gains non-deterministic write ids.
+  // Writes are monotonic merges against the stored record, mirroring the UPSERT
+  // guards bot mode uses (repo.go ImportDayStats/importSleepLogs, miband.go):
+  // Mi-Band .nxk backups are cumulative and get re-uploaded, and the drain's
+  // replay-on-failed-flush barrier can re-apply an older import after a newer
+  // one — a blind put would then downgrade steps / shorten a sleep session /
+  // zero-out a populated workout field. Same-instant day-batched samples
+  // (importDayBatched) carry the same device value, so LWW is fine there.
   async function importSamples({
     sleep: sleepLogs = [], hr = [], spo2 = [], stress = [], daystats = [], workouts = [],
   } = {}) {
-    for (const s of sleepLogs) {
-      if (!s || !s.start_time) continue;
-      const startMs = Date.parse(s.start_time);
-      const key = Number.isNaN(startMs) ? s.day : startMs;
-      await records.put(SLEEP_RECORD_TYPE, {
-        recordId: `sleep-${key}`, clientTs: now(), deleted: false, ...s,
-      });
+    if (sleepLogs.length) {
+      const existing = new Map((await records.list(SLEEP_RECORD_TYPE)).map((r) => [r.recordId, r]));
+      for (const s of sleepLogs) {
+        if (!s || !s.start_time) continue;
+        const startMs = Date.parse(s.start_time);
+        const key = Number.isNaN(startMs) ? s.day : startMs;
+        const recordId = `sleep-${key}`;
+        const prev = existing.get(recordId);
+        const base = prev && !prev.deleted ? prev : null;
+        if (base) {
+          // Never downgrade a longer stored session (repo.go WHERE
+          // total_minutes >). `{...base, ...s}` is COALESCE: omitempty drops
+          // absent phase fields from the wire, so the spread keeps base's.
+          if ((s.total_minutes || 0) < (base.total_minutes || 0)) continue;
+          await records.put(SLEEP_RECORD_TYPE, {
+            ...base, ...s, recordId, clientTs: now(), deleted: false,
+            user_modified: base.user_modified || s.user_modified,
+          });
+          continue;
+        }
+        await records.put(SLEEP_RECORD_TYPE, {
+          recordId, clientTs: now(), deleted: false, ...s,
+        });
+      }
     }
 
-    for (const d of daystats) {
-      if (!d || !d.day) continue;
-      await records.put(DAYSTATS_RECORD_TYPE, {
-        recordId: `daystats-${d.day}`,
-        clientTs: now(),
-        deleted: false,
-        day: d.day,
-        steps: d.steps || 0,
-        calories: d.calories || 0,
-        distance: d.distance || 0,
-      });
+    if (daystats.length) {
+      const existing = new Map((await records.list(DAYSTATS_RECORD_TYPE)).map((r) => [r.recordId, r]));
+      for (const d of daystats) {
+        if (!d || !d.day) continue;
+        const recordId = `daystats-${d.day}`;
+        const prev = existing.get(recordId);
+        const base = prev && !prev.deleted ? prev : null;
+        // MAX per field (repo.go), so a stale partial day never overwrites
+        // higher totals; skip the write entirely when nothing increased.
+        const steps = Math.max(base ? (base.steps || 0) : 0, d.steps || 0);
+        const calories = Math.max(base ? (base.calories || 0) : 0, d.calories || 0);
+        const distance = Math.max(base ? (base.distance || 0) : 0, d.distance || 0);
+        if (base && steps === (base.steps || 0) && calories === (base.calories || 0)
+          && distance === (base.distance || 0)) continue;
+        await records.put(DAYSTATS_RECORD_TYPE, {
+          recordId, clientTs: now(), deleted: false, day: d.day, steps, calories, distance,
+        });
+      }
     }
 
     await importDayBatched(HR_RECORD_TYPE, hr);
@@ -360,6 +391,12 @@ export function createVitalsDomain({ records, now, timeZone }) {
         if (!w || !w.source_start_ms) continue;
         const recordId = `miband-${w.source_start_ms}`;
         const prev = existing.get(recordId);
+        const base = prev && !prev.deleted ? prev : null;
+        // Don't let an older session (earlier end) win, and fall back to the
+        // stored value for any zero incoming field (miband.go CASE guards) —
+        // a partial re-import must not zero a populated row.
+        if (base && (w.source_end_ms || 0) < (base.source_end_ms || 0)) continue;
+        const pick = (inc, k) => (inc ? inc : (base ? base[k] : inc));
         await records.put(MIBAND_RECORD_TYPE, {
           recordId,
           clientTs: now(),
@@ -367,18 +404,18 @@ export function createVitalsDomain({ records, now, timeZone }) {
           // Preserve a prior numeric id (edits key on it) else derive one
           // deterministically from the source instant so re-drain converges.
           id: prev ? prev.id : w.source_start_ms,
-          activity_type: w.activity_type,
-          activity_name: w.activity_name,
+          activity_type: pick(w.activity_type, 'activity_type'),
+          activity_name: pick(w.activity_name, 'activity_name'),
           source_start_ms: w.source_start_ms,
           source_end_ms: w.source_end_ms,
-          duration_sec: w.duration_sec,
-          distance_m: w.distance_m,
-          steps: w.steps,
-          calories: w.calories,
-          heart_rate_avg: w.heart_rate_avg,
-          spo2_avg: w.spo2_avg,
-          pause_ms: w.pause_ms,
-          tz_offset: w.tz_offset,
+          duration_sec: pick(w.duration_sec, 'duration_sec'),
+          distance_m: pick(w.distance_m, 'distance_m'),
+          steps: pick(w.steps, 'steps'),
+          calories: pick(w.calories, 'calories'),
+          heart_rate_avg: pick(w.heart_rate_avg, 'heart_rate_avg'),
+          spo2_avg: pick(w.spo2_avg, 'spo2_avg'),
+          pause_ms: pick(w.pause_ms, 'pause_ms'),
+          tz_offset: pick(w.tz_offset, 'tz_offset'),
           source: 'miband',
         });
       }

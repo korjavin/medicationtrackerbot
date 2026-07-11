@@ -78,6 +78,10 @@ func (a *VitalsImportAPI) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
+	// FormFile parses with a 32MB in-memory cap; a larger .nxk spills to a temp
+	// file under r.MultipartForm that we must remove ourselves, or every big
+	// upload strands a copy in os.TempDir (mirrors elevenlabs_handlers.go).
+	defer r.MultipartForm.RemoveAll()
 
 	tmp, err := os.CreateTemp("", "nxk-upload-*"+extForUpload(header.Filename))
 	if err != nil {
