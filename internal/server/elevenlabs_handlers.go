@@ -81,7 +81,8 @@ func (s *Server) handleElevenLabsSignedURL(w http.ResponseWriter, r *http.Reques
 	}
 	req.Header.Set("xi-api-key", apiKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		slog.Error("elevenlabs: request failed", "error", err)
 		http.Error(w, "Failed to reach ElevenLabs API", http.StatusBadGateway)
@@ -203,7 +204,8 @@ func (s *Server) handleElevenLabsUploadFile(w http.ResponseWriter, r *http.Reque
 	req.Header.Set("xi-api-key", apiKey)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 60 * time.Second} // file uploads might take longer
+	resp, err := client.Do(req)
 	if err != nil {
 		slog.Error("elevenlabs upload: request failed", "error", err)
 		http.Error(w, "Failed to reach ElevenLabs API", http.StatusBadGateway)
