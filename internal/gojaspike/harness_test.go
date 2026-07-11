@@ -9,7 +9,7 @@ import (
 
 // fixedNowMs / fixedTZ are the deterministic clock+zone all spike tests share.
 const (
-	fixedNowMs int64  = 1782000000000 // 2026-05-31T05:20:00Z — arbitrary but fixed
+	fixedNowMs int64  = 1782000000000 // 2026-06-21T00:00:00Z — arbitrary but fixed
 	fixedTZ    string = "America/New_York"
 )
 
@@ -20,6 +20,11 @@ func openTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
+	// Each :memory: connection is a SEPARATE database, so a second pooled conn
+	// would see a table-less DB (silent empty reads / "no such table"). Pin to
+	// one connection, matching internal/store/db.Open. The RecordsPort pattern
+	// gets lifted into C6, where requests are concurrent.
+	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
 	return db
 }

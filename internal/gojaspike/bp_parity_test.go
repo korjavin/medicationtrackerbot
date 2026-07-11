@@ -198,13 +198,15 @@ func TestBPCreateListParity(t *testing.T) {
 	r, ctx := newBPGoRepo(t)
 
 	// Distinct timestamps (no ordering ties), all within the JS list default
-	// 30-day window, with a mix of optional fields incl. an ignore_calc row
-	// (category must stay empty on both sides).
+	// 30-day window of the fixed now (2026-06-21), with a mix of optional
+	// fields incl. an ignore_calc row (category must stay empty on both sides).
+	// The first row is the only one carrying site+tag, so it MUST fall inside
+	// the window or those fields go uncompared.
 	fixtures := []bpFixture{
-		{measuredAt: "2026-05-20T08:00:00Z", sys: 120, dia: 80, pulse: iptr(72), site: "left arm", position: "sitting", notes: "morning", tag: "home"},
-		{measuredAt: "2026-05-22T09:30:00Z", sys: 145, dia: 92},
-		{measuredAt: "2026-05-25T18:00:00Z", sys: 118, dia: 76, pulse: iptr(65), position: "standing"},
-		{measuredAt: "2026-05-28T07:15:00Z", sys: 135, dia: 88, notes: "raw", ignoreCalc: true},
+		{measuredAt: "2026-06-08T08:00:00Z", sys: 120, dia: 80, pulse: iptr(72), site: "left arm", position: "sitting", notes: "morning", tag: "home"},
+		{measuredAt: "2026-06-11T09:30:00Z", sys: 145, dia: 92},
+		{measuredAt: "2026-06-15T18:00:00Z", sys: 118, dia: 76, pulse: iptr(65), position: "standing"},
+		{measuredAt: "2026-06-18T07:15:00Z", sys: 135, dia: 88, notes: "raw", ignoreCalc: true},
 	}
 	for _, f := range fixtures {
 		jsCreate(t, h, f)
@@ -311,15 +313,25 @@ func TestBPStatsParity(t *testing.T) {
 	r, ctx := newBPGoRepo(t)
 
 	// All timestamps sit well inside their local (America/New_York, EDT)
-	// calendar day — no midnight/DST edge — and within 14 days of the fixed
-	// now, so all three periods are populated on both sides.
+	// calendar day — no midnight/DST edge. Relative to the fixed now
+	// (2026-06-21), readings are spread so the three periods produce GENUINELY
+	// DIFFERENT day sets on both sides: three days inside 14d (after ~06-06),
+	// one more day inside 30d (~05-25, after ~05-21), one more inside 60d
+	// (~05-05, after ~04-21). This forces each buildPeriod(14/30/60) boundary
+	// to be exercised independently — a period-window bug can no longer hide
+	// behind identical day sets. The ignore_calc row shares a day with a
+	// counted reading and must be dropped from stats on both sides (JS filter
+	// vs Go `ignore_calc = 0`).
 	fixtures := []bpFixture{
-		{measuredAt: "2026-05-28T12:00:00Z", sys: 120, dia: 80},
-		{measuredAt: "2026-05-28T22:00:00Z", sys: 160, dia: 100},
-		{measuredAt: "2026-05-29T13:00:00Z", sys: 110, dia: 70},
-		{measuredAt: "2026-05-29T13:30:00Z", sys: 150, dia: 95},
-		{measuredAt: "2026-05-29T21:00:00Z", sys: 120, dia: 80},
-		{measuredAt: "2026-05-30T11:00:00Z", sys: 130, dia: 85},
+		{measuredAt: "2026-05-05T16:00:00Z", sys: 100, dia: 62}, // inside 60d only
+		{measuredAt: "2026-05-25T16:00:00Z", sys: 140, dia: 90}, // inside 30d + 60d
+		{measuredAt: "2026-06-15T12:00:00Z", sys: 120, dia: 80}, // inside all three
+		{measuredAt: "2026-06-15T22:00:00Z", sys: 160, dia: 100},
+		{measuredAt: "2026-06-18T13:00:00Z", sys: 110, dia: 70},
+		{measuredAt: "2026-06-18T13:30:00Z", sys: 150, dia: 95},
+		{measuredAt: "2026-06-18T21:00:00Z", sys: 120, dia: 80},
+		{measuredAt: "2026-06-19T11:00:00Z", sys: 130, dia: 85},
+		{measuredAt: "2026-06-19T15:00:00Z", sys: 200, dia: 120, ignoreCalc: true}, // excluded from stats
 	}
 	for _, f := range fixtures {
 		jsCreate(t, h, f)
@@ -343,6 +355,19 @@ func TestBPStatsParity(t *testing.T) {
 	cmpPeriod(t, "stats_14", jsStats["stats_14"], goStats.Stats14)
 	cmpPeriod(t, "stats_30", jsStats["stats_30"], goStats.Stats30)
 	cmpPeriod(t, "stats_60", jsStats["stats_60"], goStats.Stats60)
+
+	// Guard: the fixtures are chosen so each wider period includes strictly more
+	// days. Assert that here so a future fixture edit can't silently collapse
+	// the three windows into one day set (which would let a period-boundary bug
+	// pass unnoticed — the parity compare alone can't catch that).
+	if goStats.Stats14 == nil || goStats.Stats30 == nil || goStats.Stats60 == nil {
+		t.Fatalf("all three periods must be populated; got 14=%v 30=%v 60=%v",
+			goStats.Stats14, goStats.Stats30, goStats.Stats60)
+	}
+	if !(goStats.Stats14.Days < goStats.Stats30.Days && goStats.Stats30.Days < goStats.Stats60.Days) {
+		t.Fatalf("periods must strictly widen (14<30<60 days); got %d/%d/%d",
+			goStats.Stats14.Days, goStats.Stats30.Days, goStats.Stats60.Days)
+	}
 }
 
 // cmpPeriod asserts a JS period object equals the Go BPPeriodStats, handling

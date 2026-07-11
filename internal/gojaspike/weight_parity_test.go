@@ -144,12 +144,15 @@ func asFloat(t *testing.T, v interface{}) float64 {
 // weightSequence is the shared fixture: a monotonic-by-measured_at run so the
 // "previous = latest by measured_at" selection is identical on both sides, with
 // a mix of body-composition/notes fields (incl. an omitted-field row).
+// Dates sit inside the JS list default 30-day window of the fixed now
+// (2026-06-21); the first row is the only one carrying every optional field,
+// so it MUST fall inside the window or those fields go uncompared.
 var weightSequence = []weightFixture{
-	{measuredAt: "2026-05-20T08:00:00Z", weight: 80.0, bodyFat: fptr(22.5), muscleMass: fptr(35.0), notes: "start"},
-	{measuredAt: "2026-05-22T08:00:00Z", weight: 79.4},
-	{measuredAt: "2026-05-24T08:00:00Z", weight: 79.8, bodyFat: fptr(22.1), notes: "hydrated"},
-	{measuredAt: "2026-05-27T08:00:00Z", weight: 78.6, muscleMass: fptr(35.4)},
-	{measuredAt: "2026-05-30T08:00:00Z", weight: 78.9, bodyFat: fptr(21.8), muscleMass: fptr(35.6), notes: "morning"},
+	{measuredAt: "2026-06-08T08:00:00Z", weight: 80.0, bodyFat: fptr(22.5), muscleMass: fptr(35.0), notes: "start"},
+	{measuredAt: "2026-06-10T08:00:00Z", weight: 79.4},
+	{measuredAt: "2026-06-12T08:00:00Z", weight: 79.8, bodyFat: fptr(22.1), notes: "hydrated"},
+	{measuredAt: "2026-06-15T08:00:00Z", weight: 78.6, muscleMass: fptr(35.4)},
+	{measuredAt: "2026-06-18T08:00:00Z", weight: 78.9, bodyFat: fptr(21.8), muscleMass: fptr(35.6), notes: "morning"},
 }
 
 // TestWeightTrendParity: the unmodified JS calculateWeightTrend (reached via

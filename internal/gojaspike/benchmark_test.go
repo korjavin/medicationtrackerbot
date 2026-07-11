@@ -28,6 +28,8 @@ func openBenchDB(b *testing.B) *sql.DB {
 	if err != nil {
 		b.Fatalf("open db: %v", err)
 	}
+	// One connection: each :memory: conn is a separate DB (see openTestDB).
+	db.SetMaxOpenConns(1)
 	b.Cleanup(func() { db.Close() })
 	return db
 }
