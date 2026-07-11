@@ -24,6 +24,7 @@ How to work:
 - Run exactly one operation per mcp_call. Put the operation's arguments in "params". For a WRITE (logging/creating/updating/deleting) you MUST pass mode:"write" and a short "intent".
 - To LOG FOOD from a free-text description, prefer the food description/AI operation if one exists; do not invent macros.
 - Only act on what the user actually said. If they just chat or greet, reply briefly without calling tools. Never fabricate data you did not read.
+- When the user reveals a durable shorthand or term mapping worth applying next time (e.g. "by 'my usual' I mean 2 eggs and toast"), call remember_preference once with a single concise line. Only durable phrasing — not per-message content, not health-data values.
 - Keep your final reply short and plain (a sentence or two, no markdown) — it is shown as a Telegram message.`;
 
 const TOOLS = [
@@ -53,6 +54,18 @@ const TOOLS = [
           intent: { type: 'string', description: 'one short line stating why, required for writes' },
         },
         required: ['operation_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remember_preference',
+      description: 'Record ONE short durable phrasing or term mapping about how this user talks (e.g. \'"my usual" = 2 eggs + toast\'). NOT per-message content, NOT health-data values.',
+      parameters: {
+        type: 'object',
+        properties: { note: { type: 'string', description: 'one concise line' } },
+        required: ['note'],
       },
     },
   },
@@ -88,6 +101,12 @@ export function createTGAgent({ chat, dispatcher, prefs = NOOP_PREFS, maxRounds 
           mode: args.mode,
           intent: args.intent,
         });
+      }
+      if (name === 'remember_preference') {
+        const line = args.note ? String(args.note).trim() : '';
+        if (!line) return { error: 'note is required' };
+        await prefs.append(line);
+        return { ok: true };
       }
       return { error: `unknown tool "${name}"` };
     } catch (e) {

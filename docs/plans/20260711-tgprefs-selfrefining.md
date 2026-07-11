@@ -92,13 +92,13 @@ Verified on local master @5e2eca7c (after ff to origin/master, which merged med-
       `SYSTEM_PROMPT` (unchanged — no dangling header).
 
 ### Task 3: WRITE — remember_preference tool with size-capped append
-- [ ] In `web/cloud/js/tg-agent.js`, add a third entry to `TOOLS`: `remember_preference` with a
+- [x] In `web/cloud/js/tg-agent.js`, add a third entry to `TOOLS`: `remember_preference` with a
       single required string param `note` — description: record ONE short durable phrasing/term
       mapping about how this user talks (NOT per-message content, NOT health-data values).
-- [ ] Extend `SYSTEM_PROMPT` with one short instruction: when the user reveals a durable
+- [x] Extend `SYSTEM_PROMPT` with one short instruction: when the user reveals a durable
       shorthand or term mapping worth remembering for next time, call `remember_preference` with a
       single concise line; otherwise don't. Keep it sparse — one line, only durable phrasing.
-- [ ] In `execTool`, handle `name === 'remember_preference'`: `await prefs.append(args.note)` and
+- [x] In `execTool`, handle `name === 'remember_preference'`: `await prefs.append(args.note)` and
       return a small `{ ok: true }` (or `{ error }` on a bad/empty note) so the loop continues.
       The append rides the SAME pending vault batch as the turn's other writes (same `records`
       port); no extra flush is needed.
