@@ -676,6 +676,19 @@ export function createApiRouter(ctx, {
     if (expMatch && method === 'DELETE') {
       return gamification.cancelExperiment(decodeURIComponent(expMatch[1]));
     }
+    // Narrative layer (Phase 5): chapters (opt-in 4-week arcs + written review),
+    // traits (levers-only identity, held/dormant/rekindle), and the keystone
+    // timeline (rare permanent real-outcome milestones). All recompute-on-read
+    // from vault records; the journal singleton persists only the durable facts
+    // (chapter enrollment + reviews, trait earned-timestamps, keystone entries).
+    // Bot mode 404s these routes; journey.js then omits the cards.
+    if (path === '/api/gamification/chapter') {
+      if (method === 'GET') return gamification.getChapter();
+      if (method === 'POST') return gamification.startChapter(body && body.theme_id);
+      if (method === 'DELETE') return gamification.closeChapter();
+    }
+    if (path === '/api/gamification/traits' && method === 'GET') return gamification.getTraits();
+    if (path === '/api/gamification/keystones' && method === 'GET') return gamification.getKeystones();
     if (method === 'GET' && (
       path === '/api/gamification/journey'
       || path === '/api/gamification/insights'

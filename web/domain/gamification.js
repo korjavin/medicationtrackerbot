@@ -252,6 +252,88 @@ function experimentTemplateById(id) {
   return EXPERIMENT_TEMPLATES.find((t) => t.id === id) || null;
 }
 
+// -------------------------------------------------------------------------
+// Chapters (§3.5) — opt-in 4-week themed narrative arcs. A chapter is never
+// auto-enrolled and never "failed"; it ends with a deterministic written
+// review (fresh-start effect). Themes are pace/consistency-only — never a
+// weight-loss-amount theme (§5 guardrail). CURATED like the experiment
+// library: users pick a theme, they never author a chapter shape.
+// -------------------------------------------------------------------------
+const CHAPTER_DURATION_DAYS = 28; // four weeks (§3.5)
+
+export const CHAPTER_THEMES = [
+  {
+    id: 'steady_month',
+    title: 'The Steady Month',
+    focus: 'blood-pressure consistency',
+    blurb: 'Log a morning reading most days and keep your levers steady.',
+    pinnedProbes: ['workout_next_morning_bp', 'short_sleep_next_morning_bp'],
+  },
+  {
+    id: 'early_sleeper',
+    title: 'The Early Sleeper',
+    focus: 'a steady bedtime window',
+    blurb: 'Aim for a 7h+ night and watch how your mornings answer.',
+    pinnedProbes: ['short_sleep_next_morning_bp', 'short_sleep_next_day_steps'],
+  },
+  {
+    id: 'the_rebuild',
+    title: 'The Rebuild',
+    focus: 'a gentle return to movement',
+    blurb: 'Ease workouts back in — every session counts, none are owed.',
+    pinnedProbes: ['workout_next_morning_bp', 'workout_next_day_resting_hr'],
+  },
+];
+
+function chapterThemeById(id) {
+  return CHAPTER_THEMES.find((t) => t.id === id) || null;
+}
+
+// -------------------------------------------------------------------------
+// Traits (§3.6) — present-tense identity statements earned from LEVER
+// consistency over a trailing 28-day window. Levers only: there is no gauge
+// trait — no "Weight Loser", no "Low BP" (§5 guardrail, test-enforced by
+// gamification.traits.test.js scanning for outcome/body language). Traits go
+// DORMANT, never destroyed, when the behavior lapses, and re-kindle cheaply
+// (a handful of recent lever-days), defusing the what-the-hell effect.
+//   earn     — lever-on days out of 28 required to first earn the trait.
+//   rekindle — lever-on days in the trailing 7d that revive a dormant trait
+//              (deliberately far below `earn`: the loss-aversion is gentle).
+// -------------------------------------------------------------------------
+export const TRAITS = [
+  {
+    id: 'early_sleeper',
+    title: 'Early Sleeper',
+    lever: (d) => (d.sleepMinutes === null ? null : d.sleepMinutes >= 7 * 60),
+    leverLabel: 'window nights',
+    earn: 21,
+    rekindle: 5,
+  },
+  {
+    id: 'consistent_mover',
+    title: 'Consistent Mover',
+    // Every calendar day is classifiable: a completed session is a move day,
+    // every other day is implicitly a rest day (false, never null).
+    lever: (d) => d.workoutCompleted === true,
+    leverLabel: 'move days',
+    earn: 12,
+    rekindle: 3,
+  },
+  {
+    id: 'early_diner',
+    title: 'Early Diner',
+    lever: (d) => (d.lastMealHour === null ? null : d.lastMealHour < 21),
+    leverLabel: 'early dinners',
+    earn: 14,
+    rekindle: 4,
+  },
+];
+
+const TRAIT_EARN_WINDOW_DAYS = 28;
+const TRAIT_REKINDLE_WINDOW_DAYS = 7;
+// A trend keystone needs a real sample, not a lucky week, before it's declared.
+const KEYSTONE_BP_MIN_DAYS = 20;
+
 // evaluateExperimentWindow is evaluateProbe scoped to a trial's day range with
 // an experiment-appropriate gate. Buckets the window's classified days into two
 // arms by the user's OWN behavior (lever), reads the outcome (gauge, honoring
@@ -447,9 +529,29 @@ export function createGamificationDomain({ records, now, timeZone }) {
     };
   }
 
-  async function readSeen() {
+  // The gamificationjournal singleton is shared state (§6.3): seen-discovery
+  // ids, chapter enrollment + closed-chapter reviews, trait earned-timestamps,
+  // and the keystone timeline all live on the ONE record. readJournal/writeJournal
+  // merge so a write to one field never clobbers the others (the old
+  // markDiscoverySeen wrote a fresh record and would have wiped chapters/traits).
+  async function readJournal() {
     const all = await records.list(JOURNAL_RECORD_TYPE);
-    const rec = all.find((r) => r.recordId === JOURNAL_RECORD_ID);
+    return all.find((r) => r.recordId === JOURNAL_RECORD_ID) || null;
+  }
+
+  async function writeJournal(patch) {
+    const cur = await readJournal();
+    const next = {
+      ...(cur || {}),
+      recordId: JOURNAL_RECORD_ID, deleted: false, clientTs: now(),
+      ...patch,
+    };
+    await records.put(JOURNAL_RECORD_TYPE, next);
+    return next;
+  }
+
+  async function readSeen() {
+    const rec = await readJournal();
     return Array.isArray(rec && rec.seen_discoveries) ? rec.seen_discoveries : [];
   }
 
@@ -475,10 +577,21 @@ export function createGamificationDomain({ records, now, timeZone }) {
     if (!id) return { seen: [] };
     const seen = await readSeen();
     if (!seen.includes(id)) seen.push(id);
-    await records.put(JOURNAL_RECORD_TYPE, {
-      recordId: JOURNAL_RECORD_ID, clientTs: now(), deleted: false, seen_discoveries: seen,
-    });
+    await writeJournal({ seen_discoveries: seen });
     return { seen };
+  }
+
+  // appendKeystone adds one permanent milestone to the journal timeline, deduped
+  // by stable id. Keystones NEVER decay, expire, or count down (§3.7 / §5): the
+  // list is append-only and re-reads the journal each call so a concurrent write
+  // can't drop an entry. Returns the (possibly unchanged) list.
+  async function appendKeystone(entry) {
+    const journal = await readJournal();
+    const list = Array.isArray(journal && journal.keystones) ? journal.keystones.slice() : [];
+    if (list.some((k) => k.id === entry.id)) return list;
+    list.push(entry);
+    await writeJournal({ keystones: list });
+    return list;
   }
 
   // inRangeBand reads the user's own bp goal (systolic) so the forecast is
@@ -672,6 +785,20 @@ export function createGamificationDomain({ records, now, timeZone }) {
       acknowledged: false, clientTs: nowMs, deleted: false,
     };
     await records.put(EXPERIMENT_RECORD_TYPE, resolved);
+    // A completed clean trial is a keystone — the milestone is running it, not
+    // the direction of the result (§3.3: no_effect rewarded like effect). Only
+    // a callable verdict earns one; not_enough_contrast is not a finding.
+    if (verdict.rewarded) {
+      await appendKeystone({
+        id: `experiment-${active.recordId}`,
+        kind: 'experiment',
+        title: template.title,
+        text: verdict.verdict === 'effect'
+          ? `Completed a clean 14-day trial and found an effect: ${template.title.toLowerCase()}.`
+          : `Completed a clean 14-day trial — a genuine null result, an equally real finding.`,
+        earned_at: nowMs,
+      });
+    }
     return { active: null, resolved };
   }
 
@@ -805,8 +932,276 @@ export function createGamificationDomain({ records, now, timeZone }) {
     return { ok: true, status: rec.status };
   }
 
+  // --- Chapters -----------------------------------------------------------
+  // Persisted state: journal.chapter = { theme_id, started_at } (the one active
+  // arc) and journal.closed_chapters = [ review, … ]. A review is computed
+  // deterministically from the window's own logged behavior — recompute stays
+  // on read until the chapter closes, then the recap is frozen once.
+
+  function chapterWindow(chapter) {
+    const startDay = localDayString(chapter.started_at, timeZone);
+    return { startDay, endDay: addDays(startDay, CHAPTER_DURATION_DAYS - 1) };
+  }
+
+  // buildChapterReview folds the window into a short written recap. Deterministic
+  // template (LLM narration is a later phase). A window with almost no logged
+  // days closes as "a quiet chapter" (the §14.11 precedent) rather than a wall
+  // of zeros.
+  function buildChapterReview(chapter, days, nowMs) {
+    const theme = chapterThemeById(chapter.theme_id) || {};
+    const { startDay, endDay } = chapterWindow(chapter);
+    let loggedDays = 0;
+    let windowNights = 0;
+    let moveDays = 0;
+    let inBandMornings = 0;
+    let morningReadings = 0;
+    for (const d of days.values()) {
+      if (d.key < startDay || d.key > endDay) continue;
+      const logged = d.firstMorningSystolic !== null || d.sleepMinutes !== null || d.workoutCompleted;
+      if (logged) loggedDays += 1;
+      if (d.sleepMinutes !== null && d.sleepMinutes >= 7 * 60) windowNights += 1;
+      if (d.workoutCompleted === true) moveDays += 1;
+      if (d.firstMorningSystolic !== null) morningReadings += 1;
+    }
+    const base = {
+      theme_id: chapter.theme_id,
+      title: theme.title || 'Your chapter',
+      focus: theme.focus || '',
+      started_at: chapter.started_at,
+      closed_at: nowMs,
+    };
+    if (loggedDays < 5) {
+      return {
+        ...base,
+        quiet: true,
+        lines: [],
+        text: 'A quiet chapter — it still counts. Pick the next one whenever you’re ready.',
+      };
+    }
+    const lines = [
+      `${loggedDays} days logged over your four weeks.`,
+      `${windowNights} nights of 7h+ sleep.`,
+      `${moveDays} move days.`,
+      `${morningReadings} morning readings recorded.`,
+    ];
+    return {
+      ...base,
+      quiet: false,
+      logged_days: loggedDays,
+      window_nights: windowNights,
+      move_days: moveDays,
+      morning_readings: morningReadings,
+      lines,
+      text: `Your ${(theme.title || 'chapter').replace(/^The /, '')} focused on ${theme.focus || 'your health'}. ${lines.join(' ')}`,
+    };
+  }
+
+  // resolveElapsedChapter freezes an elapsed chapter into a review (idempotent,
+  // and paused by recovery mode so a sick stretch never force-ends an arc).
+  // Returns the still-active chapter (or null once closed).
+  async function resolveElapsedChapter(days, paused, nowMs) {
+    const journal = await readJournal();
+    const chapter = journal && journal.chapter;
+    if (!chapter) return null;
+    const { endDay } = chapterWindow(chapter);
+    const todayKey = localDayString(nowMs, timeZone);
+    if (paused || todayKey <= endDay) return chapter;
+    const review = buildChapterReview(chapter, days, nowMs);
+    const closed = Array.isArray(journal.closed_chapters) ? journal.closed_chapters.slice() : [];
+    closed.push(review);
+    await writeJournal({ chapter: null, closed_chapters: closed });
+    return null;
+  }
+
+  function chapterDayNumber(chapter, nowMs) {
+    const { startDay } = chapterWindow(chapter);
+    const todayKey = localDayString(nowMs, timeZone);
+    let n = 0;
+    let cur = startDay;
+    for (let i = 0; i < CHAPTER_DURATION_DAYS; i++) {
+      if (cur > todayKey) break;
+      n = i + 1;
+      cur = addDays(cur, 1);
+    }
+    return n;
+  }
+
+  function chapterActiveView(chapter, nowMs) {
+    const theme = chapterThemeById(chapter.theme_id) || {};
+    return {
+      theme_id: chapter.theme_id,
+      title: theme.title,
+      focus: theme.focus,
+      blurb: theme.blurb,
+      pinned_probes: theme.pinnedProbes || [],
+      day_number: chapterDayNumber(chapter, nowMs),
+      duration: CHAPTER_DURATION_DAYS,
+    };
+  }
+
+  // getChapter — the whole chapter surface: the active arc (with its day
+  // tracker) OR, when none is running, the most recent review + the theme
+  // library to start the next one. Auto-freezes an elapsed arc as a side effect.
+  async function getChapter() {
+    const nowMs = now();
+    const [days, paused] = await Promise.all([buildDays(), recoveryActive()]);
+    const active = await resolveElapsedChapter(days, paused, nowMs);
+    const themes = CHAPTER_THEMES.map((t) => ({
+      id: t.id, title: t.title, focus: t.focus, blurb: t.blurb,
+    }));
+    if (active) {
+      return {
+        enabled: true, recovery_paused: paused,
+        active: chapterActiveView(active, nowMs),
+        review: null, themes, can_start: false,
+      };
+    }
+    const journal = await readJournal();
+    const closed = Array.isArray(journal && journal.closed_chapters) ? journal.closed_chapters : [];
+    const review = closed.length ? closed[closed.length - 1] : null;
+    return {
+      enabled: true, recovery_paused: paused,
+      active: null, review, themes, can_start: true,
+    };
+  }
+
+  async function startChapter(themeId) {
+    const theme = chapterThemeById(themeId);
+    if (!theme) return { ok: false, error: 'unknown_theme' };
+    const nowMs = now();
+    const [days, paused] = await Promise.all([buildDays(), recoveryActive()]);
+    const active = await resolveElapsedChapter(days, paused, nowMs);
+    if (active) return { ok: false, error: 'already_active', active: chapterActiveView(active, nowMs) };
+    const chapter = { theme_id: themeId, started_at: nowMs };
+    await writeJournal({ chapter });
+    return { ok: true, active: chapterActiveView(chapter, nowMs) };
+  }
+
+  // closeChapter — end the arc early with no penalty (§3.5: chapters end, never
+  // fail), writing the review immediately. Idempotent when nothing is active.
+  async function closeChapter() {
+    const nowMs = now();
+    const journal = await readJournal();
+    const chapter = journal && journal.chapter;
+    if (!chapter) return { ok: true, review: null };
+    const days = await buildDays();
+    const review = buildChapterReview(chapter, days, nowMs);
+    const closed = Array.isArray(journal.closed_chapters) ? journal.closed_chapters.slice() : [];
+    closed.push(review);
+    await writeJournal({ chapter: null, closed_chapters: closed });
+    return { ok: true, review };
+  }
+
+  // --- Traits -------------------------------------------------------------
+  // Recompute-on-read: held / dormant / developing is derived from the trailing
+  // 28-day lever consistency every call. The only persisted fact is
+  // journal.traits[id].earned_at — the durable "this was once true", which is
+  // what lets a lapsed trait render DORMANT (never deleted). Recovery mode
+  // pauses the dormancy clock: a sick week can't demote a held trait (§5).
+  function evalTrait(trait, days, persistedTraits, paused, nowMs) {
+    const earnStart = localDayString(nowMs - TRAIT_EARN_WINDOW_DAYS * DAY_MS, timeZone);
+    const rekindleStart = localDayString(nowMs - TRAIT_REKINDLE_WINDOW_DAYS * DAY_MS, timeZone);
+    let on28 = 0;
+    let on7 = 0;
+    for (const d of days.values()) {
+      if (d.key < earnStart) continue;
+      if (trait.lever(d) !== true) continue;
+      on28 += 1;
+      if (d.key >= rekindleStart) on7 += 1;
+    }
+    const persisted = persistedTraits[trait.id] || null;
+    const earned = !!persisted;
+    const meetsEarn = on28 >= trait.earn;
+    const rekindled = earned && on7 >= trait.rekindle;
+    // Held when currently consistent, freshly re-kindled, or paused by recovery
+    // (the clock can't send it dormant mid-illness).
+    let held = meetsEarn || rekindled;
+    let recoveryHeld = false;
+    if (!held && earned && paused) { held = true; recoveryHeld = true; }
+
+    let state;
+    if (held) state = 'held';
+    else if (earned) state = 'dormant';
+    else state = 'developing';
+
+    const view = {
+      id: trait.id,
+      title: trait.title,
+      lever_label: trait.leverLabel,
+      state,
+      on_28d: on28,
+      earn: trait.earn,
+      rekindle: trait.rekindle,
+      earned_at: persisted ? persisted.earned_at : null,
+      recovery_held: recoveryHeld,
+    };
+    if (state === 'developing') view.remaining = Math.max(0, trait.earn - on28);
+    if (state === 'dormant') view.rekindle_remaining = Math.max(0, trait.rekindle - on7);
+    return view;
+  }
+
+  // getTraits evaluates the whole trait shelf and persists a first-earn
+  // timestamp the moment a trait clears its 28-day bar (never during recovery,
+  // which shouldn't mint new identity off a paused clock). The write is the only
+  // durable side effect; every other field is recomputed.
+  async function getTraits() {
+    const nowMs = now();
+    const [days, paused, journal] = await Promise.all([buildDays(), recoveryActive(), readJournal()]);
+    const persistedTraits = (journal && journal.traits) || {};
+    let dirty = false;
+    const next = { ...persistedTraits };
+    const traits = TRAITS.map((trait) => {
+      const view = evalTrait(trait, days, persistedTraits, paused, nowMs);
+      const meetsEarn = view.on_28d >= trait.earn;
+      if (meetsEarn && !persistedTraits[trait.id] && !paused) {
+        next[trait.id] = { earned_at: nowMs };
+        dirty = true;
+        view.earned_at = nowMs;
+      }
+      return view;
+    });
+    if (dirty) await writeJournal({ traits: next });
+    return { enabled: true, recovery_paused: paused, traits };
+  }
+
+  // --- Keystones ----------------------------------------------------------
+  // The permanent timeline. Experiment completions are appended at resolution
+  // (resolveElapsed → appendKeystone); real-outcome trend milestones are
+  // detected on read and appended once. Nothing here ever decays or counts down.
+
+  async function maybeDetectBpBandKeystone(days, band) {
+    const journal = await readJournal();
+    const list = Array.isArray(journal && journal.keystones) ? journal.keystones : [];
+    if (list.some((k) => k.id === 'bp_in_target_band')) return;
+    const vals = [];
+    for (const d of days.values()) {
+      if (Number.isFinite(d.meanSystolic)) vals.push(d.meanSystolic);
+    }
+    if (vals.length < KEYSTONE_BP_MIN_DAYS) return; // a trend, not a lucky week
+    const avg = mean(vals);
+    if (avg > band.max) return;
+    await appendKeystone({
+      id: 'bp_in_target_band',
+      kind: 'bp_trend',
+      title: 'Blood pressure in your target band',
+      text: `Your ${WINDOW_DAYS}-day average systolic settled at ${Math.round(avg)}, inside your target of ${band.max}.`,
+      earned_at: now(),
+    });
+  }
+
+  async function getKeystones() {
+    const [days, band] = await Promise.all([buildDays(), inRangeBand()]);
+    await maybeDetectBpBandKeystone(days, band);
+    const journal = await readJournal();
+    const list = Array.isArray(journal && journal.keystones) ? journal.keystones.slice() : [];
+    list.sort((a, b) => (b.earned_at || 0) - (a.earned_at || 0));
+    return { enabled: true, keystones: list };
+  }
+
   return {
     getAtlas, markDiscoverySeen, getForecast,
     listExperiments, startExperiment, cancelExperiment,
+    getChapter, startChapter, closeChapter,
+    getTraits, getKeystones,
   };
 }
