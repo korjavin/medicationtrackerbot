@@ -120,10 +120,10 @@ close. Also: the operator learns *which* provider hostname each account uses
 - [x] cloudstore test: `SetEgressHosts` then `EgressHosts` round-trips + dedupe/normalization; keep the existing suite green (`TestEgressHostsRoundTrip`: unset→empty, dedupe/case/whitespace/sort, clear, unknown-account `sql.ErrNoRows`)
 
 ### Task 6: Verify acceptance criteria
-- [ ] `go build ./...` and `go build -tags mobile ./...` clean
-- [ ] `go test ./internal/cloudserver/... ./internal/cloudstore/...` green
-- [ ] `pnpm test` green
-- [ ] grep the served app-document CSP: `connect-src` has no bare `https:`; it lists the stored host(s) + `api.elevenlabs.io`
+- [x] `go build ./...` and `go build -tags mobile ./...` clean
+- [x] `go test ./internal/cloudserver/... ./internal/cloudstore/...` green
+- [x] `pnpm test` green (303 files, 3360 passed)
+- [x] grep the served app-document CSP: no bare `https:` — asserted by `TestRouter_AppDocumentReflectsEgressHosts`, which drives the real served response and checks `'self'` + each `https://<host>` + `https://api.elevenlabs.io` + `wss://api.elevenlabs.io` and the absence of any bare-scheme token
 
 ### Task 7: [Final] Update documentation
 - [ ] `docs/cloud-crypto.md` + `docs/cloud-mode.md`: document the per-account egress-allowlist model, that only the provider HOSTNAME is revealed server-side (key + data stay client-only), and the HONEST residual (XSS can register a host then force a reload — narrower than today's instant arbitrary-origin exfil, not a total close)
