@@ -769,7 +769,7 @@ func (r *Repo) DeleteExerciseLibraryItem(userID, id int64) error {
 	return r.db.WithTx(context.Background(), func(tx storedb.TX) error {
 		var name string
 		err := tx.QueryRow(`SELECT name FROM exercise_library WHERE id = ? AND user_id = ?`, id, userID).Scan(&name)
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return sql.ErrNoRows
 		}
 		if err != nil {
