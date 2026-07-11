@@ -352,6 +352,23 @@ function closeWorkoutGroupModal() {
 }
 
 async function toggleRotatingFields() {
+    // The >1-Day off-guard below runs async (it fetches the Day count). Mark the
+    // guard in-flight so saveWorkoutGroup can refuse to save while the checkbox
+    // hasn't yet been settled — otherwise a Save click racing this fetch would
+    // post the still-false checkbox and slip past the guard (Task 4).
+    // Count in-flight handlers rather than a bool: the change event is
+    // fire-and-forget, so a rapid off/on/off can overlap handlers, and an
+    // earlier one clearing a shared bool would open the guard while a later
+    // off-check is still pending. Guard stays closed until the last one settles.
+    window.WorkoutEdit.rotatingGuardPending = (window.WorkoutEdit.rotatingGuardPending || 0) + 1;
+    try {
+        await toggleRotatingFieldsInner();
+    } finally {
+        window.WorkoutEdit.rotatingGuardPending -= 1;
+    }
+}
+
+async function toggleRotatingFieldsInner() {
     const isRotating = document.getElementById('workout-group-rotating').checked;
     if (isRotating) {
         document.getElementById('workout-variants-section').style.display = 'block';
@@ -430,6 +447,14 @@ async function saveWorkoutGroup() {
     const time = document.getElementById('workout-group-time').value;
     const notification = parseInt(document.getElementById('workout-group-notification').value);
     const active = document.getElementById('workout-group-active').checked;
+
+    // Don't save while the rotation off-guard (toggleRotatingFields) is still
+    // fetching the Day count — the checkbox may not reflect the guarded value
+    // yet, so posting now could slip is_rotating:false past the >1-Day guard.
+    if (window.WorkoutEdit.rotatingGuardPending > 0) {
+        safeAlert('Still checking this plan\'s Days — try again in a moment.');
+        return;
+    }
 
     if (!name) {
         safeAlert('Plan name is required!');

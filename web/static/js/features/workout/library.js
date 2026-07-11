@@ -357,7 +357,14 @@ async function resolveOrCreateLibraryId(name, defaults = {}) {
         default_weight_kg: defaults.weight ?? null,
         notes: ''
     });
-    return created && created.id ? created.id : null;
+    if (created && created.id) return created.id;
+    // Create failed. The UNIQUE (user_id, name) index means a concurrent
+    // tab/client may have just created this exact name in the gap since our
+    // list read — the INSERT then 500s. Refetch and match by name so we log
+    // against the now-existing row instead of refusing an exercise that exists.
+    const after = await apiCall('/api/workout/exercise-library') || [];
+    const raced = after.find(i => (i.name || '').trim().toLowerCase() === trimmed.toLowerCase());
+    return raced ? raced.id : null;
 }
 
 window.WorkoutLibrary = {

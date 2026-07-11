@@ -214,4 +214,78 @@ describe('features/workout/groups.js — split-file integration', () => {
     // Must not have attempted to create a "Main" variant.
     expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/variants/create')).toBe(false);
   });
+
+  // Race backstop for the off-guard: a Save click landing while the async Day
+  // count is still in flight must not post the still-unchecked box and slip
+  // is_rotating:false past the guard.
+  it('rotation off-guard: Save is refused while the Day-count check is pending', async () => {
+    const { window, document } = env;
+    let releaseVariants;
+    const variantsGate = new Promise((resolve) => { releaseVariants = resolve; });
+    window.apiCall = vi.fn(async (url) => {
+      if (url.startsWith('/api/workout/variants?group_id=')) return variantsGate;
+      return null;
+    });
+    window.Telegram.WebApp.showAlert = vi.fn();
+    window.WorkoutEdit.editingGroupId = 9;
+    document.getElementById('workout-group-name').value = 'Legs';
+    document.getElementById('workout-group-time').value = '08:00';
+
+    // User unchecks and the guard starts fetching (do NOT await it).
+    document.getElementById('workout-group-rotating').checked = false;
+    const togglePromise = window.toggleRotatingFields();
+
+    // A Save click during that window must bail without an update POST.
+    await window.saveWorkoutGroup();
+    expect(window.apiCall.mock.calls.some((c) => c[0].startsWith('/api/workout/groups/update'))).toBe(false);
+    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
+
+    // Guard resolves to a multi-Day plan → checkbox re-checked, no longer pending.
+    releaseVariants([{ id: 1 }, { id: 2 }]);
+    await togglePromise;
+    expect(document.getElementById('workout-group-rotating').checked).toBe(true);
+    expect(window.WorkoutEdit.rotatingGuardPending).toBe(0);
+  });
+
+  // Overlapping handlers: a rapid off/on/off leaves an earlier handler finishing
+  // first. A bool guard would open on that finish while the last off-check is
+  // still pending; the counter keeps it closed until every handler settles.
+  it('rotation off-guard: overlapping toggles keep the guard closed until all settle', async () => {
+    const { window, document } = env;
+    const gates = [];
+    window.apiCall = vi.fn(async (url) => {
+      if (url.startsWith('/api/workout/variants?group_id=')) {
+        return new Promise((resolve) => { gates.push(resolve); });
+      }
+      return null;
+    });
+    window.Telegram.WebApp.showAlert = vi.fn();
+    window.WorkoutEdit.editingGroupId = 9;
+    document.getElementById('workout-group-name').value = 'Legs';
+    document.getElementById('workout-group-time').value = '08:00';
+
+    const cb = document.getElementById('workout-group-rotating');
+    // off, on, off: three overlapping handlers, each gated on its variants fetch.
+    // Gates are pushed in call order → gates[1] is the "on" handler's fetch.
+    cb.checked = false;
+    const p1 = window.toggleRotatingFields();
+    cb.checked = true;
+    const p2 = window.toggleRotatingFields();
+    cb.checked = false;
+    const p3 = window.toggleRotatingFields();
+
+    // Let the middle "on" handler finish first (a bool guard would open here).
+    gates[1]([{ id: 1 }, { id: 2 }]);
+    await p2;
+
+    // Save must still be refused: two off-checks remain in flight.
+    await window.saveWorkoutGroup();
+    expect(window.apiCall.mock.calls.some((c) => c[0].startsWith('/api/workout/groups/update'))).toBe(false);
+
+    // Release both off-check fetches as multi-Day → box re-checked, guard clear.
+    gates[0]([{ id: 1 }, { id: 2 }]);
+    gates[2]([{ id: 1 }, { id: 2 }]);
+    await Promise.all([p1, p3]);
+    expect(window.WorkoutEdit.rotatingGuardPending).toBe(0);
+  });
 });
