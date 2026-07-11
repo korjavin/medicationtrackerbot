@@ -1709,7 +1709,7 @@ export const CATALOG = [
     "path": "/api/workout/exercises",
     "risk": "read",
     "description": "List all exercises in a workout variant. Returns exercises with their default sets, reps, and weight.",
-    "response_summary": "JSON array of exercise objects with id, variant_id, exercise_name, target_sets, target_reps_min, order_index; target_reps_max and target_weight_kg are omitted when unset.",
+    "response_summary": "JSON array of exercise objects with id, variant_id, exercise_name, target_sets, target_reps_min, order_index, exercise_library_id (the canonical library row the name resolves through); target_reps_max, target_weight_kg, and exercise_library_id are omitted when unset.",
     "params_schema": {
       "type": "object",
       "required": [
@@ -1722,7 +1722,7 @@ export const CATALOG = [
         }
       }
     },
-    "response_example": "[\n  {\"id\": 42, \"variant_id\": 2, \"exercise_name\": \"Bench Press\", \"target_sets\": 4, \"target_reps_min\": 6, \"target_reps_max\": 8, \"target_weight_kg\": 65.0, \"order_index\": 0}\n]"
+    "response_example": "[\n  {\"id\": 42, \"variant_id\": 2, \"exercise_name\": \"Bench Press\", \"target_sets\": 4, \"target_reps_min\": 6, \"target_reps_max\": 8, \"target_weight_kg\": 65.0, \"order_index\": 0, \"exercise_library_id\": 17}\n]"
   },
   {
     "id": "workouts.exercises.unique",

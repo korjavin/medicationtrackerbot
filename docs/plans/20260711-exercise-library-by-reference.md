@@ -57,8 +57,8 @@ Closes med-spp as a byproduct (the Exercises tab / library becomes the canonical
 - [x] confirm rename propagation: updating a library row's `name` changes what these reads return (by construction — reads COALESCE to `el.name` via the FK; the dedicated parity test lands in Task 6)
 
 ### Task 4: Go handlers — expose `exercise_library_id` in the API
-- [ ] `internal/server/workout_crud_handlers.go`: include `exercise_library_id` in the create/update/list exercise JSON responses (structs at `:140-148`, `:185-192`, and the list mapper)
-- [ ] no new route is added (fields only) → MCP coverage guard unaffected; **but** if `/api/workout/exercises*` is a registry op with a `ResponseExample`, update the example and run `go run ./cmd/genmcpcatalog` + commit (per CLAUDE.md); otherwise note "no registry op touched"
+- [x] `internal/server/workout_crud_handlers.go`: include `exercise_library_id` in the create/update/list exercise JSON responses — already carried automatically: create + list handlers encode the store `WorkoutExercise` struct directly, which has `json:"exercise_library_id,omitempty"` (repo.go:59); update handler returns no body, request structs need no FK. No handler edit needed.
+- [x] updated the `workouts.exercises.list` registry op's `ResponseExample` + `ResponseSummary` to include `exercise_library_id`, ran `go run ./cmd/genmcpcatalog` (regenerated `web/cloud/js/mcp-catalog.generated.js`); drift + coverage tests pass
 
 ### Task 5: Cloud — mirror reference + resolve-on-read in `web/domain/workout.js`
 - [ ] `promoteExerciseToLibrary` (`:482-503`): return the (existing or new) `exerciselibrary` record's numeric id
