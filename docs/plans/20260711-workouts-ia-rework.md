@@ -59,10 +59,10 @@ Both modes share the `web/static` frontend, so this is mode-agnostic; the change
 - [x] in the Plan edit / rotation-toggle path, block turning rotation **off** while the Plan has more than one Day; show a message to delete the extra Days first (zero data loss). Single Day (or simple plan) toggles freely. (`toggleRotatingFields` in `groups.js`: fetch variants; if >1, re-check the toggle, keep the Days editor visible, `safeAlert` "Delete the extra Days first…"; single/zero-Day path unchanged)
 
 ### Task 5: One shared add-exercise picker (plan + session)
-- [ ] extract a single picker helper used by both the plan-exercise add modal (`exercises.js:172-212`) and the in-session add modal (`sessions.js:804`, `:887`): search the library OR create-new (create-new upserts into the library and references it via the med-prk.2 model)
-- [ ] **remove** the in-session refusal of names not already in the library (`sessions.js:911`) — create-new is now allowed and lands in the library
-- [ ] keep write handlers on `DataStore.applyOptimistic`; no new `window.*` global unless allowlisted
-- [ ] integration test (real boundary): from an in-session add, create a brand-new exercise name → assert it is saved to the session AND appears in the library afterward (feature suite)
+- [x] extract a single picker helper used by both the plan-exercise add modal (`exercises.js`) and the in-session add modal (`sessions.js`): `WorkoutLibrary.populatePickerOptions` (library + catalog datalist fill, shared by both) and `WorkoutLibrary.resolveOrCreateLibraryId` (create-new upserts into the library by trimmed/case-insensitive name and references it by id)
+- [x] **remove** the in-session refusal of names not already in the library (`sessions.js`) — create-new is now allowed: `saveNewSessionExercise` resolves/creates a library id and logs against it
+- [x] keep write handlers on `DataStore.applyOptimistic` (session-log optimistic path unchanged); no new `window.*` global — added methods to existing `WorkoutLibrary`
+- [x] integration test (real boundary): added "creates a brand-new name in the library and references it on the session log" to `features.workout-sessions.test.js`; also updated the stale refusal assertion in `workout.session-and-stats.test.js`
 
 ### Task 6: Cloud parity check
 - [ ] confirm no `/api` request/response shape changed (naming is UI-only); if the shared picker altered any payload, mirror it in `web/domain/workout.js` and update the shim contract test / regen `cmd/genmcpcatalog` + `ResponseExample` if a registry op changed. Run `web/cloud/js/tests/mcp-responder.test.js` and `cloud.shim-contract.workout-crud.test.js`.

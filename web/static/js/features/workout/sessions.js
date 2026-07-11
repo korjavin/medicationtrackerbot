@@ -815,26 +815,9 @@ async function showAddExerciseToSessionModal() {
     const titleEl = document.getElementById('workout-add-exercise-to-session-title');
     if (titleEl) titleEl.textContent = 'Add exercise';
 
-    // Load unique exercises
+    // Load exercises via the shared picker (med-prk.3): library + catalog names.
     const datalist = document.getElementById('unique-exercises-list');
-    datalist.replaceChildren();
-
-    try {
-        const exercises = await apiCall('/api/workout/exercise-library');
-        if (exercises && exercises.length > 0) {
-            exercises.forEach(ex => {
-                const option = document.createElement('option');
-                option.value = ex.name;
-                option.dataset.id = ex.id;
-                option.dataset.sets = ex.default_sets || '';
-                option.dataset.reps = ex.default_reps_min || '';
-                option.dataset.weight = ex.default_weight_kg || '';
-                datalist.appendChild(option);
-            });
-        }
-    } catch (error) {
-        console.error('Error loading unique exercises:', error);
-    }
+    await window.WorkoutLibrary.populatePickerOptions(datalist);
 
     window.ModalManager.workoutAddExerciseToSession.open();
 
@@ -902,14 +885,21 @@ async function saveNewSessionExercise() {
     }
 
     if (!exerciseId) {
-        // Try to find in datalist again
+        // Try to find in datalist again (autofill may not have fired).
         const datalist = document.getElementById('unique-exercises-list');
         const option = Array.from(datalist.options).find(o => o.value === name);
-        if (option) {
+        if (option && option.dataset.id) {
             exerciseId = option.dataset.id;
         } else {
-            safeAlert('Please select an existing exercise from the list. Adding new unknown exercises to a session is not supported yet.');
-            return;
+            // Brand-new name: the shared picker upserts it into the library and
+            // references it by id (med-prk.3) — create-new is now allowed.
+            exerciseId = await window.WorkoutLibrary.resolveOrCreateLibraryId(name, {
+                sets: sets, repsMin: reps, weight: weight
+            });
+            if (!exerciseId) {
+                safeAlert('Failed to add exercise');
+                return;
+            }
         }
     }
 

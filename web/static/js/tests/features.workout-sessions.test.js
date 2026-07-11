@@ -177,6 +177,55 @@ describe('features/workout/sessions.js — split-file integration', () => {
     await handlerDone;
   });
 
+  // med-prk.3 Task 5 — shared add-exercise picker. Creating a brand-new
+  // exercise name mid-session is now allowed: it upserts into the library and
+  // the session log references it by id. Real boundary: the name lands in the
+  // library AND the session log carries the resolved library id.
+  it('saveNewSessionExercise creates a brand-new name in the library and references it on the session log', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.showWorkoutSessionModal = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.logs = [];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    document.getElementById('session-add-exercise-name').value = 'Zercher Squat';
+    document.getElementById('session-add-exercise-id').value = ''; // brand-new: no library id
+    document.getElementById('session-add-exercise-sets').value = '4';
+    document.getElementById('session-add-exercise-reps').value = '6';
+    document.getElementById('session-add-exercise-weight').value = '70';
+
+    // Mutable library the create handler appends to, so the "appears in the
+    // library afterward" assertion reads a real post-create state.
+    const library = [];
+    let createdLogPayload = null;
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint === '/api/workout/exercise-library') return [...library];
+      if (endpoint === '/api/workout/exercise-library/create') {
+        const item = { id: 555, name: payload.name, default_sets: payload.default_sets };
+        library.push(item);
+        return item;
+      }
+      if (endpoint === '/api/workout/sessions/logs/create') {
+        createdLogPayload = payload;
+        return { id: 999 };
+      }
+      if (endpoint.startsWith('/api/workout/sessions/details')) {
+        return { session: { id: 42, status: 'in_progress' }, logs: window.WorkoutSessionsState.logs };
+      }
+      return [];
+    });
+
+    await window.saveNewSessionExercise();
+
+    // Saved to the session, referencing the newly-created library id.
+    expect(createdLogPayload).not.toBeNull();
+    expect(createdLogPayload.exercise_id).toBe(555);
+    expect(createdLogPayload.exercise_name).toBe('Zercher Squat');
+    // Appears in the library afterward.
+    expect(library.map(i => i.name)).toContain('Zercher Squat');
+  });
+
   it('saveNewSessionExercise rolls back the optimistic log when the POST returns null', async () => {
     const { window, document } = env;
     installApiCache(window);
