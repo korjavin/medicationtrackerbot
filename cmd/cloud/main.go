@@ -218,6 +218,7 @@ func main() {
 	syncAPI.RegisterRoutes(apiMux)
 	pushAPI.RegisterRoutes(apiMux)
 	cloudserver.NewInboxAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
+	cloudserver.NewVitalsImportAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
 	mcpRelayAPI.RegisterRoutes(apiMux)
 	mcpRemoteAPI.RegisterRoutes(apiMux)
 	trialProxyAPI.RegisterRoutes(apiMux)

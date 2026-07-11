@@ -224,6 +224,9 @@ type recordMu struct {
 	answered []string
 	commands []string
 	edits    []string
+	// fileBody overrides what the /file download endpoint streams; nil serves
+	// fakePhotoBytes. The NXK document test points this at real .nxk bytes.
+	fileBody []byte
 }
 
 func newRecordingTG(t *testing.T) *recordingTG {
@@ -234,6 +237,14 @@ func newRecordingTG(t *testing.T) *recordingTG {
 		// The file-download endpoint (/file/bot<token>/<path>) streams raw bytes,
 		// not the {ok,result} envelope — handle it before the JSON content type.
 		if len(parts) > 0 && parts[0] == "file" {
+			rec.mu.Lock()
+			body := rec.mu.fileBody
+			rec.mu.Unlock()
+			if body != nil {
+				w.Header().Set("Content-Type", "application/octet-stream")
+				w.Write(body)
+				return
+			}
 			w.Header().Set("Content-Type", "image/jpeg")
 			io.WriteString(w, fakePhotoBytes)
 			return

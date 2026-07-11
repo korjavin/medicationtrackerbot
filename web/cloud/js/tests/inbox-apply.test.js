@@ -5,7 +5,7 @@
 // behavior, not of this module's bookkeeping.
 import { describe, expect, it, vi } from 'vitest';
 import { createIntakeDomain } from '../../../domain/medintake.js';
-import { applyIntakeSlotAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, makeTGPrefsPort, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT } from '../inbox-apply.js';
+import { applyIntakeSlotAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, makeTGPrefsPort, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT, VITALS_IMPORT } from '../inbox-apply.js';
 import { createTGAgent } from '../tg-agent.js';
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
@@ -203,6 +203,116 @@ describe('inbox-apply.js — createInboxApplier routing', () => {
 
         const atSlot = (await records.list('intake')).filter((i) => i.scheduled_at === SLOT_ISO);
         expect(atSlot.every((i) => i.status === 'TAKEN')).toBe(true);
+    });
+});
+
+// bd med-nzz Task 4 — a server-parsed NXK import sealed as one vitals_import
+// event, drained and written into vault vitals records through the real
+// createVitalsDomain. The properties that matter — every stream lands, GPS never
+// does, and a re-drain converges (day-batched samples merge by instant, the rest
+// upsert by natural key) — are properties of that domain, so it runs unstubbed.
+describe('inbox-apply.js — a server-parsed NXK vitals_import', () => {
+    const SLEEP_START = '2026-01-01T23:00:00.000Z';
+    const SLEEP_END = '2026-01-02T07:00:00.000Z';
+
+    function vitalsEvent() {
+        return {
+            kind: VITALS_IMPORT,
+            at_unix: SLOT_UNIX,
+            sleep: [{
+                start_time: SLEEP_START, end_time: SLEEP_END, timezone_offset: 0,
+                day: '2026-01-01', total_minutes: 480, deep_minutes: 120, heart_rate_avg: 58,
+                user_modified: false,
+            }],
+            hr: [
+                { date_time: '2026-01-01T08:00:00.000Z', tz_offset: 0, value: 70, type: 0 },
+                { date_time: '2026-01-01T09:00:00.000Z', tz_offset: 0, value: 72, type: 0 },
+                { date_time: '2026-01-02T08:00:00.000Z', tz_offset: 0, value: 68, type: 0 },
+            ],
+            spo2: [{ date_time: '2026-01-01T08:00:00.000Z', tz_offset: 0, value: 98, type: 0 }],
+            stress: [{ date_time: '2026-01-01T08:00:00.000Z', tz_offset: 0, value: 30, type: 0, info: 'relaxed' }],
+            daystats: [{ day: '2026-01-01', steps: 8000, calories: 400, distance: 6000 }],
+            workouts: [{
+                source_start_ms: 1767250800000, source_end_ms: 1767252600000,
+                activity_type: 1, activity_name: 'Outdoor Run', duration_sec: 1800,
+                distance_m: 5000, steps: 6000, calories: 300, heart_rate_avg: 140,
+                spo2_avg: 97, pause_ms: 0, tz_offset: 0,
+            }],
+        };
+    }
+
+    it('writes every stream into vault records and never carries GPS', async () => {
+        const records = fakeRecords();
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS });
+        await apply(vitalsEvent(), 42);
+
+        expect(await records.list('sleep')).toHaveLength(1);
+        expect((await records.list('sleep'))[0].heart_rate_avg).toBe(58);
+        expect(await records.list('daystats')).toHaveLength(1);
+        expect((await records.list('daystats'))[0].steps).toBe(8000);
+
+        // HR day-batched: two UTC days, the 01-01 batch holds both samples.
+        const hr = await records.list('hrsample');
+        expect(hr).toHaveLength(2);
+        const jan1 = hr.find((r) => r.recordId === 'hrsample-2026-01-01');
+        expect(jan1.samples).toHaveLength(2);
+        expect(await records.list('spo2sample')).toHaveLength(1);
+        expect(await records.list('stresssample')).toHaveLength(1);
+
+        const miband = await records.list('miband');
+        expect(miband).toHaveLength(1);
+        expect(miband[0].source_start_ms).toBe(1767250800000);
+        // GPS is never sealed and must never appear on the record.
+        expect('gps' in miband[0]).toBe(false);
+    });
+
+    it('re-draining the same import converges with no duplicates', async () => {
+        const records = fakeRecords();
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS });
+        await apply(vitalsEvent(), 42);
+        await apply(vitalsEvent(), 42);
+
+        expect(await records.list('sleep')).toHaveLength(1);
+        expect(await records.list('daystats')).toHaveLength(1);
+        expect(await records.list('hrsample')).toHaveLength(2);
+        expect((await records.list('hrsample')).find((r) => r.recordId === 'hrsample-2026-01-01').samples).toHaveLength(2);
+        expect(await records.list('spo2sample')).toHaveLength(1);
+        expect(await records.list('stresssample')).toHaveLength(1);
+        expect(await records.list('miband')).toHaveLength(1);
+    });
+
+    it('a stale/partial re-import never downgrades richer stored data (mirrors bot-mode MAX/COALESCE)', async () => {
+        const records = fakeRecords();
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS });
+        // First a full/newer import, then an older partial one for the SAME
+        // day/session/workout (the drain's replay-on-failed-flush can reorder).
+        await apply(vitalsEvent(), 42);
+        const stale = vitalsEvent();
+        stale.daystats = [{ day: '2026-01-01', steps: 3000, calories: 100, distance: 2000 }];
+        stale.sleep = [{
+            start_time: SLEEP_START, end_time: SLEEP_END, timezone_offset: 0,
+            day: '2026-01-01', total_minutes: 200, user_modified: false,
+        }];
+        stale.workouts = [{
+            source_start_ms: 1767250800000, source_end_ms: 1767252600000,
+            activity_type: 0, activity_name: '', duration_sec: 0,
+            distance_m: 0, steps: 0, calories: 0, heart_rate_avg: 0,
+            spo2_avg: 0, pause_ms: 0, tz_offset: 0,
+        }];
+        await apply(stale, 43);
+
+        // daystats: MAX wins — the higher earlier totals survive.
+        expect((await records.list('daystats'))[0].steps).toBe(8000);
+        // sleep: the longer session (and its deep_minutes / heart_rate_avg) survives.
+        const sleep = (await records.list('sleep'))[0];
+        expect(sleep.total_minutes).toBe(480);
+        expect(sleep.deep_minutes).toBe(120);
+        expect(sleep.heart_rate_avg).toBe(58);
+        // workout: zeroed incoming fields fall back to the populated stored row.
+        const miband = (await records.list('miband'))[0];
+        expect(miband.steps).toBe(6000);
+        expect(miband.distance_m).toBe(5000);
+        expect(miband.activity_name).toBe('Outdoor Run');
     });
 });
 

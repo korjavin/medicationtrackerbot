@@ -260,4 +260,73 @@ describe('Settings → Import/Export section', () => {
         expect(window.CloudVault.importAll).toHaveBeenCalledTimes(1);
         expect(window.apiCall).not.toHaveBeenCalled();
     });
+
+    // Mi Band .nxk ingestion — cloud only, POSTs raw multipart to the Go handler.
+    describe('Mi Band .nxk import control', () => {
+        function goCloud() {
+            env.window.__MEDTRACKER_CLOUD__ = true;
+            env.window.SettingsImportExport.load(); // re-bind so the group is revealed
+        }
+
+        it('the group is hidden outside cloud mode', () => {
+            expect(env.document.getElementById('importexport-nxk-group').hidden).toBe(true);
+        });
+
+        it('reveals the group in cloud mode', () => {
+            goCloud();
+            expect(env.document.getElementById('importexport-nxk-group').hidden).toBe(false);
+        });
+
+        it('POSTs the picked file as multipart to /api/vitals/import', async () => {
+            const { window, document } = env;
+            goCloud();
+            const calls = [];
+            window.fetch = vi.fn(async (url, opts) => {
+                calls.push({ url, opts });
+                return { ok: true, status: 200, json: async () => ({ queued: 7 }) };
+            });
+            window.SyncManager = { showToast: vi.fn() };
+
+            const input = document.getElementById('importexport-nxk-file');
+            const file = new window.File([new Uint8Array([1, 2, 3])], 'backup.nxk');
+            Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+
+            await window.SettingsImportExport.importNxk();
+
+            expect(calls).toHaveLength(1);
+            expect(calls[0].url).toBe('/api/vitals/import');
+            expect(calls[0].opts.method).toBe('POST');
+            expect(calls[0].opts.body).toBeInstanceOf(window.FormData);
+            expect(window.SyncManager.showToast).toHaveBeenCalledWith(
+                expect.stringContaining('7'), 'success');
+        });
+
+        it('surfaces the no-inbox-key 412 as an error toast', async () => {
+            const { window, document } = env;
+            goCloud();
+            window.fetch = vi.fn(async () => ({ ok: false, status: 412, json: async () => ({}) }));
+            window.SyncManager = { showToast: vi.fn() };
+
+            const input = document.getElementById('importexport-nxk-file');
+            const file = new window.File([new Uint8Array([1])], 'backup.nxk');
+            Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+
+            await window.SettingsImportExport.importNxk();
+
+            expect(window.SyncManager.showToast).toHaveBeenCalledWith(
+                expect.stringContaining('inbox key'), 'error');
+        });
+
+        it('does nothing when no file is picked', async () => {
+            const { window } = env;
+            goCloud();
+            window.fetch = vi.fn();
+            window.safeAlert = vi.fn();
+
+            await window.SettingsImportExport.importNxk();
+
+            expect(window.fetch).not.toHaveBeenCalled();
+            expect(window.safeAlert).toHaveBeenCalled();
+        });
+    });
 });

@@ -30,6 +30,10 @@ const DAYSTATS_RECORD_TYPE = 'daystats';
 const HR_RECORD_TYPE = 'hrsample';
 const SPO2_RECORD_TYPE = 'spo2sample';
 const STRESS_RECORD_TYPE = 'stresssample';
+// Mi-Band workouts live in the workout domain's 'miband' record type (see
+// web/domain/workout.js WORKOUT_RECORD_TYPES.MIBAND). The NXK import writes them
+// directly by natural key so re-drain converges; the read/edit side is workout.js.
+const MIBAND_RECORD_TYPE = 'miband';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -270,5 +274,153 @@ export function createVitalsDomain({ records, now, timeZone }) {
     return limited.map(sleepToResponse);
   }
 
-  return { overview, sleep };
+  // importDayBatched merges an incoming NXK sample stream into the day-batch
+  // records the read side already expects ({day, samples:[{date_time, tz_offset,
+  // value[, type, info]}]}, recordId '<type>-YYYY-MM-DD'). Samples are grouped by
+  // UTC day, then merged into any existing batch keyed by sample instant so a
+  // re-applied import overwrites its own samples instead of appending duplicates
+  // (LWW: the incoming sample wins). Idempotent — re-draining converges.
+  async function importDayBatched(recordType, samples) {
+    if (!Array.isArray(samples) || samples.length === 0) return;
+    const byDay = new Map();
+    for (const s of samples) {
+      if (!s || !s.date_time) continue;
+      const ms = Date.parse(s.date_time);
+      if (Number.isNaN(ms)) continue;
+      const day = utcDayString(ms);
+      let arr = byDay.get(day);
+      if (!arr) { arr = []; byDay.set(day, arr); }
+      arr.push(s);
+    }
+    const existing = new Map((await records.list(recordType)).map((r) => [r.recordId, r]));
+    for (const [day, incoming] of byDay) {
+      const recordId = `${recordType}-${day}`;
+      const prev = existing.get(recordId);
+      // Keyed by the sample instant (ms) so two RFC3339 spellings of the same
+      // moment still dedupe; the incoming sample overwrites (LWW).
+      const merged = new Map();
+      if (prev && Array.isArray(prev.samples)) {
+        for (const s of prev.samples) merged.set(Date.parse(s.date_time), s);
+      }
+      for (const s of incoming) merged.set(Date.parse(s.date_time), { ...s });
+      const samplesOut = [...merged.values()]
+        .sort((a, b) => (a.date_time < b.date_time ? -1 : a.date_time > b.date_time ? 1 : 0));
+      await records.put(recordType, {
+        recordId, clientTs: now(), deleted: false, day, samples: samplesOut,
+      });
+    }
+  }
+
+  // importSamples writes a drained NXK vitals_import event into vault records.
+  // Every stream is upserted by a deterministic natural key so re-applying the
+  // same import (the drain's ack-after-flush barrier may replay it) is a no-op:
+  //   sleep     — recordId 'sleep-<startInstantMs>'
+  //   daystats  — recordId 'daystats-<day>'
+  //   hr/spo2/stress — day-batched, samples merged by instant (importDayBatched)
+  //   workouts  — recordId 'miband-<source_start_ms>' (no GPS; the wire never
+  //               carries it — locked scope decision)
+  // The natural keys already make every write idempotent, so no separate
+  // once-marker is needed (unlike the free-text agent path).
+  // ponytail: no marker — natural keys converge; add one only if a stream ever
+  // gains non-deterministic write ids.
+  // Writes are monotonic merges against the stored record, mirroring the UPSERT
+  // guards bot mode uses (repo.go ImportDayStats/importSleepLogs, miband.go):
+  // Mi-Band .nxk backups are cumulative and get re-uploaded, and the drain's
+  // replay-on-failed-flush barrier can re-apply an older import after a newer
+  // one — a blind put would then downgrade steps / shorten a sleep session /
+  // zero-out a populated workout field. Same-instant day-batched samples
+  // (importDayBatched) carry the same device value, so LWW is fine there.
+  async function importSamples({
+    sleep: sleepLogs = [], hr = [], spo2 = [], stress = [], daystats = [], workouts = [],
+  } = {}) {
+    if (sleepLogs.length) {
+      const existing = new Map((await records.list(SLEEP_RECORD_TYPE)).map((r) => [r.recordId, r]));
+      for (const s of sleepLogs) {
+        if (!s || !s.start_time) continue;
+        const startMs = Date.parse(s.start_time);
+        const key = Number.isNaN(startMs) ? s.day : startMs;
+        const recordId = `sleep-${key}`;
+        const prev = existing.get(recordId);
+        const base = prev && !prev.deleted ? prev : null;
+        if (base) {
+          // Never downgrade a longer stored session (repo.go WHERE
+          // total_minutes >). `{...base, ...s}` is COALESCE: omitempty drops
+          // absent phase fields from the wire, so the spread keeps base's.
+          if ((s.total_minutes || 0) < (base.total_minutes || 0)) continue;
+          await records.put(SLEEP_RECORD_TYPE, {
+            ...base, ...s, recordId, clientTs: now(), deleted: false,
+            user_modified: base.user_modified || s.user_modified,
+          });
+          continue;
+        }
+        await records.put(SLEEP_RECORD_TYPE, {
+          recordId, clientTs: now(), deleted: false, ...s,
+        });
+      }
+    }
+
+    if (daystats.length) {
+      const existing = new Map((await records.list(DAYSTATS_RECORD_TYPE)).map((r) => [r.recordId, r]));
+      for (const d of daystats) {
+        if (!d || !d.day) continue;
+        const recordId = `daystats-${d.day}`;
+        const prev = existing.get(recordId);
+        const base = prev && !prev.deleted ? prev : null;
+        // MAX per field (repo.go), so a stale partial day never overwrites
+        // higher totals; skip the write entirely when nothing increased.
+        const steps = Math.max(base ? (base.steps || 0) : 0, d.steps || 0);
+        const calories = Math.max(base ? (base.calories || 0) : 0, d.calories || 0);
+        const distance = Math.max(base ? (base.distance || 0) : 0, d.distance || 0);
+        if (base && steps === (base.steps || 0) && calories === (base.calories || 0)
+          && distance === (base.distance || 0)) continue;
+        await records.put(DAYSTATS_RECORD_TYPE, {
+          recordId, clientTs: now(), deleted: false, day: d.day, steps, calories, distance,
+        });
+      }
+    }
+
+    await importDayBatched(HR_RECORD_TYPE, hr);
+    await importDayBatched(SPO2_RECORD_TYPE, spo2);
+    await importDayBatched(STRESS_RECORD_TYPE, stress);
+
+    if (workouts.length) {
+      const existing = new Map(
+        (await records.list(MIBAND_RECORD_TYPE)).map((r) => [r.recordId, r]),
+      );
+      for (const w of workouts) {
+        if (!w || !w.source_start_ms) continue;
+        const recordId = `miband-${w.source_start_ms}`;
+        const prev = existing.get(recordId);
+        const base = prev && !prev.deleted ? prev : null;
+        // Don't let an older session (earlier end) win, and fall back to the
+        // stored value for any zero incoming field (miband.go CASE guards) —
+        // a partial re-import must not zero a populated row.
+        if (base && (w.source_end_ms || 0) < (base.source_end_ms || 0)) continue;
+        const pick = (inc, k) => (inc ? inc : (base ? base[k] : inc));
+        await records.put(MIBAND_RECORD_TYPE, {
+          recordId,
+          clientTs: now(),
+          deleted: false,
+          // Preserve a prior numeric id (edits key on it) else derive one
+          // deterministically from the source instant so re-drain converges.
+          id: prev ? prev.id : w.source_start_ms,
+          activity_type: pick(w.activity_type, 'activity_type'),
+          activity_name: pick(w.activity_name, 'activity_name'),
+          source_start_ms: w.source_start_ms,
+          source_end_ms: w.source_end_ms,
+          duration_sec: pick(w.duration_sec, 'duration_sec'),
+          distance_m: pick(w.distance_m, 'distance_m'),
+          steps: pick(w.steps, 'steps'),
+          calories: pick(w.calories, 'calories'),
+          heart_rate_avg: pick(w.heart_rate_avg, 'heart_rate_avg'),
+          spo2_avg: pick(w.spo2_avg, 'spo2_avg'),
+          pause_ms: pick(w.pause_ms, 'pause_ms'),
+          tz_offset: pick(w.tz_offset, 'tz_offset'),
+          source: 'miband',
+        });
+      }
+    }
+  }
+
+  return { overview, sleep, importSamples };
 }

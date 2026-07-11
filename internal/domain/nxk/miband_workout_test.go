@@ -1,4 +1,4 @@
-package domain
+package nxk
 
 import (
 	"context"

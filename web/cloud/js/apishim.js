@@ -495,8 +495,12 @@ export function createApiRouter(ctx, {
     // base path. rotation/state, rotation/initialize, exercises/unique and
     // sessions/schedule have no frontend caller but are catalogued MCP ops, so
     // they are routed too (med-csu.3). Intentionally NOT routed: the legacy
-    // session/snooze + session/skip compat routes and the external Mi Notify
-    // webhook — these fall through to the unmapped-route warning.
+    // session/snooze + session/skip compat routes — these fall through to the
+    // unmapped-route warning. The external Mi Notify webhook is likewise not an
+    // apishim route, but mi-band ingestion is no longer unmapped: it arrives via
+    // the server-side NXK parse→seal path (med-nzz) — a `.nxk` uploaded to
+    // POST /api/vitals/import or sent to the cloud bot is parsed + sealed to the
+    // inbox, then the vitals_import applier writes vault records at drain time.
     if (path === '/api/workout/groups' && method === 'GET') return workout.listGroups();
     if (path === '/api/workout/groups/create' && method === 'POST') return workout.createGroup(body);
     if (path === '/api/workout/groups/update' && method === 'PUT') {

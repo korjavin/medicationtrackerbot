@@ -192,7 +192,56 @@
         }
     }
 
+    function toast(message, type) {
+        if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
+            window.SyncManager.showToast(message, type || 'info');
+        } else {
+            safeAlert(message);
+        }
+    }
+
+    // Mi Band .nxk ingestion (cloud only). Unlike the vault import/export above,
+    // this POSTs the raw backup straight to the Go handler, which parses it
+    // server-side and seals the vitals to the account inbox — the browser can't
+    // parse SQLite. Same-origin fetch carries the session cookie.
+    async function doNxkImport() {
+        const file = el('importexport-nxk-file')?.files?.[0];
+        if (!file) { safeAlert('Choose a .nxk backup first'); return; }
+        const btn = el('importexport-nxk-btn');
+        if (btn) btn.disabled = true;
+        try {
+            const form = new FormData();
+            form.append('file', file, file.name);
+            const res = await fetch('/api/vitals/import', { method: 'POST', body: form });
+            if (res.status === 412) {
+                toast('Publish an inbox key first (unlock this device), then retry.', 'error');
+                return;
+            }
+            if (!res.ok) {
+                toast('Import failed — is this a Mi Band .nxk backup?', 'error');
+                return;
+            }
+            const body = await res.json().catch(() => ({}));
+            const n = body && typeof body.queued === 'number' ? body.queued : 0;
+            toast(`Mi Band data queued (${n}) — it will appear in Vitals shortly.`, 'success');
+        } catch (e) {
+            console.error('NXK import failed:', e);
+            toast('Import failed — check your connection and try again.', 'error');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
     function bindControls() {
+        // The .nxk endpoint only exists on cmd/cloud; reveal the control there.
+        const nxkGroup = el('importexport-nxk-group');
+        if (nxkGroup) nxkGroup.hidden = !isCloud();
+        const nxkBtn = el('importexport-nxk-btn');
+        if (nxkBtn && !nxkBtn.dataset.bound) {
+            nxkBtn.dataset.bound = '1';
+            nxkBtn.addEventListener('click', () => { doNxkImport(); });
+        }
+
         const exportBtn = el('importexport-export-btn');
         if (exportBtn && !exportBtn.dataset.bound) {
             exportBtn.dataset.bound = '1';
@@ -221,6 +270,7 @@
     window.SettingsImportExport = {
         load: () => { bindControls(); },
         export: doExport,
-        import: doImport
+        import: doImport,
+        importNxk: doNxkImport
     };
 })();

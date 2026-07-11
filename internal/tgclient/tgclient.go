@@ -510,6 +510,17 @@ type Message struct {
 	From              *User              `json:"from,omitempty"`
 	ManagedBotCreated *ManagedBotCreated `json:"managed_bot_created,omitempty"`
 	Photo             []PhotoSize        `json:"photo,omitempty"`
+	Document          *Document          `json:"document,omitempty"`
+}
+
+// Document is the subset of a Telegram file attachment we read: the file_id to
+// resolve+download and the filename+size to type-check (.nxk) and bound. Used by
+// the cloud relay's Mi Band NXK ingestion path (bd med-nzz).
+type Document struct {
+	FileID   string `json:"file_id"`
+	FileName string `json:"file_name"`
+	FileSize int64  `json:"file_size"`
+	MimeType string `json:"mime_type"`
 }
 
 // PhotoSize is one rendition of a photo. Telegram sends an ascending-size array;
