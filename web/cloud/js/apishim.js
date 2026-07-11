@@ -662,6 +662,20 @@ export function createApiRouter(ctx, {
     // calibration meter, all recomputed client-side from vault bp+sleep records
     // (never weight). Bot mode 404s this route; the Today card then omits itself.
     if (path === '/api/gamification/forecast' && method === 'GET') return gamification.getForecast();
+    // Self-Experiments (Phase 4): the flagship N-of-1 mechanic. listExperiments
+    // recomputes the active trial's tracker + any un-acknowledged verdict from
+    // vault records (persisting only the frozen verdict + lifecycle status);
+    // startExperiment/cancelExperiment write the gamificationexperiment record.
+    // Lever-template-only, max-1-concurrent, no-effect rewarded like effect,
+    // recovery-mode-pause seam — all enforced in the pure domain module.
+    if (path === '/api/gamification/experiments' && method === 'GET') return gamification.listExperiments();
+    if (path === '/api/gamification/experiments' && method === 'POST') {
+      return gamification.startExperiment(body && body.template_id, body || {});
+    }
+    const expMatch = path.match(/^\/api\/gamification\/experiments\/([^/]+)$/);
+    if (expMatch && method === 'DELETE') {
+      return gamification.cancelExperiment(decodeURIComponent(expMatch[1]));
+    }
     if (method === 'GET' && (
       path === '/api/gamification/journey'
       || path === '/api/gamification/insights'

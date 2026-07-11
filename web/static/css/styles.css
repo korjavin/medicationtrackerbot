@@ -5959,6 +5959,51 @@ textarea.wg-input {
     align-self: flex-start;
 }
 
+.wg-journey-atlas__testit {
+    align-self: flex-start;
+    margin-top: var(--space-xs);
+}
+
+/* Self-Experiments (gamification redesign Phase 4). The active-trial tracker
+   and the verdict card. A no_effect verdict is styled exactly like an effect —
+   no failure treatment — so the mint accent is unconditional (§3.3). */
+.wg-journey-experiment {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    border-left: 3px solid var(--wg-mint);
+}
+
+.wg-journey-experiment__title {
+    font-weight: var(--font-weight-medium);
+    color: var(--wg-fg-1);
+}
+
+.wg-journey-experiment__intention {
+    color: var(--wg-fg-1);
+}
+
+.wg-journey-experiment__measure,
+.wg-journey-experiment__tracker,
+.wg-journey-experiment__reward,
+.wg-journey-experiment__disclaimer {
+    font-size: var(--font-size-sm);
+}
+
+.wg-journey-experiment__finding {
+    color: var(--wg-fg-1);
+}
+
+.wg-journey-experiment__verdict-tag,
+.wg-journey-experiment__paused {
+    align-self: flex-start;
+}
+
+.wg-journey-experiment__cancel,
+.wg-journey-experiment__testit {
+    align-self: flex-start;
+}
+
 /* Weight range selector + chart panel (Phase 6, Task 4; Round-2 Task 12
    defect #15). Outer container is a flex row holding the inset
    7d/30d/90d/All track and the trailing inline +Log pill (via the

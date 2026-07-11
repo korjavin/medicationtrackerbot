@@ -59,12 +59,17 @@ function localHour(ms, timeZone) {
   return parseInt(h, 10);
 }
 
-// nextDayString advances a 'YYYY-MM-DD' calendar date by one (the lag=1 rule).
+// addDays advances a 'YYYY-MM-DD' calendar date by n days (n may be negative).
 // Calendar arithmetic in UTC keeps it independent of the display zone.
-function nextDayString(day) {
+function addDays(day, n) {
   const d = new Date(`${day}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
+  d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
+}
+
+// nextDayString advances a 'YYYY-MM-DD' calendar date by one (the lag=1 rule).
+function nextDayString(day) {
+  return addDays(day, 1);
 }
 
 // dayOfWeek: 0=Sun … 6=Sat for a calendar date string.
@@ -165,6 +170,128 @@ export const PROBES = [
     noEffectPhrase: (n) => `Late dinners don’t seem to shorten your sleep · ${n} days`,
   },
 ];
+
+// -------------------------------------------------------------------------
+// Self-Experiments (N-of-1 trials) — §3.3, the flagship mechanic. A user
+// pre-commits to a 14-day implementation intention (Gollwitzer's "when X, I
+// will Y") around a LEVER — a behavior they choose day to day. NEVER a
+// restriction, a calorie/weight target, or anything that exceeds an activity
+// ceiling (§5 safety guardrail). The library is CURATED: users pick a template
+// from this list, they never author an experiment shape. Each template mirrors
+// a probe's lever→gauge pairing so "Test it" on a revealed discovery starts the
+// matching trial.
+//
+// At the end the SAME honesty-gate math the Atlas uses computes a verdict over
+// the user's OWN logged behavior across the window: effect / no_effect /
+// not_enough_contrast, with the numbers shown. CRITICAL INVARIANT (§3.3): a
+// no_effect verdict is a real finding, rewarded IDENTICALLY to an effect — the
+// user is rewarded for running a clean trial, never for a positive result.
+// Nothing below gates `rewarded` on the direction of the delta.
+// -------------------------------------------------------------------------
+const EXPERIMENT_RECORD_TYPE = 'gamificationexperiment';
+const EXP_DURATION_DAYS = 14;      // §5: 7–28 day duration; 14 is the launch default
+const EXP_MIN_PER_ARM = 4;         // real contrast needed in BOTH arms over the window
+// Recovery/illness mode signal (§5: experiments auto-pause during recovery).
+// The flag does NOT exist in the codebase yet — recoveryActive() reads this
+// optional record and returns false when absent, so the pause activates for
+// free once a recovery-mode subsystem lands. No subsystem is invented here.
+const RECOVERY_MODE_RECORD_TYPE = 'gamificationmode';
+
+export const EXPERIMENT_TEMPLATES = [
+  {
+    id: 'bedtime_window',
+    fromProbe: 'short_sleep_next_morning_bp',
+    title: 'A steady bedtime window',
+    intention: 'When it’s 22:30, I will start winding down for a 7h+ night.',
+    measure: 'Your next-morning systolic on window-nights (7h+) vs shorter nights.',
+    unit: 'mmHg',
+    lag: 0, // sleep wake-day shares the morning reading's date
+    noiseFloor: 3,
+    lever: (d) => (d.sleepMinutes === null ? null : d.sleepMinutes >= 7 * 60),
+    gauge: (d) => d.firstMorningSystolic,
+    onLabel: 'window nights',
+    offLabel: 'shorter nights',
+    effectPhrase: (delta, n) => `On your window nights, mornings ran ~${Math.abs(Math.round(delta))} mmHg ${delta < 0 ? 'lower' : 'higher'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Your morning BP held steady whether or not you hit the window — a clean null result over ${n} days`,
+  },
+  {
+    id: 'workout_cadence',
+    fromProbe: 'workout_next_morning_bp',
+    title: 'Move before noon',
+    intention: 'When I finish breakfast, I will fit a workout in before noon.',
+    measure: 'Your next-morning systolic on workout days vs rest days.',
+    unit: 'mmHg',
+    lag: 1,
+    noiseFloor: 3,
+    lever: (d) => d.workoutCompleted === true,
+    gauge: (d) => d.firstMorningSystolic,
+    onLabel: 'workout days',
+    offLabel: 'rest days',
+    effectPhrase: (delta, n) => `Mornings after your workout days ran ~${Math.abs(Math.round(delta))} mmHg ${delta < 0 ? 'lower' : 'higher'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Your next-morning BP held steady with or without a workout — a clean null result over ${n} days`,
+  },
+  {
+    id: 'early_dinner',
+    fromProbe: 'late_dinner_sleep_duration',
+    title: 'Dinner before 21:00',
+    intention: 'When it’s 20:30, I will finish eating for the night.',
+    measure: 'That night’s sleep on early-dinner days vs late.',
+    unit: 'min',
+    lag: 1, // the sleep that follows a day-d dinner is logged under d+1
+    noiseFloor: 20,
+    lever: (d) => (d.lastMealHour === null ? null : d.lastMealHour < 21),
+    gauge: (d) => d.sleepMinutes,
+    onLabel: 'early-dinner days',
+    offLabel: 'late-dinner days',
+    effectPhrase: (delta, n) => `After early dinners you slept ~${Math.abs(Math.round(delta))} min ${delta > 0 ? 'more' : 'less'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Dinner timing didn’t move your sleep length — a clean null result over ${n} days`,
+  },
+];
+
+function experimentTemplateById(id) {
+  return EXPERIMENT_TEMPLATES.find((t) => t.id === id) || null;
+}
+
+// evaluateExperimentWindow is evaluateProbe scoped to a trial's day range with
+// an experiment-appropriate gate. Buckets the window's classified days into two
+// arms by the user's OWN behavior (lever), reads the outcome (gauge, honoring
+// lag), then: too few days in EITHER arm → not_enough_contrast (no reward, no
+// penalty — the trial couldn't be called); |delta| < noiseFloor → no_effect
+// (rewarded); else effect (rewarded, same reward). Pure over the day map.
+function evaluateExperimentWindow(template, days, startDay, endDay) {
+  const on = [];
+  const off = [];
+  for (const d of days.values()) {
+    if (d.key < startDay || d.key > endDay) continue;
+    const a = template.lever(d);
+    if (a === null || a === undefined) continue;
+    const outcomeDay = template.lag === 0 ? d : days.get(nextDayString(d.key));
+    if (!outcomeDay) continue;
+    const g = template.gauge(outcomeDay);
+    if (g === null || g === undefined || Number.isNaN(g)) continue;
+    (a ? on : off).push(g);
+  }
+  const nOn = on.length;
+  const nOff = off.length;
+  const base = { unit: template.unit, n_on: nOn, n_off: nOff };
+  if (Math.min(nOn, nOff) < EXP_MIN_PER_ARM) {
+    return {
+      ...base,
+      verdict: 'not_enough_contrast',
+      needed_per_arm: EXP_MIN_PER_ARM,
+      rewarded: false,
+      text: `Not enough contrast to call it — ${nOn} ${template.onLabel} vs ${nOff} ${template.offLabel}. No result, and no penalty; run it again when you can vary the days more.`,
+    };
+  }
+  const delta = mean(on) - mean(off);
+  const n = nOn + nOff;
+  const numbers = { ...base, delta, n, mean_on: mean(on), mean_off: mean(off) };
+  if (Math.abs(delta) < template.noiseFloor) {
+    // A null result is a real finding — rewarded identically to an effect (§3.3).
+    return { ...numbers, verdict: 'no_effect', rewarded: true, text: template.noEffectPhrase(n) };
+  }
+  return { ...numbers, verdict: 'effect', rewarded: true, text: template.effectPhrase(delta, n) };
+}
 
 // createGamificationDomain builds the Atlas domain API over the injected ports:
 //   records  — { list(type), put(type, record), del(type, id) }
@@ -500,5 +627,186 @@ export function createGamificationDomain({ records, now, timeZone }) {
     };
   }
 
-  return { getAtlas, markDiscoverySeen, getForecast };
+  // --- Self-Experiments lifecycle -----------------------------------------
+  // Persisted state (§4.2: only irreducible user state is stored) — one
+  // gamificationexperiment record per trial: status active → resolved(verdict)
+  // | cancelled. Verdict math stays recompute-on-read while a trial runs; the
+  // frozen snapshot is written once, on completion, exactly like the design's
+  // "frozen verdict snapshot on completion" and markDiscoverySeen's reveal flag.
+
+  async function readExperiments() {
+    return await records.list(EXPERIMENT_RECORD_TYPE);
+  }
+
+  // recoveryActive — the defensive recovery/illness-mode seam (§5). No such
+  // flag exists yet; this reads an optional signal record and returns false
+  // when absent, so experiments auto-pause for free once the flag lands.
+  async function recoveryActive() {
+    try {
+      const modes = await records.list(RECOVERY_MODE_RECORD_TYPE);
+      return modes.some((m) => m && m.recovery === true);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function experimentWindow(exp) {
+    const startDay = localDayString(exp.started_at, timeZone);
+    const duration = exp.duration_days || EXP_DURATION_DAYS;
+    return { startDay, endDay: addDays(startDay, duration - 1), duration };
+  }
+
+  // resolveElapsed freezes a trial's verdict once its whole window has passed
+  // (and we're not paused by recovery mode). Idempotent: a resolved record is
+  // never recomputed. Returns { active, resolved } — active is nulled once
+  // frozen so max-1-concurrent frees up.
+  async function resolveElapsed(active, days, paused, nowMs) {
+    if (!active) return { active: null, resolved: null };
+    const template = experimentTemplateById(active.template_id);
+    const { startDay, endDay } = experimentWindow(active);
+    const todayKey = localDayString(nowMs, timeZone);
+    if (paused || !template || todayKey <= endDay) return { active, resolved: null };
+    const verdict = evaluateExperimentWindow(template, days, startDay, endDay);
+    const resolved = {
+      ...active, status: 'resolved', resolved_at: nowMs, verdict,
+      acknowledged: false, clientTs: nowMs, deleted: false,
+    };
+    await records.put(EXPERIMENT_RECORD_TYPE, resolved);
+    return { active: null, resolved };
+  }
+
+  function enrichActive(exp, days, nowMs, paused) {
+    const template = experimentTemplateById(exp.template_id) || {};
+    const { startDay, duration } = experimentWindow(exp);
+    const todayKey = localDayString(nowMs, timeZone);
+    let dayNumber = 0;
+    let leverOn = 0;
+    let cur = startDay;
+    for (let i = 0; i < duration; i++) {
+      if (cur > todayKey) break;
+      dayNumber = i + 1;
+      const d = days.get(cur);
+      if (d && template.lever && template.lever(d) === true) leverOn += 1;
+      cur = addDays(cur, 1);
+    }
+    const onLabel = template.onLabel || 'lever days';
+    return {
+      id: exp.recordId,
+      template_id: exp.template_id,
+      title: template.title,
+      intention: template.intention,
+      measure: template.measure,
+      on_label: onLabel,
+      day_number: dayNumber,
+      duration,
+      lever_on_count: leverOn,
+      source_discovery: exp.source_discovery || null,
+      paused: !!paused,
+      tracker: `Day ${dayNumber} of ${duration} · ${leverOn} ${onLabel} so far`,
+    };
+  }
+
+  function verdictView(exp) {
+    const template = experimentTemplateById(exp.template_id) || {};
+    return {
+      id: exp.recordId,
+      template_id: exp.template_id,
+      title: template.title,
+      intention: template.intention,
+      measure: template.measure,
+      resolved_at: exp.resolved_at,
+      ...exp.verdict,
+      disclaimer: 'A verdict is an observation about your last 14 days — not medical advice.',
+    };
+  }
+
+  // listExperiments — the whole experiment surface the Journey screen reads:
+  // the one active trial (with its tracker), the latest un-acknowledged verdict
+  // card, the curated template library for "Test it", and whether a new trial
+  // can start. Auto-freezes an elapsed trial as a side effect (markDiscoverySeen
+  // pattern).
+  async function listExperiments() {
+    const nowMs = now();
+    const [all, days, paused] = await Promise.all([readExperiments(), buildDays(), recoveryActive()]);
+    const activeRaw = all.find((e) => e.status === 'active') || null;
+    const { active, resolved } = await resolveElapsed(activeRaw, days, paused, nowMs);
+
+    const resolvedAll = all.filter((e) => e.status === 'resolved');
+    if (resolved) {
+      const idx = resolvedAll.findIndex((e) => e.recordId === resolved.recordId);
+      if (idx >= 0) resolvedAll[idx] = resolved; else resolvedAll.push(resolved);
+    }
+    const latest = resolvedAll
+      .filter((e) => !e.acknowledged && e.verdict)
+      .sort((a, b) => (b.resolved_at || 0) - (a.resolved_at || 0))[0] || null;
+
+    return {
+      enabled: true,
+      recovery_paused: paused,
+      active: active ? enrichActive(active, days, nowMs, paused) : null,
+      verdict: latest ? verdictView(latest) : null,
+      can_start: !active && !paused,
+      templates: EXPERIMENT_TEMPLATES.map((t) => ({
+        id: t.id, title: t.title, intention: t.intention,
+        measure: t.measure, from_probe: t.fromProbe, unit: t.unit,
+      })),
+    };
+  }
+
+  // startExperiment — begins a 14-day trial from a curated template. Enforces
+  // lever-only (unknown template rejected), max-1-concurrent (auto-resolving an
+  // elapsed prior trial first), and the recovery-mode pause. Returns { ok }.
+  async function startExperiment(templateId, params) {
+    const template = experimentTemplateById(templateId);
+    if (!template) return { ok: false, error: 'unknown_template' };
+    const paused = await recoveryActive();
+    if (paused) return { ok: false, error: 'recovery_paused' };
+
+    const nowMs = now();
+    const [all, days] = await Promise.all([readExperiments(), buildDays()]);
+    const activeRaw = all.find((e) => e.status === 'active') || null;
+    const { active } = await resolveElapsed(activeRaw, days, paused, nowMs);
+    if (active) return { ok: false, error: 'already_active', active: enrichActive(active, days, nowMs, paused) };
+
+    const rec = {
+      recordId: `exp-${templateId}-${nowMs}`,
+      clientTs: nowMs, deleted: false,
+      template_id: templateId,
+      status: 'active',
+      started_at: nowMs,
+      duration_days: EXP_DURATION_DAYS,
+      source_discovery: (params && params.source_discovery) || template.fromProbe || null,
+    };
+    await records.put(EXPERIMENT_RECORD_TYPE, rec);
+    return { ok: true, active: enrichActive(rec, days, nowMs, paused) };
+  }
+
+  // cancelExperiment — DELETE semantics. On an active trial: cancel with no
+  // penalty (§5). On a resolved trial: acknowledge/dismiss the verdict card so
+  // it stops surfacing. Idempotent.
+  async function cancelExperiment(id) {
+    if (!id) return { ok: false };
+    const all = await readExperiments();
+    const rec = all.find((e) => e.recordId === id);
+    if (!rec) return { ok: false };
+    const nowMs = now();
+    if (rec.status === 'active') {
+      await records.put(EXPERIMENT_RECORD_TYPE, {
+        ...rec, status: 'cancelled', cancelled_at: nowMs, clientTs: nowMs, deleted: false,
+      });
+      return { ok: true, status: 'cancelled' };
+    }
+    if (rec.status === 'resolved') {
+      await records.put(EXPERIMENT_RECORD_TYPE, {
+        ...rec, acknowledged: true, clientTs: nowMs, deleted: false,
+      });
+      return { ok: true, status: 'acknowledged' };
+    }
+    return { ok: true, status: rec.status };
+  }
+
+  return {
+    getAtlas, markDiscoverySeen, getForecast,
+    listExperiments, startExperiment, cancelExperiment,
+  };
 }

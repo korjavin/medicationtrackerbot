@@ -505,7 +505,7 @@
         } catch (_) { /* best-effort */ }
     }
 
-    function atlasCardEl(card) {
+    function atlasCardEl(card, expCtx) {
         const item = el('div', 'wg-journey-atlas__card wg-journey-atlas__card--' + card.state);
         item.appendChild(el('p', 'wg-journey-atlas__question', card.question));
 
@@ -524,6 +524,18 @@
         const revealed = card.state === 'revealed';
         item.appendChild(el('span', 'wg-tag wg-tag--mono wg-journey-atlas__tag',
             revealed ? 'Discovery' : 'No effect — a finding'));
+
+        // "Test it" (Phase 4): a terminal discovery with a matching lever
+        // template can become a 14-day N-of-1 trial — but only one experiment
+        // runs at a time, and never during recovery mode.
+        const tpl = expCtx && expCtx.templateByProbe && expCtx.templateByProbe[card.id];
+        if (tpl && expCtx.canStart) {
+            const btn = el('button', 'btn btn-sm btn-secondary wg-journey-atlas__testit', 'Test it');
+            btn.type = 'button';
+            btn.addEventListener('click', () => startExperiment(tpl.id, card.id));
+            item.appendChild(btn);
+        }
+
         markDiscoverySeen(card);
         return item;
     }
@@ -544,11 +556,107 @@
         const cards = Array.isArray(atlas.cards) ? atlas.cards : [];
         if (cards.length === 0) return null;
 
+        // Build the "Test it" context once: which discoveries have a lever
+        // template, and whether a new trial can start (nothing active, not paused).
+        const exp = j && j.experiments;
+        const templateByProbe = {};
+        if (exp && Array.isArray(exp.templates)) {
+            exp.templates.forEach((t) => { if (t.from_probe) templateByProbe[t.from_probe] = t; });
+        }
+        const expCtx = { templateByProbe, canStart: !!(exp && exp.can_start) };
+
         card.appendChild(el('p', 'wg-journey-atlas__why wg-muted',
             'Log honestly and your body’s patterns develop — each card is a question your own data answers.'));
         const list = el('div', 'wg-journey-atlas__list');
-        cards.forEach((c) => list.appendChild(atlasCardEl(c)));
+        cards.forEach((c) => list.appendChild(atlasCardEl(c, expCtx)));
         card.appendChild(list);
+        return card;
+    }
+
+    // --- Self-Experiments (Phase 4) ---------------------------------------
+    // The active-trial tracker + verdict card, and the start/cancel handlers.
+    // Reads `journey.experiments` (attached by load() from GET
+    // /api/gamification/experiments). Bot mode 404s the route → null → no card.
+
+    function experimentApiCall(endpoint, method, body) {
+        const call = window.offlineAwareApiCall || window.apiCallDirect;
+        if (typeof call !== 'function') return Promise.resolve(null);
+        return Promise.resolve(call(endpoint, method, body)).catch(() => null);
+    }
+
+    async function reloadJourney() {
+        if (window.Gamification && typeof window.Gamification.load === 'function') {
+            await window.Gamification.load();
+        }
+    }
+
+    async function startExperiment(templateId, sourceDiscovery) {
+        await experimentApiCall('/api/gamification/experiments', 'POST',
+            { template_id: templateId, source_discovery: sourceDiscovery });
+        await reloadJourney();
+    }
+
+    async function cancelExperiment(id) {
+        if (!id) return;
+        await experimentApiCall(`/api/gamification/experiments/${encodeURIComponent(id)}`, 'DELETE');
+        await reloadJourney();
+    }
+
+    function verdictTagText(verdict) {
+        if (verdict === 'effect') return 'Effect — a finding';
+        if (verdict === 'no_effect') return 'No effect — an equally real finding';
+        return 'Not enough contrast';
+    }
+
+    function renderExperiment(j) {
+        const exp = j && j.experiments;
+        if (!exp || exp.enabled === false) return null;
+        // Nothing to surface as a card: the "Test it" entry points live on the
+        // discovery cards themselves, so an idle state renders no experiment card.
+        if (!exp.active && !exp.verdict) return null;
+
+        const card = el('section', 'wg-card wg-journey-experiment');
+        card.id = 'journey-experiment-card';
+        card.appendChild(el('div', 'wg-section-label', 'SELF-EXPERIMENT'));
+
+        if (exp.active) {
+            const a = exp.active;
+            card.appendChild(el('p', 'wg-journey-experiment__title', a.title || 'Your trial'));
+            if (a.intention) card.appendChild(el('p', 'wg-journey-experiment__intention', a.intention));
+            if (a.measure) card.appendChild(el('p', 'wg-journey-experiment__measure wg-muted', a.measure));
+            const duration = Number(a.duration) || 0;
+            card.appendChild(progressBar(duration > 0 ? (Number(a.day_number) || 0) / duration : 0,
+                'wg-journey-bar__fill--sun'));
+            card.appendChild(el('p', 'wg-journey-experiment__tracker wg-muted', a.tracker || ''));
+            if (a.paused) {
+                card.appendChild(el('span', 'wg-tag wg-tag--mono wg-journey-experiment__paused',
+                    'Paused — recovery mode'));
+            }
+            const stop = el('button', 'btn btn-sm btn-link wg-journey-experiment__cancel', 'Stop trial (no penalty)');
+            stop.type = 'button';
+            stop.addEventListener('click', () => cancelExperiment(a.id));
+            card.appendChild(stop);
+            return card;
+        }
+
+        // Verdict — effect / no_effect / not_enough_contrast, all shown with the
+        // numbers; no_effect carries the SAME reward line as effect (§3.3).
+        const v = exp.verdict;
+        card.appendChild(el('p', 'wg-journey-experiment__title', v.title || 'Verdict'));
+        card.appendChild(el('span', 'wg-tag wg-tag--mono wg-journey-experiment__verdict-tag',
+            verdictTagText(v.verdict)));
+        card.appendChild(el('p', 'wg-journey-experiment__finding', v.text || ''));
+        if (v.rewarded) {
+            card.appendChild(el('p', 'wg-journey-experiment__reward wg-muted',
+                'Logged as a keystone — running a clean trial is the win, whatever it found.'));
+        }
+        if (v.disclaimer) {
+            card.appendChild(el('p', 'wg-journey-experiment__disclaimer wg-muted', v.disclaimer));
+        }
+        const done = el('button', 'btn btn-sm btn-link', 'Got it');
+        done.type = 'button';
+        done.addEventListener('click', () => cancelExperiment(v.id));
+        card.appendChild(done);
         return card;
     }
 
@@ -910,10 +1018,11 @@
         // disabled substrate with a live Atlas still renders the discovery feed
         // rather than the "gamification is off" empty state (insight leads).
         const atlasCard = journey ? renderAtlas(journey) : null;
+        const experimentCard = journey ? renderExperiment(journey) : null;
 
         if (!journey || journey.enabled === false) {
-            if (atlasCard) {
-                content.replaceChildren(atlasCard);
+            if (atlasCard || experimentCard) {
+                content.replaceChildren(...[experimentCard, atlasCard].filter(Boolean));
                 return;
             }
             renderEmpty(content, 'Gamification is off. Enable it in Settings to start your Journey.');
@@ -921,6 +1030,7 @@
         }
 
         const cards = [
+            experimentCard,
             atlasCard,
             renderHeader(journey),
             renderExplainer(),
@@ -1040,6 +1150,16 @@
         }
     }
 
+    // Fetches the Self-Experiments read model (Phase 4). Stateful (persisted
+    // trials), so it reads through offlineAwareApiCall rather than cachedFetch —
+    // the atlas/journey cachedFetch calls already satisfy the offline-coverage
+    // guard for this file. Bot mode 404s the route → null → no experiment card.
+    function loadExperiments() {
+        const call = window.offlineAwareApiCall || window.apiCallDirect;
+        if (typeof call !== 'function') return Promise.resolve(null);
+        return Promise.resolve(call('/api/gamification/experiments', 'GET')).catch(() => null);
+    }
+
     // Loads the Journey read model and paints the screen. Routes through
     // cachedFetch so a cold relaunch offline renders last-known data; a cold
     // cache offline surfaces an explicit empty state (OfflineNoCacheError).
@@ -1080,10 +1200,10 @@
             // The Atlas is fetched whether or not the substrate is enabled: in
             // cloud mode the substrate returns {enabled:false} but the Atlas is
             // the whole point of the screen, so it must still render.
-            const atlas = await loadAtlas();
-            if (atlas) {
-                if (!data) render({ enabled: false, atlas });
-                else { data.atlas = atlas; render(data); }
+            const [atlas, experiments] = await Promise.all([loadAtlas(), loadExperiments()]);
+            if (atlas || experiments) {
+                if (!data) render({ enabled: false, atlas, experiments });
+                else { data.atlas = atlas; data.experiments = experiments; render(data); }
                 await mountBadge();
                 return;
             }
