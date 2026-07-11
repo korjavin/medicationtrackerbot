@@ -73,7 +73,7 @@ describe('workout.js loaders and next-card behavior', () => {
 
       window.apiCall = vi.fn().mockRejectedValue(new Error('nope'));
       await window.nextWorkoutVariant(34);
-      expect(alertSpy).toHaveBeenCalledWith('Failed to switch variant. Please try again.');
+      expect(alertSpy).toHaveBeenCalledWith('Failed to switch day. Please try again.');
     } finally {
       cleanup();
     }
@@ -124,14 +124,14 @@ describe('workout.js loaders and next-card behavior', () => {
     try {
       window.apiCall = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]);
       await window.loadVariantsForGroup(9);
-      expect(document.getElementById('workout-variants-list').innerHTML).toContain('No variants yet');
+      expect(document.getElementById('workout-variants-list').innerHTML).toContain('No days yet');
 
       await window.loadExercisesForVariant(1);
       expect(document.getElementById('workout-exercises-list').innerHTML).toContain('No exercises yet');
 
       window.apiCall = vi.fn().mockRejectedValueOnce(new Error('variants fail')).mockRejectedValueOnce(new Error('ex fail'));
       await window.loadVariantsForGroup(10);
-      expect(document.getElementById('workout-variants-list').innerHTML).toContain('Error loading variants');
+      expect(document.getElementById('workout-variants-list').innerHTML).toContain('Error loading days');
 
       await window.loadExercisesForVariant(2);
       expect(document.getElementById('workout-exercises-list').innerHTML).toContain('Error loading exercises');

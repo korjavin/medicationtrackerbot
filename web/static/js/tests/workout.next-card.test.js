@@ -117,7 +117,7 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
             expect(span).not.toBeNull();
             return span.textContent;
         });
-        expect(labels).toEqual(['Start Workout', 'Skip', 'Next Variant']);
+        expect(labels).toEqual(['Start Workout', 'Skip', 'Next Day']);
 
         // No emoji prefix escaped into any rendered label.
         // Sweep a representative set of the dropped glyphs.
@@ -203,7 +203,7 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
 
         const actions = container.querySelectorAll('.wg-workouts-next-card__actions > .wg-toolbar-btn');
         const labels = Array.from(actions).map((btn) => btn.querySelector('.wg-toolbar-btn__label').textContent);
-        expect(labels).toEqual(['Cancel Skip', 'Next Variant']);
+        expect(labels).toEqual(['Cancel Skip', 'Next Day']);
 
         expect(actions[0].classList.contains('wg-toolbar-btn--primary')).toBe(true);
         expect(actions[1].classList.contains('wg-toolbar-btn--secondary')).toBe(true);

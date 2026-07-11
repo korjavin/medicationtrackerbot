@@ -352,13 +352,13 @@ function _renderNextWorkout(container, data) {
     } else if (status === 'pre_skipped') {
         actions.appendChild(createButton('Cancel Skip', 'primary', cancelPreSkipWorkoutSession));
         if (isRotating) {
-            actions.appendChild(createButton('Next Variant', 'secondary', nextWorkoutVariant));
+            actions.appendChild(createButton('Next Day', 'secondary', nextWorkoutVariant));
         }
     } else {
         actions.appendChild(createButton('Start Workout', 'primary', startWorkoutSession));
         actions.appendChild(createButton('Skip', 'secondary', preSkipWorkoutSession));
         if (isRotating) {
-            actions.appendChild(createButton('Next Variant', 'secondary', nextWorkoutVariant));
+            actions.appendChild(createButton('Next Day', 'secondary', nextWorkoutVariant));
         }
     }
     card.appendChild(actions);
@@ -384,7 +384,7 @@ async function nextWorkoutVariant(sessionId) {
         await loadNextWorkout();
     } catch (error) {
         console.error('Error switching to next variant:', error);
-        alert('Failed to switch variant. Please try again.');
+        alert('Failed to switch day. Please try again.');
     }
 }
 

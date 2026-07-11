@@ -107,13 +107,13 @@ async function resolveVariantForExercise() {
 
     const groupId = window.WorkoutEdit.groupForVariant || window.WorkoutEdit.editingGroupId;
     if (!groupId) {
-        safeAlert('Save this workout group first to add exercises.');
+        safeAlert('Save this plan first to add exercises.');
         return false;
     }
 
     const group = window.WorkoutEdit.cachedGroups.find(g => g.id === groupId);
     if (group && group.is_rotating) {
-        safeAlert('Open a variant first to add exercises.');
+        safeAlert('Open a day first to add exercises.');
         return false;
     }
 
@@ -139,7 +139,7 @@ async function resolveVariantForExercise() {
 
         const variantId = variants[0]?.id;
         if (!variantId) {
-            safeAlert('Save this workout group first to add exercises.');
+            safeAlert('Save this plan first to add exercises.');
             return false;
         }
 
@@ -168,7 +168,7 @@ async function showAddExerciseModal() {
     document.getElementById('workout-exercise-weight').value = '';
     document.getElementById('workout-exercise-order').value = '0';
 
-    // Load exercise library for autocomplete
+    // Load exercise library for autocomplete via the shared picker (med-prk.3).
     let datalist = document.getElementById('exercise-library-datalist');
     if (!datalist) {
         datalist = document.createElement('datalist');
@@ -176,28 +176,7 @@ async function showAddExerciseModal() {
         document.body.appendChild(datalist);
         document.getElementById('workout-exercise-name').setAttribute('list', 'exercise-library-datalist');
     }
-    datalist.replaceChildren();
-
-    try {
-        const items = await apiCall('/api/workout/exercise-library');
-        if (items && items.length > 0) {
-            items.forEach(item => {
-                const option = document.createElement('option');
-                option.value = item.name;
-                option.dataset.sets = item.default_sets || '';
-                option.dataset.repsMin = item.default_reps_min || '';
-                option.dataset.repsMax = item.default_reps_max || '';
-                option.dataset.weight = item.default_weight_kg || '';
-                datalist.appendChild(option);
-            });
-        }
-    } catch (error) {
-        console.error('Error loading exercise library for autocomplete:', error);
-    }
-
-    // Also surface canonical catalog names (med-s5m.2), deduped against the
-    // user's library options above so their autofill dataset wins.
-    await window.WorkoutLibrary.ensureCatalogSuggestions(datalist);
+    await window.WorkoutLibrary.populatePickerOptions(datalist);
 
     // Add change handler to pre-fill defaults from library
     const nameInput = document.getElementById('workout-exercise-name');

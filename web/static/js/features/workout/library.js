@@ -312,6 +312,61 @@ async function ensureExerciseCatalogSuggestions(datalist) {
     datalist.appendChild(frag);
 }
 
+// Shared add-exercise picker (med-prk.3): fill a <datalist> from the user's
+// library (value=name + autofill dataset incl. library id) plus canonical
+// catalog names, so plan-editing (exercises.js) and in-session add
+// (sessions.js) search one surface. The session modal's single reps input
+// reads `repsMin` too, so one convention serves both call sites.
+async function populatePickerOptions(datalist) {
+    if (!datalist) return;
+    datalist.replaceChildren();
+    try {
+        const items = await apiCall('/api/workout/exercise-library') || [];
+        items.forEach(item => {
+            const option = document.createElement('option');
+            option.value = item.name;
+            option.dataset.id = item.id;
+            option.dataset.sets = item.default_sets || '';
+            option.dataset.repsMin = item.default_reps_min || '';
+            option.dataset.repsMax = item.default_reps_max || '';
+            option.dataset.weight = item.default_weight_kg || '';
+            datalist.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading exercise library for picker:', error);
+    }
+    // User-library options (with autofill dataset) win over bare catalog names.
+    await ensureExerciseCatalogSuggestions(datalist);
+}
+
+// Create-new half of the shared picker: resolve a typed name to a library
+// exercise id, upserting a new library row when the name is unknown (the
+// server INSERTs without dedup, so match by trimmed, case-insensitive name
+// first). Returns null on empty name or failure.
+async function resolveOrCreateLibraryId(name, defaults = {}) {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return null;
+    const items = await apiCall('/api/workout/exercise-library') || [];
+    const existing = items.find(i => (i.name || '').trim().toLowerCase() === trimmed.toLowerCase());
+    if (existing) return existing.id;
+    const created = await apiCall('/api/workout/exercise-library/create', 'POST', {
+        name: trimmed,
+        default_sets: defaults.sets || 0,
+        default_reps_min: defaults.repsMin || 0,
+        default_reps_max: defaults.repsMax ?? null,
+        default_weight_kg: defaults.weight ?? null,
+        notes: ''
+    });
+    if (created && created.id) return created.id;
+    // Create failed. The UNIQUE (user_id, name) index means a concurrent
+    // tab/client may have just created this exact name in the gap since our
+    // list read — the INSERT then 500s. Refetch and match by name so we log
+    // against the now-existing row instead of refusing an exercise that exists.
+    const after = await apiCall('/api/workout/exercise-library') || [];
+    const raced = after.find(i => (i.name || '').trim().toLowerCase() === trimmed.toLowerCase());
+    return raced ? raced.id : null;
+}
+
 window.WorkoutLibrary = {
     load: loadExerciseLibrary,
     save: saveExerciseLibraryItem,
@@ -319,5 +374,7 @@ window.WorkoutLibrary = {
     openEdit: showEditExerciseLibraryModal,
     close: closeExerciseLibraryModal,
     delete: deleteExerciseLibraryItem,
-    ensureCatalogSuggestions: ensureExerciseCatalogSuggestions
+    ensureCatalogSuggestions: ensureExerciseCatalogSuggestions,
+    populatePickerOptions: populatePickerOptions,
+    resolveOrCreateLibraryId: resolveOrCreateLibraryId
 };

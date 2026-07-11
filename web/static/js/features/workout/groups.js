@@ -105,7 +105,7 @@ function _renderWorkoutGroups(container, groups) {
     if (!groups || groups.length === 0) {
         const empty = doc.createElement('p');
         empty.className = 'wg-workouts-groups__empty';
-        empty.textContent = 'No workout groups yet — tap Add to create one.';
+        empty.textContent = 'No plans yet — tap Add to create one.';
         container.replaceChildren(empty);
         return;
     }
@@ -144,7 +144,7 @@ function _buildWorkoutGroupRow(doc, group) {
 
     const name = doc.createElement('span');
     name.className = 'wg-workouts-groups-row__name';
-    name.textContent = group.name || 'Workout group';
+    name.textContent = group.name || 'Plan';
     title.appendChild(name);
 
     body.appendChild(title);
@@ -203,10 +203,10 @@ function _buildWorkoutGroupRow(doc, group) {
 
     const actions = doc.createElement('div');
     actions.className = 'wg-workouts-groups-row__actions';
-    actions.appendChild(_buildGroupsIconBtn(doc, 'edit', 'Edit group', 'pencil', () => {
+    actions.appendChild(_buildGroupsIconBtn(doc, 'edit', 'Edit plan', 'pencil', () => {
         showEditWorkoutGroupModal(group.id);
     }));
-    actions.appendChild(_buildGroupsIconBtn(doc, 'delete', 'Delete group', 'trash', (event) => {
+    actions.appendChild(_buildGroupsIconBtn(doc, 'delete', 'Delete plan', 'trash', (event) => {
         deleteWorkoutGroup(group.id, event);
     }));
     card.appendChild(actions);
@@ -242,7 +242,7 @@ function setFlatExercisesPendingSaveMessage() {
     if (!container) return;
     const message = document.createElement('p');
     message.className = 'workout-pending-msg';
-    message.textContent = 'Save this group first to add exercises.';
+    message.textContent = 'Save this plan first to add exercises.';
     container.replaceChildren(message);
 }
 
@@ -254,7 +254,7 @@ function showAddWorkoutGroupModal() {
     window.WorkoutEdit.editingGroupId = null;
     window.WorkoutEdit.groupForVariant = null;
     window.WorkoutEdit.variantForExercise = null;
-    document.getElementById('workout-group-modal-title').textContent = 'Add Workout Group';
+    document.getElementById('workout-group-modal-title').textContent = 'Add Plan';
     window.ModalManager.workoutGroup.open();
 
     // Reset fields
@@ -281,7 +281,7 @@ async function showEditWorkoutGroupModal(groupId) {
     const group = window.WorkoutEdit.cachedGroups.find(g => g.id === groupId);
     if (!group) return;
 
-    document.getElementById('workout-group-modal-title').textContent = 'Edit Workout Group';
+    document.getElementById('workout-group-modal-title').textContent = 'Edit Plan';
     window.ModalManager.workoutGroup.open();
 
     // Fill fields
@@ -352,6 +352,23 @@ function closeWorkoutGroupModal() {
 }
 
 async function toggleRotatingFields() {
+    // The >1-Day off-guard below runs async (it fetches the Day count). Mark the
+    // guard in-flight so saveWorkoutGroup can refuse to save while the checkbox
+    // hasn't yet been settled — otherwise a Save click racing this fetch would
+    // post the still-false checkbox and slip past the guard (Task 4).
+    // Count in-flight handlers rather than a bool: the change event is
+    // fire-and-forget, so a rapid off/on/off can overlap handlers, and an
+    // earlier one clearing a shared bool would open the guard while a later
+    // off-check is still pending. Guard stays closed until the last one settles.
+    window.WorkoutEdit.rotatingGuardPending = (window.WorkoutEdit.rotatingGuardPending || 0) + 1;
+    try {
+        await toggleRotatingFieldsInner();
+    } finally {
+        window.WorkoutEdit.rotatingGuardPending -= 1;
+    }
+}
+
+async function toggleRotatingFieldsInner() {
     const isRotating = document.getElementById('workout-group-rotating').checked;
     if (isRotating) {
         document.getElementById('workout-variants-section').style.display = 'block';
@@ -360,14 +377,38 @@ async function toggleRotatingFields() {
             await loadVariantsForGroup(window.WorkoutEdit.editingGroupId);
         }
     } else {
-        document.getElementById('workout-variants-section').style.display = 'none';
-        document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
         if (window.WorkoutEdit.editingGroupId) {
             // Re-run the logic to fetch/create default variant and load exercises.
             // The variant POST is a workout mutation, so invalidate the
             // workout-tagged caches if the implicit create succeeds.
             let variants = await apiCall(`/api/workout/variants?group_id=${window.WorkoutEdit.editingGroupId}`);
-            if (!variants || variants.length === 0) {
+            // A failed read (offline/5xx) returns null. Don't fall open to []:
+            // that would skip the >1-Day guard below and flatten a genuinely
+            // multi-Day plan, stranding the extra Days' exercises. Treat unknown
+            // Day count as "can't collapse" — keep rotation on and bail.
+            if (!Array.isArray(variants)) {
+                document.getElementById('workout-group-rotating').checked = true;
+                document.getElementById('workout-variants-section').style.display = 'block';
+                document.getElementById('workout-group-flat-exercises-section').style.display = 'none';
+                safeAlert('Couldn\'t check this plan\'s Days — try again when back online.');
+                return;
+            }
+
+            // Guard (Task 4): a Plan with more than one Day can't switch rotation
+            // off — collapsing to a single flat list would strand the extra Days'
+            // exercises. Keep the toggle on + Days editor visible; user deletes
+            // the extras first. Zero data loss.
+            if (variants.length > 1) {
+                document.getElementById('workout-group-rotating').checked = true;
+                document.getElementById('workout-variants-section').style.display = 'block';
+                document.getElementById('workout-group-flat-exercises-section').style.display = 'none';
+                safeAlert('Delete the extra Days first — a plan with more than one Day can\'t switch off "Rotate through days".');
+                return;
+            }
+
+            document.getElementById('workout-variants-section').style.display = 'none';
+            document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
+            if (variants.length === 0) {
                 const newVariant = await apiCall('/api/workout/variants/create', 'POST', {
                     group_id: window.WorkoutEdit.editingGroupId,
                     name: 'Main',
@@ -378,12 +419,9 @@ async function toggleRotatingFields() {
                     await invalidateWorkoutCache();
                     variants = [newVariant];
                 } else {
-                    variants = [];
+                    setFlatExercisesPendingSaveMessage();
+                    return;
                 }
-            }
-            if (variants.length === 0) {
-                setFlatExercisesPendingSaveMessage();
-                return;
             }
             const defaultVariantId = variants[0].id;
             window.WorkoutEdit.groupForVariant = window.WorkoutEdit.editingGroupId;
@@ -391,6 +429,8 @@ async function toggleRotatingFields() {
             await loadExercisesForVariant(defaultVariantId, 'workout-group-flat-exercises-list');
         } else {
             // New group, just show message
+            document.getElementById('workout-variants-section').style.display = 'none';
+            document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
             setFlatExercisesPendingSaveMessage();
         }
     }
@@ -408,8 +448,16 @@ async function saveWorkoutGroup() {
     const notification = parseInt(document.getElementById('workout-group-notification').value);
     const active = document.getElementById('workout-group-active').checked;
 
+    // Don't save while the rotation off-guard (toggleRotatingFields) is still
+    // fetching the Day count — the checkbox may not reflect the guarded value
+    // yet, so posting now could slip is_rotating:false past the >1-Day guard.
+    if (window.WorkoutEdit.rotatingGuardPending > 0) {
+        safeAlert('Still checking this plan\'s Days — try again in a moment.');
+        return;
+    }
+
     if (!name) {
-        safeAlert('Group name is required!');
+        safeAlert('Plan name is required!');
         return;
     }
 
@@ -451,7 +499,7 @@ async function saveWorkoutGroup() {
 async function deleteWorkoutGroup(groupId, event) {
     event.stopPropagation();
 
-    await safeConfirm('Delete this workout group?', async (ok) => {
+    await safeConfirm('Delete this plan?', async (ok) => {
         if (ok) {
             await _deleteWorkoutGroupApi(groupId);
         }

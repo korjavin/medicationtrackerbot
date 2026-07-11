@@ -380,6 +380,9 @@ describe('workout.js session and stats flows', () => {
             { id: 111, name: 'Overhead Press', default_sets: 3, default_reps_min: 8, default_weight_kg: 35 }
           ];
         }
+        if (endpoint === '/api/workout/exercise-library/create' && method === 'POST') {
+          return { id: 222, name: payload.name };
+        }
         if (endpoint === '/api/workout/sessions/logs/create' && method === 'POST') {
           return { id: 333, ...payload };
         }
@@ -405,14 +408,17 @@ describe('workout.js session and stats flows', () => {
       await window.saveNewSessionExercise();
       expect(window.safeAlert).toHaveBeenCalledWith('Name, sets, and reps are required');
 
+      // Brand-new name (med-prk.3): the shared picker upserts it into the
+      // library and logs it against the returned id instead of refusing.
       document.getElementById('session-add-exercise-name').value = 'Unknown Move';
       document.getElementById('session-add-exercise-id').value = '';
       document.getElementById('session-add-exercise-sets').value = '4';
       document.getElementById('session-add-exercise-reps').value = '10';
       await window.saveNewSessionExercise();
-      expect(window.safeAlert).toHaveBeenCalledWith(
-        'Please select an existing exercise from the list. Adding new unknown exercises to a session is not supported yet.'
-      );
+      expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/exercise-library/create', 'POST',
+        expect.objectContaining({ name: 'Unknown Move' }));
+      expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/logs/create', 'POST',
+        expect.objectContaining({ exercise_id: 222, exercise_name: 'Unknown Move' }));
 
       document.getElementById('session-add-exercise-name').value = 'Overhead Press';
       document.getElementById('session-add-exercise-id').value = '111';

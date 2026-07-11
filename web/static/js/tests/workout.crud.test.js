@@ -29,7 +29,7 @@ describe('workout.js CRUD flows', () => {
       await window.saveWorkoutGroup();
 
       expect(alertSpy).toHaveBeenCalledTimes(1);
-      expect(alertSpy.mock.calls[0][0]).toContain('Group name is required');
+      expect(alertSpy.mock.calls[0][0]).toContain('Plan name is required');
     } finally {
       cleanup();
     }

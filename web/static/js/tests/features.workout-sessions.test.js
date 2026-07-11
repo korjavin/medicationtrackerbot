@@ -177,6 +177,116 @@ describe('features/workout/sessions.js — split-file integration', () => {
     await handlerDone;
   });
 
+  // med-prk.3 Task 5 — shared add-exercise picker. Creating a brand-new
+  // exercise name mid-session is now allowed: it upserts into the library and
+  // the session log references it by id. Real boundary: the name lands in the
+  // library AND the session log carries the resolved library id.
+  it('saveNewSessionExercise creates a brand-new name in the library and references it on the session log', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.showWorkoutSessionModal = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.logs = [];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    document.getElementById('session-add-exercise-name').value = 'Zercher Squat';
+    document.getElementById('session-add-exercise-id').value = ''; // brand-new: no library id
+    document.getElementById('session-add-exercise-sets').value = '4';
+    document.getElementById('session-add-exercise-reps').value = '6';
+    document.getElementById('session-add-exercise-weight').value = '70';
+
+    // Mutable library the create handler appends to, so the "appears in the
+    // library afterward" assertion reads a real post-create state.
+    const library = [];
+    let createdLogPayload = null;
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint === '/api/workout/exercise-library') return [...library];
+      if (endpoint === '/api/workout/exercise-library/create') {
+        const item = { id: 555, name: payload.name, default_sets: payload.default_sets };
+        library.push(item);
+        return item;
+      }
+      if (endpoint === '/api/workout/sessions/logs/create') {
+        createdLogPayload = payload;
+        return { id: 999 };
+      }
+      if (endpoint.startsWith('/api/workout/sessions/details')) {
+        return { session: { id: 42, status: 'in_progress' }, logs: window.WorkoutSessionsState.logs };
+      }
+      return [];
+    });
+
+    await window.saveNewSessionExercise();
+
+    // Saved to the session, referencing the newly-created library id.
+    expect(createdLogPayload).not.toBeNull();
+    expect(createdLogPayload.exercise_id).toBe(555);
+    expect(createdLogPayload.exercise_name).toBe('Zercher Squat');
+    // Appears in the library afterward.
+    expect(library.map(i => i.name)).toContain('Zercher Squat');
+  });
+
+  it('saveNewSessionExercise recovers a UNIQUE-race create failure by refetching the library by name', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.showWorkoutSessionModal = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.logs = [];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    document.getElementById('session-add-exercise-name').value = 'Zercher Squat';
+    document.getElementById('session-add-exercise-id').value = '';
+    document.getElementById('session-add-exercise-sets').value = '4';
+    document.getElementById('session-add-exercise-reps').value = '6';
+    document.getElementById('session-add-exercise-weight').value = '70';
+
+    // A concurrent tab created the exact name between our list read and POST:
+    // the first list is empty, the create 500s (returns null on the UNIQUE
+    // violation), and the refetch now surfaces the raced-in row.
+    let listReads = 0;
+    let createdLogPayload = null;
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint === '/api/workout/exercise-library') {
+        listReads += 1;
+        return listReads === 1 ? [] : [{ id: 777, name: 'Zercher Squat' }];
+      }
+      if (endpoint === '/api/workout/exercise-library/create') return null; // UNIQUE(user_id,name) 500
+      if (endpoint === '/api/workout/sessions/logs/create') {
+        createdLogPayload = payload;
+        return { id: 999 };
+      }
+      if (endpoint.startsWith('/api/workout/sessions/details')) {
+        return { session: { id: 42, status: 'in_progress' }, logs: window.WorkoutSessionsState.logs };
+      }
+      return [];
+    });
+
+    await window.saveNewSessionExercise();
+
+    // Logged against the raced-in row instead of refusing with "Failed to add".
+    expect(createdLogPayload).not.toBeNull();
+    expect(createdLogPayload.exercise_id).toBe(777);
+  });
+
+  // med-prk.3 Task 5 — the shared picker now surfaces catalog-only names in
+  // the session datalist. Those options carry no dataset.id; selecting one must
+  // leave the hidden id empty so save-time resolution creates/matches a library
+  // id, rather than posting exercise_id "undefined"/NaN.
+  it('onSessionExerciseSelect leaves the hidden id empty for a catalog-only option', () => {
+    const { window, document } = env;
+    const datalist = document.getElementById('unique-exercises-list');
+    datalist.replaceChildren();
+    const opt = document.createElement('option');
+    opt.value = 'Farmer Carry'; // catalog-only: no dataset.id
+    datalist.appendChild(opt);
+
+    document.getElementById('session-add-exercise-name').value = 'Farmer Carry';
+    document.getElementById('session-add-exercise-id').value = 'stale';
+    window.onSessionExerciseSelect();
+
+    expect(document.getElementById('session-add-exercise-id').value).toBe('');
+  });
+
   it('saveNewSessionExercise rolls back the optimistic log when the POST returns null', async () => {
     const { window, document } = env;
     installApiCache(window);
