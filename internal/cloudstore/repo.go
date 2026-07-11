@@ -13,8 +13,11 @@ import (
 	"database/sql"
 	"embed"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
@@ -1004,6 +1007,68 @@ func (r *Repo) CreateClaimedTransferSlot(ctx context.Context, id, accountID stri
 		`INSERT INTO transfer_slots (id, account_id, enrollment_token_hash, ct, created_at_unix, expires_at_unix, fetched) VALUES (?, ?, ?, ?, ?, ?, 1)`,
 		id, accountID, enrollmentTokenHash, []byte{}, storedb.TimeToUnix(createdAt), storedb.TimeToUnix(expiresAt))
 	return err
+}
+
+// normalizeEgressHosts lowercases, trims, drops empties, and dedupes a host
+// list, returning a stable (sorted) slice so the persisted JSON and the emitted
+// CSP are deterministic. It does NOT validate shape — the endpoint rejects
+// non-hostnames before calling SetEgressHosts; this only canonicalizes.
+func normalizeEgressHosts(hosts []string) []string {
+	seen := make(map[string]struct{}, len(hosts))
+	out := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		h = strings.ToLower(strings.TrimSpace(h))
+		if h == "" {
+			continue
+		}
+		if _, dup := seen[h]; dup {
+			continue
+		}
+		seen[h] = struct{}{}
+		out = append(out, h)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// SetEgressHosts replaces accountID's provider egress-host allowlist. Hosts are
+// normalized+deduped; an empty list stores JSON "[]" (distinct from NULL, which
+// only means "never set" — both read back as no hosts). Returns sql.ErrNoRows
+// if the account does not exist.
+func (r *Repo) SetEgressHosts(ctx context.Context, accountID string, hosts []string) error {
+	blob, err := json.Marshal(normalizeEgressHosts(hosts))
+	if err != nil {
+		return err
+	}
+	result, err := r.db.ExecContext(ctx, `UPDATE accounts SET egress_hosts = ? WHERE id = ?`, string(blob), accountID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// EgressHosts returns accountID's stored provider egress-host allowlist (empty
+// if never set). Returns sql.ErrNoRows if the account does not exist.
+func (r *Repo) EgressHosts(ctx context.Context, accountID string) ([]string, error) {
+	var blob sql.NullString
+	if err := r.db.QueryRowContext(ctx, `SELECT egress_hosts FROM accounts WHERE id = ?`, accountID).Scan(&blob); err != nil {
+		return nil, err
+	}
+	if !blob.Valid || blob.String == "" {
+		return nil, nil
+	}
+	var hosts []string
+	if err := json.Unmarshal([]byte(blob.String), &hosts); err != nil {
+		return nil, err
+	}
+	return hosts, nil
 }
 
 // Trial-budget scopes reported by ConsumeTrialRequest when a call is refused.

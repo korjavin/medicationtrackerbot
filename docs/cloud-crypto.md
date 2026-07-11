@@ -195,7 +195,7 @@ Everything in `envelopes`, `oplog`, `snapshots`, `scheduled_pushes` is ciphertex
 | Phishing / fake login page | Passkeys are origin-bound: a look-alike site cannot run an assertion for the real RP ID, so neither auth nor PRF output is obtainable. Stronger than any passphrase flow. ✅ |
 | Stolen **locked** device | OS boundary: passkey needs UV; LDK cache needs the unlocked browser profile. Remote-revoke from another device regardless. ✅ |
 | Stolen **unlocked** device | Full read of that device's copy — true of every E2EE app. Response: revoke + DEK rotation from a surviving credential. ⚠️ inherent |
-| XSS on the instance origin | Catastrophic while unlocked (reads plaintext, uses LDK). Non-extractable keys block raw-key exfil, but the real defenses are upstream: strict CSP, zero third-party script, SRI, SW-pinned bundles (cloud-mode.md code-serving caveat). ⚠️ inherent to web crypto |
+| XSS on the instance origin | Catastrophic while unlocked (reads plaintext, uses LDK). Non-extractable keys block raw-key exfil, but the real defenses are upstream: strict CSP, zero third-party script, SRI, SW-pinned bundles (cloud-mode.md code-serving caveat). **Exfil is now bounded by a per-account `connect-src` allowlist** — see below. ⚠️ inherent to web crypto |
 | Loss of all passkeys **and** the recovery code | Data unrecoverable, by design. Mitigated by onboarding: enroll ≥2 credentials, keep the Kit. ⚠️ stated plainly |
 
 ## Edge cases
@@ -206,6 +206,43 @@ Everything in `envelopes`, `oplog`, `snapshots`, `scheduled_pushes` is ciphertex
 - **Concurrent enrollments**: envelopes are independent rows keyed by credential id — no coordination needed.
 - **Sign counters**: platform authenticators commonly report 0; do not use counters for clone detection.
 - **WebAuthn needs a top-level secure context + user gesture**: all ceremonies are button-initiated in the installed PWA; none are needed for background sync (session tokens) or push decrypt (NK).
+
+## Per-account egress allowlist (CSP `connect-src`)
+
+The account app document (`/` on the account subdomain) holds the in-memory DEK and
+decrypted records, so its `connect-src` governs where an on-origin XSS could POST
+that plaintext. It used to relax `connect-src` to `'self' https: wss:` because the
+browser-direct BYO-provider calls (AI, food-DB, ElevenLabs) go to user-configured
+origins the server couldn't know — a wildcard that let an XSS exfil to **any**
+`https:` origin instantly.
+
+That wildcard is gone. The client registers its provider **hostnames** — never keys,
+never health data — via `PUT /api/egress-hosts` after unlock (from `apishim.js`) and
+again on a Settings integrations save (with a "reload to apply" hint, since the CSP
+updates on the next document load). The server persists a short per-account hostname
+list and emits a scoped `connect-src`:
+
+```
+connect-src 'self' https://<host1> https://<host2> https://api.elevenlabs.io wss://api.elevenlabs.io
+```
+
+`api.elevenlabs.io` (https + wss) is always included — its host is operator-known and
+fixed; only its API key is BYO. Static/asset paths (`/static/*`, `/domain/*`) get
+`connect-src 'self'`. **No document anywhere on the origin serves a wildcard `https:`
+`connect-src`**, so an XSS spawning a same-origin child frame inherits the same scoped
+allowlist and gains no new reach — unlike the earlier sandboxed-iframe attempt, whose
+relaxed-CSP document was itself a bypass gadget.
+
+**What the operator learns:** which provider *hostname* each account uses. The API key
+and all health data stay client-only / encrypted — only the hostname list is
+server-side.
+
+**Honest residual:** an on-origin XSS can call `PUT /api/egress-hosts` to add an
+attacker host and then force a reload to pick up the widened CSP. This is strictly
+harder than the old instant arbitrary-origin exfil — it needs persistence plus a
+navigation — but it is **not** a total close. Enforced by `TestRouter_HostVariants` /
+`TestRouter_AppDocumentReflectsEgressHosts` (served CSP reflects stored hosts, no bare
+`https:`/`wss:` token). See [cloud-mode.md](cloud-mode.md).
 
 ## Open questions
 

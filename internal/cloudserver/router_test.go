@@ -158,21 +158,25 @@ func TestRouter_HostVariants(t *testing.T) {
 			if csp == "" {
 				t.Errorf("missing Content-Security-Policy header")
 			}
-			// Account-subdomain app pages (/, /static/*, /domain/*) relax
-			// connect-src to permit browser-direct C2c food calls to BYO
-			// AI/food-DB origins — an accepted weakening since those pages also
-			// hold the in-memory DEK. The base domain and the passkey ceremony
-			// pages make no cross-origin calls and stay strict.
+			// Only the account-subdomain app DOCUMENT ("/") relaxes its policy:
+			// connect-src is scoped to this account's registered provider hosts
+			// (none in this account) + the fixed ElevenLabs host — never a bare
+			// https:. Its same-origin assets (/static/*, /domain/*) don't initiate
+			// the app's fetches, so they stay strict 'self'. The base domain and
+			// the passkey ceremony pages make no cross-origin calls and stay strict.
 			wantConnect := "connect-src 'self';"
-			// Account app pages also load the @elevenlabs/client voice SDK, but
+			// The app document also loads the @elevenlabs/client voice SDK, but
 			// from our own origin (vendored) — so script-src keeps 'self' and only
 			// gains blob:/data: for the SDK's AudioWorklets. No third-party script
 			// host may appear here: that is the med-7e7.1 invariant.
 			wantScript := "script-src 'self';"
-			accountApp := stripPort(tc.host) != "app.example.com" &&
-				(tc.path == "/" || strings.HasPrefix(tc.path, "/static/") || strings.HasPrefix(tc.path, "/domain/"))
-			if accountApp {
-				wantConnect = "connect-src 'self' https: wss:;"
+			// A 404 host never reaches the app-document branch (the account
+			// doesn't resolve), so it keeps the strict default — only a served "/"
+			// on a known subdomain carries the scoped allowlist.
+			appDocument := tc.wantStatus == http.StatusOK &&
+				stripPort(tc.host) != "app.example.com" && tc.path == "/"
+			if appDocument {
+				wantConnect = "connect-src 'self' https://api.elevenlabs.io wss://api.elevenlabs.io;"
 				wantScript = "script-src 'self' blob: data:;"
 			}
 			if !strings.Contains(csp, wantConnect) {
@@ -181,7 +185,7 @@ func TestRouter_HostVariants(t *testing.T) {
 			if !strings.Contains(csp, wantScript) {
 				t.Errorf("CSP script-src = %q, want it to contain %q", csp, wantScript)
 			}
-			if accountApp && !strings.Contains(csp, "worker-src 'self' blob:;") {
+			if appDocument && !strings.Contains(csp, "worker-src 'self' blob:;") {
 				t.Errorf("CSP = %q, want worker-src 'self' blob: for account app SDK worklets", csp)
 			}
 			// med-7e7.1: no third-party script host may ever appear in script-src.
@@ -194,11 +198,80 @@ func TestRouter_HostVariants(t *testing.T) {
 			if strings.Contains(scriptSrc, "//") {
 				t.Errorf("script-src = %q, want no third-party script host (vendor it instead)", scriptSrc)
 			}
+			// The whole point of the egress allowlist: even the app document must
+			// never carry a bare `https:`/`wss:` connect-src token (that is the
+			// arbitrary-origin exfil gadget). Every host is a full https://<host>.
+			if bare := bareSchemeToken(cspDirective(csp, "connect-src")); bare != "" {
+				t.Errorf("connect-src = %q carries bare %q token (arbitrary-origin exfil gadget)", cspDirective(csp, "connect-src"), bare)
+			}
 			if xcto := rec.Header().Get("X-Content-Type-Options"); xcto != "nosniff" {
 				t.Errorf("X-Content-Type-Options = %q, want nosniff", xcto)
 			}
 		})
 	}
+}
+
+// TestRouter_AppDocumentReflectsEgressHosts is the with-hosts counterpart to
+// TestRouter_HostVariants: once an account has registered provider hosts, the "/"
+// document's connect-src lists exactly those (as https://<host>) plus the fixed
+// ElevenLabs host — and still no bare https:/wss: token. Assets on the same origin
+// stay strict 'self'.
+func TestRouter_AppDocumentReflectsEgressHosts(t *testing.T) {
+	store := setupStore(t)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	if _, err := store.CreateAccount(ctx, "acc-eg", "eg-sub", []byte("hash"), now.Add(time.Hour), now, "", "", ""); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if err := store.SetEgressHosts(ctx, "acc-eg", []string{"api.openai.com", "fooddb.example.com"}); err != nil {
+		t.Fatalf("SetEgressHosts: %v", err)
+	}
+
+	h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "https://food.example.com", true, true)
+
+	// App document ("/") reflects the stored hosts.
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "eg-sub.app.example.com"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	connect := cspDirective(rec.Header().Get("Content-Security-Policy"), "connect-src")
+	want := "'self' https://api.openai.com https://fooddb.example.com https://api.elevenlabs.io wss://api.elevenlabs.io"
+	if connect != want {
+		t.Fatalf("connect-src = %q, want %q", connect, want)
+	}
+	for _, tok := range []string{"'self'", "https://api.openai.com", "https://fooddb.example.com", "https://api.elevenlabs.io", "wss://api.elevenlabs.io"} {
+		if !strings.Contains(connect, tok) {
+			t.Errorf("connect-src = %q, missing %q", connect, tok)
+		}
+	}
+	if bare := bareSchemeToken(connect); bare != "" {
+		t.Errorf("connect-src = %q carries bare %q token", connect, bare)
+	}
+
+	// A same-origin asset ("/static/*") does not initiate the app's fetches, so it
+	// keeps the strict default even for a host-carrying account.
+	req = httptest.NewRequest(http.MethodGet, "/static/js/app.js", nil)
+	req.Host = "eg-sub.app.example.com"
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if got := cspDirective(rec.Header().Get("Content-Security-Policy"), "connect-src"); got != "'self'" {
+		t.Errorf("asset connect-src = %q, want strict 'self'", got)
+	}
+}
+
+// bareSchemeToken returns a bare `https:`/`wss:` token if the CSP directive value
+// carries one (i.e. a scheme not followed by `//host`), or "" if every token is a
+// concrete origin. This is the exfil-gadget guard for connect-src.
+func bareSchemeToken(directive string) string {
+	for _, tok := range strings.Fields(directive) {
+		if tok == "https:" || tok == "wss:" || tok == "http:" || tok == "ws:" {
+			return tok
+		}
+	}
+	return ""
 }
 
 // cspDirective returns the value of one CSP directive (without its name), or ""

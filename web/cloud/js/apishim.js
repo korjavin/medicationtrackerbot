@@ -22,6 +22,7 @@ import { createFoodDbClient } from './fooddb.js';
 import { createElevenLabsClient } from './elevenlabs-signed-url.js';
 import { createElevenLabsAgentProvisioner } from './elevenlabs-agent.js';
 import { createDispatcher } from './mcp-responder.js';
+import { registerEgressHosts } from './egress-hosts.js';
 
 // materializeTimerHandle is module-level (not per-shim-instance) because the
 // production invariant is "one shim installed per page load"; re-installing
@@ -782,6 +783,43 @@ export function installApiShim(ctx, { records, win } = {}) {
   runMaterializationSweep();
   materializeTimerHandle = setInterval(runMaterializationSweep, MATERIALIZE_INTERVAL_MS);
 
-  targetWindow.offlineAwareApiCall = shimCall;
-  return shimCall;
+  // Egress allowlist (CSP scoping). Tell the server which provider HOSTNAMES
+  // this account connects to browser-direct so /'s connect-src can be scoped to
+  // exactly them + api.elevenlabs.io instead of a wildcard https: (which lets
+  // on-origin XSS exfil the DEK anywhere). Hostnames only — never keys or
+  // health data. See docs/cloud-crypto.md.
+  const boundFetch = typeof targetWindow.fetch === 'function'
+    ? targetWindow.fetch.bind(targetWindow) : undefined;
+  let lastEgressHosts = null; // comma-joined last-registered set, for change detection
+  registerEgressHosts({ settings, fetchImpl: boundFetch })
+    .then((hosts) => { if (hosts) lastEgressHosts = hosts.join(','); })
+    .catch((e) => console.error('[cloud egress] initial register failed', e));
+
+  // A provider URL change (Settings → Integrations save) must re-scope the CSP.
+  // The save flows through offlineAwareApiCall as PATCH /api/settings/integrations,
+  // so wrap the router: re-register the hosts and — only if the host set actually
+  // changed — hint that the new allowlist applies on the next document load.
+  async function offlineAwareApiCall(endpoint, method = 'GET', body = null, opts = {}) {
+    const result = await shimCall(endpoint, method, body, opts);
+    if (method === 'PATCH' && String(endpoint).split('?')[0] === '/api/settings/integrations') {
+      registerEgressHosts({ settings, fetchImpl: boundFetch })
+        .then((hosts) => {
+          if (!hosts) return;
+          const key = hosts.join(',');
+          if (lastEgressHosts !== null && key !== lastEgressHosts) {
+            const sm = targetWindow.SyncManager;
+            if (sm && typeof sm.showToast === 'function') {
+              sm.showToast('New provider saved — reload to apply it on this device', 'info');
+            }
+          }
+          lastEgressHosts = key;
+        })
+        .catch((e) => console.error('[cloud egress] re-register failed', e));
+    }
+    return result;
+  }
+  offlineAwareApiCall.domains = shimCall.domains;
+
+  targetWindow.offlineAwareApiCall = offlineAwareApiCall;
+  return offlineAwareApiCall;
 }
