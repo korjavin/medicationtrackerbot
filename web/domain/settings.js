@@ -34,6 +34,17 @@ const FIRSTRUN_RECORD_ID = 'firstrun';
 // state, not a user-entered secret. Never reachable via any /api shim route.
 const VOICEPROV_RECORD_TYPE = 'voiceprovisioning';
 const VOICEPROV_RECORD_ID = 'voiceprovisioning';
+// Same singleton the free-text Telegram agent reads/appends to
+// (web/cloud/js/inbox-apply.js's TG_PREFS_TYPE, bd med-vcv.3) — this module
+// adds the Settings UI's full-replace read/edit/clear view over that record.
+// Keep type/id/cap in sync with inbox-apply.js's copy; not imported from
+// there because that module pulls in apishim.js, and apishim.js is what
+// wires THIS module's route (a cycle) — mirrors the DEFAULT_SNOOZE_MINUTES
+// precedent in inbox-apply.js of duplicating a small constant across an
+// unimportable boundary rather than restructuring around it.
+const TG_PREFS_TYPE = 'tgprefs';
+const TG_PREFS_RECORD_ID = 'tgprefs';
+const TG_PREFS_MAX_CHARS = 4096;
 
 // SECRET_MASK mirrors secretMask in settings_integrations_handlers.go: GET
 // returns this sentinel for non-empty secret fields (never the raw key), and
@@ -293,6 +304,26 @@ export function createSettingsDomain({ records, now, timeZone }) {
     return getVoiceProvisioning();
   }
 
+  // getTGPrefsNote / setTGPrefsNote back the Settings UI's Telegram agent
+  // glossary field (bd med-vcv.4): read the note the agent has learned, or
+  // FULL-REPLACE it (never append — that's inbox-apply.js's appendTGPref,
+  // used only by the agent's own remember_preference tool). An empty string
+  // is written verbatim and read back as '' — the deliberate "clear" case.
+  async function getTGPrefsNote() {
+    const all = await records.list(TG_PREFS_TYPE);
+    const rec = findSingleton(all, TG_PREFS_RECORD_ID);
+    return (rec && rec.note) || '';
+  }
+
+  async function setTGPrefsNote(note) {
+    let clean = String(note || '').replace(/\r\n/g, '\n');
+    if (clean.length > TG_PREFS_MAX_CHARS) clean = clean.slice(0, TG_PREFS_MAX_CHARS);
+    await records.put(TG_PREFS_TYPE, {
+      recordId: TG_PREFS_RECORD_ID, clientTs: now(), deleted: false, note: clean,
+    });
+    return clean;
+  }
+
   return {
     getGeneral,
     getFirstRunComplete,
@@ -307,6 +338,8 @@ export function createSettingsDomain({ records, now, timeZone }) {
     setFoodTargets,
     getIntegrations,
     patchIntegrations,
+    getTGPrefsNote,
+    setTGPrefsNote,
     getVoiceProvisioning,
     setVoiceProvisioning,
     // readIntegrationsUnmasked exposes raw provider keys for module-to-module

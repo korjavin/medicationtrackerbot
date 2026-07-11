@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 
 import { mountTelegram } from '../telegram.js';
+import { createApiRouter } from '../apishim.js';
+import { allowConsoleNoise } from '../../../static/js/tests/helpers/setup.js';
 
 let dom;
 let app;
@@ -19,11 +21,36 @@ function fetchStub(routes) {
   });
 }
 
+// Records port over an in-memory map, keyed by recordId within each type —
+// mirrors inbox-apply.test.js's fakeRecords so the real createApiRouter can
+// run against it without IndexedDB/crypto.
+function fakeRecords(seed = {}) {
+  const store = JSON.parse(JSON.stringify(seed));
+  return {
+    list: async (type) => (store[type] || []).map((r) => ({ ...r })),
+    put: async (type, record) => {
+      store[type] = (store[type] || []).filter((r) => r.recordId !== record.recordId);
+      store[type].push({ ...record });
+      return record;
+    },
+    del: async (type, id) => {
+      store[type] = (store[type] || []).filter((r) => r.recordId !== id);
+    },
+  };
+}
+
 beforeEach(() => {
   dom = new JSDOM('<!doctype html><div id="app"></div>', { url: 'https://acct.example.test/' });
   global.document = dom.window.document;
   global.confirm = vi.fn(() => true);
   app = dom.window.document.getElementById('app');
+  // DEFAULT_PREFS_PORT reads window.apiCall (the seam apishim.js installs in
+  // production). Tests that don't care about the glossary never override
+  // prefsPort, so give window.apiCall a harmless default here rather than
+  // letting DEFAULT_PREFS_PORT's real load throw ReferenceError: window is
+  // not defined on every unrelated linked-state render.
+  global.window = dom.window;
+  dom.window.apiCall = vi.fn(async () => ({ note: '' }));
 });
 
 afterEach(() => {
@@ -31,6 +58,7 @@ afterEach(() => {
   delete global.document;
   delete global.confirm;
   delete global.fetch;
+  delete global.window;
   vi.useRealTimers();
 });
 
@@ -248,5 +276,112 @@ describe('telegram.js onboarding module', () => {
       if (!app.querySelector('#tg-test-result').textContent.includes('Sent')) throw new Error('not sent yet');
     });
     expect(fetch).toHaveBeenCalledWith('/api/telegram/test', { method: 'POST' });
+  });
+
+  // bd med-vcv.4 — the chat agent glossary editor, Settings-only.
+  describe('tgprefs glossary editor (med-vcv.4)', () => {
+    function statusFetchStub() {
+      return fetchStub({
+        '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'linked', bot_username: 'mt_abc_bot' }) },
+      });
+    }
+
+    it('is present in settings mode but absent in the wizard', async () => {
+      global.fetch = statusFetchStub();
+      const prefsPort = { get: vi.fn(async () => ''), set: vi.fn() };
+      await mountTelegram(app, { prefsPort });
+      expect(app.querySelector('#tg-prefs-note')).not.toBeNull();
+      expect(prefsPort.get).toHaveBeenCalledTimes(1);
+
+      app.innerHTML = '';
+      global.fetch = statusFetchStub();
+      await mountTelegram(app, { onDone: () => {}, prefsPort });
+      expect(app.querySelector('#tg-prefs-note')).toBeNull();
+      expect(app.querySelector('#tg-continue')).not.toBeNull();
+    });
+
+    it('loads the stored note into the textarea', async () => {
+      global.fetch = statusFetchStub();
+      const prefsPort = { get: vi.fn(async () => '"my usual" = 2 eggs + toast'), set: vi.fn() };
+      await mountTelegram(app, { prefsPort });
+      await vi.waitFor(() => {
+        if (app.querySelector('#tg-prefs-note').value !== '"my usual" = 2 eggs + toast') throw new Error('not loaded yet');
+      });
+    });
+
+    it('saves a FULL-REPLACE of the note, not an append', async () => {
+      global.fetch = statusFetchStub();
+      const prefsPort = { get: vi.fn(async () => 'old line'), set: vi.fn(async (note) => note) };
+      await mountTelegram(app, { prefsPort });
+      await vi.waitFor(() => {
+        if (app.querySelector('#tg-prefs-note').value !== 'old line') throw new Error('not loaded yet');
+      });
+
+      const textarea = app.querySelector('#tg-prefs-note');
+      textarea.value = 'brand new note';
+      app.querySelector('#tg-prefs-save').dispatchEvent(new dom.window.Event('click'));
+
+      await vi.waitFor(() => {
+        if (!app.querySelector('#tg-prefs-result').textContent.includes('Saved')) throw new Error('not saved yet');
+      });
+      expect(prefsPort.set).toHaveBeenCalledWith('brand new note');
+      expect(prefsPort.set).not.toHaveBeenCalledWith(expect.stringContaining('old line'));
+    });
+
+    it('an emptied textarea saves as a clear, not a no-op', async () => {
+      global.fetch = statusFetchStub();
+      const prefsPort = { get: vi.fn(async () => 'some note'), set: vi.fn(async (note) => note) };
+      await mountTelegram(app, { prefsPort });
+      await vi.waitFor(() => {
+        if (app.querySelector('#tg-prefs-note').value !== 'some note') throw new Error('not loaded yet');
+      });
+
+      app.querySelector('#tg-prefs-note').value = '';
+      app.querySelector('#tg-prefs-save').dispatchEvent(new dom.window.Event('click'));
+
+      await vi.waitFor(() => {
+        if (!app.querySelector('#tg-prefs-result').textContent.includes('Saved')) throw new Error('not saved yet');
+      });
+      expect(prefsPort.set).toHaveBeenCalledWith('');
+      expect(app.querySelector('#tg-prefs-note').value).toBe('');
+    });
+
+    it('surfaces a load failure without breaking the rest of the linked screen', async () => {
+      allowConsoleNoise(); // deliberately triggers the load-failure console.error path
+      global.fetch = statusFetchStub();
+      const prefsPort = { get: vi.fn(async () => { throw new Error('boom'); }), set: vi.fn() };
+      await mountTelegram(app, { prefsPort });
+      await vi.waitFor(() => {
+        if (!app.querySelector('#tg-prefs-result').textContent.includes('Could not load')) throw new Error('not surfaced yet');
+      });
+      expect(app.querySelector('#tg-bot-username').textContent).toBe('@mt_abc_bot');
+    });
+
+    // End-to-end through the REAL cloud shim (no prefsPort stub): DEFAULT_PREFS_PORT
+    // calls window.apiCall, which apishim.js's createApiRouter serves from
+    // web/domain/settings.js's getTGPrefsNote/setTGPrefsNote — the same vault
+    // singleton (TG_PREFS_TYPE 'tgprefs') the free-text agent reads/appends to
+    // (inbox-apply.js, bd med-vcv.3). Proves the wiring, not just the port shape.
+    it('DEFAULT_PREFS_PORT round-trips a full-replace save through the real shim', async () => {
+      const records = fakeRecords({
+        tgprefs: [{ recordId: 'tgprefs', deleted: false, note: 'old line', clientTs: 1 }],
+      });
+      global.window = { apiCall: createApiRouter(null, { records, now: () => 2 }) };
+      global.fetch = statusFetchStub();
+      await mountTelegram(app, {});
+
+      await vi.waitFor(() => {
+        if (app.querySelector('#tg-prefs-note').value !== 'old line') throw new Error('not loaded yet');
+      });
+
+      app.querySelector('#tg-prefs-note').value = 'new note';
+      app.querySelector('#tg-prefs-save').dispatchEvent(new dom.window.Event('click'));
+      await vi.waitFor(() => {
+        if (!app.querySelector('#tg-prefs-result').textContent.includes('Saved')) throw new Error('not saved yet');
+      });
+
+      const rec = (await records.list('tgprefs')).find((r) => r.recordId === 'tgprefs' && !r.deleted);
+      expect(rec.note).toBe('new note'); // full-replace, not "old line\nnew note"
+    });
   });
 });
