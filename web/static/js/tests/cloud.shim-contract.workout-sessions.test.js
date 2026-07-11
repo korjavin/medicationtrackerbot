@@ -225,4 +225,20 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(view.exercises_count).toBe(1);
         expect(view.total_volume).toBe(3 * 5 * 100);
     });
+
+    // bd med-9tx: at most one active session at a time. A second ad-hoc Start
+    // while one is already active must resume the existing session, not mint a
+    // duplicate — matching service.go's CreateAdHocSession guard.
+    it('ad-hoc Start resumes the existing active session instead of creating a duplicate', async () => {
+        const { window } = env;
+        const first = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        expect(first.status).toBe('in_progress');
+
+        const second = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        expect(second.id).toBe(first.id);
+
+        const sessions = await window.apiCall('/api/workout/sessions?limit=10');
+        const adHoc = sessions.filter((s) => s.session.group_id === -1);
+        expect(adHoc).toHaveLength(1);
+    });
 });

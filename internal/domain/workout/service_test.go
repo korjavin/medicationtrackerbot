@@ -24,9 +24,17 @@ type mockWorkoutStore struct {
 	advanceErr     error
 	createErr      error
 
-	skipCalled     bool
-	completeCalled bool
-	advanceCalled  bool
+	activeSessions    []store.WorkoutSession
+	activeSessionsErr error
+
+	skipCalled        bool
+	completeCalled    bool
+	advanceCalled     bool
+	createAdHocCalled bool
+}
+
+func (m *mockWorkoutStore) ListActiveSessions(userID int64, date time.Time) ([]store.WorkoutSession, error) {
+	return m.activeSessions, m.activeSessionsErr
 }
 
 func (m *mockWorkoutStore) GetSession(id int64) (*store.WorkoutSession, error) {
@@ -71,6 +79,7 @@ func (m *mockWorkoutStore) AdvanceRotation(groupID int64) error {
 }
 
 func (m *mockWorkoutStore) CreateAdHocSession(userID int64, scheduledDate time.Time, scheduledTime string) (*store.WorkoutSession, error) {
+	m.createAdHocCalled = true
 	if m.createErr != nil {
 		return nil, m.createErr
 	}
@@ -165,6 +174,51 @@ func TestCompleteSession_ReturnsCompleteError(t *testing.T) {
 	}
 	if m.advanceCalled {
 		t.Fatal("did not expect AdvanceRotation when complete failed")
+	}
+}
+
+// TestCreateAdHocSession_ResumesExistingActive verifies the ≤1-active-session
+// invariant: when an active session already exists for today, CreateAdHocSession
+// returns it without minting a duplicate (bd med-9tx).
+func TestCreateAdHocSession_ResumesExistingActive(t *testing.T) {
+	existing := store.WorkoutSession{ID: 99, GroupID: -1, VariantID: -1, Status: "in_progress"}
+	m := &mockWorkoutStore{
+		session:        &store.WorkoutSession{ID: 1000}, // what a fresh create would return
+		activeSessions: []store.WorkoutSession{existing},
+	}
+	svc := New(m, m)
+
+	got, err := svc.CreateAdHocSession(123, time.Date(2030, 6, 1, 12, 0, 0, 0, time.UTC), "12:00")
+	if err != nil {
+		t.Fatalf("CreateAdHocSession: %v", err)
+	}
+	if m.createAdHocCalled {
+		t.Fatal("expected no new ad-hoc session to be created when one is already active")
+	}
+	if got == nil || got.ID != existing.ID {
+		t.Fatalf("expected the existing active session (ID %d) to be resumed, got %+v", existing.ID, got)
+	}
+}
+
+// TestCreateAdHocSession_CreatesWhenNoneActive verifies the first start (no active
+// session) still mints a new ad-hoc session normally.
+func TestCreateAdHocSession_CreatesWhenNoneActive(t *testing.T) {
+	fresh := &store.WorkoutSession{ID: 1000, Status: "in_progress"}
+	m := &mockWorkoutStore{
+		session:        fresh,
+		activeSessions: nil, // no active sessions
+	}
+	svc := New(m, m)
+
+	got, err := svc.CreateAdHocSession(123, time.Date(2030, 6, 1, 12, 0, 0, 0, time.UTC), "12:00")
+	if err != nil {
+		t.Fatalf("CreateAdHocSession: %v", err)
+	}
+	if !m.createAdHocCalled {
+		t.Fatal("expected a new ad-hoc session to be created when none is active")
+	}
+	if got == nil || got.ID != fresh.ID {
+		t.Fatalf("expected the freshly created session (ID %d), got %+v", fresh.ID, got)
 	}
 }
 

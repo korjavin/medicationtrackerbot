@@ -188,8 +188,18 @@ func (s *Service) CompleteSession(sessionID int64) error {
 	return nil
 }
 
-// CreateAdHocSession creates a new ad-hoc (unscheduled) workout session already in progress.
+// CreateAdHocSession creates a new ad-hoc (unscheduled) workout session already in
+// progress. At most one active session may exist at a time: if the user already has
+// an active session for `now`'s calendar day (notified / in_progress / pre_skipped),
+// it is resumed rather than duplicated. This matches next.go's PRIORITY-0 resume
+// semantics and preserves the ≤1-active-session invariant the scheduling engine
+// assumes; the guard lives here so bot, HTTP, and MCP callers all inherit it.
 func (s *Service) CreateAdHocSession(userID int64, now time.Time, scheduledTime string) (*store.WorkoutSession, error) {
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	if active, err := s.store.ListActiveSessions(userID, today); err == nil && len(active) > 0 {
+		slog.Info("workout service: resuming existing active session instead of creating ad-hoc duplicate", "user_id", userID, "session_id", active[0].ID)
+		return &active[0], nil
+	}
 	return s.store.CreateAdHocSession(userID, now, scheduledTime)
 }
 
