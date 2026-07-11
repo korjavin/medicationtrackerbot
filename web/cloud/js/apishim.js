@@ -208,7 +208,7 @@ export function createApiRouter(ctx, {
       settingsResponse(),
       settings.getFirstRunComplete(),
     ]);
-    return {
+    const payload = {
       cursor: 0,
       // Read from the vault on every call, never cached: WGFirstRun's _mounted
       // latch is module state lost on reload, so only a fresh `false` here keeps
@@ -219,6 +219,13 @@ export function createApiRouter(ctx, {
       weight: { logs, goal: weightGoal },
       settings: settingsPart.settings,
     };
+    // The Today rings tile warms 'gamification_rings' from res.gamification (the
+    // full Summary — auth-bootstrap.js applyBootstrapPayload). Only include it
+    // when the feature is on, so a disabled toggle leaves the cache untouched.
+    if (settingsPart.features.gamification) {
+      payload.gamification = await gamification.getSummary();
+    }
+    return payload;
   }
 
   // Stubs for boot-path endpoints the frontend calls unconditionally
@@ -697,14 +704,26 @@ export function createApiRouter(ctx, {
     }
     if (path === '/api/gamification/traits' && method === 'GET') return gamification.getTraits();
     if (path === '/api/gamification/keystones' && method === 'GET') return gamification.getKeystones();
-    if (method === 'GET' && (
-      path === '/api/gamification/journey'
-      || path === '/api/gamification/insights'
-      || path === '/api/gamification/gauges'
-      || path === '/api/gamification/weekly-review'
-    )) {
-      return { enabled: false };
+
+    // Substrate parity (Phase 2 / med-eyb): HP, rings, level, Health Score,
+    // gauges, weekly review — all recomputed client-side from vault records by
+    // web/domain/gamification.js (zero server-side health reads). These replace
+    // the Phase-1 {enabled:false} stubs and reproduce the Go read-model shapes
+    // (internal/server/gamification_handlers.go) so today.js rings + journey.js
+    // render unchanged. Levels are DISPLAY-ONLY here — nothing gates on them.
+    if (method === 'GET' && path === '/api/gamification/summary') return gamification.getSummary();
+    if (method === 'GET' && path === '/api/gamification/rings') return gamification.getRings();
+    if (method === 'GET' && path === '/api/gamification/journey') return gamification.getJourney();
+    if (method === 'GET' && path === '/api/gamification/gauges') return gamification.getGauges();
+    if (method === 'GET' && path === '/api/gamification/weekly-review') return gamification.getWeeklyReview();
+    if (path === '/api/gamification/targets') {
+      if (method === 'GET') return gamification.getTargets();
+      if (method === 'PUT' || method === 'POST') return gamification.putTargets(body || {});
     }
+    // The personal-insight ladder is retired in the discovery frame (§3.1) — its
+    // two shipped insights re-render as ordinary Atlas cards, so /insights stays
+    // disabled and journey.js omits the legacy insight card.
+    if (method === 'GET' && path === '/api/gamification/insights') return { enabled: false };
 
     // AI narration (Phase 6) — OPT-IN, BYO-key prose OVER the deterministic
     // engine. GET /narrate is a cheap capability probe (NO LLM call) so the
