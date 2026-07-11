@@ -5,6 +5,23 @@
 -- library name over it (see workout/repo.go).
 ALTER TABLE workout_exercises ADD COLUMN exercise_library_id INTEGER REFERENCES exercise_library(id);
 
+-- Legacy library rows (migration 028 and the pre-trim write path) stored the
+-- untrimmed exercise_name, e.g. " Bench ". The trimmed INSERT below would not
+-- conflict with such a row and would mint a duplicate "Bench" beside it,
+-- orphaning the original. Fold untrimmed rows into their trimmed form first —
+-- keep the lowest id per (user_id, trimmed name), drop the rest, then trim the
+-- survivors — so the backfill links to one canonical row. The FK column was just
+-- added (all NULL), so no plan exercise references these rows yet. Idempotent:
+-- an already-trimmed library leaves every row as its own group min and no-ops.
+DELETE FROM exercise_library
+WHERE id NOT IN (
+    SELECT MIN(id) FROM exercise_library
+    GROUP BY user_id, TRIM(name, char(9,10,11,12,13,32))
+);
+UPDATE exercise_library
+SET name = TRIM(name, char(9,10,11,12,13,32))
+WHERE name <> TRIM(name, char(9,10,11,12,13,32));
+
 -- Ensure a library row exists for every owner+name currently in plans. Trim the
 -- name and skip blank/whitespace-only rows so this matches the runtime write
 -- path (CreateExerciseInVariant trims) and the cloud backfill (cloud-boot.js

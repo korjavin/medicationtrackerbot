@@ -442,7 +442,9 @@ func (r *Repo) ListExercisesByVariant(variantID int64) ([]WorkoutExercise, error
 	rows, err := r.db.Query(`
 		SELECT we.id, we.variant_id, COALESCE(el.name, we.exercise_name), we.target_sets, we.target_reps_min, we.target_reps_max, we.target_weight_kg, we.order_index, we.exercise_library_id
 		FROM workout_exercises we
-		LEFT JOIN exercise_library el ON el.id = we.exercise_library_id
+		JOIN workout_variants wv ON wv.id = we.variant_id
+		JOIN workout_groups wg ON wg.id = wv.group_id
+		LEFT JOIN exercise_library el ON el.id = we.exercise_library_id AND el.user_id = wg.user_id
 		WHERE we.variant_id = ?
 		ORDER BY we.order_index ASC`, variantID)
 	if err != nil {
@@ -482,7 +484,9 @@ func (r *Repo) GetExercise(id int64) (*WorkoutExercise, error) {
 	err := r.db.QueryRow(`
 		SELECT we.id, we.variant_id, COALESCE(el.name, we.exercise_name), we.target_sets, we.target_reps_min, we.target_reps_max, we.target_weight_kg, we.order_index, we.exercise_library_id
 		FROM workout_exercises we
-		LEFT JOIN exercise_library el ON el.id = we.exercise_library_id
+		JOIN workout_variants wv ON wv.id = we.variant_id
+		JOIN workout_groups wg ON wg.id = wv.group_id
+		LEFT JOIN exercise_library el ON el.id = we.exercise_library_id AND el.user_id = wg.user_id
 		WHERE we.id = ?`, id).Scan(
 		&e.ID, &e.VariantID, &e.ExerciseName, &e.TargetSets, &e.TargetRepsMin, &repsMax, &weightKg, &e.OrderIndex, &libraryID,
 	)
