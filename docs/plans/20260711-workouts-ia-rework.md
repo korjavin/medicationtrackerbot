@@ -68,11 +68,11 @@ Both modes share the `web/static` frontend, so this is mode-agnostic; the change
 - [x] confirm no `/api` request/response shape changed (naming is UI-only); if the shared picker altered any payload, mirror it in `web/domain/workout.js` and update the shim contract test / regen `cmd/genmcpcatalog` + `ResponseExample` if a registry op changed. Run `web/cloud/js/tests/mcp-responder.test.js` and `cloud.shim-contract.workout-crud.test.js`.
 
 ### Task 7: Verify acceptance criteria
-- [ ] `go build ./...` and `go build -tags mobile ./...`
-- [ ] `go test ./...`
-- [ ] `pnpm test` — all pass, **including** the repo-wide `tests/architecture.*.test.js` (globals, no-inline-style, no-module-state, native-abstractions, nav) — feature-suite green ≠ CI green
-- [ ] no new `window.*` global without a `tests/architecture.globals.test.js` allowlist entry; no hardcoded colors / inline `.style.`
-- [ ] verify the Overview requirements: no "Group"/"Variant" user-facing strings remain; simple plan shows no Day UI; shared picker works in both plan and session
+- [x] `go build ./...` and `go build -tags mobile ./...` — both clean
+- [x] `go test ./...` — no failures
+- [x] `pnpm test` — 3391 pass / 29 skipped, **including** the repo-wide `tests/architecture.*.test.js` (globals, no-inline-style, no-module-state, native-abstractions, nav)
+- [x] no new `window.*` global without a `tests/architecture.globals.test.js` allowlist entry; no hardcoded colors / inline `.style.` (globals + inline-styles guards green)
+- [x] verify the Overview requirements: no "Group"/"Variant" user-facing strings remain (grep of JS/HTML found only ids/CSS classes/console logs); simple plan shows no Day UI + shared picker works in both plan and session (covered by the passing Task 3 & 5 integration tests)
 
 ### Task 8: [Final] Update docs
 - [ ] update `docs/frontend.md` (navigation) and/or `docs/features.md` (workouts) where they name "Group"/"Variant" for the UI, to "Plan"/"Day"
