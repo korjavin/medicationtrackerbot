@@ -181,6 +181,7 @@ function _buildExercisesIconBtn(doc, kind, ariaLabel, iconName, handler) {
 function showExerciseLibraryModal(id) {
     window.WorkoutEdit.editingLibraryItemId = null;
     document.getElementById('exercise-library-modal-title').textContent = 'Add Exercise';
+    document.getElementById('exercise-library-rename-hint').hidden = true;
     window.ModalManager.exerciseLibrary.open();
 
     document.getElementById('exercise-library-name').value = '';
@@ -198,6 +199,7 @@ async function showEditExerciseLibraryModal(id) {
 
     window.WorkoutEdit.editingLibraryItemId = id;
     document.getElementById('exercise-library-modal-title').textContent = 'Edit Exercise';
+    document.getElementById('exercise-library-rename-hint').hidden = false;
     window.ModalManager.exerciseLibrary.open();
 
     document.getElementById('exercise-library-name').value = item.name;

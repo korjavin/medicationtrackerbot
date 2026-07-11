@@ -70,7 +70,7 @@ Closes med-spp as a byproduct (the Exercises tab / library becomes the canonical
 - [x] **integration test (real boundary — required by the bead)**: same sequence on both sides — create plan exercise "Bench", create another "Bench" (dedupe), rename library "Bench"→"Bench Press" — assert (a) exactly **one** library row, (b) the plan-exercise read now returns "Bench Press". Shim side: `web/static/js/tests/cloud.shim-contract.workout-crud.test.js` ("renaming a library exercise renames it in plans"); Go side: `TestExerciseLibraryReference_CreateDedupeRename` in `internal/server/workout_handlers_exercise_test.go`. Both pass.
 
 ### Task 7: UI copy — surface the rename-propagates behavior
-- [ ] in the library edit modal (`web/static/js/features/workout/library.js`), add a short note that renaming updates the exercise everywhere it's used (plans + history)
+- [x] in the library edit modal (`web/static/js/features/workout/library.js`), add a short note that renaming updates the exercise everywhere it's used (plans + history) — hint element in `index.html` (`#exercise-library-rename-hint`), shown only in edit mode, hidden in add mode; `.wg-workouts-library-modal__hint` token-based style
 
 ### Task 8: Verify acceptance criteria
 - [ ] `go build ./...` (server) and `go build -tags mobile ./...` (mobile build still compiles)
