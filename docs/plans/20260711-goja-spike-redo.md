@@ -62,11 +62,11 @@ The maintainer's blocker list **is the acceptance criteria** — every item must
 ## Implementation Steps
 
 ### Task 1: Add goja dependency and the SQLite-backed records port
-- [ ] `go get github.com/dop251/goja@latest`; confirm it lands in `go.mod`/`go.sum` and `go build ./...` still succeeds with `CGO_ENABLED=0`.
-- [ ] Create `internal/gojaspike/port.go`: a `RecordsPort` struct over `*sql.DB` exposing `list(type)`, `put(type, record)`, `del(type, id)` to the VM.
-- [ ] Back the port with table `records(type TEXT, id TEXT, data JSON, PRIMARY KEY(type,id))`; `put` = `INSERT ... ON CONFLICT(type,id) DO UPDATE SET data=excluded.data`, `list` = `SELECT data WHERE type=?` (JSON-decoded to `map[string]interface{}`), `del` = `DELETE WHERE type=? AND id=?`.
-- [ ] Each port method must **resolve a real goja Promise** with the value (do NOT return raw values pretending to be async, and do NOT fabricate via `vm.RunString("Promise.resolve()")`): build a resolved `*goja.Promise` via the runtime's promise API (`NewPromise` + resolve, or return a value the JS `await` settles deterministically) so `await records.list(t)` yields the decoded array.
-- [ ] Every DB/JSON error inside the port is checked and surfaced (panic-to-JS-exception or returned rejection), never silently dropped.
+- [x] `go get github.com/dop251/goja@latest`; confirm it lands in `go.mod`/`go.sum` and `go build ./...` still succeeds with `CGO_ENABLED=0`.
+- [x] Create `internal/gojaspike/port.go`: a `RecordsPort` struct over `*sql.DB` exposing `list(type)`, `put(type, record)`, `del(type, id)` to the VM.
+- [x] Back the port with table `records(type TEXT, id TEXT, data JSON, PRIMARY KEY(type,id))`; `put` = `INSERT ... ON CONFLICT(type,id) DO UPDATE SET data=excluded.data`, `list` = `SELECT data WHERE type=?` (JSON-decoded to `map[string]interface{}`), `del` = `DELETE WHERE type=? AND id=?`.
+- [x] Each port method must **resolve a real goja Promise** with the value (do NOT return raw values pretending to be async, and do NOT fabricate via `vm.RunString("Promise.resolve()")`): build a resolved `*goja.Promise` via the runtime's promise API (`NewPromise` + resolve, or return a value the JS `await` settles deterministically) so `await records.list(t)` yields the decoded array.
+- [x] Every DB/JSON error inside the port is checked and surfaced (panic-to-JS-exception or returned rejection), never silently dropped.
 
 ### Task 2: VM harness + JS module loader with deterministic promise resolution
 - [ ] Create `internal/gojaspike/harness.go`: `loadModule(path)` reads `web/domain/<x>.js` and strips leading `export ` (`export function`→`function`, `export const`→`const`) so the factory becomes a global. Reading errors are checked.
