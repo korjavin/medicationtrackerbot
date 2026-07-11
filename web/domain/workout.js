@@ -774,6 +774,18 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // — that wrapping is shim glue (Task 6), not a domain concern.
   async function createAdHocSession() {
     const nowMs = now();
+    // At most one active session at a time: resume an existing active-today
+    // session instead of minting a duplicate. Mirrors service.go's
+    // CreateAdHocSession guard and getNext's PRIORITY-0 filter (notified /
+    // in_progress / pre_skipped, scoped to the local calendar day).
+    const todayStr = localDateStr(nowMs, timeZone);
+    const activeToday = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION))
+      .filter((s) => (s.status === 'notified' || s.status === 'in_progress' || s.status === 'pre_skipped')
+        && localDateStr(new Date(s.scheduled_date).getTime(), timeZone) === todayStr)
+      .sort((a, b) => (a.scheduled_time < b.scheduled_time ? -1 : a.scheduled_time > b.scheduled_time ? 1 : 0));
+    if (activeToday.length > 0) {
+      return toSessionResponse(activeToday[0]);
+    }
     const record = {
       recordId: genRecordId('session', nowMs),
       clientTs: nowMs,
