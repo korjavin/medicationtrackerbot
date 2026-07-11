@@ -554,8 +554,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     };
     // Mirror the Go UpdateExercise upsert-by-name: relink the FK to the library
     // row for the (possibly changed) name.
-    const libId = await promoteExerciseToLibrary(updated);
-    if (libId) updated.exercise_library_id = libId;
+    // Clear the FK on a blank name (promote returns null) so the read falls back
+    // to the cached exercise_name — matching Go, which links to the empty-name row.
+    updated.exercise_library_id = (await promoteExerciseToLibrary(updated)) ?? null;
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, updated);
   }
 

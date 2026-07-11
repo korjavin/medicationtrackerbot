@@ -3,7 +3,7 @@
 ## Overview
 Make `exercise_library` the single source of truth for exercise names. Today `workout_exercises` stores a **copy** of the name (`exercise_name`), so renaming a library exercise changes nothing in plans/history — duplicates, not links. This change adds a reference (`exercise_library_id`) from each plan exercise to its library row, resolves the display name **through** that reference, and does it in **both modes in lockstep** (Go server + cloud `web/domain/workout.js`).
 
-Deliberate, user-visible side effect: **renaming a library exercise renames it in plans and history too** — a link is a link. Surface this in the library edit UI copy.
+Deliberate, user-visible side effect: **renaming a library exercise renames it in plans too** — a link is a link. (History logs snapshot the name at log time and are intentionally left unchanged.) Surface this in the library edit UI copy.
 
 Closes med-spp as a byproduct (the Exercises tab / library becomes the canonical set by construction).
 
