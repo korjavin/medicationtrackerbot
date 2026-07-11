@@ -126,8 +126,8 @@ close. Also: the operator learns *which* provider hostname each account uses
 - [x] grep the served app-document CSP: no bare `https:` — asserted by `TestRouter_AppDocumentReflectsEgressHosts`, which drives the real served response and checks `'self'` + each `https://<host>` + `https://api.elevenlabs.io` + `wss://api.elevenlabs.io` and the absence of any bare-scheme token
 
 ### Task 7: [Final] Update documentation
-- [ ] `docs/cloud-crypto.md` + `docs/cloud-mode.md`: document the per-account egress-allowlist model, that only the provider HOSTNAME is revealed server-side (key + data stay client-only), and the HONEST residual (XSS can register a host then force a reload — narrower than today's instant arbitrary-origin exfil, not a total close)
-- [ ] note the new CSP invariant in the CLAUDE.md cloud-mode section if a new guard test was added
+- [x] `docs/cloud-crypto.md` + `docs/cloud-mode.md`: document the per-account egress-allowlist model, that only the provider HOSTNAME is revealed server-side (key + data stay client-only), and the HONEST residual (XSS can register a host then force a reload — narrower than today's instant arbitrary-origin exfil, not a total close) — new "Per-account egress allowlist" subsection in cloud-crypto.md + XSS-row note; cloud-mode.md CSP bullet rewritten (was the obsolete "sandboxing tracked separately" note)
+- [x] note the new CSP invariant in the CLAUDE.md cloud-mode section if a new guard test was added — added to the `internal/cloudserver` code-layout entry (no wildcard `connect-src`; guarded by `TestRouter_HostVariants`/`TestRouter_AppDocumentReflectsEgressHosts`)
 
 ## Technical Details
 
