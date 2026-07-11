@@ -222,6 +222,7 @@ func main() {
 	mcpRemoteAPI.RegisterRoutes(apiMux)
 	trialProxyAPI.RegisterRoutes(apiMux)
 	foodProxyAPI.RegisterRoutes(apiMux)
+	cloudserver.NewEgressAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
 
 	// Telegram is fully disabled unless a manager bot token is configured; the
 	// wizard step simply doesn't render and no webhook routes are wired.

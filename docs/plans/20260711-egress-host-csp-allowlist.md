@@ -99,9 +99,10 @@ close. Also: the operator learns *which* provider hostname each account uses
 - [x] add repo methods `SetEgressHosts(ctx, accountID, hosts []string)` and `EgressHosts(ctx, accountID) ([]string, error)`; normalize/dedupe hostnames on write
 
 ### Task 2: Authenticated endpoint to register egress hosts
-- [ ] add `PUT /api/egress-hosts` on the cloud router: authenticated to the calling account, body `{ "hosts": ["api.openai.com", "fooddb.example.com"] }`
-- [ ] validate each host: parseable hostname only (no scheme/path/query), reject non-hostnames, cap the count (e.g. <= 8) and per-host length; persist via `SetEgressHosts`
-- [ ] satisfy the cloud router's route-coverage guard if one exists (exempt as auth/settings plumbing)
+- [x] add `PUT /api/egress-hosts` on the cloud router: authenticated to the calling account, body `{ "hosts": ["api.openai.com", "fooddb.example.com"] }` (`internal/cloudserver/egress.go`, session-gated via `RequireSession`, wired in `cmd/cloud/main.go`)
+- [x] validate each host: parseable hostname only (no scheme/path/query), reject non-hostnames, cap the count (<= 8, `maxEgressHosts`) and per-host length (253, `maxEgressHostLen`); persist via `SetEgressHosts`
+- [x] satisfy the cloud router's route-coverage guard if one exists — no cloud route-coverage guard exists (grep found none in `internal/cloudserver`/`cmd/cloud`); nothing to satisfy
+- +[x] implement the Task 1 storage that the prior "feat" commit never wrote (only edited the plan): migration `015_egress_hosts.sql` (JSON `egress_hosts` column on `accounts`) + `SetEgressHosts`/`EgressHosts` repo methods with normalize/dedupe. Task 2's endpoint depends on these.
 
 ### Task 3: Emit the per-account connect-src allowlist for the app document
 - [ ] in `router.go` `ServeHTTP`, ensure the account (and its egress hosts) is resolved before the CSP is set for the app *document* path(s); reuse the existing `AccountBySubdomain` resolution
