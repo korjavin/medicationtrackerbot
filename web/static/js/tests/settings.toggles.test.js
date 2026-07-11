@@ -785,6 +785,42 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 cleanup();
             }
         });
+
+        // med-hzy — the Cancel button must close the modal, and reopening must
+        // still work. Root cause was that opening via a raw classList toggle
+        // left the `inert` attribute (set by mt-modal.connectedCallback while
+        // `.hidden` was present), so the whole subtree stayed non-interactive
+        // and the Cancel click never reached its handler. Asserting `inert` is
+        // cleared on open is the real regression guard: it fails on the old
+        // classList-only open path (jsdom still dispatches synthetic clicks
+        // through inert, so a hidden-class-only assertion would pass either way).
+        it('the Cancel button closes the modal, and it reopens cleanly', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                await mountCloudWithDeleteModule(window);
+                const modal = document.getElementById('delete-account-modal');
+
+                document.getElementById('delete-account-open').click();
+                expect(modal.classList.contains('hidden')).toBe(false);
+                // Regression guard: an opened modal must be interactive.
+                expect(modal.hasAttribute('inert')).toBe(false);
+
+                document.getElementById('delete-account-cancel').click();
+                expect(modal.classList.contains('hidden')).toBe(true);
+                expect(modal.hasAttribute('inert')).toBe(true);
+
+                // Reopening after a cancel still works.
+                document.getElementById('delete-account-open').click();
+                expect(modal.classList.contains('hidden')).toBe(false);
+                expect(modal.hasAttribute('inert')).toBe(false);
+                // The typed-confirmation gate is untouched: delete stays disabled.
+                expect(document.getElementById('delete-account-confirm').disabled).toBe(true);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
     });
 
     // med-4pz.4 — nudge a single-device account to add a second one, so a lost
