@@ -419,11 +419,15 @@ func (r *Repo) CreateExerciseInVariant(variantID int64, exerciseName string, tar
 }
 
 func (r *Repo) ListExercisesByVariant(variantID int64) ([]WorkoutExercise, error) {
+	// Resolve the canonical name through the library FK (COALESCE falls back to
+	// the cached exercise_name when the FK is null) so a library rename shows up
+	// in plan reads without touching workout_exercises.
 	rows, err := r.db.Query(`
-		SELECT id, variant_id, exercise_name, target_sets, target_reps_min, target_reps_max, target_weight_kg, order_index
-		FROM workout_exercises
-		WHERE variant_id = ?
-		ORDER BY order_index ASC`, variantID)
+		SELECT we.id, we.variant_id, COALESCE(el.name, we.exercise_name), we.target_sets, we.target_reps_min, we.target_reps_max, we.target_weight_kg, we.order_index, we.exercise_library_id
+		FROM workout_exercises we
+		LEFT JOIN exercise_library el ON el.id = we.exercise_library_id
+		WHERE we.variant_id = ?
+		ORDER BY we.order_index ASC`, variantID)
 	if err != nil {
 		return nil, err
 	}
@@ -434,7 +438,8 @@ func (r *Repo) ListExercisesByVariant(variantID int64) ([]WorkoutExercise, error
 		var e WorkoutExercise
 		var repsMax sql.NullInt64
 		var weightKg sql.NullFloat64
-		if err := rows.Scan(&e.ID, &e.VariantID, &e.ExerciseName, &e.TargetSets, &e.TargetRepsMin, &repsMax, &weightKg, &e.OrderIndex); err != nil {
+		var libraryID sql.NullInt64
+		if err := rows.Scan(&e.ID, &e.VariantID, &e.ExerciseName, &e.TargetSets, &e.TargetRepsMin, &repsMax, &weightKg, &e.OrderIndex, &libraryID); err != nil {
 			return nil, err
 		}
 		if repsMax.Valid {
@@ -443,6 +448,9 @@ func (r *Repo) ListExercisesByVariant(variantID int64) ([]WorkoutExercise, error
 		}
 		if weightKg.Valid {
 			e.TargetWeightKg = &weightKg.Float64
+		}
+		if libraryID.Valid {
+			e.ExerciseLibraryID = &libraryID.Int64
 		}
 		exercises = append(exercises, e)
 	}
@@ -453,10 +461,13 @@ func (r *Repo) GetExercise(id int64) (*WorkoutExercise, error) {
 	var e WorkoutExercise
 	var repsMax sql.NullInt64
 	var weightKg sql.NullFloat64
+	var libraryID sql.NullInt64
 	err := r.db.QueryRow(`
-		SELECT id, variant_id, exercise_name, target_sets, target_reps_min, target_reps_max, target_weight_kg, order_index
-		FROM workout_exercises WHERE id = ?`, id).Scan(
-		&e.ID, &e.VariantID, &e.ExerciseName, &e.TargetSets, &e.TargetRepsMin, &repsMax, &weightKg, &e.OrderIndex,
+		SELECT we.id, we.variant_id, COALESCE(el.name, we.exercise_name), we.target_sets, we.target_reps_min, we.target_reps_max, we.target_weight_kg, we.order_index, we.exercise_library_id
+		FROM workout_exercises we
+		LEFT JOIN exercise_library el ON el.id = we.exercise_library_id
+		WHERE we.id = ?`, id).Scan(
+		&e.ID, &e.VariantID, &e.ExerciseName, &e.TargetSets, &e.TargetRepsMin, &repsMax, &weightKg, &e.OrderIndex, &libraryID,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -470,6 +481,9 @@ func (r *Repo) GetExercise(id int64) (*WorkoutExercise, error) {
 	}
 	if weightKg.Valid {
 		e.TargetWeightKg = &weightKg.Float64
+	}
+	if libraryID.Valid {
+		e.ExerciseLibraryID = &libraryID.Int64
 	}
 	return &e, nil
 }

@@ -53,8 +53,8 @@ Closes med-spp as a byproduct (the Exercises tab / library becomes the canonical
 - [x] add `ExerciseLibraryID *int64` (nullable) to the exercise row struct returned by the store
 
 ### Task 3: Go store — resolve canonical name on read
-- [ ] `ListExercisesByVariant` (`repo.go:408-437`) and `GetExercise` (`repo.go:439-462`): `LEFT JOIN exercise_library el ON el.id = workout_exercises.exercise_library_id`, select `COALESCE(el.name, workout_exercises.exercise_name) AS exercise_name`, and also return `exercise_library_id`
-- [ ] confirm rename propagation: updating a library row's `name` changes what these reads return (manual check in a store test or existing test extension)
+- [x] `ListExercisesByVariant` (`repo.go:408-437`) and `GetExercise` (`repo.go:439-462`): `LEFT JOIN exercise_library el ON el.id = workout_exercises.exercise_library_id`, select `COALESCE(el.name, workout_exercises.exercise_name) AS exercise_name`, and also return `exercise_library_id`
+- [x] confirm rename propagation: updating a library row's `name` changes what these reads return (by construction — reads COALESCE to `el.name` via the FK; the dedicated parity test lands in Task 6)
 
 ### Task 4: Go handlers — expose `exercise_library_id` in the API
 - [ ] `internal/server/workout_crud_handlers.go`: include `exercise_library_id` in the create/update/list exercise JSON responses (structs at `:140-148`, `:185-192`, and the list mapper)
