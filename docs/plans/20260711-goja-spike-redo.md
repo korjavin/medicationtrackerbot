@@ -105,10 +105,10 @@ The maintainer's blocker list **is the acceptance criteria** — every item must
 - `BenchmarkVMMemory`      ~80 KB heap/VM (100-VM batch, GC-bracketed; noisy — order-of-magnitude only).
 
 ### Task 6: Document measured findings + defensible go/no-go in docs/cloud-mode.md
-- [ ] Under "The client: porting the domain layer", add a "Goja spike (med-07y.1) — measured findings" subsection.
-- [ ] Record the **measured** numbers from Task 5 (cold-start, per-call goja vs native, bytes/VM, pooled vs per-request) with the **measurement method** stated (Go benchmarks, `runtime.MemStats`, in-memory SQLite, fixed clock) and **noise/caveat** notes — no rounding to marketing figures.
-- [ ] State explicitly what was proven (value-exact BP+weight create/list/stats/category/trend parity) and what was **not** (only 2 of N domains; ESM handled by a strip transform not a real module loader; single-user/fixed-tz; no concurrency/GC-pressure test).
-- [ ] Give a defensible **goja vs Node-sidecar** recommendation grounded in the measured evidence and caveats, framed as input to C6 — not a production decision.
+- [x] Under "The client: porting the domain layer", add a "Goja spike (med-07y.1) — measured findings" subsection.
+- [x] Record the **measured** numbers from Task 5 (cold-start, per-call goja vs native, bytes/VM, pooled vs per-request) with the **measurement method** stated (Go benchmarks, `runtime.MemStats`, in-memory SQLite, fixed clock) and **noise/caveat** notes — no rounding to marketing figures.
+- [x] State explicitly what was proven (value-exact BP+weight create/list/stats/category/trend parity) and what was **not** (only 2 of N domains; ESM handled by a strip transform not a real module loader; single-user/fixed-tz; no concurrency/GC-pressure test).
+- [x] Give a defensible **goja vs Node-sidecar** recommendation grounded in the measured evidence and caveats, framed as input to C6 — not a production decision.
 
 ### Task 7: Verify acceptance criteria
 - [ ] Re-check each maintainer blocker: (1) no log-only tests — grep the package for `t.Logf` as sole outcome; (2) deterministic promise resolution proven (no `Pending`); (3) no ignored errors — every `Exec`/`Open`/`RunString`/`Marshal` checked; (4) docs report caveats not overconfidence.

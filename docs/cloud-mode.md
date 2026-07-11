@@ -515,6 +515,28 @@ This is the dominant cost of the proposal and it must be stated, not hidden: the
 
 Port order tracks user value: meds + intakes + reminder computation first (C1 below), then the remaining domains.
 
+### Goja spike (med-07y.1) — measured findings
+
+The C6 unification endgame only holds if goja can actually run the `web/domain/*.js` layer server-side. A throwaway spike (`internal/gojaspike/`) proved it can, with caveats. **This is spike evidence for a decision, not production wiring** — nothing here is on a request path.
+
+**What the spike is.** BP (`web/domain/bp.js`) and weight (`web/domain/weight.js`) run **unmodified** under goja (pure-Go JS engine, `CGO_ENABLED=0` intact), backed by a SQLite-backed records port, driven by deterministic parity tests (fixed clock, fixed tz `America/New_York`, in-memory SQLite) that assert value-exact equality against the native Go store — plus Go benchmarks.
+
+**Measurement method.** Numbers below are `go test -bench` on Apple M4, darwin/arm64, `CGO_ENABLED=0`, in-memory SQLite, fixed clock/tz. Per-VM memory is `runtime.ReadMemStats` bracketing a GC + a 100-VM allocation batch — order-of-magnitude only, noisy (GC timing, allocator slack), not a precise per-VM figure.
+
+| Benchmark | Result | Notes |
+|---|---|---|
+| `BenchmarkColdStart` | ~340 µs/op, 363 KB, 5019 allocs | fresh VM: runtime + Intl shim + module read/strip/eval + factory; source re-read each iter |
+| `BenchmarkPerCallGoja` | ~38 µs/op, 15 KB, 252 allocs | reused/warm VM, one create |
+| `BenchmarkPerCallNative` | ~17 µs/op, 720 B, 12 allocs | native `CreateReading` — goja ≈ **2.2× native latency** |
+| `BenchmarkPerRequestVM` | ~382 µs/op | fresh VM + create ≈ **10× the warm per-call** — pooling matters |
+| `BenchmarkVMMemory` | ~80 KB heap/VM | 100-VM batch, GC-bracketed; noisy, order-of-magnitude only |
+
+**Proven.** Value-exact parity JS-via-goja vs `internal/store/{bp,weight}` for: BP category buckets, BP create/list (field-by-field: category, ordering, values, pulse/notes/tag/ignore_calc), BP daily-weighted stats (14/30/60), weight EWMA trend (alpha=0.1, bit-exact IEEE-754), and weight create/list. Promise execution is deterministic: every async call captures the returned `*goja.Promise`, drains microtasks, and asserts `Fulfilled` (fails on `Rejected`/`Pending`) — the synchronous records port settles the `await` chain within the top-level call as it unwinds.
+
+**Not proven.** Only **2 of N** domains (BP, weight — the smallest, purest). ESM is handled by a leading-`export `-strip transform in the Go loader, **not** a real module loader — fine for these two files, unverified against imports/circular deps/more complex modules. goja has **no `Intl`**; the harness installs a minimal `time`-backed `Intl.DateTimeFormat.formatToParts` shim (same tz DB as the native store) so tz day-boundary math works — an environment shim, not a module change, but a real dependency the production embedding must also provide. Single-user, single fixed tz. **No concurrency test, no sustained GC-pressure test, no pooling implementation** — only the per-request-vs-warm gap was measured.
+
+**Recommendation (input to C6, not a production decision).** goja is viable and preferred over a Node sidecar on this evidence: it runs the domain files unmodified, keeps `CGO_ENABLED=0` / single binary / mobile cross-compile intact (a sidecar breaks all three), and ~2.2× native per-call latency on a warm VM is acceptable for these compute-light domains. The load-bearing caveat is **VM lifecycle**: cold start (~340 µs) and per-request VMs (~10× warm) mean C6 needs a **pooled/reused-VM** design, not a VM per request — and pooling under real concurrency is exactly what this spike did **not** measure. Before committing goja for all domains, C6 should (a) port one *stateful, Intl-heavy* domain (meds/reminders) to expose loader/shim gaps, and (b) benchmark a real VM pool under concurrent load for latency tails and GC pressure. Sidecar stays the fallback only if those two reveal a blocker.
+
 ## Migrating an existing server-mode install
 
 Migration is a special case of the general **no-lock-in guarantee (C2e)**: one canonical one-user-all-domains JSON format (meds + intake log, BP, weight, food, workouts, vitals, sleep, diary, tz history, settings), exportable **and** importable in **both** modes — a full 2×2 matrix, so any instance pair can migrate in either direction and a plain file on the user's disk is always an exit door.
