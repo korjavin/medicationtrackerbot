@@ -619,7 +619,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     }
     return [...latestByName.values()]
       .sort((a, b) => a.exercise_name.localeCompare(b.exercise_name))
-      .map(toExerciseResponse);
+      .map((e) => toExerciseResponse(e));
   }
 
   async function listLibrary() {
