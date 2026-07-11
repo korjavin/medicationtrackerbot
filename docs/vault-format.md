@@ -193,7 +193,9 @@ Workout entities carry a numeric body `id` (FK glue; `-1` is the ad-hoc sentinel
 - **variant** — `id`, `group_id`, `name`, `rotation_order` (int|null), `description`, `created_at`.
 - **exercise** — `id`, `variant_id`, `exercise_name`, `target_sets` (int),
   `target_reps_min` (int), `target_reps_max` (int|null), `target_weight_kg` (num|null),
-  `order_index` (int).
+  `order_index` (int), `exercise_library_id` (num, omitted when unset — the
+  library row the name resolves through; preserved so renames keep propagating
+  after import).
 - **library_entry** — `id`, `user_id`, `name`, `default_sets` (int),
   `default_reps_min` (int), `default_reps_max` (int|null), `default_weight_kg`
   (num|null), `notes`, `created_at`, `updated_at`.

@@ -379,14 +379,15 @@ func (s *Server) exportWorkouts(ctx context.Context, userID int64, data *VaultDa
 			}
 			for _, e := range exs {
 				data.Workouts.Exercises = append(data.Workouts.Exercises, VaultWorkoutExercise{
-					ID:             e.ID,
-					VariantID:      e.VariantID,
-					ExerciseName:   e.ExerciseName,
-					TargetSets:     e.TargetSets,
-					TargetRepsMin:  e.TargetRepsMin,
-					TargetRepsMax:  e.TargetRepsMax,
-					TargetWeightKg: e.TargetWeightKg,
-					OrderIndex:     e.OrderIndex,
+					ID:                e.ID,
+					VariantID:         e.VariantID,
+					ExerciseName:      e.ExerciseName,
+					TargetSets:        e.TargetSets,
+					TargetRepsMin:     e.TargetRepsMin,
+					TargetRepsMax:     e.TargetRepsMax,
+					TargetWeightKg:    e.TargetWeightKg,
+					OrderIndex:        e.OrderIndex,
+					ExerciseLibraryID: e.ExerciseLibraryID,
 				})
 			}
 		}
