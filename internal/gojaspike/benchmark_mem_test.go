@@ -49,7 +49,6 @@ func BenchmarkVMMemory(b *testing.B) {
 		perVM = float64(delta) / float64(batch)
 
 		runtime.KeepAlive(vms)
-		vms = nil
 	}
 	b.ReportMetric(perVM, "heapbytes/vm")
 }

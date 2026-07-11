@@ -366,7 +366,7 @@ func TestBPStatsParity(t *testing.T) {
 		t.Fatalf("all three periods must be populated; got 14=%v 30=%v 60=%v",
 			goStats.Stats14, goStats.Stats30, goStats.Stats60)
 	}
-	if !(goStats.Stats14.Days < goStats.Stats30.Days && goStats.Stats30.Days < goStats.Stats60.Days) {
+	if goStats.Stats14.Days >= goStats.Stats30.Days || goStats.Stats30.Days >= goStats.Stats60.Days {
 		t.Fatalf("periods must strictly widen (14<30<60 days); got %d/%d/%d",
 			goStats.Stats14.Days, goStats.Stats30.Days, goStats.Stats60.Days)
 	}
