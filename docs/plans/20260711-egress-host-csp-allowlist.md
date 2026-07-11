@@ -116,8 +116,8 @@ close. Also: the operator learns *which* provider hostname each account uses
 - [x] confirm no provider secret (api_key) is ever sent to the endpoint — only hostnames (`hostsFromIntegrations` reads only `*.url` fields; test asserts the PUT body is `{hosts:[…]}` and never contains the key)
 
 ### Task 5: Extend TestRouter_HostVariants + cloudstore storage test
-- [ ] `TestRouter_HostVariants`: add a case with egress hosts stored — assert the app-page `connect-src` contains `'self'`, each `https://<host>`, `https://api.elevenlabs.io`, `wss://api.elevenlabs.io`, and NO bare `https:`/`wss:` token (extend the med-7e7.1 no-`//` directive helper to `connect-src` where applicable); add a case with no hosts (still no bare `https:`)
-- [ ] cloudstore test: `SetEgressHosts` then `EgressHosts` round-trips + dedupe/normalization; keep the existing suite green
+- [x] `TestRouter_HostVariants`: add a case with egress hosts stored — assert the app-page `connect-src` contains `'self'`, each `https://<host>`, `https://api.elevenlabs.io`, `wss://api.elevenlabs.io`, and NO bare `https:`/`wss:` token (new `TestRouter_AppDocumentReflectsEgressHosts` sibling + a `bareSchemeToken` no-bare-token guard added to every case in the existing loop, covering the no-hosts app-document case too)
+- [x] cloudstore test: `SetEgressHosts` then `EgressHosts` round-trips + dedupe/normalization; keep the existing suite green (`TestEgressHostsRoundTrip`: unset→empty, dedupe/case/whitespace/sort, clear, unknown-account `sql.ErrNoRows`)
 
 ### Task 6: Verify acceptance criteria
 - [ ] `go build ./...` and `go build -tags mobile ./...` clean

@@ -198,11 +198,80 @@ func TestRouter_HostVariants(t *testing.T) {
 			if strings.Contains(scriptSrc, "//") {
 				t.Errorf("script-src = %q, want no third-party script host (vendor it instead)", scriptSrc)
 			}
+			// The whole point of the egress allowlist: even the app document must
+			// never carry a bare `https:`/`wss:` connect-src token (that is the
+			// arbitrary-origin exfil gadget). Every host is a full https://<host>.
+			if bare := bareSchemeToken(cspDirective(csp, "connect-src")); bare != "" {
+				t.Errorf("connect-src = %q carries bare %q token (arbitrary-origin exfil gadget)", cspDirective(csp, "connect-src"), bare)
+			}
 			if xcto := rec.Header().Get("X-Content-Type-Options"); xcto != "nosniff" {
 				t.Errorf("X-Content-Type-Options = %q, want nosniff", xcto)
 			}
 		})
 	}
+}
+
+// TestRouter_AppDocumentReflectsEgressHosts is the with-hosts counterpart to
+// TestRouter_HostVariants: once an account has registered provider hosts, the "/"
+// document's connect-src lists exactly those (as https://<host>) plus the fixed
+// ElevenLabs host — and still no bare https:/wss: token. Assets on the same origin
+// stay strict 'self'.
+func TestRouter_AppDocumentReflectsEgressHosts(t *testing.T) {
+	store := setupStore(t)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	if _, err := store.CreateAccount(ctx, "acc-eg", "eg-sub", []byte("hash"), now.Add(time.Hour), now, "", "", ""); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if err := store.SetEgressHosts(ctx, "acc-eg", []string{"api.openai.com", "fooddb.example.com"}); err != nil {
+		t.Fatalf("SetEgressHosts: %v", err)
+	}
+
+	h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "https://food.example.com", true, true)
+
+	// App document ("/") reflects the stored hosts.
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "eg-sub.app.example.com"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	connect := cspDirective(rec.Header().Get("Content-Security-Policy"), "connect-src")
+	want := "'self' https://api.openai.com https://fooddb.example.com https://api.elevenlabs.io wss://api.elevenlabs.io"
+	if connect != want {
+		t.Fatalf("connect-src = %q, want %q", connect, want)
+	}
+	for _, tok := range []string{"'self'", "https://api.openai.com", "https://fooddb.example.com", "https://api.elevenlabs.io", "wss://api.elevenlabs.io"} {
+		if !strings.Contains(connect, tok) {
+			t.Errorf("connect-src = %q, missing %q", connect, tok)
+		}
+	}
+	if bare := bareSchemeToken(connect); bare != "" {
+		t.Errorf("connect-src = %q carries bare %q token", connect, bare)
+	}
+
+	// A same-origin asset ("/static/*") does not initiate the app's fetches, so it
+	// keeps the strict default even for a host-carrying account.
+	req = httptest.NewRequest(http.MethodGet, "/static/js/app.js", nil)
+	req.Host = "eg-sub.app.example.com"
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if got := cspDirective(rec.Header().Get("Content-Security-Policy"), "connect-src"); got != "'self'" {
+		t.Errorf("asset connect-src = %q, want strict 'self'", got)
+	}
+}
+
+// bareSchemeToken returns a bare `https:`/`wss:` token if the CSP directive value
+// carries one (i.e. a scheme not followed by `//host`), or "" if every token is a
+// concrete origin. This is the exfil-gadget guard for connect-src.
+func bareSchemeToken(directive string) string {
+	for _, tok := range strings.Fields(directive) {
+		if tok == "https:" || tok == "wss:" || tok == "http:" || tok == "ws:" {
+			return tok
+		}
+	}
+	return ""
 }
 
 // cspDirective returns the value of one CSP directive (without its name), or ""

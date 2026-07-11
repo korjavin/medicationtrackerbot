@@ -415,3 +415,64 @@ func TestScheduledPushDeliveryRoundtrip(t *testing.T) {
 		t.Errorf("both entry round-tripped wrong: %+v", both)
 	}
 }
+
+// Egress hosts drive the app-document connect-src allowlist; the write path must
+// normalize+dedupe (case, whitespace, order) so the persisted list — and thus the
+// emitted CSP — is deterministic. An unset account reads back as no hosts, an
+// empty write clears to no hosts, and a missing account errors on both sides.
+func TestEgressHostsRoundTrip(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	if _, err := r.CreateAccount(ctx, "acc-eg", "egress-sub", []byte("h"), now.Add(time.Hour), now, "", "", ""); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	// Never set: no hosts, no error.
+	got, err := r.EgressHosts(ctx, "acc-eg")
+	if err != nil {
+		t.Fatalf("EgressHosts (unset): %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("unset account = %v, want no hosts", got)
+	}
+
+	// Write with dupes, mixed case, whitespace, and empties → normalized+sorted.
+	if err := r.SetEgressHosts(ctx, "acc-eg", []string{"API.OpenAI.com", " fooddb.example.com ", "api.openai.com", "", "api.elevenlabs.io"}); err != nil {
+		t.Fatalf("SetEgressHosts: %v", err)
+	}
+	got, err = r.EgressHosts(ctx, "acc-eg")
+	if err != nil {
+		t.Fatalf("EgressHosts: %v", err)
+	}
+	want := []string{"api.elevenlabs.io", "api.openai.com", "fooddb.example.com"}
+	if len(got) != len(want) {
+		t.Fatalf("hosts = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("hosts = %v, want %v (normalized+deduped+sorted)", got, want)
+		}
+	}
+
+	// Empty write clears the list back to no hosts (distinct from never-set, same read).
+	if err := r.SetEgressHosts(ctx, "acc-eg", nil); err != nil {
+		t.Fatalf("SetEgressHosts(nil): %v", err)
+	}
+	got, err = r.EgressHosts(ctx, "acc-eg")
+	if err != nil {
+		t.Fatalf("EgressHosts (cleared): %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("cleared account = %v, want no hosts", got)
+	}
+
+	// Unknown account errors on both sides.
+	if err := r.SetEgressHosts(ctx, "no-such-acc", []string{"x.example.com"}); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("SetEgressHosts(unknown) = %v, want sql.ErrNoRows", err)
+	}
+	if _, err := r.EgressHosts(ctx, "no-such-acc"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("EgressHosts(unknown) = %v, want sql.ErrNoRows", err)
+	}
+}
