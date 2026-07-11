@@ -92,10 +92,10 @@ Dependencies identified: none new. Reuses inbox key, seal crypto, drain, existin
 
 ### Task 3: Cloud Telegram `.nxk` document branch
 
-- [ ] in `internal/cloudserver/telegram.go`, add a `msg.Document` branch alongside the `sealPhoto`/`sealText`/`sealCommand` dispatch (~:718-755): if the document filename ends in `.nxk` (case-insensitive), handle it; otherwise fall through to existing behavior.
-- [ ] new `sealNXKDocument` modeled on `sealCommand` (:792-849): check inbox key → send a "⏳ Queued" ack → download the file (reuse the relay's file-download path; mirror `internal/bot/sleep_import.go` local-vs-remote fetch) → `parseNXKToVitalsEvents` (Task 1) → `SealAndQueue` each event → edit the ack to a success summary.
-- [ ] respect `ValidateImportFile` size/type; on parse error, edit the ack to a clear failure message (do not leak internals).
-- [ ] integration test: a fake `.nxk` document update → assert events are sealed to the linked account's inbox (reuse the telegram test harness + fixture `.nxk`).
+- [x] in `internal/cloudserver/telegram.go`, add a `msg.Document` branch alongside the `sealPhoto`/`sealText`/`sealCommand` dispatch (~:718-755): if the document filename ends in `.nxk` (case-insensitive), handle it; otherwise fall through to existing behavior. — added after the photo branch; non-`.nxk` documents fall through to the empty-message drop. Added a `Document` type + `Message.Document` field to `internal/tgclient`.
+- [x] new `sealNXKDocument` modeled on `sealCommand` (:792-849): check inbox key → send a "⏳ Queued" ack → download the file (reuse the relay's file-download path; mirror `internal/bot/sleep_import.go` local-vs-remote fetch) → `parseNXKToVitalsEvents` (Task 1) → `SealAndQueue` each event → edit the ack to a success summary. — new `sealNXKDocument` + `downloadDocument` helper (local-vs-remote via `tgclient.GetFile`/`DownloadFile`).
+- [x] respect `ValidateImportFile` size/type; on parse error, edit the ack to a clear failure message (do not leak internals). — `nxk.ValidateImportFile` up front (replies its own extension/size text); download + parse failures edit the ack to generic messages.
+- [x] integration test: a fake `.nxk` document update → assert events are sealed to the linked account's inbox (reuse the telegram test harness + fixture `.nxk`). — `TestChildWebhook_NXKDocumentSealsVitalsToMailbox`: real `.nxk` fixture streamed via the recording-TG file endpoint, asserts one sealed `vitals_import` event with all streams, no GPS, no plaintext at rest, ack edited.
 
 ### Task 4: Client `vitals_import` applier + `web/domain/vitals.js` write methods
 

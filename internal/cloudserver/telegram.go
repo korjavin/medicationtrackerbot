@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/nxk"
 	"github.com/korjavin/medicationtrackerbot/internal/tgclient"
 	"golang.org/x/crypto/hkdf"
 )
@@ -718,6 +719,14 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 		t.sealPhoto(w, r, ref, bot, upd.Message, photo)
 		return
 	}
+	// A .nxk document is a Mi Band backup (bd med-nzz): parse it server-side and
+	// seal the vitals streams. Like a photo it carries no command token, so it
+	// must be handled before the botCommand switch. Any other document has no
+	// text and falls through to the empty-message drop below.
+	if doc := upd.Message.Document; doc != nil && strings.HasSuffix(strings.ToLower(doc.FileName), ".nxk") {
+		t.sealNXKDocument(w, r, ref, bot, upd.Message)
+		return
+	}
 	// The relay reads ONLY the leading token, and only to tell what it answers
 	// itself from what it seals. It must not distinguish /bp from /bogus —
 	// that would mean inspecting the command surface of a message it is
@@ -965,6 +974,151 @@ func (t *TelegramAPI) sealText(w http.ResponseWriter, r *http.Request, ref strin
 		slog.Info("telegram child webhook: text queued", "ref", ref)
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// sealNXKDocument parses a Mi Band .nxk backup SERVER-SIDE (transient plaintext,
+// same trust model as the Telegram inbound text/photo path) and seals the mapped
+// vitals streams into the account's inbox (bd med-nzz). Unlike sealCommand it
+// downloads and parses the file here — but still stores no plaintext at rest:
+// the parsed streams are sealed to the account's inbox key. GPS is never sealed
+// (parseNXKToVitalsEvents discards it). Always answers 200 (a redelivery would
+// re-download and re-seal; the import id is deterministic so the client's drain
+// converges). The "⏳ Queued" ack is edited into a success/failure summary.
+func (t *TelegramAPI) sealNXKDocument(w http.ResponseWriter, r *http.Request, ref string, bot *cloudstore.TGBot, msg *tgclient.Message) {
+	client, err := t.botClient(bot)
+	if err != nil {
+		slog.Error("telegram child webhook: open token", "error", err, "ref", ref)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	reply := func(text string) {
+		if err := client.SendMessage(r.Context(), msg.Chat.ID, text); err != nil {
+			slog.Error("telegram child webhook: send reply", "error", err, "ref", ref)
+		}
+	}
+
+	// Reject a wrong extension / over-cap file up front — the same guard the
+	// bot-mode upload uses. The message is nxk.ValidateImportFile's own text
+	// (extension/size), which leaks no internals.
+	if err := nxk.ValidateImportFile(msg.Document.FileName, msg.Document.FileSize); err != nil {
+		reply("⚠️ " + err.Error())
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// No inbox key → the event MUST be dropped, never stored in the clear.
+	if pub, err := t.store.AccountInboxPublicKey(r.Context(), ref); err != nil || len(pub) == 0 {
+		if err != nil {
+			slog.Error("telegram child webhook: read inbox key", "error", err, "ref", ref)
+		}
+		reply(setupMessage)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	replyID, err := client.SendMessageReturningID(r.Context(), msg.Chat.ID, queuedMessage)
+	if err != nil {
+		slog.Error("telegram child webhook: send queued ack", "error", err, "ref", ref)
+	}
+	// edit rewrites the "⏳ Queued" ack into an outcome; when the ack send failed
+	// (replyID 0) it sends a fresh message instead.
+	edit := func(text string) {
+		if replyID == 0 {
+			reply(text)
+			return
+		}
+		if err := client.EditMessageText(r.Context(), msg.Chat.ID, replyID, text); err != nil && !tgclient.IsMessageNotModified(err) {
+			slog.Warn("telegram child webhook: edit nxk ack", "error", err, "ref", ref)
+		}
+	}
+
+	tmpPath, err := t.downloadDocument(r.Context(), client, msg.Document)
+	if err != nil {
+		slog.Error("telegram child webhook: download nxk", "error", err, "ref", ref)
+		edit("❌ Couldn't download the file — try sending it again.")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	defer os.Remove(tmpPath)
+
+	events, err := parseNXKToVitalsEvents(tmpPath)
+	if err != nil {
+		// A bad file is the user's fault — never leak internals.
+		slog.Warn("telegram child webhook: parse nxk", "error", err, "ref", ref)
+		edit("❌ Couldn't read that Mi Band backup.")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	now := time.Now().UTC()
+	for _, ev := range events {
+		ev.AtUnix = now.Unix()
+		plaintext, err := json.Marshal(ev)
+		if err != nil {
+			slog.Error("telegram child webhook: marshal nxk event", "error", err, "ref", ref)
+			edit("Sorry — something went wrong. Try again.")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		switch err := SealAndQueue(r.Context(), t.store, ref, plaintext, now); {
+		case errors.Is(err, ErrNoInboxKey):
+			// Raced with a key deletion between the check above and here.
+			edit(setupMessage)
+			w.WriteHeader(http.StatusOK)
+			return
+		case err != nil:
+			slog.Error("telegram child webhook: seal nxk", "error", err, "ref", ref)
+			edit("Sorry — something went wrong. Try again.")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+	}
+	slog.Info("telegram child webhook: nxk import queued", "ref", ref, "events", len(events))
+	edit("✅ Backup queued — your Mi Band vitals appear when you next open the app.")
+	w.WriteHeader(http.StatusOK)
+}
+
+// downloadDocument resolves a document's file_id and writes its bytes to a temp
+// file, mirroring internal/bot/sleep_import.go's local-vs-remote fetch: a local
+// Bot API server hands back an absolute path on a shared volume, otherwise the
+// bytes stream over HTTP. Caller removes the returned path. The extension is
+// preserved so nxk.ValidateImportFile (in parseNXKToVitalsEvents) sees .nxk.
+func (t *TelegramAPI) downloadDocument(ctx context.Context, client *tgclient.Client, doc *tgclient.Document) (string, error) {
+	file, err := client.GetFile(ctx, doc.FileID)
+	if err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp("", "nxk-tg-*"+extForUpload(doc.FileName))
+	if err != nil {
+		return "", err
+	}
+	tmpPath := tmp.Name()
+	fail := func(err error) (string, error) {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return "", err
+	}
+
+	var src io.ReadCloser
+	if strings.HasPrefix(file.FilePath, "/") {
+		// Local Bot API mode: the file already lives on a shared volume.
+		src, err = os.Open(file.FilePath) // #nosec G304 -- path is from Telegram getFile, not user input
+	} else {
+		src, _, err = client.DownloadFile(ctx, file.FilePath)
+	}
+	if err != nil {
+		return fail(err)
+	}
+	defer src.Close()
+
+	if _, err := io.Copy(tmp, src); err != nil {
+		return fail(err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return "", err
+	}
+	return tmpPath, nil
 }
 
 // editReplyRequest is what an unlocked client posts after it has applied a

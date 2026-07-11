@@ -2,11 +2,14 @@ package cloudserver
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -153,5 +156,73 @@ func TestParseNXKToVitalsEvents(t *testing.T) {
 	}
 	if again[0].Import != ev.Import {
 		t.Errorf("import id not deterministic: %q vs %q", again[0].Import, ev.Import)
+	}
+}
+
+// TestChildWebhook_NXKDocumentSealsVitalsToMailbox guards Task 3: a .nxk document
+// sent to a linked cloud bot is downloaded + parsed server-side and its vitals
+// streams sealed to the account's inbox — no GPS, no plaintext at rest — and the
+// "Queued" ack is edited into a summary.
+func TestChildWebhook_NXKDocumentSealsVitalsToMailbox(t *testing.T) {
+	nxkPath := buildNXKFixture(t)
+	nxkBytes, err := os.ReadFile(nxkPath)
+	if err != nil {
+		t.Fatalf("read nxk: %v", err)
+	}
+
+	tg := newRecordingTG(t)
+	tg.mu.Lock()
+	tg.mu.fileBody = nxkBytes
+	tg.mu.Unlock()
+
+	f := linkedBotTap(t, tg)
+	privRaw := publishInboxKey(t, f.store, f.accountID)
+
+	update := `{"update_id":4,"message":{"message_id":5,"chat":{"id":12345,"type":"private"},` +
+		`"document":{"file_id":"NXKFILE","file_name":"export.nxk","file_size":` + strconv.Itoa(len(nxkBytes)) + `}}}`
+	rec := postWebhook(t, f.top, f.childPath, f.secret, update)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("nxk document webhook status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	events, err := f.store.ListInboxEvents(t.Context(), f.accountID, 10)
+	if err != nil {
+		t.Fatalf("ListInboxEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("queued %d events, want 1", len(events))
+	}
+	// Nothing readable at rest: the kind must not appear in the ciphertext.
+	if bytes.Contains(events[0].CT, []byte(inboxEventKindVitalsImport)) {
+		t.Fatal("mailbox row contains plaintext kind")
+	}
+
+	opened, err := openInbox(privRaw, f.accountID, events[0].CT)
+	if err != nil {
+		t.Fatalf("openInbox: %v", err)
+	}
+	var got vitalsImportEvent
+	if err := json.Unmarshal(opened, &got); err != nil {
+		t.Fatalf("unmarshal sealed event: %v", err)
+	}
+	if got.Kind != inboxEventKindVitalsImport || got.Import == "" {
+		t.Fatalf("sealed event kind/import = %q/%q", got.Kind, got.Import)
+	}
+	if len(got.Sleep) == 0 || len(got.HR) == 0 || len(got.SpO2) == 0 ||
+		len(got.Stress) == 0 || len(got.DayStats) == 0 || len(got.Workouts) == 0 {
+		t.Fatalf("sealed event missing a stream: %+v", got)
+	}
+	// GPS must never reach the sealed payload.
+	for _, banned := range []string{"latitude", "longitude", "gps", "13.4", "52.5"} {
+		if bytes.Contains(opened, []byte(banned)) {
+			t.Errorf("sealed payload leaks GPS token %q", banned)
+		}
+	}
+
+	// The "Queued" ack was edited into an outcome summary.
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.edits) == 0 {
+		t.Fatal("queued ack was never edited into a summary")
 	}
 }
