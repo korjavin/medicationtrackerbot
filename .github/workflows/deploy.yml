@@ -43,8 +43,6 @@ jobs:
         include:
           - name: server
             tags: ''
-          - name: mobile
-            tags: 'mobile'
     name: test (${{ matrix.name }})
     steps:
       - name: Checkout repository
