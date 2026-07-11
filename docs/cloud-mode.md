@@ -409,9 +409,16 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   server-side fallback — by design, for the same reason. If no device is unlocked and online,
   the call returns an actionable error instead of hanging.
 - Running the Python sandbox **in the browser** via Pyodide is the only route that would preserve
-  zero-knowledge. It is recorded as a future research spike (see Open questions), deliberately not
-  opened: it would ship a ~10 MB WASM runtime into the DEK-bearing page, which interacts with the
-  strict-CSP work in med-7e7.1.
+  zero-knowledge — the script would run in the unlocked tab against the already-decrypted vault, and
+  only its output would cross the relay. The spike (bd med-csu.6) weighed it and **decided not to
+  build it.** Three reasons: (1) it ships a ~10 MB WASM runtime into the DEK-bearing page — the most
+  security-sensitive surface in the app; (2) instantiating that WASM needs `'wasm-unsafe-eval'` added
+  to `script-src`, directly reverting the strict `script-src 'self'` that med-7e7.1 *just restored*
+  (pure `runPython` avoids full `'unsafe-eval'`, but the relaxation is still on the DEK page); (3) the
+  value is unproven — `mcp_call` chaining already covers multi-step work (the MCP agent evals pass on
+  it), and the `python/` helper package assumes `api.call` over the signed server bridge, so a browser
+  runner would need its whole transport rerouted through the in-process `apishim` router. Revisit only
+  if a concrete agent task emerges that provably can't be expressed as chained `mcp_call`s.
 - **The catalog is generated, not hand-written.** `web/cloud/js/mcp-catalog.generated.js` is
   emitted from `registry.DefaultOperations()` by `cmd/genmcpcatalog` (logic in
   `internal/mcp/catalogjs`); regenerate with `go run ./cmd/genmcpcatalog`. Nine of the 106
@@ -531,7 +538,7 @@ Migration is a special case of the general **no-lock-in guarantee (C2e)**: one c
 | Reminder timing | cloud | inherent to a blind alarm clock; content stays sealed |
 | Subdomain (≈ account existence) | network observers (DNS/SNI), cloud | wildcard cert+zone keep it out of CT/zone files; DoH/ECH close the rest over time |
 | Sync cadence, blob sizes, IPs | cloud | standard for any sync service; no content |
-| TG bot token, chat id, TG message text at user-chosen verbosity | cloud + Telegram | opt-in; **the relay reads `tg_text` in plaintext by construction** — a bot channel cannot be end-to-end encrypted. Verbosity defaults to `detailed` (names the medication); Settings → Notifications → *Telegram Reminder Detail* switches it to `generic` ("Medication time", no names). Only entries with `delivery` of `telegram`/`both` carry any text at all; `ct` stays opaque. Sealed inbound is C3b part 2 |
+| TG bot token, chat id, TG message text (both directions) in transit | cloud + Telegram | opt-in; **a bot channel cannot be end-to-end encrypted, so text crosses the relay in plaintext both ways**. Outbound reminder text defaults to `detailed` (names the medication); Settings → Notifications → *Telegram Reminder Detail* switches it to `generic` ("Medication time", no names). Only entries with `delivery` of `telegram`/`both` carry outbound text; `ct` stays opaque. Inbound messages transit the relay in the clear too, but the server **seals each on arrival and never parses it** — only the unlocked app opens and acts on them (the bot replies "Queued", then fills in once the app records it); photos are fetched through the server but never stored |
 | MCP query content | nobody (tier 1) / cloud in transit (tier 2) | tier 2 off by default, explicit consent |
 | MCP frame sizes + timing | cloud (tier 1) | inherent to a blind relay; pairing ids only, content stays sealed |
 | MCP pairing key at rest (tier 2 only) | cloud, while remote mode is enabled | opt-in only; deleted on Disconnect; token itself is never logged (mind Traefik access logs — it travels in the URL path) |
@@ -706,4 +713,4 @@ Cloud mode runs the ElevenLabs conversational agent **browser-direct**, provisio
 - **C5 — trial provider pool**: metered OpenAI-compatible relay, ElevenLabs signed-URL minting + client-tools voice agent, trial-consent wizard screen, quota admin. Depends on C2 (the PWA needs AI features to call it).
 - **C6 — bot-mode domain unification** (after C2 parity; optional but intended): embed the JS domain layer in the server build (goja preferred, Node sidecar fallback) behind a SQLite storage port; shadow-mirror real traffic (Go serves, JS diffs, divergences logged); flip per-domain when quiet; deprecate the Go domain layer. Ends the double maintenance — see "The client: porting the domain layer" §3.
 
-Open questions: trial VOICE cost bounding (bd med-d5t.5 — the AI chat proxy now carries persisted per-account and global daily budgets, but a minted ElevenLabs signed URL runs browser-to-provider with no server-side lever on call duration; the choice is an operator-side agent limit or BYO-only voice); Managed-Bots empirics (per-manager bot limits, user revocation/takeover semantics, library vs raw Bot API HTTP); end-to-end validation of ElevenLabs SDK client tools (designed in `docs/plans/2026-05-18-elevenlabs-dynamic-mcp-client-tools.md`, never implemented); ElevenLabs agents-API coverage of tool/agent provisioning; Pyodide for `mcp_execute`; account deletion + full-vault export format; oplog schema versioning across client updates; how far to take SW-pinned-code / reproducible-build mitigations for the code-serving caveat.
+Open questions: trial VOICE cost bounding (bd med-d5t.5 — the AI chat proxy now carries persisted per-account and global daily budgets, but a minted ElevenLabs signed URL runs browser-to-provider with no server-side lever on call duration; the choice is an operator-side agent limit or BYO-only voice); Managed-Bots empirics (per-manager bot limits, user revocation/takeover semantics, library vs raw Bot API HTTP); end-to-end validation of ElevenLabs SDK client tools (designed in `docs/plans/2026-05-18-elevenlabs-dynamic-mcp-client-tools.md`, never implemented); ElevenLabs agents-API coverage of tool/agent provisioning; account deletion + full-vault export format; oplog schema versioning across client updates; how far to take SW-pinned-code / reproducible-build mitigations for the code-serving caveat.

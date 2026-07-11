@@ -143,23 +143,34 @@ export async function mountTelegram(container, opts = {}) {
     stopPolling();
     container.innerHTML = `
       <section class="wizard-step">
-        <${h} class="wg-settings-section__title">Get reminders on Telegram</${h}>
-        <p>Optional. You can link a personal Telegram bot so this server can
-           ring your medication reminders in a chat.</p>
+        <${h} class="wg-settings-section__title">Chat with your tracker on Telegram</${h}>
+        <p>Optional. You can link a personal Telegram bot and use it as a full
+           chat interface — text it to log food, blood pressure, weight,
+           medications, workouts and notes, ask about your own data, and
+           confirm or snooze reminders, all in plain language. It also delivers
+           your reminders.</p>
         <p><strong>What the server sees:</strong> to send messages, the server
            stores <em>one</em> credential — your bot's token — which it can read.
            With it, and only it, the server can send and receive messages as
            that bot.</p>
-        <p><strong>And it reads your reminder text.</strong> Telegram messages
+        <p><strong>Reminders it sends carry text.</strong> Telegram messages
            cannot be end-to-end encrypted through a bot, so your device hands
-           the server the exact words to forward. By default that text is
-           <em>detailed</em> — it names the medication ("Time to take:
+           the server the exact reminder words to forward. By default that text
+           is <em>detailed</em> — it names the medication ("Time to take:
            Lisinopril 10 mg"). Switch <em>Telegram Reminder Detail</em> to
            <em>Generic</em> in Settings → Notifications and it sends only
            "Medication time" instead, with no names leaving your vault.</p>
+        <p><strong>Messages you send transit the relay.</strong> Telegram sees
+           them, and because a bot cannot be end-to-end encrypted they pass
+           through this server in the clear — but the server seals each one the
+           moment it arrives and never reads what it means: no parsing, no AI,
+           no logs. Only your unlocked app opens and acts on them, which is why
+           the bot replies "Queued" first and fills in the result once your app
+           records it. Photos are fetched through the server but never stored
+           there.</p>
         <p>Everything else — your medications, readings, notes — stays
-           encrypted. Only the reminder text you choose to send crosses this
-           channel.</p>
+           encrypted at rest. Only the reminder text you choose to send, and the
+           messages you type to the bot, cross this channel.</p>
         <div class="wizard-actions">
           <button id="tg-accept">Set up my bot</button>
           <button id="tg-skip" class="secondary">Skip</button>

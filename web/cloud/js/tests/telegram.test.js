@@ -90,7 +90,7 @@ describe('telegram.js onboarding module', () => {
     global.fetch = fetchStub(status);
     await mountTelegram(app, {});
     expect(app.querySelector('h1')).toBeNull();
-    expect(app.querySelector('h2').textContent).toBe('Get reminders on Telegram');
+    expect(app.querySelector('h2').textContent).toBe('Chat with your tracker on Telegram');
   });
 
   it('pending state renders the deep-link button, not a linkless waiting page', async () => {

@@ -65,9 +65,9 @@ export const PRIVACY_ITEMS = [
   },
   {
     category: 'visible',
-    docSignal: 'TG bot token, chat id, TG message text at user-chosen verbosity',
-    title: 'Telegram reminders, if you turn them on',
-    detail: 'A chat bot cannot be end-to-end encrypted: the relay reads the reminder text it sends to Telegram in plain text. You choose the detail — "Medication time" with no names (generic), or the medication named (detailed) — in Settings → Notifications. Only reminders you route to Telegram carry any text.',
+    docSignal: 'TG bot token, chat id, TG message text (both directions) in transit',
+    title: 'Telegram chat + reminders, if you turn them on',
+    detail: 'A chat bot cannot be end-to-end encrypted, so text crosses the relay in plain text both ways. Reminders it sends carry the detail you choose — "Medication time" with no names (generic), or the medication named (detailed) — in Settings → Notifications. Messages you send the bot also transit the relay in the clear, but the server seals each on arrival and never reads it: no parsing, no AI, no logs. Only your unlocked app opens and acts on them. Photos are fetched through the server but never stored there.',
   },
   {
     category: 'visible',
