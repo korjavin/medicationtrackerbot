@@ -234,6 +234,12 @@ checkAuth().then(async authorized => {
             window.TZPlanBanner.refresh();
         }
 
+        // Warm the Tomorrow Forecast card (Gamification Phase 3). Cloud-only —
+        // in bot mode the route 404s and the card stays absent. Fire-and-forget.
+        if (window.WGForecastCard && typeof window.WGForecastCard.refresh === 'function') {
+            window.WGForecastCard.refresh();
+        }
+
         // Wire the Telegram BackButton to return-to-Today once the initial tab is active.
         if (window.AppBackButton && typeof window.AppBackButton.setup === 'function') {
             window.AppBackButton.setup();

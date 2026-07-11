@@ -657,6 +657,11 @@ export function createApiRouter(ctx, {
     if (path === '/api/gamification/atlas/seen' && method === 'POST') {
       return gamification.markDiscoverySeen(body && body.id);
     }
+    // Tomorrow Forecast (Phase 3): evening lever-conditioned in-range-morning
+    // chance + this-morning resolution + the "how well do we know you"
+    // calibration meter, all recomputed client-side from vault bp+sleep records
+    // (never weight). Bot mode 404s this route; the Today card then omits itself.
+    if (path === '/api/gamification/forecast' && method === 'GET') return gamification.getForecast();
     if (method === 'GET' && (
       path === '/api/gamification/journey'
       || path === '/api/gamification/insights'
