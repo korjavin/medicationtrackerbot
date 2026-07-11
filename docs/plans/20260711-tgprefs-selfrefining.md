@@ -104,17 +104,22 @@ Verified on local master @5e2eca7c (after ff to origin/master, which merged med-
       port); no extra flush is needed.
 
 ### Task 4: Integration tests (extend inbox-apply.test.js)
-- [ ] (a) INJECT: seed a `tgprefs` record with a note, drive a `tg_text` event through the applier
+- [x] (a) INJECT: seed a `tgprefs` record with a note, drive a `tg_text` event through the applier
       (or `applyTGText`) with a stub `chat` that captures its `messages`, and assert the system
       message contains the seeded note. Also assert the empty-note case leaves the system message
       equal to the base prompt.
-- [ ] (b) APPEND + CAP: stub `chat` to emit a `remember_preference` tool call, drive a turn, and
+- [x] (b) APPEND + CAP: stub `chat` to emit a `remember_preference` tool call, drive a turn, and
       assert the line landed in the `tgprefs` vault record. Then pre-seed a near-cap note and assert
       a further append drops the OLDEST line(s) and stays within the cap (oldest-out).
-- [ ] (c) IDEMPOTENCY: run the same `tg_text` event twice through the applier; assert the agent
+- [x] (c) IDEMPOTENCY: run the same `tg_text` event twice through the applier; assert the agent
       (and thus `remember_preference`) runs only ONCE — the existing `tgagentrun` marker gates the
       whole run, so no duplicate append. Do NOT add a second gate; this test just proves the free one.
-- [ ] `pnpm test` — the new cases and the whole cloud JS suite must pass before Task 5.
+- [x] `pnpm test` — the new cases and the whole cloud JS suite must pass before Task 5.
+
+Implementation note: extracted the prefs-port literal in `createInboxApplier` into an
+exported `makeTGPrefsPort(records, now)` factory so the new tests drive the REAL vault
+boundary (readTGPrefs/appendTGPref) rather than a copy. New describe block added to
+`web/cloud/js/tests/inbox-apply.test.js`; full suite green (302 files, 3360 passed).
 
 ### Task 5: Verify acceptance criteria
 - [ ] Verify the note is injected into the agent prompt on every turn when present (Task 2).

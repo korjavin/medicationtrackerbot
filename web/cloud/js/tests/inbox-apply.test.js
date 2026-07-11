@@ -5,7 +5,8 @@
 // behavior, not of this module's bookkeeping.
 import { describe, expect, it, vi } from 'vitest';
 import { createIntakeDomain } from '../../../domain/medintake.js';
-import { applyIntakeSlotAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT } from '../inbox-apply.js';
+import { applyIntakeSlotAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, makeTGPrefsPort, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT } from '../inbox-apply.js';
+import { createTGAgent } from '../tg-agent.js';
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
 import { createNotesDomain } from '../../../domain/notes.js';
@@ -573,5 +574,102 @@ describe('tgcommand.js — parsing', () => {
         expect(parseCommand('/start').kind).toBe('local');
         expect(parseCommand('/help').kind).toBe('local');
         expect(parseCommand('I ate two eggs').kind).toBe('not_a_command');
+    });
+});
+
+// bd med-vcv.3 — the self-refining tgprefs note. These drive the REAL tg-agent
+// (with a stub `chat`) and the REAL vault prefs port (makeTGPrefsPort over the
+// fake records), so the two properties that matter — the note reaching the
+// system prompt, and remember_preference appending oldest-out under the cap —
+// are exercised end-to-end, not mocked. Only the LLM boundary is stubbed.
+describe('inbox-apply.js — self-refining tgprefs (med-vcv.3)', () => {
+    const TXT_UNIX = SLOT_UNIX + 3600;
+    const REPLY_ID = 4343;
+    const now = () => DRAIN_MS;
+    const stubDispatcher = { handle: vi.fn() }; // no mcp_* tool is exercised here
+    const textEvent = (text) => ({ kind: TG_TEXT, text, at_unix: TXT_UNIX, reply_message_id: REPLY_ID });
+    const rememberCall = (note, id = 't1') => ({
+        content: '',
+        tool_calls: [{ id, function: { name: 'remember_preference', arguments: JSON.stringify({ note }) } }],
+    });
+
+    // (a) INJECT
+    it('injects the stored tgprefs note into the agent system prompt', async () => {
+        const records = fakeRecords({ tgprefs: [{ recordId: 'tgprefs', deleted: false, note: '"my usual" = 2 eggs + toast' }] });
+        const captured = [];
+        const chat = vi.fn(async ({ messages }) => { captured.push(messages); return { content: 'ok' }; });
+        const agent = createTGAgent({ chat, dispatcher: stubDispatcher, prefs: makeTGPrefsPort(records, now) });
+
+        await applyTGText(textEvent('what did i have'), 50, { agent, records, editReply: vi.fn(), now });
+
+        const system = captured[0].find((m) => m.role === 'system').content;
+        expect(system).toContain('"my usual" = 2 eggs + toast');
+        expect(system).toContain('how THIS user talks');
+    });
+
+    it('leaves the system prompt at the base when no note is stored', async () => {
+        const records = fakeRecords();
+        const captured = [];
+        const chat = vi.fn(async ({ messages }) => { captured.push(messages); return { content: 'ok' }; });
+        const agent = createTGAgent({ chat, dispatcher: stubDispatcher, prefs: makeTGPrefsPort(records, now) });
+
+        await applyTGText(textEvent('hi'), 51, { agent, records, editReply: vi.fn(), now });
+
+        const system = captured[0].find((m) => m.role === 'system').content;
+        // No note → no injection header dangling on the base prompt.
+        expect(system).not.toContain('how THIS user talks');
+    });
+
+    // (b) APPEND + CAP
+    it('the agent appends a durable preference to the tgprefs vault record', async () => {
+        const records = fakeRecords();
+        const chat = vi.fn()
+            .mockResolvedValueOnce(rememberCall('"my usual" = 2 eggs + toast'))
+            .mockResolvedValueOnce({ content: 'Noted.' });
+        const agent = createTGAgent({ chat, dispatcher: stubDispatcher, prefs: makeTGPrefsPort(records, now) });
+
+        await applyTGText(textEvent('by my usual i mean 2 eggs and toast'), 52, { agent, records, editReply: vi.fn(), now });
+
+        const rec = (await records.list('tgprefs')).find((r) => r.recordId === 'tgprefs' && !r.deleted);
+        expect(rec.note).toContain('"my usual" = 2 eggs + toast');
+    });
+
+    it('appending past the cap drops the OLDEST whole lines and stays within it', async () => {
+        // 40 lines × exactly 100 chars each = 4039 with newlines, just under the 4096 cap.
+        const seedLines = Array.from({ length: 40 }, (_, i) => `line${i}`.padEnd(100, '.'));
+        const records = fakeRecords({ tgprefs: [{ recordId: 'tgprefs', deleted: false, note: seedLines.join('\n') }] });
+        const newLine = 'newpref'.padEnd(100, '.');
+        const chat = vi.fn()
+            .mockResolvedValueOnce(rememberCall(newLine))
+            .mockResolvedValueOnce({ content: 'Noted.' });
+        const agent = createTGAgent({ chat, dispatcher: stubDispatcher, prefs: makeTGPrefsPort(records, now) });
+
+        await applyTGText(textEvent('remember this'), 53, { agent, records, editReply: vi.fn(), now });
+
+        const note = (await records.list('tgprefs')).find((r) => r.recordId === 'tgprefs' && !r.deleted).note;
+        expect(note.length).toBeLessThanOrEqual(4096);
+        const noteLines = note.split('\n');
+        expect(noteLines[0]).toBe(seedLines[1]);                 // oldest (line0) evicted
+        expect(noteLines[noteLines.length - 1]).toBe(newLine);   // newest appended at the end
+        expect(note.includes(seedLines[0])).toBe(false);
+    });
+
+    // (c) IDEMPOTENCY — no second gate; the existing tgagentrun marker gates the whole run.
+    it('re-draining a free-text event runs remember_preference only ONCE', async () => {
+        const records = fakeRecords();
+        const chat = vi.fn()
+            .mockResolvedValueOnce(rememberCall('my usual = 2 eggs'))
+            .mockResolvedValueOnce({ content: 'Noted.' });
+        const agent = createTGAgent({ chat, dispatcher: stubDispatcher, prefs: makeTGPrefsPort(records, now) });
+        const opts = { agent, records, editReply: vi.fn(), now };
+
+        await applyTGText(textEvent('by my usual i mean 2 eggs'), 54, opts);
+        await applyTGText(textEvent('by my usual i mean 2 eggs'), 54, opts);
+
+        // First drain: one run = two chat calls. Second drain: marker present → skipped.
+        expect(chat).toHaveBeenCalledTimes(2);
+        const note = (await records.list('tgprefs')).find((r) => r.recordId === 'tgprefs' && !r.deleted).note;
+        const occurrences = note.split('\n').filter((l) => l === 'my usual = 2 eggs').length;
+        expect(occurrences).toBe(1);
     });
 });

@@ -78,6 +78,16 @@ async function appendTGPref(records, line, now) {
   await records.put(TG_PREFS_TYPE, { recordId: TG_PREFS_RECORD_ID, clientTs: now(), deleted: false, note });
 }
 
+// makeTGPrefsPort is the `prefs` port createTGAgent consumes: get() reads the
+// note into the prompt, append(line) records a durable phrasing mapping. One
+// factory so the applier and its integration test share the real vault boundary.
+export function makeTGPrefsPort(records, now) {
+  return {
+    get: () => readTGPrefs(records),
+    append: (line) => appendTGPref(records, line, now),
+  };
+}
+
 // Telegram's editMessageText caps at 4096; the relay's EditReply rejects >1000
 // runes (and empty). Keep a margin so an agent answer never trips it.
 const MAX_REPLY_RUNES = 900;
@@ -439,10 +449,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
   // The self-refining note port: the agent reads it into its prompt each turn
   // and appends durable phrasing mappings via remember_preference (med-vcv.3).
   // Tests inject prefsOverride to stub the vault boundary.
-  const prefs = prefsOverride || {
-    get: () => readTGPrefs(records),
-    append: (line) => appendTGPref(records, line, now),
-  };
+  const prefs = prefsOverride || makeTGPrefsPort(records, now);
 
   // The free-text agent routes through the SAME apishim router + MCP responder
   // the cloud UI and MCP connector use, so a message-driven write is one code
