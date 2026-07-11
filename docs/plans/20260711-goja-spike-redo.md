@@ -117,7 +117,7 @@ The maintainer's blocker list **is the acceptance criteria** — every item must
 - [x] `go test ./...` still passes; `pnpm test` unaffected (no frontend change — `web/domain/*.js` untouched).
 
 ### Task 8: [Final] Update project knowledge
-- [ ] If a non-obvious pattern emerged (goja promise-drain idiom, ESM-strip loader, records-port shape), note it briefly in `docs/cloud-mode.md` where future C6 work will look.
+- [x] If a non-obvious pattern emerged (goja promise-drain idiom, ESM-strip loader, records-port shape), note it briefly in `docs/cloud-mode.md` where future C6 work will look. (Added "Reusable idioms (for C6 …)" bullet list to the Goja spike subsection: promise-drain, ESM-strip loader, records port + Intl shim, each with the `internal/gojaspike/` file pointer.)
 
 ## Technical Details
 - **Promise drain**: goja executes enqueued promise-reaction jobs as the current top-level `RunString` call unwinds. Because the SQLite records port is synchronous, an `await records.list()` chain settles fully within that single job — so after `RunString` returns, the returned `*goja.Promise` is already `Fulfilled`. `awaitCall` asserts this rather than assuming it (fails loudly on `Pending`).
