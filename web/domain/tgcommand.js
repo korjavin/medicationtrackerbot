@@ -17,15 +17,16 @@ const LOCAL_COMMANDS = new Set(['/start', '/help']);
 // Snooze default mirrors web/domain/medintake.js's DEFAULT_SNOOZE_MINUTES.
 // /food is natural-language logging: the relay still seals the raw text
 // verbatim and the AI parse runs client-side at drain time (bd med-eas.29.4).
-const KNOWN = new Set(['/bp', '/weight', '/note', '/intake', '/food']);
+// /workout logs a completed ad-hoc workout for today through the shared workout
+// domain — the "I did a workout" log, mirroring how /bp logs a reading. It does
+// NOT reproduce bot mode's stateful button conversation (bd med-eas.29.5).
+const KNOWN = new Set(['/bp', '/weight', '/note', '/intake', '/food', '/workout']);
 
 // Commands that exist in bot mode but whose cloud write path is not built yet.
 // Naming them explicitly gives the user "not yet" instead of "I don't
 // understand", which is a materially different message when they are copying a
-// command that demonstrably works in the other deployment. /workout stays here:
-// bot mode drives it as a stateful button conversation, which the fire-and-
-// forget seal-and-drain model has no equivalent for (bd med-eas.29.4).
-const NOT_YET = new Set(['/workout', '/activity', '/week', '/log', '/next', '/stock', '/bpstats', '/bpgoal', '/goal', '/tz']);
+// command that demonstrably works in the other deployment.
+const NOT_YET = new Set(['/activity', '/week', '/log', '/next', '/stock', '/bpstats', '/bpgoal', '/goal', '/tz']);
 
 // commandToken returns the normalized leading command of a message ("/bp"), or
 // "" when the text is not a command. Telegram appends "@botname" in groups.
@@ -91,6 +92,15 @@ function parseFood(text) {
   return { kind: 'food', command: '/food', text: description };
 }
 
+// parseWorkout logs a completed ad-hoc workout for today. The remainder is an
+// optional free-text label ("legs"); a bare /workout is valid and means "I did
+// a workout" with no name. The name is applied on an unlocked client, never on
+// the relay — same seal-and-drain contract as every other command.
+function parseWorkout(text) {
+  const name = text.trim().slice(commandToken(text).length).trim();
+  return { kind: 'workout', command: '/workout', name };
+}
+
 function inRange(n, lo, hi) {
   return Number.isFinite(n) && n >= lo && n <= hi;
 }
@@ -111,6 +121,7 @@ export function parseCommand(text) {
     case '/weight': return parseWeight(text);
     case '/note': return parseNote(text);
     case '/food': return parseFood(text);
+    case '/workout': return parseWorkout(text);
     case '/intake': return { kind: 'intake' };
     default: return { kind: 'unknown', command };
   }

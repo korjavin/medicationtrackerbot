@@ -772,7 +772,12 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // group/variant, already in_progress, started_at=now. The HTTP handler
   // wraps this in `{session, group_name: "Ad-hoc Workout", variant_name: ""}`
   // — that wrapping is shim glue (Task 6), not a domain concern.
-  async function createAdHocSession() {
+  //
+  // Optional recordId/notes support the Telegram /workout drain (bd med-eas.29.5):
+  // a deterministic recordId (tg-<eventId>) makes a re-drain overwrite the same
+  // session instead of logging a second workout — the same idempotency the /bp
+  // command path relies on — and notes carries the optional workout label.
+  async function createAdHocSession({ recordId, notes } = {}) {
     const nowMs = now();
     // At most one active session at a time: resume an existing active-today
     // session instead of minting a duplicate. Mirrors service.go's
@@ -787,7 +792,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       return toSessionResponse(activeToday[0]);
     }
     const record = {
-      recordId: genRecordId('session', nowMs),
+      recordId: recordId || genRecordId('session', nowMs),
       clientTs: nowMs,
       deleted: false,
       id: mintNumericId(await records.list(WORKOUT_RECORD_TYPES.SESSION), nowMs),
@@ -802,7 +807,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       snoozed_until: null,
       snooze_count: 0,
       notification_message_id: null,
-      notes: '',
+      notes: notes || '',
     };
     await records.put(WORKOUT_RECORD_TYPES.SESSION, record);
     return toSessionResponse(record);

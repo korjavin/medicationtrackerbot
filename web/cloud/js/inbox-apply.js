@@ -28,6 +28,7 @@ import { createSettingsDomain } from '../../domain/settings.js';
 import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
 import { createVitalsDomain } from '../../domain/vitals.js';
+import { createWorkoutDomain } from '../../domain/workout.js';
 import { parseCommand } from '../../domain/tgcommand.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
@@ -202,6 +203,8 @@ function confirmationText(intent, result, verbosity) {
       if (!n) return 'ℹ️ Nothing was due — no medications to confirm.';
       return `✅ Confirmed ${n} medication${n === 1 ? '' : 's'}.`;
     }
+    case 'workout':
+      return intent.name ? `✅ Logged workout: ${intent.name}.` : '✅ Workout logged.';
     default:
       return '✅ Recorded.';
   }
@@ -228,7 +231,7 @@ function refusalText(intent) {
 // and ack must overwrite the same record, not append a second one — so the id
 // is derived from the mailbox event, which is stable across retries. The intake
 // path needs no id: its own PENDING check is the idempotency guard.
-export async function applyTGCommand(event, eventId, { bp, weight, notes, intake, foodAI, records, verbosity = 'detailed', now = Date.now, editReply = editTelegramReply }) {
+export async function applyTGCommand(event, eventId, { bp, weight, notes, intake, foodAI, workout, records, verbosity = 'detailed', now = Date.now, editReply = editTelegramReply }) {
   // The receipt is cosmetic; the record is not. A Telegram outage must never
   // strand an event that already reached the vault, so the edit can never
   // reject out of here — not even an injected one.
@@ -280,6 +283,18 @@ export async function applyTGCommand(event, eventId, { bp, weight, notes, intake
     case 'intake':
       result = await confirmDueIntakes({ intake, records, atMs: event.at_unix * 1000, now });
       break;
+    case 'workout': {
+      // "I did a workout" log: create a completed ad-hoc session through the
+      // shared workout domain — the same path the app's ad-hoc button uses, so
+      // there is one implementation of what logging a workout means. The
+      // deterministic recordId keeps a re-drain overwriting the same session
+      // instead of appending a second workout (drain idempotency, like /bp).
+      // The domain is built on the arrival clock (see createInboxApplier), so
+      // the session lands on the day the message was sent (drain rule 4).
+      const session = await workout.createAdHocSession({ recordId, notes: intent.name });
+      await workout.setSessionStatus(session.id, 'completed');
+      break;
+    }
     default:
       // Nothing to write — but the user still gets an answer. The event is
       // acked either way; re-queuing a message we will never understand would
@@ -485,12 +500,18 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     if (event.kind === TG_COMMAND) {
       const reminders = createRemindersDomain({ records, now });
       const { verbosity } = await reminders.getDeliveryPref();
+      // The workout domain stamps its ad-hoc session from its own clock, so
+      // build it on the arrival time (drain rule 4) — a /workout texted at 11pm
+      // and drained after midnight still lands on the day it was sent, matching
+      // how /bp backdates via atIso.
+      const arrivalMs = event.at_unix * 1000;
       await applyTGCommand(event, eventId, {
         bp: createBPDomain({ records, now, timeZone }),
         weight: createWeightDomain({ records, now, timeZone }),
         notes: createNotesDomain({ records, now }),
         intake,
         foodAI,
+        workout: createWorkoutDomain({ records, now: () => arrivalMs, timeZone }),
         records,
         verbosity,
         now,

@@ -1106,14 +1106,13 @@ func TestChildWebhook_CallbackQueryRedeliveryQueuesAgainAndStays200(t *testing.T
 // empty until the user's first /start (setMyCommands lived inside that branch).
 // TestHelpAdvertisesSupportedChatCommands pins that /help lists /food (a real
 // chat command since bd med-eas.29.4 — sealed by the relay, AI-parsed on an
-// unlocked client) but NOT /workout, which stays app-only because its bot-mode
-// button conversation has no seal-and-drain equivalent.
+// unlocked client) and /workout (bd med-eas.29.5 — a structured "I did a
+// workout" log applied through the shared workout domain at drain time).
 func TestHelpAdvertisesSupportedChatCommands(t *testing.T) {
-	if !strings.Contains(helpMessage, "/food") {
-		t.Errorf("helpMessage should advertise /food, a supported chat command: %q", helpMessage)
-	}
-	if strings.Contains(helpMessage, "/workout") {
-		t.Errorf("helpMessage advertises /workout, but it is not a chat command")
+	for _, cmd := range []string{"/food", "/workout"} {
+		if !strings.Contains(helpMessage, cmd) {
+			t.Errorf("helpMessage should advertise %s, a supported chat command: %q", cmd, helpMessage)
+		}
 	}
 }
 
