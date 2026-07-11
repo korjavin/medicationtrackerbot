@@ -15,6 +15,7 @@ import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
 import { createWorkoutDomain } from '../../domain/workout.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
+import { createGamificationNarrator } from './gamification-narrator.js';
 import { recordsPort, ORIGIN_UI, ORIGIN_EXTERNAL } from './sync.js';
 import { scheduleReminderRecompute, sendTestPush } from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
@@ -128,11 +129,18 @@ export function createApiRouter(ctx, {
   const food = createFoodDomain({
     records, now, timeZone, foodDb,
   });
-  const foodAI = createFoodAIDomain({
-    aiClient: createAIClient({ settingsDomain: settings }), foodDomain: food, now,
-  });
+  // One aiClient (BYO-key, reads the vault's unmasked openai record) shared by
+  // food AI and the gamification narrator — both send device → the user's own
+  // provider, never through /api.
+  const aiClient = createAIClient({ settingsDomain: settings });
+  const foodAI = createFoodAIDomain({ aiClient, foodDomain: food, now });
   const workout = createWorkoutDomain({ records, now, timeZone });
   const gamification = createGamificationDomain({ records, now, timeZone });
+  // Phase 6 AI narration layer — prose OVER the deterministic engine. Gets the
+  // computed stats-JSON only (assembled below from the domain read-models) and
+  // returns prose; any no-key/error path returns { text: null } so every
+  // narrate route degrades to the deterministic card journey.js already shows.
+  const narrator = createGamificationNarrator({ aiClient });
 
   // PORTED_SET: the feature domains this shim can actually serve end-to-end
   // (records + domain module + shim routes wired). Clamped onto every read
@@ -696,6 +704,35 @@ export function createApiRouter(ctx, {
       || path === '/api/gamification/weekly-review'
     )) {
       return { enabled: false };
+    }
+
+    // AI narration (Phase 6) — OPT-IN, BYO-key prose OVER the deterministic
+    // engine. GET /narrate is a cheap capability probe (NO LLM call) so the
+    // Journey narrator card only mounts in cloud mode; bot mode 404s it and the
+    // card is omitted. The POST routes compute the deterministic stats-JSON
+    // HERE from the domain read-models (never the client) and hand only those
+    // already-computed summaries to the user's own provider via the narrator —
+    // raw vault records never cross the boundary. No key / any provider error
+    // returns { text: null } and journey.js keeps its deterministic cards.
+    if (path === '/api/gamification/narrate' && method === 'GET') return { enabled: true };
+    if (path === '/api/gamification/narrate/weekly' && method === 'POST') {
+      const [atlas, forecast, experiments, chapter, traits, keystones] = await Promise.all([
+        gamification.getAtlas(), gamification.getForecast(), gamification.listExperiments(),
+        gamification.getChapter(), gamification.getTraits(), gamification.getKeystones(),
+      ]);
+      return narrator.narrateWeekly({ atlas, forecast, experiments, chapter, traits, keystones });
+    }
+    if (path === '/api/gamification/narrate/chapter' && method === 'POST') {
+      return narrator.narrateChapter(await gamification.getChapter());
+    }
+    if (path === '/api/gamification/narrate/experiments' && method === 'POST') {
+      const [experiments, atlas] = await Promise.all([
+        gamification.listExperiments(), gamification.getAtlas(),
+      ]);
+      return narrator.suggestExperiments({ experiments, atlas });
+    }
+    if (path === '/api/gamification/narrate/workout' && method === 'POST') {
+      return narrator.narrateWorkout(await workout.getStats());
     }
 
     if (path === '/api/bp/reminder/toggle' && method === 'POST') {

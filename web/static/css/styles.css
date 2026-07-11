@@ -6003,6 +6003,48 @@ textarea.wg-input {
     font-size: var(--font-size-xs);
 }
 
+/* AI narration (gamification redesign Phase 6). Opt-in, BYO-key prose that
+   sits OVER the deterministic cards — the attributed block is visually
+   distinct so it can never be mistaken for a computed value. */
+.wg-journey-narrator__note {
+    font-size: var(--font-size-xs);
+    margin-bottom: var(--space-sm);
+}
+
+.wg-journey-narrator__buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+
+.wg-journey-narrator__out:not(:empty) {
+    margin-top: var(--space-sm);
+}
+
+.wg-journey-narrator__status {
+    font-size: var(--font-size-xs);
+}
+
+.wg-journey-narrator__prose {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+    border-left: 2px solid var(--wg-mint);
+    background: var(--wg-bg-card-inset);
+    border-radius: var(--radius-sm);
+}
+
+.wg-journey-narrator__attr {
+    align-self: flex-start;
+    color: var(--wg-mint);
+}
+
+.wg-journey-narrator__text {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
+}
+
 .wg-journey-empty {
     padding: var(--space-lg) var(--space-xs);
     text-align: center;
