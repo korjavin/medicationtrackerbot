@@ -23,8 +23,9 @@ describe('cloud shim contract — unmapped-route fallback', () => {
     });
 
     it('rejects an unmapped write instead of resolving null', async () => {
-        // /api/bp/reminder/test used to live here; med-9b8.3 mapped it.
-        await expect(env.window.offlineAwareApiCall('/api/gamification/targets', 'PUT'))
+        // /api/bp/reminder/test lived here (med-9b8.3), then
+        // /api/gamification/targets (med-eyb mapped it). Use a plainly-unmapped route.
+        await expect(env.window.offlineAwareApiCall('/api/unmapped-write', 'PUT'))
             .rejects.toMatchObject({ status: 404 });
     });
 
@@ -34,9 +35,9 @@ describe('cloud shim contract — unmapped-route fallback', () => {
     });
 
     it('still warns once about the unmapped route (C2 discovery aid)', async () => {
-        await env.window.offlineAwareApiCall('/api/gamification/targets', 'PUT').catch(() => {});
+        await env.window.offlineAwareApiCall('/api/unmapped-write', 'PUT').catch(() => {});
         expect(console.warn).toHaveBeenCalledWith(
-            expect.stringContaining('unmapped route (C2 discovery): PUT /api/gamification/targets'),
+            expect.stringContaining('unmapped route (C2 discovery): PUT /api/unmapped-write'),
         );
     });
 });
