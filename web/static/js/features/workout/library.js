@@ -315,15 +315,13 @@ async function ensureExerciseCatalogSuggestions(datalist) {
 // Shared add-exercise picker (med-prk.3): fill a <datalist> from the user's
 // library (value=name + autofill dataset incl. library id) plus canonical
 // catalog names, so plan-editing (exercises.js) and in-session add
-// (sessions.js) search one surface. Sets both `repsMin`/`repsMax` and the
-// single `reps` dataset key so either call site's autofill reads what it needs.
-// Returns the library items so callers can look up by id/name.
+// (sessions.js) search one surface. The session modal's single reps input
+// reads `repsMin` too, so one convention serves both call sites.
 async function populatePickerOptions(datalist) {
-    if (!datalist) return [];
+    if (!datalist) return;
     datalist.replaceChildren();
-    let items = [];
     try {
-        items = await apiCall('/api/workout/exercise-library') || [];
+        const items = await apiCall('/api/workout/exercise-library') || [];
         items.forEach(item => {
             const option = document.createElement('option');
             option.value = item.name;
@@ -331,7 +329,6 @@ async function populatePickerOptions(datalist) {
             option.dataset.sets = item.default_sets || '';
             option.dataset.repsMin = item.default_reps_min || '';
             option.dataset.repsMax = item.default_reps_max || '';
-            option.dataset.reps = item.default_reps_min || '';
             option.dataset.weight = item.default_weight_kg || '';
             datalist.appendChild(option);
         });
@@ -340,7 +337,6 @@ async function populatePickerOptions(datalist) {
     }
     // User-library options (with autofill dataset) win over bare catalog names.
     await ensureExerciseCatalogSuggestions(datalist);
-    return items;
 }
 
 // Create-new half of the shared picker: resolve a typed name to a library

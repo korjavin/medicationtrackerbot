@@ -859,7 +859,7 @@ function onSessionExerciseSelect() {
         if (!document.getElementById('session-add-exercise-sets').value)
             document.getElementById('session-add-exercise-sets').value = option.dataset.sets;
         if (!document.getElementById('session-add-exercise-reps').value)
-            document.getElementById('session-add-exercise-reps').value = option.dataset.reps;
+            document.getElementById('session-add-exercise-reps').value = option.dataset.repsMin;
         if (!document.getElementById('session-add-exercise-weight').value && option.dataset.weight)
             document.getElementById('session-add-exercise-weight').value = option.dataset.weight;
     } else {
