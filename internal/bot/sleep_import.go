@@ -12,15 +12,15 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/korjavin/medicationtrackerbot/internal/domain"
 	gamificationsvc "github.com/korjavin/medicationtrackerbot/internal/domain/gamification"
+	"github.com/korjavin/medicationtrackerbot/internal/domain/nxk"
 	"github.com/korjavin/medicationtrackerbot/internal/store"
 )
 
 func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 	slog.Info("Document upload received", "fileName", msg.Document.FileName, "size", msg.Document.FileSize)
 
-	if err := domain.ValidateImportFile(msg.Document.FileName, int64(msg.Document.FileSize)); err != nil {
+	if err := nxk.ValidateImportFile(msg.Document.FileName, int64(msg.Document.FileSize)); err != nil {
 		slog.Warn("Import file validation failed", "error", err)
 		if _, err := b.api.Send(tgbotapi.NewMessage(msg.Chat.ID, "⚠️ "+err.Error())); err != nil {
 			slog.Error("send failed", "error", err)
@@ -119,7 +119,7 @@ func (b *Bot) handleDocumentUpload(msg *tgbotapi.Message) {
 func (b *Bot) importSleepFile(filePath string) (int, int, error) {
 	slog.Info("Starting sleep import from file", "path", filePath)
 
-	dbPath, cleanup, err := domain.PrepareBackupDB(filePath)
+	dbPath, cleanup, err := nxk.PrepareBackupDB(filePath)
 	if err != nil {
 		slog.Error("Failed to prepare backup DB", "error", err)
 		return 0, 0, err
@@ -127,7 +127,7 @@ func (b *Bot) importSleepFile(filePath string) (int, int, error) {
 	defer cleanup()
 
 	// Parse SQLite database
-	domainSleepLogs, err := domain.ParseSleepDatabase(dbPath)
+	domainSleepLogs, err := nxk.ParseSleepDatabase(dbPath)
 	if err != nil {
 		slog.Error("Failed to parse sleep database", "error", err)
 		return 0, 0, err
@@ -163,7 +163,7 @@ func (b *Bot) importSleepFile(filePath string) (int, int, error) {
 	}
 
 	// Parse and import vitals
-	domainHeartLogs, err := domain.ParseHeartDatabase(dbPath)
+	domainHeartLogs, err := nxk.ParseHeartDatabase(dbPath)
 	if err != nil {
 		slog.Warn("Failed to parse heart database", "error", err)
 	}
@@ -172,7 +172,7 @@ func (b *Bot) importSleepFile(filePath string) (int, int, error) {
 		heartLogs[i] = store.VitalsHeartLog{DateTime: h.DateTime, TzOffset: h.TzOffset, Value: h.Value, Type: h.Type}
 	}
 
-	domainSpo2Logs, err := domain.ParseSpO2Database(dbPath)
+	domainSpo2Logs, err := nxk.ParseSpO2Database(dbPath)
 	if err != nil {
 		slog.Warn("Failed to parse spo2 database", "error", err)
 	}
@@ -181,7 +181,7 @@ func (b *Bot) importSleepFile(filePath string) (int, int, error) {
 		spo2Logs[i] = store.VitalsSpO2Log{DateTime: s.DateTime, TzOffset: s.TzOffset, Value: s.Value, Type: s.Type}
 	}
 
-	domainStressLogs, err := domain.ParseStressDatabase(dbPath)
+	domainStressLogs, err := nxk.ParseStressDatabase(dbPath)
 	if err != nil {
 		slog.Warn("Failed to parse stress database", "error", err)
 	}
@@ -198,7 +198,7 @@ func (b *Bot) importSleepFile(filePath string) (int, int, error) {
 	}
 
 	// Parse and import day stats
-	domainDayStats, err := domain.ParseDayDatabase(dbPath)
+	domainDayStats, err := nxk.ParseDayDatabase(dbPath)
 	if err != nil {
 		slog.Warn("Failed to parse day database", "error", err)
 	}
@@ -215,7 +215,7 @@ func (b *Bot) importSleepFile(filePath string) (int, int, error) {
 	}
 
 	// Parse and import Mi Band outdoor workouts
-	domainWorkouts, domainGPS, err := domain.ParseOutdoorWorkouts(dbPath)
+	domainWorkouts, domainGPS, err := nxk.ParseOutdoorWorkouts(dbPath)
 	if err != nil {
 		slog.Warn("Failed to parse outdoor workouts", "error", err)
 	}

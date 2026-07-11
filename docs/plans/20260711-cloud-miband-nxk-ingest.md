@@ -73,12 +73,14 @@ Dependencies identified: none new. Reuses inbox key, seal crypto, drain, existin
 
 ### Task 1: Server-side NXK parse→events helper (no GPS)
 
-- [ ] add `internal/cloudserver/vitals_import.go` with a pure helper, e.g. `parseNXKToVitalsEvents(nxkPath string) ([]inboxEvent, error)`, that reuses `domain.PrepareBackupDB` + `domain.Parse{Sleep,Heart,SpO2,Stress,Day}Database` + `domain.ParseOutdoorWorkouts` (mirror `internal/bot/sleep_import.go:importSleepFile`).
-- [ ] map parsed rows into the sealed event payload matching the vault wire shapes (`internal/server/health_handlers.go` + `internal/store/vitals/repo.go` field names): `sleep[]`, `hr[]`, `spo2[]`, `stress[]`, `daystats[]`, `workouts[]`.
-- [ ] **drop GPS**: call `ParseOutdoorWorkouts` but discard the `gps` return; never include GPS points in the payload.
-- [ ] pick the sealed-event shape: one event `{kind:"vitals_import", ...streams..., at_unix}` per import (simplest, one atomic import); include a stable `import` grouping so the applier can derive deterministic per-sample ids. `// ponytail:` note the ceiling — a very large 90-day NXK seals as one big ct blob; chunk per-stream only if a real size limit is hit.
-- [ ] validate the file first with `domain.ValidateImportFile` (`.nxk`/`.sqlite`, 100MB cap) before parsing.
-- [ ] integration test: feed the existing fixture `.nxk` (borrow from `internal/domain/sleepimport_test.go` / `internal/bot/sleep_import_test.go`), assert the mapped events contain sleep/hr/spo2/stress/daystats/workout data and contain **no GPS**.
+- [x] add `internal/cloudserver/vitals_import.go` with a pure helper `parseNXKToVitalsEvents(nxkPath string) ([]vitalsImportEvent, error)`, that reuses the NXK parsers (`PrepareBackupDB` + `Parse{Sleep,Heart,SpO2,Stress,Day}Database` + `ParseOutdoorWorkouts`) (mirror `internal/bot/sleep_import.go:importSleepFile`).
+- [x] map parsed rows into the sealed event payload matching the vault wire shapes (`internal/server/health_handlers.go` + `internal/store/vitals/repo.go` field names): `sleep[]`, `hr[]`, `spo2[]`, `stress[]`, `daystats[]`, `workouts[]`.
+- [x] **drop GPS**: call `ParseOutdoorWorkouts` but discard the `gps` return; never include GPS points in the payload.
+- [x] pick the sealed-event shape: one event `{kind:"vitals_import", ...streams..., at_unix}` per import (simplest, one atomic import); include a stable `import` grouping (content hash) so the applier can derive deterministic per-sample ids. `// ponytail:` note the ceiling — a very large 90-day NXK seals as one big ct blob; chunk per-stream only if a real size limit is hit.
+- [x] validate the file first with `ValidateImportFile` (`.nxk`/`.sqlite`, 100MB cap) before parsing.
+- [x] integration test: build a full backup.db → `.nxk` fixture (schemas borrowed from `nxk` parser tests), assert the mapped events contain sleep/hr/spo2/stress/daystats/workout data and contain **no GPS** (asserted on wire JSON); also assert the import id is deterministic.
+
+⚠️ **Scope change (goose-registry landmine):** `internal/cloudserver` importing `internal/domain` transitively linked `internal/store/migrations`, whose `init()` registers go-migration 068 into the *global* goose registry — which then ran against `cmd/cloud`'s cloudstore schema and failed (`no such table: tz_transition_steps`). Same landmine `internal/cloudstore` avoids by never importing `internal/store`. Fix: the self-contained NXK parsers (the whole of `sleepimport.go` — types, `ValidateImportFile`, `PrepareBackupDB`/`ExtractBackupDB`, `Parse*Database`, `ParseOutdoorWorkouts`; stdlib + `modernc.org/sqlite` only) were extracted into a new **leaf package `internal/domain/nxk`** (moved `sleepimport.go`→`nxk/nxk.go`, plus its two test files). `internal/bot/sleep_import.go` now calls `nxk.*`; `internal/cloudserver` imports `internal/domain/nxk` (no store, no migrations). Later tasks reference `nxk.*`, not `domain.*`, for these symbols.
 
 ### Task 2: Session-gated HTTP upload endpoint
 
