@@ -427,17 +427,14 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
       // replay-on-failed-flush is a no-op — no per-event marker needed. The
       // server already sent any user-facing ack (bot path), so there is no reply.
       const vitals = createVitalsDomain({ records, now, timeZone });
-      await vitals.importSamples(
-        {
-          sleep: event.sleep,
-          hr: event.hr,
-          spo2: event.spo2,
-          stress: event.stress,
-          daystats: event.daystats,
-          workouts: event.workouts,
-        },
-        { importId: event.import || eventId },
-      );
+      await vitals.importSamples({
+        sleep: event.sleep,
+        hr: event.hr,
+        spo2: event.spo2,
+        stress: event.stress,
+        daystats: event.daystats,
+        workouts: event.workouts,
+      });
       return;
     }
     if (event.kind === TG_COMMAND) {

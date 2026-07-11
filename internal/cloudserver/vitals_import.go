@@ -1,9 +1,7 @@
 package cloudserver
 
 import (
-	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"log/slog"
 	"os"
 	"time"
@@ -24,7 +22,6 @@ const inboxEventKindVitalsImport = "vitals_import"
 // with no translation layer.
 type vitalsImportEvent struct {
 	Kind     string              `json:"kind"`
-	Import   string              `json:"import"` // stable grouping id (content hash) — deterministic per file
 	AtUnix   int64               `json:"at_unix"`
 	Sleep    []vitalsSleepWire   `json:"sleep,omitempty"`
 	HR       []vitalsSampleWire  `json:"hr,omitempty"`
@@ -185,17 +182,5 @@ func parseNXKToVitalsEvents(nxkPath string) ([]vitalsImportEvent, error) {
 		return nil, fmt.Errorf("no vitals data found in backup")
 	}
 
-	// Stable grouping id: a content hash of the streams, so re-parsing the same
-	// file yields the same import id (deterministic, no clock/random needed).
-	ev.Import = vitalsImportID(ev)
 	return []vitalsImportEvent{ev}, nil
-}
-
-// vitalsImportID hashes the mapped streams (AtUnix/Import excluded — they are
-// zero at call time) into a short stable id.
-func vitalsImportID(ev vitalsImportEvent) string {
-	b, _ := json.Marshal(ev)
-	h := fnv.New64a()
-	_, _ = h.Write(b)
-	return fmt.Sprintf("nxk-%016x", h.Sum64())
 }

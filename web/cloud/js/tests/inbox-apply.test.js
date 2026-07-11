@@ -217,7 +217,6 @@ describe('inbox-apply.js — a server-parsed NXK vitals_import', () => {
     function vitalsEvent() {
         return {
             kind: VITALS_IMPORT,
-            import: 'nxk-deadbeef',
             at_unix: SLOT_UNIX,
             sleep: [{
                 start_time: SLEEP_START, end_time: SLEEP_END, timezone_offset: 0,

@@ -319,14 +319,13 @@ export function createVitalsDomain({ records, now, timeZone }) {
   //   hr/spo2/stress — day-batched, samples merged by instant (importDayBatched)
   //   workouts  — recordId 'miband-<source_start_ms>' (no GPS; the wire never
   //               carries it — locked scope decision)
-  // importId (the server's content-hash grouping) is accepted for parity with
-  // the sealed event; the natural keys already make every write idempotent, so
-  // no separate once-marker is needed (unlike the free-text agent path).
+  // The natural keys already make every write idempotent, so no separate
+  // once-marker is needed (unlike the free-text agent path).
   // ponytail: no marker — natural keys converge; add one only if a stream ever
   // gains non-deterministic write ids.
   async function importSamples({
     sleep: sleepLogs = [], hr = [], spo2 = [], stress = [], daystats = [], workouts = [],
-  } = {}, { importId } = {}) { // eslint-disable-line no-unused-vars
+  } = {}) {
     for (const s of sleepLogs) {
       if (!s || !s.start_time) continue;
       const startMs = Date.parse(s.start_time);

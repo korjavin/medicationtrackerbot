@@ -115,9 +115,6 @@ func TestParseNXKToVitalsEvents(t *testing.T) {
 	if ev.Kind != inboxEventKindVitalsImport {
 		t.Errorf("kind = %q, want %q", ev.Kind, inboxEventKindVitalsImport)
 	}
-	if ev.Import == "" {
-		t.Error("import grouping id is empty")
-	}
 	if len(ev.Sleep) != 1 {
 		t.Errorf("sleep = %d, want 1", len(ev.Sleep))
 	}
@@ -147,15 +144,6 @@ func TestParseNXKToVitalsEvents(t *testing.T) {
 		if strings.Contains(string(blob), banned) {
 			t.Errorf("sealed payload leaks GPS token %q: %s", banned, blob)
 		}
-	}
-
-	// Deterministic import id: re-parsing the same file yields the same grouping.
-	again, err := parseNXKToVitalsEvents(nxkPath)
-	if err != nil {
-		t.Fatalf("re-parse: %v", err)
-	}
-	if again[0].Import != ev.Import {
-		t.Errorf("import id not deterministic: %q vs %q", again[0].Import, ev.Import)
 	}
 }
 
@@ -205,8 +193,8 @@ func TestChildWebhook_NXKDocumentSealsVitalsToMailbox(t *testing.T) {
 	if err := json.Unmarshal(opened, &got); err != nil {
 		t.Fatalf("unmarshal sealed event: %v", err)
 	}
-	if got.Kind != inboxEventKindVitalsImport || got.Import == "" {
-		t.Fatalf("sealed event kind/import = %q/%q", got.Kind, got.Import)
+	if got.Kind != inboxEventKindVitalsImport {
+		t.Fatalf("sealed event kind = %q", got.Kind)
 	}
 	if len(got.Sleep) == 0 || len(got.HR) == 0 || len(got.SpO2) == 0 ||
 		len(got.Stress) == 0 || len(got.DayStats) == 0 || len(got.Workouts) == 0 {
