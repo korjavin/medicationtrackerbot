@@ -195,6 +195,10 @@ async function showAddExerciseModal() {
         console.error('Error loading exercise library for autocomplete:', error);
     }
 
+    // Also surface canonical catalog names (med-s5m.2), deduped against the
+    // user's library options above so their autofill dataset wins.
+    await window.WorkoutLibrary.ensureCatalogSuggestions(datalist);
+
     // Add change handler to pre-fill defaults from library
     const nameInput = document.getElementById('workout-exercise-name');
     nameInput.onchange = function () {
