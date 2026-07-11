@@ -57,6 +57,20 @@ func (a *VitalsImportAPI) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Preflight the inbox key BEFORE reading the body — with no published key we
+	// have nothing to seal to, so parsing would write the plaintext .nxk to temp
+	// only to drop it. Refuse up front (mirrors the Telegram sealNXKDocument
+	// check) so no plaintext ever hits disk. A key deleted between here and the
+	// seal below is still caught by the ErrNoInboxKey branch.
+	if pub, err := a.store.AccountInboxPublicKey(r.Context(), session.AccountID); err != nil {
+		slog.Error("vitals import: read inbox key", "accountID", session.AccountID, "error", err)
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	} else if len(pub) == 0 {
+		http.Error(w, "unlock the app on a device first to publish an inbox key", http.StatusPreconditionFailed)
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxNXKUploadBytes)
 	file, header, err := r.FormFile("file")
 	if err != nil {
