@@ -81,8 +81,8 @@ Closes med-spp as a byproduct (the Exercises tab / library becomes the canonical
 - [x] verify the dedupe + rename acceptance criteria from Overview are satisfied by the Task 6 test (Go `TestExerciseLibraryReference_CreateDedupeRename` + shim `cloud.shim-contract.workout-crud.test.js` both green)
 
 ### Task 9: [Final] Update docs
-- [ ] note the new reference model in `docs/features.md` (workouts) if it documents the exercise/library relationship
-- [ ] leave a one-line pointer that med-spp is closed by this change
+- [x] note the new reference model in `docs/features.md` (workouts) if it documents the exercise/library relationship
+- [x] leave a one-line pointer that med-spp is closed by this change
 
 ## Technical Details
 - Name resolution SQL (read): `SELECT we.id, we.variant_id, COALESCE(el.name, we.exercise_name) AS exercise_name, we.target_sets, we.target_reps_min, we.target_reps_max, we.target_weight_kg, we.order_index, we.exercise_library_id FROM workout_exercises we LEFT JOIN exercise_library el ON el.id = we.exercise_library_id WHERE we.variant_id = ? ORDER BY we.order_index ASC`.
