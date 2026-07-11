@@ -75,11 +75,12 @@ The maintainer's blocker list **is the acceptance criteria** — every item must
 - [x] Confirm the drain mechanism is correct for goja's job queue (goja runs enqueued promise reactions as the top-level call unwinds; if a manual pump is needed, do it explicitly and comment why) — prove it by a first assertion that a create call's promise is `Fulfilled`, never `Pending`. (`TestDrainIsDeterministic` in `harness_test.go` asserts Fulfilled + computed category.)
 
 ### Task 3: BP parity test (JS-via-goja vs internal/store/bp)
-- [ ] Create `internal/gojaspike/bp_parity_test.go`. Set up both sides with a **fixed** `now` (e.g. `2026-07-01T12:00:00Z`) and fixed `timeZone` (`America/New_York`); Go side via `internal/store/db.Open(":memory:")` + `bp.New`.
-- [ ] Category parity: for a table of (systolic,diastolic) fixtures, assert JS `calculateBPCategory` output (via a domain create) equals Go `bp.CalculateBPCategory` exactly across all buckets.
-- [ ] Create+list parity: put an identical sequence of readings through both the JS domain (`domain.create` then `domain.list`) and the Go store (`CreateReading` then `ListReadings`); assert the JS response objects match the Go readings field-by-field (category, ordering, values).
-- [ ] Stats parity: drive a multi-day fixture through JS `domain.stats` and Go `GetDailyWeightedStats`; assert the daily-weighted aggregates match.
-- [ ] All assertions use `awaitCall` from Task 2; every setup error `t.Fatalf`s. No `t.Logf`-only outcome anywhere.
+- [x] Create `internal/gojaspike/bp_parity_test.go`. Set up both sides with a **fixed** `now` (shared `fixedNowMs`/`fixedTZ` = America/New_York); Go side via `internal/store/db.Open(":memory:")` + migrations + `bp.New`, clock pinned via `SetClock`.
+- [x] Category parity: for a table of (systolic,diastolic) fixtures, assert JS `calculateBPCategory` output (via a domain create) equals Go `bp.CalculateBPCategory` exactly across all buckets.
+- [x] Create+list parity: put an identical sequence of readings through both the JS domain (`domain.create` then `domain.list`) and the Go store (`CreateReading` then `ListReadings`); assert the JS response objects match the Go readings field-by-field (category, ordering, values, pulse/notes/tag/ignore_calc).
+- [x] Stats parity: drive a multi-day fixture through JS `domain.getStats` and Go `GetDailyWeightedStats`; assert the daily-weighted aggregates match (14/30/60).
+- [x] All assertions use `awaitCall` from Task 2; every setup error `t.Fatalf`s. No `t.Logf`-only outcome anywhere.
+- ⚠️ CAVEAT (feeds Task 6): goja has **no `Intl`** (`Intl is not defined`). bp.js/weight.js use `Intl.DateTimeFormat(...).formatToParts` only for tz day-boundary math. The harness (`injectIntlShim` in `harness.go`) installs a minimal `Intl` shim backed by Go's `time` package — the same tz DB the native store uses — so `web/domain/*.js` still runs unmodified. This is an environment shim, not a module change.
 
 ### Task 4: Weight parity test (JS-via-goja vs internal/store/weight)
 - [ ] Create `internal/gojaspike/weight_parity_test.go` with the same fixed-clock/fixed-tz setup, Go side via `weight.New`.
