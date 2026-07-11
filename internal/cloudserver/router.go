@@ -21,9 +21,11 @@ import (
 )
 
 // accountStore is the subset of *cloudstore.Repo the router needs to resolve
-// a subdomain to an account.
+// a subdomain to an account and read its egress-host allowlist (for the app
+// document's scoped connect-src).
 type accountStore interface {
 	AccountBySubdomain(ctx context.Context, subdomain string) (*cloudstore.Account, error)
+	EgressHosts(ctx context.Context, accountID string) ([]string, error)
 }
 
 // Handler routes requests by Host: the exact base domain gets the static
@@ -132,20 +134,27 @@ func injectCloudBoot(idx []byte, foodDBURL string, trialAI, trialVoice bool, bui
 // zero third-party script as the real defense. Script/style/img/default stay
 // self-only (no inline script/style, WebAuthn isn't CSP-governed).
 //
-// accountApp relaxes connect-src to `'self' https:` for the per-account app
-// document + assets only: C2c food runs browser-direct calls to the user's own
-// AI provider (aiclient.js) and food-DB (fooddb.js), whose origins are
-// BYO/vault-secret and so unknowable server-side — a scoped allowlist is
-// impossible. This is an accepted weakening: the app document also holds the
-// in-memory DEK and decrypted records, so an on-origin XSS there can now POST
-// them to any https: origin (the strict 'self' policy previously blocked that
-// exfiltration path). Sandboxing the browser-direct provider calls into a
-// worker/iframe is the only way to restore 'self' on the DEK page — deferred.
-// The base-domain shell and the passkey ceremony pages (/unlock, /claim,
-// /recover, /devices, /connectors) make no cross-origin calls and keep
+// appDocument scopes connect-src to a per-account egress allowlist for the app
+// document ("/") only: 'self' + each provider host the account registered
+// (https://) + the fixed https://api.elevenlabs.io (+ wss:). C2c food runs
+// browser-direct calls to the user's own AI provider (aiclient.js) and food-DB
+// (fooddb.js); rather than a wildcard `https:` that lets an on-origin XSS POST
+// the in-memory DEK + decrypted records to ANY origin (rated catastrophic in
+// docs/cloud-crypto.md), the client registers its provider HOSTNAMES after
+// unlock (PUT /api/egress-hosts) and the server emits exactly those hosts here.
+// No document on the origin ever serves a wildcard-`https:` connect-src, so an
+// XSS spawning a same-origin child frame inherits this same scoped allowlist
+// and gains no new egress reach. HONEST RESIDUAL: an XSS can call the
+// registration endpoint to add an attacker host and then force a reload to pick
+// up the widened CSP — strictly harder than today's instant arbitrary-origin
+// exfil (needs persistence + a navigation), not a total close. Same-origin
+// fallbacks (trial AI /api/trial/*, operator-default food-db /api/food/*) are
+// 'self' and need no allowlist entry. The base-domain shell, the passkey
+// ceremony pages (/unlock, /claim, /recover, /devices, /connectors), and the
+// /static/* + /domain/* asset responses make no app-realm fetches and keep
 // connect-src 'self'.
 //
-// accountApp loads the @elevenlabs/client voice SDK as an ES module, but from
+// appDocument loads the @elevenlabs/client voice SDK as an ES module, but from
 // OUR OWN origin (/static/vendor/elevenlabs-client.min.js) — no third-party
 // script executes on the DEK-bearing page, so script-src keeps 'self' (bd
 // med-7e7.1). blob: and data: remain because the SDK builds its AudioWorklets
@@ -153,18 +162,18 @@ func injectCloudBoot(idx []byte, foodDBURL string, trialAI, trialVoice bool, bui
 // back worklet-src → worker-src → script-src. Those are same-origin-authored
 // blobs, not a foreign script host: an attacker who can mint a blob: script
 // already has script execution.
-func setSecurityHeaders(w http.ResponseWriter, accountApp bool) {
+//
+// wss://api.elevenlabs.io is listed explicitly: the voice SDK opens a wss:
+// socket, and relying on the CSP3 https:→wss: scheme-coercion match is fragile
+// across browsers (WebKit/iOS Safari has been inconsistent).
+func setSecurityHeaders(w http.ResponseWriter, appDocument bool, egressHosts []string) {
 	h := w.Header()
 	connectSrc := "connect-src 'self'"
 	scriptSrc := "script-src 'self'"
 	workerSrc := ""
 	mediaSrc := ""
-	if accountApp {
-		// wss: is listed explicitly: the @elevenlabs/client voice SDK opens a
-		// wss://api.elevenlabs.io socket, and relying on the CSP3 https:→wss:
-		// scheme-coercion match is fragile across browsers (WebKit/iOS Safari
-		// has been inconsistent). Bot mode (server.go) also enumerates wss:.
-		connectSrc = "connect-src 'self' https: wss:"
+	if appDocument {
+		connectSrc = buildConnectSrc(egressHosts)
 		scriptSrc = "script-src 'self' blob: data:"
 		workerSrc = "worker-src 'self' blob:; "
 		mediaSrc = "media-src 'self' blob:; "
@@ -176,9 +185,28 @@ func setSecurityHeaders(w http.ResponseWriter, accountApp bool) {
 	h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
 }
 
+// buildConnectSrc renders the app document's scoped connect-src directive:
+// 'self', each stored provider host as https://<host>, and the fixed
+// ElevenLabs voice host (https + wss). Hosts are already normalized/validated by
+// the egress endpoint; there is deliberately no bare `https:` or `wss:` token.
+func buildConnectSrc(hosts []string) string {
+	var b strings.Builder
+	b.WriteString("connect-src 'self'")
+	for _, host := range hosts {
+		b.WriteString(" https://")
+		b.WriteString(host)
+	}
+	b.WriteString(" https://api.elevenlabs.io wss://api.elevenlabs.io")
+	return b.String()
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host := stripPort(r.Host)
-	setSecurityHeaders(w, host != h.baseDomain && isAppPath(r.URL.Path))
+	// Strict connect-src 'self' by default. The app document ("/") overrides
+	// this with its per-account scoped egress allowlist below, once the account
+	// is resolved; every other path (shell, ceremony pages, /static/* + /domain/*
+	// assets, /api/*) keeps 'self'.
+	setSecurityHeaders(w, false, nil)
 	if host == h.baseDomain {
 		h.shell.ServeHTTP(w, r)
 		return
@@ -243,6 +271,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.shell.ServeHTTP(w, r)
 		return
 	case r.URL.Path == "/":
+		// The app document holds the in-memory DEK + decrypted records; scope its
+		// connect-src to this account's registered provider hosts (+ ElevenLabs).
+		// A read failure degrades to the fixed allowlist (still no bare https:),
+		// never to a wildcard.
+		hosts, err := h.store.EgressHosts(r.Context(), account.ID)
+		if err != nil {
+			slog.Error("cloudserver: read egress hosts", "error", err, "subdomain", sub)
+		}
+		setSecurityHeaders(w, true, hosts)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		w.Write(h.appIndex)
@@ -305,15 +342,6 @@ func withAccount(ctx context.Context, a *cloudstore.Account) context.Context {
 func AccountFromContext(ctx context.Context) (*cloudstore.Account, bool) {
 	a, ok := ctx.Value(accountCtxKey{}).(*cloudstore.Account)
 	return a, ok
-}
-
-// isAppPath reports whether p serves the per-account app document ("/") or its
-// same-origin assets ("/static/*", "/domain/*") — the only pages that make
-// browser-direct C2c food calls and so need the relaxed connect-src. Everything
-// else (the passkey ceremony pages, /api/*, shell fallbacks) keeps the strict
-// connect-src 'self' from setSecurityHeaders.
-func isAppPath(p string) bool {
-	return p == "/" || strings.HasPrefix(p, "/static/") || strings.HasPrefix(p, "/domain/")
 }
 
 // stripPort mirrors net/http's canonical host-header handling: dev requests

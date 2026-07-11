@@ -105,10 +105,10 @@ close. Also: the operator learns *which* provider hostname each account uses
 - +[x] implement the Task 1 storage that the prior "feat" commit never wrote (only edited the plan): migration `015_egress_hosts.sql` (JSON `egress_hosts` column on `accounts`) + `SetEgressHosts`/`EgressHosts` repo methods with normalize/dedupe. Task 2's endpoint depends on these.
 
 ### Task 3: Emit the per-account connect-src allowlist for the app document
-- [ ] in `router.go` `ServeHTTP`, ensure the account (and its egress hosts) is resolved before the CSP is set for the app *document* path(s); reuse the existing `AccountBySubdomain` resolution
-- [ ] build the app-document `connect-src` as `'self'` + each stored host as `https://<host>` + `https://api.elevenlabs.io wss://api.elevenlabs.io`; drop bare `https:` and bare `wss:`
-- [ ] keep `script-src 'self' blob: data:` + `worker-src`/`media-src blob:` on the app document (in-page voice SDK worklets); give `/static/*` and `/domain/*` responses `connect-src 'self'` (inert there) to avoid a per-asset account lookup
-- [ ] update the `setSecurityHeaders` comment: describe the egress-allowlist model and the honest residual (the current "sandboxing deferred" note is obsolete)
+- [x] in `router.go` `ServeHTTP`, ensure the account (and its egress hosts) is resolved before the CSP is set for the app *document* path(s); reuse the existing `AccountBySubdomain` resolution — the `/` branch now reads `EgressHosts(account.ID)` and overrides the strict default set early. `EgressHosts` added to the `accountStore` interface. An EgressHosts read error degrades to the fixed allowlist (never a wildcard).
+- [x] build the app-document `connect-src` as `'self'` + each stored host as `https://<host>` + `https://api.elevenlabs.io wss://api.elevenlabs.io`; drop bare `https:` and bare `wss:` (`buildConnectSrc`)
+- [x] keep `script-src 'self' blob: data:` + `worker-src`/`media-src blob:` on the app document (in-page voice SDK worklets); give `/static/*` and `/domain/*` responses `connect-src 'self'` (inert there) — early `setSecurityHeaders(w, false, nil)` is strict for everything, only `/` overrides. Removed now-unused `isAppPath`. Existing `TestRouter_HostVariants` cases updated to the new contract (Task 5 adds egress-host-specific cases).
+- [x] update the `setSecurityHeaders` comment: describe the egress-allowlist model and the honest residual (the current "sandboxing deferred" note is obsolete)
 
 ### Task 4: Client registers hostnames after unlock and on provider change
 - [ ] in `apishim.js` `installApiShim` (post-unlock), read `readIntegrationsUnmasked()`, extract hostnames from `openai.url` / `openai.vision_url` / `food.url` (hostname only — never keys), and `PUT /api/egress-hosts`
