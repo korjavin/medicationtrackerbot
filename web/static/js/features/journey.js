@@ -38,19 +38,6 @@
         { ring: 'nourishment', label: 'Nourishment', icon: 'apple', how: 'Log a meal' },
     ];
 
-    // Insight ladder rows for the MVP (InsightMaxTier=4). tier → unlock level
-    // mirrors scoring.InsightTierLevels {3,5,7} (tier 1 is always level 1);
-    // locked/unlocked state is derived from journey.unlocked_tiers, not from
-    // the level, so a backend curve change can't desync the lock state. All
-    // four tiers now have a real destination (gamification-13 closes the
-    // ladder) — a locked row just means "not reached yet", never "soon".
-    const LADDER = [
-        { tier: 1, level: 1, title: 'Rings & streak', desc: 'Daily rings, current streak, personal bests.' },
-        { tier: 2, level: 3, title: 'Trend charts', desc: 'Per-domain trends & 30/90-day baselines — you vs. your past.' },
-        { tier: 3, level: 5, title: 'Correlations', desc: 'Cross-domain links in your own data.' },
-        { tier: 4, level: 7, title: 'Your good-day model', desc: 'Which behaviours most predict your in-range days.' },
-    ];
-
     function icon(name, size) {
         if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
             try { return window.WGIcons.iconSvg(name, { size: size || 18 }); }
@@ -130,7 +117,7 @@
         ['Health Score', 'A 0–100 score built from your recent readings — a gap in the data dilutes it, it never counts as a zero.'],
         ['Strengths', 'Each habit’s strength rises when you keep it up and eases off on a miss — no all-or-nothing streak to lose.'],
         ['Levels', 'HP adds up across days; enough HP levels you up.'],
-        ['Insight ladder', 'Levelling up unlocks deeper personal analytics below.'],
+        ['Discoveries', 'Log honestly and your body’s patterns develop into findings — no level gate.'],
     ];
 
     function renderExplainer() {
@@ -916,28 +903,9 @@
         return card;
     }
 
-    // Scrolls to the rings card — the real destination tier 1 ("Rings &
-    // streak") describes.
-    function goToRingsCard() {
-        const target = document.getElementById('journey-rings-card');
-        if (target && typeof target.scrollIntoView === 'function') {
-            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-    }
-
-    // Deep-links to the Vitals section's trend charts — the real destination
-    // tier 2 ("Trend charts") describes. Vitals keeps the internal tab id
-    // "health" for deeplink/localStorage stability (CLAUDE.md rule 6).
-    function goToVitalsTrends() {
-        if (typeof window.switchTab === 'function') {
-            window.switchTab('health');
-        }
-    }
-
-    // Scrolls to the tier-3 insight card rendered above (renderInsightCard).
+    // Scrolls to the sleep→BP insight card rendered above (renderInsightCard).
     // A no-op if the card wasn't rendered (e.g. `journey.insight` hasn't
-    // loaded yet) — the ladder row still reads "Unlocked → view" from
-    // unlocked_tiers alone, independent of whether the fetch has resolved.
+    // loaded yet). Reached from the Gauges "why is this moving?" link.
     function goToInsightCard() {
         const target = document.getElementById('journey-insight-card');
         if (target && typeof target.scrollIntoView === 'function') {
@@ -945,64 +913,166 @@
         }
     }
 
-    // Scrolls to the tier-4 good-day card rendered above (renderGoodDayCard).
-    // A no-op if the card wasn't rendered (e.g. `journey.insight` hasn't
-    // loaded yet) — the ladder row still reads "Unlocked → view" from
-    // unlocked_tiers alone, independent of whether the fetch has resolved.
-    function goToGoodDayCard() {
-        const target = document.getElementById('journey-goodday-card');
-        if (target && typeof target.scrollIntoView === 'function') {
-            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
+    // --- Chapters (Phase 5) -----------------------------------------------
+    // Opt-in 4-week themed arcs. Reads `journey.chapter` (GET
+    // /api/gamification/chapter). Active → a day tracker; idle → the last
+    // review + the theme library to start the next arc (never auto-enrolled).
+
+    async function startChapter(themeId) {
+        await experimentApiCall('/api/gamification/chapter', 'POST', { theme_id: themeId });
+        await reloadJourney();
     }
 
-    // tier -> destination handler for tiers that have a built screen to link
-    // to. Every ladder tier has an entry now that the good-day card (tier 4)
-    // ships — a tier without an entry would stay permanently "locked".
-    const LADDER_DESTINATIONS = { 1: goToRingsCard, 2: goToVitalsTrends, 3: goToInsightCard, 4: goToGoodDayCard };
+    async function closeChapter() {
+        await experimentApiCall('/api/gamification/chapter', 'DELETE');
+        await reloadJourney();
+    }
 
-    function renderLadder(j) {
-        const card = el('section', 'wg-card wg-journey-ladder');
-        card.appendChild(el('div', 'wg-section-label', 'INSIGHT LADDER'));
+    function renderChapterReview(card, review) {
+        card.appendChild(el('p', 'wg-journey-chapter__title', review.title || 'Your last chapter'));
+        card.appendChild(el('span', 'wg-tag wg-tag--mono wg-journey-chapter__tag', 'Chapter review'));
+        card.appendChild(el('p', 'wg-journey-chapter__recap wg-muted', review.text || ''));
+    }
 
-        const unlocked = new Set(
-            Array.isArray(j.unlocked_tiers) ? j.unlocked_tiers.map((t) => Number(t)) : []
-        );
+    function renderChapterThemes(card, themes) {
+        card.appendChild(el('p', 'wg-journey-chapter__prompt wg-muted',
+            'Start a four-week chapter — a theme to focus on, closed with a written review. Opt-in, never a deadline.'));
+        const list = el('div', 'wg-journey-chapter__themes');
+        (Array.isArray(themes) ? themes : []).forEach((t) => {
+            const row = el('div', 'wg-journey-chapter__theme');
+            const head = el('div', 'wg-journey-chapter__theme-head');
+            head.appendChild(el('span', 'wg-journey-chapter__theme-title', t.title));
+            const start = el('button', 'btn btn-sm btn-secondary', 'Start');
+            start.type = 'button';
+            start.addEventListener('click', () => startChapter(t.id));
+            head.appendChild(start);
+            row.appendChild(head);
+            row.appendChild(el('p', 'wg-journey-chapter__theme-blurb wg-muted', t.blurb || t.focus || ''));
+            list.appendChild(row);
+        });
+        card.appendChild(list);
+    }
 
-        const list = el('div', 'wg-journey-ladder__list');
-        LADDER.forEach((entry) => {
-            // Honest labels: "Unlocked" only ever appears where there is a
-            // real destination to view, gated on the backend's level-derived
-            // unlocked_tiers — a row below its level just reads "Unlocks at
-            // Lvl N", never "soon" (every tier now has a built destination).
-            const destination = LADDER_DESTINATIONS[entry.tier];
-            const hasDestination = !!destination && unlocked.has(entry.tier);
-            const row = el('div', 'wg-journey-ladder__row' +
-                (hasDestination ? ' wg-journey-ladder__row--linked' : ' wg-journey-ladder__row--locked'));
+    function renderChapter(j) {
+        const ch = j && j.chapter;
+        if (!ch || ch.enabled === false) return null;
 
-            const marker = el('span', 'wg-journey-ladder__marker');
-            const markIcon = icon(hasDestination ? 'check' : 'bolt', 14);
-            if (markIcon) marker.appendChild(markIcon);
+        const card = el('section', 'wg-card wg-journey-chapter');
+        card.id = 'journey-chapter-card';
+        card.appendChild(el('div', 'wg-section-label', 'CHAPTER'));
+
+        if (ch.active) {
+            const a = ch.active;
+            card.appendChild(el('p', 'wg-journey-chapter__title', a.title || 'Your chapter'));
+            if (a.focus) card.appendChild(el('p', 'wg-journey-chapter__focus wg-muted', `Focus: ${a.focus}`));
+            const duration = Number(a.duration) || 0;
+            card.appendChild(progressBar(duration > 0 ? (Number(a.day_number) || 0) / duration : 0,
+                'wg-journey-bar__fill--sun'));
+            card.appendChild(el('p', 'wg-journey-chapter__tracker wg-muted',
+                `Day ${Number(a.day_number) || 0} of ${duration}`));
+            const end = el('button', 'btn btn-sm btn-link wg-journey-chapter__close', 'End chapter (writes your review)');
+            end.type = 'button';
+            end.addEventListener('click', () => closeChapter());
+            card.appendChild(end);
+            return card;
+        }
+
+        if (ch.review) renderChapterReview(card, ch.review);
+        if (ch.can_start) renderChapterThemes(card, ch.themes);
+        return card;
+    }
+
+    // --- Traits (Phase 5) --------------------------------------------------
+    // Levers-only identity statements. Reads `journey.traits` (GET
+    // /api/gamification/traits). Three states, all dignified: held (currently
+    // true), dormant (lapsed — dimmed, never deleted, with a cheap rekindle
+    // cost), developing (not yet earned, with progress to the bar).
+
+    function traitStateTag(t) {
+        if (t.state === 'held') return t.recovery_held ? 'Held · paused' : 'Held';
+        if (t.state === 'dormant') return 'Dormant';
+        return 'Developing';
+    }
+
+    function traitSubtitle(t) {
+        if (t.state === 'held') {
+            return t.recovery_held
+                ? 'Held through recovery — the clock is paused, nothing lapses.'
+                : `${Number(t.on_28d) || 0} ${t.lever_label} in the last 28 days.`;
+        }
+        if (t.state === 'dormant') {
+            const need = Number(t.rekindle_remaining);
+            const n = Number.isFinite(need) ? need : Number(t.rekindle) || 0;
+            return `Dormant — ${n} more ${t.lever_label} rekindles it. Nothing was lost.`;
+        }
+        const remaining = Number(t.remaining) || 0;
+        return `${Number(t.on_28d) || 0} of ${Number(t.earn) || 0} ${t.lever_label} — ${remaining} more to earn it.`;
+    }
+
+    function renderTraits(j) {
+        const tr = j && j.traits;
+        if (!tr || tr.enabled === false) return null;
+        const traits = Array.isArray(tr.traits) ? tr.traits : [];
+        if (traits.length === 0) return null;
+
+        const card = el('section', 'wg-card wg-journey-traits');
+        card.id = 'journey-traits-card';
+        card.appendChild(el('div', 'wg-section-label', 'TRAITS'));
+        card.appendChild(el('p', 'wg-journey-traits__why wg-muted',
+            'Identities you earn by keeping a lever steady — they go dormant, never disappear.'));
+
+        const list = el('div', 'wg-journey-traits__list');
+        traits.forEach((t) => {
+            const row = el('div', 'wg-journey-trait wg-journey-trait--' + t.state);
+            const head = el('div', 'wg-journey-trait__head');
+            head.appendChild(el('span', 'wg-journey-trait__name', t.title || t.id));
+            head.appendChild(el('span', 'wg-tag wg-tag--mono wg-journey-trait__tag', traitStateTag(t)));
+            row.appendChild(head);
+            row.appendChild(el('p', 'wg-journey-trait__sub wg-muted', traitSubtitle(t)));
+            list.appendChild(row);
+        });
+        card.appendChild(list);
+        return card;
+    }
+
+    // --- Keystones (Phase 5) ----------------------------------------------
+    // The permanent timeline of rare, real-outcome milestones. Reads
+    // `journey.keystones` (GET /api/gamification/keystones). Never a countdown,
+    // never decays — an empty timeline simply omits the card.
+
+    function keystoneDateLabel(ms) {
+        const t = Number(ms);
+        if (!Number.isFinite(t)) return '';
+        try {
+            return new Date(t).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+        } catch (_) { return ''; }
+    }
+
+    function renderKeystones(j) {
+        const ks = j && j.keystones;
+        if (!ks || ks.enabled === false) return null;
+        const entries = Array.isArray(ks.keystones) ? ks.keystones : [];
+        if (entries.length === 0) return null;
+
+        const card = el('section', 'wg-card wg-journey-keystones');
+        card.id = 'journey-keystones-card';
+        card.appendChild(el('div', 'wg-section-label', 'KEYSTONES'));
+        card.appendChild(el('p', 'wg-journey-keystones__why wg-muted',
+            'Rare, permanent milestones — earned because reality made them rare.'));
+
+        const list = el('div', 'wg-journey-keystones__list');
+        entries.forEach((k) => {
+            const row = el('div', 'wg-journey-keystone');
+            const marker = el('span', 'wg-journey-keystone__marker');
+            const star = icon('check', 14);
+            if (star) marker.appendChild(star);
             row.appendChild(marker);
-
-            const body = el('div', 'wg-journey-ladder__body');
-            body.appendChild(el('span', 'wg-journey-ladder__title', entry.title));
-            body.appendChild(el('span', 'wg-journey-ladder__desc wg-muted', entry.desc));
+            const body = el('div', 'wg-journey-keystone__body');
+            body.appendChild(el('span', 'wg-journey-keystone__title', k.title || 'Milestone'));
+            if (k.text) body.appendChild(el('span', 'wg-journey-keystone__text wg-muted', k.text));
+            const date = keystoneDateLabel(k.earned_at);
+            if (date) body.appendChild(el('span', 'wg-journey-keystone__date wg-muted', date));
             row.appendChild(body);
-
-            const status = el('span', 'wg-tag wg-tag--mono wg-journey-ladder__status',
-                hasDestination ? 'Unlocked → view' : `Unlocks at Lvl ${entry.level}`);
-            row.appendChild(status);
-
-            if (hasDestination) {
-                row.setAttribute('role', 'button');
-                row.setAttribute('tabindex', '0');
-                row.addEventListener('click', destination);
-                row.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); destination(); }
-                });
-            }
-
             list.appendChild(row);
         });
         card.appendChild(list);
@@ -1013,16 +1083,22 @@
         const content = document.getElementById('journey-content');
         if (!content) return;
 
-        // The Atlas leads the feed and stands on its own: in cloud mode the HP/
+        // The narrative layer (chapter / atlas / experiment / traits /
+        // keystones) leads the feed and stands on its own: in cloud mode the HP/
         // levels/rings substrate is a later phase (returns {enabled:false}), so a
-        // disabled substrate with a live Atlas still renders the discovery feed
-        // rather than the "gamification is off" empty state (insight leads).
+        // disabled substrate with a live narrative layer still renders it rather
+        // than the "gamification is off" empty state (insight leads).
+        const chapterCard = journey ? renderChapter(journey) : null;
         const atlasCard = journey ? renderAtlas(journey) : null;
         const experimentCard = journey ? renderExperiment(journey) : null;
+        const traitsCard = journey ? renderTraits(journey) : null;
+        const keystonesCard = journey ? renderKeystones(journey) : null;
+        const narrativeCards = [chapterCard, experimentCard, atlasCard, traitsCard, keystonesCard];
 
         if (!journey || journey.enabled === false) {
-            if (atlasCard || experimentCard) {
-                content.replaceChildren(...[experimentCard, atlasCard].filter(Boolean));
+            const live = narrativeCards.filter(Boolean);
+            if (live.length > 0) {
+                content.replaceChildren(...live);
                 return;
             }
             renderEmpty(content, 'Gamification is off. Enable it in Settings to start your Journey.');
@@ -1030,6 +1106,7 @@
         }
 
         const cards = [
+            chapterCard,
             experimentCard,
             atlasCard,
             renderHeader(journey),
@@ -1038,11 +1115,12 @@
             renderWeeklyReview(journey),
             renderGauges(journey),
             renderStrengths(journey),
+            traitsCard,
             renderRings(journey),
             renderHistory(journey),
             renderInsightCard(journey),
             renderGoodDayCard(journey),
-            renderLadder(journey),
+            keystonesCard,
         ].filter(Boolean);
         content.replaceChildren(...cards);
     }
@@ -1160,6 +1238,17 @@
         return Promise.resolve(call('/api/gamification/experiments', 'GET')).catch(() => null);
     }
 
+    // Narrative-layer loaders (Phase 5) — chapters/traits/keystones. Stateful
+    // (persisted in the journal singleton), so like experiments they read
+    // through offlineAwareApiCall rather than cachedFetch; the atlas/journey
+    // cachedFetch calls already satisfy the offline-coverage guard for this
+    // file. Bot mode 404s each route → null → the card is omitted.
+    function loadNarrative(endpoint) {
+        const call = window.offlineAwareApiCall || window.apiCallDirect;
+        if (typeof call !== 'function') return Promise.resolve(null);
+        return Promise.resolve(call(endpoint, 'GET')).catch(() => null);
+    }
+
     // Loads the Journey read model and paints the screen. Routes through
     // cachedFetch so a cold relaunch offline renders last-known data; a cold
     // cache offline surfaces an explicit empty state (OfflineNoCacheError).
@@ -1197,13 +1286,20 @@
                 data.gauges = await loadGauges();
                 data.weekly_review = await loadWeeklyReview();
             }
-            // The Atlas is fetched whether or not the substrate is enabled: in
-            // cloud mode the substrate returns {enabled:false} but the Atlas is
-            // the whole point of the screen, so it must still render.
-            const [atlas, experiments] = await Promise.all([loadAtlas(), loadExperiments()]);
-            if (atlas || experiments) {
-                if (!data) render({ enabled: false, atlas, experiments });
-                else { data.atlas = atlas; data.experiments = experiments; render(data); }
+            // The narrative layer is fetched whether or not the substrate is
+            // enabled: in cloud mode the substrate returns {enabled:false} but
+            // the Atlas/chapters/traits/keystones are the whole point of the
+            // screen, so they must still render.
+            const [atlas, experiments, chapter, traits, keystones] = await Promise.all([
+                loadAtlas(), loadExperiments(),
+                loadNarrative('/api/gamification/chapter'),
+                loadNarrative('/api/gamification/traits'),
+                loadNarrative('/api/gamification/keystones'),
+            ]);
+            if (atlas || experiments || chapter || traits || keystones) {
+                const narrative = { atlas, experiments, chapter, traits, keystones };
+                if (!data) render({ enabled: false, ...narrative });
+                else { Object.assign(data, narrative); render(data); }
                 await mountBadge();
                 return;
             }

@@ -5850,26 +5850,142 @@ textarea.wg-input {
     margin: var(--space-sm) 0 0;
 }
 
-/* Insight ladder card. */
-.wg-journey-ladder__list {
+/* Narrative layer (gamification redesign Phase 5) — Chapters, Traits,
+   Keystones. Replaces the retired insight-ladder card. */
+
+/* Chapters — opt-in four-week arcs; active tracker or review + theme picker. */
+.wg-journey-chapter {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    border-left: 3px solid var(--wg-sun);
+}
+
+.wg-journey-chapter__title {
+    font-weight: var(--font-weight-medium);
+    color: var(--wg-fg-1);
+}
+
+.wg-journey-chapter__focus,
+.wg-journey-chapter__tracker,
+.wg-journey-chapter__recap,
+.wg-journey-chapter__prompt {
+    font-size: var(--font-size-sm);
+}
+
+.wg-journey-chapter__tag {
+    align-self: flex-start;
+}
+
+.wg-journey-chapter__close {
+    align-self: flex-start;
+}
+
+.wg-journey-chapter__themes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-top: var(--space-xs);
+}
+
+.wg-journey-chapter__theme {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-sm);
+    border-radius: var(--radius-md);
+    background: var(--wg-bg-card-inset);
+}
+
+.wg-journey-chapter__theme-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
+.wg-journey-chapter__theme-title {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
+}
+
+.wg-journey-chapter__theme-blurb {
+    font-size: var(--font-size-xs);
+}
+
+/* Traits — levers-only identity shelf. Dormant dims (never deleted). */
+.wg-journey-traits__why {
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--space-sm);
+}
+
+.wg-journey-traits__list {
     display: flex;
     flex-direction: column;
     gap: var(--space-sm);
 }
 
-.wg-journey-ladder__row {
+.wg-journey-trait {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-sm);
+    border-radius: var(--radius-md);
+    background: var(--wg-bg-card-inset);
+    border-left: 3px solid var(--wg-mint);
+}
+
+.wg-journey-trait--dormant {
+    border-left-color: var(--wg-fg-4);
+    opacity: 0.6;
+}
+
+.wg-journey-trait--developing {
+    border-left-color: var(--wg-sun);
+}
+
+.wg-journey-trait__head {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: var(--space-sm);
 }
 
-.wg-journey-ladder__marker {
-    display: inline-flex;
-    flex: 0 0 auto;
-    color: var(--wg-sun);
+.wg-journey-trait__name {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
 }
 
-.wg-journey-ladder__body {
+.wg-journey-trait__sub {
+    font-size: var(--font-size-xs);
+}
+
+/* Keystones — the permanent milestone timeline. */
+.wg-journey-keystones__why {
+    font-size: var(--font-size-sm);
+    margin-bottom: var(--space-sm);
+}
+
+.wg-journey-keystones__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-journey-keystone {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+}
+
+.wg-journey-keystone__marker {
+    display: inline-flex;
+    flex: 0 0 auto;
+    color: var(--wg-mint);
+    margin-top: 2px;
+}
+
+.wg-journey-keystone__body {
     flex: 1;
     min-width: 0;
     display: flex;
@@ -5877,31 +5993,14 @@ textarea.wg-input {
     gap: 2px;
 }
 
-.wg-journey-ladder__title {
+.wg-journey-keystone__title {
     font-size: var(--font-size-sm);
     color: var(--wg-fg-1);
 }
 
-.wg-journey-ladder__desc {
+.wg-journey-keystone__text,
+.wg-journey-keystone__date {
     font-size: var(--font-size-xs);
-}
-
-.wg-journey-ladder__status {
-    flex: 0 0 auto;
-}
-
-.wg-journey-ladder__row--locked {
-    opacity: 0.55;
-}
-
-.wg-journey-ladder__row--locked .wg-journey-ladder__marker {
-    color: var(--wg-fg-4);
-}
-
-/* Tier 1 is the only row with a real destination (the rings card above) —
-   tappable, unlike the Phase-2 tiers it sits next to. */
-.wg-journey-ladder__row--linked {
-    cursor: pointer;
 }
 
 .wg-journey-empty {

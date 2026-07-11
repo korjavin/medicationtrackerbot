@@ -139,97 +139,12 @@ describe('Journey render', () => {
         expect(center.textContent).not.toMatch(/\d/);
     });
 
-    // Insight ladder tier 2 (Plan 6, Task 4): "Trend charts" now has a real
-    // destination — the Vitals section's existing trend charts — instead of
-    // an evergreen "soon". Tier 4 (gamification-13) now has a real
-    // destination too, so below its own unlock level it just reads "Unlocks
-    // at Lvl N" — no "soon" anywhere in the ladder anymore.
-    it('tier 2 (trend charts) links to Vitals when unlocked; tier 4 stays locked below its level', () => {
-        let switchedTo = null;
-        env.window.switchTab = (tab) => { switchedTo = tab; };
-        env.window.Gamification.render(journey({ unlocked_tiers: [1, 2, 3] }));
-        const { document } = env;
-
-        const rows = document.querySelectorAll('.wg-journey-ladder__row');
-        const titleOf = (row) => row.querySelector('.wg-journey-ladder__title').textContent;
-        const statusOf = (row) => row.querySelector('.wg-journey-ladder__status').textContent;
-
-        const trendRow = Array.from(rows).find((r) => titleOf(r) === 'Trend charts');
-        expect(statusOf(trendRow)).toBe('Unlocked → view');
-        expect(trendRow.classList.contains('wg-journey-ladder__row--linked')).toBe(true);
-        trendRow.click();
-        expect(switchedTo).toBe('health');
-
-        const goodDayRow = Array.from(rows).find((r) => titleOf(r) === 'Your good-day model');
-        expect(statusOf(goodDayRow)).toBe('Unlocks at Lvl 7');
-        expect(goodDayRow.classList.contains('wg-journey-ladder__row--locked')).toBe(true);
-    });
-
-    // Insight ladder tier 4 (gamification-13 Task 3): "Your good-day model"
-    // now has a real destination too — the good-day card — once the fetched
-    // `journey.insight` carries `good_day` (load() does this; render() tests
-    // attach it directly), same contract as the tier-3 row below.
-    it('tier 4 (good-day model) links to the good-day card when unlocked and insight data is present', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3, 4],
-            insight: { good_day: { status: 'no_effect' } }
-        }));
-        const { document } = env;
-
-        const rows = document.querySelectorAll('.wg-journey-ladder__row');
-        const titleOf = (row) => row.querySelector('.wg-journey-ladder__title').textContent;
-        const statusOf = (row) => row.querySelector('.wg-journey-ladder__status').textContent;
-        const goodDayRow = Array.from(rows).find((r) => titleOf(r) === 'Your good-day model');
-
-        expect(statusOf(goodDayRow)).toBe('Unlocked → view');
-        expect(goodDayRow.classList.contains('wg-journey-ladder__row--linked')).toBe(true);
-
-        const scrollIntoView = vi.fn();
-        document.getElementById('journey-goodday-card').scrollIntoView = scrollIntoView;
-        goodDayRow.click();
-        expect(scrollIntoView).toHaveBeenCalled();
-    });
-
-    // Insight ladder tier 3 (Plan 9, Task 3): "Correlations" now has a real
-    // destination too — the sleep→BP insight card — once the fetched
-    // `journey.insight` is attached (load() does this; render() tests attach
-    // it directly). Below tier 3, or with no insight fetched yet, there's
-    // nothing to scroll to and the row stays locked/soon.
-    it('tier 3 (correlations) links to the insight card when unlocked and insight data is present', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3],
-            insight: { sleep_bp: { status: 'effect', short_threshold_hours: 7, delta_systolic: 8, n_short: 23, n_in_band: 40 } }
-        }));
-        const { document } = env;
-
-        const rows = document.querySelectorAll('.wg-journey-ladder__row');
-        const titleOf = (row) => row.querySelector('.wg-journey-ladder__title').textContent;
-        const statusOf = (row) => row.querySelector('.wg-journey-ladder__status').textContent;
-        const correlationsRow = Array.from(rows).find((r) => titleOf(r) === 'Correlations');
-
-        expect(statusOf(correlationsRow)).toBe('Unlocked → view');
-        expect(correlationsRow.classList.contains('wg-journey-ladder__row--linked')).toBe(true);
-
-        const scrollIntoView = vi.fn();
-        document.getElementById('journey-insight-card').scrollIntoView = scrollIntoView;
-        correlationsRow.click();
-        expect(scrollIntoView).toHaveBeenCalled();
-    });
-
-    it('tier 3 stays locked below unlock even with insight data present', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2],
-            insight: { sleep_bp: { status: 'effect', short_threshold_hours: 7, delta_systolic: 8, n_short: 23, n_in_band: 40 } }
-        }));
-        const { document } = env;
-        const rows = document.querySelectorAll('.wg-journey-ladder__row');
-        const titleOf = (row) => row.querySelector('.wg-journey-ladder__title').textContent;
-        const statusOf = (row) => row.querySelector('.wg-journey-ladder__status').textContent;
-        const correlationsRow = Array.from(rows).find((r) => titleOf(r) === 'Correlations');
-
-        expect(statusOf(correlationsRow)).toBe('Unlocks at Lvl 5');
-        expect(document.getElementById('journey-insight-card')).toBeNull();
-    });
+    // The insight-ladder card was retired in the gamification redesign (Phase
+    // 5): the narrative layer (chapters / traits / keystones) replaces the
+    // level-gated ladder progression. The sleep→BP and good-day insight cards
+    // themselves survive and are covered by the dedicated tests below; they no
+    // longer have a ladder row as an entry point. Below-tier gating is asserted
+    // by "insight card is omitted…" further down.
 
     // Sleep→BP insight card (Task 3): all three honesty-gate states render as
     // plain-language copy, plus the omitted-until-loaded case.
@@ -639,5 +554,77 @@ describe('Journey render', () => {
         // The Atlas renders; the "gamification is off" empty state does not.
         expect(env.document.querySelector('.wg-journey-atlas')).not.toBeNull();
         expect(env.document.querySelector('.wg-journey-empty')).toBeNull();
+    });
+
+    // --- Narrative layer (Phase 5): chapters / traits / keystones ---------
+
+    it('the insight-ladder card is retired (no ladder markup renders)', () => {
+        env.window.Gamification.render(journey({ unlocked_tiers: [1, 2, 3, 4] }));
+        expect(env.document.querySelector('.wg-journey-ladder')).toBeNull();
+        expect(env.document.querySelector('.wg-journey-ladder__row')).toBeNull();
+    });
+
+    it('renders an active chapter with its day tracker + an end affordance', () => {
+        env.window.Gamification.render(journey({
+            chapter: {
+                enabled: true,
+                active: { theme_id: 'early_sleeper', title: 'The Early Sleeper', focus: 'a steady bedtime window', day_number: 6, duration: 28 },
+            },
+        }));
+        const card = env.document.getElementById('journey-chapter-card');
+        expect(card).not.toBeNull();
+        expect(card.querySelector('.wg-journey-chapter__title').textContent).toBe('The Early Sleeper');
+        expect(card.querySelector('.wg-journey-chapter__tracker').textContent).toMatch(/Day 6 of 28/);
+        expect(card.querySelector('.wg-journey-chapter__close')).not.toBeNull();
+    });
+
+    it('renders a chapter review + theme picker when no arc is running', () => {
+        env.window.Gamification.render(journey({
+            chapter: {
+                enabled: true, active: null, can_start: true,
+                review: { theme_id: 'steady_month', title: 'The Steady Month', text: 'Your Steady Month focused on blood-pressure consistency.' },
+                themes: [{ id: 'early_sleeper', title: 'The Early Sleeper', blurb: 'Aim for a 7h+ night.' }],
+            },
+        }));
+        const card = env.document.getElementById('journey-chapter-card');
+        expect(card.querySelector('.wg-journey-chapter__recap').textContent).toMatch(/Steady Month/);
+        expect(card.querySelectorAll('.wg-journey-chapter__theme').length).toBe(1);
+    });
+
+    it('renders the traits shelf: held, dormant (with rekindle cost), developing', () => {
+        env.window.Gamification.render(journey({
+            traits: {
+                enabled: true,
+                traits: [
+                    { id: 'early_sleeper', title: 'Early Sleeper', state: 'held', on_28d: 24, earn: 21, rekindle: 5, lever_label: 'window nights' },
+                    { id: 'consistent_mover', title: 'Consistent Mover', state: 'dormant', on_28d: 3, earn: 12, rekindle: 3, rekindle_remaining: 2, lever_label: 'move days' },
+                    { id: 'early_diner', title: 'Early Diner', state: 'developing', on_28d: 6, earn: 14, remaining: 8, lever_label: 'early dinners' },
+                ],
+            },
+        }));
+        const card = env.document.getElementById('journey-traits-card');
+        expect(card).not.toBeNull();
+        const dormant = card.querySelector('.wg-journey-trait--dormant');
+        expect(dormant).not.toBeNull();
+        expect(dormant.querySelector('.wg-journey-trait__sub').textContent).toMatch(/rekindles it. Nothing was lost/i);
+        expect(card.querySelector('.wg-journey-trait--held')).not.toBeNull();
+        expect(card.querySelector('.wg-journey-trait--developing')).not.toBeNull();
+    });
+
+    it('renders the keystones timeline; omits the card when empty', () => {
+        env.window.Gamification.render(journey({
+            keystones: {
+                enabled: true,
+                keystones: [
+                    { id: 'bp_in_target_band', title: 'Blood pressure in your target band', text: 'settled at 118', earned_at: Date.UTC(2026, 4, 1) },
+                ],
+            },
+        }));
+        const card = env.document.getElementById('journey-keystones-card');
+        expect(card).not.toBeNull();
+        expect(card.querySelectorAll('.wg-journey-keystone').length).toBe(1);
+
+        env.window.Gamification.render(journey({ keystones: { enabled: true, keystones: [] } }));
+        expect(env.document.getElementById('journey-keystones-card')).toBeNull();
     });
 });
