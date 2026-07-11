@@ -987,6 +987,21 @@
                     </div>
                     <button id="importexport-import-btn" type="button" class="wg-gloss wg-settings-save-btn">Import backup (replace)</button>
                 </div>
+
+                <!-- Mi Band .nxk ingestion — cloud only. The server parses the backup and
+                     seals the vitals to the account inbox; revealed by importexport.js when
+                     window.__MEDTRACKER_CLOUD__. -->
+                <div id="importexport-nxk-group" class="wg-settings-integrations__group" hidden>
+                    <h4 class="wg-settings-integrations__group-title wg-mono-display">Mi Band import</h4>
+                    <div class="wg-settings-integrations__field">
+                        <label for="importexport-nxk-file" class="wg-settings-integrations__label">Mi Band backup (.nxk)</label>
+                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
+                            <input type="file" id="importexport-nxk-file" class="wg-settings-integrations__input" accept=".nxk,.sqlite">
+                        </div>
+                        <p class="wg-settings-integrations__note">Sleep, heart rate, SpO2, stress, day stats and workouts are imported. Location tracks are never uploaded.</p>
+                    </div>
+                    <button id="importexport-nxk-btn" type="button" class="wg-gloss wg-settings-save-btn">Import Mi Band data</button>
+                </div>
             </section>
 
             <section id="settings-about" class="wg-card wg-settings-section wg-settings-about wg-settings-hidden">

@@ -109,9 +109,9 @@ Dependencies identified: none new. Reuses inbox key, seal crypto, drain, existin
 
 ### Task 5: Upload UI control
 
-- [ ] add an NXK file-upload control (`<input type="file" accept=".nxk,.sqlite">` + a button) to the shared Settings → Import/Export section (near where C2e import/export lives); reuse existing design tokens / CSS classes — no hardcoded colors, no inline `.style.` assignments.
-- [ ] on submit, POST the file as multipart to `/api/vitals/import`; show a success/queued toast and a failure state. Reuse existing toast/helpers; do not add a new `window.*` global (or add an allowlist entry with justification if unavoidable).
-- [ ] confirm `tests/architecture.native-abstractions.test.js` does not flag a plain `<input type=file>` (it bans `getUserMedia`/`BarcodeDetector`, not file inputs); if it does, route through the existing abstraction.
+- [x] add an NXK file-upload control (`<input type="file" accept=".nxk,.sqlite">` + a button) to the shared Settings → Import/Export section (near where C2e import/export lives); reuse existing design tokens / CSS classes — no hardcoded colors, no inline `.style.` assignments. — new `#importexport-nxk-group` in `web/static/index.html`, cloud-gated (hidden outside cloud, revealed by `importexport.js` when `window.__MEDTRACKER_CLOUD__`, since `/api/vitals/import` only exists on `cmd/cloud`).
+- [x] on submit, POST the file as multipart to `/api/vitals/import`; show a success/queued toast and a failure state. Reuse existing toast/helpers; do not add a new `window.*` global (or add an allowlist entry with justification if unavoidable). — `doNxkImport` in `importexport.js` (same-origin `fetch` carries the session cookie); success/412/failure toasts via `SyncManager.showToast`; exposed as `SettingsImportExport.importNxk` (no new `window.*` global). Tests added to `settings.importexport.test.js`.
+- [x] confirm `tests/architecture.native-abstractions.test.js` does not flag a plain `<input type=file>` (it bans `getUserMedia`/`BarcodeDetector`, not file inputs); if it does, route through the existing abstraction. — confirmed passing; the guard only bans `navigator.mediaDevices`/`getUserMedia`/`BarcodeDetector`, not file inputs.
 
 ### Task 6: Verify acceptance criteria
 
