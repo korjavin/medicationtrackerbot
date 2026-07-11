@@ -107,7 +107,7 @@ async function resolveVariantForExercise() {
 
     const groupId = window.WorkoutEdit.groupForVariant || window.WorkoutEdit.editingGroupId;
     if (!groupId) {
-        safeAlert('Save this workout group first to add exercises.');
+        safeAlert('Save this plan first to add exercises.');
         return false;
     }
 
@@ -139,7 +139,7 @@ async function resolveVariantForExercise() {
 
         const variantId = variants[0]?.id;
         if (!variantId) {
-            safeAlert('Save this workout group first to add exercises.');
+            safeAlert('Save this plan first to add exercises.');
             return false;
         }
 

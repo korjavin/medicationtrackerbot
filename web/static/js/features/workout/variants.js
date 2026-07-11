@@ -92,7 +92,7 @@ async function loadVariantsForGroup(groupId) {
 function showAddVariantModal() {
     const groupId = window.WorkoutEdit.groupForVariant || window.WorkoutEdit.editingGroupId;
     if (!groupId) {
-        safeAlert('Save this workout group first to add variants.');
+        safeAlert('Save this plan first to add variants.');
         return;
     }
 

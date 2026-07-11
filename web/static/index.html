@@ -186,7 +186,7 @@
             <div class="wg-workouts-subtabs-row" id="workouts-subtabs">
                 <div class="wg-gloss--inset wg-workouts-subtabs workout-tabs">
                     <button class="wg-gloss wg-workouts-subtabs__btn wg-gloss--sun wg-workouts-subtabs__btn--active workout-tab active" data-tab="history" aria-pressed="true">History</button>
-                    <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="groups" aria-pressed="false">Groups</button>
+                    <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="groups" aria-pressed="false">Plans</button>
                     <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="exercises" aria-pressed="false">Exercises</button>
                     <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="stats" aria-pressed="false">Stats</button>
                 </div>
@@ -216,10 +216,10 @@
                      'workout_groups' timestamp; hidden until populated. -->
                 <div id="workout-groups-stale-badge" class="wg-section-stale-badge-row hidden"></div>
                 <div id="workout-groups-list" class="wg-workouts-groups">
-                    Loading workout groups...
+                    Loading plans...
                 </div>
                 <button id="add-workout-group-btn" type="button" class="wg-gloss wg-gloss--sun wg-workouts-groups__add-cta">
-                    <span class="wg-workouts-groups__add-cta-label">+ Add workout group</span>
+                    <span class="wg-workouts-groups__add-cta-label">+ Add plan</span>
                 </button>
             </div>
 
@@ -1089,8 +1089,8 @@
     <mt-modal id="workout-group-modal" class="hidden wg-modal wg-workouts-group-modal">
         <div class="wg-workouts-group-modal__header">
             <div class="wg-workouts-group-modal__heading">
-                <span class="wg-section-label wg-workouts-group-modal__eyebrow">Workout group</span>
-                <span class="wg-mono-display wg-workouts-group-modal__title" id="workout-group-modal-title">Add Workout Group</span>
+                <span class="wg-section-label wg-workouts-group-modal__eyebrow">Plan</span>
+                <span class="wg-mono-display wg-workouts-group-modal__title" id="workout-group-modal-title">Add Plan</span>
             </div>
             <div class="wg-workouts-group-modal__header-actions">
                 <button type="button" id="workout-group-cancel-btn"

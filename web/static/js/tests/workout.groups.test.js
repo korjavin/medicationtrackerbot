@@ -47,7 +47,7 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
         expect(container.classList.contains('wg-workouts-groups')).toBe(true);
         const empty = container.querySelector('.wg-workouts-groups__empty');
         expect(empty).not.toBeNull();
-        expect(empty.textContent).toMatch(/No workout groups yet/);
+        expect(empty.textContent).toMatch(/No plans yet/);
     });
 
     it('renders .wg-card group rows with slot tag, mono name and meta', () => {
@@ -123,8 +123,8 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
         expect(editBtn).not.toBeNull();
         expect(deleteBtn).not.toBeNull();
 
-        expect(editBtn.getAttribute('aria-label')).toBe('Edit group');
-        expect(deleteBtn.getAttribute('aria-label')).toBe('Delete group');
+        expect(editBtn.getAttribute('aria-label')).toBe('Edit plan');
+        expect(deleteBtn.getAttribute('aria-label')).toBe('Delete plan');
 
         [editBtn, deleteBtn].forEach((btn) => {
             expect(btn.classList.contains('wg-icon-btn')).toBe(true);
@@ -218,7 +218,7 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
             const title = modal.querySelector('.wg-workouts-group-modal__title');
             expect(eyebrow).not.toBeNull();
             expect(eyebrow.classList.contains('wg-section-label')).toBe(true);
-            expect(eyebrow.textContent).toBe('Workout group');
+            expect(eyebrow.textContent).toBe('Plan');
             expect(title).not.toBeNull();
             expect(title.classList.contains('wg-mono-display')).toBe(true);
             expect(title.id).toBe('workout-group-modal-title');

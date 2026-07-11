@@ -105,7 +105,7 @@ function _renderWorkoutGroups(container, groups) {
     if (!groups || groups.length === 0) {
         const empty = doc.createElement('p');
         empty.className = 'wg-workouts-groups__empty';
-        empty.textContent = 'No workout groups yet — tap Add to create one.';
+        empty.textContent = 'No plans yet — tap Add to create one.';
         container.replaceChildren(empty);
         return;
     }
@@ -144,7 +144,7 @@ function _buildWorkoutGroupRow(doc, group) {
 
     const name = doc.createElement('span');
     name.className = 'wg-workouts-groups-row__name';
-    name.textContent = group.name || 'Workout group';
+    name.textContent = group.name || 'Plan';
     title.appendChild(name);
 
     body.appendChild(title);
@@ -203,10 +203,10 @@ function _buildWorkoutGroupRow(doc, group) {
 
     const actions = doc.createElement('div');
     actions.className = 'wg-workouts-groups-row__actions';
-    actions.appendChild(_buildGroupsIconBtn(doc, 'edit', 'Edit group', 'pencil', () => {
+    actions.appendChild(_buildGroupsIconBtn(doc, 'edit', 'Edit plan', 'pencil', () => {
         showEditWorkoutGroupModal(group.id);
     }));
-    actions.appendChild(_buildGroupsIconBtn(doc, 'delete', 'Delete group', 'trash', (event) => {
+    actions.appendChild(_buildGroupsIconBtn(doc, 'delete', 'Delete plan', 'trash', (event) => {
         deleteWorkoutGroup(group.id, event);
     }));
     card.appendChild(actions);
@@ -242,7 +242,7 @@ function setFlatExercisesPendingSaveMessage() {
     if (!container) return;
     const message = document.createElement('p');
     message.className = 'workout-pending-msg';
-    message.textContent = 'Save this group first to add exercises.';
+    message.textContent = 'Save this plan first to add exercises.';
     container.replaceChildren(message);
 }
 
@@ -254,7 +254,7 @@ function showAddWorkoutGroupModal() {
     window.WorkoutEdit.editingGroupId = null;
     window.WorkoutEdit.groupForVariant = null;
     window.WorkoutEdit.variantForExercise = null;
-    document.getElementById('workout-group-modal-title').textContent = 'Add Workout Group';
+    document.getElementById('workout-group-modal-title').textContent = 'Add Plan';
     window.ModalManager.workoutGroup.open();
 
     // Reset fields
@@ -281,7 +281,7 @@ async function showEditWorkoutGroupModal(groupId) {
     const group = window.WorkoutEdit.cachedGroups.find(g => g.id === groupId);
     if (!group) return;
 
-    document.getElementById('workout-group-modal-title').textContent = 'Edit Workout Group';
+    document.getElementById('workout-group-modal-title').textContent = 'Edit Plan';
     window.ModalManager.workoutGroup.open();
 
     // Fill fields
@@ -409,7 +409,7 @@ async function saveWorkoutGroup() {
     const active = document.getElementById('workout-group-active').checked;
 
     if (!name) {
-        safeAlert('Group name is required!');
+        safeAlert('Plan name is required!');
         return;
     }
 
@@ -451,7 +451,7 @@ async function saveWorkoutGroup() {
 async function deleteWorkoutGroup(groupId, event) {
     event.stopPropagation();
 
-    await safeConfirm('Delete this workout group?', async (ok) => {
+    await safeConfirm('Delete this plan?', async (ok) => {
         if (ok) {
             await _deleteWorkoutGroupApi(groupId);
         }

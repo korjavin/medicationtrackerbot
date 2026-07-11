@@ -44,7 +44,7 @@ describe('features/workout/groups.js — split-file integration', () => {
     window.showAddWorkoutGroupModal();
 
     expect(window.WorkoutEdit.editingGroupId).toBeNull();
-    expect(document.getElementById('workout-group-modal-title').textContent).toBe('Add Workout Group');
+    expect(document.getElementById('workout-group-modal-title').textContent).toBe('Add Plan');
     expect(document.getElementById('workout-group-name').value).toBe('');
     expect(document.getElementById('workout-group-rotating').checked).toBe(false);
   });

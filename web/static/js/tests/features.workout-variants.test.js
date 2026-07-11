@@ -45,7 +45,7 @@ describe('features/workout/variants.js — split-file integration', () => {
 
     expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
     expect(window.Telegram.WebApp.showAlert.mock.calls[0][0])
-      .toContain('Save this workout group first');
+      .toContain('Save this plan first');
   });
 
   it('showAddVariantModal opens the modal when groupForVariant is set', () => {

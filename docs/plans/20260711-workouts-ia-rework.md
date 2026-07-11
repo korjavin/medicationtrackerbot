@@ -38,10 +38,10 @@ Both modes share the `web/static` frontend, so this is mode-agnostic; the change
 ## Implementation Steps
 
 ### Task 1: Relabel "Group" → "Plan" (user-facing strings only)
-- [ ] tab label "Groups" → "Plans" in `web/static/index.html` and `web/static/js/features/workout/index.js`, **keeping** the internal `data-tab="groups"` value and the localStorage sub-tab key (`index.js:39-41`)
-- [ ] modal titles + empty/delete/ fallback copy in `groups.js` ("Add/Edit Workout Group" → "Add/Edit Plan", "No workout groups yet…" → "No plans yet", "Delete this workout group?" → "Delete this plan?", row fallback)
-- [ ] any remaining "group" user-facing text in `next-card.js` / `history.js` / `index.html`
-- [ ] grep the workout frontend for visible "group"/"Group" strings to confirm none are missed (excluding identifiers/data-attrs/ids)
+- [x] tab label "Groups" → "Plans" in `web/static/index.html` and `web/static/js/features/workout/index.js`, **keeping** the internal `data-tab="groups"` value and the localStorage sub-tab key (`index.js:39-41`) — index.js has only comments/data-tab, so the visible label lives in index.html
+- [x] modal titles + empty/delete/ fallback copy in `groups.js` ("Add/Edit Workout Group" → "Add/Edit Plan", "No workout groups yet…" → "No plans yet", "Delete this workout group?" → "Delete this plan?", row fallback)
+- [x] any remaining "group" user-facing text in `next-card.js` / `history.js` / `index.html` (next-card/history render plan names but no literal "Group" word; also relabeled the group→plan portion of alerts in exercises.js/variants.js)
+- [x] grep the workout frontend for visible "group"/"Group" strings to confirm none are missed (excluding identifiers/data-attrs/ids)
 
 ### Task 2: Relabel "Variant" → "Day" and schedule copy → "Repeats on"
 - [ ] `variants.js`: "Add/Edit Variant" → "Add/Edit Day", "Variant name is required!" → "Day name is required", "No variants yet…" → "No days yet", row `name (Order: N)` → day label (keep `rotation_order` internal)
