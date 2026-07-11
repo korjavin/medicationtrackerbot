@@ -360,6 +360,11 @@ func (r *Repo) DeleteVariant(id int64) error {
 // -- Exercise Methods --
 
 func (r *Repo) CreateExerciseInVariant(variantID int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) (*WorkoutExercise, error) {
+	// Normalize the name so the cached exercise_name and its promoted library row
+	// are byte-identical — the read resolves through the library FK, and the JS
+	// mirror trims too, so an untrimmed name would flip on refresh / diverge
+	// across modes.
+	exerciseName = strings.TrimSpace(exerciseName)
 	// Resolve the owning user so the new plan exercise can be promoted into the
 	// exercise library (the Workouts → Exercises tab). med-spp: schedule
 	// exercises must appear in the library, identically in bot and cloud modes.
@@ -489,6 +494,7 @@ func (r *Repo) GetExercise(id int64) (*WorkoutExercise, error) {
 }
 
 func (r *Repo) UpdateExercise(id int64, exerciseName string, targetSets, targetRepsMin int, targetRepsMax *int, targetWeightKg *float64, orderIndex int) error {
+	exerciseName = strings.TrimSpace(exerciseName)
 	return r.db.WithTx(context.Background(), func(tx storedb.TX) error {
 		_, err := tx.Exec(`
 			UPDATE workout_exercises

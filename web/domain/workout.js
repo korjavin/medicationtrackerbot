@@ -472,7 +472,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       deleted: false,
       id: mintNumericId(await records.list(WORKOUT_RECORD_TYPES.EXERCISE), nowMs),
       variant_id: Number(input && input.variant_id) || 0,
-      exercise_name: (input && input.exercise_name) || '',
+      exercise_name: ((input && input.exercise_name) || '').trim(),
       target_sets: Number(input && input.target_sets) || 0,
       target_reps_min: Number(input && input.target_reps_min) || 0,
       target_reps_max: numOrNull(input && input.target_reps_max, true),
@@ -487,9 +487,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const libId = await promoteExerciseToLibrary(record);
     if (libId) record.exercise_library_id = libId;
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, record);
-    // On create the resolved name is just record.exercise_name (the name we
-    // promoted from), so skip the extra libraryById() scan and match Go, which
-    // returns the raw (untrimmed) name in both columns.
+    // On create the resolved name is just record.exercise_name (the trimmed name
+    // we promoted from), so skip the extra libraryById() scan and match Go, which
+    // trims and stores the same name in both columns.
     return toExerciseResponse(record);
   }
 
@@ -544,7 +544,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (!exercise) return;
     const updated = {
       ...exercise,
-      exercise_name: (input && input.exercise_name) || '',
+      exercise_name: ((input && input.exercise_name) || '').trim(),
       target_sets: Number(input && input.target_sets) || 0,
       target_reps_min: Number(input && input.target_reps_min) || 0,
       target_reps_max: numOrNull(input && input.target_reps_max, true),
