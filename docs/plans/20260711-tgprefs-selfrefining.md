@@ -83,10 +83,10 @@ Verified on local master @5e2eca7c (after ff to origin/master, which merged med-
 - [x] Pass the `prefs` port into the `createTGAgent({ chat, dispatcher, prefs })` factory call.
 
 ### Task 2: READ — inject the tgprefs note into the agent system prompt
-- [ ] In `web/cloud/js/tg-agent.js`, accept `prefs` in `createTGAgent({ chat, dispatcher, prefs, maxRounds })`.
+- [x] In `web/cloud/js/tg-agent.js`, accept `prefs` in `createTGAgent({ chat, dispatcher, prefs, maxRounds })`.
       Make it optional (default to a no-op port `{ get: async () => '', append: async () => {} }`)
       so existing callers/tests without `prefs` keep working.
-- [ ] In `run(userText)`, `await prefs.get()` and, when the note is non-empty, build the system
+- [x] In `run(userText)`, `await prefs.get()` and, when the note is non-empty, build the system
       message as `SYSTEM_PROMPT + "\n\nWhat you already know about how THIS user talks (apply it
       when interpreting them):\n" + note`. When the note is empty, the system message is exactly
       `SYSTEM_PROMPT` (unchanged — no dangling header).

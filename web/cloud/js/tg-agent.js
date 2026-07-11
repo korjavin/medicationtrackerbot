@@ -70,7 +70,9 @@ function parseArgs(raw) {
 // createTGAgent wires the loop over injected ports. dispatcher.handle throws
 // MCPError on a bad op/arg; we hand the error text back to the model as the tool
 // result so it can self-correct rather than aborting the whole turn.
-export function createTGAgent({ chat, dispatcher, maxRounds = DEFAULT_MAX_ROUNDS }) {
+const NOOP_PREFS = { get: async () => '', append: async () => {} };
+
+export function createTGAgent({ chat, dispatcher, prefs = NOOP_PREFS, maxRounds = DEFAULT_MAX_ROUNDS }) {
   async function execTool(call) {
     const name = call.function && call.function.name;
     const args = parseArgs(call.function && call.function.arguments);
@@ -97,8 +99,12 @@ export function createTGAgent({ chat, dispatcher, maxRounds = DEFAULT_MAX_ROUNDS
   // run drives the conversation and returns the model's final plain-text answer
   // (may be empty if the model chose to stay silent).
   async function run(userText) {
+    const note = (await prefs.get()) || '';
+    const systemContent = note
+      ? `${SYSTEM_PROMPT}\n\nWhat you already know about how THIS user talks (apply it when interpreting them):\n${note}`
+      : SYSTEM_PROMPT;
     const messages = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemContent },
       { role: 'user', content: userText },
     ];
 
