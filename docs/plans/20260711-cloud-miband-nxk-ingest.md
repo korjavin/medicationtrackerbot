@@ -124,8 +124,8 @@ Dependencies identified: none new. Reuses inbox key, seal crypto, drain, existin
 
 ### Task 7: [Final] Update documentation
 
-- [ ] update `docs/cloud-mode.md` vitals section: cloud vitals ingestion now exists via NXK upload + Telegram `.nxk`, server-parse-then-seal, no webhook, no GPS. Remove/adjust the "Vitals is empty until C2e" / "external Mi Band Notify webhook left unmapped" notes.
-- [ ] update the `apishim.js` route-table note (:490-499) that lists the Mi Notify webhook as intentionally unrouted, to reflect the new import path (still no live webhook).
+- [x] update `docs/cloud-mode.md` vitals section: cloud vitals ingestion now exists via NXK upload + Telegram `.nxk`, server-parse-then-seal, no webhook, no GPS. Remove/adjust the "Vitals is empty until C2e" / "external Mi Band Notify webhook left unmapped" notes.
+- [x] update the `apishim.js` route-table note (:490-499) that lists the Mi Notify webhook as intentionally unrouted, to reflect the new import path (still no live webhook).
 
 ## Technical Details
 
