@@ -52,14 +52,13 @@ Log by message:
 /bp 120 80 — blood pressure (add a third number for pulse)
 /weight 81.2 — weight in kg
 /food 200g chicken breast — log a meal (needs an AI key in Settings)
+/workout legs — log a workout you finished (the name is optional)
 /note felt dizzy after lunch — a diary entry
 /intake — confirm the medications due now
 
 Reminders arrive in this chat; tap Confirm or Snooze right on the notification.
 
-This server cannot read what you send: your message is sealed the moment it arrives and only your unlocked app can open it. That is why logging replies "Queued" first, then updates itself once your app records it.
-
-Workouts still live in the app only — they aren't a chat command yet.`
+This server cannot read what you send: your message is sealed the moment it arrives and only your unlocked app can open it. That is why logging replies "Queued" first, then updates itself once your app records it.`
 
 	// queuedMessage answers every sealed command. It is deliberately content-
 	// free: the relay sealed the text without parsing it, so it genuinely does
@@ -137,6 +136,7 @@ var childCommands = []tgclient.BotCommand{
 	{Command: "bp", Description: "Log blood pressure: /bp 120 80"},
 	{Command: "weight", Description: "Log weight: /weight 81.2"},
 	{Command: "food", Description: "Log food: /food 200g chicken breast"},
+	{Command: "workout", Description: "Log a workout: /workout legs"},
 	{Command: "note", Description: "Add a diary note: /note felt dizzy"},
 	{Command: "intake", Description: "Confirm the medications due now"},
 }

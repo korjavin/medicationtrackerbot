@@ -12,6 +12,7 @@ import { createWeightDomain } from '../../../domain/weight.js';
 import { createNotesDomain } from '../../../domain/notes.js';
 import { createFoodDomain } from '../../../domain/food.js';
 import { createFoodAIDomain } from '../../../domain/foodai.js';
+import { createWorkoutDomain } from '../../../domain/workout.js';
 import { commandToken, parseCommand } from '../../../domain/tgcommand.js';
 
 const SLOT_UNIX = 1767225600; // 2026-01-01T00:00:00Z
@@ -352,6 +353,7 @@ describe('inbox-apply.js — a Telegram data command', () => {
             notes: createNotesDomain({ records, now }),
             intake: domainFor(records, now),
             foodAI: createFoodAIDomain({ aiClient, foodDomain: createFoodDomain({ records, now, timeZone: 'UTC' }), now }),
+            workout: createWorkoutDomain({ records, now, timeZone: 'UTC' }),
             records,
             now,
         };
@@ -443,10 +445,46 @@ describe('inbox-apply.js — a Telegram data command', () => {
         const now = () => DRAIN_MS;
         const editReply = vi.fn();
         await applyTGCommand(commandEvent('/bogus'), 13, { ...domainsFor(records, now), editReply });
-        await applyTGCommand(commandEvent('/workout legs'), 14, { ...domainsFor(records, now), editReply });
+        await applyTGCommand(commandEvent('/tz'), 14, { ...domainsFor(records, now), editReply });
 
         expect(editReply).toHaveBeenNthCalledWith(1, REPLY_ID, expect.stringMatching(/don't understand \/bogus/));
-        expect(editReply).toHaveBeenNthCalledWith(2, REPLY_ID, expect.stringMatching(/\/workout isn't available over chat yet/));
+        expect(editReply).toHaveBeenNthCalledWith(2, REPLY_ID, expect.stringMatching(/\/tz isn't available over chat yet/));
+    });
+
+    it('/workout logs a completed ad-hoc session through the shared workout domain', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        // The domain injected by domainsFor stamps from `now`; the applier wires
+        // the arrival clock in production, but here we only assert the session is
+        // created, completed, and labelled — not the backdating (its own test).
+        await applyTGCommand(commandEvent('/workout legs'), 14, { ...domainsFor(records, now), editReply });
+
+        const sessions = await records.list('workoutsession');
+        expect(sessions).toHaveLength(1);
+        expect(sessions[0]).toMatchObject({ status: 'completed', notes: 'legs', recordId: 'tg-14' });
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Logged workout: legs/));
+    });
+
+    it('a bare /workout logs an unnamed completed workout', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        await applyTGCommand(commandEvent('/workout'), 15, { ...domainsFor(records, now), editReply });
+
+        const sessions = await records.list('workoutsession');
+        expect(sessions).toMatchObject([{ status: 'completed', recordId: 'tg-15' }]);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Workout logged/));
+    });
+
+    it('re-draining the same /workout event overwrites its session instead of logging a second workout', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const opts = { ...domainsFor(records, now), editReply: vi.fn() };
+        await applyTGCommand(commandEvent('/workout legs'), 14, opts);
+        await applyTGCommand(commandEvent('/workout legs'), 14, opts);
+
+        expect(await records.list('workoutsession')).toHaveLength(1);
     });
 
     it('/food parses the description client-side and logs the meal, backdated to arrival', async () => {
@@ -671,13 +709,18 @@ describe('tgcommand.js — parsing', () => {
     });
 
     it('separates "not yet" from "no idea", because they are different apologies', () => {
-        expect(parseCommand('/workout')).toMatchObject({ kind: 'unsupported', command: '/workout' });
+        expect(parseCommand('/tz')).toMatchObject({ kind: 'unsupported', command: '/tz' });
         expect(parseCommand('/bogus')).toMatchObject({ kind: 'unknown', command: '/bogus' });
     });
 
     it('/food keeps the free-text remainder verbatim for a client-side AI parse', () => {
         expect(parseCommand('/food two eggs')).toMatchObject({ kind: 'food', command: '/food', text: 'two eggs' });
         expect(parseCommand('/food').kind).toBe('invalid');
+    });
+
+    it('/workout keeps an optional name and treats a bare command as valid', () => {
+        expect(parseCommand('/workout legs')).toMatchObject({ kind: 'workout', command: '/workout', name: 'legs' });
+        expect(parseCommand('/workout')).toMatchObject({ kind: 'workout', command: '/workout', name: '' });
     });
 
     it('marks relay-answered commands local, and free text as not a command', () => {
