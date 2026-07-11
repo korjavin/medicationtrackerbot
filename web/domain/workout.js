@@ -161,7 +161,8 @@ function toVariantResponse(record) {
 
 // toExerciseResponse mirrors the Go read: the canonical name comes from the
 // referenced library row (COALESCE(el.name, we.exercise_name)) so a library
-// rename shows through in plans/history. libById is the id→library-record map
+// rename shows through in plans. (History logs snapshot exercise_name at log
+// time and are intentionally unaffected.) libById is the id→library-record map
 // for non-deleted library rows; omit it (or a dangling/null FK) to fall back to
 // the cached exercise_name.
 function toExerciseResponse(record, libById) {
@@ -555,7 +556,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // Mirror the Go UpdateExercise upsert-by-name: relink the FK to the library
     // row for the (possibly changed) name.
     // Clear the FK on a blank name (promote returns null) so the read falls back
-    // to the cached exercise_name — matching Go, which links to the empty-name row.
+    // to the cached exercise_name and no whitespace-only library row is created —
+    // matching Go, which nulls the FK on a blank name (repo.go UpdateExercise).
     updated.exercise_library_id = (await promoteExerciseToLibrary(updated)) ?? null;
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, updated);
   }
@@ -649,7 +651,22 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
   async function deleteLibraryItem(id) {
     const item = await findByNumericId(records, WORKOUT_RECORD_TYPES.LIBRARY, id);
-    if (item) await records.del(WORKOUT_RECORD_TYPES.LIBRARY, item.recordId);
+    if (!item) return;
+    // Mirror Go's DeleteExerciseLibraryItem: snapshot this library row's
+    // (possibly renamed) name into every plan exercise that still references it
+    // and clear the FK, so deleting a library item leaves plans showing its last
+    // name instead of reverting to a stale cached exercise_name + dangling ref.
+    const refless = (await activeRecords(WORKOUT_RECORD_TYPES.EXERCISE))
+      .filter((e) => e.exercise_library_id === id);
+    for (const ex of refless) {
+      await records.put(WORKOUT_RECORD_TYPES.EXERCISE, {
+        ...ex,
+        exercise_name: item.name,
+        exercise_library_id: null,
+        clientTs: now(),
+      });
+    }
+    await records.del(WORKOUT_RECORD_TYPES.LIBRARY, item.recordId);
   }
 
   // -- Rotation state --

@@ -162,6 +162,16 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
         }
         const after = await window.apiCall('/api/workout/exercise-library');
         expect(after.filter((i) => i.name === 'Bench Press')).toHaveLength(1);
+
+        // (c) deleting the referenced library row snapshots its current name into
+        // the plans and drops the FK — no revert to the stale cached name (mirrors
+        // Go's DeleteExerciseLibraryItem reconciliation).
+        await window.apiCall(`/api/workout/exercise-library/delete?id=${after[0].id}`, 'DELETE');
+        for (const v of [varA.id, varB.id]) {
+            const exs = await window.apiCall(`/api/workout/exercises?variant_id=${v}`);
+            expect(exs[0].exercise_name).toBe('Bench Press');
+            expect(exs[0].exercise_library_id == null).toBe(true);
+        }
     });
 
     it('exercise library create/list/update/delete round-trips with name-uniqueness enforced', async () => {

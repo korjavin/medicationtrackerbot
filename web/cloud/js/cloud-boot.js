@@ -211,7 +211,8 @@ window.MedTrackerCloudReady = (async function boot() {
         }
         // med-prk.2: one-time backfill linking pre-migration plan exercises to
         // their exercise_library row, so a later library rename shows through in
-        // plans/history (the JS mirror of migration 076). Idempotent by
+        // plans (history logs snapshot the name at log time and stay unchanged;
+        // the JS mirror of migration 076). Idempotent by
         // construction — a rerun finds zero ref-less exercises and no-ops, so no
         // separate "has run" flag is needed. Reuses the normal exercise-update
         // path (shimCall), which dedups by name into the library and sets

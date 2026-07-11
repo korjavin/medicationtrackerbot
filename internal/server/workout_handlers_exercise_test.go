@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -87,7 +88,7 @@ func TestExerciseLibraryReference_CreateDedupeRename(t *testing.T) {
 	}
 
 	// (b) renaming the library row shows through in both plans' reads.
-	if err := db.Workout.UpdateExerciseLibraryItem(libID, "Bench Press", 3, 8, nil, nil, ""); err != nil {
+	if err := db.Workout.UpdateExerciseLibraryItem(userID, libID, "Bench Press", 3, 8, nil, nil, ""); err != nil {
 		t.Fatalf("rename library item: %v", err)
 	}
 	for _, v := range []int64{variantA.ID, variantB.ID} {
@@ -102,6 +103,33 @@ func TestExerciseLibraryReference_CreateDedupeRename(t *testing.T) {
 	after, _ := db.Workout.ListExerciseLibrary(userID)
 	if len(after) != 1 || after[0].Name != "Bench Press" {
 		t.Errorf("expected 1 library row 'Bench Press', got %+v", after)
+	}
+
+	// (c) another user cannot rename or delete this user's library row — the
+	// operations are user-scoped (else a stranger's rename would propagate into
+	// these plans via the FK). Both return sql.ErrNoRows and change nothing.
+	otherUser := int64(999999)
+	if err := db.Workout.UpdateExerciseLibraryItem(otherUser, libID, "Hacked", 3, 8, nil, nil, ""); err != sql.ErrNoRows {
+		t.Fatalf("cross-user update: expected sql.ErrNoRows, got %v", err)
+	}
+	if err := db.Workout.DeleteExerciseLibraryItem(otherUser, libID); err != sql.ErrNoRows {
+		t.Fatalf("cross-user delete: expected sql.ErrNoRows, got %v", err)
+	}
+	still, _ := db.Workout.ListExerciseLibrary(userID)
+	if len(still) != 1 || still[0].Name != "Bench Press" {
+		t.Fatalf("cross-user ops mutated the library: %+v", still)
+	}
+
+	// (d) deleting the referenced library row snapshots its current name into the
+	// plans and drops the FK — no revert to a stale cached name, no dangling ref.
+	if err := db.Workout.DeleteExerciseLibraryItem(userID, libID); err != nil {
+		t.Fatalf("owner delete: %v", err)
+	}
+	for _, v := range []int64{variantA.ID, variantB.ID} {
+		exs, _ := db.Workout.ListExercisesByVariant(v)
+		if len(exs) != 1 || exs[0].ExerciseName != "Bench Press" || exs[0].ExerciseLibraryID != nil {
+			t.Errorf("variant %d after library delete: want name 'Bench Press' + nil FK, got %+v", v, exs)
+		}
 	}
 }
 

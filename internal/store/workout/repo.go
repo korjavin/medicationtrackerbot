@@ -116,6 +116,12 @@ type WorkoutScheduleSnapshot struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// ErrEmptyLibraryName is returned by CreateExerciseLibraryItem /
+// UpdateExerciseLibraryItem when the name is blank after trimming — mirrors
+// cloud's invalidRequest('Name is required') so the canonical library row can
+// never be nameless regardless of which caller writes it.
+var ErrEmptyLibraryName = errors.New("exercise library name is required")
+
 // ExerciseLibraryItem represents an exercise in the user's exercise library.
 type ExerciseLibraryItem struct {
 	ID              int64     `json:"id"`
@@ -396,6 +402,12 @@ func (r *Repo) CreateExerciseInVariant(variantID int64, exerciseName string, tar
 		if err != nil {
 			return err
 		}
+		// Blank-after-trim names are left unlinked (FK stays null, read falls back
+		// to the cached exercise_name) to match migration 076 and cloud, which both
+		// skip promoting a whitespace-only name into the library.
+		if exerciseName == "" {
+			return nil
+		}
 		// Promote into the library, seeded from the plan targets and deduped by
 		// the existing (user_id, name) unique index — no insert if the user
 		// already has a library item with this name.
@@ -502,6 +514,13 @@ func (r *Repo) UpdateExercise(id int64, exerciseName string, targetSets, targetR
 			WHERE id = ?`,
 			exerciseName, targetSets, targetRepsMin, targetRepsMax, targetWeightKg, orderIndex, id)
 		if err != nil {
+			return err
+		}
+		// Blank-after-trim: clear the FK so the read falls back to the cached
+		// (empty) exercise_name and no whitespace-only library row is created —
+		// matching cloud's updateExercise, which nulls the FK on a blank name.
+		if exerciseName == "" {
+			_, err = tx.Exec(`UPDATE workout_exercises SET exercise_library_id = NULL WHERE id = ?`, id)
 			return err
 		}
 		// Resolve the owning user so a renamed exercise still resolves to a
@@ -687,6 +706,14 @@ func (r *Repo) GetExerciseLibraryItem(id int64) (*ExerciseLibraryItem, error) {
 }
 
 func (r *Repo) CreateExerciseLibraryItem(userID int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) (*ExerciseLibraryItem, error) {
+	// Trim so the canonical library row is byte-identical to cloud (which trims in
+	// web/domain/workout.js) — otherwise " Bench " would diverge across modes.
+	// Reject blank-after-trim to match cloud's invalidRequest('Name is required')
+	// so no caller (not just HTTP) can create a nameless canonical row.
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, ErrEmptyLibraryName
+	}
 	res, err := r.db.Exec(`
 		INSERT INTO exercise_library (user_id, name, default_sets, default_reps_min, default_reps_max, default_weight_kg, notes)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -701,18 +728,59 @@ func (r *Repo) CreateExerciseLibraryItem(userID int64, name string, sets, repsMi
 	return r.GetExerciseLibraryItem(id)
 }
 
-func (r *Repo) UpdateExerciseLibraryItem(id int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) error {
-	_, err := r.db.Exec(`
+// UpdateExerciseLibraryItem renames/edits a library row. Scoped by user_id so a
+// user cannot mutate another user's library (a rename now propagates into that
+// user's plans via the exercise_library_id FK). Returns sql.ErrNoRows when no
+// row is owned by userID with that id, so the handler can answer 404.
+func (r *Repo) UpdateExerciseLibraryItem(userID, id int64, name string, sets, repsMin int, repsMax *int, weightKg *float64, notes string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ErrEmptyLibraryName
+	}
+	res, err := r.db.Exec(`
 		UPDATE exercise_library
 		SET name = ?, default_sets = ?, default_reps_min = ?, default_reps_max = ?, default_weight_kg = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ?`,
-		name, sets, repsMin, repsMax, weightKg, notes, id)
-	return err
+		WHERE id = ? AND user_id = ?`,
+		name, sets, repsMin, repsMax, weightKg, notes, id, userID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
-func (r *Repo) DeleteExerciseLibraryItem(id int64) error {
-	_, err := r.db.Exec("DELETE FROM exercise_library WHERE id = ?", id)
-	return err
+// DeleteExerciseLibraryItem removes a library row. Scoped by user_id (see
+// UpdateExerciseLibraryItem). Before deleting, it snapshots the library's
+// current (possibly renamed) name into every plan exercise that still references
+// it and clears the FK — otherwise the read's COALESCE would revert those plans
+// to a stale cached exercise_name and leave a dangling exercise_library_id.
+// Returns sql.ErrNoRows when nothing is owned by userID with that id.
+func (r *Repo) DeleteExerciseLibraryItem(userID, id int64) error {
+	return r.db.WithTx(context.Background(), func(tx storedb.TX) error {
+		var name string
+		err := tx.QueryRow(`SELECT name FROM exercise_library WHERE id = ? AND user_id = ?`, id, userID).Scan(&name)
+		if err == sql.ErrNoRows {
+			return sql.ErrNoRows
+		}
+		if err != nil {
+			return err
+		}
+		// Referencing plan exercises belong to the same user (the FK is only set
+		// by that user's create/update path), so this is safe to scope by id alone.
+		if _, err := tx.Exec(`
+			UPDATE workout_exercises SET exercise_name = ?, exercise_library_id = NULL
+			WHERE exercise_library_id = ?`, name, id); err != nil {
+			return err
+		}
+		_, err = tx.Exec(`DELETE FROM exercise_library WHERE id = ? AND user_id = ?`, id, userID)
+		return err
+	})
 }
 
 // -- Rotation State Methods --
