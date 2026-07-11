@@ -83,11 +83,12 @@ The maintainer's blocker list **is the acceptance criteria** — every item must
 - ⚠️ CAVEAT (feeds Task 6): goja has **no `Intl`** (`Intl is not defined`). bp.js/weight.js use `Intl.DateTimeFormat(...).formatToParts` only for tz day-boundary math. The harness (`injectIntlShim` in `harness.go`) installs a minimal `Intl` shim backed by Go's `time` package — the same tz DB the native store uses — so `web/domain/*.js` still runs unmodified. This is an environment shim, not a module change.
 
 ### Task 4: Weight parity test (JS-via-goja vs internal/store/weight)
-- [ ] Create `internal/gojaspike/weight_parity_test.go` with the same fixed-clock/fixed-tz setup, Go side via `weight.New`.
-- [ ] Trend parity: for a sequence of weights, assert JS `calculateWeightTrend` (via domain create → `weight_trend` in response) matches Go `weight.CalculateWeightTrend` (EWMA, alpha=0.1) across the sequence.
-- [ ] Create+list parity: identical log sequence through JS `domain.create`/`domain.list` and Go `CreateLog`/`ListLogs`; assert response fields (weight, weight_trend, body_fat, muscle_mass, notes, ordering) match.
-- [ ] Reuse fixture input sequences from `cloud.shim-contract.weight.test.js` where practical.
-- [ ] `awaitCall` for every async call; all errors checked.
+- [x] Create `internal/gojaspike/weight_parity_test.go` with the same fixed-clock/fixed-tz setup, Go side via `weight.New`.
+- [x] Trend parity: for a sequence of weights, assert JS `calculateWeightTrend` (via domain create → `weight_trend` in response) matches Go `weight.CalculateWeightTrend` (EWMA, alpha=0.1) across the sequence.
+- [x] Create+list parity: identical log sequence through JS `domain.create`/`domain.list` and Go `CreateLog`/`ListLogs`; assert response fields (weight, weight_trend, body_fat, muscle_mass, notes, ordering) match.
+- [x] Reuse fixture input sequences from `cloud.shim-contract.weight.test.js` where practical.
+- [x] `awaitCall` for every async call; all errors checked.
+- Note: Go trend seeding replicates `handleCreateWeight` (GetLastLog → previous trend → CalculateWeightTrend → CreateLog), since `CreateLog` itself does not compute the EWMA — the handler does. Trends compare bit-exact (identical IEEE-754 op order both sides).
 
 ### Task 5: Benchmarks — cold-start, per-call, memory, pooled-vs-per-request
 - [ ] Create `internal/gojaspike/benchmark_test.go`: `BenchmarkColdStart` measures `newVM` + module eval per iteration (fresh VM each time).
