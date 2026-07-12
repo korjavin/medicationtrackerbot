@@ -58,9 +58,9 @@
 - [x] `renderJSON(nodes []cloudstore.AccountGraphNode) ([]byte, error)`: `{ "nodes": [{id, subdomain, claimed, created_at}], "edges": [{from, to}] }` — edges only for resolvable inviters; stable ordering.
 
 ### Task 3: Wire the `invite-graph` subcommand into admin dispatch
-- [ ] In `cmd/cloud/admin.go` `runAdmin` switch, add `case "invite-graph": return adminInviteGraph(ctx, store, args[1:])`.
-- [ ] Add `adminInviteGraph(ctx, store, args)` (in `invite_graph.go`): parse an optional `--format=<tree|dot|json>` flag (default `tree`; unknown → stderr usage + exit 1); call `store.ListAccountsForGraph`; dispatch to the matching renderer; print to stdout; return 0. Use `log/slog` only if a real error path needs logging (prefer stderr + non-zero exit like sibling handlers).
-- [ ] Add an `invite-graph` line to `printAdminUsage` describing the command + `--format=dot|json`.
+- [x] In `cmd/cloud/admin.go` `runAdmin` switch, add `case "invite-graph": return adminInviteGraph(ctx, store, args[1:])`.
+- [x] Add `adminInviteGraph(ctx, store, args)` (in `invite_graph.go`): parse an optional `--format=<tree|dot|json>` flag (default `tree`; unknown → stderr usage + exit 1); call `store.ListAccountsForGraph`; dispatch to the matching renderer; print to stdout; return 0. Use `log/slog` only if a real error path needs logging (prefer stderr + non-zero exit like sibling handlers).
+- [x] Add an `invite-graph` line to `printAdminUsage` describing the command + `--format=dot|json`.
 
 ### Task 4: Go test for the builder + renderers
 - [ ] `cmd/cloud/invite_graph_test.go`: build a fixture forest via `cloudstore` in-memory (`storedb.Open(":memory:")` + `cloudstore.New`) using `CreateAccount` with explicit `createdBy` — two roots, nested invitees, at least one pending (unclaimed) invite, and one orphan (inviter id that was never created / deleted).

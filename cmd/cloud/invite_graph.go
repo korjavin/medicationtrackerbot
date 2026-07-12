@@ -1,13 +1,54 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
+
+// adminInviteGraph prints the invitation forest. Optional --format=tree|dot|json
+// (default tree). Unknown format → usage on stderr + exit 1.
+func adminInviteGraph(ctx context.Context, store *cloudstore.Repo, args []string) int {
+	format := "tree"
+	for _, a := range args {
+		if v, ok := strings.CutPrefix(a, "--format="); ok {
+			format = v
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "invite-graph: unknown argument %q\n", a)
+		return 1
+	}
+
+	nodes, err := store.ListAccountsForGraph(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invite-graph failed: %v\n", err)
+		return 1
+	}
+
+	switch format {
+	case "tree":
+		roots, orphans := buildInviteForest(nodes)
+		fmt.Print(renderTree(roots, orphans))
+	case "dot":
+		fmt.Print(renderDOT(nodes))
+	case "json":
+		out, err := renderJSON(nodes)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "invite-graph: render json: %v\n", err)
+			return 1
+		}
+		fmt.Println(string(out))
+	default:
+		fmt.Fprintf(os.Stderr, "invite-graph: unknown format %q (want tree|dot|json)\n", format)
+		return 1
+	}
+	return 0
+}
 
 // forestNode is a single account plus its invitees, used to render the
 // invitation forest reconstructed from accounts.created_by_account_id.
