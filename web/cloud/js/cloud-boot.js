@@ -161,20 +161,25 @@ window.MedTrackerCloudReady = (async function boot() {
             }
         },
         async resetLocalSync() {
-            const { resetLocalSync } = await import('/js/sync.js');
-            await resetLocalSync(ctx);
-            // Un-wedging sync alone doesn't help if a permanently un-appliable
-            // sealed event is what wedged it — the drain would just re-fetch and
-            // re-wedge (med-eas.51). Also drop the server backlog so this one
-            // "Reset local sync" action truly recovers the account. Best-effort:
-            // local reset already succeeded above, so a failed network clear must
-            // not surface as a failed reset.
+            // Clear the server inbox backlog FIRST — while sync is still wedged.
+            // A permanently un-appliable sealed event is what wedged sync
+            // (med-eas.51), and un-wedging alone would just let the drain
+            // re-fetch and re-wedge. Order is load-bearing: while syncWedged is
+            // set the inbox poller's drain is PAUSED (drainInbox's wedge guard),
+            // so clearing the server backlog now — before resetLocalSync clears
+            // syncWedged below — closes the window where a live poll tick could
+            // otherwise re-fetch the poison event between un-wedge and clear and
+            // recreate doomed pending ops locally (re-wedging the account). Best-
+            // effort: a failed network clear must not block local recovery, so it
+            // proceeds to the reset regardless (same recovery the un-wedge gives).
             try {
                 const { clearInbox } = await import('/js/inbox.js');
                 await clearInbox({});
             } catch (err) {
-                console.warn('[cloud] local sync reset; server inbox backlog not cleared', err);
+                console.warn('[cloud] server inbox backlog not cleared; proceeding with local reset', err);
             }
+            const { resetLocalSync } = await import('/js/sync.js');
+            await resetLocalSync(ctx);
         },
     };
 
