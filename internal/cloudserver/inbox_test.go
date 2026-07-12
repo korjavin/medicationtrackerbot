@@ -243,6 +243,48 @@ func TestInbox_IsolatedPerAccount(t *testing.T) {
 	}
 }
 
+// A backlog of huge sealed events must not return one ~160MB body: the response
+// is byte-capped, so a drain pages through it (ack → re-fetch → next chunk) even
+// though the count cap alone would let all 200 through.
+func TestInbox_ByteCapsResponse(t *testing.T) {
+	h, host, accountID, session, store := inboxTestServer(t)
+	ctx := context.Background()
+
+	priv, _ := ecdh.X25519().GenerateKey(rand.Reader)
+	putInboxKey(t, h, host, session, priv.PublicKey().Bytes())
+
+	// Each sealed CT is a bit over 600 KiB, so any two together exceed the 1 MiB
+	// budget — the cap must return exactly one per fetch.
+	const events = 3
+	now := time.Now().UTC().Truncate(time.Second)
+	for i := 0; i < events; i++ {
+		if err := SealAndQueue(ctx, store, accountID, bytes.Repeat([]byte{byte('a' + i)}, 600<<10), now.Add(time.Duration(i)*time.Second)); err != nil {
+			t.Fatalf("SealAndQueue(%d): %v", i, err)
+		}
+	}
+
+	// Page through the backlog: each fetch returns a byte-bounded prefix (here 1),
+	// in id order, and acking it uncovers the next chunk.
+	var seenIDs []int64
+	for range make([]struct{}, events) {
+		res := listInbox(t, h, host, session)
+		if len(res.Events) != 1 {
+			t.Fatalf("byte cap returned %d events, want 1 (budget=%d)", len(res.Events), maxInboxDrainBytes)
+		}
+		id := res.Events[0].ID
+		if len(seenIDs) > 0 && id <= seenIDs[len(seenIDs)-1] {
+			t.Fatalf("ids out of order: %d after %v", id, seenIDs)
+		}
+		seenIDs = append(seenIDs, id)
+		if code := ackInbox(t, h, host, session, id); code != http.StatusNoContent {
+			t.Fatalf("ack %d = %d", id, code)
+		}
+	}
+	if got := listInbox(t, h, host, session); len(got.Events) != 0 {
+		t.Fatalf("backlog not drained: %d events remain", len(got.Events))
+	}
+}
+
 func TestInbox_RequiresSession(t *testing.T) {
 	h, host, _, _, _ := inboxTestServer(t)
 	for _, tc := range []struct{ method, path string }{

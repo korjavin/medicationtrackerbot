@@ -121,22 +121,19 @@ recover, reusing med-0ol.7's `syncWedged`/`resetLocalSync` and sync's byte-batch
       acks every event (existing `drainInbox` barrier tests). All 19 inbox tests pass.
 
 ### Task 3: Byte-cap `GET /api/inbox` so one response is never 160MB
-- [ ] In `internal/cloudserver/inbox.go` `ListInbox`, add a response BYTE budget alongside
+- [x] In `internal/cloudserver/inbox.go` `ListInbox`, added a response BYTE budget alongside
       the existing `maxInboxDrainBatch=200` count cap: accumulate each event's `CT` byte
-      length and stop adding events once the budget is reached, ALWAYS including at least
-      one event so the drain can still make progress (mirror sync's
-      `FLUSH_MAX_BODY_BYTES`/≤1 MiB "always send at least one" shape). Pick a budget in the
-      ≤1 MiB range consistent with the sync path; name it a `const` next to
-      `maxInboxDrainBatch` with a comment. Preserve `ORDER BY id` ordering — trim from the
-      tail only, never reorder.
-- [ ] The client already acks each event individually and re-drains, so paging through
-      byte-bounded chunks needs no client change beyond Tasks 1/2. Confirm `listInboxEvents`
-      handles a partial page correctly (it already does — it opens whatever `events` the
-      response carries).
-- [ ] Integration test (`internal/cloudserver/inbox_test.go`, `TZ=UTC`): seed several
-      large events exceeding the byte budget; assert `GET /api/inbox` returns a byte-bounded
-      prefix (fewer than all, ≥1, in id order), and that acking the returned ids then
-      re-fetching returns the next chunk. Must pass before Task 4.
+      length and `break` before exceeding, ALWAYS including the first event so a single
+      over-budget event still makes progress (mirrors sync's `FLUSH_MAX_BODY_BYTES` shape).
+      New `const maxInboxDrainBytes = 1 << 20` next to `maxInboxDrainBatch` with a comment.
+      Trims from the tail only, preserving the store's `ORDER BY id`.
+- [x] The client already acks each event individually and re-drains, so paging through
+      byte-bounded chunks needs no client change beyond Tasks 1/2 — `listInboxEvents` opens
+      whatever `events` the response carries.
+- [x] Integration test (`internal/cloudserver/inbox_test.go`, `TZ=UTC`):
+      `TestInbox_ByteCapsResponse` seeds 3 ~600 KiB events exceeding the budget; asserts each
+      `GET /api/inbox` returns exactly one (byte-bounded prefix, in id order) and that acking
+      it uncovers the next chunk until the backlog drains. Passes.
 
 ### Task 4: Let reset / un-wedge clear the poison inbox backlog
 - [ ] Add a store method `ClearInboxEvents(ctx, accountID) (int64, error)` in

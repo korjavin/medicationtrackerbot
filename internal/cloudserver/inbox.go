@@ -19,6 +19,12 @@ const (
 	// One drain pulls at most this many events. A drain that finds a full page
 	// simply runs again on the next open; the cap bounds a single response.
 	maxInboxDrainBatch = 200
+	// A single response never exceeds this many bytes of sealed ciphertext,
+	// regardless of the count cap. A backlog of huge sealed .nxk vitals seals
+	// (each up to ~MBs) would otherwise return a ~160MB body per poll and brick
+	// the account (med-eas.51). Mirrors sync's ≤1 MiB FLUSH_MAX_BODY_BYTES batch:
+	// always emit at least one event so the drain still makes progress.
+	maxInboxDrainBytes = 1 << 20
 )
 
 // inboxStore is the narrow slice of cloudstore the inbox API needs. sessionStore
@@ -113,8 +119,16 @@ func (a *InboxAPI) ListInbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wire := make([]inboxEventWire, 0, len(events))
+	var bodyBytes int
 	for _, e := range events {
+		// Always include the first event even if it alone exceeds the budget,
+		// then stop before the budget is breached. Trims from the tail only, so
+		// ORDER BY id is preserved and the client pages the rest on re-drain.
+		if len(wire) > 0 && bodyBytes+len(e.CT) > maxInboxDrainBytes {
+			break
+		}
 		wire = append(wire, inboxEventWire{ID: e.ID, CreatedAtUnix: e.CreatedAt.Unix(), CT: e.CT})
+		bodyBytes += len(e.CT)
 	}
 	writeJSON(w, http.StatusOK, listInboxResponse{Events: wire})
 }
