@@ -71,6 +71,8 @@ func runAdmin(cfg config, args []string) int {
 		return adminDelete(ctx, store, args[1])
 	case "migrate-bots-to-proxy":
 		return adminMigrateBotsToProxy(ctx, store, cfg)
+	case "invite-graph":
+		return adminInviteGraph(ctx, store, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown admin subcommand %q\n\n", args[0])
 		printAdminUsage()
@@ -89,7 +91,9 @@ subcommands:
   revoke <subdomain>      delete an unclaimed account (withdraw an unused invite)
   delete <subdomain>      delete an account and all its data (asks for confirmation)
   migrate-bots-to-proxy   move pre-proxy linked bots to the local Bot API proxy
-                          (logOut on cloud + re-setWebhook via proxy; one-time)`)
+                          (logOut on cloud + re-setWebhook via proxy; one-time)
+  invite-graph            show the invitation forest (who invited whom);
+                          --format=dot|json for Graphviz / machine output`)
 }
 
 // adminMigrateBotsToProxy runs the one-time cloud→local Bot API migration for

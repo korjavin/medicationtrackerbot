@@ -190,6 +190,48 @@ func (r *Repo) HasClaimedAccountCreatedBy(ctx context.Context, createdBy string)
 	return exists, err
 }
 
+// AccountGraphNode is a plaintext operator-metadata row used to reconstruct the
+// invitation forest. CreatedBy is nil when provenance is NULL — an admin-CLI mint,
+// i.e. a forest root. Claimed mirrors AccountSummary.Claimed: claim_token_hash IS
+// NULL means the invite was consumed (account active); NOT NULL = pending invite.
+type AccountGraphNode struct {
+	ID        string
+	Subdomain string
+	CreatedBy *string
+	CreatedAt time.Time
+	Claimed   bool
+}
+
+// ListAccountsForGraph returns every account's provenance metadata for the
+// invite-graph admin command. NULL created_by_account_id maps to a nil CreatedBy
+// (admin-CLI root); Claimed is derived from claim_token_hash IS NULL.
+func (r *Repo) ListAccountsForGraph(ctx context.Context) ([]AccountGraphNode, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, subdomain, created_by_account_id, created_at_unix, claim_token_hash IS NULL FROM accounts ORDER BY created_at_unix, subdomain`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []AccountGraphNode
+	for rows.Next() {
+		var (
+			n         AccountGraphNode
+			createdBy sql.NullString
+			createdAt int64
+		)
+		if err := rows.Scan(&n.ID, &n.Subdomain, &createdBy, &createdAt, &n.Claimed); err != nil {
+			return nil, err
+		}
+		if createdBy.Valid {
+			n.CreatedBy = &createdBy.String
+		}
+		n.CreatedAt = storedb.UnixToTime(createdAt)
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
 // nullString turns "" into a driver NULL so an unset VAPID key never gets
 // stored as an empty-string value that would read as "present" to a NULL check.
 func nullString(s string) any {
