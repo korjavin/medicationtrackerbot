@@ -1061,7 +1061,7 @@ let drainInFlight = null;
 // so a rerun queued while a reauth-owned drain held the slot is still consumed
 // instead of leaking into a spurious drain after the NEXT auto-drain.
 let onDrainSettled = () => {};
-export function startReconnectAutoDrain(ctx) {
+export function startReconnectAutoDrain(ctx, { onAuthExpired } = {}) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
   let debounce = null;
   let stopped = false;
@@ -1076,6 +1076,11 @@ export function startReconnectAutoDrain(ctx) {
       .finally(() => {
         drainInFlight = null;
         onDrainSettled();
+        // A mid-session expiry (the common case for a non-sliding 30-day
+        // cookie in a long-lived PWA tab) is only ever detected by these
+        // event-driven drains — the boot-time check already ran. Hand it to
+        // the caller so the UI can surface it instead of queueing silently.
+        if (authExpired && !stopped && onAuthExpired) onAuthExpired();
       });
     return drainInFlight;
   };

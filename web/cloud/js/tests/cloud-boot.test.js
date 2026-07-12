@@ -116,6 +116,32 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     expect(realCalls).toContain('/not-api/thing');
   });
 
+  it('wires the auth-expired surface into the reconnect auto-drain (med-deq.2 mid-session expiry)', async () => {
+    // The boot-time banner check alone misses the common case: a non-sliding
+    // 30-day session expiring under a long-lived PWA tab. The same surface
+    // function must be handed to startReconnectAutoDrain so a 401'd drain
+    // re-runs it (the banner id dedupes repeat mounts).
+    let statusChecks = 0;
+    let drainOpts;
+    await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
+        'sync.js': {
+          pullOnOpen: async () => {},
+          startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
+          getSyncStatus: async () => { statusChecks++; return { authExpired: false }; },
+        },
+        'reminders.js': { scheduleReminderRecompute: () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+    expect(typeof drainOpts?.onAuthExpired).toBe('function');
+    expect(statusChecks).toBe(1); // the boot-time check still ran
+    await drainOpts.onAuthExpired(); // a 401'd drain re-checks status and (if expired) mounts the banner
+    expect(statusChecks).toBe(2);
+  });
+
   it('hands a #claim= link to the /unlock shell before touching the warm-unlock cache', async () => {
     const { location } = await runBoot({ hash: '#claim=tok123', modules: {} });
     expect(location.href).toBe('/unlock#claim=tok123');

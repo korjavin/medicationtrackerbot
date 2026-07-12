@@ -884,6 +884,35 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     expect(opsPosted).toBe(1); // note-1 posted exactly once
   });
 
+  it('a drain that settles auth-expired invokes onAuthExpired (mid-session expiry surface)', async () => {
+    // The boot-time banner check runs exactly once; a session expiring under a
+    // long-lived tab is only ever detected by these event-driven drains, so
+    // the drain must hand the state to the caller instead of queueing silently.
+    let surfaced = 0;
+    let sessionValid = false;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        opsGets++;
+        if (!sessionValid) return new Response('unauthorized', { status: 401 });
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    teardown = startReconnectAutoDrain(ctx, { onAuthExpired: () => { surfaced++; } });
+    window.dispatchEvent(new Event('online'));
+    await settle();
+    expect(opsGets).toBe(1);
+    expect(surfaced).toBe(1); // the 401 drain surfaced the expiry
+
+    // Session restored (e.g. re-auth completed): a successful drain must not
+    // re-fire the callback (this also clears the module auth-expired state).
+    sessionValid = true;
+    window.dispatchEvent(new Event('online'));
+    await settle();
+    expect(surfaced).toBe(1);
+  });
+
   it('a post-teardown online event no longer drains', async () => {
     teardown = startReconnectAutoDrain(ctx);
     teardown();
