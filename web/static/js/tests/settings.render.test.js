@@ -123,6 +123,32 @@ describe('Settings view collapsible groups (index.html)', () => {
             cleanup();
         }
     });
+
+    it('hideEmptySettingsGroups() also detects inline style.display and the empty OIDC container', () => {
+        const { window, document, cleanup } = loadSettingsView();
+        try {
+            // Targets: food-target-settings hides via inline style.display='none'
+            // (updateFoodTargetsVisibility), gamification-targets-settings via .hidden.
+            const targets = document.querySelector('#food-target-settings').closest('.wg-settings-group');
+            document.querySelector('#food-target-settings').style.display = 'none';
+            document.querySelector('#gamification-targets-settings').classList.add('hidden');
+
+            // Devices: cloud sections hidden by class, OIDC container hidden by
+            // being empty (the `.wg-settings-oidc:empty` CSS rule has no class).
+            const devices = document.querySelector('.wg-settings-cloud-devices').closest('.wg-settings-group');
+            devices.querySelectorAll('.wg-settings-cloud-devices, .wg-settings-cloud-invite')
+                .forEach((s) => s.classList.add('wg-settings-hidden'));
+            const oidc = document.querySelector('#oidc-setup-container');
+            expect(oidc.childElementCount).toBe(0);
+
+            window.hideEmptySettingsGroups();
+
+            expect(targets.classList.contains('wg-settings-hidden')).toBe(true);
+            expect(devices.classList.contains('wg-settings-hidden')).toBe(true);
+        } finally {
+            cleanup();
+        }
+    });
 });
 
 describe('WGSettings.section', () => {
