@@ -120,23 +120,23 @@ to connect-src, never emit a wildcard connect-src**):
 - [x] `go test ./internal/cloudserver/...` — must pass before next task.
 
 ### Task 3: Wire the proxy + rewire the browser port
-- [ ] `cmd/cloud/main.go`: alongside `foodProxyAPI` add
+- [x] `cmd/cloud/main.go`: alongside `foodProxyAPI` add
       `rxnavProxyAPI := cloudserver.NewRxNavProxyAPI(store, cfg.sessionSecret, "", "")`
       and `rxnavProxyAPI.RegisterRoutes(apiMux)` (empty strings → real public
       defaults).
-- [ ] `web/cloud/js/rxnorm.js`: replace the `BASE_URL`/`INTERACTION_URL`
+- [x] `web/cloud/js/rxnorm.js`: replace the `BASE_URL`/`INTERACTION_URL`
       literals. `searchRxNorm` → `GET /api/rxnav/rxcui?name=`,
       `GET /api/rxnav/approximate?term=`,
       `GET /api/rxnav/properties?rxcui=<rxcui>` (switch properties from the
       path form to the `?rxcui=` query to match the proxy route).
       `checkInteractions` → `GET /api/rxnav/interactions?rxcuis=<rxcuis.join(',')>`.
-- [ ] Keep the `AbortController` 10s timeout and `[]`-degradation on
+- [x] Keep the `AbortController` 10s timeout and `[]`-degradation on
       non-OK/error.
-- [ ] Rewrite the top-of-file comment: no longer browser-direct; now routes
+- [x] Rewrite the top-of-file comment: no longer browser-direct; now routes
       through the operator's blind same-origin proxy (`connect-src 'self'`
       covers it); name the tradeoff (operator sees the query in transit, blind
       by the fixed-string log invariant).
-- [ ] `go build ./...` — must pass. (Existing rxnorm-touching frontend tests,
+- [x] `go build ./...` — must pass. (Existing rxnorm-touching frontend tests,
       if any, run under `pnpm test` in the Verify task.)
 
 ### Task 4: Register the food.domain fallback host

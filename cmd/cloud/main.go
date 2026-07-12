@@ -218,6 +218,7 @@ func main() {
 	mcpRemoteAPI.Restore(context.Background())
 	trialProxyAPI := cloudserver.NewTrialProxyAPI(store, cfg.sessionSecret, cfg.trial)
 	foodProxyAPI := cloudserver.NewFoodProxyAPI(store, cfg.sessionSecret, cfg.foodDBURL, cfg.foodDBAPIKey)
+	rxnavProxyAPI := cloudserver.NewRxNavProxyAPI(store, cfg.sessionSecret, "", "")
 	apiMux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(apiMux)
 	envelopeAPI.RegisterRoutes(apiMux)
@@ -233,6 +234,7 @@ func main() {
 	mcpRemoteAPI.RegisterRoutes(apiMux)
 	trialProxyAPI.RegisterRoutes(apiMux)
 	foodProxyAPI.RegisterRoutes(apiMux)
+	rxnavProxyAPI.RegisterRoutes(apiMux)
 	cloudserver.NewEgressAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
 
 	// Telegram is fully disabled unless a manager bot token is configured; the
