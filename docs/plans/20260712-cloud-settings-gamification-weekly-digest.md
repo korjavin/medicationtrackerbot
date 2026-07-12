@@ -117,16 +117,16 @@ tile and make Journey unreachable through existing gating.
 
 ### Task 5: Update + extend the settings toggles integration suite
 
-- [ ] In `web/static/js/tests/settings.toggles.test.js`, update the three
+- [x] In `web/static/js/tests/settings.toggles.test.js`, update the three
       hardcoded toggle-id lists (the "mounts all … feature toggles" test, the
       `divider`-attribute test, and the "checkboxes exist after harness boot"
       test) to include `gamification-feature-toggle`, and bump the two count
       assertions from `7`/`toBe(7)` to `8`/`toBe(8)`.
-- [ ] Add a test: `window.toggleFeatureSetting('gamification', true)` calls
+- [x] Add a test: `window.toggleFeatureSetting('gamification', true)` calls
       `apiCall('/api/settings/features/gamification','POST',{enabled:true})`
       (mirror the existing round-trip test), and that flipping the
       `gamification-feature-toggle` checkbox drives it.
-- [ ] Add a cloud-mode test: with `window.__MEDTRACKER_CLOUD__ = true`, after
+- [x] Add a cloud-mode test: with `window.__MEDTRACKER_CLOUD__ = true`, after
       `loadSettings()` the `mt-setting-toggle[input-id="weekly-digest-feature-toggle"]`
       row has class `wg-settings-hidden`; and without the cloud flag it does not.
       Clean up the global in `finally` (match the existing cloud tests' pattern).
