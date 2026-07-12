@@ -576,7 +576,7 @@ Migration is a special case of the general **no-lock-in guarantee (C2e)**: one c
 | MCP frame sizes + timing | cloud (tier 1) | inherent to a blind relay; pairing ids only, content stays sealed |
 | MCP pairing key at rest (tier 2 only) | cloud, while remote mode is enabled | opt-in only; deleted on Disconnect; token itself is never logged (mind Traefik access logs — it travels in the URL path) |
 | Food/barcode search terms | operator's food-DB instance (default) | same exposure class as public Open Food Facts; endpoint swappable in settings |
-| Drug-name search + interaction queries | cloud (blind same-origin proxy, in transit) + RxNav (NIH) | proxied same-origin (`/api/rxnav/*`) so the app document's `connect-src` stays minimal; the proxy is blind by the fixed-string log invariant (never logs name/rxcui/body); nothing persisted beyond `rxcui`/`normalized_name` on the med record |
+| Drug-name search + interaction queries | cloud (blind same-origin proxy, in transit) + RxNav (NIH) | proxied same-origin (`/api/rxnav/*`) so the app document's `connect-src` stays minimal; the proxy is blind by the fixed-string log invariant (never logs name/rxcui/body — mind Traefik access logs, the drug name travels in the query string); nothing persisted beyond `rxcui`/`normalized_name` on the med record |
 | Meal descriptions + photos (AI parsing) | the user's own OpenAI(-compatible) provider, direct from the client | BYO key + BYO consent — never proxied through the cloud operator; same never-see guarantee as the vault keys that authorize it |
 
 **Ground truth, not a claim**: `cloud admin inspect <subdomain>` (see

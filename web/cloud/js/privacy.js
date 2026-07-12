@@ -97,7 +97,7 @@ export const PRIVACY_ITEMS = [
     category: 'visible',
     docSignal: 'Drug-name search + interaction queries',
     title: 'Drug-name and interaction lookups',
-    detail: 'Drug searches and interaction checks are relayed through the operator\'s server to RxNav (NIH) — the server can see the drug name in transit but is blind by design: it never logs or stores the query. Only the resolved drug id is kept on the medication record.',
+    detail: 'Drug searches and interaction checks are relayed through the operator\'s server to RxNav (NIH) — the server can see the drug name in transit but is blind by design: the application never logs or stores the query. Only the resolved drug id is kept on the medication record.',
   },
   {
     category: 'visible',

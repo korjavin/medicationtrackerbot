@@ -79,14 +79,19 @@ func (a *RxNavProxyAPI) Approximate(w http.ResponseWriter, r *http.Request) {
 	a.proxyRequest(a.baseURL+"/REST/approximateTerm.json?term="+url.QueryEscape(term)+"&maxEntries=1", w, r)
 }
 
-// Properties proxies an rxcui properties lookup.
+// Properties proxies an rxcui properties lookup. rxcui must be all digits
+// (trust boundary — the value is interpolated into the upstream path).
 func (a *RxNavProxyAPI) Properties(w http.ResponseWriter, r *http.Request) {
 	rxcui := r.URL.Query().Get("rxcui")
 	if rxcui == "" {
 		http.Error(w, "missing rxcui parameter", http.StatusBadRequest)
 		return
 	}
-	a.proxyRequest(a.baseURL+"/REST/rxcui/"+url.PathEscape(rxcui)+"/properties.json", w, r)
+	if !allDigits(rxcui) {
+		http.Error(w, "rxcui must be a number", http.StatusBadRequest)
+		return
+	}
+	a.proxyRequest(a.baseURL+"/REST/rxcui/"+rxcui+"/properties.json", w, r)
 }
 
 // Interactions proxies an interaction-list lookup. rxcuis is comma-separated;
@@ -100,12 +105,20 @@ func (a *RxNavProxyAPI) Interactions(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Split(raw, ",")
 	for _, p := range parts {
-		if p == "" || strings.IndexFunc(p, func(c rune) bool { return c < '0' || c > '9' }) != -1 {
+		if !allDigits(p) {
 			http.Error(w, "rxcuis must be comma-separated numbers", http.StatusBadRequest)
 			return
 		}
 	}
 	a.proxyRequest(a.interactionURL+"/api/interaction/list.json?rxcuis="+strings.Join(parts, "+"), w, r)
+}
+
+// allDigits reports whether s is non-empty and ASCII digits only.
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	return strings.IndexFunc(s, func(c rune) bool { return c < '0' || c > '9' }) == -1
 }
 
 func (a *RxNavProxyAPI) proxyRequest(upstreamURL string, w http.ResponseWriter, r *http.Request) {

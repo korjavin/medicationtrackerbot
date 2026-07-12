@@ -113,6 +113,15 @@ func TestRxNavProxyAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("Properties rejects non-numeric rxcui", func(t *testing.T) {
+		for _, bad := range []string{"abc", "1191x", "../interaction"} {
+			w := get(t, "/api/rxnav/properties?rxcui="+bad)
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("rxcui=%q: expected 400, got %d", bad, w.Code)
+			}
+		}
+	})
+
 	t.Run("Interactions rejects non-numeric rxcuis", func(t *testing.T) {
 		for _, bad := range []string{"1191,abc", "1191,,207106", "../etc"} {
 			w := get(t, "/api/rxnav/interactions?rxcuis="+bad)
