@@ -25,12 +25,13 @@ describe('cloud service worker versioning', () => {
         expect(sed).toContain('web/cloud/sw.js');
     });
 
-    // Push-only: no fetch handler means no cache to precache into. If a fetch
-    // handler is ever added, this test should be updated together with it —
-    // a precache list without a fetch handler is dead weight (that was the bug).
-    it('declares no cache it never serves from', () => {
+    // med-deq.1 added an offline app-shell fetch handler. The original bug was
+    // a precache list with no fetch handler serving it — so the invariant is
+    // now the inverse pairing: a cache exists only alongside the fetch handler
+    // that serves it, and its name is keyed on the deploy-stamped SW_VERSION.
+    it('pairs the cache with a fetch handler and versions it per deploy', () => {
         expect(SW).not.toContain('PRECACHE_URLS');
-        expect(SW).not.toMatch(/addEventListener\(\s*['"]fetch['"]/);
-        expect(SW).not.toContain('caches.open');
+        expect(SW).toMatch(/addEventListener\(\s*['"]fetch['"]/);
+        expect(SW).toContain('${CACHE_PREFIX}-shell-${SW_VERSION}');
     });
 });

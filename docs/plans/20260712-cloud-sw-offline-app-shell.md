@@ -63,16 +63,16 @@ per-account CSP, fresh assets) and refreshes the cache.
 ## Implementation Steps
 
 ### Task 1: Add fetch handler + versioned cache to web/cloud/sw.js
-- [ ] Add a `SHELL_CACHE = \`${CACHE_PREFIX}-shell-${SW_VERSION}\`` constant near
+- [x] Add a `SHELL_CACHE = \`${CACHE_PREFIX}-shell-${SW_VERSION}\`` constant near
       the existing `CACHE_PREFIX` (line 22), reusing the deploy-rewritten
       `SW_VERSION` so the cache name changes every deploy.
-- [ ] Add a top-of-handler comment block documenting the **CSP-snapshot-freeze
+- [x] Add a top-of-handler comment block documenting the **CSP-snapshot-freeze
       rationale**: the `/` document carries a per-account CSP computed from
       stored egress hosts; a cached copy replayed offline freezes that CSP
       snapshot. Acceptable because offline there is no egress anyway, and the
       next successful online navigation (network-first) overwrites the cached
       copy. Never serve a cached document when the network responded.
-- [ ] Add `self.addEventListener('fetch', ...)` that:
+- [x] Add `self.addEventListener('fetch', ...)` that:
       - Ignores (does not call `respondWith`, lets it pass to network) any
         request that is **not GET**, is **cross-origin**, or whose pathname
         starts with `/api/` or `/mcp/`. `/api/*` is NEVER cached or served from
@@ -84,11 +84,17 @@ per-account CSP, fresh assets) and refreshes the cache.
         `caches.match(request)`, falling back to `caches.match('/')` (the app
         shell) so a deep-link navigation still opens offline; if nothing
         cached, re-throw / return the failed fetch.
-- [ ] Update the existing `activate` handler so it prunes only caches whose name
+- [x] Update the existing `activate` handler so it prunes only caches whose name
       starts with `CACHE_PREFIX` **and is not** the current `SHELL_CACHE` (keep
       the current version), still ending with `self.clients.claim()`.
-- [ ] Leave push / notificationclick / pushsubscriptionchange / decodePush /
+- [x] Leave push / notificationclick / pushsubscriptionchange / decodePush /
       readNK and all their helpers **byte-for-byte unchanged**.
+- [x] ➕ Update `web/cloud/js/tests/architecture.sw-version.test.js`: its
+      "declares no cache it never serves from" case asserted the SW is
+      push-only (no fetch handler, no `caches.open`) — obsolete by design now;
+      replaced with the inverse invariant (fetch handler paired with a
+      `SW_VERSION`-keyed cache name, still no `PRECACHE_URLS`). The test's own
+      comment said to update it together with a fetch handler.
 
 ### Task 2: Unit tests — web/cloud/js/tests/sw.fetch-cache.test.js
 - [ ] Create the test following `sw.reminder-actions.test.js`'s loader

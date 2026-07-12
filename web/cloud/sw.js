@@ -14,12 +14,11 @@
 // installed cloud SW is frozen forever, push handler and all (med-jb7.2).
 const SW_VERSION = 'CACHE_VERSION_PLACEHOLDER';
 
-// This service worker is push-only: it handles install/activate/push/
-// notificationclick and has NO fetch handler, so it serves no assets and needs
-// no cache. It used to precache a list of shell URLs that nothing ever read.
-// Should cloud gain a real offline app-shell (deferred at
-// web/static/js/app-shell.js), a cache comes back with a fetch handler beside it.
 const CACHE_PREFIX = 'medtracker-cloud';
+
+// Versioned app-shell cache (med-deq.1). SW_VERSION changes every deploy, so
+// each deploy gets a fresh cache and activate prunes the old ones below.
+const SHELL_CACHE = `${CACHE_PREFIX}-shell-${SW_VERSION}`;
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -29,8 +28,49 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((names) => Promise.all(names.filter((name) => name.startsWith(CACHE_PREFIX)).map((name) => caches.delete(name))))
+      .then((names) =>
+        Promise.all(
+          names.filter((name) => name.startsWith(CACHE_PREFIX) && name !== SHELL_CACHE).map((name) => caches.delete(name))
+        )
+      )
       .then(() => self.clients.claim())
+  );
+});
+
+// Offline app shell: network-first with cache fallback for every same-origin
+// GET except /api/* and /mcp/* (dynamic, never cached, never served from
+// cache; non-GET and cross-origin pass through untouched).
+//
+// CSP-snapshot-freeze rationale: the `/` document carries a per-account CSP
+// computed from stored egress hosts, so a cached copy replayed offline freezes
+// that CSP snapshot. Acceptable: offline there is no egress anyway, and the
+// next successful online navigation (network-first) overwrites the cached
+// copy. A cached document is NEVER served when the network responded.
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/mcp/')) return;
+  event.respondWith(
+    fetch(request).then(
+      (response) => {
+        if (response.ok) {
+          const clone = response.clone();
+          event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.put(request, clone)));
+        }
+        return response;
+      },
+      (err) =>
+        caches.match(request).then((cached) => {
+          if (cached) return cached;
+          // Deep-link navigation offline: fall back to the cached app shell.
+          return caches.match('/').then((shell) => {
+            if (shell) return shell;
+            throw err;
+          });
+        })
+    )
   );
 });
 
