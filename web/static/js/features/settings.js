@@ -513,21 +513,30 @@ function bindDeleteAccount() {
         if (exportStatus) exportStatus.textContent = 'Preparing your export…';
         try {
             const { exportVaultToFile } = await loadAccountDeleteModule();
-            await exportVaultToFile();
-            if (exportStatus) exportStatus.textContent = 'Export downloaded. Keep it somewhere safe.';
+            const downloaded = await exportVaultToFile();
+            // false = the plaintext-secrets warning was declined — never claim
+            // a backup exists when nothing was written.
+            if (exportStatus) exportStatus.textContent = downloaded === false
+                ? 'Export cancelled — nothing was downloaded.'
+                : 'Export downloaded. Keep it somewhere safe.';
         } catch (err) {
             if (exportStatus) exportStatus.textContent = err.message || 'Export failed.';
         }
     });
 
+    // Hoisted across clicks: once the server delete succeeds, the account (and
+    // its session) is gone — a retry after a blocked local wipe must skip the
+    // re-auth ceremony (it would 401) and go straight back to the wipe.
+    let serverDeleted = false;
     confirmBtn.addEventListener('click', async () => {
         confirmBtn.disabled = true;
         if (errorEl) errorEl.textContent = '';
-        let serverDeleted = false;
         try {
             const { reauthAndDelete, clearLocalVault, baseDomainURL } = await loadAccountDeleteModule();
-            await reauthAndDelete();
-            serverDeleted = true;
+            if (!serverDeleted) {
+                await reauthAndDelete();
+                serverDeleted = true;
+            }
             await clearLocalVault();
             // The subdomain is gone; send the user somewhere that still exists.
             window.location.href = baseDomainURL();

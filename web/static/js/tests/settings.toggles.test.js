@@ -775,14 +775,42 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
-        it('the export-first button downloads the vault', async () => {
+        it('the export-first button downloads the vault and reports the download', async () => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
             try {
-                const mod = await mountCloudWithDeleteModule(window);
+                const mod = await mountCloudWithDeleteModule(window, {
+                    exportVaultToFile: vi.fn(async () => true),
+                });
                 document.getElementById('delete-account-open').click();
                 document.getElementById('delete-account-export').click();
                 await vi.waitFor(() => expect(mod.exportVaultToFile).toHaveBeenCalled());
+                await vi.waitFor(() => {
+                    expect(document.getElementById('delete-account-export-status').textContent).toMatch(/downloaded/i);
+                });
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        // exportVaultToFile resolves false when the user declines the
+        // plaintext-secrets warning. The status must NOT claim a download —
+        // in a delete flow a false "downloaded" is a data-loss trap.
+        it('a declined secrets warning shows "cancelled", never "downloaded"', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                await mountCloudWithDeleteModule(window, {
+                    exportVaultToFile: vi.fn(async () => false),
+                });
+                document.getElementById('delete-account-open').click();
+                document.getElementById('delete-account-export').click();
+                await vi.waitFor(() => {
+                    const text = document.getElementById('delete-account-export-status').textContent;
+                    expect(text).toMatch(/cancelled/i);
+                    expect(text).not.toMatch(/export downloaded/i);
+                });
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();
@@ -873,6 +901,39 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 expect(baseDomainURL).not.toHaveBeenCalled();
                 expect(window.location.href).toBe(before);
                 expect(document.getElementById('delete-account-confirm').disabled).toBe(false);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        // The advertised recovery ("close other tabs and try again") must
+        // actually work: the account is already gone server-side, so the retry
+        // click must NOT re-run the re-auth ceremony (it would 401 against the
+        // deleted account) — it retries only the local wipe, then navigates.
+        it('retrying after a blocked wipe skips re-auth and completes the wipe', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const baseDomainURL = vi.fn(() => 'https://app.example/');
+                const clearLocalVault = vi.fn()
+                    .mockRejectedValueOnce(new Error('Close other open tabs of this app and try again.'))
+                    .mockResolvedValueOnce(undefined);
+                const mod = await mountCloudWithDeleteModule(window, { baseDomainURL, clearLocalVault });
+                document.getElementById('delete-account-open').click();
+                const input = document.getElementById('delete-account-confirm-input');
+                input.value = 'delete my account';
+                input.dispatchEvent(new window.Event('input'));
+                await Promise.resolve();
+
+                const confirmBtn = document.getElementById('delete-account-confirm');
+                confirmBtn.click();
+                await vi.waitFor(() => expect(confirmBtn.disabled).toBe(false));
+
+                confirmBtn.click();
+                await vi.waitFor(() => expect(baseDomainURL).toHaveBeenCalled());
+                expect(mod.clearLocalVault).toHaveBeenCalledTimes(2);
+                expect(mod.reauthAndDelete).toHaveBeenCalledTimes(1);
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();
