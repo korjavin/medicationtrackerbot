@@ -597,6 +597,10 @@ async function loadSettings() {
         // oplog sync engine, which never touches this status bar — so the pane
         // sits empty under its own heading (med-8q2).
         document.querySelector('.wg-settings-sync')?.classList.add('wg-settings-hidden');
+        // weekly_digest is a bot/server-mode scheduler feature (Telegram Sunday
+        // summary); cloud mode has no digest sender and clamps the flag to false,
+        // so hide the dead toggle row rather than render a no-op control (med-eas.44).
+        document.querySelector('mt-setting-toggle[input-id="weekly-digest-feature-toggle"]')?.classList.add('wg-settings-hidden');
         document.querySelector('.wg-settings-notifications-cloud')?.classList.remove('wg-settings-hidden');
         await bindCloudNotifications();
         // Devices row (add/manage a second device) only makes sense in cloud

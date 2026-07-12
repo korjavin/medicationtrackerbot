@@ -109,7 +109,7 @@ tile and make Journey unreachable through existing gating.
 
 ### Task 4: Hide the weekly_digest toggle in cloud mode
 
-- [ ] In `web/static/js/features/settings.js` `loadSettings()` cloud block
+- [x] In `web/static/js/features/settings.js` `loadSettings()` cloud block
       (`if (window.__MEDTRACKER_CLOUD__) { … }`, ~line 592), add
       `document.querySelector('mt-setting-toggle[input-id="weekly-digest-feature-toggle"]')?.classList.add('wg-settings-hidden');`
       using the existing `?.`-guarded `wg-settings-hidden` pattern. Bot mode
