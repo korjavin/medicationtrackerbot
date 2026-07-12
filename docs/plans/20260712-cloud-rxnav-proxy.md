@@ -140,17 +140,17 @@ to connect-src, never emit a wildcard connect-src**):
       if any, run under `pnpm test` in the Verify task.)
 
 ### Task 4: Register the food.domain fallback host
-- [ ] `web/cloud/js/egress-hosts.js`: in `hostsFromIntegrations`, add
+- [x] `web/cloud/js/egress-hosts.js`: in `hostsFromIntegrations`, add
       `integrations.food && integrations.food.domain` to the sources. Because
       `food.domain` may be a bare host (no scheme) that `new URL()` rejects,
       normalize a bare host to `https://<domain>` (mirror `fooddb.js`
       `baseURL()`) before parsing so it actually registers; keep dropping truly
       unparseable/unallowlistable hosts via the existing `canAllowlist` guard.
-- [ ] Update the `hostsFromIntegrations` doc comment to mention `food.domain`.
-- [ ] Extend the existing egress-hosts test (under `web/cloud/js/tests/`) with
+- [x] Update the `hostsFromIntegrations` doc comment to mention `food.domain`.
+- [x] Extend the existing egress-hosts test (under `web/cloud/js/tests/`) with
       a `food.domain` bare-host case (registers as its hostname) and confirm
       existing cases still pass.
-- [ ] `pnpm test` (egress-hosts suite) — must pass before next task.
+- [x] `pnpm test` (egress-hosts suite) — must pass before next task.
 
 ### Task 5: Consistency test + disclosure updates
 - [ ] Create `web/cloud/js/tests/egress-consistency.test.js`: scan every

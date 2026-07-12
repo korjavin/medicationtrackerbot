@@ -19,8 +19,16 @@ describe('hostsFromIntegrations', () => {
     expect(hosts).toEqual(['api.openai.com']);
   });
 
+  it('registers the bare-host food.domain fallback (scheme prepended like fooddb.js)', () => {
+    expect(hostsFromIntegrations({ food: { domain: 'FoodDB.Example.com' } })).toEqual(['fooddb.example.com']);
+    expect(hostsFromIntegrations({ food: { domain: ' https://fooddb.example.com/path ' } })).toEqual(['fooddb.example.com']);
+    // food.url wins the fetch path but both hosts register; dedupe still applies
+    expect(hostsFromIntegrations({ food: { url: 'https://a.example.com/', domain: 'a.example.com' } })).toEqual(['a.example.com']);
+  });
+
   it('skips empty, unset, and non-absolute URLs', () => {
     expect(hostsFromIntegrations({ openai: { url: '', vision_url: 'api.openai.com' }, food: {} })).toEqual([]);
+    expect(hostsFromIntegrations({ food: { domain: '   ' } })).toEqual([]);
     expect(hostsFromIntegrations({})).toEqual([]);
     expect(hostsFromIntegrations(null)).toEqual([]);
   });
