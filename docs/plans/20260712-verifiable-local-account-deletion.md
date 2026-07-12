@@ -161,14 +161,19 @@ secrets behind the same warning.
       3551 passed / 29 skipped — via vitest, node 22)
 
 ### Task 5: Verify acceptance criteria
-- [ ] Verify: after deletion, IDB vault/device data removal is awaited and
+- [x] Verify: after deletion, IDB vault/device data removal is awaited and
       verified; push subscription + SW state are removed (best-effort); a blocked
       deletion produces a visible recoverable failure and no navigation; the
-      safety export warns before writing plaintext secrets.
-- [ ] Run the full frontend suite: `pnpm test` — all green.
-- [ ] Confirm no new `window.*` globals were introduced (grep the diff); confirm
-      no Go files changed.
-- [ ] Sanity-check architecture suites that touch account-delete / settings still pass.
+      safety export warns before writing plaintext secrets. (Confirmed in
+      `account-delete.js` `clearLocalVault`/`exportVaultToFile` and the
+      settings.js confirm handler; covered by the account-delete and
+      settings.toggles suites.)
+- [x] Run the full frontend suite: `pnpm test` — all green. (309 files,
+      3551 passed / 29 skipped — vitest, node 22.)
+- [x] Confirm no new `window.*` globals were introduced (grep the diff — only
+      test-mock assignments); confirm no Go files changed (none in the diff).
+- [x] Sanity-check architecture suites that touch account-delete / settings still
+      pass. (All 21 architecture suites, 185 tests — pass.)
 
 ## Technical Details
 - IDB delete promise shape:
