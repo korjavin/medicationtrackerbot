@@ -93,6 +93,121 @@ func buildNXKFixture(t *testing.T) string {
 	return nxkPath
 }
 
+// buildDenseNXKFixture writes a Mi Band backup.db with DENSE continuous streams:
+// one HR/SpO2/stress sample every 30s across `days` days (anchored to a UTC
+// midnight so downsample buckets align), plus one sleep row, one daystat row, and
+// one workout per day, and a GPS point. It exercises the real
+// downsample + event-chunking path over a realistic multi-day backup.
+func buildDenseNXKFixture(t *testing.T, days int) string {
+	t.Helper()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "backup.db")
+
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	ctx := context.Background()
+	schema := `
+		CREATE TABLE sleep (start INTEGER, end INTEGER, tz INTEGER, day TEXT,
+			light INTEGER, deep INTEGER, rem INTEGER, awake INTEGER, total INTEGER,
+			turnOver INTEGER, hrAvg INTEGER, spo2Avg INTEGER, userModified INTEGER, info TEXT);
+		CREATE TABLE heart (dateTime INTEGER, tz INTEGER, value INTEGER, type INTEGER);
+		CREATE TABLE spo2 (dateTime INTEGER, tz INTEGER, value INTEGER, type INTEGER);
+		CREATE TABLE stress (dateTime INTEGER, tz INTEGER, value INTEGER, type INTEGER, info TEXT);
+		CREATE TABLE day (day TEXT, steps INTEGER, calories INTEGER, distance INTEGER);
+		CREATE TABLE workout (startDateTime INTEGER, endDateTime INTEGER, type INTEGER,
+			distance REAL, steps INTEGER, calories INTEGER, heartAvg INTEGER, spo2Avg INTEGER,
+			pause INTEGER, tz INTEGER);
+		CREATE TABLE gps (dateTime INTEGER, latitude REAL, longitude REAL, altitude REAL, speed REAL, pause INTEGER);
+	`
+	if _, err := db.ExecContext(ctx, schema); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+
+	base := time.Date(2023, 10, 27, 0, 0, 0, 0, time.UTC)
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	hrStmt, _ := tx.Prepare(`INSERT INTO heart VALUES (?,?,?,?)`)
+	spo2Stmt, _ := tx.Prepare(`INSERT INTO spo2 VALUES (?,?,?,?)`)
+	stressStmt, _ := tx.Prepare(`INSERT INTO stress VALUES (?,?,?,?,?)`)
+	sleepStmt, _ := tx.Prepare(`INSERT INTO sleep VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	dayStmt, _ := tx.Prepare(`INSERT INTO day VALUES (?,?,?,?)`)
+	workoutStmt, _ := tx.Prepare(`INSERT INTO workout VALUES (?,?,?,?,?,?,?,?,?,?)`)
+	for d := 0; d < days; d++ {
+		dayStart := base.Add(time.Duration(d) * 24 * time.Hour)
+		dayStr := dayStart.Format("2006-01-02")
+		// One sample every 30s for the whole day → dense continuous streams.
+		for sec := 0; sec < 24*3600; sec += 30 {
+			ms := dayStart.Add(time.Duration(sec) * time.Second).UnixMilli()
+			if _, err := hrStmt.Exec(ms, 0, 70+sec%20, 1); err != nil {
+				t.Fatalf("hr insert: %v", err)
+			}
+			if _, err := spo2Stmt.Exec(ms, 0, 96+sec%4, 1); err != nil {
+				t.Fatalf("spo2 insert: %v", err)
+			}
+			if _, err := stressStmt.Exec(ms, 0, 30+sec%40, 1, ""); err != nil {
+				t.Fatalf("stress insert: %v", err)
+			}
+		}
+		mustStmt(t, sleepStmt, dayStart.UnixMilli(), dayStart.Add(8*time.Hour).UnixMilli(),
+			0, dayStr, 100, 200, 50, 30, 380, 5, 60, 98, 0, "sleep")
+		mustStmt(t, dayStmt, dayStr, 10000+d, 500+d, 7500+d)
+		wStart := dayStart.Add(10 * time.Hour).UnixMilli()
+		mustStmt(t, workoutStmt, wStart, wStart+1800000, 3, 3000.0, 3800, 250, 125, 0, 0, 0)
+	}
+	// GPS point — must never reach an event.
+	if _, err := tx.Exec(`INSERT INTO gps VALUES (?,?,?,?,0,?)`, base.UnixMilli(), 52.5, 13.4, 34.0, 0); err != nil {
+		t.Fatalf("gps insert: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+	return zipDBToNXK(t, dir, dbPath)
+}
+
+// mustStmt runs a prepared insert or fails the test.
+func mustStmt(t *testing.T, stmt *sql.Stmt, args ...any) {
+	t.Helper()
+	if _, err := stmt.Exec(args...); err != nil {
+		t.Fatalf("stmt exec: %v", err)
+	}
+}
+
+// zipDBToNXK packages a backup.db into a .nxk zip and returns its path.
+func zipDBToNXK(t *testing.T, dir, dbPath string) string {
+	t.Helper()
+	nxkPath := filepath.Join(dir, "export.nxk")
+	f, err := os.Create(nxkPath)
+	if err != nil {
+		t.Fatalf("create nxk: %v", err)
+	}
+	zw := zip.NewWriter(f)
+	entry, err := zw.Create("backup.db")
+	if err != nil {
+		t.Fatalf("zip entry: %v", err)
+	}
+	raw, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatalf("read db: %v", err)
+	}
+	if _, err := entry.Write(raw); err != nil {
+		t.Fatalf("zip write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zip close: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("nxk close: %v", err)
+	}
+	return nxkPath
+}
+
 func mustExec(t *testing.T, db *sql.DB, q string, args ...any) {
 	t.Helper()
 	if _, err := db.ExecContext(context.Background(), q, args...); err != nil {
@@ -127,6 +242,99 @@ func TestParseNXKToVitalsEvents(t *testing.T) {
 	}
 	if agg.workouts != 1 {
 		t.Errorf("workouts = %d, want 1", agg.workouts)
+	}
+}
+
+// TestParseNXKToVitalsEvents_DenseMultiDay guards med-0cf tasks 1+2 over a
+// realistic dense backup: downsampling shrinks the continuous streams to the app
+// cadence, and the import splits into many bounded events that each seal well
+// under the inbox per-drain byte cap. Also asserts daily aggregates are preserved,
+// GPS never leaks, and re-parsing is deterministic (idempotent).
+func TestParseNXKToVitalsEvents_DenseMultiDay(t *testing.T) {
+	const days = 3
+	nxkPath := buildDenseNXKFixture(t, days)
+
+	events, err := parseNXKToVitalsEvents(nxkPath)
+	if err != nil {
+		t.Fatalf("parseNXKToVitalsEvents: %v", err)
+	}
+
+	// Many bounded events, each sealing under the inbox drain cap.
+	if len(events) <= 1 {
+		t.Fatalf("got %d events, want many (> 1)", len(events))
+	}
+	for i, ev := range events {
+		blob, err := json.Marshal(ev)
+		if err != nil {
+			t.Fatalf("marshal event %d: %v", i, err)
+		}
+		if len(blob) >= maxInboxDrainBytes {
+			t.Errorf("event %d JSON size %d >= drain cap %d", i, len(blob), maxInboxDrainBytes)
+		}
+	}
+
+	// GPS never leaks; totals via the shared helper.
+	agg := sumEventStreams(t, events)
+
+	// Downsampling: HR/SpO2 ≤ 96/day (15 min), stress ≤ 48/day (30 min). Bucketing
+	// is anchored to 00:00 UTC and the fixture starts at a UTC midnight, so each
+	// full day collapses to exactly the cadence count.
+	perDay := func(samples []vitalsSampleWire) map[string]int {
+		m := map[string]int{}
+		for _, s := range samples {
+			m[s.DateTime.UTC().Format("2006-01-02")]++
+		}
+		return m
+	}
+	var hr, spo2, stress []vitalsSampleWire
+	for _, ev := range events {
+		hr = append(hr, ev.HR...)
+		spo2 = append(spo2, ev.SpO2...)
+		stress = append(stress, ev.Stress...)
+	}
+	assertPerDayCap(t, "hr", perDay(hr), 96)
+	assertPerDayCap(t, "spo2", perDay(spo2), 96)
+	assertPerDayCap(t, "stress", perDay(stress), 48)
+	assertMinSpacing(t, "hr", hr, hrCadence)
+	assertMinSpacing(t, "spo2", spo2, spo2Cadence)
+	assertMinSpacing(t, "stress", stress, stressCadence)
+
+	// Daily aggregates preserved as-is (one sleep + daystat + workout per day).
+	if agg.sleep != days || agg.daystats != days || agg.workouts != days {
+		t.Errorf("aggregates = sleep %d / daystats %d / workouts %d, want %d each",
+			agg.sleep, agg.daystats, agg.workouts, days)
+	}
+
+	// Determinism / idempotency: re-parsing the same backup yields identical events.
+	again, err := parseNXKToVitalsEvents(nxkPath)
+	if err != nil {
+		t.Fatalf("re-parse: %v", err)
+	}
+	first, _ := json.Marshal(events)
+	second, _ := json.Marshal(again)
+	if !bytes.Equal(first, second) {
+		t.Error("re-parsing the same backup produced different events")
+	}
+}
+
+// assertPerDayCap fails if any day's sample count exceeds cap.
+func assertPerDayCap(t *testing.T, name string, perDay map[string]int, cap int) {
+	t.Helper()
+	for day, n := range perDay {
+		if n > cap {
+			t.Errorf("%s %s: %d samples, want ≤ %d (downsample)", name, day, n, cap)
+		}
+	}
+}
+
+// assertMinSpacing fails if consecutive samples are closer than cadence.
+func assertMinSpacing(t *testing.T, name string, samples []vitalsSampleWire, cadence time.Duration) {
+	t.Helper()
+	for i := 1; i < len(samples); i++ {
+		gap := samples[i].DateTime.Sub(samples[i-1].DateTime)
+		if gap > 0 && gap < cadence {
+			t.Errorf("%s: gap %v between samples < cadence %v", name, gap, cadence)
+		}
 	}
 }
 

@@ -129,19 +129,19 @@ Dependencies identified: none new. No new HTTP route. No schema/migration change
       change expected; adjust only if they assumed a single event
 
 ### Task 3: Server integration test — dense multi-day fixture (vitals_import_test.go)
-- [ ] extend `buildNXKFixture` (or add a sibling builder) to emit a DENSE
+- [x] extend `buildNXKFixture` (or add a sibling builder) to emit a DENSE
       multi-day backup: many samples per day (e.g. every ~30s) across several days
       for HR/SpO2/stress, plus a few sleep/daystat/workout rows
-- [ ] assert `parseNXKToVitalsEvents` returns MANY events (> 1) and each event's
+- [x] assert `parseNXKToVitalsEvents` returns MANY events (> 1) and each event's
       JSON-marshaled size is < `maxInboxDrainBytes`
-- [ ] assert downsampling: HR/SpO2 samples are spaced ≥ 15 min (≤ 96/day), stress
+- [x] assert downsampling: HR/SpO2 samples are spaced ≥ 15 min (≤ 96/day), stress
       ≥ 30 min (≤ 48/day) — check min spacing / per-day counts across all events
-- [ ] assert daily aggregates preserved: sleep sessions, daystats, and workouts
+- [x] assert daily aggregates preserved: sleep sessions, daystats, and workouts
       appear unchanged (count + key fields) versus the fixture input
-- [ ] assert determinism/idempotency: parsing the same fixture twice yields
+- [x] assert determinism/idempotency: parsing the same fixture twice yields
       identical events (same order, same sample sets)
-- [ ] assert GPS still never appears in any event
-- [ ] run `TZ=UTC go test ./internal/cloudserver/...` — must pass
+- [x] assert GPS still never appears in any event
+- [x] run `TZ=UTC go test ./internal/cloudserver/...` — must pass
 
 ### Task 4: Client record chunking in importDayBatched (web/domain/vitals.js)
 - [ ] add a named const `MAX_SAMPLES_PER_RECORD = 500` (comment: keeps a record's
