@@ -342,6 +342,32 @@ describe('TodayDashboard.renderToday', () => {
         expect(labels.some((l) => /food/i.test(l))).toBe(false);
     });
 
+    it('weight off: BP pane + Add BP shortcut still render, alone in their auto-fit rows', () => {
+        // Regression for us0.2 — a disabled metric must not strand its partner
+        // pane/button. The vitals grid + vitals shortcut row use an auto-fit
+        // template so the lone remaining tile fills the row instead of sitting
+        // half-width. Structurally we assert the survivor still renders inside
+        // its grid container (CSS auto-fit does the visual fill).
+        const root = env.document.getElementById('today-content');
+        const state = allPresentState(now);
+        state.weightLatest = { value: null, deeplink: 'weight', status: 'disabled' };
+        state.weightTrend7d = { value: null, deeplink: 'weight', status: 'disabled' };
+        env.render(state, root, { now });
+
+        const grid = root.querySelector('.wg-vitals-grid');
+        expect(grid).not.toBeNull();
+        const metricTiles = grid.querySelectorAll('.wg-metric-tile');
+        expect(metricTiles.length).toBe(1);
+        expect(metricTiles[0].getAttribute('data-deeplink')).toBe('bp');
+        expect(root.querySelector('.wg-metric-tile[data-deeplink="weight"]')).toBeNull();
+
+        const vitalsRow = root.querySelector('.wg-today-shortcuts--vitals');
+        expect(vitalsRow).not.toBeNull();
+        const vitalsTiles = vitalsRow.querySelectorAll('.wg-shortcut-tile');
+        expect(vitalsTiles.length).toBe(1);
+        expect(vitalsTiles[0].textContent).toMatch(/BP/i);
+    });
+
     it('never sets inline style attributes on rendered elements', () => {
         const root = env.document.getElementById('today-content');
         env.render(allPresentState(now), root, { now });
