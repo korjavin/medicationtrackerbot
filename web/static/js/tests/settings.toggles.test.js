@@ -43,7 +43,7 @@ describe('Settings Features section (Phase 9, Task 5)', () => {
         }
     });
 
-    it('mounts all seven feature toggles inside the Features card', () => {
+    it('mounts all eight feature toggles inside the Features card', () => {
         const { dom, cleanup } = loadIndex();
         try {
             const doc = dom.window.document;
@@ -59,6 +59,7 @@ describe('Settings Features section (Phase 9, Task 5)', () => {
                 'medication-feature-toggle',
                 'food-intake-toggle',
                 'health-feature-toggle',
+                'gamification-feature-toggle',
                 'weekly-digest-feature-toggle',
             ];
             for (const inputId of expected) {
@@ -97,7 +98,7 @@ describe('Settings Features section (Phase 9, Task 5)', () => {
             const list = featuresCard.querySelector('.wg-settings-row-list');
             expect(list).not.toBeNull();
             const toggles = list.querySelectorAll('mt-setting-toggle');
-            expect(toggles.length).toBe(7);
+            expect(toggles.length).toBe(8);
         } finally {
             cleanup();
         }
@@ -183,6 +184,7 @@ describe('Settings toggle `divider` attribute (Phase 9, Task 5)', () => {
                 'medication-feature-toggle',
                 'food-intake-toggle',
                 'health-feature-toggle',
+                'gamification-feature-toggle',
                 'weekly-digest-feature-toggle',
                 'bp-reminders-toggle',
                 'weight-reminders-toggle',
@@ -233,6 +235,39 @@ describe('Feature toggle round-trip via window.toggleFeatureSetting (Phase 9, Ta
             expect(call[1]).toBe('POST');
             expect(call[2]).toEqual({ enabled: true });
             expect(invalidateSpy).toHaveBeenCalledWith(['settings', 'feature_settings']);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('window.toggleFeatureSetting persists gamification and flipping the toggle drives it', async () => {
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            const apiCallSpy = vi.fn().mockResolvedValue({ ok: true });
+            window.apiCall = apiCallSpy;
+            window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+
+            await window.toggleFeatureSetting('gamification', true);
+            let call = apiCallSpy.mock.calls.find(
+                (args) => args[0] === '/api/settings/features/gamification'
+            );
+            expect(call).toBeDefined();
+            expect(call[1]).toBe('POST');
+            expect(call[2]).toEqual({ enabled: true });
+
+            // Flipping the checkbox drives the same POST via the change listener.
+            apiCallSpy.mockClear();
+            const toggle = document.getElementById('gamification-feature-toggle');
+            toggle.checked = false;
+            toggle.dispatchEvent(new window.Event('change'));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            call = apiCallSpy.mock.calls.find(
+                (args) => args[0] === '/api/settings/features/gamification'
+            );
+            expect(call).toBeDefined();
+            expect(call[2]).toEqual({ enabled: false });
         } finally {
             cleanup();
         }
@@ -294,6 +329,7 @@ describe('Feature toggle round-trip via window.toggleFeatureSetting (Phase 9, Ta
                 'medication-feature-toggle',
                 'food-intake-toggle',
                 'health-feature-toggle',
+                'gamification-feature-toggle',
                 'weekly-digest-feature-toggle',
             ];
             for (const id of ids) {
@@ -566,6 +602,27 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             expect(window.rebuildCanonicalBottomNav).not.toHaveBeenCalled();
             expect(window.featureSettings.food).toBe(false);
         } finally {
+            cleanup();
+        }
+    });
+
+    it('hides the weekly-digest toggle in cloud mode, keeps it visible in bot mode', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            const weeklyDigest = () => document.querySelector('mt-setting-toggle[input-id="weekly-digest-feature-toggle"]');
+
+            // Bot mode: visible.
+            await window.loadSettings();
+            expect(weeklyDigest().classList.contains('wg-settings-hidden')).toBe(false);
+
+            // Cloud mode: hidden.
+            window.__MEDTRACKER_CLOUD__ = true;
+            await window.loadSettings();
+            expect(weeklyDigest().classList.contains('wg-settings-hidden')).toBe(true);
+        } finally {
+            delete window.__MEDTRACKER_CLOUD__;
             cleanup();
         }
     });
