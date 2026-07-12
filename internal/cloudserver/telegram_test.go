@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -72,6 +73,68 @@ func fakeTG(t *testing.T, responses map[string]string) *httptest.Server {
 }
 
 const tgTestSecret = "test-session-secret-at-least-32-bytes-long"
+
+// countingGetMe serves getMe: the first failUntil calls answer 502 (the startup
+// race where the local Bot API proxy hasn't bound its port yet), then success.
+// Returns the server and a pointer to the live hit counter.
+func countingGetMe(t *testing.T, failUntil int64) (*httptest.Server, *int64) {
+	t.Helper()
+	var hits int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt64(&hits, 1)
+		if strings.HasSuffix(r.URL.Path, "/getMe") && n <= failUntil {
+			w.WriteHeader(http.StatusBadGateway)
+			io.WriteString(w, `{"ok":false,"error_code":502,"description":"Bad Gateway"}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"ok":true,"result":{"id":7,"is_bot":true,"username":"mt_manager_bot"}}`)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &hits
+}
+
+// TestBootstrapGetMeRetry proves the getMe retry rides out a proxy that isn't up
+// yet (bd med-eas.42): failing twice then succeeding still resolves the username,
+// while a URL that never answers gives up after the budget instead of hanging.
+func TestBootstrapGetMeRetry(t *testing.T) {
+	t.Run("succeeds after transient failures", func(t *testing.T) {
+		srv, hits := countingGetMe(t, 2)
+		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "localhost", srv.URL, time.Hour)
+		me, err := tgAPI.getMeWithRetry(t.Context(), time.Second, 5*time.Millisecond)
+		if err != nil {
+			t.Fatalf("getMeWithRetry after transient failures: %v", err)
+		}
+		if me.Username != "mt_manager_bot" {
+			t.Fatalf("username = %q, want mt_manager_bot", me.Username)
+		}
+		if got := atomic.LoadInt64(hits); got != 3 {
+			t.Fatalf("getMe hits = %d, want 3 (2 failures + 1 success)", got)
+		}
+	})
+
+	t.Run("gives up after budget", func(t *testing.T) {
+		srv, hits := countingGetMe(t, 1<<30) // never succeeds
+		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "localhost", srv.URL, time.Hour)
+		me, err := tgAPI.getMeWithRetry(t.Context(), 30*time.Millisecond, 5*time.Millisecond)
+		if err == nil {
+			t.Fatalf("getMeWithRetry over budget: want error, got username %q", me.Username)
+		}
+		if atomic.LoadInt64(hits) < 2 {
+			t.Fatalf("getMe hits = %d, want at least 2 (retried before giving up)", atomic.LoadInt64(hits))
+		}
+	})
+
+	t.Run("context cancellation stops retrying", func(t *testing.T) {
+		srv, _ := countingGetMe(t, 1<<30) // never succeeds
+		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "localhost", srv.URL, time.Hour)
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		if _, err := tgAPI.getMeWithRetry(ctx, time.Hour, time.Minute); err == nil {
+			t.Fatal("getMeWithRetry with cancelled context: want error, got nil")
+		}
+	})
+}
 
 // TestTelegramProvisioningStateMachine guards the managed-bot binding flow end
 // to end against a fake Telegram API: provision → status pending → managed_bot
