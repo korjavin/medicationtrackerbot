@@ -228,6 +228,10 @@ export function startInboxPolling(ctx, {
   intervalMs = INBOX_POLL_MS,
   doc = typeof document === 'undefined' ? null : document,
   onApplied = () => {},
+  // `drain` defaults to the real drainInbox; tests inject a deterministic fake so
+  // the backoff-gate assertions don't race real WebCrypto event-opening against
+  // fake timers (that async slop leaks logs across tests and skews GET counts).
+  drain = drainInbox,
   ...drainOpts
 } = {}) {
   let stopped = false;
@@ -245,7 +249,7 @@ export function startInboxPolling(ctx, {
     if (doc && doc.visibilityState !== 'visible') return;
     if (!force && skipTicks > 0) { skipTicks--; return; }
     try {
-      const result = await drainInbox(ctx, { apply, ...drainOpts });
+      const result = await drain(ctx, { apply, ...drainOpts });
       if (!result || result.skipped) {
         // Another drain held the lock — leave the backoff window untouched.
       } else if (result.applied > 0) {

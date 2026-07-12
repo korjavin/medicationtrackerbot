@@ -321,15 +321,6 @@ describe('startInboxPolling', () => {
         return vi.fn(async () => okJson({ events: [] }));
     }
 
-    // A mailbox that serves one real sealed event on every GET and no-ops DELETEs
-    // (drains are idempotent), so we can drive stall→recover through the flush arg.
-    function oneEventMailbox() {
-        return vi.fn(async (url, opts) => {
-            if (opts && opts.method === 'DELETE') return { ok: true, status: 204 };
-            return okJson({ events: [{ id: 7, created_at_unix: 1, ct: VECTOR.sealed_b64 }] });
-        });
-    }
-
     function fakeDoc(state = 'visible') {
         const listeners = {};
         return {
@@ -342,27 +333,23 @@ describe('startInboxPolling', () => {
 
     // med-eas.51: a poison event that never applies (apply/decode keeps failing)
     // is no-progress too — the poller must back off, not re-fetch it every tick.
+    // Inject a deterministic fake drain: the real drainInbox opens the event with
+    // WebCrypto, whose async races the fake timers — that slop leaks the drain's
+    // expected error log into the next test and skews the drain count. The fake
+    // isolates exactly the poller's backoff gate (the med-eas.51 code under test).
     it('backs off when every drain fails to apply, not just on flush-false', async () => {
         vi.useFakeTimers();
-        const err = vi.spyOn(console, 'error').mockImplementation(() => {});
         const doc = fakeDoc('visible');
-        const records = await pollRecords();
-        const fetchImpl = oneEventMailbox();
-        const gets = () => fetchImpl.mock.calls.filter(([, opts]) => !opts).length;
+        const drain = vi.fn(async () => ({ applied: 0, failed: 1 })); // every drain fails to apply
 
-        const stop = startInboxPolling(ctx, {
-            // apply always throws → drainInbox returns {applied:0, failed:1}, no stall flag.
-            apply: async () => { throw new Error('vault write failed'); },
-            intervalMs: 1000, doc, fetchImpl, records, flush: async () => true,
-        });
+        const stop = startInboxPolling(ctx, { apply: () => {}, intervalMs: 1000, doc, drain });
 
         await vi.advanceTimersByTimeAsync(6000);
-        // Without backoff this would GET on all 6 ticks; the gate throttles it.
-        expect(gets()).toBeGreaterThan(0);
-        expect(gets()).toBeLessThan(6);
+        // Without backoff this would drain on all 6 ticks; the gate throttles it.
+        expect(drain.mock.calls.length).toBeGreaterThan(0);
+        expect(drain.mock.calls.length).toBeLessThan(6);
 
         stop();
-        err.mockRestore();
         vi.useRealTimers();
     });
 
@@ -406,42 +393,38 @@ describe('startInboxPolling', () => {
 
     // med-eas.51: a wedged/stalled account must stop hammering GET /api/inbox
     // every interval, but resume the normal cadence the moment it recovers.
+    // Fake drain (see the poison-backoff test above): stalls while flushOk is
+    // false, makes progress once it flips. Real drainInbox's WebCrypto open would
+    // race the fake timers and skew the drain count under parallel-suite load.
     it('backs off after consecutive stalls and resumes the normal cadence on progress', async () => {
         vi.useFakeTimers();
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const doc = fakeDoc('visible');
-        const records = await pollRecords();
-        const fetchImpl = oneEventMailbox();
         let flushOk = false;
-        const gets = () => fetchImpl.mock.calls.filter(([, opts]) => !opts).length; // GETs only
+        const drain = vi.fn(async () => (flushOk
+            ? { applied: 1, failed: 0 }
+            : { applied: 0, failed: 1, stalled: true }));
+        const drains = () => drain.mock.calls.length;
 
-        const stop = startInboxPolling(ctx, {
-            apply: vi.fn(), intervalMs: 1000, doc, fetchImpl, records, flush: async () => flushOk,
-        });
+        const stop = startInboxPolling(ctx, { apply: () => {}, intervalMs: 1000, doc, drain });
 
         // Sustained stall: 6 ticks fire but the backoff gate throttles the actual
-        // drains, so we GET far fewer times than we tick.
+        // drains, so we drain far fewer times than we tick.
         await vi.advanceTimersByTimeAsync(6000);
-        const throttled = gets();
+        const throttled = drains();
         expect(throttled).toBeGreaterThan(0);
         expect(throttled).toBeLessThan(6);
 
-        // Recovery: flush now confirms. Once the current backoff window elapses
-        // the next drain makes progress, the backoff resets, and the cadence
-        // returns to one drain per interval.
+        // Recovery: a drain now makes progress, which resets the backoff.
         flushOk = true;
         await vi.advanceTimersByTimeAsync(6000);
-        const afterRecovery = gets();
+        const afterRecovery = drains();
+        expect(afterRecovery).toBeGreaterThan(throttled); // recovery drains ran
+
         await vi.advanceTimersByTimeAsync(3000);
-        // Cadence restored: at full speed the 3 ticks GET ~3 times; under a
-        // still-active backoff they'd add 0–1. We assert "resumed", not an exact
-        // count — the drain is async (real WebCrypto opens each event), so under
-        // parallel-suite load a slow drain can make the `draining` guard skip a
-        // tick, and pinning an exact +3 makes the invariant flaky, not stronger.
-        expect(gets()).toBeGreaterThanOrEqual(afterRecovery + 2); // full cadence restored
+        // Full cadence restored: with the backoff reset, ~1 drain per tick.
+        expect(drains()).toBeGreaterThanOrEqual(afterRecovery + 2);
 
         stop();
-        warn.mockRestore();
         vi.useRealTimers();
     });
 });
