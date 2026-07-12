@@ -1090,7 +1090,9 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
       recordId: `hrsample-${i}`, recordType: 'hrsample', clientTs: i + 1, deleted: false, v: i,
     }));
     await replaceAllRecords(records);
-    await seedMeta({ localLastSeq: 10 }); // bootstrapped device (import runs post-unlock)
+    // A wedged device (repeated permanent write errors) that recovers via import:
+    // forceSnapshot must clear the wedge, or later writeRecords stay blocked (med-0ol.7).
+    await seedMeta({ localLastSeq: 10, syncWedged: true, writeErrorStreak: 3 }); // bootstrapped device (import runs post-unlock)
 
     let opsPosts = 0;
     let snapshotPosts = 0;
@@ -1113,5 +1115,7 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
     // Constant, NOT proportional to the 1500 records — proves no per-op fallback.
     expect(opsPosts).toBe(1);
     expect(snapshotPosts).toBe(1);
+    // Import recovered the device: the wedge is cleared so writes sync again.
+    expect((await getSyncStatus(ctx)).wedged).toBe(false);
   });
 });

@@ -661,7 +661,11 @@ export async function forceSnapshot(ctx) {
 export async function markForceSnapshotPending() {
   // Clear any stale error from a previous oversized import so this fresh
   // attempt doesn't inherit a "too large" banner while it's merely pending.
-  await writeMeta({ forceSnapshotPending: true, snapshotError: null, snapshotErrorSeq: null });
+  // Also un-wedge (med-0ol.7): a full-vault import replaces exactly the records
+  // that a permanent write-error wedged on, and its snapshot bump bypasses the
+  // wedge-guarded flushPending — so without clearing here the device lands the
+  // import but leaves syncWedged set, silently blocking every later writeRecord.
+  await writeMeta({ forceSnapshotPending: true, snapshotError: null, snapshotErrorSeq: null, syncWedged: false, writeErrorStreak: 0 });
 }
 
 // A permanent 4xx means the request reached a server that refused it and will
