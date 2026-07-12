@@ -183,16 +183,17 @@ to connect-src, never emit a wildcard connect-src**):
       vitest 3.)
 
 ### Task 6: Verify acceptance criteria
-- [ ] `go build ./...` — clean (server build; also spot-check
+- [x] `go build ./...` — clean (server build; also spot-check
       `go build -tags mobile ./...` is unaffected — no files touched there).
-- [ ] `go test ./internal/cloudserver/...` — green (RxNav proxy + router
+- [x] `go test ./internal/cloudserver/...` — green (RxNav proxy + router
       landmine tests `TestRouter_HostVariants` /
       `TestRouter_AppDocumentReflectsEgressHosts`).
-- [ ] `pnpm test` — green (egress-hosts, egress-consistency, privacy.drift).
-- [ ] Confirm no wildcard `connect-src` was introduced and `router.go` is
-      untouched.
-- [ ] Confirm `settings.js`, `aiclient.js`, `account-delete.js` and existing
-      migrations are untouched.
+- [x] `pnpm test` — green (310 files / 3551 tests; egress-hosts,
+      egress-consistency, privacy.drift all pass).
+- [x] Confirm no wildcard `connect-src` was introduced and `router.go` is
+      untouched (empty diff vs master).
+- [x] Confirm `settings.js`, `aiclient.js`, `account-delete.js` and existing
+      migrations are untouched (empty diff vs master).
 
 ## Technical Details
 - Proxy routes (session-gated, same-origin, no API key):
