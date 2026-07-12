@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, describeSyncStatus, getSyncStatus, recordsPort, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb } from '../localdb.js';
 
 const accountId = 'amber-falcon-8k3q9x';
@@ -799,5 +799,138 @@ describe('clock skew must not silently drop the newer edit (med-d5t.6)', () => {
 
     expect(await readMetaKey('clockSkewMs')).toBeNull();
     expect(await describeSyncStatus(ctx)).not.toMatch(/clock/);
+  });
+});
+
+// med-0ol.2/.3/.5 — a bulk import (a Mi-Band .nxk drains hundreds of day-batch
+// records) queues far more 'pending' than one POST may carry. flushPending must
+// drain it in ≤500-op chunks, not one giant body the server 400s and blind
+// retries can never clear; a transient failure must retry without losing a
+// record; a permanent 4xx must surface once, not storm.
+describe('flushPending drains a bulk backlog in bounded batches (med-0ol.2/.3/.5)', () => {
+  let ctx;
+
+  const seedPending = async (records, meta = { localLastSeq: 0 }) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'pending', 'sync_meta'], 'readwrite');
+        const rs = tx.objectStore('records');
+        const ps = tx.objectStore('pending');
+        for (const r of records) {
+          rs.put(r);
+          ps.put({ recordId: r.recordId, recordType: r.recordType });
+        }
+        const ms = tx.objectStore('sync_meta');
+        for (const [k, v] of Object.entries(meta)) ms.put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const readPendingCount = async () => {
+    const db = await openDb();
+    try {
+      const tx = db.transaction('pending', 'readonly');
+      return await new Promise((resolve, reject) => {
+        const req = tx.objectStore('pending').getAll();
+        req.onsuccess = () => resolve((req.result || []).length);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const makeRecords = (n, type = 'hrsample') => Array.from({ length: n }, (_, i) => ({
+    recordId: `${type}-${i}`, recordType: type, clientTs: i + 1, deleted: false, samples: [{ date_time: '2026-01-01T00:00:00Z', value: i }],
+  }));
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, dek: await generateDEK() };
+  });
+
+  it('posts a 1200-record backlog in three ≤500-op batches, never one giant body', async () => {
+    await seedPending(makeRecords(1200));
+    const batches = [];
+    let assignNext = 1;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        batches.push(ops.length);
+        const assigned = ops.map(() => assignNext++);
+        return new Response(JSON.stringify({ assigned }), { status: 200 });
+      }
+      if (u === '/api/sync/snapshot' && init?.method === 'POST') return new Response('{}', { status: 200 });
+      if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (u === '/api/sync/snapshot') return new Response(null, { status: 204 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+
+    const ok = await flushConfirmed(ctx);
+
+    expect(ok).toBe(true);
+    expect(batches.length).toBe(3);
+    expect(Math.max(...batches)).toBeLessThanOrEqual(500);
+    expect(batches.reduce((a, b) => a + b, 0)).toBe(1200);
+    expect(await readPendingCount()).toBe(0);
+  });
+
+  it('a transient 5xx leaves the backlog pending; a later flush lands every record (retry, no loss)', async () => {
+    await seedPending(makeRecords(600));
+    let failNext = true;
+    const posted = [];
+    let assignNext = 1;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        if (failNext) { failNext = false; return new Response('busy', { status: 503 }); }
+        const { ops } = JSON.parse(init.body);
+        posted.push(...ops.map((o) => o.record_type_tag));
+        const assigned = ops.map(() => assignNext++);
+        return new Response(JSON.stringify({ assigned }), { status: 200 });
+      }
+      if (u === '/api/sync/snapshot' && init?.method === 'POST') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+
+    const first = await flushConfirmed(ctx);
+    expect(first).toBe(false); // transient — reported not-confirmed, nothing acked
+    expect(await readPendingCount()).toBe(600); // no record dropped
+
+    const second = await flushConfirmed(ctx);
+    expect(second).toBe(true);
+    expect(await readPendingCount()).toBe(0);
+    expect(new Set(posted).size).toBe(600); // every record landed exactly once
+  });
+
+  it('a permanent 400 does exactly one POST, surfaces the error, and keeps the records (no retry storm)', async () => {
+    await seedPending(makeRecords(700));
+    let posts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        posts++;
+        return new Response('batch size out of range', { status: 400 });
+      }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+
+    const ok = await flushConfirmed(ctx);
+
+    expect(ok).toBe(false);
+    expect(posts).toBe(1); // a 4xx is not blindly retried in a tight loop
+    expect(await readPendingCount()).toBe(700); // nothing lost
+    const status = await getSyncStatus(ctx);
+    expect(status.writeError).toMatchObject({ status: 400 });
   });
 });

@@ -19,6 +19,16 @@ const OPS_PAGE_LIMIT = 200;
 // un-compacted oplog tail passes this many ops.
 const SNAPSHOT_THRESHOLD = 500;
 
+// flushPending drains 'pending' in successive chunks, each bounded to match the
+// server's per-request caps (sync.go maxOpsPerBatch / maxSyncOpsBodyBytes). A
+// bulk import (a Mi-Band .nxk drains hundreds of day-batch records; med-0ol) or
+// a backlog that piled up while offline queues far more pending than one POST
+// may carry — posting them all at once trips the server's 500-op / 1 MiB caps
+// with a permanent 400 that blind retries can never clear (med-0ol.2/.5). The
+// ordinary 1-2-record write still posts in a single chunk, unchanged.
+const MAX_OPS_PER_BATCH = 500; // == sync.go maxOpsPerBatch
+const FLUSH_MAX_BODY_BYTES = 900 * 1024; // stay under the server's 1 MiB body cap
+
 // record_type_tag is the only wire field the server stores unencrypted
 // alongside the ciphertext (opWire.RecordTypeTag) — packing "<type>:<recordId>"
 // into it lets the reading client recover record_type/record_id for the AAD
@@ -740,9 +750,24 @@ async function flushPending(ctx) {
   // is retried on the next open/write.
   // ponytail: each collision leaks its mis-bound ops as undecryptable oplog
   // junk (rare for the toy note set); snapshot compaction eventually drops them.
-  for (let attempt = 0; attempt < FLUSH_MAX_ATTEMPTS; attempt++) {
+  //
+  // 'pending' is drained in successive ≤MAX_OPS_PER_BATCH / ≤FLUSH_MAX_BODY_BYTES
+  // chunks (med-0ol.2/.5): a bulk import queues thousands of records, and one
+  // giant POST would trip the server caps with a permanent 400 no retry can
+  // clear. Chunk progress is unbounded (a big import legitimately needs many
+  // chunks); only a mis-predict (concurrent writer) that we can't resolve
+  // consumes one of the FLUSH_MAX_ATTEMPTS retries.
+  let flushedAny = false;
+  let mispredicts = 0;
+  for (;;) {
     const pending = await readPending();
-    if (pending.length === 0) return true; // nothing to flush — vacuously confirmed
+    if (pending.length === 0) {
+      // Compact once the whole backlog has landed, not per chunk — a per-chunk
+      // snapshot would re-gzip+re-upload the entire (growing) store on every
+      // 500-op boundary of a bulk import, the very amplification med-0ol.2 is about.
+      if (flushedAny) await maybeSnapshot(ctx);
+      return true; // nothing left to flush — confirmed
+    }
     const meta = await readMeta();
     // Not bootstrapped yet (bootstrap failed transiently): localLastSeq is null,
     // so `seq += 1` would predict seqs from 1 and AAD-bind every op to the wrong
@@ -752,10 +777,11 @@ async function flushPending(ctx) {
     let seq = meta.localLastSeq;
     const ops = [];
     const includedIds = [];
+    let bodyBytes = 0;
     for (const { recordId, recordType } of pending) {
+      if (ops.length >= MAX_OPS_PER_BATCH) break;
       const record = await getRecord(recordId);
       if (!record) continue;
-      seq += 1;
       // recordType is already carried by the wire tag (parseTag) — omit it from
       // the encrypted body so the local-only bookkeeping field never round-trips.
       const { recordType: _recordType, ...wireBody } = record;
@@ -765,13 +791,27 @@ async function flushPending(ctx) {
         accountId: ctx.accountId,
         recordType,
         recordId,
-        seq,
+        seq: seq + 1,
         plaintext,
       });
-      ops.push({ record_type_tag: makeTag(recordType, recordId), nonce: toBase64(nonce), ct: toBase64(ct) });
+      const op = { record_type_tag: makeTag(recordType, recordId), nonce: toBase64(nonce), ct: toBase64(ct) };
+      // Base64 lengths are the wire size; +48 covers each op's JSON scaffolding.
+      const opBytes = op.nonce.length + op.ct.length + op.record_type_tag.length + 48;
+      // Always send at least one op even if it alone exceeds the soft body
+      // budget — the server's per-op cap (maxOpCTLen), not this budget, is the
+      // real ceiling, and a lone large op still fits a 1 MiB request.
+      if (ops.length > 0 && bodyBytes + opBytes > FLUSH_MAX_BODY_BYTES) break;
+      seq += 1;
+      ops.push(op);
       includedIds.push(recordId);
+      bodyBytes += opBytes;
     }
-    if (ops.length === 0) return true; // pending rows referenced deleted records
+    if (ops.length === 0) {
+      // Every remaining 'pending' row referenced a deleted record — nothing to
+      // send (matches the pre-chunk behaviour: vacuously confirmed).
+      if (flushedAny) await maybeSnapshot(ctx);
+      return true;
+    }
     let res;
     try {
       res = await fetch('/api/sync/ops', {
@@ -788,7 +828,9 @@ async function flushPending(ctx) {
       // quota is exhausted: the server is reachable, healthy, and will refuse
       // this batch forever. Reporting it as "Offline" told the user to check
       // their wifi while their vault quietly stopped accepting writes, and the
-      // pending queue grew without bound (med-d5t.4).
+      // pending queue grew without bound (med-d5t.4). A 400 (e.g. an
+      // over-cap batch before chunking existed) is likewise permanent, so blind
+      // retries can't clear it — surface it rather than spin (med-0ol.5).
       //
       // Records stay in 'pending' either way — nothing is lost, and the next
       // open retries — but the status line must name the real cause.
@@ -809,20 +851,23 @@ async function flushPending(ctx) {
     if (assigned[0] === meta.localLastSeq + 1) {
       // Assigned contiguously from our cursor — predicted seqs equal assigned
       // seqs, so every op's AAD is correct and other devices can decrypt them.
-      // We already hold these records locally, so just clear and advance.
+      // We already hold these records locally, so just clear and advance, then
+      // loop to flush the next chunk (if any).
       await clearPending(includedIds);
       await writeMeta({ localLastSeq: Math.max(...assigned) });
-      await maybeSnapshot(ctx);
-      return true;
+      flushedAny = true;
+      continue;
     }
     // Mis-predicted: a concurrent device interleaved. Re-pull to advance past
     // the peer ops (and our own now-dead ops — pullTail skips those unreadable
     // rows; our optimistic local copies survive since 'pending' is kept),
-    // then loop to re-post these records under fresh seqs.
+    // then loop to re-post these records under fresh seqs. Bounded so a
+    // continuously-writing peer can't spin us forever.
+    mispredicts++;
+    if (mispredicts >= FLUSH_MAX_ATTEMPTS) return false;
     await pullTail(ctx);
     if (offline) return false; // couldn't advance — retry next open
   }
-  return false; // attempts exhausted; writes stay pending
 }
 
 // --- public API ------------------------------------------------------------
@@ -891,7 +936,14 @@ export async function flushConfirmed(ctx) {
   return flushPending(ctx);
 }
 
-export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTERNAL) {
+// `flush` defaults true: a single write pushes its op inline, as every UI /
+// voice / MCP / single-command writer expects. A BULK writer (the .nxk inbox
+// import lands hundreds of records per event) passes flush:false so each write
+// only queues to 'pending' — the drain's post-apply flushConfirmed then pushes
+// the whole batch in chunks, turning ~1330 one-op POSTs into a handful of
+// ≤500-op ones (med-0ol.2). Repaint still fires per write; the caller decides
+// pushing, not painting.
+export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTERNAL, { flush = true } = {}) {
   await bootstrapIfNeeded(ctx);
   const meta = await readMeta();
   let stamped = record;
@@ -904,7 +956,7 @@ export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTER
     await putRecord(stamped);
     await markPending(record.recordId, recordType);
   });
-  await flushPending(ctx);
+  if (flush) await flushPending(ctx);
   notifyRecordsChanged([recordType], origin);
   return stamped;
 }
@@ -919,12 +971,17 @@ export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTER
 // writer (the UI's router, the voice/MCP router, the inbox applier), which is
 // also why the background materialization sweep runs on the external port — it
 // is a timer, not a user action, and its due doses must repaint Today.
-export function recordsPort(ctx, origin = ORIGIN_EXTERNAL) {
+// `deferFlush` makes put/del queue to 'pending' WITHOUT an inline oplog push —
+// only the inbox drain uses it (the drain flushes once, chunked, after each
+// event via flushConfirmed), so a bulk .nxk import stops emitting one POST per
+// record (med-0ol.2). Every other writer keeps the eager per-write push.
+export function recordsPort(ctx, origin = ORIGIN_EXTERNAL, { deferFlush = false } = {}) {
+  const flush = !deferFlush;
   return {
     list: (recordType) => listRecords(ctx, recordType),
     listRange: (recordType, fromId, toId) => listRecordsInRange(ctx, recordType, fromId, toId),
-    put: (recordType, record) => writeRecord(ctx, recordType, record, origin),
-    del: (recordType, recordId) => writeRecord(ctx, recordType, { recordId, clientTs: Date.now(), deleted: true }, origin),
+    put: (recordType, record) => writeRecord(ctx, recordType, record, origin, { flush }),
+    del: (recordType, recordId) => writeRecord(ctx, recordType, { recordId, clientTs: Date.now(), deleted: true }, origin, { flush }),
   };
 }
 

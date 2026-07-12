@@ -21,6 +21,44 @@
 
     function isCloud() { return !!window.__MEDTRACKER_CLOUD__; }
 
+    // Import lifecycle state (med-0ol.1/.4). A .nxk / full-vault import runs for a
+    // while; without feedback the user assumes it failed and clicks again (double
+    // submit), and closing the tab mid-upload leaves a partial import. One flag
+    // guards re-entry, drives a busy label + spinner, and arms a beforeunload
+    // prompt for the duration — cleared the moment the import finishes or errors
+    // so no navigation nag lingers.
+    let importInFlight = false;
+
+    function beforeUnloadGuard(e) {
+        // Native "Leave site?" confirmation — both forms are needed across browsers.
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+    }
+
+    // Toggle the import busy state: disable the button, show/clear the inline
+    // progress note, and arm/disarm the unload guard. Class + textContent + hidden
+    // only — no inline styles or colors (design-token guards).
+    function setImportBusy(on, message) {
+        importInFlight = on;
+        // Both import buttons: a busy .nxk import must also block the vault
+        // import (and vice versa) — they share the destination vault.
+        for (const id of ['importexport-import-btn', 'importexport-nxk-btn']) {
+            const btn = el(id);
+            if (btn) btn.disabled = on;
+        }
+        const note = el('importexport-import-progress');
+        if (note) {
+            note.hidden = !on;
+            if (on) note.textContent = message || 'Importing… keep this page open until it finishes.';
+        }
+        if (on) {
+            window.addEventListener('beforeunload', beforeUnloadGuard);
+        } else {
+            window.removeEventListener('beforeunload', beforeUnloadGuard);
+        }
+    }
+
     // Build the vault JSON string for the current mode. includeSecrets=false drops
     // settings.integrations + api_tokens (absent, not blank — the importer reads
     // absence as "leave the destination's secrets alone").
@@ -125,6 +163,8 @@
     }
 
     async function doImport() {
+        // Ignore a second click while an import is already running (med-0ol.1).
+        if (importInFlight) return;
         const file = el('importexport-import-file')?.files?.[0];
         if (!file) {
             safeAlert('Choose a backup file first');
@@ -167,9 +207,13 @@
         );
         if (!confirmed) return;
 
+        setImportBusy(true);
         try {
             if (isCloud()) {
                 await window.CloudVault.importAll(json);
+                // Clear busy BEFORE reload — otherwise beforeUnloadGuard would
+                // prompt on our own intended navigation.
+                setImportBusy(false);
                 // Full refresh so every section re-renders from the restored vault
                 // (simplest correct path — same as post-bootstrap reload).
                 location.reload();
@@ -183,11 +227,13 @@
                 JSON.stringify({ ...vault, mode: 'replace' }));
             const res = await apiCall('/api/import', 'POST', body,
                 { timeoutMs: 10 * 60_000, headers: { 'Content-Encoding': 'gzip' } });
-            if (!res) return; // apiCall already surfaced the error
+            if (!res) { setImportBusy(false); return; } // apiCall already surfaced the error
+            setImportBusy(false);
             safeAlert('Import complete.');
             location.reload();
         } catch (e) {
             console.error('Import failed:', e);
+            setImportBusy(false);
             safeAlert(e.message || 'Import failed');
         }
     }
@@ -205,10 +251,13 @@
     // server-side and seals the vitals to the account inbox — the browser can't
     // parse SQLite. Same-origin fetch carries the session cookie.
     async function doNxkImport() {
+        // Ignore a second click while an import is already uploading (med-0ol.1).
+        if (importInFlight) return;
         const file = el('importexport-nxk-file')?.files?.[0];
         if (!file) { safeAlert('Choose a .nxk backup first'); return; }
-        const btn = el('importexport-nxk-btn');
-        if (btn) btn.disabled = true;
+        // Busy state + unload guard for the upload leg (med-0ol.1/.4); the
+        // server-side parse + inbox drain finish in the background afterward.
+        setImportBusy(true, 'Uploading Mi Band backup… keep this page open.');
         try {
             const form = new FormData();
             form.append('file', file, file.name);
@@ -228,7 +277,7 @@
             console.error('NXK import failed:', e);
             toast('Import failed — check your connection and try again.', 'error');
         } finally {
-            if (btn) btn.disabled = false;
+            setImportBusy(false);
         }
     }
 

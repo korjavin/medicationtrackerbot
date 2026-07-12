@@ -329,4 +329,94 @@ describe('Settings → Import/Export section', () => {
             expect(window.safeAlert).toHaveBeenCalled();
         });
     });
+
+    // med-0ol.1/.4 — a big import runs for a while; without feedback the user
+    // clicks again (double submit), and closing the tab mid-upload corrupts it.
+    describe('import busy state + navigation guard', () => {
+        function deferred() {
+            let resolve;
+            const promise = new Promise((r) => { resolve = r; });
+            return { promise, resolve };
+        }
+
+        it('disables the button, shows progress, and ignores a second click mid-import (vault)', async () => {
+            const { window, document } = env;
+            window.__MEDTRACKER_CLOUD__ = true;
+            const d = deferred();
+            window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(() => d.promise) };
+            setFile(window, document.getElementById('importexport-import-file'), 'backup.json', JSON.stringify(SAMPLE_VAULT));
+
+            const first = window.SettingsImportExport.import();
+            // Busy state arms after the awaited file-read + destructive confirm.
+            await vi.waitFor(() => expect(document.getElementById('importexport-import-btn').disabled).toBe(true));
+            const note = document.getElementById('importexport-import-progress');
+            expect(note.hidden).toBe(false);
+            expect(note.textContent.length).toBeGreaterThan(0);
+
+            // A second click while the first import is in flight is a no-op.
+            await window.SettingsImportExport.import();
+            expect(window.CloudVault.importAll).toHaveBeenCalledTimes(1);
+
+            d.resolve();
+            await first;
+            // Cleared on completion (before the reload).
+            expect(document.getElementById('importexport-import-btn').disabled).toBe(false);
+            expect(note.hidden).toBe(true);
+        });
+
+        it('arms a beforeunload guard while importing and removes it on completion', async () => {
+            const { window, document } = env;
+            window.__MEDTRACKER_CLOUD__ = true;
+            const added = [];
+            const removed = [];
+            const realAdd = window.addEventListener.bind(window);
+            const realRemove = window.removeEventListener.bind(window);
+            vi.spyOn(window, 'addEventListener').mockImplementation((type, fn, opts) => {
+                if (type === 'beforeunload') added.push(fn);
+                return realAdd(type, fn, opts);
+            });
+            vi.spyOn(window, 'removeEventListener').mockImplementation((type, fn, opts) => {
+                if (type === 'beforeunload') removed.push(fn);
+                return realRemove(type, fn, opts);
+            });
+            const d = deferred();
+            window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(() => d.promise) };
+            setFile(window, document.getElementById('importexport-import-file'), 'backup.json', JSON.stringify(SAMPLE_VAULT));
+
+            const first = window.SettingsImportExport.import();
+            await vi.waitFor(() => expect(added.length).toBe(1));
+            // The handler actually blocks the unload (native "Leave site?" prompt).
+            const evt = { preventDefault: vi.fn(), returnValue: null };
+            added[0](evt);
+            expect(evt.preventDefault).toHaveBeenCalled();
+
+            d.resolve();
+            await first;
+            expect(removed).toContain(added[0]); // no lingering navigation nag
+        });
+
+        it('the .nxk upload disables both import buttons and is not double-triggered', async () => {
+            const { window, document } = env;
+            window.__MEDTRACKER_CLOUD__ = true;
+            window.SettingsImportExport.load(); // reveal the nxk group
+            window.SyncManager = { showToast: vi.fn() };
+            const d = deferred();
+            window.fetch = vi.fn(() => d.promise.then(() => ({ ok: true, status: 200, json: async () => ({ queued: 3 }) })));
+            const input = document.getElementById('importexport-nxk-file');
+            const file = new window.File([new Uint8Array([1, 2, 3])], 'backup.nxk');
+            Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+
+            const p = window.SettingsImportExport.importNxk();
+            // doNxkImport has no awaits before the busy state, so it arms synchronously.
+            expect(document.getElementById('importexport-nxk-btn').disabled).toBe(true);
+            expect(document.getElementById('importexport-import-btn').disabled).toBe(true);
+
+            await window.SettingsImportExport.importNxk(); // second click ignored
+            expect(window.fetch).toHaveBeenCalledTimes(1);
+
+            d.resolve();
+            await p;
+            expect(document.getElementById('importexport-nxk-btn').disabled).toBe(false);
+        });
+    });
 });
