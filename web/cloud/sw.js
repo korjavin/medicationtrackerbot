@@ -58,10 +58,19 @@ self.addEventListener('activate', (event) => {
 // HTML shell: nosniff would block it and a 200 HTML body masks the failure.
 // When nothing is cached, `surface` yields the network outcome (returns the
 // 5xx response / re-throws the rejection).
+//
+// Ceremony pages (served by signup.html in router.go, a DIFFERENT document
+// from '/') must never receive the '/' app shell: the app document's
+// cloud-boot.js redirects a locked device to /unlock, so substituting '/' at
+// /unlock would reload-loop forever offline (med-eas.16's anti-ping-pong
+// guarantee). An exact cached copy from a prior online visit still wins above.
+const CEREMONY_PATHS = new Set(['/unlock', '/claim', '/recover', '/devices', '/connectors']);
+
 function offlineFallback(request, surface) {
   return caches.match(request).then((cached) => {
     if (cached) return cached;
     if (request.mode !== 'navigate') return surface();
+    if (CEREMONY_PATHS.has(new URL(request.url).pathname)) return surface();
     return caches.match('/', { ignoreSearch: true }).then((shell) => shell || surface());
   });
 }

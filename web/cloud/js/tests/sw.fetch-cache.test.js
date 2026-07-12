@@ -3,7 +3,8 @@
 // network response (fresh per-account CSP) and refreshes the cache; offline
 // (fetch rejection or proxy 5xx — docs/technical-decisions.md treats them the
 // same) the cached copy renders; the '/' shell fallback applies to navigations
-// only; /api/* and non-GET are never intercepted.
+// only and never to ceremony pages (signup.html is a different document);
+// /api/* and non-GET are never intercepted.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SW_ORIGIN as ORIGIN, loadCloudSw } from './helpers/sw-loader.js';
@@ -117,8 +118,31 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         caches.seed(SHELL_CACHE, '/', shell);
         fetchMock.mockRejectedValue(new TypeError('network down'));
 
-        const { response } = await fireFetch(listeners, navigate('/devices'));
+        const { response } = await fireFetch(listeners, navigate('/some/app/route'));
         expect(response).toBe(shell);
+    });
+
+    it('offline: a ceremony page never gets the / app shell — it surfaces the network outcome (no reload loop)', async () => {
+        // '/' would boot cloud-boot.js, which redirects a locked device back to
+        // /unlock → served '/' again → infinite reload loop (med-eas.16).
+        caches.seed(SHELL_CACHE, '/', { ok: true, body: 'app html' });
+        const err = new TypeError('network down');
+        fetchMock.mockRejectedValue(err);
+
+        for (const path of ['/unlock', '/claim', '/recover', '/devices', '/connectors']) {
+            const { promise } = fireFetchRaw(listeners, navigate(path));
+            await expect(promise).rejects.toBe(err);
+        }
+    });
+
+    it('offline: a ceremony page with its own cached copy still renders it', async () => {
+        const signupDoc = { ok: true, body: 'signup html' };
+        caches.seed(SHELL_CACHE, '/unlock', signupDoc);
+        caches.seed(SHELL_CACHE, '/', { ok: true, body: 'app html' });
+        fetchMock.mockRejectedValue(new TypeError('network down'));
+
+        const { response } = await fireFetch(listeners, navigate('/unlock'));
+        expect(response).toBe(signupDoc);
     });
 
     it('offline: a notificationclick cold start (/?reminder_action=…) still hits the / shell', async () => {
