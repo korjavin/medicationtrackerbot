@@ -450,7 +450,11 @@ destroys, and the token hashes are what keep a minted token working after a serv
   compared. A reader that re-adds `category`/`weight_trend` does not break equality.
 - **Deterministic re-minting** — cloud import re-mints scheduled-intake, scheduled-session,
   and rotation recordIds by rule, so a bot-origin file (no recordIds) and its cloud
-  round-trip converge to the same ids rather than duplicating.
+  round-trip converge to the same ids rather than duplicating. Sleep and miband rows also
+  re-mint on their natural keys (`sleep-<start_time_ms>`, `miband-<source_start_ms>`) — the
+  same keys the `.nxk` migration path mints — so a full-vault import followed by a Mi Band
+  `.nxk` migration of the same night/session converges to one record instead of double-
+  counting (the client mirror of bot mode's `UNIQUE(user_id,start_time)` / `UNIQUE(source_start_ms)`).
 - **Timestamp offsets** — timestamps compare as **instants**, not as text. Bot import
   normalizes every timestamp to UTC before storing it (`2026-07-07T12:00:00+02:00` →
   `2026-07-07T10:00:00Z`), because `modernc.org/sqlite` writes a non-UTC `time.Time`

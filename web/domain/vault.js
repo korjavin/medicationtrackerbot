@@ -474,7 +474,12 @@ export function vaultToRecords(vault, { now } = {}) {
     // mode, yet it rides in every snapshot and is structured-cloned on every
     // records.list(). Drop it at the door; bot mode's DB keeps the tracks.
     const { gps, ...rest } = w;
-    push('miband', `miband-${mintNum()}`, { ...rest, id: mintNum() });
+    // Deterministic natural key (source instant), matching the .nxk migration
+    // path in vitals.js importSamples (`miband-${w.source_start_ms}`, id derived
+    // from source_start_ms) so both cloud import paths converge on ONE record
+    // per session instead of double-inserting — the client mirror of bot mode's
+    // UNIQUE(source_start_ms). Was mintNum() (import-wall-clock). See med-1tj.
+    push('miband', `miband-${w.source_start_ms}`, { ...rest, id: w.source_start_ms });
   }
 
   // --- vitals (pack the flat sample arrays back into day-batches) ---
@@ -483,7 +488,16 @@ export function vaultToRecords(vault, { now } = {}) {
   // than a silently-collapsed history.
   const sampleCutoffMs = nowMs - DOWNSAMPLE_AFTER_MS;
   const vitals = data.vitals || {};
-  for (const sl of vitals.sleep || []) push('sleep', `sleep-${mintNum()}`, { ...sl });
+  for (const sl of vitals.sleep || []) {
+    // Deterministic natural key (sleep-onset instant), matching the .nxk
+    // migration path in vitals.js importSamples (start_time ms, day fallback for
+    // an unparseable stamp) so both cloud import paths converge on ONE record
+    // per night instead of double-inserting — the client mirror of bot mode's
+    // UNIQUE(user_id, start_time). Was mintNum() (import-wall-clock). See med-1tj.
+    const startMs = Date.parse(sl.start_time);
+    const key = Number.isNaN(startMs) ? sl.day : startMs;
+    push('sleep', `sleep-${key}`, { ...sl });
+  }
   for (const ds of vitals.day_stats || []) push('daystats', `daystats-${ds.day}`, { ...ds });
   packSamples('hrsample', vitals.heart || [], push, sampleCutoffMs);
   packSamples('spo2sample', vitals.spo2 || [], push, sampleCutoffMs);
