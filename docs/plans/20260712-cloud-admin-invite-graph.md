@@ -74,7 +74,7 @@
 - [x] Manually run `go run ./cmd/cloud admin invite-graph` (and `--format=dot`, `--format=json`) against a scratch DB to eyeball output shape — empty DB (`no accounts` / empty digraph / empty nodes+edges) and one-root populated case both render correctly.
 
 ### Task 6: [Final] Document the command
-- [ ] Add `cloud admin invite-graph` (+ `--format=dot|json`) to the admin section of `docs/cloud-deployment.md`: what it shows (invitation forest, claimed vs pending), the three formats, and the `dot -Tsvg` render hint.
+- [x] Add `cloud admin invite-graph` (+ `--format=dot|json`) to the admin section of `docs/cloud-deployment.md`: what it shows (invitation forest, claimed vs pending), the three formats, and the `dot -Tsvg` render hint.
 
 ## Technical Details
 - `AccountGraphNode`: `{ ID, Subdomain string; CreatedBy *string; CreatedAt time.Time; Claimed bool }`.

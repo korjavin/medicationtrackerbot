@@ -219,6 +219,15 @@ against a live container:
   secrets — claim tokens, nonces, MACs, and ciphertext bytes are omitted;
   only sizes, counts, and timestamps. Credential ids and envelope refs share
   the same 8-char prefix so device↔envelope pairings are eyeball-able.
+- `invite-graph [--format=tree|dot|json]` — reconstruct and display the
+  invitation forest from `accounts.created_by_account_id` provenance: roots are
+  admin-CLI-minted accounts, invitees nest recursively under whoever minted
+  their invite. Each account shows claimed vs pending (outstanding invite) and
+  created date. Default `tree` is an ASCII forest; `dot` emits a Graphviz
+  digraph (render with `./cloud admin invite-graph --format=dot | dot -Tsvg >
+  invites.svg`); `json` emits `{nodes, edges}`. Accounts whose inviter was
+  deleted appear under an "orphaned" section. Operator metadata only — no vault
+  content, no secrets.
 - `reset-claim <subdomain>` — issue a fresh claim token for an unclaimed
   account
 - `revoke <subdomain>` — delete an unclaimed account (withdraw an unused
