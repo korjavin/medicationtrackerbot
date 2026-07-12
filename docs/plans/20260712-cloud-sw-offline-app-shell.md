@@ -97,25 +97,26 @@ per-account CSP, fresh assets) and refreshes the cache.
       comment said to update it together with a fetch handler.
 
 ### Task 2: Unit tests — web/cloud/js/tests/sw.fetch-cache.test.js
-- [ ] Create the test following `sw.reminder-actions.test.js`'s loader
+- [x] Create the test following `sw.reminder-actions.test.js`'s loader
       (`new Function('self','caches','fetch','indexedDB', src)`) with a mock
       `caches` object backed by an in-memory Map (open→{match,put}, keys, delete)
       and a controllable `fetch`, capturing listeners into a Map.
-- [ ] Test: **offline document** — `fetch` rejects, cache pre-seeded with a `/`
+- [x] Test: **offline document** — `fetch` rejects, cache pre-seeded with a `/`
       response → the fetch handler resolves to the cached shell.
-- [ ] Test: **online passthrough + refresh** — `fetch` resolves ok → handler
+- [x] Test: **online passthrough + refresh** — `fetch` resolves ok → handler
       returns the network response AND writes it into the versioned cache
       (assert `cache.put` called for `/` and a `/static/*` asset).
-- [ ] Test: **/api/\* never cached, never served from cache** — a GET to
+- [x] Test: **/api/\* never cached, never served from cache** — a GET to
       `/api/whatever` is not intercepted (no `respondWith` / passes to network),
       and even when the network fails the handler does not serve a cached
       `/api/*` response.
-- [ ] Test: **non-GET passthrough** — a POST is not intercepted.
-- [ ] Test: **activate prunes old, keeps current** — `caches.keys()` returns an
+- [x] Test: **non-GET passthrough** — a POST is not intercepted.
+- [x] Test: **activate prunes old, keeps current** — `caches.keys()` returns an
       old `medtracker-cloud-shell-vOLD` plus the current name and an unrelated
       cache; assert only the old prefixed one is deleted and the current is kept.
-- [ ] Run `pnpm test web/cloud/js/tests/sw.fetch-cache.test.js` (Node 20) — must
-      pass.
+- [x] Run `pnpm test web/cloud/js/tests/sw.fetch-cache.test.js` (Node 20) — must
+      pass. (8 tests, all green; also covers /mcp/*, cross-origin, and offline
+      deep-link → `/` shell fallback beyond the required four.)
 
 ### Task 3: Verify acceptance criteria
 - [ ] Re-read med-deq.1 acceptance: offline navigation renders the shell from
