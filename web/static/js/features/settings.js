@@ -988,6 +988,10 @@ function updateFeatureTabVisibility() {
     }
     updateFoodTargetsVisibility();
     updateGamificationTargetsVisibility();
+    // A toggle just changed a target section's visibility; roll that back up to
+    // the parent <details> group so an all-hidden Targets fold doesn't linger
+    // (and reappears when a target is re-enabled) without a full Settings reload.
+    hideEmptySettingsGroups();
 }
 
 window.initOIDCSetupBanner = initOIDCSetupBanner;

@@ -149,6 +149,25 @@ describe('Settings view collapsible groups (index.html)', () => {
             cleanup();
         }
     });
+
+    it('updateFeatureTabVisibility() rolls group visibility up after a feature toggle', () => {
+        const { window, document, cleanup } = loadSettingsView();
+        try {
+            const targets = document.querySelector('#food-target-settings').closest('.wg-settings-group');
+
+            // Both target features off → Targets fold hides without a Settings reload.
+            window.featureSettings = { food: false, gamification: false };
+            window.updateFeatureTabVisibility();
+            expect(targets.classList.contains('wg-settings-hidden')).toBe(true);
+
+            // Enabling Food re-shows the group (inverse of the disable path).
+            window.featureSettings = { food: true, gamification: false };
+            window.updateFeatureTabVisibility();
+            expect(targets.classList.contains('wg-settings-hidden')).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
 });
 
 describe('WGSettings.section', () => {
