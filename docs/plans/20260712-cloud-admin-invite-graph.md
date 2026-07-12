@@ -63,10 +63,10 @@
 - [x] Add an `invite-graph` line to `printAdminUsage` describing the command + `--format=dot|json`.
 
 ### Task 4: Go test for the builder + renderers
-- [ ] `cmd/cloud/invite_graph_test.go`: build a fixture forest via `cloudstore` in-memory (`storedb.Open(":memory:")` + `cloudstore.New`) using `CreateAccount` with explicit `createdBy` — two roots, nested invitees, at least one pending (unclaimed) invite, and one orphan (inviter id that was never created / deleted).
-- [ ] Call `ListAccountsForGraph`, run `buildInviteForest`, assert root/orphan partition, parent→child edges, and cycle-guard (add a hand-built node whose `CreatedBy` points to itself → assert no infinite loop / it renders once).
-- [ ] Assert `renderTree` output contains the expected subdomain labels with `[claimed]`/`[pending]` markers and nesting; assert `renderDOT` contains expected `a -> b` edges; assert `renderJSON` unmarshals to the expected nodes+edges counts.
-- [ ] Empty-DB case: `ListAccountsForGraph` on a fresh store → `renderTree` prints the `no accounts` line, `renderJSON` has zero nodes/edges.
+- [x] `cmd/cloud/invite_graph_test.go`: build a fixture forest via `cloudstore` in-memory (`storedb.Open(":memory:")` + `cloudstore.New`) using `CreateAccount` with explicit `createdBy` — two roots, nested invitees, at least one pending (unclaimed) invite, and one orphan (inviter id that was never created / deleted).
+- [x] Call `ListAccountsForGraph`, run `buildInviteForest`, assert root/orphan partition, parent→child edges, and cycle-guard (add a hand-built node whose `CreatedBy` points to itself → assert no infinite loop / it renders once).
+- [x] Assert `renderTree` output contains the expected subdomain labels with `[claimed]`/`[pending]` markers and nesting; assert `renderDOT` contains expected `a -> b` edges; assert `renderJSON` unmarshals to the expected nodes+edges counts.
+- [x] Empty-DB case: `ListAccountsForGraph` on a fresh store → `renderTree` prints the `no accounts` line, `renderJSON` has zero nodes/edges.
 
 ### Task 5: Verify acceptance criteria
 - [ ] `go build ./... && go build -tags mobile ./...` both succeed.
