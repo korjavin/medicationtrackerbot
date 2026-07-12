@@ -1230,6 +1230,17 @@
             card.appendChild(body);
         }
 
+        // Tomorrow Forecast (us0.3): merged into the rings card so forecast +
+        // calibration read as one compact unit rather than a separate large
+        // block above. The module appends its own content (or nothing, when
+        // below the confidence gate / in bot mode) — the self-suppress and
+        // lifecycle live entirely in forecast-card.js; here we only relocate
+        // where it mounts. CSS strips the nested-card chrome inside .wg-today-rings.
+        if (typeof window !== 'undefined' && window.WGForecastCard
+            && typeof window.WGForecastCard.mountCard === 'function') {
+            window.WGForecastCard.mountCard(card);
+        }
+
         const journeyLink = d.createElement('div');
         journeyLink.className = 'wg-today-rings__journey-link';
         const journeyText = d.createElement('span');
@@ -1344,19 +1355,13 @@
 
         let rendered = 0;
 
+        // Call agent + Shortcuts are pinned to the very top of Today (us0.4) so
+        // they're the first thing visible in every state (features on/off,
+        // cached/offline). Nothing renders above them except the freshness
+        // badge + offline banner.
         if (typeof window !== 'undefined' && window.WGCallAgent && typeof window.WGCallAgent.mountCard === 'function') {
             window.WGCallAgent.mountCard(root);
             rendered += 1;
-        }
-
-        // Tomorrow Forecast card (Gamification Phase 3): the evening in-range
-        // chance / morning resolution + the "how well do we know you"
-        // calibration meter. Cloud-only — the module mounts nothing when the
-        // forecast route is absent (bot mode) or below the confidence gate.
-        if (typeof window !== 'undefined' && window.WGForecastCard
-            && typeof window.WGForecastCard.mountCard === 'function') {
-            const forecastCard = window.WGForecastCard.mountCard(root);
-            if (forecastCard) { rendered += 1; }
         }
 
         const shortcutRows = renderShortcutRow(state, {
@@ -1367,9 +1372,6 @@
             rendered += shortcutRows.length;
         }
 
-        const ringsTile = renderRingsTile(state && state.gamificationRings, onDeeplink);
-        if (ringsTile) { root.appendChild(ringsTile); rendered += 1; }
-
         const bpTile = renderBpTile(state && state.bpLatest, state && state.bpTrend7d, onDeeplink, nowMs);
         const weightTile = renderWeightTile(state && state.weightLatest, state && state.weightTrend7d, onDeeplink, nowMs);
         if (bpTile || weightTile) {
@@ -1379,6 +1381,21 @@
             if (weightTile) grid.appendChild(weightTile);
             root.appendChild(grid);
             rendered += 1;
+        }
+
+        // Gamification rings — a compact tile (us0.1) sitting directly above the
+        // food card. The Tomorrow Forecast (us0.3) is merged inside this tile by
+        // renderRingsTile. When gamification is disabled the tile is absent, so
+        // mount the forecast standalone here instead (it self-suppresses to
+        // nothing when below its confidence gate / in bot mode).
+        const ringsTile = renderRingsTile(state && state.gamificationRings, onDeeplink);
+        if (ringsTile) {
+            root.appendChild(ringsTile);
+            rendered += 1;
+        } else if (typeof window !== 'undefined' && window.WGForecastCard
+            && typeof window.WGForecastCard.mountCard === 'function') {
+            const forecastCard = window.WGForecastCard.mountCard(root);
+            if (forecastCard) { rendered += 1; }
         }
 
         const fuelCard = renderFuelCard(

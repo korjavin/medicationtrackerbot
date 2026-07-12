@@ -338,6 +338,11 @@
     --wg-next-action-pad-inline: 12px;
     --wg-fuel-card-pad-block: 12px;
     --wg-fuel-card-pad-inline: 14px;
+    /* auto-fit floors for the Today tile grids: a lone enabled pane fills the
+       row (reads intentional) instead of stranding half-width. Two+ panes share
+       the row evenly regardless of how many are enabled. */
+    --wg-today-grid-min: 132px;      /* vitals + plan tile grids */
+    --wg-today-shortcut-min: 92px;   /* quick-log shortcut rows (3-up food, 2-up vitals) */
     --wg-section-label-gap: 6px;
     --wg-font-size-metric-value: 20px;
     --wg-font-size-fuel-value: 22px;
@@ -788,6 +793,7 @@
     --wg-ring-closed-brightness: 1.18;
     --wg-ring-stack-size: 180px;
     --wg-ring-stack-size-lg: 220px;
+    --wg-ring-stack-size-sm: 116px; /* compact Today rings tile (us0.1) */
 
     /* Settings screen tokens (Phase 9, Task 1) — sectioned cards, canonical
        setting-row grid (left column title+description, right column control),
@@ -4315,7 +4321,7 @@ textarea.wg-input {
 
 .wg-vitals-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(var(--wg-today-grid-min), 1fr));
     gap: var(--space-sm);
 }
 
@@ -4480,7 +4486,7 @@ textarea.wg-input {
 
 .wg-plan-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(var(--wg-today-grid-min), 1fr));
     gap: var(--space-sm);
 }
 
@@ -4534,17 +4540,11 @@ textarea.wg-input {
    stack. */
 .wg-today-shortcuts {
     display: grid;
+    /* auto-fit so a row never strands a lone tile at half-width when a feature
+       is off (e.g. weight off leaves "Add BP" alone → it fills the row). Food
+       (3 tiles) and vitals (2 tiles) share the same self-balancing template. */
+    grid-template-columns: repeat(auto-fit, minmax(var(--wg-today-shortcut-min), 1fr));
     gap: var(--space-sm);
-}
-
-.wg-today-shortcuts--food {
-    /* Log food · Scan food · Photo meal */
-    grid-template-columns: repeat(3, 1fr);
-}
-
-.wg-today-shortcuts--vitals {
-    /* Add BP · Add weight */
-    grid-template-columns: repeat(2, 1fr);
 }
 
 .wg-shortcut-tile {
@@ -5662,6 +5662,10 @@ textarea.wg-input {
    per-ring icon state row. The full legend lives on Journey. */
 .wg-today-rings {
     cursor: pointer;
+    /* Compact tile (us0.1): render the concentric stack at the small size so the
+       gamification pane matches the footprint of the other Today tiles instead
+       of dominating the stack. */
+    --wg-ring-stack-size: var(--wg-ring-stack-size-sm);
 }
 
 .wg-today-rings__header {
@@ -5788,6 +5792,37 @@ textarea.wg-input {
     margin-top: var(--space-sm);
     font-size: var(--font-size-sm);
     color: var(--wg-fg-3);
+}
+
+/* Tomorrow Forecast (us0.3). Standalone (gamification off) it's a compact
+   card; merged into the rings tile it drops its own card chrome and reads as
+   one bottom section of the rings card, divided by a hairline. Content
+   (evening chance / morning resolution + calibration meter) is unchanged; the
+   below-gate self-suppress lives in forecast-card.js and is untouched. */
+.wg-forecast-card .wg-section-label {
+    padding-top: 0;
+    padding-bottom: var(--space-xs);
+}
+
+.wg-forecast-card__evening,
+.wg-forecast-card__resolution,
+.wg-forecast-card__calibration {
+    margin: 0;
+    font-size: var(--font-size-sm);
+}
+
+.wg-forecast-card__calibration {
+    margin-top: var(--space-xs);
+}
+
+.wg-today-rings .wg-forecast-card {
+    background: none;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+    margin-top: var(--space-sm);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--wg-border-hairline);
 }
 
 /* Check mark on a closed ring row (landed in range, not just logged). */
