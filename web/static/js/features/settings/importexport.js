@@ -298,10 +298,17 @@
     // collide with an in-flight import (both mutate the same vault).
     async function doResetSync() {
         if (importInFlight) return;
+        // Claim the shared re-entry guard BEFORE the confirm await, mirroring
+        // doImport: safeConfirm is async (and non-blocking on the messenger-native
+        // path), so without claiming here an import click during the confirm window
+        // would pass its own importInFlight check and interleave against the same
+        // vault. Release on the not-confirmed path; the confirmed path hands off to
+        // setImportBusy(true) which keeps it set.
+        importInFlight = true;
         const confirmed = await safeConfirm(
             'Reset local sync rebuilds this device from the server and discards any unsynced local changes. Continue?'
         );
-        if (!confirmed) return;
+        if (!confirmed) { importInFlight = false; return; }
         setImportBusy(true, 'Resetting local sync… keep this page open until it finishes.');
         try {
             await window.CloudVault.resetLocalSync();
