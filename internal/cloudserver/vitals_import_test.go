@@ -94,8 +94,9 @@ func buildNXKFixture(t *testing.T) string {
 }
 
 // buildDenseNXKFixture writes a Mi Band backup.db with DENSE continuous streams:
-// one HR/SpO2/stress sample every 30s across `days` days (anchored to a UTC
-// midnight so downsample buckets align), plus one sleep row, one daystat row, and
+// one HR/SpO2/stress sample every 5 min across `days` days (anchored to a UTC
+// midnight so downsample buckets align — multiple raw samples per cadence bucket,
+// so downsampling must collapse them), plus one sleep row, one daystat row, and
 // one workout per day, and a GPS point. It exercises the real
 // downsample + event-chunking path over a realistic multi-day backup.
 func buildDenseNXKFixture(t *testing.T, days int) string {
@@ -139,8 +140,9 @@ func buildDenseNXKFixture(t *testing.T, days int) string {
 	for d := 0; d < days; d++ {
 		dayStart := base.Add(time.Duration(d) * 24 * time.Hour)
 		dayStr := dayStart.Format("2006-01-02")
-		// One sample every 30s for the whole day → dense continuous streams.
-		for sec := 0; sec < 24*3600; sec += 30 {
+		// One sample every 5 min for the whole day → several raw samples per
+		// downsample bucket (15 min HR/SpO2, 30 min stress) so downsampling collapses.
+		for sec := 0; sec < 24*3600; sec += 300 {
 			ms := dayStart.Add(time.Duration(sec) * time.Second).UnixMilli()
 			if _, err := hrStmt.Exec(ms, 0, 70+sec%20, 1); err != nil {
 				t.Fatalf("hr insert: %v", err)
@@ -251,7 +253,10 @@ func TestParseNXKToVitalsEvents(t *testing.T) {
 // under the inbox per-drain byte cap. Also asserts daily aggregates are preserved,
 // GPS never leaks, and re-parsing is deterministic (idempotent).
 func TestParseNXKToVitalsEvents_DenseMultiDay(t *testing.T) {
-	const days = 3
+	// > maxSamplesPerEvent/96 days so the downsampled HR stream (96/day) exceeds
+	// one event's sample cap and must fan out across several events — exercising
+	// the within-stream chunking that is the whole point of the size fix.
+	const days = 25
 	nxkPath := buildDenseNXKFixture(t, days)
 
 	events, err := parseNXKToVitalsEvents(nxkPath)
@@ -263,7 +268,14 @@ func TestParseNXKToVitalsEvents_DenseMultiDay(t *testing.T) {
 	if len(events) <= 1 {
 		t.Fatalf("got %d events, want many (> 1)", len(events))
 	}
+	hrEvents := 0
 	for i, ev := range events {
+		if len(ev.HR) > 0 {
+			hrEvents++
+		}
+		if len(ev.HR) > maxSamplesPerEvent {
+			t.Errorf("event %d carries %d HR samples, want ≤ %d", i, len(ev.HR), maxSamplesPerEvent)
+		}
 		blob, err := json.Marshal(ev)
 		if err != nil {
 			t.Fatalf("marshal event %d: %v", i, err)
@@ -271,6 +283,11 @@ func TestParseNXKToVitalsEvents_DenseMultiDay(t *testing.T) {
 		if len(blob) >= maxInboxDrainBytes {
 			t.Errorf("event %d JSON size %d >= drain cap %d", i, len(blob), maxInboxDrainBytes)
 		}
+	}
+	// The dense HR stream (25 × 96 = 2400 downsampled samples) must split into
+	// multiple bounded events, not ride in one — this is the core size fix.
+	if hrEvents < 2 {
+		t.Errorf("HR spanned %d events, want ≥ 2 (within-stream chunking)", hrEvents)
 	}
 
 	// GPS never leaks; totals via the shared helper.
