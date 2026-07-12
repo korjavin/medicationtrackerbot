@@ -70,9 +70,9 @@
 - [x] Confirm no hardcoded hex / rgb / hsl literals and no inline styles were added (architecture guards: design-tokens, inline-styles).
 
 ### Task 3: Hide a group whose children are all hidden
-- [ ] In `web/static/js/features/settings.js`, add a helper `hideEmptySettingsGroups()` that, for each `.wg-settings-group`, adds `wg-settings-hidden` (or `hidden`) when every descendant `.wg-settings-section` is hidden, else removes it.
-- [ ] Call it at the end of `loadSettings()` after the cloud/bot gating block runs (both cloud and bot paths), so a group with only cloud-only children collapses in bot mode.
-- [ ] Do NOT change existing per-section gating (`wg-settings-hidden` toggles keep matching `.wg-settings-*` selectors unchanged).
+- [x] In `web/static/js/features/settings.js`, add a helper `hideEmptySettingsGroups()` that, for each `.wg-settings-group`, adds `wg-settings-hidden` (or `hidden`) when every descendant `.wg-settings-section` is hidden, else removes it.
+- [x] Call it at the end of `loadSettings()` after the cloud/bot gating block runs (both cloud and bot paths), so a group with only cloud-only children collapses in bot mode.
+- [x] Do NOT change existing per-section gating (`wg-settings-hidden` toggles keep matching `.wg-settings-*` selectors unchanged).
 
 ### Task 4: Extend the settings render integration test
 - [ ] In `web/static/js/tests/settings.render.test.js`, add cases asserting: the seven groups render with their summaries; Preferences `<details>` has `open` and the rarely-used groups do not; the reset-sync `#importexport-reset-sync-group` still resolves inside Backup & data; a group with all-hidden children is hidden; representative preserved ids/classes still query-select.

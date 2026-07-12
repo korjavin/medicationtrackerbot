@@ -756,6 +756,22 @@ async function loadSettings() {
     // Journey targets editor — loaded lazily off its own endpoint (best-effort;
     // internally gated on the gamification flag).
     await loadGamificationTargets();
+    // Collapse any <details> group whose sections are all hidden (e.g. a
+    // cloud-only group in bot mode) so an empty fold doesn't render.
+    hideEmptySettingsGroups();
+}
+
+// Hide a collapsible settings <details> group when every .wg-settings-section
+// inside it is hidden (via wg-settings-hidden / hidden). Per-section gating
+// stays the source of truth; this only rolls the group visibility up from it.
+function hideEmptySettingsGroups() {
+    document.querySelectorAll('.wg-settings-group').forEach((group) => {
+        const sections = group.querySelectorAll('.wg-settings-section');
+        const allHidden = sections.length > 0 && Array.from(sections).every(
+            (s) => s.matches('.wg-settings-hidden, .hidden, [hidden]')
+        );
+        group.classList.toggle('wg-settings-hidden', allHidden);
+    });
 }
 
 // Mounts the wg-stale-badge into the Settings section header from the
