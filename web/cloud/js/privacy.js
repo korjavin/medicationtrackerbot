@@ -13,7 +13,7 @@
 // Categories:
 //   protected — encrypted on your device; the operator stores only ciphertext.
 //   visible   — the operator (this server) can observe it. Metadata, never your
-//               health content, except the two opt-in channels that say so.
+//               health content, except the clearly-marked flows that say so.
 //   leaves    — goes from your browser DIRECT to a third party, never through
 //               the operator. A different trust decision, made plain.
 
@@ -26,7 +26,7 @@ export const PRIVACY_CATEGORIES = [
   {
     key: 'visible',
     title: 'What the operator can see',
-    intro: 'The server needs some metadata to function. None of it is your health content, with the two clearly-marked exceptions you opt into.',
+    intro: 'The server needs some metadata to function. None of it is your health content, apart from the clearly-marked flows below where content passes through in transit.',
   },
   {
     key: 'leaves',
