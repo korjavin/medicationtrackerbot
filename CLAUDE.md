@@ -75,7 +75,7 @@ The same binary also supports `-topup`, an incremental mode that appends new row
 
 Non-obvious patterns in the top-up path:
 - **Per-tick RNG seed** is derived as `pcg(uint64(opts.Seed) XOR uint64(opts.Now.Unix()/86400))` so two ticks on the same calendar day produce the same candidate samples — idempotency holds on retry without consulting the DB.
-- **Time-series cadence is anchored to 00:00 UTC** (15 min for HR/SpO2, 30 min for stress) so consecutive top-ups land on the same grid regardless of when each tick fires; UNIQUE PK `(user_id, date_time)` then makes `INSERT OR IGNORE` a free dedupe.
+- **Time-series cadence is anchored to 00:00 UTC** (15 min for HR/SpO2, 30 min for stress) so consecutive top-ups land on the same grid regardless of when each tick fires; UNIQUE PK `(user_id, date_time)` then makes `INSERT OR IGNORE` a free dedupe. The same cadence constants are reused server-side to downsample dense Mi Band `.nxk` imports in `internal/cloudserver/vitals_import.go` (`hrCadence`/`spo2Cadence`/`stressCadence`), so cloud-imported and seeded vitals land on the same grid.
 - **`demotopup.Run` fires its first tick immediately on startup** (not after one interval) so a fresh deploy isn't stale until the first hour elapses.
 - **Daily streams snap forward to "day after latest sample"** (`dailyTopUpFrom`), which means weight — on a weekly cadence — can add one row per tick. This is deliberate "near no-op within one sample interval" tolerance, not a bug.
 - **`-topup` and explicit `-wipe` together is an error**, but the default `wipe=true` is force-cleared when `-topup` is passed alone — checked via `fs.Visit` so only operator-set `-wipe` trips the mutex guard.

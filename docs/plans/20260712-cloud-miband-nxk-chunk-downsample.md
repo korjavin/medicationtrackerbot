@@ -184,9 +184,11 @@ Dependencies identified: none new. No new HTTP route. No schema/migration change
       (architecture.domain-purity)
 
 ### Task 7: [Final] Update docs/knowledge if a new pattern emerged
-- [ ] if the downsample cadence / chunk-size constants are a durable convention,
+- [x] if the downsample cadence / chunk-size constants are a durable convention,
       add a one-line note where the existing cadence is documented (do not add loud
-      startup warnings); otherwise no doc change
+      startup warnings); otherwise no doc change — added a one-liner to CLAUDE.md's
+      top-up cadence note tying the reused `hrCadence`/`spo2Cadence`/`stressCadence`
+      constants in `vitals_import.go` to the same 00:00-UTC grid
 
 ## Technical Details
 
