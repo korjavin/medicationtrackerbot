@@ -24,7 +24,7 @@ type transferStore interface {
 	TransferSlotStatus(ctx context.Context, slotID, accountID string, now time.Time) (string, error)
 	DeleteTransferSlot(ctx context.Context, slotID, accountID string) error
 	SweepExpiredTransferSlots(ctx context.Context, now time.Time) (int, error)
-	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
+	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
 }
 
 // TransferAPI holds the device-transfer HTTP handlers: an unlocked device

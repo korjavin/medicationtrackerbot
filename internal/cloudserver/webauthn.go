@@ -43,7 +43,7 @@ type webauthnStore interface {
 	AddCredentialWithEnvelope(ctx context.Context, sourceCredentialID []byte, cred cloudstore.Credential, env cloudstore.Envelope) error
 	CredentialsByAccount(ctx context.Context, accountID string) ([]cloudstore.Credential, error)
 	TouchCredential(ctx context.Context, credentialID []byte, signCount uint32, assertedAt time.Time) error
-	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
+	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
 }
 
 // WebAuthnAPI holds the account-scoped WebAuthn HTTP handlers: registration
@@ -310,7 +310,7 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 		// revocation check here so a revoked device (credential deleted, but a
 		// 30-day session cookie + in-memory DEK still in hand) can't self-enroll
 		// a fresh credential and defeat its own revocation (Task 5).
-		exists, err := a.store.CredentialExists(r.Context(), session.CredentialID)
+		exists, err := a.store.CredentialExists(r.Context(), account.ID, session.CredentialID)
 		if err != nil {
 			http.Error(w, "server error", http.StatusInternalServerError)
 			return

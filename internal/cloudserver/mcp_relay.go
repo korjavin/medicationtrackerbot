@@ -49,7 +49,7 @@ const (
 // need — RequireSession's revocation check only; pairings themselves live in
 // memory, not in the store.
 type mcpRelayStore interface {
-	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
+	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
 }
 
 // MCPRelayAPI holds the pairing-mint/-revoke endpoints and the two WebSocket

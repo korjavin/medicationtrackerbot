@@ -24,7 +24,7 @@ const maxEgressBodyBytes = 4 << 10
 // egressStore is the subset of *cloudstore.Repo the egress-host endpoint needs.
 type egressStore interface {
 	SetEgressHosts(ctx context.Context, accountID string, hosts []string) error
-	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
+	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
 }
 
 // EgressAPI persists the caller account's provider egress-host allowlist, which

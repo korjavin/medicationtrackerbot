@@ -17,7 +17,7 @@ type deviceStore interface {
 	CredentialsByAccount(ctx context.Context, accountID string) ([]cloudstore.Credential, error)
 	GetEnvelope(ctx context.Context, accountID, credentialRef string) (*cloudstore.Envelope, error)
 	DeleteCredentialWithEnvelope(ctx context.Context, accountID string, credentialID []byte) error
-	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
+	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
 }
 
 // DeviceAPI holds the device-list + revocation HTTP handlers. Every route

@@ -44,7 +44,7 @@ type syncStore interface {
 	CompactionFloor(ctx context.Context, accountID string) (int64, error)
 	PutSnapshot(ctx context.Context, accountID string, snapshotSeq int64, nonce, ct []byte, now time.Time) error
 	GetSnapshot(ctx context.Context, accountID string, now time.Time) (*cloudstore.Snapshot, error)
-	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
+	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
 }
 
 // SyncAPI holds the account-scoped oplog append/list HTTP handlers. Every

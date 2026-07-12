@@ -92,7 +92,7 @@ type sessionCtxKey struct{}
 // check that a session token's credential hasn't been revoked since it was
 // minted.
 type sessionStore interface {
-	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
+	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
 }
 
 // RequireSession wraps next with session-cookie authentication for
@@ -125,7 +125,7 @@ func RequireSession(store sessionStore, sessionSecret string, next http.Handler)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		exists, err := store.CredentialExists(r.Context(), credentialID)
+		exists, err := store.CredentialExists(r.Context(), accountID, credentialID)
 		if err != nil || !exists {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

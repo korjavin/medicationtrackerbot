@@ -112,7 +112,7 @@ func serverListenPort(r *http.Request) string {
 // mcpRemoteStore is the subset of *cloudstore.Repo the hosted-remote consent
 // endpoints and startup restore need.
 type mcpRemoteStore interface {
-	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
+	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
 	UpsertMCPRemote(ctx context.Context, accountID, token, relayURL, pairingID string, pairingKey []byte, now time.Time) error
 	DeleteMCPRemote(ctx context.Context, accountID string) error
 	ListMCPRemote(ctx context.Context) ([]cloudstore.MCPRemote, error)

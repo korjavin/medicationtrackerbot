@@ -358,6 +358,65 @@ func TestDeleteCredentialWithEnvelope_NeverStrandsAccount(t *testing.T) {
 	}
 }
 
+// TestCredentialExists_ScopedToAccount is the med-yor.12 regression test:
+// credentials.id is a global PRIMARY KEY, so once a revoked device's credential
+// is deleted its id bytes are free for another account to re-register. If
+// CredentialExists ignored account_id, account A's still-valid (unexpired)
+// session token — which RequireSession admits solely on "does this credential
+// id still exist" — would be resurrected by account B re-registering the same
+// id, defeating A's device revocation. The account_id predicate must make the
+// existence check owner-specific: false for A, true for B.
+func TestCredentialExists_ScopedToAccount(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	if _, err := r.CreateAccount(ctx, "acc-A", "brave-otter-aaa111", []byte("hA"), now.Add(time.Hour), now, "", "", ""); err != nil {
+		t.Fatalf("CreateAccount A: %v", err)
+	}
+	if _, err := r.CreateAccount(ctx, "acc-B", "brave-otter-bbb222", []byte("hB"), now.Add(time.Hour), now, "", "", ""); err != nil {
+		t.Fatalf("CreateAccount B: %v", err)
+	}
+
+	reused := []byte{7, 7, 7, 7}
+	// A owns the reused id plus a keeper credential, so revoking the reused one
+	// doesn't trip the never-strand guard.
+	for _, c := range []Credential{
+		{ID: reused, AccountID: "acc-A", PublicKey: []byte("pkA"), CreatedAt: now},
+		{ID: []byte{8, 8, 8, 8}, AccountID: "acc-A", PublicKey: []byte("pkKeep"), CreatedAt: now},
+	} {
+		if err := r.AddCredential(ctx, c); err != nil {
+			t.Fatalf("AddCredential (A): %v", err)
+		}
+	}
+
+	// Revoke A's device, vacating the id's PRIMARY KEY slot.
+	if err := r.DeleteCredentialWithEnvelope(ctx, "acc-A", reused); err != nil {
+		t.Fatalf("DeleteCredentialWithEnvelope (A revoke): %v", err)
+	}
+	// B re-registers a credential with the SAME id bytes.
+	if err := r.AddCredential(ctx, Credential{ID: reused, AccountID: "acc-B", PublicKey: []byte("pkB"), CreatedAt: now}); err != nil {
+		t.Fatalf("AddCredential (B re-register same id): %v", err)
+	}
+
+	// A's revoked credential must read as gone for A (its old token is rejected)...
+	existsForA, err := r.CredentialExists(ctx, "acc-A", reused)
+	if err != nil {
+		t.Fatalf("CredentialExists(acc-A): %v", err)
+	}
+	if existsForA {
+		t.Fatal("revoked credential still reported present for acc-A: device revocation is bypassable via cross-account id reuse")
+	}
+	// ...while B legitimately owns it.
+	existsForB, err := r.CredentialExists(ctx, "acc-B", reused)
+	if err != nil {
+		t.Fatalf("CredentialExists(acc-B): %v", err)
+	}
+	if !existsForB {
+		t.Fatal("re-registered credential not reported present for its real owner acc-B")
+	}
+}
+
 // TestScheduledPushDeliveryRoundtrip guards the C3b column addition
 // (010_push_delivery.sql): a telegram entry carries its plaintext through
 // ReplaceSchedule → DueScheduledPushes, and an entry inserted with no delivery
