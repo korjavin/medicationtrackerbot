@@ -582,6 +582,10 @@ document.getElementById('health-feature-toggle').addEventListener('change', asyn
     await toggleFeatureSetting('health', this.checked);
 });
 
+document.getElementById('gamification-feature-toggle').addEventListener('change', async function () {
+    await toggleFeatureSetting('gamification', this.checked);
+});
+
 document.getElementById('medication-feature-toggle').addEventListener('change', async function () {
     await toggleFeatureSetting('medication', this.checked);
 });

@@ -102,7 +102,7 @@ tile and make Journey unreachable through existing gating.
 
 ### Task 3: Wire the gamification toggle change handler
 
-- [ ] In `web/static/js/app.js`, next to the other
+- [x] In `web/static/js/app.js`, next to the other
       `*-feature-toggle` change listeners (~line 573-595), add a `change`
       listener on `gamification-feature-toggle` calling
       `await toggleFeatureSetting('gamification', this.checked);`.
