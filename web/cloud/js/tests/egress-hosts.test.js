@@ -22,8 +22,9 @@ describe('hostsFromIntegrations', () => {
   it('registers the bare-host food.domain fallback (scheme prepended like fooddb.js)', () => {
     expect(hostsFromIntegrations({ food: { domain: 'FoodDB.Example.com' } })).toEqual(['fooddb.example.com']);
     expect(hostsFromIntegrations({ food: { domain: ' https://fooddb.example.com/path ' } })).toEqual(['fooddb.example.com']);
-    // food.url wins the fetch path but both hosts register; dedupe still applies
-    expect(hostsFromIntegrations({ food: { url: 'https://a.example.com/', domain: 'a.example.com' } })).toEqual(['a.example.com']);
+    // food.url wins the fetch path, so food.domain is NOT registered when set —
+    // connect-src stays scoped to hosts the client actually contacts
+    expect(hostsFromIntegrations({ food: { url: 'https://a.example.com/', domain: 'b.example.com' } })).toEqual(['a.example.com']);
   });
 
   it('skips empty, unset, and non-absolute URLs', () => {

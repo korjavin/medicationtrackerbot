@@ -27,18 +27,21 @@ function canAllowlist(host) {
 // Unparseable or empty URLs (e.g. an unset provider) and hosts the server
 // would reject (see canAllowlist) are skipped.
 export function hostsFromIntegrations(integrations) {
-  // food.domain may be a bare host with no scheme; fooddb.js prepends https://
-  // before fetching, so normalize the same way here or new URL() rejects it
-  // and the host never registers.
-  let foodDomain = integrations && integrations.food && integrations.food.domain;
-  if (typeof foodDomain === 'string' && foodDomain.trim()) {
-    foodDomain = foodDomain.trim();
+  const food = (integrations && integrations.food) || {};
+  const foodURL = typeof food.url === 'string' ? food.url.trim() : '';
+  // food.domain is only contacted when food.url is unset (fooddb.js baseURL()
+  // precedence), so only register it then — keep connect-src minimal. It may be
+  // a bare host with no scheme; fooddb.js prepends https:// before fetching, so
+  // normalize the same way here or new URL() rejects it and it never registers.
+  let foodDomain = '';
+  if (!foodURL && typeof food.domain === 'string' && food.domain.trim()) {
+    foodDomain = food.domain.trim();
     if (!/^https?:\/\//.test(foodDomain)) foodDomain = `https://${foodDomain}`;
   }
   const urls = [
     integrations && integrations.openai && integrations.openai.url,
     integrations && integrations.openai && integrations.openai.vision_url,
-    integrations && integrations.food && integrations.food.url,
+    foodURL,
     foodDomain,
   ];
   const hosts = [];
