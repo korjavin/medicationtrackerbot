@@ -44,10 +44,10 @@
 ## Implementation Steps
 
 ### Task 1: Add `ListAccountsForGraph` store query
-- [ ] In `internal/cloudstore/repo.go`, add an `AccountGraphNode` struct: `ID string`, `Subdomain string`, `CreatedBy *string` (nil = admin-minted root), `CreatedAt time.Time`, `Claimed bool`.
-- [ ] Add `func (r *Repo) ListAccountsForGraph(ctx context.Context) ([]AccountGraphNode, error)` running `SELECT id, subdomain, created_by_account_id, created_at_unix, claim_token_hash IS NULL FROM accounts ORDER BY created_at_unix, subdomain`.
-- [ ] Scan `created_by_account_id` into a `sql.NullString` → map to `*string` (nil when NULL); scan `created_at_unix` via `storedb.UnixToTime`; scan the `IS NULL` boolean into `Claimed`.
-- [ ] Add a doc comment noting NULL provenance = admin-CLI root and Claimed = claim token cleared (matches `AccountSummary.Claimed`).
+- [x] In `internal/cloudstore/repo.go`, add an `AccountGraphNode` struct: `ID string`, `Subdomain string`, `CreatedBy *string` (nil = admin-minted root), `CreatedAt time.Time`, `Claimed bool`.
+- [x] Add `func (r *Repo) ListAccountsForGraph(ctx context.Context) ([]AccountGraphNode, error)` running `SELECT id, subdomain, created_by_account_id, created_at_unix, claim_token_hash IS NULL FROM accounts ORDER BY created_at_unix, subdomain`.
+- [x] Scan `created_by_account_id` into a `sql.NullString` → map to `*string` (nil when NULL); scan `created_at_unix` via `storedb.UnixToTime`; scan the `IS NULL` boolean into `Claimed`.
+- [x] Add a doc comment noting NULL provenance = admin-CLI root and Claimed = claim token cleared (matches `AccountSummary.Claimed`).
 
 ### Task 2: Pure forest builder + three renderers in `cmd/cloud/invite_graph.go`
 - [ ] Define a `forestNode` type (embeds/holds the `AccountGraphNode` + `Children []*forestNode`).
