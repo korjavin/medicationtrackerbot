@@ -184,12 +184,15 @@ is caught.
       `window.CloudVault.resetLocalSync` then reloads.
 
 ### Task 6: Verify acceptance criteria
-- [ ] `npx vitest run` — the full frontend suite (sync + settings + architecture
+- [x] `npx vitest run` — the full frontend suite (sync + settings + architecture
       guards) must pass, including `architecture.*` globals/design-token guards.
-- [ ] `go build ./...` — only if any Go file was touched (not expected; JS-only).
-- [ ] Re-confirm the normal single-write path is unchanged: a plain
-      `writeRecord`/`recordsPort.put` still flushes inline and is unaffected by the
-      wedged guard when `syncWedged` is false (covered by existing repaint tests).
+      (309 files, 3528 passed / 29 skipped.)
+- [x] `go build ./...` — only if any Go file was touched (not expected; JS-only).
+      This plan touches no Go files; the branch's Go changes belong to unrelated work.
+- [x] Re-confirm the normal single-write path is unchanged: the wedged guard in
+      `flushPending` (`sync.js:787`) early-returns only when `syncWedged` is set —
+      a no-op when false, so a plain `writeRecord`/`recordsPort.put` still flushes
+      inline (covered by existing repaint tests).
 
 ### Task 7: [Final] Document the self-heal + the med-0ol.8 finding
 - [ ] In `docs/cloud-mode.md` (sync-protocol / import section), document: the
