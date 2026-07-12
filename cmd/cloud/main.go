@@ -41,6 +41,7 @@ type config struct {
 	managerBotToken     string
 	tgAPIBaseURL        string
 	internalWebhookBase string
+	requestInviteEmail  string
 	trial               cloudserver.TrialConfig
 }
 
@@ -58,6 +59,7 @@ func loadConfig() (config, error) {
 		managerBotToken:     os.Getenv("MANAGER_BOT_TOKEN"),
 		tgAPIBaseURL:        os.Getenv("CLOUD_TG_API_BASE_URL"),
 		internalWebhookBase: os.Getenv("CLOUD_INTERNAL_WEBHOOK_BASE"),
+		requestInviteEmail:  os.Getenv("REQUEST_INVITE_EMAIL"),
 	}
 	if cfg.internalWebhookBase == "" {
 		// Docker-network origin the local Bot API proxy uses to deliver child-bot
@@ -275,6 +277,7 @@ func main() {
 
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL, cfg.trial.TrialAIConfigured(), cfg.trial.TrialVoiceConfigured())
 	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
+	router.SetRequestInviteEmail(cfg.requestInviteEmail)
 
 	// A nil *TelegramAPI stored in a TelegramSender interface is NOT a nil
 	// interface, so assign only when Telegram actually came up — otherwise the

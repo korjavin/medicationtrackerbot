@@ -49,7 +49,9 @@ Open `https://portainer.<base>`, finish the initial admin setup, then:
    120 — how close the last unsent reminder must be before the hourly sweep
    warns a stale-synced account), and `CLOUD_FOOD_DB_URL` (operator's
    default FastFoodDB instance for food search — **required for food search
-   to work on a fresh account**; see the note below).
+   to work on a fresh account**; see the note below), and
+   `REQUEST_INVITE_EMAIL` (contact address for the "request an invite" line on
+   the base-domain landing page; unset = no contact line).
    See [environment.md](environment.md).
 3. Enable the stack's redeploy webhook and append its URL as a new line in
    the `PORTAINER_REDEPLOY_HOOK` GitHub secret (multiline — one URL per line,
