@@ -164,15 +164,15 @@ Dependencies identified: none new. No new HTTP route. No schema/migration change
       trailing parts
 
 ### Task 5: Client integration test — dense-day split + read-back (inbox-apply.test.js)
-- [ ] add a case in `web/cloud/js/tests/inbox-apply.test.js`: apply a
+- [x] add a case in `web/cloud/js/tests/inbox-apply.test.js`: apply a
       VITALS_IMPORT event whose one day carries > `MAX_SAMPLES_PER_RECORD` samples
-- [ ] assert the day is stored as MULTIPLE records (`<type>-<day>` + `<type>-<day>#k`),
+- [x] assert the day is stored as MULTIPLE records (`<type>-<day>` + `<type>-<day>#k`),
       each with ≤ `MAX_SAMPLES_PER_RECORD` samples
-- [ ] assert the read side (`createVitalsDomain().overview()` / `readSamples`) reads
+- [x] assert the read side (`createVitalsDomain().overview()` / `readSamples`) reads
       ALL samples across the sub-records (none dropped)
-- [ ] assert re-applying the same event is idempotent (sample count unchanged, no
+- [x] assert re-applying the same event is idempotent (sample count unchanged, no
       duplicates)
-- [ ] run `npx vitest run` — must pass
+- [x] run `npx vitest run` — must pass
 
 ### Task 6: Verify acceptance criteria
 - [ ] verify all Overview requirements are implemented (downsampling + event
