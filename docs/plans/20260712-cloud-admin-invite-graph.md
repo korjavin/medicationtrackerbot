@@ -69,9 +69,9 @@
 - [x] Empty-DB case: `ListAccountsForGraph` on a fresh store → `renderTree` prints the `no accounts` line, `renderJSON` has zero nodes/edges.
 
 ### Task 5: Verify acceptance criteria
-- [ ] `go build ./... && go build -tags mobile ./...` both succeed.
-- [ ] `TZ=UTC go test ./internal/cloudstore/... ./cmd/cloud/...` passes.
-- [ ] Manually run `go run ./cmd/cloud admin invite-graph` (and `--format=dot`, `--format=json`) against a scratch DB to eyeball output shape (optional sanity; the test is the guarantee).
+- [x] `go build ./... && go build -tags mobile ./...` both succeed.
+- [x] `TZ=UTC go test ./internal/cloudstore/... ./cmd/cloud/...` passes.
+- [x] Manually run `go run ./cmd/cloud admin invite-graph` (and `--format=dot`, `--format=json`) against a scratch DB to eyeball output shape — empty DB (`no accounts` / empty digraph / empty nodes+edges) and one-root populated case both render correctly.
 
 ### Task 6: [Final] Document the command
 - [ ] Add `cloud admin invite-graph` (+ `--format=dot|json`) to the admin section of `docs/cloud-deployment.md`: what it shows (invitation forest, claimed vs pending), the three formats, and the `dot -Tsvg` render hint.
