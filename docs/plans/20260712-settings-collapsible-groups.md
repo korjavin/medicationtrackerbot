@@ -65,9 +65,9 @@
 - [x] Verify NO section `id` or `class` was changed and no inline `style=` was introduced. Reorder sections into group order only by moving whole `<section>` blocks.
 
 ### Task 2: Style the group `<details>`/`<summary>` via tokens
-- [ ] In `web/static/css/styles.css` add `.wg-settings-group` + `.wg-settings-group__summary` rules using existing `--wg-*` tokens (spacing, radius, surface, text). Provide a chevron affordance via CSS (e.g. rotate a `::marker`/pseudo-element or `[open]` state) — no hardcoded colors.
-- [ ] Ensure the summary is a clear tap target and matches the card visual language; group content spacing reuses `--wg-settings-section-gap`.
-- [ ] Confirm no hardcoded hex / rgb / hsl literals and no inline styles were added (architecture guards: design-tokens, inline-styles).
+- [x] In `web/static/css/styles.css` add `.wg-settings-group` + `.wg-settings-group__summary` rules using existing `--wg-*` tokens (spacing, radius, surface, text). Provide a chevron affordance via CSS (e.g. rotate a `::marker`/pseudo-element or `[open]` state) — no hardcoded colors.
+- [x] Ensure the summary is a clear tap target and matches the card visual language; group content spacing reuses `--wg-settings-section-gap`.
+- [x] Confirm no hardcoded hex / rgb / hsl literals and no inline styles were added (architecture guards: design-tokens, inline-styles).
 
 ### Task 3: Hide a group whose children are all hidden
 - [ ] In `web/static/js/features/settings.js`, add a helper `hideEmptySettingsGroups()` that, for each `.wg-settings-group`, adds `wg-settings-hidden` (or `hidden`) when every descendant `.wg-settings-section` is hidden, else removes it.

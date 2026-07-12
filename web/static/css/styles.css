@@ -11433,6 +11433,57 @@ textarea.wg-input {
     display: none;
 }
 
+/* Collapsible settings groups (med-eas.50) — native <details>/<summary>
+   folds that group the settings cards. No JS collapse logic; the browser
+   and keyboard handle open/close for free. The summary is a card-language
+   tap target (mono title, 44px min-height) with a token'd chevron that
+   rotates when the group is open. Group content stacks with the same gap
+   as the cards themselves (--wg-settings-section-gap). */
+.wg-settings-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-settings-section-gap);
+}
+
+.wg-settings-group__summary {
+    display: flex;
+    align-items: center;
+    gap: var(--wg-settings-row-gap);
+    min-height: var(--wg-settings-save-btn-min-height);
+    padding: var(--wg-settings-section-pad);
+    cursor: pointer;
+    list-style: none;
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-settings-title-size);
+    font-weight: var(--font-weight-medium);
+    letter-spacing: 0.02em;
+    color: var(--wg-fg-1);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+}
+
+/* Suppress the native disclosure triangle (WebKit) — the ::after chevron
+   below is the affordance. `list-style: none` handles Firefox/Chromium. */
+.wg-settings-group__summary::-webkit-details-marker {
+    display: none;
+}
+
+.wg-settings-group__summary::after {
+    content: "";
+    width: 0.5em;
+    height: 0.5em;
+    margin-inline-start: auto;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 0.15s ease;
+}
+
+.wg-settings-group[open] > .wg-settings-group__summary::after {
+    transform: rotate(-135deg);
+}
+
 /* Notifications card (Phase 9, Task 4) — webpush status pill + action-row
    buttons share this section. The status pill uses the Wandergeek tag
    triplets (`--wg-tag-normal-*` / `--wg-tag-alert-*` / neutral hairline)
