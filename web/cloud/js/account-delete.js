@@ -15,6 +15,11 @@ export async function exportVaultToFile(nowMs = Date.now()) {
   if (!window.CloudVault || typeof window.CloudVault.exportAll !== 'function') {
     throw new Error('Vault not ready — unlock the app first.');
   }
+  // Same gate as Settings → Import/Export: the file holds live secrets, so warn
+  // BEFORE they land in ~/Downloads in plain text.
+  if (!window.confirm('This backup will contain your provider API keys and access tokens in plain text. Download anyway?')) {
+    return;
+  }
   const json = await window.CloudVault.exportAll({ includeSecrets: true });
   const stamp = new Date(nowMs).toISOString().slice(0, 10);
   const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));

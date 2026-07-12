@@ -90,27 +90,46 @@ describe('reauthAndDelete (med-d5t.8)', () => {
 });
 
 describe('exportVaultToFile', () => {
-  it('downloads the vault JSON before any delete', async () => {
-    const clicks = [];
+  let clicks;
+
+  beforeEach(() => {
+    clicks = [];
     globalThis.document = {
       createElement: () => ({ click() { clicks.push(this.download); }, remove() {}, set href(v) { this._href = v; }, get href() { return this._href; } }),
       body: { appendChild() {} },
     };
     globalThis.URL = { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} };
-    const blobs = [];
-    globalThis.Blob = class { constructor(parts) { blobs.push(parts.join('')); } };
     window.CloudVault = { exportAll: vi.fn(async () => '{"meds":[]}') };
+    window.confirm = vi.fn(() => true);
+  });
 
-    await exportVaultToFile(Date.parse('2026-07-10T00:00:00Z'));
-
-    expect(window.CloudVault.exportAll).toHaveBeenCalledWith({ includeSecrets: true });
-    expect(clicks[0]).toBe('medtracker-vault-2026-07-10.json');
-    expect(blobs[0]).toBe('{"meds":[]}');
-
+  afterEach(() => {
     delete globalThis.document;
     delete globalThis.URL;
     delete globalThis.Blob;
     delete window.CloudVault;
+    delete window.confirm;
+  });
+
+  it('warns about plaintext secrets, then downloads the vault JSON', async () => {
+    const blobs = [];
+    globalThis.Blob = class { constructor(parts) { blobs.push(parts.join('')); } };
+
+    await exportVaultToFile(Date.parse('2026-07-10T00:00:00Z'));
+
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/plain text/i));
+    expect(window.CloudVault.exportAll).toHaveBeenCalledWith({ includeSecrets: true });
+    expect(clicks[0]).toBe('medtracker-vault-2026-07-10.json');
+    expect(blobs[0]).toBe('{"meds":[]}');
+  });
+
+  it('aborts the download when the plaintext-secrets warning is declined', async () => {
+    window.confirm = vi.fn(() => false);
+
+    await exportVaultToFile(Date.parse('2026-07-10T00:00:00Z'));
+
+    expect(window.CloudVault.exportAll).not.toHaveBeenCalled();
+    expect(clicks).toHaveLength(0);
   });
 
   it('refuses to claim an export when the vault is not ready', async () => {

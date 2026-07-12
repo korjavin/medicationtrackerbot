@@ -125,18 +125,19 @@ secrets behind the same warning.
       3549 passed / 29 skipped — via vitest, node 22)
 
 ### Task 3: Gate the safety export's plaintext secrets behind a warning
-- [ ] In `web/cloud/js/account-delete.js` `exportVaultToFile()`, before calling
+- [x] In `web/cloud/js/account-delete.js` `exportVaultToFile()`, before calling
       `CloudVault.exportAll({ includeSecrets: true })`, show a confirm with the
       same message as Import/Export ("This backup will contain your provider API
       keys and access tokens in plain text. Download anyway?") using
       `window.confirm`; if the user declines, return without exporting/downloading.
       Keep it dependency-light (no heavy import of the importexport module).
-- [ ] Extend `describe('exportVaultToFile')` in
+- [x] Extend `describe('exportVaultToFile')` in
       `web/cloud/js/tests/account-delete.test.js`: with a `window.confirm` stub —
       DECLINING aborts the download (no `CloudVault.exportAll`, no anchor click);
       ACCEPTING proceeds as the existing happy-path test expects. Update the
       existing happy-path test to provide a confirm stub that returns true.
-- [ ] Run `pnpm test` — must pass before Task 4.
+- [x] Run `pnpm test` — must pass before Task 4. (full suite: 309 files,
+      3550 passed / 29 skipped — via vitest, node 22)
 
 ### Task 4: Keep settings.js navigation gated on verified erasure
 - [ ] In `web/static/js/features/settings.js`, ONLY the delete confirm handler
