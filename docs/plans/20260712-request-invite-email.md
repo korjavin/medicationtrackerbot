@@ -102,11 +102,13 @@ Behavior contract:
     HTML-escaped form and NOT a raw `<script>` / unescaped `">`
 
 ### Task 5: Verify acceptance criteria
-- [ ] `npx vitest run` passes (frontend untouched — must stay green)
-- [ ] `go build ./... && go build -tags mobile ./...`
-- [ ] `TZ=UTC go test ./internal/cloudserver/... ./cmd/cloud/...`
-- [ ] unset-env path renders the landing page identical to today
-- [ ] email is escaped in both text and href
+- [x] `npx vitest run` passes (frontend untouched — must stay green)
+- [x] `go build ./... && go build -tags mobile ./...`
+- [x] `TZ=UTC go test ./internal/cloudserver/... ./cmd/cloud/...` (also
+  forwarded `REQUEST_INVITE_EMAIL` in docker-compose.cloud.yml + .env.cloud.example
+  to satisfy TestComposePassesEveryEnvCloudReads)
+- [x] unset-env path renders the landing page identical to today
+- [x] email is escaped in both text and href
 
 ### Task 6: [Final] Documentation
 - [ ] add `REQUEST_INVITE_EMAIL` to `docs/environment.md` under the Cloud
