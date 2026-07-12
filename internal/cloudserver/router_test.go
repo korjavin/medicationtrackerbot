@@ -49,6 +49,61 @@ func testDomainFS() fstest.MapFS {
 	}
 }
 
+// med-eas.52: the base-domain landing page grows an optional "request an
+// invite" contact line, injected before </main> only when the operator sets
+// REQUEST_INVITE_EMAIL (via SetRequestInviteEmail). Unset = byte-identical to
+// today; the address is HTML-escaped in both the visible text and the mailto
+// href.
+func TestRouter_RequestInviteEmail(t *testing.T) {
+	store := setupStore(t)
+	landingFS := fstest.MapFS{
+		"index.html":  {Data: []byte(`<main class="landing"><h1>Invitations only</h1></main>`)},
+		"signup.html": {Data: []byte("account shell")},
+	}
+	get := func(t *testing.T, h *Handler) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Host = "app.example.com"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		return rec.Body.String()
+	}
+
+	t.Run("unset renders no contact line", func(t *testing.T) {
+		h := New("app.example.com", store, landingFS, testAppFS(), testDomainFS(), nil, "", false, false)
+		if body := get(t, h); strings.Contains(body, "mailto:") {
+			t.Fatalf("unset env leaked a mailto link: %q", body)
+		}
+	})
+
+	t.Run("set renders the escaped mailto line", func(t *testing.T) {
+		h := New("app.example.com", store, landingFS, testAppFS(), testDomainFS(), nil, "", false, false)
+		h.SetRequestInviteEmail("ops@example.com")
+		body := get(t, h)
+		if !strings.Contains(body, `mailto:ops@example.com`) {
+			t.Fatalf("missing mailto href: %q", body)
+		}
+		if !strings.Contains(body, ">ops@example.com<") {
+			t.Fatalf("missing visible address: %q", body)
+		}
+	})
+
+	t.Run("injection payload is HTML-escaped", func(t *testing.T) {
+		h := New("app.example.com", store, landingFS, testAppFS(), testDomainFS(), nil, "", false, false)
+		h.SetRequestInviteEmail(`a"><script>@x.test`)
+		body := get(t, h)
+		if strings.Contains(body, `<script>@x.test`) {
+			t.Fatalf("payload escaped incorrectly, injection possible: %q", body)
+		}
+		if !strings.Contains(body, "&lt;script&gt;") || !strings.Contains(body, "&#34;") {
+			t.Fatalf("expected escaped form not present: %q", body)
+		}
+	})
+}
+
 // med-eas.21: bot mode generates /static/config.js; cloud mode must serve a
 // passkey-mode equivalent as real JavaScript, or the shared index.html's
 // <script src="/static/config.js"> 404s and the browser refuses the text/plain

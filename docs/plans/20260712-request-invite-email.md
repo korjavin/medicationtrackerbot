@@ -92,7 +92,7 @@ Behavior contract:
   `router.SetRequestInviteEmail(cfg.requestInviteEmail)`
 
 ### Task 4: Router test for the contact line
-- [ ] add `TestRouter_RequestInviteEmail` in
+- [x] add `TestRouter_RequestInviteEmail` in
   `internal/cloudserver/router_test.go` using a `fstest.MapFS` whose
   `index.html` contains a `<main class="landing">…</main>` body:
   - unset (setter not called) → GET base `/` body contains no `mailto:`
