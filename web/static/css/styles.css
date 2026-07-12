@@ -11453,6 +11453,14 @@ textarea.wg-input {
     padding: var(--wg-settings-section-pad);
     cursor: pointer;
     list-style: none;
+    /* Keep the single fold affordance reachable from deep inside a tall open
+       group (e.g. Import/Export): stick the summary to the top of the scroll
+       area so scrolling never carries the only toggle off-screen. The opaque
+       --wg-bg-card background below hides content sliding under it; the
+       local-stacking z-index lifts it above the group's sibling cards. */
+    position: sticky;
+    top: 0;
+    z-index: 10;
     font-family: var(--wg-font-mono);
     font-size: var(--wg-settings-title-size);
     font-weight: var(--font-weight-medium);
