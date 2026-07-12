@@ -148,8 +148,9 @@ tile and make Journey unreachable through existing gating.
 
 ### Task 7: [Final] Docs
 
-- [ ] No doc change expected (feature-toggle conventions already documented). If
-      any new pattern emerged, note it; otherwise leave docs untouched.
+- [x] No doc change expected (feature-toggle conventions already documented). No
+      new pattern emerged — reused existing toggle render + `toggleFeatureSetting`
+      + `wg-settings-hidden` cloud-hide patterns. Docs left untouched.
 
 ## Technical Details
 
