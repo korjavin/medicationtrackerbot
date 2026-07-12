@@ -195,7 +195,7 @@ is caught.
       inline (covered by existing repaint tests).
 
 ### Task 7: [Final] Document the self-heal + the med-0ol.8 finding
-- [ ] In `docs/cloud-mode.md` (sync-protocol / import section), document: the
+- [x] In `docs/cloud-mode.md` (sync-protocol / import section), document: the
       write-error retry budget + `syncWedged` pause, the "Reset local sync"
       recovery affordance, and the med-0ol.8 finding that full-vault import uses
       the single-snapshot path (constant 2 requests) with the shared import-UX
