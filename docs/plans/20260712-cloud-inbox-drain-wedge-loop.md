@@ -159,18 +159,21 @@ recover, reusing med-0ol.7's `syncWedged`/`resetLocalSync` and sync's byte-batch
       `TestInbox_RequiresSession`. Passes.
 
 ### Task 5: Confirm + document the backlog source; file the redesign follow-up
-- [ ] Confirm (from the code path, `web/cloud/js/inbox-apply.js` `vitals_import` +
-      `internal/cloudserver/telegram.go` `sealNXKDocument`) that the huge backlog is stale
-      sealed Telegram `.nxk` vitals events, and that a single large Mi Band `.nxk` produces
-      a record whose CT can exceed `maxOpCTLen` (64 KiB) — the ops-400 trigger. Record the
-      finding in the plan (this file) and in `docs/cloud-mode.md` (drain-protocol section):
-      the wedge-pause + byte-cap + inbox-clear recovery, and the ops-400 cause.
-- [ ] Note in docs that sealing a large Mi Band `.nxk` vitals import into the per-message
-      sealed mailbox as one giant event is questionable (it is what makes a single event
-      huge and its ops un-flushable); a deeper redesign (chunk the vitals import into
-      sub-`maxOpCTLen` records, or a distinct bulk path that doesn't go through the
-      per-message inbox) is a FOLLOW-UP, not this bead. File a bd follow-up issue for it
-      (record the id in this plan). Do NOT scope-creep the redesign into this fix.
+- [x] Confirmed from the code path: `web/cloud/js/inbox-apply.js` applies a `vitals_import`
+      event (sealed by `internal/cloudserver/telegram.go` `sealNXKDocument`) through
+      `web/domain/vitals.js` `importSamples`, whose `importDayBatched` writes ONE record per
+      day holding ALL that day's hr/spo2/stress samples (`samples: samplesOut`). A densely
+      sampling Mi Band `.nxk` day thus serializes past `maxOpCTLen = 64<<10` (64 KiB), so
+      `POST /api/sync/ops` returns `400 "op field too large or missing"` (`internal/cloudserver/sync.go`
+      `PostOps`, line 110) — the ops-400 trigger. Recorded in `docs/cloud-mode.md`
+      (drain-protocol section, new "Drain wedge recovery (med-eas.51)" bullet): the
+      wedge-pause + byte-cap + inbox-clear recovery and the ops-400 cause.
+- [x] Documented in `docs/cloud-mode.md` that sealing a large Mi Band `.nxk` vitals import
+      into the per-message sealed mailbox as one giant >64 KiB event is what makes a single
+      event huge and its ops un-flushable, and that the deeper redesign (chunk the import
+      into sub-`maxOpCTLen` records, or a distinct bulk path around the per-message inbox) is
+      a FOLLOW-UP, not this bead. Filed bd follow-up **med-0cf** (recorded here and in docs).
+      No scope-creep of the redesign into this fix.
 
 ### Task 6: Verify acceptance criteria
 - [ ] Verify all Overview requirements are implemented: wedged account performs zero
