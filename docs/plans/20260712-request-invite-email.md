@@ -87,7 +87,7 @@ Behavior contract:
   page's existing `.landing` inherited styles (a plain `<p>`, no `style=` attr)
 
 ### Task 3: Wire the setter in cmd/cloud/main.go
-- [ ] after `router := cloudserver.New(...)` (and near
+- [x] after `router := cloudserver.New(...)` (and near
   `router.SetMCPHandler(...)`), call
   `router.SetRequestInviteEmail(cfg.requestInviteEmail)`
 

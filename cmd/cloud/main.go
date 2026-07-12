@@ -277,6 +277,7 @@ func main() {
 
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL, cfg.trial.TrialAIConfigured(), cfg.trial.TrialVoiceConfigured())
 	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
+	router.SetRequestInviteEmail(cfg.requestInviteEmail)
 
 	// A nil *TelegramAPI stored in a TelegramSender interface is NOT a nil
 	// interface, so assign only when Telegram actually came up — otherwise the
