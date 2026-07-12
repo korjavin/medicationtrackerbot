@@ -129,12 +129,12 @@ is caught.
       untouched.
 
 ### Task 2: `resetLocalSync` — rebuild this device from the server snapshot (med-0ol.7 recovery b)
-- [ ] In `sync.js`, add exported `async function resetLocalSync(ctx)`: under
+- [x] In `sync.js`, add exported `async function resetLocalSync(ctx)`: under
       `withRecordsLock`, clear the `records`, `pending`, and `sync_meta` stores in
       a SINGLE IDB transaction (atomic), set module `offline = false`, then
       `await pullOnOpen(ctx)` to re-bootstrap from the server's compacted snapshot
       + tail. Do NOT clear the `device` store (keeps NK / LDK / crypto state).
-- [ ] Document in the function header that this DISCARDS un-synced local pending
+- [x] Document in the function header that this DISCARDS un-synced local pending
       writes by design (the un-wedge escape hatch) and that clearing `sync_meta`
       nulls `localLastSeq`/`syncWedged`/`writeError`/`forceSnapshotPending` so the
       next bootstrap starts clean.

@@ -194,6 +194,39 @@ export async function dropPendingForTypes(types) {
   });
 }
 
+// Rebuild this device from the server's compacted snapshot (med-0ol.7 recovery).
+// DISCARDS un-synced local pending writes by design — it's the escape hatch a
+// wedged device (WRITE_ERROR_BUDGET spent, syncWedged set) or a bloated-oplog
+// device uses to recover without support. Clearing 'sync_meta' nulls
+// localLastSeq (so the next bootstrap re-pulls the snapshot from the floor) plus
+// syncWedged / writeError / writeErrorStreak / forceSnapshotPending, so syncing
+// resumes clean. The 'device' store (NK / LDK / crypto state) is left intact.
+//
+// records + pending + sync_meta are wiped in ONE readwrite transaction under
+// withRecordsLock, so a crash mid-reset can't leave records without their cursor
+// — either all three clear or none do, and a null cursor the next bootstrap
+// heals is the worst case. pullOnOpen then re-bootstraps from the server.
+export async function resetLocalSync(ctx) {
+  await withRecordsLock(async () => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'pending', 'sync_meta'], 'readwrite');
+        tx.objectStore('records').clear();
+        tx.objectStore('pending').clear();
+        tx.objectStore('sync_meta').clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  });
+  offline = false;
+  await pullOnOpen(ctx);
+}
+
 async function markPending(recordId, recordType) {
   await withStore('pending', 'readwrite', (store) => store.put({ recordId, recordType }));
 }
