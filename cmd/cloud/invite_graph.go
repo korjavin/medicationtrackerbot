@@ -81,6 +81,33 @@ func buildInviteForest(nodes []cloudstore.AccountGraphNode) (roots []*forestNode
 		}
 	}
 
+	// A created_by cycle (or self-reference) leaves a node attached to a parent
+	// but never reachable from a root — provenance shouldn't cycle, but corrupt
+	// data must not vanish silently. Surface any such node as an orphan so it
+	// still renders (the walk's visited-guard bounds the recursion).
+	reached := make(map[string]bool, len(byID))
+	var mark func(n *forestNode)
+	mark = func(n *forestNode) {
+		if reached[n.ID] {
+			return
+		}
+		reached[n.ID] = true
+		for _, c := range n.Children {
+			mark(c)
+		}
+	}
+	for _, r := range roots {
+		mark(r)
+	}
+	for _, o := range orphans {
+		mark(o)
+	}
+	for _, n := range byID {
+		if !reached[n.ID] {
+			orphans = append(orphans, n)
+		}
+	}
+
 	sortNodes(roots)
 	sortNodes(orphans)
 	for _, n := range byID {
@@ -113,12 +140,12 @@ func renderTree(roots, orphans []*forestNode) string {
 	}
 	var b strings.Builder
 	for _, r := range roots {
-		writeTreeNode(&b, r, "", map[string]bool{})
+		writeTreeNode(&b, r, "", "", map[string]bool{})
 	}
 	if len(orphans) > 0 {
 		b.WriteString("\norphaned (inviter deleted):\n")
 		for _, o := range orphans {
-			writeTreeNode(&b, o, "", map[string]bool{})
+			writeTreeNode(&b, o, "", "", map[string]bool{})
 		}
 	}
 	return b.String()
@@ -128,28 +155,11 @@ func nodeLabel(n *forestNode) string {
 	return fmt.Sprintf("%s [%s] created=%s", n.Subdomain, claimLabel(n.Claimed), n.CreatedAt.Format("2006-01-02"))
 }
 
-// writeTreeNode prints one node then recurses into children. visited guards
-// against a cyclic CreatedBy chain (a self/loop reference must not infinite-loop).
-func writeTreeNode(b *strings.Builder, n *forestNode, prefix string, visited map[string]bool) {
-	b.WriteString(prefix)
-	b.WriteString(nodeLabel(n))
-	b.WriteByte('\n')
-	if visited[n.ID] {
-		return
-	}
-	visited[n.ID] = true
-	for i, c := range n.Children {
-		last := i == len(n.Children)-1
-		branch, childPrefix := "├── ", "│   "
-		if last {
-			branch, childPrefix = "└── ", "    "
-		}
-		writeChild(b, c, prefix, branch, childPrefix, visited)
-	}
-	delete(visited, n.ID)
-}
-
-func writeChild(b *strings.Builder, n *forestNode, prefix, branch, childPrefix string, visited map[string]bool) {
+// writeTreeNode prints one node (prefix+branch+label) then recurses into its
+// children. branch is "" for a forest root/orphan entry point and "├── "/"└── "
+// for a child. visited guards a cyclic CreatedBy chain so a self/loop reference
+// can't infinite-loop the walk.
+func writeTreeNode(b *strings.Builder, n *forestNode, prefix, branch string, visited map[string]bool) {
 	b.WriteString(prefix + branch)
 	b.WriteString(nodeLabel(n))
 	b.WriteByte('\n')
@@ -157,13 +167,19 @@ func writeChild(b *strings.Builder, n *forestNode, prefix, branch, childPrefix s
 		return
 	}
 	visited[n.ID] = true
+	childPrefix := prefix
+	switch branch {
+	case "├── ":
+		childPrefix += "│   "
+	case "└── ":
+		childPrefix += "    "
+	}
 	for i, c := range n.Children {
-		last := i == len(n.Children)-1
-		nextBranch, nextChildPrefix := "├── ", "│   "
-		if last {
-			nextBranch, nextChildPrefix = "└── ", "    "
+		cb := "├── "
+		if i == len(n.Children)-1 {
+			cb = "└── "
 		}
-		writeChild(b, c, prefix+childPrefix, nextBranch, nextChildPrefix, visited)
+		writeTreeNode(b, c, childPrefix, cb, visited)
 	}
 	delete(visited, n.ID)
 }

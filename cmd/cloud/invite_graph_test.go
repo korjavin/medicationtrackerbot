@@ -171,6 +171,44 @@ func TestInviteGraph_CycleGuard(t *testing.T) {
 	}
 }
 
+func TestInviteGraph_SelfReferenceSurfaced(t *testing.T) {
+	r := newGraphStore(t)
+	ctx := context.Background()
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	// A root plus a self-referential account (created_by = its own id). The
+	// self-ref must not vanish from the tree: it surfaces as an orphan and
+	// renders a bounded number of times.
+	mkAccount(t, r, "root1", "alpha-root", true, base, "")
+	mkAccount(t, r, "loop", "loop-node", true, base.Add(time.Minute), "loop")
+
+	nodes, err := r.ListAccountsForGraph(ctx)
+	if err != nil {
+		t.Fatalf("ListAccountsForGraph: %v", err)
+	}
+	roots, orphans := buildInviteForest(nodes)
+	if len(roots) != 1 || roots[0].Subdomain != "alpha-root" {
+		t.Fatalf("expected 1 root alpha-root, got %+v", roots)
+	}
+	foundLoop := false
+	for _, o := range orphans {
+		if o.Subdomain == "loop-node" {
+			foundLoop = true
+		}
+	}
+	if !foundLoop {
+		t.Fatalf("self-referential loop-node should surface as orphan, got %+v", orphans)
+	}
+
+	tree := renderTree(roots, orphans)
+	if !strings.Contains(tree, "loop-node") {
+		t.Errorf("expected loop-node in tree:\n%s", tree)
+	}
+	if got := strings.Count(tree, "loop-node"); got > 3 {
+		t.Errorf("cycle guard failed, loop-node appeared %d times:\n%s", got, tree)
+	}
+}
+
 func TestInviteGraph_Empty(t *testing.T) {
 	r := newGraphStore(t)
 	nodes, err := r.ListAccountsForGraph(context.Background())
