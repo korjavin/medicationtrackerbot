@@ -61,12 +61,12 @@ Queued offline edits sync on reconnect without a write or reload; an expired ses
 - [x] run focused sync tests — must pass before Task 3. (50/50 pass)
 
 ### Task 3: Reconnect auto-drain listeners
-- [ ] add exported `function startReconnectAutoDrain(ctx)` in sync.js: wire `window.addEventListener('online', trigger)` and `document.addEventListener('visibilitychange', ...)` where the visibility handler calls `trigger` only when `document.visibilityState === 'visible' && navigator.onLine`. `trigger` = a debounced runner that calls `pullOnOpen(ctx)` with a simple in-flight guard so concurrent/overlapping events coalesce into one run (reuse the single-slot-promise pattern à la `withRecordsLock`; e.g. a module `let drainInFlight = null;`). Return a teardown function that removes both listeners (for tests/cleanliness). Guard for missing `window`/`document` (no-op) so non-DOM contexts don't throw.
-- [ ] keep it lazy: no timers framework — a short `setTimeout` debounce (e.g. 250ms) coalescing bursts is enough; the in-flight guard prevents overlap.
-- [ ] write test: after `startReconnectAutoDrain(ctx)` with the server healthy, dispatching a `window` `online` event triggers a `pullOnOpen`/`flushPending` drain (mocked fetch sees a `/api/sync/ops` GET or the pending flush) with NO `writeRecord` call; assert the drain happened (e.g. pending drains or the ops fetch fires).
-- [ ] write test: two rapid `online` events do not launch overlapping drains (assert the drain body runs once, or fetch not re-entered while in flight) — the in-flight guard holds.
-- [ ] write test: teardown removes listeners (a post-teardown `online` event does not drain).
-- [ ] run focused sync tests — must pass before Task 4.
+- [x] add exported `function startReconnectAutoDrain(ctx)` in sync.js: wire `window.addEventListener('online', trigger)` and `document.addEventListener('visibilitychange', ...)` where the visibility handler calls `trigger` only when `document.visibilityState === 'visible' && navigator.onLine`. `trigger` = a debounced runner that calls `pullOnOpen(ctx)` with a simple in-flight guard so concurrent/overlapping events coalesce into one run (reuse the single-slot-promise pattern à la `withRecordsLock`; e.g. a module `let drainInFlight = null;`). Return a teardown function that removes both listeners (for tests/cleanliness). Guard for missing `window`/`document` (no-op) so non-DOM contexts don't throw.
+- [x] keep it lazy: no timers framework — a short `setTimeout` debounce (e.g. 250ms) coalescing bursts is enough; the in-flight guard prevents overlap.
+- [x] write test: after `startReconnectAutoDrain(ctx)` with the server healthy, dispatching a `window` `online` event triggers a `pullOnOpen`/`flushPending` drain (mocked fetch sees a `/api/sync/ops` GET or the pending flush) with NO `writeRecord` call; assert the drain happened (e.g. pending drains or the ops fetch fires). (plus a visibilitychange-while-online drain test)
+- [x] write test: two rapid `online` events do not launch overlapping drains (assert the drain body runs once, or fetch not re-entered while in flight) — the in-flight guard holds.
+- [x] write test: teardown removes listeners (a post-teardown `online` event does not drain).
+- [x] run focused sync tests — must pass before Task 4. (54/54 pass)
 
 ### Task 4: Wire listeners into boot + re-auth button in the sync-status surface
 - [ ] in `cloud-boot.js`, after `await pullOnOpen(ctx)` (221), call `startReconnectAutoDrain(ctx)` (import it alongside `pullOnOpen` at 191-194). Best-effort, never blocks boot.

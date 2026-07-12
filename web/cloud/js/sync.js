@@ -1030,6 +1030,39 @@ export async function reauthenticate(ctx) {
   return getSyncStatus(ctx);
 }
 
+// med-deq.2 — reconnect auto-drain. Without this, queued offline edits sit
+// until the next write or a reload. On window 'online' and on the tab becoming
+// visible while navigator.onLine, re-run the boot drain path (pullOnOpen). A
+// short setTimeout debounce coalesces event bursts; a single-slot in-flight
+// guard (same posture as recordsLock) prevents overlapping drains. Returns a
+// teardown removing both listeners. No-op outside a DOM context.
+let drainInFlight = null;
+export function startReconnectAutoDrain(ctx) {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
+  let debounce = null;
+  const drain = () => {
+    if (drainInFlight) return drainInFlight;
+    drainInFlight = pullOnOpen(ctx)
+      .catch(() => {}) // failures already land in sync status; retried on the next event
+      .finally(() => { drainInFlight = null; });
+    return drainInFlight;
+  };
+  const trigger = () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(drain, 250);
+  };
+  const onVisible = () => {
+    if (document.visibilityState === 'visible' && navigator.onLine) trigger();
+  };
+  window.addEventListener('online', trigger);
+  document.addEventListener('visibilitychange', onVisible);
+  return () => {
+    clearTimeout(debounce);
+    window.removeEventListener('online', trigger);
+    document.removeEventListener('visibilitychange', onVisible);
+  };
+}
+
 // Generic record-store read: live (non-tombstoned) records of a type from the
 // local mirror, newest-first by clientTs. Backs recordsPort() below
 // (web/domain/'s storage port).

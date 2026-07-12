@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb } from '../localdb.js';
 
 // reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
@@ -693,6 +693,114 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     const line = await describeSyncStatus(ctx);
     expect(line).toContain('refused');
     expect(line).not.toContain('Vault is full');
+  });
+});
+
+// med-deq.2 — reconnect auto-drain: queued offline edits must sync when the
+// browser comes back online (or the tab regains visibility while online)
+// without waiting for the next user write or a reload. The vitest env is node,
+// so window/document are stubbed with bare EventTargets — exactly the surface
+// startReconnectAutoDrain touches.
+describe('reconnect auto-drain (med-deq.2)', () => {
+  let ctx;
+  let teardown;
+  let doc;
+  let opsGets;
+
+  const seedMeta = async (meta) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('sync_meta', 'readwrite');
+        const store = tx.objectStore('sync_meta');
+        for (const [k, v] of Object.entries(meta)) store.put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  // The debounce is 250ms; wait past it plus a settle margin for pullOnOpen.
+  const settle = () => new Promise((r) => setTimeout(r, 400));
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, dek: await generateDEK() };
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsGets = 0;
+
+    vi.stubGlobal('window', new EventTarget());
+    doc = new EventTarget();
+    doc.visibilityState = 'visible';
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('navigator', { onLine: true });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        opsGets++;
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+  });
+
+  afterEach(() => {
+    teardown?.();
+    teardown = null;
+    vi.unstubAllGlobals();
+  });
+
+  it('an online event triggers a drain with no user write', async () => {
+    teardown = startReconnectAutoDrain(ctx);
+    expect(opsGets).toBe(0); // starting the listeners alone must not drain
+    window.dispatchEvent(new Event('online'));
+    await settle();
+    expect(opsGets).toBeGreaterThan(0); // pullTail's ops GET fired — no writeRecord involved
+  });
+
+  it('a visibility regain while online triggers the same drain', async () => {
+    teardown = startReconnectAutoDrain(ctx);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await settle();
+    expect(opsGets).toBeGreaterThan(0);
+  });
+
+  it('rapid online events coalesce into a single in-flight drain', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        opsGets++;
+        await gate; // hold the first drain in flight
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    teardown = startReconnectAutoDrain(ctx);
+    window.dispatchEvent(new Event('online'));
+    await settle(); // first drain is now in flight, blocked on the gate
+    window.dispatchEvent(new Event('online'));
+    window.dispatchEvent(new Event('online'));
+    await settle(); // debounce fired again while the first drain is still running
+    expect(opsGets).toBe(1); // the in-flight guard coalesced the re-triggers
+    release();
+    await settle(); // let the held drain finish before teardown
+  });
+
+  it('a post-teardown online event no longer drains', async () => {
+    teardown = startReconnectAutoDrain(ctx);
+    teardown();
+    teardown = null;
+    window.dispatchEvent(new Event('online'));
+    await settle();
+    expect(opsGets).toBe(0);
   });
 });
 
