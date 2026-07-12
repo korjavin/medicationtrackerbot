@@ -84,14 +84,14 @@ tile and make Journey unreachable through existing gating.
 
 ### Task 1: Add the gamification feature toggle to the Features markup
 
-- [ ] In `web/static/index.html`, inside the Features `<section>`
+- [x] In `web/static/index.html`, inside the Features `<section>`
       (`.wg-settings-features`), add a `<mt-setting-toggle>` row with
       `title="Feature: Journey"`, a description like
       `"Enable the Journey gamification section"`, and
       `input-id="gamification-feature-toggle"`. Place it alongside the other
       feature toggles (e.g. after the health toggle, before weekly-digest), no
       `divider` attribute, matching the surrounding markup exactly.
-- [ ] Confirm no inline `style=` and no hardcoded color were introduced.
+- [x] Confirm no inline `style=` and no hardcoded color were introduced.
 
 ### Task 2: Sync the gamification checkbox from feature flags
 
