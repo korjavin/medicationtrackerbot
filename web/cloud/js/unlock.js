@@ -144,13 +144,35 @@ function renderUnlocked(app, ctx) {
   // threat model treats the server as hostile; XSS here reads the DEK).
   app.querySelector('#account-id').textContent = ctx.accountId;
   import('./sync.js')
-    .then(({ pullOnOpen, describeSyncStatus }) =>
+    .then(({ pullOnOpen, describeSyncStatus, getSyncStatus, reauthenticate }) =>
       pullOnOpen(ctx)
         .catch(() => {})
-        .then(() => describeSyncStatus(ctx))
-        .then((text) => {
+        .then(() => Promise.all([describeSyncStatus(ctx), getSyncStatus(ctx)]))
+        .then(([text, status]) => {
           const el = app.querySelector('#sync-status');
-          if (el) el.textContent = text;
+          if (!el) return;
+          el.textContent = text;
+          if (!status.authExpired || app.querySelector('#reauth-button')) return;
+          const btn = document.createElement('button');
+          btn.id = 'reauth-button';
+          btn.textContent = 'Re-authenticate';
+          btn.addEventListener('click', () => {
+            btn.disabled = true;
+            reauthenticate(ctx)
+              .then(() => describeSyncStatus(ctx))
+              .then((t) => {
+                el.textContent = t;
+                btn.remove();
+              })
+              .catch((err) => {
+                btn.disabled = false;
+                const p = document.createElement('p');
+                p.className = 'wizard-error';
+                p.textContent = `Re-authentication failed — try again. (${err.message || String(err)})`;
+                app.querySelector('section').appendChild(p);
+              });
+          });
+          el.after(btn);
         })
     )
     .catch(() => {});

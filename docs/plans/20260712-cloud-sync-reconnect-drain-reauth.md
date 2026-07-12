@@ -69,10 +69,10 @@ Queued offline edits sync on reconnect without a write or reload; an expired ses
 - [x] run focused sync tests — must pass before Task 4. (54/54 pass)
 
 ### Task 4: Wire listeners into boot + re-auth button in the sync-status surface
-- [ ] in `cloud-boot.js`, after `await pullOnOpen(ctx)` (221), call `startReconnectAutoDrain(ctx)` (import it alongside `pullOnOpen` at 191-194). Best-effort, never blocks boot.
-- [ ] in `unlock.js renderUnlocked` (132-156), after computing `describeSyncStatus`, read `getSyncStatus(ctx)`; when `authExpired`, render a "Re-authenticate" button next to `#sync-status` that calls the new `reauthenticate(ctx)`, then re-renders the status text on success and shows an inline error on failure. Use `textContent`/DOM creation (E2EE threat model: never `innerHTML` with server-influenced values). Keep it minimal — no Settings changes.
-- [ ] (no new unit test strictly required for the DOM wiring beyond what Task 1-3 cover; if a lightweight jsdom assertion for the button-appears-on-auth-expired is cheap in the existing suite, add it — otherwise cover reauthenticate() behavior in Task 2 and note the button as manual verification.)
-- [ ] run focused sync tests — must pass before Task 5.
+- [x] in `cloud-boot.js`, after `await pullOnOpen(ctx)` (221), call `startReconnectAutoDrain(ctx)` (import it alongside `pullOnOpen` at 191-194). Best-effort, never blocks boot. (typeof-guarded so mocked/partial sync modules don't throw)
+- [x] in `unlock.js renderUnlocked` (132-156), after computing `describeSyncStatus`, read `getSyncStatus(ctx)`; when `authExpired`, render a "Re-authenticate" button next to `#sync-status` that calls the new `reauthenticate(ctx)`, then re-renders the status text on success and shows an inline error on failure. Use `textContent`/DOM creation (E2EE threat model: never `innerHTML` with server-influenced values). Keep it minimal — no Settings changes.
+- [x] (no new unit test strictly required for the DOM wiring beyond what Task 1-3 cover; if a lightweight jsdom assertion for the button-appears-on-auth-expired is cheap in the existing suite, add it — otherwise cover reauthenticate() behavior in Task 2 and note the button as manual verification.) (took the "otherwise" path: reauthenticate() covered in Task 2, button is manual verification per Post-Completion)
+- [x] run focused sync tests — must pass before Task 5. (sync 54/54 + cloud-boot 10/10 pass)
 
 ### Task 5: Verify acceptance criteria
 - [ ] verify all Overview requirements: online/visibility drain with no write; 401→distinct auth-expired preserving pending ops; passkey re-auth drains; genuine network errors still offline; tests cover each path.

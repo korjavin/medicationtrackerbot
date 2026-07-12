@@ -188,7 +188,7 @@ window.MedTrackerCloudReady = (async function boot() {
     // (see decision above). A failed sync/shim-install is not a reason to evict
     // the user to the unlock screen.
     try {
-        const [{ installApiShim }, { pullOnOpen }] = await Promise.all([
+        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain }] = await Promise.all([
             import('/js/apishim.js'),
             import('/js/sync.js'),
         ]);
@@ -219,6 +219,9 @@ window.MedTrackerCloudReady = (async function boot() {
                 : realApiCallDirect(endpoint, method, body, opts)
         );
         await pullOnOpen(ctx);
+        // Reconnect auto-drain: online / visibility-regain events re-run the
+        // boot drain so queued offline edits sync without a write or reload.
+        if (typeof startReconnectAutoDrain === 'function') startReconnectAutoDrain(ctx);
         if (window.DataStore && typeof window.DataStore.invalidateTags === 'function') {
             // Cloud mode has no change-poll loop — pullOnOpen is the only sync
             // trigger — so every shim-served tag must be evicted here or a
