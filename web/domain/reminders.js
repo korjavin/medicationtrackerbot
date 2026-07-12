@@ -333,13 +333,15 @@ export function createRemindersDomain({ records, now }) {
 
   // Where reminders are delivered, and how much they say. Telegram reminders
   // transit the relay as plaintext, so `verbosity` is the user's control over
-  // what leaves the vault: 'detailed' (default) sends medication names,
-  // 'generic' sends only "Medication time".
+  // what leaves the vault: 'generic' (default) sends only "Medication time",
+  // 'detailed' is an explicit opt-in that sends medication names. Defaulting to
+  // generic keeps names in the vault unless the user chooses otherwise (bd
+  // med-yor.13).
   async function getDeliveryPref() {
     const all = await records.list(DELIVERYPREF_RECORD_TYPE);
     const rec = findSingleton(all, DELIVERYPREF_RECORD_ID);
     const delivery = rec && DELIVERY_CHANNELS.includes(rec.delivery) ? rec.delivery : 'webpush';
-    const verbosity = rec && VERBOSITIES.includes(rec.verbosity) ? rec.verbosity : 'detailed';
+    const verbosity = rec && VERBOSITIES.includes(rec.verbosity) ? rec.verbosity : 'generic';
     return { delivery, verbosity };
   }
 

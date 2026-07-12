@@ -416,6 +416,58 @@ func TestScheduledPushDeliveryRoundtrip(t *testing.T) {
 	}
 }
 
+// TestMarkPushSentClearsPayload pins bd med-yor.13: once a scheduled push has
+// fired, MarkPushSent must wipe ct/tg_text/tg_callback so Telegram plaintext
+// (med name + dose) doesn't linger at rest. Every post-send reader filters on
+// sent_at_unix IS NULL, so the emptied row is safe.
+func TestMarkPushSentClearsPayload(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	acc, err := r.CreateAccount(ctx, "acc-clear", "keen-heron-ghi789", []byte("hash"), now.Add(time.Hour), now, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	past := now.Add(-time.Minute)
+	if err := r.ReplaceSchedule(ctx, acc.ID, []ScheduledPushInput{
+		{FireAt: past, Delivery: DeliveryBoth, CT: []byte("secret-ct"), TGText: "Time to take: Lisinopril", TGCallback: "cb-stem"},
+	}, now); err != nil {
+		t.Fatalf("ReplaceSchedule: %v", err)
+	}
+
+	due, err := r.DueScheduledPushes(ctx, now)
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("expected 1 due entry, got %d", len(due))
+	}
+
+	if err := r.MarkPushSent(ctx, due[0].ID, now); err != nil {
+		t.Fatalf("MarkPushSent: %v", err)
+	}
+
+	var (
+		ct         []byte
+		tgText     string
+		tgCallback string
+		sentUnix   sql.NullInt64
+	)
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT ct, tg_text, tg_callback, sent_at_unix FROM scheduled_pushes WHERE id = ?`, due[0].ID).
+		Scan(&ct, &tgText, &tgCallback, &sentUnix); err != nil {
+		t.Fatalf("read sent row: %v", err)
+	}
+	if len(ct) != 0 || tgText != "" || tgCallback != "" {
+		t.Errorf("sent row still holds payload: ct=%q tg_text=%q tg_callback=%q", ct, tgText, tgCallback)
+	}
+	if !sentUnix.Valid {
+		t.Errorf("sent_at_unix not set after MarkPushSent")
+	}
+}
+
 // Egress hosts drive the app-document connect-src allowlist; the write path must
 // normalize+dedupe (case, whitespace, order) so the persisted list — and thus the
 // emitted CSP — is deterministic. An unset account reads back as no hosts, an

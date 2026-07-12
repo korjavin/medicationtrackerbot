@@ -267,7 +267,7 @@ function bindCloudReminderDelivery() {
                 deliverySel.value = pref.delivery;
                 verbositySel.value = pref.verbosity;
             })
-            .catch(() => { /* leave the HTML defaults (webpush/detailed) */ });
+            .catch(() => { /* leave the HTML defaults (webpush/generic) */ });
     }
 
     if (_cloudReminderDeliveryBound) return;
