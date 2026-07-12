@@ -225,6 +225,16 @@ export async function resetLocalSync(ctx) {
   });
   offline = false;
   await pullOnOpen(ctx);
+  // pullOnOpen swallows a transient bootstrap failure (offline / 5xx behind the
+  // proxy) and leaves localLastSeq null — the mirror is now WIPED and empty. If
+  // the caller reloaded on a resolved promise it would drop the user into a blank
+  // app with the reset framed as done. Throw so the UI (doResetSync) surfaces the
+  // failure and skips the reload; the data is still on the server and the next
+  // successful open re-bootstraps it. A fresh account bootstraps to seq 0 (not
+  // null), so a legitimately-empty vault still resolves cleanly.
+  if ((await readMeta()).localLastSeq === null) {
+    throw new Error('Reset could not reach the server — reconnect and try again.');
+  }
 }
 
 async function markPending(recordId, recordType) {
@@ -596,6 +606,14 @@ async function snapshotAt(ctx, snapshotSeq) {
 async function maybeSnapshot(ctx) {
   const meta = await readMeta();
   if (meta.localLastSeq === null) return;
+  // A wedged device holds unsynced optimistic records in 'records' that the
+  // server REFUSED as ops (flushPending early-returned without clearing them).
+  // Snapshotting publishes the whole local store as the compaction floor, so it
+  // would republish exactly the writes the wedge stopped pushing — undoing the
+  // pause. pullOnOpen calls this right after a wedged flushPending, so guard it
+  // here (the flushPending-internal callers already return before reaching it).
+  // resetLocalSync clears syncWedged, so compaction resumes after recovery.
+  if (meta.syncWedged) return;
   const floor = Math.max(meta.lastSnapshotSeq, meta.snapshotErrorSeq ?? 0);
   if (meta.localLastSeq - floor < SNAPSHOT_THRESHOLD) return;
   const snap = await snapshotAt(ctx, meta.localLastSeq);

@@ -175,10 +175,19 @@
             return;
         }
 
+        // Claim the shared re-entry guard BEFORE the first await. Reading +
+        // decrypting a 64 MB file and awaiting the confirm dialog are slow async
+        // steps; without claiming here a reset / .nxk / second-import click during
+        // that window would pass its own `importInFlight` check and interleave
+        // against the same vault. Release on every early-return below; the
+        // confirmed path hands off to setImportBusy(true) which keeps it set.
+        importInFlight = true;
+
         let bytes;
         try {
             bytes = await readFileBytes(file);
         } catch (e) {
+            importInFlight = false;
             safeAlert(e.message || 'Failed to read file');
             return;
         }
@@ -190,13 +199,14 @@
         try {
             if (window.BackupCrypto.isAgeFile(bytes)) {
                 const passphrase = el('importexport-import-passphrase')?.value || '';
-                if (!passphrase) { safeAlert('This backup is encrypted — enter its passphrase'); return; }
+                if (!passphrase) { importInFlight = false; safeAlert('This backup is encrypted — enter its passphrase'); return; }
                 bytes = await window.BackupCrypto.decryptBackup(bytes, passphrase);
             }
             json = window.BackupCrypto.isGzipFile(bytes)
                 ? await window.BackupCrypto.gunzipToString(bytes)
                 : await window.BackupCrypto.bytesToString(bytes);
         } catch (e) {
+            importInFlight = false;
             console.error('Import decrypt failed:', e);
             safeAlert('Could not read backup — wrong passphrase?');
             return;
@@ -205,7 +215,7 @@
         const confirmed = await safeConfirm(
             'Import replaces ALL your current data with this backup. This cannot be undone. Continue?'
         );
-        if (!confirmed) return;
+        if (!confirmed) { importInFlight = false; return; }
 
         setImportBusy(true);
         try {
