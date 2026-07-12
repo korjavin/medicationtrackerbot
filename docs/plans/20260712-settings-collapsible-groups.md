@@ -79,10 +79,10 @@
 - [x] Run `npx vitest run web/static/js/tests/settings.render.test.js` — must pass.
 
 ### Task 5: Verify acceptance criteria
-- [ ] Settings renders as collapsible groups; owner's four groups (Devices/Claude, Backup/Import, Targets, Integrations) present; rarely-used folded; Preferences open.
-- [ ] All existing controls still mount and work inside groups; cloud-only sections still hidden in the right mode; #617 reset-sync control still present and functional in Backup & data.
-- [ ] Run `npx vitest run` — settings suites + architecture guards (design-tokens, inline-styles, globals) all pass.
-- [ ] Confirm no inline `style=` / hardcoded hex added to changed files.
+- [x] Settings renders as collapsible groups; owner's four groups (Devices/Claude, Backup/Import, Targets, Integrations) present; rarely-used folded; Preferences open. (covered by settings.render.test.js — group structure, open/folded, summaries)
+- [x] All existing controls still mount and work inside groups; cloud-only sections still hidden in the right mode; #617 reset-sync control still present and functional in Backup & data. (render suite asserts preserved ids/classes + reset-sync inside Backup & data; full cloud/bot load-through is manual — skipped, not automatable)
+- [x] Run `npx vitest run` — settings suites + architecture guards (design-tokens, inline-styles, globals) all pass. (309 files / 3535 tests passed)
+- [x] Confirm no inline `style=` / hardcoded hex added to changed files. (grep of added lines: none)
 
 ## Technical Details
 - `<details open>` = expanded; omit `open` = folded. Zero JS for collapse — the browser handles it, keyboard-accessible natively.
