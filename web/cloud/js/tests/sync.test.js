@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb } from '../localdb.js';
 
 const accountId = 'amber-falcon-8k3q9x';
@@ -932,5 +932,190 @@ describe('flushPending drains a bulk backlog in bounded batches (med-0ol.2/.3/.5
     expect(await readPendingCount()).toBe(700); // nothing lost
     const status = await getSyncStatus(ctx);
     expect(status.writeError).toMatchObject({ status: 400 });
+  });
+});
+
+// med-0ol.7 — #613 stopped the *tight loop* on a permanent 4xx but the doomed
+// batch still re-POSTed once per open, forever, and a bloated oplog re-downloaded
+// every open. A failed bulk import could brick a real account with no recovery.
+// The self-heal is a write-error retry budget (pause after N permanent-error
+// opens) plus resetLocalSync (rebuild this device cheaply from the server snapshot).
+describe('write-error retry budget wedges a doomed batch, resetLocalSync un-wedges it (med-0ol.7)', () => {
+  const WRITE_ERROR_BUDGET = 3;
+  let ctx;
+
+  const seedPending = async (records, meta = { localLastSeq: 0 }) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'pending', 'sync_meta'], 'readwrite');
+        const rs = tx.objectStore('records');
+        const ps = tx.objectStore('pending');
+        for (const r of records) {
+          rs.put(r);
+          ps.put({ recordId: r.recordId, recordType: r.recordType });
+        }
+        const ms = tx.objectStore('sync_meta');
+        for (const [k, v] of Object.entries(meta)) ms.put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, dek: await generateDEK() };
+  });
+
+  it('pauses syncing after the budget is spent and stops re-posting the doomed batch', async () => {
+    await seedPending([{ recordId: 'note-1', recordType: 'note', clientTs: 1, deleted: false, text: 'x' }]);
+    let opsPosts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        opsPosts++;
+        return new Response('account storage quota exceeded', { status: 413 });
+      }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+
+    // Each permanent-error flush spends one of the budget; the batch stays pending.
+    for (let i = 0; i < WRITE_ERROR_BUDGET; i++) {
+      expect(await flushConfirmed(ctx)).toBe(false);
+    }
+    expect(opsPosts).toBe(WRITE_ERROR_BUDGET);
+
+    // Budget spent → syncing is wedged and the recovery is named.
+    expect((await getSyncStatus(ctx)).wedged).toBe(true);
+    expect(await describeSyncStatus(ctx)).toMatch(/reset local sync/i);
+
+    // A subsequent open no longer re-POSTs the un-acceptable batch (nothing lost —
+    // the record is still queued in 'pending').
+    expect(await flushConfirmed(ctx)).toBe(false);
+    expect(opsPosts).toBe(WRITE_ERROR_BUDGET); // no further POST
+    expect((await getSyncStatus(ctx)).pendingCount).toBe(1);
+  });
+
+  it('a transient 5xx never spends the budget, so a flaky network cannot wedge the device', async () => {
+    await seedPending([{ recordId: 'note-1', recordType: 'note', clientTs: 1, deleted: false, text: 'x' }]);
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') return new Response('busy', { status: 503 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+
+    for (let i = 0; i < WRITE_ERROR_BUDGET + 2; i++) await flushConfirmed(ctx);
+
+    expect((await getSyncStatus(ctx)).wedged).toBe(false);
+  });
+
+  it('resetLocalSync clears local pending + records and rebuilds this device from the server snapshot', async () => {
+    // A wedged device with an unsynced pending write and a stale local record.
+    await seedPending(
+      [{ recordId: 'note-stale', recordType: 'note', clientTs: 1, deleted: false, text: 'unsynced' }],
+      { localLastSeq: 7, syncWedged: true, writeError: { status: 413, at: 1 }, writeErrorStreak: 3 },
+    );
+
+    // The server's compacted snapshot holds a different, canonical record set.
+    const kData = await deriveKData(ctx.dek);
+    const snapshotSeq = 42;
+    const snapRecords = [{ recordId: 'bp-1', recordType: 'bp', clientTs: 10, deleted: false, systolic: 120 }];
+    const snapPlain = new TextEncoder().encode(JSON.stringify(snapRecords));
+    const { nonce, ct } = await encryptSnapshot({ kData, accountId, snapshotSeq, plaintext: snapPlain });
+    const snapshotBody = JSON.stringify({ snapshot_seq: snapshotSeq, nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) });
+
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && !init) return new Response(snapshotBody, { status: 200 });
+      if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (u === '/api/sync/snapshot' && init?.method === 'POST') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+
+    await resetLocalSync(ctx);
+
+    const status = await getSyncStatus(ctx);
+    expect(status.wedged).toBe(false); // sync_meta was wiped — the wedge is cleared
+    expect(status.writeError).toBeNull();
+    expect(status.pendingCount).toBe(0); // the unsynced local write was discarded by design
+    // The local mirror now matches the server snapshot, not the pre-reset state.
+    expect((await listRecords(ctx, 'note')).map((r) => r.recordId)).toEqual([]);
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-1']);
+  });
+});
+
+// med-0ol.8 — the full-vault CloudVault import must land as a SINGLE snapshot
+// (replaceAllRecords + forceSnapshot), never as per-record oplog ops. forceSnapshot
+// posts exactly one throwaway bump op to advance last_seq, then one gzip'd snapshot
+// — a CONSTANT 2 requests regardless of vault size. A regression to per-op writes
+// (thousands of POSTs) is exactly what would re-introduce the med-0ol import storm.
+describe('full-vault import snapshots in a constant 2 requests, not per-record ops (med-0ol.8)', () => {
+  let ctx;
+
+  const seedMeta = async (meta) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('sync_meta', 'readwrite');
+        const store = tx.objectStore('sync_meta');
+        for (const [k, v] of Object.entries(meta)) store.put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, dek: await generateDEK() };
+  });
+
+  it('a 1500-record import issues exactly 1 ops POST (bump) + 1 snapshot POST', async () => {
+    // The import lands its whole record set locally, zero ops — exactly what
+    // CloudVault.importAll does via replaceAllRecords before forceSnapshot.
+    const records = Array.from({ length: 1500 }, (_, i) => ({
+      recordId: `hrsample-${i}`, recordType: 'hrsample', clientTs: i + 1, deleted: false, v: i,
+    }));
+    await replaceAllRecords(records);
+    // A wedged device (repeated permanent write errors) that recovers via import:
+    // forceSnapshot must clear the wedge, or later writeRecords stay blocked (med-0ol.7).
+    await seedMeta({ localLastSeq: 10, syncWedged: true, writeErrorStreak: 3 }); // bootstrapped device (import runs post-unlock)
+
+    let opsPosts = 0;
+    let snapshotPosts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        opsPosts++;
+        const { ops } = JSON.parse(init.body);
+        return new Response(JSON.stringify({ assigned: ops.map((_, i) => 11 + i) }), { status: 200 });
+      }
+      if (u === '/api/sync/snapshot' && init?.method === 'POST') {
+        snapshotPosts++;
+        return new Response('{}', { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+
+    await forceSnapshot(ctx);
+
+    // Constant, NOT proportional to the 1500 records — proves no per-op fallback.
+    expect(opsPosts).toBe(1);
+    expect(snapshotPosts).toBe(1);
+    // Import recovered the device: the wedge is cleared so writes sync again.
+    expect((await getSyncStatus(ctx)).wedged).toBe(false);
   });
 });

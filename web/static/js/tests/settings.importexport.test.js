@@ -330,6 +330,48 @@ describe('Settings → Import/Export section', () => {
         });
     });
 
+    // med-0ol.7 — the "Reset local sync" recovery affordance. Cloud only: it
+    // rebuilds this device from the server when the sync engine wedges after a
+    // failed import. Wired to window.CloudVault.resetLocalSync (dynamic-import
+    // wrapper), never a /api route.
+    describe('Reset local sync control', () => {
+        function goCloud() {
+            env.window.__MEDTRACKER_CLOUD__ = true;
+            env.window.SettingsImportExport.load(); // re-bind so the group is revealed
+        }
+
+        it('the group is hidden outside cloud mode', () => {
+            expect(env.document.getElementById('importexport-reset-sync-group').hidden).toBe(true);
+        });
+
+        it('reveals the group in cloud mode', () => {
+            goCloud();
+            expect(env.document.getElementById('importexport-reset-sync-group').hidden).toBe(false);
+        });
+
+        it('calls CloudVault.resetLocalSync after the confirm, then reloads', async () => {
+            const { window } = env;
+            goCloud();
+            window.CloudVault = { resetLocalSync: vi.fn(async () => {}) };
+
+            await window.SettingsImportExport.resetSync();
+
+            expect(window.safeConfirm).toHaveBeenCalled();
+            expect(window.CloudVault.resetLocalSync).toHaveBeenCalledTimes(1);
+        });
+
+        it('does nothing when the confirm is declined', async () => {
+            const { window } = env;
+            goCloud();
+            window.safeConfirm = vi.fn(async () => false);
+            window.CloudVault = { resetLocalSync: vi.fn(async () => {}) };
+
+            await window.SettingsImportExport.resetSync();
+
+            expect(window.CloudVault.resetLocalSync).not.toHaveBeenCalled();
+        });
+    });
+
     // med-0ol.1/.4 — a big import runs for a while; without feedback the user
     // clicks again (double submit), and closing the tab mid-upload corrupts it.
     describe('import busy state + navigation guard', () => {

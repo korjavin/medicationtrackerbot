@@ -175,10 +175,19 @@
             return;
         }
 
+        // Claim the shared re-entry guard BEFORE the first await. Reading +
+        // decrypting a 64 MB file and awaiting the confirm dialog are slow async
+        // steps; without claiming here a reset / .nxk / second-import click during
+        // that window would pass its own `importInFlight` check and interleave
+        // against the same vault. Release on every early-return below; the
+        // confirmed path hands off to setImportBusy(true) which keeps it set.
+        importInFlight = true;
+
         let bytes;
         try {
             bytes = await readFileBytes(file);
         } catch (e) {
+            importInFlight = false;
             safeAlert(e.message || 'Failed to read file');
             return;
         }
@@ -190,13 +199,14 @@
         try {
             if (window.BackupCrypto.isAgeFile(bytes)) {
                 const passphrase = el('importexport-import-passphrase')?.value || '';
-                if (!passphrase) { safeAlert('This backup is encrypted — enter its passphrase'); return; }
+                if (!passphrase) { importInFlight = false; safeAlert('This backup is encrypted — enter its passphrase'); return; }
                 bytes = await window.BackupCrypto.decryptBackup(bytes, passphrase);
             }
             json = window.BackupCrypto.isGzipFile(bytes)
                 ? await window.BackupCrypto.gunzipToString(bytes)
                 : await window.BackupCrypto.bytesToString(bytes);
         } catch (e) {
+            importInFlight = false;
             console.error('Import decrypt failed:', e);
             safeAlert('Could not read backup — wrong passphrase?');
             return;
@@ -205,7 +215,7 @@
         const confirmed = await safeConfirm(
             'Import replaces ALL your current data with this backup. This cannot be undone. Continue?'
         );
-        if (!confirmed) return;
+        if (!confirmed) { importInFlight = false; return; }
 
         setImportBusy(true);
         try {
@@ -281,6 +291,38 @@
         }
     }
 
+    // Reset local sync (cloud only, med-0ol.7). Escape hatch when the sync engine
+    // wedges (repeated permanent write errors after a failed import): clears the
+    // local IDB mirror + pending + sync meta and re-bootstraps this device from
+    // the server's compacted snapshot. Shares the import re-entry guard so it can't
+    // collide with an in-flight import (both mutate the same vault).
+    async function doResetSync() {
+        if (importInFlight) return;
+        // Claim the shared re-entry guard BEFORE the confirm await, mirroring
+        // doImport: safeConfirm is async (and non-blocking on the messenger-native
+        // path), so without claiming here an import click during the confirm window
+        // would pass its own importInFlight check and interleave against the same
+        // vault. Release on the not-confirmed path; the confirmed path hands off to
+        // setImportBusy(true) which keeps it set.
+        importInFlight = true;
+        const confirmed = await safeConfirm(
+            'Reset local sync rebuilds this device from the server and discards any unsynced local changes. Continue?'
+        );
+        if (!confirmed) { importInFlight = false; return; }
+        setImportBusy(true, 'Resetting local sync… keep this page open until it finishes.');
+        try {
+            await window.CloudVault.resetLocalSync();
+            // Clear busy BEFORE reload so beforeUnloadGuard doesn't prompt on our
+            // own intended navigation.
+            setImportBusy(false);
+            location.reload();
+        } catch (e) {
+            console.error('Reset local sync failed:', e);
+            setImportBusy(false);
+            safeAlert(e.message || 'Reset failed');
+        }
+    }
+
     function bindControls() {
         // The .nxk endpoint only exists on cmd/cloud; reveal the control there.
         const nxkGroup = el('importexport-nxk-group');
@@ -289,6 +331,15 @@
         if (nxkBtn && !nxkBtn.dataset.bound) {
             nxkBtn.dataset.bound = '1';
             nxkBtn.addEventListener('click', () => { doNxkImport(); });
+        }
+
+        // Reset local sync — cloud only (rebuilds the device from the server).
+        const resetGroup = el('importexport-reset-sync-group');
+        if (resetGroup) resetGroup.hidden = !isCloud();
+        const resetBtn = el('importexport-reset-sync-btn');
+        if (resetBtn && !resetBtn.dataset.bound) {
+            resetBtn.dataset.bound = '1';
+            resetBtn.addEventListener('click', () => { doResetSync(); });
         }
 
         const exportBtn = el('importexport-export-btn');
@@ -320,6 +371,7 @@
         load: () => { bindControls(); },
         export: doExport,
         import: doImport,
-        importNxk: doNxkImport
+        importNxk: doNxkImport,
+        resetSync: doResetSync
     };
 })();

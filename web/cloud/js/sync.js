@@ -29,6 +29,13 @@ const SNAPSHOT_THRESHOLD = 500;
 const MAX_OPS_PER_BATCH = 500; // == sync.go maxOpsPerBatch
 const FLUSH_MAX_BODY_BYTES = 900 * 1024; // stay under the server's 1 MiB body cap
 
+// Consecutive permanent-error flush opens before syncing pauses (med-0ol.7).
+// #613 stopped the tight loop but a doomed batch still re-POSTs once per open,
+// forever. After this many permanent 4xx failures, flushPending gives up and
+// sets syncWedged so it stops re-posting the un-acceptable batch; the user
+// recovers via resetLocalSync. Transient errors (5xx/offline) never count.
+const WRITE_ERROR_BUDGET = 3;
+
 // record_type_tag is the only wire field the server stores unencrypted
 // alongside the ciphertext (opWire.RecordTypeTag) — packing "<type>:<recordId>"
 // into it lets the reading client recover record_type/record_id for the AAD
@@ -100,7 +107,7 @@ async function readMeta() {
   try {
     const tx = db.transaction('sync_meta', 'readonly');
     const store = tx.objectStore('sync_meta');
-    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs] = await Promise.all([
+    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs, writeErrorStreak, syncWedged] = await Promise.all([
       reqToPromise(store.get('localLastSeq')),
       reqToPromise(store.get('lastSnapshotSeq')),
       reqToPromise(store.get('lastSyncedAt')),
@@ -110,6 +117,8 @@ async function readMeta() {
       reqToPromise(store.get('snapshotErrorSeq')),
       reqToPromise(store.get('writeError')),
       reqToPromise(store.get('clockSkewMs')),
+      reqToPromise(store.get('writeErrorStreak')),
+      reqToPromise(store.get('syncWedged')),
     ]);
     return {
       localLastSeq: localLastSeq ?? null,
@@ -121,6 +130,8 @@ async function readMeta() {
       writeError: writeError ?? null,
       clockSkewMs: clockSkewMs ?? 0,
       snapshotErrorSeq: snapshotErrorSeq ?? null,
+      writeErrorStreak: writeErrorStreak ?? 0,
+      syncWedged: syncWedged ?? false,
     };
   } finally {
     db.close();
@@ -181,6 +192,49 @@ export async function dropPendingForTypes(types) {
     const stale = (await readPending()).filter((p) => types.has(p.recordType));
     await clearPending(stale.map((p) => p.recordId));
   });
+}
+
+// Rebuild this device from the server's compacted snapshot (med-0ol.7 recovery).
+// DISCARDS un-synced local pending writes by design — it's the escape hatch a
+// wedged device (WRITE_ERROR_BUDGET spent, syncWedged set) or a bloated-oplog
+// device uses to recover without support. Clearing 'sync_meta' nulls
+// localLastSeq (so the next bootstrap re-pulls the snapshot from the floor) plus
+// syncWedged / writeError / writeErrorStreak / forceSnapshotPending, so syncing
+// resumes clean. The 'device' store (NK / LDK / crypto state) is left intact.
+//
+// records + pending + sync_meta are wiped in ONE readwrite transaction under
+// withRecordsLock, so a crash mid-reset can't leave records without their cursor
+// — either all three clear or none do, and a null cursor the next bootstrap
+// heals is the worst case. pullOnOpen then re-bootstraps from the server.
+export async function resetLocalSync(ctx) {
+  await withRecordsLock(async () => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'pending', 'sync_meta'], 'readwrite');
+        tx.objectStore('records').clear();
+        tx.objectStore('pending').clear();
+        tx.objectStore('sync_meta').clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  });
+  offline = false;
+  await pullOnOpen(ctx);
+  // pullOnOpen swallows a transient bootstrap failure (offline / 5xx behind the
+  // proxy) and leaves localLastSeq null — the mirror is now WIPED and empty. If
+  // the caller reloaded on a resolved promise it would drop the user into a blank
+  // app with the reset framed as done. Throw so the UI (doResetSync) surfaces the
+  // failure and skips the reload; the data is still on the server and the next
+  // successful open re-bootstraps it. A fresh account bootstraps to seq 0 (not
+  // null), so a legitimately-empty vault still resolves cleanly.
+  if ((await readMeta()).localLastSeq === null) {
+    throw new Error('Reset could not reach the server — reconnect and try again.');
+  }
 }
 
 async function markPending(recordId, recordType) {
@@ -552,6 +606,14 @@ async function snapshotAt(ctx, snapshotSeq) {
 async function maybeSnapshot(ctx) {
   const meta = await readMeta();
   if (meta.localLastSeq === null) return;
+  // A wedged device holds unsynced optimistic records in 'records' that the
+  // server REFUSED as ops (flushPending early-returned without clearing them).
+  // Snapshotting publishes the whole local store as the compaction floor, so it
+  // would republish exactly the writes the wedge stopped pushing — undoing the
+  // pause. pullOnOpen calls this right after a wedged flushPending, so guard it
+  // here (the flushPending-internal callers already return before reaching it).
+  // resetLocalSync clears syncWedged, so compaction resumes after recovery.
+  if (meta.syncWedged) return;
   const floor = Math.max(meta.lastSnapshotSeq, meta.snapshotErrorSeq ?? 0);
   if (meta.localLastSeq - floor < SNAPSHOT_THRESHOLD) return;
   const snap = await snapshotAt(ctx, meta.localLastSeq);
@@ -599,7 +661,11 @@ export async function forceSnapshot(ctx) {
 export async function markForceSnapshotPending() {
   // Clear any stale error from a previous oversized import so this fresh
   // attempt doesn't inherit a "too large" banner while it's merely pending.
-  await writeMeta({ forceSnapshotPending: true, snapshotError: null, snapshotErrorSeq: null });
+  // Also un-wedge (med-0ol.7): a full-vault import replaces exactly the records
+  // that a permanent write-error wedged on, and its snapshot bump bypasses the
+  // wedge-guarded flushPending — so without clearing here the device lands the
+  // import but leaves syncWedged set, silently blocking every later writeRecord.
+  await writeMeta({ forceSnapshotPending: true, snapshotError: null, snapshotErrorSeq: null, syncWedged: false, writeErrorStreak: 0 });
 }
 
 // A permanent 4xx means the request reached a server that refused it and will
@@ -736,6 +802,11 @@ const FLUSH_MAX_ATTEMPTS = 5;
 // once the ops it produced are durably on the server. Every other caller
 // ignores the value, exactly as before.
 async function flushPending(ctx) {
+  // A wedged device stops re-posting the doomed batch (med-0ol.7): after
+  // WRITE_ERROR_BUDGET consecutive permanent errors, syncing pauses until the
+  // user runs resetLocalSync. Writes still queue durably to 'pending' — nothing
+  // is lost — but we no longer re-POST a batch the server will keep refusing.
+  if ((await readMeta()).syncWedged) return false;
   const kData = await getKData(ctx);
   // Convergence under concurrent writers. Each record's AAD binds account_seq
   // (docs' "Seq assignment vs AAD"), but the client can't know its assigned
@@ -835,7 +906,16 @@ async function flushPending(ctx) {
       // Records stay in 'pending' either way — nothing is lost, and the next
       // open retries — but the status line must name the real cause.
       if (isPermanentSyncStatus(res.status)) {
-        await writeMeta({ writeError: { status: res.status, at: Date.now() } });
+        // Count consecutive permanent failures against a budget: once it's spent
+        // the batch is genuinely doomed, so wedge syncing rather than re-POST it
+        // on every open forever (med-0ol.7). Transient (5xx/offline) failures
+        // fall through below and never touch the streak.
+        const streak = (meta.writeErrorStreak ?? 0) + 1;
+        await writeMeta({
+          writeError: { status: res.status, at: Date.now() },
+          writeErrorStreak: streak,
+          ...(streak >= WRITE_ERROR_BUDGET ? { syncWedged: true } : {}),
+        });
         offline = false;
         return false;
       }
@@ -846,8 +926,9 @@ async function flushPending(ctx) {
     await noteServerDate(res);
     const { assigned } = await res.json();
     // Cleared on the first batch the server accepts: the quota was raised, or
-    // the user freed space.
-    await writeMeta({ lastSyncedAt: Date.now(), writeError: null });
+    // the user freed space. Reset the permanent-error streak too — the server is
+    // accepting writes again, so the budget starts fresh.
+    await writeMeta({ lastSyncedAt: Date.now(), writeError: null, writeErrorStreak: 0 });
     if (assigned[0] === meta.localLastSeq + 1) {
       // Assigned contiguously from our cursor — predicted seqs equal assigned
       // seqs, so every op's AAD is correct and other devices can decrypt them.
@@ -1044,6 +1125,7 @@ export async function getSyncStatus(ctx) {
     snapshotError: meta.snapshotError || null,
     writeError: meta.writeError || null,
     clockSkewMs: meta.clockSkewMs || 0,
+    wedged: meta.syncWedged,
   };
 }
 
@@ -1059,6 +1141,7 @@ export async function describeSyncStatus(ctx) {
     parts.push(status.writeError.status === 413 ? 'Vault is full — new entries are not syncing' : 'Server refused this device\'s writes');
   }
   if (status.snapshotError) parts.push('Vault too large to sync');
+  if (status.wedged) parts.push('Sync paused after repeated failures — reset local sync to recover');
   // A skewed clock silently reorders edits across devices. Say so: the merge
   // guards below keep the common case correct, but the user should fix the clock.
   if (Math.abs(status.clockSkewMs) > CLOCK_SKEW_WARN_MS) {

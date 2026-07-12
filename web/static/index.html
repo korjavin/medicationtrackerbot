@@ -1007,6 +1007,18 @@
                     </div>
                     <button id="importexport-nxk-btn" type="button" class="wg-gloss wg-settings-save-btn">Import Mi Band data</button>
                 </div>
+
+                <!-- Reset local sync — cloud only. Rebuilds this device from the
+                     server's compacted snapshot; the escape hatch when sync wedges
+                     after a failed import. Revealed by importexport.js when
+                     window.__MEDTRACKER_CLOUD__. -->
+                <div id="importexport-reset-sync-group" class="wg-settings-integrations__group" hidden>
+                    <h4 class="wg-settings-integrations__group-title wg-mono-display">Reset local sync</h4>
+                    <div class="wg-settings-integrations__field">
+                        <p class="wg-settings-integrations__note">Rebuild this device from the server — discards unsynced local changes; use if sync is stuck after a failed import.</p>
+                    </div>
+                    <button id="importexport-reset-sync-btn" type="button" class="wg-gloss wg-settings-save-btn">Reset local sync</button>
+                </div>
             </section>
 
             <section id="settings-about" class="wg-card wg-settings-section wg-settings-about wg-settings-hidden">
