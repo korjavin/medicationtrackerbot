@@ -87,6 +87,17 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(idsByType('workoutsession')).toContain('session-10-2026-07-07');
     expect(idsByType('workoutrotation')).toEqual(['rotation-10']);
 
+    // med-1tj: sleep + miband re-mint on the SAME deterministic natural keys the
+    // .nxk migration path (vitals.js importSamples) uses — not import-wall-clock
+    // mintNum() — so both cloud import paths converge on one record per night/
+    // session instead of double-counting (the 35h-sleep bug).
+    expect(idsByType('sleep')).toEqual([`sleep-${Date.parse('2026-07-07T22:30:00Z')}`]);
+    const [mb] = fixture.data.workouts.miband;
+    expect(idsByType('miband')).toEqual([`miband-${mb.source_start_ms}`]);
+    // The body `id` is deterministic too (source instant), matching the merge
+    // fallback in vitals.js so a re-drain keeps a stable id.
+    expect(records.find((r) => r.recordType === 'miband').id).toBe(mb.source_start_ms);
+
     // Singletons land on their fixed recordIds (so the live domain modules read them).
     for (const [type, id] of [
       ['bpgoal', 'bpgoal'], ['weightunitpref', 'weight-unit'], ['settings', 'settings'],

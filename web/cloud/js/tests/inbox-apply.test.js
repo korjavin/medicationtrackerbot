@@ -14,6 +14,7 @@ import { createFoodDomain } from '../../../domain/food.js';
 import { createFoodAIDomain } from '../../../domain/foodai.js';
 import { createWorkoutDomain } from '../../../domain/workout.js';
 import { createVitalsDomain } from '../../../domain/vitals.js';
+import { vaultToRecords } from '../../../domain/vault.js';
 import { commandToken, parseCommand } from '../../../domain/tgcommand.js';
 
 const SLOT_UNIX = 1767225600; // 2026-01-01T00:00:00Z
@@ -286,6 +287,53 @@ describe('inbox-apply.js — a server-parsed NXK vitals_import', () => {
         expect(await records.list('spo2sample')).toHaveLength(1);
         expect(await records.list('stresssample')).toHaveLength(1);
         expect(await records.list('miband')).toHaveLength(1);
+    });
+
+    // med-1tj — the cross-path convergence bug. A full-vault import (vault.js
+    // vaultToRecords) and a later .nxk browser migration (this vitals_import
+    // path) must mint the SAME recordId for one physical night/session, or
+    // overview() blind-sums the duplicates (the reported 35h sleep). Seed the
+    // store exactly as an archive import would, then drain the .nxk import of the
+    // same night — one record must survive, and the sleep total must not double.
+    it('a full-vault import then an nxk import of the same night converges to one record', async () => {
+        const records = fakeRecords();
+        const NOW = Date.parse('2026-01-02T12:00:00.000Z'); // 1 day after the night → in the 7d window
+        const vault = {
+            format: 'medtracker-vault', version: 1,
+            data: {
+                vitals: {
+                    sleep: [{
+                        start_time: SLEEP_START, end_time: SLEEP_END, timezone_offset: 0,
+                        day: '2026-01-01', total_minutes: 480, deep_minutes: 120, heart_rate_avg: 58,
+                    }],
+                },
+                workouts: {
+                    miband: [{
+                        source_start_ms: 1767250800000, source_end_ms: 1767252600000,
+                        activity_type: 1, activity_name: 'Outdoor Run', duration_sec: 1800,
+                        distance_m: 5000, steps: 6000, calories: 300, heart_rate_avg: 140,
+                        spo2_avg: 97, pause_ms: 0, tz_offset: 0,
+                    }],
+                },
+            },
+        };
+        for (const r of vaultToRecords(vault, { now: NOW })) await records.put(r.recordType, r);
+        expect(await records.list('sleep')).toHaveLength(1);
+        expect(await records.list('miband')).toHaveLength(1);
+
+        // Now the .nxk migration drains for the SAME night/session.
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => NOW });
+        await apply(vitalsEvent(), 42);
+
+        // Both paths minted the same natural-key recordId → still one record each.
+        expect(await records.list('sleep')).toHaveLength(1);
+        expect(await records.list('miband')).toHaveLength(1);
+
+        // overview() sums per-day sleep minutes with no identity awareness, so a
+        // duplicate would read as 16h. One record → 480min = exactly 8h.
+        const vitals = createVitalsDomain({ records, now: () => NOW, timeZone: 'UTC' });
+        const ov = await vitals.overview();
+        expect(ov.average_sleep_hours_7d).toBe(8);
     });
 
     it('a stale/partial re-import never downgrades richer stored data (mirrors bot-mode MAX/COALESCE)', async () => {
