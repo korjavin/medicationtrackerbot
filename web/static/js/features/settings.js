@@ -756,6 +756,31 @@ async function loadSettings() {
     // Journey targets editor — loaded lazily off its own endpoint (best-effort;
     // internally gated on the gamification flag).
     await loadGamificationTargets();
+    // Collapse any <details> group whose sections are all hidden (e.g. a
+    // cloud-only group in bot mode) so an empty fold doesn't render.
+    hideEmptySettingsGroups();
+}
+
+// Hide a collapsible settings <details> group when every .wg-settings-section
+// inside it is hidden. Per-section gating stays the source of truth; this only
+// rolls the group visibility up from it.
+function hideEmptySettingsGroups() {
+    document.querySelectorAll('.wg-settings-group').forEach((group) => {
+        const sections = group.querySelectorAll('.wg-settings-section');
+        const allHidden = sections.length > 0 && Array.from(sections).every(isSettingsSectionHidden);
+        group.classList.toggle('wg-settings-hidden', allHidden);
+    });
+}
+
+// A section counts as hidden when any of its gating mechanisms has hidden it:
+// the wg-settings-hidden / hidden class toggles, an inline style.display='none'
+// (food-target-settings), or the CSS `.wg-settings-oidc:empty` rule (the OIDC
+// container once its setup banner has left it empty). Missing any of these
+// leaves an all-hidden group rendering as an empty fold.
+function isSettingsSectionHidden(s) {
+    return s.matches('.wg-settings-hidden, .hidden, [hidden]')
+        || s.style.display === 'none'
+        || (s.matches('.wg-settings-oidc') && s.childElementCount === 0);
 }
 
 // Mounts the wg-stale-badge into the Settings section header from the
@@ -963,6 +988,10 @@ function updateFeatureTabVisibility() {
     }
     updateFoodTargetsVisibility();
     updateGamificationTargetsVisibility();
+    // A toggle just changed a target section's visibility; roll that back up to
+    // the parent <details> group so an all-hidden Targets fold doesn't linger
+    // (and reappears when a target is re-enabled) without a full Settings reload.
+    hideEmptySettingsGroups();
 }
 
 window.initOIDCSetupBanner = initOIDCSetupBanner;
