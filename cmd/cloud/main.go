@@ -41,6 +41,7 @@ type config struct {
 	managerBotToken     string
 	tgAPIBaseURL        string
 	internalWebhookBase string
+	requestInviteEmail  string
 	trial               cloudserver.TrialConfig
 }
 
@@ -58,6 +59,7 @@ func loadConfig() (config, error) {
 		managerBotToken:     os.Getenv("MANAGER_BOT_TOKEN"),
 		tgAPIBaseURL:        os.Getenv("CLOUD_TG_API_BASE_URL"),
 		internalWebhookBase: os.Getenv("CLOUD_INTERNAL_WEBHOOK_BASE"),
+		requestInviteEmail:  os.Getenv("REQUEST_INVITE_EMAIL"),
 	}
 	if cfg.internalWebhookBase == "" {
 		// Docker-network origin the local Bot API proxy uses to deliver child-bot

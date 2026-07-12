@@ -59,9 +59,9 @@ Behavior contract:
 ## Implementation Steps
 
 ### Task 1: Read REQUEST_INVITE_EMAIL in cmd/cloud config
-- [ ] add `requestInviteEmail string` field to the `config` struct in
+- [x] add `requestInviteEmail string` field to the `config` struct in
   `cmd/cloud/main.go`
-- [ ] set it from `os.Getenv("REQUEST_INVITE_EMAIL")` in `loadConfig()`
+- [x] set it from `os.Getenv("REQUEST_INVITE_EMAIL")` in `loadConfig()`
   (no validation, no default — empty means "no contact line")
 
 ### Task 2: Landing-page injection in the router
