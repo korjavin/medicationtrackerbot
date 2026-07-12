@@ -3,9 +3,6 @@ package cloudserver
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
-	"fmt"
-	"net/url"
 )
 
 // endpointFingerprint returns a short, non-reversible tag for a push-service
@@ -26,17 +23,4 @@ func endpointFingerprint(endpoint string) string {
 	}
 	sum := sha256.Sum256([]byte(endpoint))
 	return "fp_" + hex.EncodeToString(sum[:6])
-}
-
-// redactEndpointErr strips the request URL from a push-send error before it
-// reaches a log line. Transport failures from webpush-go surface as *url.Error,
-// whose Error() embeds the full endpoint URL ("Post \"https://fcm...<token>\":
-// context deadline exceeded") — the same bearer capability endpointFingerprint
-// exists to keep out of logs. Non-URL errors pass through unchanged.
-func redactEndpointErr(err error) error {
-	var uerr *url.Error
-	if errors.As(err, &uerr) {
-		return fmt.Errorf("%s <endpoint redacted>: %w", uerr.Op, uerr.Err)
-	}
-	return err
 }
