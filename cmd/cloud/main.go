@@ -28,34 +28,42 @@ import (
 // config is the env-driven configuration for cmd/cloud — no flags, per the
 // bot binary's convention (cmd/bot/main_server.go).
 type config struct {
-	dbPath            string
-	port              string
-	baseDomain        string
-	sessionSecret     string
-	claimTTL          time.Duration
-	accountQuotaBytes int64
-	vapidSubject      string
-	dryQueueWarnHours time.Duration
-	foodDBURL         string
-	foodDBAPIKey      string
-	managerBotToken   string
-	tgAPIBaseURL      string
-	trial             cloudserver.TrialConfig
+	dbPath              string
+	port                string
+	baseDomain          string
+	sessionSecret       string
+	claimTTL            time.Duration
+	accountQuotaBytes   int64
+	vapidSubject        string
+	dryQueueWarnHours   time.Duration
+	foodDBURL           string
+	foodDBAPIKey        string
+	managerBotToken     string
+	tgAPIBaseURL        string
+	internalWebhookBase string
+	trial               cloudserver.TrialConfig
 }
 
 func loadConfig() (config, error) {
 	cfg := config{
-		dbPath:            os.Getenv("CLOUD_DB_PATH"),
-		port:              os.Getenv("PORT"),
-		baseDomain:        os.Getenv("CLOUD_BASE_DOMAIN"),
-		claimTTL:          14 * 24 * time.Hour,
-		accountQuotaBytes: 50 << 20, // 50MB
-		vapidSubject:      os.Getenv("VAPID_SUBJECT"),
-		dryQueueWarnHours: 120 * time.Hour,
-		foodDBURL:         os.Getenv("CLOUD_FOOD_DB_URL"),
-		foodDBAPIKey:      os.Getenv("CLOUD_FOOD_DB_API_KEY"),
-		managerBotToken:   os.Getenv("MANAGER_BOT_TOKEN"),
-		tgAPIBaseURL:      os.Getenv("CLOUD_TG_API_BASE_URL"),
+		dbPath:              os.Getenv("CLOUD_DB_PATH"),
+		port:                os.Getenv("PORT"),
+		baseDomain:          os.Getenv("CLOUD_BASE_DOMAIN"),
+		claimTTL:            14 * 24 * time.Hour,
+		accountQuotaBytes:   50 << 20, // 50MB
+		vapidSubject:        os.Getenv("VAPID_SUBJECT"),
+		dryQueueWarnHours:   120 * time.Hour,
+		foodDBURL:           os.Getenv("CLOUD_FOOD_DB_URL"),
+		foodDBAPIKey:        os.Getenv("CLOUD_FOOD_DB_API_KEY"),
+		managerBotToken:     os.Getenv("MANAGER_BOT_TOKEN"),
+		tgAPIBaseURL:        os.Getenv("CLOUD_TG_API_BASE_URL"),
+		internalWebhookBase: os.Getenv("CLOUD_INTERNAL_WEBHOOK_BASE"),
+	}
+	if cfg.internalWebhookBase == "" {
+		// Docker-network origin the local Bot API proxy uses to deliver child-bot
+		// webhooks (it can't reach the public host — bd med-eas.46). Only applied
+		// when the proxy is on; harmless otherwise.
+		cfg.internalWebhookBase = "http://cloud:8080"
 	}
 	if cfg.dbPath == "" {
 		cfg.dbPath = "cloud.db"
@@ -232,6 +240,11 @@ func main() {
 		slog.Info("telegram disabled", "reason", "MANAGER_BOT_TOKEN unset")
 	} else {
 		tgAPI = cloudserver.NewTelegramAPI(store, cfg.sessionSecret, cfg.managerBotToken, cfg.baseDomain, cfg.tgAPIBaseURL, cfg.claimTTL)
+		if cfg.tgAPIBaseURL != "" {
+			// Proxy on: manager + logOut stay on the real cloud ("") while child bots
+			// keep the proxy, and child webhooks go to the internal origin (bd med-eas.46).
+			tgAPI.ConfigureProxy("", cfg.internalWebhookBase)
+		}
 		if err := tgAPI.Bootstrap(context.Background()); err != nil {
 			// Bootstrap hits the Bot API (getMe + setWebhook), retrying getMe with
 			// bounded backoff so the local Bot API proxy's slow startup (bd

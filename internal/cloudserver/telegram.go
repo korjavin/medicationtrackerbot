@@ -175,15 +175,26 @@ type TelegramAPI struct {
 	sessionSecret string
 	baseDomain    string
 	apiBaseURL    string // tgclient base URL override; "" → real api.telegram.org
-	// cloudAPIBaseURL is the base for cloud-only calls (logOut during proxy
+	// cloudAPIBaseURL is the base for cloud-only calls (the manager bot's
+	// getMe/getManagedBotToken/setWebhook/sendMessage, and logOut during proxy
 	// migration), which MUST hit api.telegram.org even when apiBaseURL points at
-	// the local proxy — file_ids and sessions are server-bound. "" → real cloud;
-	// tests override it with a fake.
+	// the local proxy: the managed-bot token method isn't implemented by the
+	// local Bot API server, and file_ids/sessions are server-bound. "" → real
+	// cloud. Defaults to apiBaseURL so a test injecting a single fake as apiBaseURL
+	// also drives the manager; cmd/cloud splits them via ConfigureProxy when a
+	// proxy is on (bd med-eas.46).
 	cloudAPIBaseURL string
-	manager         *tgclient.Client
-	managerSecret   string // per-deployment webhook path/secret-token
-	managerUsername string // resolved by Bootstrap via getMe
-	claimTTL        time.Duration
+	// internalWebhookBase, when non-empty, replaces the public https://baseDomain
+	// origin for child-bot webhook URLs. In telegram-bot-api --local mode the proxy
+	// container delivers webhooks itself and cannot resolve the public host (it
+	// hairpins to loopback), so proxy-delivered child bots register an internal
+	// docker-network URL (e.g. http://cloud:8080) instead. Only set when a proxy is
+	// configured; "" keeps the public URL (bd med-eas.46).
+	internalWebhookBase string
+	managerToken        string // built into a client per-call against cloudAPIBaseURL
+	managerSecret       string // per-deployment webhook path/secret-token
+	managerUsername     string // resolved by Bootstrap via getMe
+	claimTTL            time.Duration
 
 	// mintMu serializes the count-then-insert when the managebot mints an
 	// invite; without it concurrent updates all read a sub-quota count and all
@@ -197,14 +208,35 @@ type TelegramAPI struct {
 // real api.telegram.org.
 func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDomain, apiBaseURL string, claimTTL time.Duration) *TelegramAPI {
 	return &TelegramAPI{
-		store:         store,
-		sessionSecret: sessionSecret,
-		baseDomain:    baseDomain,
-		apiBaseURL:    apiBaseURL,
-		manager:       tgclient.New(managerToken, apiBaseURL),
-		managerSecret: deriveWebhookSecret(sessionSecret, "mt/tg-manager-webhook/v1"),
-		claimTTL:      claimTTL,
+		store:           store,
+		sessionSecret:   sessionSecret,
+		baseDomain:      baseDomain,
+		apiBaseURL:      apiBaseURL,
+		cloudAPIBaseURL: apiBaseURL, // default; ConfigureProxy points the manager at the real cloud when a proxy is on
+		managerToken:    managerToken,
+		managerSecret:   deriveWebhookSecret(sessionSecret, "mt/tg-manager-webhook/v1"),
+		claimTTL:        claimTTL,
 	}
+}
+
+// ConfigureProxy scopes the Bot API proxy (bd med-eas.46). When cmd/cloud enables
+// the local proxy (CLOUD_TG_API_BASE_URL), child bots run on it for file_id
+// validity, but the manager bot + migrate logOut must stay on the real cloud
+// (cloudBase, "" → api.telegram.org) — the local server doesn't implement the
+// managed-bot token method — and proxy-delivered child webhooks must use an
+// internal docker-network URL (internalWebhookBase) because the proxy can't reach
+// the public host. Called only when a proxy is configured; a no-proxy deployment
+// never calls it and behaves exactly as before (manager + children on cloud,
+// public webhook URL).
+func (t *TelegramAPI) ConfigureProxy(cloudBase, internalWebhookBase string) {
+	t.cloudAPIBaseURL = cloudBase
+	t.internalWebhookBase = internalWebhookBase
+}
+
+// managerClient builds a client for the manager bot bound to the cloud API base
+// (not the proxy) — see cloudAPIBaseURL.
+func (t *TelegramAPI) managerClient() *tgclient.Client {
+	return tgclient.New(t.managerToken, t.cloudAPIBaseURL)
 }
 
 // bootstrapGetMeBudget / bootstrapGetMeInterval bound the getMe retry in
@@ -228,7 +260,7 @@ func (t *TelegramAPI) Bootstrap(ctx context.Context) error {
 	t.managerUsername = me.Username
 
 	url := "https://" + t.baseDomain + "/tg/manager/" + t.managerSecret
-	if err := t.manager.SetWebhook(ctx, url, t.managerSecret); err != nil {
+	if err := t.managerClient().SetWebhook(ctx, url, t.managerSecret); err != nil {
 		return err
 	}
 	slog.Info("telegram manager bot ready", "username", me.Username, "webhook", url)
@@ -243,8 +275,9 @@ func (t *TelegramAPI) Bootstrap(ctx context.Context) error {
 // disable Telegram gracefully instead of hanging forever.
 func (t *TelegramAPI) getMeWithRetry(ctx context.Context, budget, interval time.Duration) (tgclient.User, error) {
 	deadline := time.Now().Add(budget)
+	manager := t.managerClient()
 	for attempt := 1; ; attempt++ {
-		me, err := t.manager.GetMe(ctx)
+		me, err := manager.GetMe(ctx)
 		if err == nil {
 			return me, nil
 		}
@@ -395,12 +428,16 @@ func (t *TelegramAPI) Diag(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// Lift last_error to the top level so a broken webhook (e.g. the proxy failing
+	// to deliver to an unreachable public URL, bd med-eas.46) is visible without
+	// digging into webhook_info. Empty when Telegram reports no delivery error.
 	writeJSON(w, http.StatusOK, map[string]any{
 		"bot_username": bot.BotUsername,
 		"bot_id":       bot.BotID,
 		"kind":         bot.Kind,
 		"chat_linked":  bot.ChatID != nil,
 		"expected_url": t.childWebhookURL(sess.AccountID, bot.WebhookSecret),
+		"last_error":   info.LastErrorMessage,
 		"webhook_info": info,
 	})
 }
@@ -464,7 +501,7 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := t.manager.GetManagedBotToken(r.Context(), botID)
+	token, err := t.managerClient().GetManagedBotToken(r.Context(), botID)
 	if err != nil {
 		if tgclient.IsClientError(err) {
 			// Permanent (bot deleted/deactivated, invalid) — drop with 200 so
@@ -689,7 +726,7 @@ func (t *TelegramAPI) mintInviteLocked(ctx context.Context, creator string) stri
 
 // reply sends a managebot message, logging and swallowing failures.
 func (t *TelegramAPI) reply(ctx context.Context, chatID int64, text string) {
-	if err := t.manager.SendMessage(ctx, chatID, text); err != nil {
+	if err := t.managerClient().SendMessage(ctx, chatID, text); err != nil {
 		slog.Error("telegram manager message: send reply", "error", err, "chat_id", chatID)
 	}
 }
@@ -1748,9 +1785,16 @@ func (t *TelegramAPI) MigrateBotsToProxy(ctx context.Context) (migrated, failed 
 	return migrated, failed, nil
 }
 
-// childWebhookURL builds the base-host child-webhook URL for a bot secret.
+// childWebhookURL builds the child-webhook URL for a bot secret. With the local
+// Bot API proxy on, the proxy delivers webhooks itself and can't resolve the
+// public host, so proxy-delivered bots get an internal docker-network URL
+// (internalWebhookBase); otherwise the public https origin (bd med-eas.46).
 func (t *TelegramAPI) childWebhookURL(accountID, botSecret string) string {
-	return "https://" + t.baseDomain + "/tg/bot/" + accountID + "/" + botSecret
+	origin := "https://" + t.baseDomain
+	if t.internalWebhookBase != "" {
+		origin = t.internalWebhookBase
+	}
+	return origin + "/tg/bot/" + accountID + "/" + botSecret
 }
 
 // botClient opens a bot's sealed token and returns a tgclient bound to it.
