@@ -1119,3 +1119,20 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
     expect((await getSyncStatus(ctx)).wedged).toBe(false);
   });
 });
+
+// med-yor.3 — a live openDb() handle must not block account-delete's verified
+// deleteDatabase(): openDb registers onversionchange to auto-close itself.
+describe('openDb auto-closes on versionchange (med-yor.3)', () => {
+  it('a live connection does not block deleteDatabase', async () => {
+    const db = await openDb();
+    expect(typeof db.onversionchange).toBe('function');
+    let blocked = false;
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onblocked = () => { blocked = true; };
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    expect(blocked).toBe(false);
+  });
+});

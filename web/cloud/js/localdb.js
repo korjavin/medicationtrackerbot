@@ -22,7 +22,12 @@ export function openDb() {
       const records = req.transaction.objectStore('records');
       if (!records.indexNames.contains('recordType')) records.createIndex('recordType', 'recordType');
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      // Auto-close on versionchange so a live handle never blocks
+      // account-delete's deleteDatabase() (or a future version upgrade).
+      req.result.onversionchange = () => req.result.close();
+      resolve(req.result);
+    };
     req.onerror = () => reject(req.error);
   });
 }

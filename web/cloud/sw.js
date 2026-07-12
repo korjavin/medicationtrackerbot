@@ -45,7 +45,12 @@ const GENERIC_NOTIFICATION = { title: 'Med Tracker', body: 'Medication reminder'
 async function readNK() {
   const db = await new Promise((resolve, reject) => {
     const req = indexedDB.open('medtracker-cloud');
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      // Same versionchange auto-close invariant as localdb.js openDb(): a push
+      // arriving mid-account-deletion must never block deleteDatabase.
+      req.result.onversionchange = () => req.result.close();
+      resolve(req.result);
+    };
     req.onerror = () => reject(req.error);
   });
   try {

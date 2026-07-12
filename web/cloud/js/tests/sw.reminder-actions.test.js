@@ -13,12 +13,13 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 // The SW reads NK out of the 'device' store of the 'medtracker-cloud' IDB.
 // A hand-rolled stand-in is enough — it only ever does one get('nk').
 function fakeIndexedDB(nk) {
-    return {
+    const idb = {
+        opened: [],
         open: () => {
             const req = {};
             queueMicrotask(() => req.onsuccess && req.onsuccess());
             req.result = {
-                close: () => {},
+                close: vi.fn(),
                 transaction: () => ({
                     objectStore: () => ({
                         get: () => {
@@ -29,9 +30,11 @@ function fakeIndexedDB(nk) {
                     }),
                 }),
             };
+            idb.opened.push(req.result);
             return req;
         },
     };
+    return idb;
 }
 
 // Mirrors crypto.js encryptPushPayload, which is what push.js uses to seal the
@@ -72,9 +75,10 @@ function loadCloudSw(nk) {
         keys: vi.fn().mockResolvedValue([]),
         delete: vi.fn(),
     };
+    const idb = fakeIndexedDB(nk);
     // eslint-disable-next-line no-new-func
-    new Function('self', 'caches', 'fetch', 'indexedDB', swSrc)(self, caches, vi.fn(), fakeIndexedDB(nk));
-    return { self, listeners };
+    new Function('self', 'caches', 'fetch', 'indexedDB', swSrc)(self, caches, vi.fn(), idb);
+    return { self, listeners, idb };
 }
 
 // Drive the push handler. `data` is null (undecodable → generic notification)

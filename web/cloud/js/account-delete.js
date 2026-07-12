@@ -11,9 +11,17 @@
 // friend about to delete keeps their data without having to know to export
 // beforehand. The featured export (optional passphrase) still lives in Settings
 // → Import/Export; this is the safety copy in the delete flow itself.
+// Returns true after a download, false when the secrets warning is declined —
+// the caller must not claim "downloaded" on false, or the user proceeds to an
+// irreversible delete believing they hold a backup.
 export async function exportVaultToFile(nowMs = Date.now()) {
   if (!window.CloudVault || typeof window.CloudVault.exportAll !== 'function') {
     throw new Error('Vault not ready — unlock the app first.');
+  }
+  // Same gate as Settings → Import/Export: the file holds live secrets, so warn
+  // BEFORE they land in ~/Downloads in plain text.
+  if (!window.confirm('This backup will contain your provider API keys and access tokens in plain text. Download anyway?')) {
+    return false;
   }
   const json = await window.CloudVault.exportAll({ includeSecrets: true });
   const stamp = new Date(nowMs).toISOString().slice(0, 10);
@@ -25,6 +33,7 @@ export async function exportVaultToFile(nowMs = Date.now()) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
+  return true;
 }
 
 // reauthAndDelete runs the fresh-passkey ceremony and deletes the account.
@@ -58,21 +67,54 @@ export async function reauthAndDelete() {
   }
 }
 
-// clearLocalVault wipes this device's local mirror + warm-unlock cache after the
-// server delete, so the app can't try to reopen an account that no longer
-// exists. Best-effort: failures here don't undo the delete.
+function deleteDbVerified(name) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase(name);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error || new Error('Could not erase this device’s local copy.'));
+    req.onblocked = () => reject(new Error('Close other open tabs of this app and try again.'));
+  });
+}
+
+// clearLocalVault wipes this device's local mirror + warm-unlock cache so the
+// app can't try to reopen an account that no longer exists. The delete flow
+// runs it both before AND after the server delete (see settings.js); it must
+// stay idempotent. Contract: the IndexedDB deletions are VERIFIED — this
+// resolves only after the browser confirms both databases are gone
+// (`medtracker-cloud`, the encrypted mirror + LDK material, and Dexie's
+// `MedTrackerDB`, the shared frontend's plaintext health caches), and THROWS a
+// recoverable error if a delete fails or is blocked by another open tab, so
+// the caller can surface an honest "local copy not erased" message instead of
+// navigating away. The push unsubscribe, service-worker unregister, and caches
+// cleanup are best-effort: their failures never block or fail the wipe.
 export async function clearLocalVault() {
+  // Browser-side unsubscribe only: the server rows were already cascaded away
+  // by DELETE /api/account, and push.js's unsubscribe() is server-first — its
+  // DELETE /api/push/subscriptions would 401 (session gone) and throw before
+  // ever reaching the browser subscription. Must run before the SW unregister
+  // below, which makes the registration (and its subscription) unreachable.
   try {
-    if (typeof indexedDB !== 'undefined' && indexedDB.deleteDatabase) {
-      indexedDB.deleteDatabase('medtracker-cloud');
-    }
-  } catch { /* ignore */ }
+    const push = await import('./push.js');
+    const sub = await push.getSubscription();
+    if (sub) await sub.unsubscribe();
+  } catch { /* best-effort */ }
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration('/');
+    if (reg) await reg.unregister();
+  } catch { /* best-effort */ }
+  if (typeof indexedDB !== 'undefined' && indexedDB.deleteDatabase) {
+    // Dexie holds a long-lived MedTrackerDB handle; its default versionchange
+    // handler closes it, but close explicitly so our own tab can't block us.
+    try { window.MedTrackerDB?.db?.close?.(); } catch { /* best-effort */ }
+    await deleteDbVerified('medtracker-cloud');
+    await deleteDbVerified('MedTrackerDB');
+  }
   try {
     if (typeof caches !== 'undefined' && caches.keys) {
       const names = await caches.keys();
       await Promise.all(names.map((n) => caches.delete(n)));
     }
-  } catch { /* ignore */ }
+  } catch { /* best-effort */ }
 }
 
 // The word the user types to confirm. Deliberately not the subdomain — a friend
