@@ -50,6 +50,9 @@ function parseTag(tag) {
 }
 
 let offline = false;
+// 401 = server session expired — distinct from network-offline. Pending ops are
+// never dropped; the user re-runs the passkey ceremony to re-mint the session.
+let authExpired = false;
 const kDataCache = new WeakMap();
 
 // Serializes the record-store mutations that must not interleave:
@@ -224,6 +227,7 @@ export async function resetLocalSync(ctx) {
     }
   });
   offline = false;
+  authExpired = false;
   await pullOnOpen(ctx);
   // pullOnOpen swallows a transient bootstrap failure (offline / 5xx behind the
   // proxy) and leaves localLastSeq null — the mirror is now WIPED and empty. If
@@ -446,10 +450,16 @@ async function bootstrap(ctx) {
   // the cursor to 0 — a device that then pulled ?since=0 after a later
   // compaction would silently skip all snapshotted state. Stay null → retry.
   if (snapRes.status !== 200 && snapRes.status !== 204) {
-    offline = true;
+    if (isAuthExpiredStatus(snapRes.status)) {
+      authExpired = true;
+      offline = false;
+    } else {
+      offline = true;
+    }
     return false;
   }
   offline = false;
+  authExpired = false;
   let lastSnapshotSeq = 0;
   if (snapRes.status === 200) {
     const body = await snapRes.json();
@@ -504,10 +514,16 @@ async function pullTail(ctx) {
     // Cheapest possible clock reference: the response's own `Date` header.
     await noteServerDate(res);
     if (!res.ok) {
-      offline = true;
+      if (isAuthExpiredStatus(res.status)) {
+        authExpired = true;
+        offline = false;
+      } else {
+        offline = true;
+      }
       return;
     }
     offline = false;
+    authExpired = false;
     const body = await res.json();
     // The server compacted past our cursor (another device snapshotted while we
     // were away): ops between our cursor and body.snapshot_seq no longer exist,
@@ -575,8 +591,14 @@ async function snapshotAt(ctx, snapshotSeq) {
     offline = true;
     return { ok: false, status: 0 }; // network error — retryable
   }
+  if (isAuthExpiredStatus(res.status)) {
+    authExpired = true;
+    offline = false;
+    return { ok: false, status: res.status };
+  }
   if (!res.ok) return { ok: false, status: res.status }; // 4xx=won't-fit, 5xx=retryable; caller decides offline
   offline = false;
+  authExpired = false;
   // A successful snapshot means the store now fits the server cap, so clear any
   // stale "too large" error a prior oversized snapshot recorded. Covers both the
   // forced path and the threshold-gated maybeSnapshot (e.g. the store shrank, or
@@ -678,6 +700,13 @@ function isPermanentSyncStatus(status) {
   return status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status);
 }
 
+// 401 routes to the distinct auth-expired state (never permanent, never
+// offline): the non-sliding 30-day session lapsed and only a passkey re-auth
+// can clear it. 403/408/429 stay transient-offline.
+function isAuthExpiredStatus(status) {
+  return status === 401;
+}
+
 // Drives (or retries) a pending forced snapshot to completion: advance last_seq
 // with one throwaway op, then upload the snapshot at the server-assigned seq.
 // Clears the marker only once the snapshot upload actually succeeds
@@ -734,6 +763,11 @@ async function tryForceSnapshot(ctx) {
     // wipe), and re-attempting the tiny bump op each open is cheap (not the
     // oversized-snapshot re-encrypt wedge). The user must free account quota for
     // the import to sync.
+    if (isAuthExpiredStatus(res.status)) {
+      authExpired = true;
+      offline = false;
+      return; // marker stays set — retried after re-auth
+    }
     if (isPermanentSyncStatus(res.status)) {
       await writeMeta({ snapshotError: { status: res.status, at: Date.now() } });
       offline = false;
@@ -743,6 +777,7 @@ async function tryForceSnapshot(ctx) {
     return;
   }
   offline = false;
+  authExpired = false;
   const { assigned } = await res.json();
   if (!Array.isArray(assigned) || assigned.length === 0) {
     offline = true; // malformed response — don't poison the cursor with -Infinity
@@ -760,6 +795,7 @@ async function tryForceSnapshot(ctx) {
   // failure is transient: leave the marker set and retry next open.
   const snap = await snapshotAt(ctx, snapshotSeq);
   if (!snap.ok) {
+    if (isAuthExpiredStatus(snap.status)) return; // snapshotAt already flagged authExpired
     if (isPermanentSyncStatus(snap.status)) {
       await writeMeta({ forceSnapshotPending: false, snapshotError: { status: snap.status, at: Date.now() } });
       offline = false;
@@ -905,6 +941,11 @@ async function flushPending(ctx) {
       //
       // Records stay in 'pending' either way — nothing is lost, and the next
       // open retries — but the status line must name the real cause.
+      if (isAuthExpiredStatus(res.status)) {
+        authExpired = true;
+        offline = false;
+        return false; // pending kept intact — drained after re-auth
+      }
       if (isPermanentSyncStatus(res.status)) {
         // Count consecutive permanent failures against a budget: once it's spent
         // the batch is genuinely doomed, so wedge syncing rather than re-POST it
@@ -923,6 +964,7 @@ async function flushPending(ctx) {
       return false;
     }
     offline = false;
+    authExpired = false;
     await noteServerDate(res);
     const { assigned } = await res.json();
     // Cleared on the first batch the server accepts: the quota was raised, or
@@ -1131,6 +1173,7 @@ export async function getSyncStatus(ctx) {
     lastSyncedAt: meta.lastSyncedAt,
     pendingCount,
     offline,
+    authExpired,
     integrityErrors: meta.integrityErrors,
     snapshotError: meta.snapshotError || null,
     writeError: meta.writeError || null,
@@ -1142,7 +1185,9 @@ export async function getSyncStatus(ctx) {
 export async function describeSyncStatus(ctx) {
   const status = await getSyncStatus(ctx);
   const parts = [];
-  parts.push(status.offline ? 'Offline' : status.lastSyncedAt ? `Synced ${new Date(status.lastSyncedAt).toLocaleTimeString()}` : 'Not yet synced');
+  // auth-expired leads: an expired session is the actionable root cause, and
+  // "Offline" for it is exactly the red herring this state exists to replace.
+  parts.push(status.authExpired ? 'Session expired — re-authenticate' : status.offline ? 'Offline' : status.lastSyncedAt ? `Synced ${new Date(status.lastSyncedAt).toLocaleTimeString()}` : 'Not yet synced');
   if (status.pendingCount > 0) parts.push(`${status.pendingCount} pending`);
   if (status.integrityErrors > 0) parts.push(`${status.integrityErrors} sync-integrity warning(s)`);
   // 413 is the quota; any other permanent 4xx is a refusal we can't name, so

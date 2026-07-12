@@ -42,17 +42,17 @@ Queued offline edits sync on reconnect without a write or reload; an expired ses
 ## Implementation Steps
 
 ### Task 1: Distinct auth-expired classification in sync.js
-- [ ] add a module-global `let authExpired = false;` beside `let offline = false;` (line 52), with a short comment: 401 = session expired, distinct from network-offline; pending ops are never dropped.
-- [ ] add a tiny helper `function isAuthExpiredStatus(status) { return status === 401; }` near `isPermanentSyncStatus` (677); keep 401 OUT of the permanent set (no wedge, no writeError) — it routes to auth-expired instead.
-- [ ] at each 401-reachable `!res.ok`/`!snapRes.ok`/`!snap.ok` site (bootstrap 448-451, pullTail 506-509, flushPending 897-924, tryForceSnapshot 724-744 & snapshot-leg), branch: if `isAuthExpiredStatus(status)` set `authExpired = true; offline = false;` and return without touching `offline`/writeError/pending; else keep the existing offline/permanent handling. 403/408/429 keep current transient-offline behavior.
-- [ ] clear `authExpired = false` at every existing success site that sets `offline = false` (bootstrap 452, pullTail 510, flushPending 925, tryForceSnapshot 745, and the catch-blocks that set `offline = true` on a thrown fetch must also leave `authExpired` untouched — a genuine network throw is offline, not auth-expired).
-- [ ] surface `authExpired` in `getSyncStatus` return object (1130) and lead `describeSyncStatus` (1145) with `'Session expired — re-authenticate'` when `status.authExpired` (takes precedence over the Offline/Synced clause).
-- [ ] reset `authExpired = false` in `resetLocalSync` if it clears `offline` (keep state consistent).
-- [ ] write test: with pending ops queued and the server returning 401 on `/api/sync/ops`, `getSyncStatus` reports `authExpired === true`, `offline === false`, and the pending row is preserved (still in the queue).
-- [ ] write test: `describeSyncStatus` text contains the re-authenticate wording when auth-expired.
-- [ ] update the existing "still treats 401/403/408/429 as transient" test (589): 401 → `authExpired === true && offline === false`; assert 403/408/429 still `offline === true`.
-- [ ] write test: a thrown fetch (network failure) and a 5xx still yield `offline === true` and `authExpired === false`.
-- [ ] run focused sync tests — must pass before Task 2.
+- [x] add a module-global `let authExpired = false;` beside `let offline = false;` (line 52), with a short comment: 401 = session expired, distinct from network-offline; pending ops are never dropped.
+- [x] add a tiny helper `function isAuthExpiredStatus(status) { return status === 401; }` near `isPermanentSyncStatus` (677); keep 401 OUT of the permanent set (no wedge, no writeError) — it routes to auth-expired instead.
+- [x] at each 401-reachable `!res.ok`/`!snapRes.ok`/`!snap.ok` site (bootstrap 448-451, pullTail 506-509, flushPending 897-924, tryForceSnapshot 724-744 & snapshot-leg), branch: if `isAuthExpiredStatus(status)` set `authExpired = true; offline = false;` and return without touching `offline`/writeError/pending; else keep the existing offline/permanent handling. 403/408/429 keep current transient-offline behavior. (401 check placed in snapshotAt so both maybeSnapshot and tryForceSnapshot's snapshot leg share it.)
+- [x] clear `authExpired = false` at every existing success site that sets `offline = false` (bootstrap 452, pullTail 510, flushPending 925, tryForceSnapshot 745, and the catch-blocks that set `offline = true` on a thrown fetch must also leave `authExpired` untouched — a genuine network throw is offline, not auth-expired).
+- [x] surface `authExpired` in `getSyncStatus` return object (1130) and lead `describeSyncStatus` (1145) with `'Session expired — re-authenticate'` when `status.authExpired` (takes precedence over the Offline/Synced clause).
+- [x] reset `authExpired = false` in `resetLocalSync` if it clears `offline` (keep state consistent).
+- [x] write test: with pending ops queued and the server returning 401 on `/api/sync/ops`, `getSyncStatus` reports `authExpired === true`, `offline === false`, and the pending row is preserved (still in the queue).
+- [x] write test: `describeSyncStatus` text contains the re-authenticate wording when auth-expired.
+- [x] update the existing "still treats 401/403/408/429 as transient" test (589): 401 → `authExpired === true && offline === false`; assert 403/408/429 still `offline === true`.
+- [x] write test: a thrown fetch (network failure) and a 5xx still yield `offline === true` and `authExpired === false`.
+- [x] run focused sync tests — must pass before Task 2. (49/49 pass)
 
 ### Task 2: reauthenticate(ctx) export that re-runs the passkey ceremony and drains
 - [ ] add exported `async function reauthenticate(ctx)` in sync.js: `const { assertPasskey } = await import('./unlock.js');` then `await assertPasskey();` (re-mints the server session cookie via login/finish — discard the returned dek/accountId), then `authExpired = false;`, then `await pullOnOpen(ctx);` to drain immediately; return `getSyncStatus(ctx)` (or `describeSyncStatus`).

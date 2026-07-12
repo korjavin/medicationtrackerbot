@@ -583,18 +583,72 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
 
     const status = await getSyncStatus(ctx);
     expect(status.offline).toBe(true);
+    expect(status.authExpired).toBe(false);
     expect(status.writeError).toBeNull();
   });
 
-  it('still treats 401/403/408/429 as transient, not as a full vault', async () => {
+  it('treats a thrown fetch (genuine network failure) as offline, not auth-expired', async () => {
     await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
-    opsStatus = 429; // a reverse proxy can return this even though cmd/cloud did not
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') throw new TypeError('network down');
+      return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+    }));
 
     await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
 
     const status = await getSyncStatus(ctx);
     expect(status.offline).toBe(true);
+    expect(status.authExpired).toBe(false);
+  });
+
+  it('still treats 403/408/429 as transient, not as a full vault', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    for (const transient of [403, 408, 429]) {
+      opsStatus = transient; // a reverse proxy can return these even though cmd/cloud did not
+
+      await writeRecord(ctx, 'note', { recordId: `note-${transient}`, text: 'hello' });
+
+      const status = await getSyncStatus(ctx);
+      expect(status.offline).toBe(true);
+      expect(status.authExpired).toBe(false);
+      expect(status.writeError).toBeNull();
+    }
+  });
+
+  // med-deq.2 — an expired 30-day session returns 401 forever; bucketing it as
+  // "Offline" stranded the pending queue with no recovery path.
+  it('reports a 401 as auth-expired, not offline, and keeps the write pending', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsStatus = 401;
+
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+
+    const status = await getSyncStatus(ctx);
+    expect(status.authExpired).toBe(true);
+    expect(status.offline).toBe(false);
     expect(status.writeError).toBeNull();
+    // The queue is preserved — nothing dropped, drained after re-auth.
+    expect(status.pendingCount).toBe(1);
+    const notes = await listRecords(ctx, 'note');
+    expect(notes.map((n) => n.recordId)).toContain('note-1');
+  });
+
+  it('leads the status line with the re-authenticate wording when auth-expired', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsStatus = 401;
+
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+
+    const line = await describeSyncStatus(ctx);
+    expect(line).toContain('Session expired — re-authenticate');
+    expect(line).not.toContain('Offline');
+
+    // A successful batch (session re-minted) clears the state again.
+    opsStatus = 200;
+    await writeRecord(ctx, 'note', { recordId: 'note-2', text: 'world' });
+    const status = await getSyncStatus(ctx);
+    expect(status.authExpired).toBe(false);
+    expect(await describeSyncStatus(ctx)).not.toContain('Session expired');
   });
 
   it('reports an unnameable permanent refusal honestly, without guessing "full"', async () => {
