@@ -1,23 +1,35 @@
 // med-deq.1 — the cloud SW's offline app shell: network-first fetch handler
 // backed by the versioned SHELL_CACHE. Online navigation always returns the
 // network response (fresh per-account CSP) and refreshes the cache; offline
-// the cached copy renders; /api/* and non-GET are never intercepted.
+// (fetch rejection or proxy 5xx — docs/technical-decisions.md treats them the
+// same) the cached copy renders; the '/' shell fallback applies to navigations
+// only; /api/* and non-GET are never intercepted.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+import { SW_ORIGIN as ORIGIN, loadCloudSw } from './helpers/sw-loader.js';
 
-const ORIGIN = 'https://acct.medtracker.example';
 // SW_VERSION is CACHE_VERSION_PLACEHOLDER at rest (rewritten per deploy).
 const SHELL_CACHE = 'medtracker-cloud-shell-CACHE_VERSION_PLACEHOLDER';
 
-// In-memory Cache API stand-in: name → Map(pathname → response). Both the
-// per-cache match/put and the global caches.match(request) route through it.
-function makeCaches() {
+// In-memory Cache API stand-in: name → Map(fullUrlKey → response). Like the
+// real Cache API it keys on the full URL including the query string; a query
+// is only ignored when a match passes { ignoreSearch: true }. Both the
+// per-cache match/put/add and the global caches.match route through it.
+function makeCaches(fetchImpl) {
     const store = new Map();
-    const keyOf = (r) => (typeof r === 'string' ? r : new URL(r.url).pathname);
+    const keyOf = (r) => {
+        const u = typeof r === 'string' ? new URL(r, ORIGIN) : new URL(r.url);
+        return u.pathname + u.search;
+    };
+    const lookup = (cache, r, opts) => {
+        const key = keyOf(r);
+        if (cache.has(key)) return cache.get(key);
+        if (opts && opts.ignoreSearch) {
+            const want = key.split('?')[0];
+            for (const [k, v] of cache) if (k.split('?')[0] === want) return v;
+        }
+        return undefined;
+    };
     return {
         store,
         seed(name, key, response) {
@@ -28,13 +40,18 @@ function makeCaches() {
             if (!store.has(name)) store.set(name, new Map());
             const cache = store.get(name);
             return {
-                match: async (r) => cache.get(keyOf(r)),
+                match: async (r, opts) => lookup(cache, r, opts),
                 put: async (r, resp) => { cache.set(keyOf(r), resp); },
+                add: async (r) => {
+                    const resp = await fetchImpl(r);
+                    if (!resp || !resp.ok) throw new TypeError('cache.add: response not ok');
+                    cache.set(keyOf(r), resp);
+                },
             };
         }),
-        match: vi.fn(async (r) => {
+        match: vi.fn(async (r, opts) => {
             for (const cache of store.values()) {
-                const hit = cache.get(keyOf(r));
+                const hit = lookup(cache, r, opts);
                 if (hit) return hit;
             }
             return undefined;
@@ -44,44 +61,34 @@ function makeCaches() {
     };
 }
 
-function loadCloudSw(fetchMock) {
-    const swSrc = fs.readFileSync(path.resolve(REPO_ROOT, 'web/cloud/sw.js'), 'utf-8');
-    const listeners = new Map();
-    const self = {
-        addEventListener: vi.fn((type, fn) => {
-            if (!listeners.has(type)) listeners.set(type, []);
-            listeners.get(type).push(fn);
-        }),
-        location: { origin: ORIGIN },
-        clients: { matchAll: vi.fn().mockResolvedValue([]), openWindow: vi.fn(), claim: vi.fn() },
-        registration: { showNotification: vi.fn() },
-        skipWaiting: vi.fn(),
-    };
-    const caches = makeCaches();
-    // eslint-disable-next-line no-new-func
-    new Function('self', 'caches', 'fetch', 'indexedDB', swSrc)(self, caches, fetchMock, {});
-    return { self, listeners, caches };
-}
-
-// Drive the fetch handler. Resolves the respondWith promise (if any) and
-// drains waitUntil (the cache write happens there).
-async function fireFetch(listeners, request) {
+// Drive the fetch handler without settling the respondWith promise, for
+// asserting rejection.
+function fireFetchRaw(listeners, request) {
     const handler = listeners.get('fetch')[0];
     const evt = { request, respondWith: vi.fn(), waitUntil: vi.fn() };
     handler(evt);
-    if (evt.respondWith.mock.calls.length === 0) return { evt, response: undefined };
-    const response = await evt.respondWith.mock.calls[0][0];
+    const promise = evt.respondWith.mock.calls.length > 0 ? evt.respondWith.mock.calls[0][0] : undefined;
+    return { evt, promise };
+}
+
+// Drive the fetch handler, resolve the respondWith promise (if any), and
+// drain waitUntil (the cache write happens there).
+async function fireFetch(listeners, request) {
+    const { evt, promise } = fireFetchRaw(listeners, request);
+    const response = promise ? await promise : undefined;
     await Promise.all(evt.waitUntil.mock.calls.map((c) => c[0]));
     return { evt, response };
 }
 
-function req(pathname, method = 'GET', origin = ORIGIN) {
-    return { method, url: origin + pathname };
+function req(pathname, { method = 'GET', origin = ORIGIN, mode } = {}) {
+    return { method, url: origin + pathname, mode };
 }
 
-function networkResponse() {
+const navigate = (pathname) => req(pathname, { mode: 'navigate' });
+
+function networkResponse(status = 200) {
     const clone = { cloned: true };
-    return { ok: true, clone: () => clone, __clone: clone };
+    return { ok: status >= 200 && status < 300, status, clone: () => clone, __clone: clone };
 }
 
 describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
@@ -92,7 +99,8 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
 
     beforeEach(() => {
         fetchMock = vi.fn();
-        ({ self, listeners, caches } = loadCloudSw(fetchMock));
+        caches = makeCaches(fetchMock);
+        ({ self, listeners } = loadCloudSw({ fetch: fetchMock, caches }));
     });
 
     it('offline: a document request falls back to the cached shell', async () => {
@@ -100,17 +108,35 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         caches.seed(SHELL_CACHE, '/', shell);
         fetchMock.mockRejectedValue(new TypeError('network down'));
 
-        const { response } = await fireFetch(listeners, req('/'));
+        const { response } = await fireFetch(listeners, navigate('/'));
         expect(response).toBe(shell);
     });
 
-    it('offline: a deep link with no exact cache entry falls back to the cached / shell', async () => {
+    it('offline: a deep-link navigation with no exact cache entry falls back to the cached / shell', async () => {
         const shell = { ok: true, body: 'shell html' };
         caches.seed(SHELL_CACHE, '/', shell);
         fetchMock.mockRejectedValue(new TypeError('network down'));
 
-        const { response } = await fireFetch(listeners, req('/devices'));
+        const { response } = await fireFetch(listeners, navigate('/devices'));
         expect(response).toBe(shell);
+    });
+
+    it('offline: a notificationclick cold start (/?reminder_action=…) still hits the / shell', async () => {
+        const shell = { ok: true, body: 'shell html' };
+        caches.seed(SHELL_CACHE, '/', shell);
+        fetchMock.mockRejectedValue(new TypeError('network down'));
+
+        const { response } = await fireFetch(listeners, navigate('/?reminder_action=bp_snooze'));
+        expect(response).toBe(shell);
+    });
+
+    it('offline: an uncached subresource rejects — it must NOT get the HTML shell', async () => {
+        caches.seed(SHELL_CACHE, '/', { ok: true, body: 'shell html' });
+        const err = new TypeError('network down');
+        fetchMock.mockRejectedValue(err);
+
+        const { promise } = fireFetchRaw(listeners, req('/static/js/app.js?v=123'));
+        await expect(promise).rejects.toBe(err);
     });
 
     it('online: returns the network response and refreshes the versioned cache for / and /static/*', async () => {
@@ -118,15 +144,42 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         const assetResp = networkResponse();
         fetchMock.mockResolvedValueOnce(docResp).mockResolvedValueOnce(assetResp);
 
-        const doc = await fireFetch(listeners, req('/'));
+        const doc = await fireFetch(listeners, navigate('/'));
         const asset = await fireFetch(listeners, req('/static/js/app.js?v=123'));
 
         // Network response wins — a cached document is never served online.
         expect(doc.response).toBe(docResp);
         expect(asset.response).toBe(assetResp);
-        // Both writes landed in the SW_VERSION-keyed cache.
+        // Both writes landed in the SW_VERSION-keyed cache; the asset is keyed
+        // on its full fingerprinted URL, like the real Cache API.
         expect(caches.store.get(SHELL_CACHE).get('/')).toBe(docResp.__clone);
-        expect(caches.store.get(SHELL_CACHE).get('/static/js/app.js')).toBe(assetResp.__clone);
+        expect(caches.store.get(SHELL_CACHE).get('/static/js/app.js?v=123')).toBe(assetResp.__clone);
+    });
+
+    it('a 404 is returned as-is and not cached', async () => {
+        const notFound = networkResponse(404);
+        fetchMock.mockResolvedValue(notFound);
+
+        const { response } = await fireFetch(listeners, req('/static/gone.js'));
+        expect(response).toBe(notFound);
+        expect(caches.store.get(SHELL_CACHE)).toBeUndefined();
+    });
+
+    it('a proxy 5xx serves the cached copy (5xx-as-offline)', async () => {
+        const shell = { ok: true, body: 'shell html' };
+        caches.seed(SHELL_CACHE, '/', shell);
+        fetchMock.mockResolvedValue(networkResponse(502));
+
+        const { response } = await fireFetch(listeners, navigate('/'));
+        expect(response).toBe(shell);
+    });
+
+    it('a proxy 5xx with nothing cached returns the 5xx response itself', async () => {
+        const bad = networkResponse(503);
+        fetchMock.mockResolvedValue(bad);
+
+        const { response } = await fireFetch(listeners, req('/static/js/app.js'));
+        expect(response).toBe(bad);
     });
 
     it('/api/* is never intercepted, cached, or served from cache — even offline', async () => {
@@ -144,15 +197,36 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
     });
 
     it('non-GET requests pass through untouched', async () => {
-        const { evt } = await fireFetch(listeners, req('/api/bp', 'POST'));
-        const { evt: putEvt } = await fireFetch(listeners, req('/static/x.js', 'PUT'));
+        const { evt } = await fireFetch(listeners, req('/api/bp', { method: 'POST' }));
+        const { evt: putEvt } = await fireFetch(listeners, req('/static/x.js', { method: 'PUT' }));
         expect(evt.respondWith).not.toHaveBeenCalled();
         expect(putEvt.respondWith).not.toHaveBeenCalled();
     });
 
     it('cross-origin requests pass through untouched', async () => {
-        const { evt } = await fireFetch(listeners, req('/anything', 'GET', 'https://api.elevenlabs.io'));
+        const { evt } = await fireFetch(listeners, req('/anything', { origin: 'https://api.elevenlabs.io' }));
         expect(evt.respondWith).not.toHaveBeenCalled();
+    });
+
+    it('install warms the shell document into the versioned cache', async () => {
+        fetchMock.mockResolvedValue(networkResponse());
+
+        const handler = listeners.get('install')[0];
+        let waited;
+        handler({ waitUntil: (p) => { waited = p; } });
+        await waited;
+
+        expect(self.skipWaiting).toHaveBeenCalled();
+        expect(caches.store.get(SHELL_CACHE).get('/')).toBeDefined();
+    });
+
+    it('install survives a failed warm-up fetch', async () => {
+        fetchMock.mockRejectedValue(new TypeError('network down'));
+
+        const handler = listeners.get('install')[0];
+        let waited;
+        handler({ waitUntil: (p) => { waited = p; } });
+        await expect(waited).resolves.toBeUndefined();
     });
 
     it('activate prunes old prefixed caches, keeps the current shell cache and unrelated caches', async () => {

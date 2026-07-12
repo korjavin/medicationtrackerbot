@@ -20,7 +20,12 @@ const CACHE_PREFIX = 'medtracker-cloud';
 // each deploy gets a fresh cache and activate prunes the old ones below.
 const SHELL_CACHE = `${CACHE_PREFIX}-shell-${SW_VERSION}`;
 
-self.addEventListener('install', () => {
+self.addEventListener('install', (event) => {
+  // Warm the shell document so the very first offline open works even before
+  // any online navigation runs under this SW version — a fresh install, or a
+  // deploy (activate below prunes the previous version's cache, which held the
+  // only copy of '/'). Best-effort: install must never fail on a flaky fetch.
+  event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.add('/')).catch(() => {}));
   self.skipWaiting();
 });
 
@@ -46,6 +51,21 @@ self.addEventListener('activate', (event) => {
 // that CSP snapshot. Acceptable: offline there is no egress anyway, and the
 // next successful online navigation (network-first) overwrites the cached
 // copy. A cached document is NEVER served when the network responded.
+// Offline path shared by fetch rejection and proxy 5xx: the exact cached
+// copy, else — for navigations only — the cached '/' app shell (ignoreSearch,
+// so a '/?reminder_action=…' cold start from notificationclick still hits a
+// document cached under '/', and vice versa). A subresource must NOT get the
+// HTML shell: nosniff would block it and a 200 HTML body masks the failure.
+// When nothing is cached, `surface` yields the network outcome (returns the
+// 5xx response / re-throws the rejection).
+function offlineFallback(request, surface) {
+  return caches.match(request).then((cached) => {
+    if (cached) return cached;
+    if (request.mode !== 'navigate') return surface();
+    return caches.match('/', { ignoreSearch: true }).then((shell) => shell || surface());
+  });
+}
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;
@@ -58,17 +78,18 @@ self.addEventListener('fetch', (event) => {
         if (response.ok) {
           const clone = response.clone();
           event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.put(request, clone)));
+          return response;
         }
+        // A proxy 5xx (cloud binary restarting behind Traefik) is functionally
+        // offline — docs/technical-decisions.md "5xx-as-offline", same as
+        // web/static/sw.js. Serve the cached copy; the raw 5xx only when
+        // nothing is cached.
+        if (response.status >= 500) return offlineFallback(request, () => response);
         return response;
       },
       (err) =>
-        caches.match(request).then((cached) => {
-          if (cached) return cached;
-          // Deep-link navigation offline: fall back to the cached app shell.
-          return caches.match('/').then((shell) => {
-            if (shell) return shell;
-            throw err;
-          });
+        offlineFallback(request, () => {
+          throw err;
         })
     )
   );

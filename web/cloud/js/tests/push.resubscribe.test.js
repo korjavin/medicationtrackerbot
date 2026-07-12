@@ -99,7 +99,7 @@ describe('ensurePushSubscription — boot-time reconcile', () => {
         expect(pushManager.subscribe).not.toHaveBeenCalled();
     });
 
-    it('does nothing when the user never granted permission', async () => {
+    it('does nothing push-side when the user never granted permission', async () => {
         setup({ permission: 'default' });
 
         const result = await ensurePushSubscription();
@@ -107,6 +107,24 @@ describe('ensurePushSubscription — boot-time reconcile', () => {
         expect(result.state).toBe('not-granted');
         expect(pushManager.subscribe).not.toHaveBeenCalled();
         expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it('still registers the SW without permission — it serves the offline app shell (med-deq.1)', async () => {
+        setup({ permission: 'default' });
+
+        await ensurePushSubscription();
+
+        expect(globalThis.navigator.serviceWorker.register).toHaveBeenCalledWith('/sw.js');
+    });
+
+    it('reports failure when SW registration itself fails', async () => {
+        setup();
+        globalThis.navigator.serviceWorker.register = vi.fn().mockRejectedValue(new Error('nope'));
+
+        const result = await ensurePushSubscription();
+
+        expect(result.state).toBe('failed');
+        expect(result.error).toBeInstanceOf(Error);
     });
 
     it('does nothing when the user denied permission', async () => {
