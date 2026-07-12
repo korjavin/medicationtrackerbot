@@ -1,0 +1,221 @@
+# Cloud inbox drain: stop the 160MB re-fetch loop on a wedged/backlogged account (bd med-eas.51)
+
+## Overview
+
+**Problem (P0, self-inflicted DoS, bricks the account).** In cloud mode the web app
+polls `GET /api/inbox` (`web/cloud/js/inbox.js` → `listInboxEvents`) every 5s and on
+every page open. That endpoint returns the FULL un-acked sealed backlog — the server
+caps it at 200 events by COUNT (`maxInboxDrainBatch`, `internal/cloudserver/inbox.go`)
+but has **no byte cap**, so a backlog of stale sealed `.nxk` vitals is ~160MB per
+response. An event is only acked (`DELETE /api/inbox/{id}`) AFTER `apply()` + `flush()`
+(`flushConfirmed`, `web/cloud/js/sync.js`) confirms its ops reached the sync log. When
+ops can't confirm — sync is WEDGED (`syncWedged`, med-0ol.7) or a permanent ops-400 —
+`flush()` returns false, nothing acks, and the drain re-fetches the entire 160MB on the
+next tight poll. Forever. The account is bricked and burns ~160MB per open.
+
+**Confirmed root cause of the ops-400 (code-verified during planning).**
+`POST /api/sync/ops` returns `400 "op field too large or missing"` when any single op's
+ciphertext exceeds `maxOpCTLen = 64<<10` (64 KiB) in `internal/cloudserver/sync.go`
+`PostOps`. A large Mi Band `.nxk` vitals record produced by the inbox import
+(`web/cloud/js/inbox-apply.js` `vitals_import`) trips this permanent 400. `flushPending`
+counts it against `WRITE_ERROR_BUDGET` (3 consecutive permanent 4xx) and then sets
+`syncWedged`. Once wedged, `flushConfirmed` returns false immediately, so the inbox
+event never acks → the re-fetch loop. So the 400 is the *trigger*; the *loop* is the
+inbox drain ignoring the wedge state and having no byte cap and no recovery path.
+
+**Fix.** Five coupled changes, smallest set that stops the loop and lets the account
+recover, reusing med-0ol.7's `syncWedged`/`resetLocalSync` and sync's byte-batching:
+1. Pause the inbox drain (before it even fetches) when sync is wedged.
+2. Abort the drain early on the first `flush()==false`, and back off the poll interval.
+3. Byte-cap `GET /api/inbox` so one response is never 160MB (mirror sync's ≤1 MiB batch).
+4. Let the existing reset / un-wedge escape hatch also clear the poison server-side
+   inbox backlog, so a permanently-unappliable sealed `.nxk` can't wedge forever.
+5. Confirm + document the backlog is stale Telegram/`.nxk` seals; file a follow-up for
+   the deeper "don't seal a huge Mi Band `.nxk` into the per-message mailbox" redesign.
+
+## Context (from discovery)
+
+- **`web/cloud/js/inbox.js`** — `drainInbox` (fetch-all → apply → flush → ack loop),
+  `listInboxEvents` (`GET /api/inbox`), `startInboxPolling` (fixed `INBOX_POLL_MS=5000`
+  `setInterval`, drains on visible + on visibilitychange). This is where #1/#2 land.
+- **`web/cloud/js/sync.js`** — `syncWedged` meta flag (set after `WRITE_ERROR_BUDGET=3`
+  consecutive permanent 4xx in `flushPending`), `flushConfirmed(ctx)` (the drain's ack
+  barrier — already returns false when wedged, line ~809), `resetLocalSync(ctx)` (wipes
+  local records/pending/sync_meta, clears `syncWedged`, re-bootstraps), `getSyncStatus`
+  (`.wedged`), and the `FLUSH_MAX_BODY_BYTES = 900*1024` byte-batching pattern in
+  `flushPending` (the ≤1 MiB chunking to reuse for #3's shape).
+- **`internal/cloudserver/inbox.go`** — `ListInbox` handler + `maxInboxDrainBatch=200`
+  count cap (no byte cap). `InboxAPI.RegisterRoutes`. `AckInboxEvent` / `DeleteInboxEvent`
+  pattern to mirror for a clear-all route. This is where #3 and the server side of #4 land.
+- **`internal/cloudstore/inbox.go`** — `ListInboxEvents` (`SELECT ... ORDER BY id LIMIT ?`),
+  `DeleteInboxEvent`. Add a clear-all-for-account store method here for #4.
+- **`web/cloud/js/cloud-boot.js`** — wires `ensureInboxKey`/`drainInbox`/
+  `startInboxPolling` after unlock (~line 295) and exposes `resetLocalSync()` (~line 163).
+  The reset wrapper is where the client calls the new server clear (#4).
+- **`internal/cloudserver/telegram.go`** — `POST /api/telegram/reset` (`Reset` handler,
+  line ~1470) is the reference pattern for a session-scoped account-mutating cloud route.
+- **Tests**: `web/cloud/js/tests/inbox.test.js` (drain + polling suite — extend here),
+  `web/cloud/js/tests/sync.test.js` (wedge/reset suite), `internal/cloudserver/inbox_test.go`
+  (Go handler tests — add byte-cap + clear-all cases).
+- **No MCP-coverage guard applies**: `internal/cloudserver` has its own mux
+  (`cmd/cloud`), not the `internal/server` mux the MCP-coverage test guards. A new
+  cloudserver route needs no registry/exempt entry.
+
+## Development Approach
+- **Testing approach**: NO unit tests. Integration tests only where they guard a real
+  boundary. Here that means: extend the existing `inbox.test.js` drain suite (drain
+  pauses when wedged; aborts + signals backoff on flush-false; healthy small-event drain
+  still works) and the Go `inbox_test.go` (byte-capped page; clear-all route). These are
+  real boundaries (the drain protocol correctness + the HTTP contract).
+- Complete each task fully before the next. Small focused changes.
+- **CRITICAL**: an added integration test must pass before starting the next task.
+- **CRITICAL**: update this plan if scope changes.
+- Preserve drain-protocol correctness: ack STRICTLY after flush; at-least-once +
+  idempotent; deterministic ids; NEVER ack an un-flushed event. Byte-cap must not corrupt
+  ordering (`ORDER BY id`; client already sorts by `at_unix`). No hardcoded colors / inline
+  styles in any recovery UI. `log/slog` server-side.
+
+## Testing Strategy
+- **Unit tests**: none.
+- **Integration tests**: extend `web/cloud/js/tests/inbox.test.js` and
+  `internal/cloudserver/inbox_test.go` only. No new files unless a suite genuinely lacks
+  an entry point.
+- **E2E tests**: none (no existing cloud e2e suite to reuse).
+
+## Progress Tracking
+- Mark completed items `[x]` immediately.
+- ➕ for newly discovered tasks, ⚠️ for blockers.
+- Keep this plan in sync with actual work.
+
+## Implementation Steps
+
+### Task 1: Pause the inbox drain when sync is wedged (stops the 160MB loop)
+- [x] In `web/cloud/js/inbox.js` `drainInbox`, BEFORE calling `listInboxEvents` (before the
+      `GET /api/inbox`), check the sync-wedge state and return early without fetching when
+      wedged. Reuse the existing signal — added a tiny exported `isSyncWedged()` helper in
+      `sync.js` that reads the same `syncWedged` meta `flushPending` reads. Returns
+      `{ applied: 0, failed: 0, wedged: true }`.
+- [x] Ensure the pause is checked inside the existing single-drain guard so a wedged
+      account performs ZERO `GET /api/inbox` fetches per poll (the check sits inside the
+      `draining` guard, before `readInboxKey`/`listInboxEvents`).
+- [x] The pause self-resolves: `isSyncWedged()` reads the same `syncWedged` meta, so
+      `resetLocalSync` clearing it un-pauses the next tick. No new persisted flag.
+
+### Task 2: Abort-early on flush-false + back off the poll interval
+- [x] In `drainInbox`, when `flush()` returns false for the FIRST event of a drain, STOP
+      the drain (do not continue applying/acking the rest — a `break` on leading flush-false,
+      i.e. `applied === 0`) and return `{ applied, failed, stalled: true }`. Leave-queued
+      behaviour (never ack) intact. A later flush-false after earlier successes keeps the
+      existing `continue` — only the leading flush-false aborts.
+- [x] In `startInboxPolling`, back off the visible-tab poll when a tick reports
+      `wedged`/`stalled`: track consecutive no-progress ticks and skip
+      `min(2**noProgress, MAX_INBOX_BACKOFF_TICKS)` fires of the existing timer (no second
+      timer). Reset to normal cadence the moment a tick makes progress (`applied > 0`) or
+      the mailbox is empty / has no key.
+- [x] Keep `drain-on-becoming-visible` responsive: `onVisible` fires `tick({ force: true })`
+      which bypasses the backoff gate once, still honouring the Task 1 wedge pause.
+- [x] Integration test (`web/cloud/js/tests/inbox.test.js`): (a) drain PAUSES with zero
+      `GET /api/inbox` calls when wedged; (b) drain ABORTS after the first flush-false
+      (only the first event applied, none acked) and signals stalled; (c) polling backs off
+      after consecutive stalls and resumes on progress; (d) HEALTHY drain still applies +
+      acks every event (existing `drainInbox` barrier tests). All 19 inbox tests pass.
+
+### Task 3: Byte-cap `GET /api/inbox` so one response is never 160MB
+- [x] In `internal/cloudserver/inbox.go` `ListInbox`, added a response BYTE budget alongside
+      the existing `maxInboxDrainBatch=200` count cap: accumulate each event's `CT` byte
+      length and `break` before exceeding, ALWAYS including the first event so a single
+      over-budget event still makes progress (mirrors sync's `FLUSH_MAX_BODY_BYTES` shape).
+      New `const maxInboxDrainBytes = 1 << 20` next to `maxInboxDrainBatch` with a comment.
+      Trims from the tail only, preserving the store's `ORDER BY id`.
+- [x] The client already acks each event individually and re-drains, so paging through
+      byte-bounded chunks needs no client change beyond Tasks 1/2 — `listInboxEvents` opens
+      whatever `events` the response carries.
+- [x] Integration test (`internal/cloudserver/inbox_test.go`, `TZ=UTC`):
+      `TestInbox_ByteCapsResponse` seeds 3 ~600 KiB events exceeding the budget; asserts each
+      `GET /api/inbox` returns exactly one (byte-bounded prefix, in id order) and that acking
+      it uncovers the next chunk until the backlog drains. Passes.
+
+### Task 4: Let reset / un-wedge clear the poison inbox backlog
+- [x] Added a store method `ClearInboxEvents(ctx, accountID) (int64, error)` in
+      `internal/cloudstore/inbox.go` (`DELETE FROM inbox_events WHERE account_id = ?`,
+      returns rows affected), mirroring `DeleteInboxEvent`.
+- [x] Added `DELETE /api/inbox` to `InboxAPI` (`internal/cloudserver/inbox.go`,
+      `RegisterRoutes` + a `ClearInbox` handler) — session-scoped to the caller's account,
+      `slog.Info` the count cleared, returns `{cleared: <count>}` JSON. Follows the
+      `AckInboxEvent` shape. Extended the `inboxStore` interface with the new store method.
+- [x] Client: added an exported `clearInbox({ fetchImpl })` in `web/cloud/js/inbox.js` that
+      calls `DELETE /api/inbox` and returns the count. Wired into the `resetLocalSync()`
+      wrapper in `web/cloud/js/cloud-boot.js`: after the local reset un-wedges sync it ALSO
+      clears the server inbox backlog, so the one "Reset local sync" action drops the poison
+      sealed events too. Best-effort — the inbox clear is in its own try/catch AFTER the
+      local reset, so a failed network clear does not abort local recovery (logged).
+- [x] Documented in both code comments (server `ClearInbox`, client `clearInbox`) that
+      clearing the inbox DISCARDS any un-applied sealed events (same "discards un-synced
+      local writes" semantics `resetLocalSync` carries) — the escape hatch, acceptable for
+      recovery. Prose docs land in Task 6.
+- [x] Integration test (`internal/cloudserver/inbox_test.go` `TestInbox_ClearAll`): seeds 3
+      events on account A + 1 on B, `DELETE /api/inbox` returns `cleared:3` and empties A's
+      mailbox, while B's event is untouched (account scoping). Added `DELETE /api/inbox` to
+      `TestInbox_RequiresSession`. Passes.
+
+### Task 5: Confirm + document the backlog source; file the redesign follow-up
+- [x] Confirmed from the code path: `web/cloud/js/inbox-apply.js` applies a `vitals_import`
+      event (sealed by `internal/cloudserver/telegram.go` `sealNXKDocument`) through
+      `web/domain/vitals.js` `importSamples`, whose `importDayBatched` writes ONE record per
+      day holding ALL that day's hr/spo2/stress samples (`samples: samplesOut`). A densely
+      sampling Mi Band `.nxk` day thus serializes past `maxOpCTLen = 64<<10` (64 KiB), so
+      `POST /api/sync/ops` returns `400 "op field too large or missing"` (`internal/cloudserver/sync.go`
+      `PostOps`, line 110) — the ops-400 trigger. Recorded in `docs/cloud-mode.md`
+      (drain-protocol section, new "Drain wedge recovery (med-eas.51)" bullet): the
+      wedge-pause + byte-cap + inbox-clear recovery and the ops-400 cause.
+- [x] Documented in `docs/cloud-mode.md` that sealing a large Mi Band `.nxk` vitals import
+      into the per-message sealed mailbox as one giant >64 KiB event is what makes a single
+      event huge and its ops un-flushable, and that the deeper redesign (chunk the import
+      into sub-`maxOpCTLen` records, or a distinct bulk path around the per-message inbox) is
+      a FOLLOW-UP, not this bead. Filed bd follow-up **med-0cf** (recorded here and in docs).
+      No scope-creep of the redesign into this fix.
+
+### Task 6: Verify acceptance criteria
+- [x] Verify all Overview requirements are implemented: wedged account performs zero
+      `GET /api/inbox` fetches (Task 1 wedge pause before fetch); drain aborts + backs off
+      on flush-false (Task 2 leading-flush-false break + poll backoff); `/api/inbox`
+      byte-bounded (Task 3 `maxInboxDrainBytes`); reset clears the poison backlog (Task 4
+      `DELETE /api/inbox` wired into `resetLocalSync`); healthy small-event drain still
+      applies + acks every event (existing drain-barrier tests still green).
+- [x] Run `npx vitest run` — passes (all 309 files, 3540 tests). Loosened the Task 2
+      backoff test's post-recovery assertion from an exact `+3` GET count to
+      `>= afterRecovery + 2`: the drain is async (real WebCrypto opens each event), so under
+      parallel-suite load a slow drain can trip the single-drain `draining` guard and skip a
+      tick — the exact count made the invariant flaky, not stronger. Still proves cadence
+      resumed vs. throttled. Production logic unchanged.
+- [x] Run `go build ./... && go build -tags mobile ./...` — both pass.
+- [x] Run `TZ=UTC go test ./internal/cloudserver/...` — passes (byte-cap + clear-all).
+- [x] Run any repo linter — `go vet ./internal/cloudserver/... ./internal/cloudstore/...`
+      clean.
+
+## Technical Details
+- **Wedge signal reuse**: `syncWedged` is a `sync_meta` field read by `flushPending`
+  (`if ((await readMeta()).syncWedged) return false`) and surfaced by `getSyncStatus` as
+  `.wedged`. Task 1 reads the SAME field — no new state, so `resetLocalSync` (which already
+  clears `syncWedged`) automatically un-pauses the drain.
+- **Byte-cap shape**: copy the `flushPending` idiom — accumulate `bodyBytes`, `break`
+  before exceeding the budget, but "always include at least one" so a single over-budget
+  event still makes progress (that single-huge-event case is the Task 5 follow-up, not
+  solved by the cap).
+- **Backoff**: derive from consecutive no-progress ticks; gate the existing
+  `setInterval` tick (skip N ticks) rather than reschedule — keeps teardown/stop() simple.
+- **Clear route**: `DELETE /api/inbox`, session-scoped, returns `{cleared: <count>}`.
+  Best-effort from the client reset path — local recovery must not depend on it.
+
+## Post-Completion
+*No checkboxes — informational.*
+
+**Manual verification**:
+- On a real wedged/backlogged account: open the app, confirm DevTools shows NO repeated
+  160MB `GET /api/inbox` (drain paused); run "Reset local sync" and confirm the backlog is
+  cleared and the account is usable; confirm a fresh Telegram `/bp` still lands within
+  seconds on a healthy account.
+
+**External / follow-up**:
+- bd follow-up issue (id recorded in Task 5): redesign the bulk Mi Band `.nxk` vitals
+  import so it does not seal a single >64 KiB event into the per-message mailbox.

@@ -1,6 +1,7 @@
 // bd med-76c.2 — client half of the sealed mailbox foundation: the inbox
 // keypair lives in the vault (so every device can drain), only its public half
 // reaches the server, and the mailbox transport opens what the Go server sealed.
+import 'fake-indexeddb/auto';
 import { describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -191,7 +192,8 @@ describe('inbox.js — drainInbox', () => {
             apply: vi.fn(async () => {}), records, fetchImpl, flush: async () => false,
         });
 
-        expect(res).toEqual({ applied: 0, failed: 1 });
+        // A leading flush-false aborts the drain and flags stalled (med-eas.51).
+        expect(res).toEqual({ applied: 0, failed: 1, stalled: true });
         expect(deleted).toEqual([]); // still queued for the next drain
         expect(warn).toHaveBeenCalled();
         warn.mockRestore();
@@ -237,6 +239,40 @@ describe('inbox.js — drainInbox', () => {
         expect(res).toEqual({ applied: 2, failed: 0 });
         expect(seen).toEqual([earlier.at_unix, later.at_unix]);
         expect(deleted).toEqual([2, 1]);
+    });
+
+    // med-eas.51: when sync is wedged flushConfirmed can never resolve true, so
+    // no event could ever ack. The drain must NOT even fetch — re-pulling a
+    // ~160MB backlog every poll is the self-DoS this guard stops.
+    it('pauses with ZERO GET /api/inbox fetches when sync is wedged', async () => {
+        const records = await seededRecords();
+        const { fetchImpl } = mailbox([{ id: 7, created_at_unix: 1, ct: VECTOR.sealed_b64 }]);
+        const apply = vi.fn();
+
+        const res = await drainInbox(ctx, { apply, records, fetchImpl, flush: async () => true, wedged: async () => true });
+
+        expect(res).toEqual({ applied: 0, failed: 0, wedged: true });
+        expect(apply).not.toHaveBeenCalled();
+        expect(fetchImpl).not.toHaveBeenCalled(); // not even the GET
+    });
+
+    // med-eas.51: a LEADING flush-false means sync can't confirm anything —
+    // abort the whole drain instead of apply+failing every remaining event.
+    it('aborts after the first flush-false, applying only the first event and acking none', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const records = await seededRecords();
+        const { fetchImpl, deleted } = mailbox([
+            { id: 7, created_at_unix: 1, ct: VECTOR.sealed_b64 },
+            { id: 8, created_at_unix: 2, ct: VECTOR.sealed_b64 },
+        ]);
+        const apply = vi.fn(async () => {});
+
+        const res = await drainInbox(ctx, { apply, records, fetchImpl, flush: async () => false });
+
+        expect(res).toEqual({ applied: 0, failed: 1, stalled: true });
+        expect(apply).toHaveBeenCalledTimes(1); // event 8 never applied — we bailed
+        expect(deleted).toEqual([]); // nothing acked
+        warn.mockRestore();
     });
 
     it('is a no-op when this account has no inbox key yet', async () => {
@@ -295,6 +331,28 @@ describe('startInboxPolling', () => {
         };
     }
 
+    // med-eas.51: a poison event that never applies (apply/decode keeps failing)
+    // is no-progress too — the poller must back off, not re-fetch it every tick.
+    // Inject a deterministic fake drain: the real drainInbox opens the event with
+    // WebCrypto, whose async races the fake timers — that slop leaks the drain's
+    // expected error log into the next test and skews the drain count. The fake
+    // isolates exactly the poller's backoff gate (the med-eas.51 code under test).
+    it('backs off when every drain fails to apply, not just on flush-false', async () => {
+        vi.useFakeTimers();
+        const doc = fakeDoc('visible');
+        const drain = vi.fn(async () => ({ applied: 0, failed: 1 })); // every drain fails to apply
+
+        const stop = startInboxPolling(ctx, { apply: () => {}, intervalMs: 1000, doc, drain });
+
+        await vi.advanceTimersByTimeAsync(6000);
+        // Without backoff this would drain on all 6 ticks; the gate throttles it.
+        expect(drain.mock.calls.length).toBeGreaterThan(0);
+        expect(drain.mock.calls.length).toBeLessThan(6);
+
+        stop();
+        vi.useRealTimers();
+    });
+
     it('drains on an interval while the tab is visible', async () => {
         vi.useFakeTimers();
         const fetchImpl = emptyMailbox();
@@ -327,8 +385,45 @@ describe('startInboxPolling', () => {
         // ...but drains the moment it comes back, covering the hidden gap.
         doc.visibilityState = 'visible';
         doc.fire('visibilitychange');
-        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(200);
         expect(fetchImpl).toHaveBeenCalled();
+        stop();
+        vi.useRealTimers();
+    });
+
+    // med-eas.51: a wedged/stalled account must stop hammering GET /api/inbox
+    // every interval, but resume the normal cadence the moment it recovers.
+    // Fake drain (see the poison-backoff test above): stalls while flushOk is
+    // false, makes progress once it flips. Real drainInbox's WebCrypto open would
+    // race the fake timers and skew the drain count under parallel-suite load.
+    it('backs off after consecutive stalls and resumes the normal cadence on progress', async () => {
+        vi.useFakeTimers();
+        const doc = fakeDoc('visible');
+        let flushOk = false;
+        const drain = vi.fn(async () => (flushOk
+            ? { applied: 1, failed: 0 }
+            : { applied: 0, failed: 1, stalled: true }));
+        const drains = () => drain.mock.calls.length;
+
+        const stop = startInboxPolling(ctx, { apply: () => {}, intervalMs: 1000, doc, drain });
+
+        // Sustained stall: 6 ticks fire but the backoff gate throttles the actual
+        // drains, so we drain far fewer times than we tick.
+        await vi.advanceTimersByTimeAsync(6000);
+        const throttled = drains();
+        expect(throttled).toBeGreaterThan(0);
+        expect(throttled).toBeLessThan(6);
+
+        // Recovery: a drain now makes progress, which resets the backoff.
+        flushOk = true;
+        await vi.advanceTimersByTimeAsync(6000);
+        const afterRecovery = drains();
+        expect(afterRecovery).toBeGreaterThan(throttled); // recovery drains ran
+
+        await vi.advanceTimersByTimeAsync(3000);
+        // Full cadence restored: with the backoff reset, ~1 drain per tick.
+        expect(drains()).toBeGreaterThanOrEqual(afterRecovery + 2);
+
         stop();
         vi.useRealTimers();
     });

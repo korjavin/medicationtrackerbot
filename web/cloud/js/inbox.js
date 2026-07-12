@@ -18,7 +18,7 @@ import {
   toBase64,
   fromBase64,
 } from './crypto.js';
-import { recordsPort, flushConfirmed } from './sync.js';
+import { recordsPort, flushConfirmed, isSyncWedged } from './sync.js';
 
 const INBOXKEY_RECORD_TYPE = 'inboxkey';
 const INBOXKEY_RECORD_ID = 'inboxkey';
@@ -105,6 +105,20 @@ export async function ackInboxEvent(id, { fetchImpl = fetch } = {}) {
   if (!res.ok) throw new Error(`could not ack inbox event ${id} (${res.status})`);
 }
 
+// clearInbox drops the whole server-side backlog and returns the count cleared.
+// This DISCARDS any un-applied sealed events — the same recovery trade
+// resetLocalSync makes when it wipes un-synced local writes. It exists only for
+// the reset escape hatch (med-eas.51): a permanently un-appliable sealed .nxk
+// wedges sync forever, so un-wedging must also drop the poison backlog or the
+// drain re-fetches it (up to ~160MB) on the very next poll. Never call this on a
+// healthy account — it throws away real queued Confirms.
+export async function clearInbox({ fetchImpl = fetch } = {}) {
+  const res = await fetchImpl('/api/inbox', { method: 'DELETE' });
+  if (!res.ok) throw new Error(`could not clear the inbox (${res.status})`);
+  const { cleared = 0 } = await res.json();
+  return cleared;
+}
+
 // One drain at a time per account. Two overlapping drains in the SAME tab would
 // both apply every event and race on the ack; across tabs/devices that is fine
 // (deletes are idempotent, applies converge) but within a tab it is pure waste.
@@ -127,11 +141,17 @@ const draining = new Set();
 //
 // One event's failure must not strand the rest: we log it, skip its ack (so it
 // is retried next drain) and continue. Returns a small report for tests/logs.
-export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush = flushConfirmed } = {}) {
+export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush = flushConfirmed, wedged = isSyncWedged } = {}) {
   const key = (ctx && ctx.accountId) || ctx;
   if (draining.has(key)) return { applied: 0, failed: 0, skipped: true };
   draining.add(key);
   try {
+    // Sync wedged (med-eas.51): flushConfirmed can never resolve true, so no
+    // event could ever ack. Skip the fetch entirely — the backlog can be ~160MB
+    // and re-fetching it every poll is the self-DoS this guard exists to stop.
+    // Derived from the same syncWedged meta, so resetLocalSync un-pauses us.
+    if (await wedged(ctx)) return { applied: 0, failed: 0, wedged: true };
+
     const privateKey = await readInboxKey(ctx, { records });
     if (!privateKey) return { applied: 0, failed: 0 };
 
@@ -143,6 +163,7 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
 
     let applied = 0;
     let failed = 0;
+    let stalled = false;
     for (const { id, event } of pending) {
       try {
         // The event id is passed so appliers can derive a DETERMINISTIC record
@@ -155,6 +176,13 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
         if (!flushed) {
           failed++;
           console.warn('[inbox] ops not confirmed flushed; leaving event queued', id);
+          // A LEADING flush-false (nothing acked yet this drain) means sync
+          // can't confirm anything — almost always a wedge just forming. Abort
+          // the whole drain instead of apply+fail every remaining event, and
+          // signal the poller to back off (med-eas.51). Once we've made
+          // progress, a later flush-false is just that event's ops still
+          // settling, so keep the existing leave-queued-and-continue behaviour.
+          if (applied === 0) { stalled = true; break; }
           continue;
         }
         await ackInboxEvent(id, { fetchImpl });
@@ -164,7 +192,7 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
         console.error('[inbox] event failed, leaving it queued', id, e);
       }
     }
-    return { applied, failed };
+    return stalled ? { applied, failed, stalled: true } : { applied, failed };
   } finally {
     draining.delete(key);
   }
@@ -181,6 +209,12 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
 // returning `{"events":[]}`. Revisit if the mailbox ever gets chatty.
 const INBOX_POLL_MS = 5000;
 
+// Backoff ceiling for a wedged/stalled mailbox (med-eas.51). Consecutive
+// no-progress drains skip an exponentially growing number of scheduled ticks so
+// a bricked account stops hammering GET /api/inbox every 5s; capped so recovery
+// (a reset that un-wedges) is still noticed within ~a minute at the 5s interval.
+const MAX_INBOX_BACKOFF_TICKS = 12;
+
 // startInboxPolling drains the mailbox on a timer while the tab is visible, and
 // immediately whenever it becomes visible again. Without it a Confirm tapped in
 // Telegram sits unapplied until the next full page load, because nothing else
@@ -194,25 +228,59 @@ export function startInboxPolling(ctx, {
   intervalMs = INBOX_POLL_MS,
   doc = typeof document === 'undefined' ? null : document,
   onApplied = () => {},
+  // `drain` defaults to the real drainInbox; tests inject a deterministic fake so
+  // the backoff-gate assertions don't race real WebCrypto event-opening against
+  // fake timers (that async slop leaks logs across tests and skews GET counts).
+  drain = drainInbox,
   ...drainOpts
 } = {}) {
   let stopped = false;
+  // Backoff state (med-eas.51): after consecutive no-progress drains (wedged or
+  // stalled), skip `skipTicks` scheduled fires so a bricked account stops
+  // re-fetching the backlog every interval. A manual visibility trigger bypasses
+  // the gate once — the user opened the tab expecting fresh data.
+  let noProgress = 0;
+  let skipTicks = 0;
 
-  const tick = async () => {
+  const tick = async ({ force = false } = {}) => {
     if (stopped || !apply) return;
     // drainInbox already no-ops when another drain is in flight for this
     // account, so a slow drain cannot pile up behind the timer.
     if (doc && doc.visibilityState !== 'visible') return;
+    if (!force && skipTicks > 0) { skipTicks--; return; }
     try {
-      const result = await drainInbox(ctx, { apply, ...drainOpts });
-      if (result && result.applied > 0) onApplied(result);
+      const result = await drain(ctx, { apply, ...drainOpts });
+      if (!result || result.skipped) {
+        // Another drain held the lock — leave the backoff window untouched.
+      } else if (result.applied > 0) {
+        noProgress = 0;
+        skipTicks = 0;
+        onApplied(result);
+      } else if (result.wedged || result.stalled || result.failed > 0) {
+        // No progress this tick: wedged, a leading flush-false stall, or every
+        // event failed to apply (a poison event that throws in apply/decode).
+        // Back off on ANY no-progress drain, not just the flush-false one — the
+        // byte cap already bounds each fetch, but a poison event that never
+        // applies would otherwise re-fetch its chunk every interval (med-eas.51).
+        noProgress++;
+        skipTicks = Math.min(2 ** noProgress, MAX_INBOX_BACKOFF_TICKS);
+      } else {
+        // Empty mailbox / no key — healthy idle. Drop any backoff so the next
+        // real event is picked up at the normal interval.
+        noProgress = 0;
+        skipTicks = 0;
+      }
     } catch (e) {
+      // A thrown drain (poison event that fails to decrypt, or a network error)
+      // is also no-progress — back off rather than retry at full cadence.
       console.error('[inbox] poll drain failed', e);
+      noProgress++;
+      skipTicks = Math.min(2 ** noProgress, MAX_INBOX_BACKOFF_TICKS);
     }
   };
 
   const timer = setInterval(tick, intervalMs);
-  const onVisible = () => { if (doc.visibilityState === 'visible') tick(); };
+  const onVisible = () => { if (doc.visibilityState === 'visible') tick({ force: true }); };
   if (doc) doc.addEventListener('visibilitychange', onVisible);
 
   return function stop() {

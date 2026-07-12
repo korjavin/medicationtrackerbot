@@ -19,6 +19,12 @@ const (
 	// One drain pulls at most this many events. A drain that finds a full page
 	// simply runs again on the next open; the cap bounds a single response.
 	maxInboxDrainBatch = 200
+	// A single response never exceeds this many bytes of sealed ciphertext,
+	// regardless of the count cap. A backlog of huge sealed .nxk vitals seals
+	// (each up to ~MBs) would otherwise return a ~160MB body per poll and brick
+	// the account (med-eas.51). Mirrors sync's ≤1 MiB FLUSH_MAX_BODY_BYTES batch:
+	// always emit at least one event so the drain still makes progress.
+	maxInboxDrainBytes = 1 << 20
 )
 
 // inboxStore is the narrow slice of cloudstore the inbox API needs. sessionStore
@@ -29,6 +35,7 @@ type inboxStore interface {
 	AccountInboxPublicKey(ctx context.Context, accountID string) ([]byte, error)
 	ListInboxEvents(ctx context.Context, accountID string, limit int) ([]cloudstore.InboxEvent, error)
 	DeleteInboxEvent(ctx context.Context, accountID string, id int64) error
+	ClearInboxEvents(ctx context.Context, accountID string) (int64, error)
 }
 
 // InboxAPI serves the sealed inbound mailbox: clients publish the public key
@@ -47,6 +54,7 @@ func (a *InboxAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /api/inbox/key", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PutInboxKey)))
 	mux.Handle("GET /api/inbox", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.ListInbox)))
 	mux.Handle("DELETE /api/inbox/{id}", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.AckInboxEvent)))
+	mux.Handle("DELETE /api/inbox", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.ClearInbox)))
 }
 
 type putInboxKeyRequest struct {
@@ -113,8 +121,16 @@ func (a *InboxAPI) ListInbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wire := make([]inboxEventWire, 0, len(events))
+	var bodyBytes int
 	for _, e := range events {
+		// Always include the first event even if it alone exceeds the budget,
+		// then stop before the budget is breached. Trims from the tail only, so
+		// ORDER BY id is preserved and the client pages the rest on re-drain.
+		if len(wire) > 0 && bodyBytes+len(e.CT) > maxInboxDrainBytes {
+			break
+		}
 		wire = append(wire, inboxEventWire{ID: e.ID, CreatedAtUnix: e.CreatedAt.Unix(), CT: e.CT})
+		bodyBytes += len(e.CT)
 	}
 	writeJSON(w, http.StatusOK, listInboxResponse{Events: wire})
 }
@@ -141,6 +157,33 @@ func (a *InboxAPI) AckInboxEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+type clearInboxResponse struct {
+	Cleared int64 `json:"cleared"`
+}
+
+// ClearInbox drops every pending event for the caller's account and returns the
+// count. This is the recovery escape hatch (med-eas.51): a permanently
+// un-appliable sealed event wedges sync forever, and the drain then never acks
+// anything, so the only way out is to discard the poison backlog. It DISCARDS
+// any un-applied sealed events — the same "throw away un-synced work to recover"
+// trade resetLocalSync already makes — so the client only calls it from the
+// reset path. Session-scoped: an account can only clear its own mailbox.
+func (a *InboxAPI) ClearInbox(w http.ResponseWriter, r *http.Request) {
+	session, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	cleared, err := a.store.ClearInboxEvents(r.Context(), session.AccountID)
+	if err != nil {
+		slog.Error("inbox: clear", "accountID", session.AccountID, "error", err)
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	slog.Info("inbox: cleared", "accountID", session.AccountID, "cleared", cleared)
+	writeJSON(w, http.StatusOK, clearInboxResponse{Cleared: cleared})
 }
 
 // ErrNoInboxKey means the account has never unlocked a client, so no key exists

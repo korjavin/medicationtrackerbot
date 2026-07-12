@@ -84,3 +84,17 @@ func (r *Repo) DeleteInboxEvent(ctx context.Context, accountID string, id int64)
 		`DELETE FROM inbox_events WHERE account_id = ? AND id = ?`, accountID, id)
 	return err
 }
+
+// ClearInboxEvents drops every pending event for the account, returning the
+// count removed. This is the recovery escape hatch (med-eas.51): a permanently
+// un-appliable sealed event (its ops exceed maxOpCTLen and wedge sync forever)
+// can only be cleared here — it DISCARDS those un-applied events, same as
+// resetLocalSync discards un-synced local writes. Scoped to the account.
+func (r *Repo) ClearInboxEvents(ctx context.Context, accountID string) (int64, error) {
+	res, err := r.db.ExecContext(ctx,
+		`DELETE FROM inbox_events WHERE account_id = ?`, accountID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}

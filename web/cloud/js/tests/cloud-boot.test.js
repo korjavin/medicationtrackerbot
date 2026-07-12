@@ -26,7 +26,7 @@ async function runBoot({ hash = '', modules, setupWindow }) {
   };
   // eslint-disable-next-line no-new-func
   const fn = new Function('window', 'location', 'console', 'URLSearchParams', '__imp', SRC);
-  fn(window, location, { error() {} }, URLSearchParams, __imp);
+  fn(window, location, { error() {}, warn() {} }, URLSearchParams, __imp);
   await window.MedTrackerCloudReady;
   return { location, window };
 }
@@ -112,6 +112,53 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
   it('hands a #claim= link to the /unlock shell before touching the warm-unlock cache', async () => {
     const { location } = await runBoot({ hash: '#claim=tok123', modules: {} });
     expect(location.href).toBe('/unlock#claim=tok123');
+  });
+});
+
+describe('CloudVault.resetLocalSync inbox-clear ordering (med-eas.51)', () => {
+  // A wedged account pauses the inbox poller's drain (drainInbox's wedge guard).
+  // resetLocalSync clears syncWedged, which un-pauses the drain, so the server
+  // inbox MUST be cleared while sync is still wedged — otherwise a live poll tick
+  // between un-wedge and clear re-fetches the poison event and re-wedges the
+  // account. Pin that clearInbox runs BEFORE sync.resetLocalSync.
+  async function bootWithReset(resetImpl) {
+    const order = [];
+    const { window } = await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
+        'sync.js': {
+          pullOnOpen: async () => {},
+          resetLocalSync: resetImpl || (async () => { order.push('reset'); }),
+        },
+        'inbox.js': { clearInbox: async () => { order.push('clear'); return 0; } },
+        'reminders.js': { scheduleReminderRecompute: () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+    return { window, order };
+  }
+
+  it('clears the server inbox before un-wedging local sync', async () => {
+    const { window, order } = await bootWithReset();
+    await window.CloudVault.resetLocalSync();
+    expect(order).toEqual(['clear', 'reset']);
+  });
+
+  it('still resets locally when the server inbox clear fails', async () => {
+    const order = [];
+    const { window } = await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
+        'sync.js': { pullOnOpen: async () => {}, resetLocalSync: async () => { order.push('reset'); } },
+        'inbox.js': { clearInbox: async () => { throw new Error('network down'); } },
+        'reminders.js': { scheduleReminderRecompute: () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+    await window.CloudVault.resetLocalSync();
+    expect(order).toEqual(['reset']);
   });
 });
 

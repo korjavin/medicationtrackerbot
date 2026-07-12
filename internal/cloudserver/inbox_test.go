@@ -243,12 +243,116 @@ func TestInbox_IsolatedPerAccount(t *testing.T) {
 	}
 }
 
+// A backlog of huge sealed events must not return one ~160MB body: the response
+// is byte-capped, so a drain pages through it (ack → re-fetch → next chunk) even
+// though the count cap alone would let all 200 through.
+func TestInbox_ByteCapsResponse(t *testing.T) {
+	h, host, accountID, session, store := inboxTestServer(t)
+	ctx := context.Background()
+
+	priv, _ := ecdh.X25519().GenerateKey(rand.Reader)
+	putInboxKey(t, h, host, session, priv.PublicKey().Bytes())
+
+	// Each sealed CT is a bit over 600 KiB, so any two together exceed the 1 MiB
+	// budget — the cap must return exactly one per fetch.
+	const events = 3
+	now := time.Now().UTC().Truncate(time.Second)
+	for i := 0; i < events; i++ {
+		if err := SealAndQueue(ctx, store, accountID, bytes.Repeat([]byte{byte('a' + i)}, 600<<10), now.Add(time.Duration(i)*time.Second)); err != nil {
+			t.Fatalf("SealAndQueue(%d): %v", i, err)
+		}
+	}
+
+	// Page through the backlog: each fetch returns a byte-bounded prefix (here 1),
+	// in id order, and acking it uncovers the next chunk.
+	var seenIDs []int64
+	for range make([]struct{}, events) {
+		res := listInbox(t, h, host, session)
+		if len(res.Events) != 1 {
+			t.Fatalf("byte cap returned %d events, want 1 (budget=%d)", len(res.Events), maxInboxDrainBytes)
+		}
+		id := res.Events[0].ID
+		if len(seenIDs) > 0 && id <= seenIDs[len(seenIDs)-1] {
+			t.Fatalf("ids out of order: %d after %v", id, seenIDs)
+		}
+		seenIDs = append(seenIDs, id)
+		if code := ackInbox(t, h, host, session, id); code != http.StatusNoContent {
+			t.Fatalf("ack %d = %d", id, code)
+		}
+	}
+	if got := listInbox(t, h, host, session); len(got.Events) != 0 {
+		t.Fatalf("backlog not drained: %d events remain", len(got.Events))
+	}
+}
+
+// TestInbox_ClearAll is the recovery escape hatch: DELETE /api/inbox drops the
+// whole backlog, returns the count, and is account-scoped so it cannot touch
+// another account's mailbox (med-eas.51).
+func TestInbox_ClearAll(t *testing.T) {
+	store := setupStore(t)
+	accountA, claimA := setupInvite(t, store)
+	accountB, claimB := setupInvite(t, store)
+	hostA := accountA.Subdomain + ".localhost"
+	hostB := accountB.Subdomain + ".localhost"
+
+	secret := "test-session-secret-at-least-32-bytes-long"
+	mux := http.NewServeMux()
+	NewWebAuthnAPI(store, secret).RegisterRoutes(mux)
+	NewInboxAPI(store, secret).RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+
+	sessionA := registerAndGetSession(t, h, hostA, claimA)
+	sessionB := registerAndGetSession(t, h, hostB, claimB)
+
+	privA, _ := ecdh.X25519().GenerateKey(rand.Reader)
+	privB, _ := ecdh.X25519().GenerateKey(rand.Reader)
+	putInboxKey(t, h, hostA, sessionA, privA.PublicKey().Bytes())
+	putInboxKey(t, h, hostB, sessionB, privB.PublicKey().Bytes())
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+	for i := 0; i < 3; i++ {
+		if err := SealAndQueue(ctx, store, accountA.ID, []byte(fmt.Sprintf("a-%d", i)), now); err != nil {
+			t.Fatalf("SealAndQueue A: %v", err)
+		}
+	}
+	if err := SealAndQueue(ctx, store, accountB.ID, []byte("b-0"), now); err != nil {
+		t.Fatalf("SealAndQueue B: %v", err)
+	}
+
+	// Clear A's mailbox: returns the count and empties it.
+	r := httptest.NewRequest(http.MethodDelete, "/api/inbox", nil)
+	r.Host = hostA
+	r.AddCookie(sessionA)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE /api/inbox = %d: %s", rec.Code, rec.Body.String())
+	}
+	var res clearInboxResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("unmarshal clear response: %v", err)
+	}
+	if res.Cleared != 3 {
+		t.Fatalf("cleared = %d, want 3", res.Cleared)
+	}
+	if got := listInbox(t, h, hostA, sessionA); len(got.Events) != 0 {
+		t.Fatalf("account A mailbox not empty after clear: %d", len(got.Events))
+	}
+
+	// Account B's event is untouched — clear is scoped.
+	if got := listInbox(t, h, hostB, sessionB); len(got.Events) != 1 {
+		t.Fatalf("clear on A affected B: %d events", len(got.Events))
+	}
+}
+
 func TestInbox_RequiresSession(t *testing.T) {
 	h, host, _, _, _ := inboxTestServer(t)
 	for _, tc := range []struct{ method, path string }{
 		{http.MethodGet, "/api/inbox"},
 		{http.MethodPut, "/api/inbox/key"},
 		{http.MethodDelete, "/api/inbox/1"},
+		{http.MethodDelete, "/api/inbox"},
 	} {
 		r := httptest.NewRequest(tc.method, tc.path, bytes.NewReader([]byte(`{}`)))
 		r.Host = host
