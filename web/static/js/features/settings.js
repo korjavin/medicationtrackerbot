@@ -379,15 +379,28 @@ function secondDeviceNudgeDismissKey() {
 // Raw fetch, not apiCall: /api/devices is a real server route (credential
 // state), and in cloud mode apiCall routes /api/* through the domain shim,
 // which has no such route. devices.js / transfer.js fetch it the same way.
-async function fetchDeviceCount() {
-    try {
-        const res = await fetch('/api/devices');
-        if (!res.ok) return null;
-        const devices = await res.json();
-        return Array.isArray(devices) ? devices.length : null;
-    } catch {
-        return null;
+//
+// Memoized for the page's lifetime (med-0ol.6): loadSettings() re-runs on every
+// tab repaint, and a cloud write repaints the open tab. A bulk .nxk import fires
+// hundreds of writes, so an un-memoized fetch here fanned a single import out
+// into thousands of /api/devices requests. The single-device count is stable
+// within a session — adding a device navigates through the /devices shell (full
+// reload, which re-inits this module) — so one fetch per load is all it needs.
+let _deviceCountPromise = null; // module-state: memoize the /api/devices fetch for the page's lifetime so a repaint storm can't fan it out (med-0ol.6)
+function fetchDeviceCount() {
+    if (!_deviceCountPromise) {
+        _deviceCountPromise = (async () => {
+            try {
+                const res = await fetch('/api/devices');
+                if (!res.ok) return null;
+                const devices = await res.json();
+                return Array.isArray(devices) ? devices.length : null;
+            } catch {
+                return null;
+            }
+        })();
     }
+    return _deviceCountPromise;
 }
 
 async function bindSecondDeviceNudge() {

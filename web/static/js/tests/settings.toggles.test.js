@@ -888,6 +888,31 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
+        // med-0ol.6 — loadSettings() re-runs on every tab repaint, and a cloud
+        // write repaints the open tab. A bulk .nxk import fires hundreds of
+        // writes, so an un-memoized /api/devices fetch here fanned a single
+        // import out into thousands of requests. The count is memoized for the
+        // page's lifetime, so a repaint storm can't multiply the fetch.
+        it('memoizes the device fetch so a repaint storm cannot fan out into many /api/devices requests', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                window.localStorage.clear();
+                withDevices(window, 1);
+                await mountCloud(window);
+                // Simulate the import's repeated repaints re-running loadSettings.
+                for (let i = 0; i < 25; i++) await window.loadSettings();
+
+                const deviceCalls = window.fetch.mock.calls.filter(([u]) => String(u) === '/api/devices');
+                expect(deviceCalls.length).toBe(1);
+                // The nudge still resolved correctly off that single fetch.
+                expect(document.getElementById('second-device-nudge').classList.contains('wg-settings-hidden')).toBe(false);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
         it('dismiss hides it and keeps it hidden on the next mount, per account', async () => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();

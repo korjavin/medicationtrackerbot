@@ -447,8 +447,11 @@ async function confirmDueIntakes({ intake, records, atMs, now }) {
 // whole drain on one of them would block the events it does understand.
 export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, foodAI: foodAIOverride, agent: agentOverride, prefs: prefsOverride } = {}) {
   // A Telegram-drained /bp must repaint an open BP screen (med-d5t.10), so this
-  // is explicitly external even though that is already the default.
-  const records = recordsOverride || recordsPort(ctx, ORIGIN_EXTERNAL);
+  // is explicitly external even though that is already the default. deferFlush:
+  // an applied event's writes only queue to 'pending'; drainInbox pushes them
+  // once (chunked) via its post-apply flushConfirmed barrier, so a bulk .nxk
+  // vitals_import stops emitting one /api/sync/ops POST per record (med-0ol.2).
+  const records = recordsOverride || recordsPort(ctx, ORIGIN_EXTERNAL, { deferFlush: true });
   const timeZone = defaultTimeZone();
   const intake = createIntakeDomain({ records, now, timeZone });
 
