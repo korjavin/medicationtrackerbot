@@ -95,6 +95,7 @@ CLOUD_INTERNAL_WEBHOOK_BASE=...     # Optional. Internal docker-network origin t
 # generated server-side at invite provisioning (backfilled for pre-existing
 # accounts at startup). No VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY to set.
 VAPID_SUBJECT=mailto:you@example.com  # Optional. Operator contact identifier (RFC 8292), never user data. Default: mailto:noreply@<CLOUD_BASE_DOMAIN>. Apple endpoints automatically get https://<CLOUD_BASE_DOMAIN> instead.
+REQUEST_INVITE_EMAIL=hello@example.com # Optional. Sets the "request an invite" contact address shown on the base-domain landing page (with a working mailto: link). Unset = no contact line (landing page byte-identical to today). HTML-escaped, so no format validation.
 ```
 
 ## MCP server (`cmd/mcptool`)

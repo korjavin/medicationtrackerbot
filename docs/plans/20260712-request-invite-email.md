@@ -111,10 +111,10 @@ Behavior contract:
 - [x] email is escaped in both text and href
 
 ### Task 6: [Final] Documentation
-- [ ] add `REQUEST_INVITE_EMAIL` to `docs/environment.md` under the Cloud
+- [x] add `REQUEST_INVITE_EMAIL` to `docs/environment.md` under the Cloud
   service (`cmd/cloud`) section, describing: optional; sets the "request an
   invite" contact address on the landing page; unset = no contact line
-- [ ] add a one-line mention to `docs/cloud-deployment.md`'s operator env list
+- [x] add a one-line mention to `docs/cloud-deployment.md`'s operator env list
 
 ## Technical Details
 - `REQUEST_INVITE_EMAIL` is a plain string (an email address). No format
