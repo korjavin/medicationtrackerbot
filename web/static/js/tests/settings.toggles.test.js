@@ -843,6 +843,42 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
+        // med-yor.3 — clearLocalVault now throws on unverified local erasure
+        // (e.g. the IDB delete was blocked). The server account is already
+        // gone at that point, so the UI must NOT navigate, and the message
+        // must be honest about the account being deleted server-side.
+        it('a failed local wipe after server delete shows an honest error and does not redirect', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const before = window.location.href;
+                const baseDomainURL = vi.fn(() => 'https://app.example/');
+                const mod = await mountCloudWithDeleteModule(window, {
+                    baseDomainURL,
+                    clearLocalVault: vi.fn(async () => { throw new Error('Close other open tabs of this app and try again.'); }),
+                });
+                document.getElementById('delete-account-open').click();
+                const input = document.getElementById('delete-account-confirm-input');
+                input.value = 'delete my account';
+                input.dispatchEvent(new window.Event('input'));
+                await Promise.resolve();
+                document.getElementById('delete-account-confirm').click();
+
+                await vi.waitFor(() => {
+                    const text = document.getElementById('delete-account-error').textContent;
+                    expect(text).toMatch(/account was deleted/i);
+                    expect(text).toMatch(/close other open tabs/i);
+                });
+                expect(mod.reauthAndDelete).toHaveBeenCalled();
+                expect(baseDomainURL).not.toHaveBeenCalled();
+                expect(window.location.href).toBe(before);
+                expect(document.getElementById('delete-account-confirm').disabled).toBe(false);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
         // med-hzy — the Cancel button must close the modal, and reopening must
         // still work. Root cause was that opening via a raw classList toggle
         // left the `inert` attribute (set by mt-modal.connectedCallback while

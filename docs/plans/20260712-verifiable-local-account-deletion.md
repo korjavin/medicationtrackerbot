@@ -140,7 +140,7 @@ secrets behind the same warning.
       3550 passed / 29 skipped — via vitest, node 22)
 
 ### Task 4: Keep settings.js navigation gated on verified erasure
-- [ ] In `web/static/js/features/settings.js`, ONLY the delete confirm handler
+- [x] In `web/static/js/features/settings.js`, ONLY the delete confirm handler
       (~lines 523-536): confirm that because `clearLocalVault()` now throws on
       unverified erasure, the existing `await clearLocalVault()` before
       `window.location.href = baseDomainURL()` already prevents navigation on
@@ -149,12 +149,16 @@ secrets behind the same warning.
       post-server-delete local-wipe failure, set a clearer honest message inside
       the catch (the account IS deleted server-side; only the local copy could not
       be erased) — but keep every change inside this handler. Do not touch any
-      other part of settings.js.
-- [ ] Extend the delete-flow describe in
+      other part of settings.js. (Added a `serverDeleted` flag; the catch now
+      prefixes "Your account was deleted, but this device's local copy could not
+      be erased." when the failure is post-server-delete. All changes inside the
+      confirm handler.)
+- [x] Extend the delete-flow describe in
       `web/static/js/tests/settings.toggles.test.js`: a case where
       `clearLocalVault` REJECTS (post-server-delete local wipe fails) → assert NO
       navigation occurs and the error text is shown. Reuse `mountCloudWithDeleteModule`.
-- [ ] Run `pnpm test` — must pass before Task 5.
+- [x] Run `pnpm test` — must pass before Task 5. (full suite: 309 files,
+      3551 passed / 29 skipped — via vitest, node 22)
 
 ### Task 5: Verify acceptance criteria
 - [ ] Verify: after deletion, IDB vault/device data removal is awaited and

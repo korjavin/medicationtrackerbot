@@ -523,14 +523,21 @@ function bindDeleteAccount() {
     confirmBtn.addEventListener('click', async () => {
         confirmBtn.disabled = true;
         if (errorEl) errorEl.textContent = '';
+        let serverDeleted = false;
         try {
             const { reauthAndDelete, clearLocalVault, baseDomainURL } = await loadAccountDeleteModule();
             await reauthAndDelete();
+            serverDeleted = true;
             await clearLocalVault();
             // The subdomain is gone; send the user somewhere that still exists.
             window.location.href = baseDomainURL();
         } catch (err) {
-            if (errorEl) errorEl.textContent = err.message || 'Could not delete the account.';
+            // Past the server delete, only the local wipe can fail — be honest
+            // that the account is gone but this device isn't clean yet.
+            const msg = err.message || 'Could not delete the account.';
+            if (errorEl) errorEl.textContent = serverDeleted
+                ? `Your account was deleted, but this device's local copy could not be erased. ${msg}`
+                : msg;
             confirmBtn.disabled = false;
         }
     });
