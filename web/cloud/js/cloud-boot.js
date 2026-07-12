@@ -160,6 +160,10 @@ window.MedTrackerCloudReady = (async function boot() {
                 console.warn('[cloud] import applied locally; sync to other devices deferred', err);
             }
         },
+        async resetLocalSync() {
+            const { resetLocalSync } = await import('/js/sync.js');
+            await resetLocalSync(ctx);
+        },
     };
 
     // --- Post-unlock boot. The vault is unlocked; from here on any failure

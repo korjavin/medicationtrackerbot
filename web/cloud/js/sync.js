@@ -1103,6 +1103,7 @@ export async function getSyncStatus(ctx) {
     snapshotError: meta.snapshotError || null,
     writeError: meta.writeError || null,
     clockSkewMs: meta.clockSkewMs || 0,
+    wedged: meta.syncWedged,
   };
 }
 
@@ -1118,6 +1119,7 @@ export async function describeSyncStatus(ctx) {
     parts.push(status.writeError.status === 413 ? 'Vault is full — new entries are not syncing' : 'Server refused this device\'s writes');
   }
   if (status.snapshotError) parts.push('Vault too large to sync');
+  if (status.wedged) parts.push('Sync paused after repeated failures — reset local sync to recover');
   // A skewed clock silently reorders edits across devices. Say so: the merge
   // guards below keep the common case correct, but the user should fix the clock.
   if (Math.abs(status.clockSkewMs) > CLOCK_SKEW_WARN_MS) {

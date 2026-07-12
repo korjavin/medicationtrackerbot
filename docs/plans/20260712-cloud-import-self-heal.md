@@ -140,11 +140,11 @@ is caught.
       next bootstrap starts clean.
 
 ### Task 3: Surface wedged state + wire CloudVault.resetLocalSync (med-0ol.7)
-- [ ] In `sync.js`, add `wedged: meta.syncWedged` to `getSyncStatus()`'s return.
-- [ ] In `describeSyncStatus()`, when `wedged`, push a clear recovery hint (e.g.
+- [x] In `sync.js`, add `wedged: meta.syncWedged` to `getSyncStatus()`'s return.
+- [x] In `describeSyncStatus()`, when `wedged`, push a clear recovery hint (e.g.
       "Sync paused after repeated failures — reset local sync to recover") —
       plain text, joined into the existing status line.
-- [ ] In `cloud-boot.js`, add `resetLocalSync` to `window.CloudVault` as a
+- [x] In `cloud-boot.js`, add `resetLocalSync` to `window.CloudVault` as a
       dynamic-import wrapper mirroring `exportAll`/`importAll`:
       `async resetLocalSync() { const { resetLocalSync } = await import('/js/sync.js'); await resetLocalSync(ctx); }`.
 
