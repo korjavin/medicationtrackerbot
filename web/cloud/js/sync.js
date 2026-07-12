@@ -29,6 +29,13 @@ const SNAPSHOT_THRESHOLD = 500;
 const MAX_OPS_PER_BATCH = 500; // == sync.go maxOpsPerBatch
 const FLUSH_MAX_BODY_BYTES = 900 * 1024; // stay under the server's 1 MiB body cap
 
+// Consecutive permanent-error flush opens before syncing pauses (med-0ol.7).
+// #613 stopped the tight loop but a doomed batch still re-POSTs once per open,
+// forever. After this many permanent 4xx failures, flushPending gives up and
+// sets syncWedged so it stops re-posting the un-acceptable batch; the user
+// recovers via resetLocalSync. Transient errors (5xx/offline) never count.
+const WRITE_ERROR_BUDGET = 3;
+
 // record_type_tag is the only wire field the server stores unencrypted
 // alongside the ciphertext (opWire.RecordTypeTag) — packing "<type>:<recordId>"
 // into it lets the reading client recover record_type/record_id for the AAD
@@ -100,7 +107,7 @@ async function readMeta() {
   try {
     const tx = db.transaction('sync_meta', 'readonly');
     const store = tx.objectStore('sync_meta');
-    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs] = await Promise.all([
+    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs, writeErrorStreak, syncWedged] = await Promise.all([
       reqToPromise(store.get('localLastSeq')),
       reqToPromise(store.get('lastSnapshotSeq')),
       reqToPromise(store.get('lastSyncedAt')),
@@ -110,6 +117,8 @@ async function readMeta() {
       reqToPromise(store.get('snapshotErrorSeq')),
       reqToPromise(store.get('writeError')),
       reqToPromise(store.get('clockSkewMs')),
+      reqToPromise(store.get('writeErrorStreak')),
+      reqToPromise(store.get('syncWedged')),
     ]);
     return {
       localLastSeq: localLastSeq ?? null,
@@ -121,6 +130,8 @@ async function readMeta() {
       writeError: writeError ?? null,
       clockSkewMs: clockSkewMs ?? 0,
       snapshotErrorSeq: snapshotErrorSeq ?? null,
+      writeErrorStreak: writeErrorStreak ?? 0,
+      syncWedged: syncWedged ?? false,
     };
   } finally {
     db.close();
@@ -736,6 +747,11 @@ const FLUSH_MAX_ATTEMPTS = 5;
 // once the ops it produced are durably on the server. Every other caller
 // ignores the value, exactly as before.
 async function flushPending(ctx) {
+  // A wedged device stops re-posting the doomed batch (med-0ol.7): after
+  // WRITE_ERROR_BUDGET consecutive permanent errors, syncing pauses until the
+  // user runs resetLocalSync. Writes still queue durably to 'pending' — nothing
+  // is lost — but we no longer re-POST a batch the server will keep refusing.
+  if ((await readMeta()).syncWedged) return false;
   const kData = await getKData(ctx);
   // Convergence under concurrent writers. Each record's AAD binds account_seq
   // (docs' "Seq assignment vs AAD"), but the client can't know its assigned
@@ -835,7 +851,16 @@ async function flushPending(ctx) {
       // Records stay in 'pending' either way — nothing is lost, and the next
       // open retries — but the status line must name the real cause.
       if (isPermanentSyncStatus(res.status)) {
-        await writeMeta({ writeError: { status: res.status, at: Date.now() } });
+        // Count consecutive permanent failures against a budget: once it's spent
+        // the batch is genuinely doomed, so wedge syncing rather than re-POST it
+        // on every open forever (med-0ol.7). Transient (5xx/offline) failures
+        // fall through below and never touch the streak.
+        const streak = (meta.writeErrorStreak ?? 0) + 1;
+        await writeMeta({
+          writeError: { status: res.status, at: Date.now() },
+          writeErrorStreak: streak,
+          ...(streak >= WRITE_ERROR_BUDGET ? { syncWedged: true } : {}),
+        });
         offline = false;
         return false;
       }
@@ -846,8 +871,9 @@ async function flushPending(ctx) {
     await noteServerDate(res);
     const { assigned } = await res.json();
     // Cleared on the first batch the server accepts: the quota was raised, or
-    // the user freed space.
-    await writeMeta({ lastSyncedAt: Date.now(), writeError: null });
+    // the user freed space. Reset the permanent-error streak too — the server is
+    // accepting writes again, so the budget starts fresh.
+    await writeMeta({ lastSyncedAt: Date.now(), writeError: null, writeErrorStreak: 0 });
     if (assigned[0] === meta.localLastSeq + 1) {
       // Assigned contiguously from our cursor — predicted seqs equal assigned
       // seqs, so every op's AAD is correct and other devices can decrypt them.

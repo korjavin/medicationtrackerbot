@@ -113,17 +113,17 @@ is caught.
 ## Implementation Steps
 
 ### Task 1: Write-error retry budget → pause syncing (med-0ol.7 self-heal a)
-- [ ] In `sync.js`, add `const WRITE_ERROR_BUDGET = 3;` near the other sync caps,
+- [x] In `sync.js`, add `const WRITE_ERROR_BUDGET = 3;` near the other sync caps,
       with a comment: consecutive permanent-error opens before syncing pauses.
-- [ ] Extend `readMeta()` to read `writeErrorStreak` (default 0) and `syncWedged`
+- [x] Extend `readMeta()` to read `writeErrorStreak` (default 0) and `syncWedged`
       (default false); add both to the returned object and the `Promise.all` batch.
-- [ ] In `flushPending()`, at the top (before the drain loop), early-return
+- [x] In `flushPending()`, at the top (before the drain loop), early-return
       `false` when `syncWedged` is set — a wedged device stops re-posting the
       doomed batch (writes still queue durably to `pending`, nothing is lost).
-- [ ] In `flushPending()`'s permanent-4xx write-error branch, increment
+- [x] In `flushPending()`'s permanent-4xx write-error branch, increment
       `writeErrorStreak`; when it reaches `WRITE_ERROR_BUDGET`, also set
       `syncWedged: true`. Persist both alongside the existing `writeError`.
-- [ ] On the successful-POST branch, reset `writeErrorStreak: 0` (add to the
+- [x] On the successful-POST branch, reset `writeErrorStreak: 0` (add to the
       existing `writeMeta({ lastSyncedAt, writeError: null })`). Transient
       (offline/5xx) failures must NOT touch the streak — confirm that branch is
       untouched.
