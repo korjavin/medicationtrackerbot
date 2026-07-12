@@ -42,6 +42,9 @@ type Handler struct {
 	buildID    string       // asset fingerprint lifted out of appIndex; see version.go
 	api        http.Handler
 	mcp        http.Handler // Task 2: hosted-remote streamable-HTTP MCP endpoint, mounted at "/mcp/<token>"; nil until SetMCPHandler is called
+
+	landingRaw   []byte // web/cloud/index.html verbatim, used to build landingIndex
+	landingIndex []byte // landingRaw + "request an invite" contact line; nil = serve the raw shell file (today's behavior), see SetRequestInviteEmail
 }
 
 // New builds the host-routing Handler. shellFS is the embedded web/cloud tree
@@ -64,6 +67,10 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 	if err != nil {
 		panic("cloudserver: appFS missing index.html: " + err.Error())
 	}
+	landing, err := fs.ReadFile(shellFS, "index.html")
+	if err != nil {
+		panic("cloudserver: shellFS missing index.html: " + err.Error())
+	}
 	buildID := buildIDFrom(idx)
 	return &Handler{
 		baseDomain: baseDomain,
@@ -74,7 +81,40 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 		appIndex:   injectCloudBoot(idx, foodDBURL, trialAI, trialVoice, buildID),
 		buildID:    buildID,
 		api:        api,
+		landingRaw: landing,
 	}
+}
+
+// SetRequestInviteEmail adds a "request an invite" contact line (a mailto:
+// link) to the base-domain landing page. Non-empty email → build landingIndex
+// once, injected before </main>; empty email → leave landingIndex nil (the
+// landing page is served verbatim, byte-identical to today). Setter rather
+// than a New param to avoid churning the ~35 test call sites, mirroring
+// SetMCPHandler. The email comes from the operator's REQUEST_INVITE_EMAIL env
+// (cmd/cloud) and is HTML-escaped in both the visible text and the href.
+func (h *Handler) SetRequestInviteEmail(email string) {
+	if email == "" {
+		return
+	}
+	h.landingIndex = injectRequestInvite(h.landingRaw, email)
+}
+
+// injectRequestInvite splices a plain <p> with a mailto: link before the
+// </main> marker. The email is escaped in BOTH the visible text and the href
+// (html.EscapeString neutralizes < > & " ', enough to stop element injection
+// in the text and attribute breakout in the double-quoted href). No style=
+// attr — the <p> inherits the landing page's existing styles (CSP forbids
+// inline style anyway). Panics if </main> is absent, guarding a broken asset.
+func injectRequestInvite(idx []byte, email string) []byte {
+	const marker = "</main>"
+	esc := html.EscapeString(email)
+	inject := "  <p>Contact us if you'd like an invite and aren't sure where to get one: " +
+		"<a href=\"mailto:" + esc + "\">" + esc + "</a></p>\n</main>"
+	out := bytes.Replace(idx, []byte(marker), []byte(inject), 1)
+	if bytes.Equal(out, idx) {
+		panic("cloudserver: landing index.html missing </main> to inject request-invite line")
+	}
+	return out
 }
 
 // SetMCPHandler wires the Task 2 hosted-remote streamable-HTTP MCP endpoint
@@ -208,6 +248,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// assets, /api/*) keeps 'self'.
 	setSecurityHeaders(w, false, nil)
 	if host == h.baseDomain {
+		if h.landingIndex != nil && (r.URL.Path == "/" || r.URL.Path == "/index.html") {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write(h.landingIndex)
+			return
+		}
 		h.shell.ServeHTTP(w, r)
 		return
 	}

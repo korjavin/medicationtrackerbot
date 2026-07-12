@@ -65,25 +65,25 @@ Behavior contract:
   (no validation, no default — empty means "no contact line")
 
 ### Task 2: Landing-page injection in the router
-- [ ] in `internal/cloudserver/router.go` `New(...)`, read the shell's
+- [x] in `internal/cloudserver/router.go` `New(...)`, read the shell's
   `index.html` from `shellFS` (`fs.ReadFile(shellFS, "index.html")`) and store
   the raw bytes on the `Handler` (e.g. `landingRaw []byte`); panic if missing
   (it is a required embedded asset, mirroring the appFS read)
-- [ ] add a `landingIndex []byte` field on `Handler` (nil = serve the raw shell
+- [x] add a `landingIndex []byte` field on `Handler` (nil = serve the raw shell
   file unchanged, i.e. today's behavior)
-- [ ] add `func (h *Handler) SetRequestInviteEmail(email string)`: on non-empty
+- [x] add `func (h *Handler) SetRequestInviteEmail(email string)`: on non-empty
   email, compute `h.landingIndex` by injecting the contact `<p>` before
   `</main>`; on empty email, leave `landingIndex` nil (no-op)
-- [ ] add an `injectRequestInvite(idx []byte, email string) []byte` helper that
+- [x] add an `injectRequestInvite(idx []byte, email string) []byte` helper that
   builds `<p>Contact us if you'd like an invite and aren't sure where to get
   one: <a href="mailto:ESC">ESC</a></p>` where `ESC = html.EscapeString(email)`
   (escaped in BOTH the visible text and the href), inserted before the
   `</main>` marker; panic if the marker is absent (guards a broken real asset)
-- [ ] in `ServeHTTP`, in the `host == h.baseDomain` branch, when
+- [x] in `ServeHTTP`, in the `host == h.baseDomain` branch, when
   `h.landingIndex != nil` AND the request path is `/` or `/index.html`, write
   `h.landingIndex` with `Content-Type: text/html; charset=utf-8`; otherwise fall
   through to `h.shell.ServeHTTP` unchanged
-- [ ] no hardcoded colors / inline styles: the injected `<p>`/`<a>` use the
+- [x] no hardcoded colors / inline styles: the injected `<p>`/`<a>` use the
   page's existing `.landing` inherited styles (a plain `<p>`, no `style=` attr)
 
 ### Task 3: Wire the setter in cmd/cloud/main.go
