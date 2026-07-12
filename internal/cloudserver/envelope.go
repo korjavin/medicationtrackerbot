@@ -34,7 +34,7 @@ type envelopeStore interface {
 	ListEnvelopes(ctx context.Context, accountID string) ([]cloudstore.Envelope, error)
 	SetRecoveryMaterial(ctx context.Context, accountID string, env cloudstore.Envelope, verifierHash []byte) error
 	SetLossAck(ctx context.Context, accountID string, ackAt time.Time) error
-	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
+	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
 }
 
 // EnvelopeAPI holds the account-scoped envelope storage + recovery material

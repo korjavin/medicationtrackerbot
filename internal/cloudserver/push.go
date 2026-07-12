@@ -47,7 +47,7 @@ const (
 type pushStore interface {
 	UpsertPushSubscription(ctx context.Context, accountID, endpoint, p256dh, auth string, now time.Time) error
 	DeletePushSubscription(ctx context.Context, accountID, endpoint string) error
-	CredentialExists(ctx context.Context, credentialID []byte) (bool, error)
+	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
 	ReplaceSchedule(ctx context.Context, accountID string, entries []cloudstore.ScheduledPushInput, now time.Time) error
 	GetByEndpoint(ctx context.Context, accountID, endpoint string) (*cloudstore.PushSubscription, error)
 	Disable(ctx context.Context, endpoint string) error

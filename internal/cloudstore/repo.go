@@ -622,11 +622,16 @@ func (r *Repo) CredentialsByAccount(ctx context.Context, accountID string) ([]Cr
 }
 
 // CredentialExists reports whether credentialID is still a registered
-// credential — used by session verification to reject tokens minted for a
-// credential that has since been revoked.
-func (r *Repo) CredentialExists(ctx context.Context, credentialID []byte) (bool, error) {
+// credential owned by accountID — used by session verification to reject
+// tokens minted for a credential that has since been revoked. The account_id
+// predicate is load-bearing: credentials.id is a global PRIMARY KEY, so once a
+// revoked credential's PK is vacated another account can re-register the same
+// id bytes; without the account scope a revoked device's still-valid session
+// token would pass this check against the new owner's credential and defeat
+// revocation.
+func (r *Repo) CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error) {
 	var exists int
-	err := r.db.QueryRowContext(ctx, `SELECT 1 FROM credentials WHERE id = ?`, credentialID).Scan(&exists)
+	err := r.db.QueryRowContext(ctx, `SELECT 1 FROM credentials WHERE id = ? AND account_id = ?`, credentialID, accountID).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
