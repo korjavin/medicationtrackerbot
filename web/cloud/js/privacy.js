@@ -95,6 +95,12 @@ export const PRIVACY_ITEMS = [
   },
   {
     category: 'visible',
+    docSignal: 'Drug-name search + interaction queries',
+    title: 'Drug-name and interaction lookups',
+    detail: 'Drug searches and interaction checks are relayed through the operator\'s server to RxNav (NIH) — the server can see the drug name in transit but is blind by design: it never logs or stores the query. Only the resolved drug id is kept on the medication record.',
+  },
+  {
+    category: 'visible',
     docSignal: null,
     title: 'A Telegram message, briefly, before it is sealed',
     detail: 'Telegram delivers your messages to the bot in the clear, so the relay unavoidably sees an inbound message in memory for the instant it takes to seal it to your account. It is never stored unsealed.',
@@ -106,12 +112,6 @@ export const PRIVACY_ITEMS = [
     docSignal: 'Food/barcode search terms',
     title: 'Food and barcode searches',
     detail: 'Search terms go to the configured food database (the same exposure as searching a public food catalogue). The endpoint is swappable in settings.',
-  },
-  {
-    category: 'leaves',
-    docSignal: 'Drug-name search + interaction queries',
-    title: 'Drug-name and interaction lookups',
-    detail: 'Drug searches and interaction checks go from your browser directly to RxNav (NIH), never through the operator. Only the resolved drug id is kept on the medication record.',
   },
   {
     category: 'leaves',

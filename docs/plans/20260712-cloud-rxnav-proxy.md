@@ -153,7 +153,7 @@ to connect-src, never emit a wildcard connect-src**):
 - [x] `pnpm test` (egress-hosts suite) — must pass before next task.
 
 ### Task 5: Consistency test + disclosure updates
-- [ ] Create `web/cloud/js/tests/egress-consistency.test.js`: scan every
+- [x] Create `web/cloud/js/tests/egress-consistency.test.js`: scan every
       non-test `web/cloud/js/**/*.js`, strip `//` and `/* */` comments, regex
       `https?://<host>` string LITERALS from the remaining code, collect the
       host set, assert each host is in a curated `ALLOWED` map `{host: reason}`
@@ -164,21 +164,23 @@ to connect-src, never emit a wildcard connect-src**):
       `/api/rxnav/` (proves it is proxied). Contract comment: any new literal
       external fetch host fails CI until proxied or added to `ALLOWED` with
       justification.
-- [ ] `web/cloud/js/privacy.js`: rewrite the `PRIVACY_ITEMS` entry whose
+- [x] `web/cloud/js/privacy.js`: rewrite the `PRIVACY_ITEMS` entry whose
       `docSignal` is `'Drug-name search + interaction queries'` — move
       `category` from `leaves` to `visible`; keep the `docSignal` string
       EXACTLY unchanged; rewrite `title`/`detail` to describe the same-origin
       blind proxy (operator sees the query in transit, blind by the log
       invariant; nothing persisted beyond `rxcui`/`normalized_name`).
-- [ ] `docs/cloud-mode.md`: in the `## Metadata leakage summary` table, for the
+- [x] `docs/cloud-mode.md`: in the `## Metadata leakage summary` table, for the
       row whose Signal is `Drug-name search + interaction queries` keep the
       Signal cell identical but update "Who learns it" (cloud operator via blind
       same-origin proxy + RxNav) and "Mitigation" (proxied to keep connect-src
       minimal; blind by log invariant; nothing persisted beyond
       rxcui/normalized_name). Update the "RxNorm direct-from-browser" bullet
       (~L661) to say it is now same-origin-proxied, not browser-direct.
-- [ ] `pnpm test` — `privacy.drift.test.js`, `egress-consistency.test.js`, and
-      the full frontend suite must pass.
+- [x] `pnpm test` — `privacy.drift.test.js`, `egress-consistency.test.js`, and
+      the full frontend suite must pass. (310 files / 3551 tests green with
+      Node 20.18.1 from /tmp — worktree's system node 18 is too old for
+      vitest 3.)
 
 ### Task 6: Verify acceptance criteria
 - [ ] `go build ./...` — clean (server build; also spot-check
