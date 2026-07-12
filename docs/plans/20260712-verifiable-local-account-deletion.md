@@ -74,37 +74,38 @@ secrets behind the same warning.
 ## Implementation Steps
 
 ### Task 1: Harden clearLocalVault() with verified IDB deletion + best-effort push/SW cleanup
-- [ ] In `web/cloud/js/account-delete.js`, rewrite `clearLocalVault()` so it, in
+- [x] In `web/cloud/js/account-delete.js`, rewrite `clearLocalVault()` so it, in
       order: (1) best-effort `await import('./push.js')` then `unsubscribe()`
       inside its own try/catch (a failure must NOT block or fail the wipe);
       (2) best-effort service-worker unregister — `navigator.serviceWorker
       ?.getRegistration('/')` then `reg.unregister()` — in its own try/catch;
       (3) the load-bearing verified IndexedDB delete; (4) best-effort
       `caches.keys()`/`delete()` cleanup as today.
-- [ ] Implement the IDB delete as an awaited Promise around
+- [x] Implement the IDB delete as an awaited Promise around
       `indexedDB.deleteDatabase('medtracker-cloud')`: resolve on `req.onsuccess`
       (onsuccess IS the removal confirmation), reject on `req.onerror`, and treat
       `req.onblocked` as a recoverable failure that rejects with an actionable
       message (e.g. "Close other open tabs of this app and try again."). Guard the
       `typeof indexedDB === 'undefined'` / missing-`deleteDatabase` case (resolve).
-- [ ] Ensure the function only resolves once deletion is verified; on
+- [x] Ensure the function only resolves once deletion is verified; on
       error/blocked it THROWS (propagates) so the caller can surface an honest
       recoverable error — do not swallow the IDB failure (unlike the best-effort
       push/SW/caches steps).
-- [ ] Update the `clearLocalVault` doc comment to state the new contract (verified
+- [x] Update the `clearLocalVault` doc comment to state the new contract (verified
       erasure; throws on unverified local wipe; push/SW/caches are best-effort).
-- [ ] Extend `web/cloud/js/tests/account-delete.test.js` `describe('clearLocalVault')`:
+- [x] Extend `web/cloud/js/tests/account-delete.test.js` `describe('clearLocalVault')`:
       happy path — `deleteDatabase` returns a request; firing `onsuccess` resolves
       and caches are still cleared; assert push `unsubscribe` + SW `unregister`
       were attempted. Mock `indexedDB.deleteDatabase` to return a request object
       whose `on*` handlers the test fires; mock `navigator.serviceWorker
       .getRegistration`/`registration.unregister`; stub the dynamic `./push.js`
       import (e.g. `vi.mock`) so `unsubscribe` is observable.
-- [ ] Extend the same describe: BLOCKED path — firing `onblocked` → `clearLocalVault()`
+- [x] Extend the same describe: BLOCKED path — firing `onblocked` → `clearLocalVault()`
       REJECTS with a recoverable error and never resolves as success. ERROR path —
       firing `onerror` → rejects. And: a push-unsubscribe throw or SW-unregister
       throw does NOT fail the wipe (IDB `onsuccess` still resolves).
-- [ ] Run `pnpm test` (at least the account-delete suite) — must pass before Task 2.
+- [x] Run `pnpm test` (at least the account-delete suite) — must pass before Task 2.
+      (account-delete: 13 passed; settings.toggles: 40 passed — via vitest, node 22)
 
 ### Task 2: Auto-close this tab's DB handles so they don't block deletion
 - [ ] In `web/cloud/js/localdb.js` `openDb()`, on the resolved connection set

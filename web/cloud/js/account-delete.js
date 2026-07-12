@@ -60,19 +60,35 @@ export async function reauthAndDelete() {
 
 // clearLocalVault wipes this device's local mirror + warm-unlock cache after the
 // server delete, so the app can't try to reopen an account that no longer
-// exists. Best-effort: failures here don't undo the delete.
+// exists. Contract: the IndexedDB deletion is VERIFIED — this resolves only after
+// the browser confirms the database is gone, and THROWS a recoverable error if
+// the delete fails or is blocked by another open tab, so the caller can surface
+// an honest "local copy not erased" message instead of navigating away. The push
+// unsubscribe, service-worker unregister, and caches cleanup are best-effort:
+// their failures never block or fail the wipe.
 export async function clearLocalVault() {
   try {
-    if (typeof indexedDB !== 'undefined' && indexedDB.deleteDatabase) {
-      indexedDB.deleteDatabase('medtracker-cloud');
-    }
-  } catch { /* ignore */ }
+    const push = await import('./push.js');
+    await push.unsubscribe();
+  } catch { /* best-effort */ }
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration('/');
+    if (reg) await reg.unregister();
+  } catch { /* best-effort */ }
+  if (typeof indexedDB !== 'undefined' && indexedDB.deleteDatabase) {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error || new Error('Could not erase this device’s local copy.'));
+      req.onblocked = () => reject(new Error('Close other open tabs of this app and try again.'));
+    });
+  }
   try {
     if (typeof caches !== 'undefined' && caches.keys) {
       const names = await caches.keys();
       await Promise.all(names.map((n) => caches.delete(n)));
     }
-  } catch { /* ignore */ }
+  } catch { /* best-effort */ }
 }
 
 // The word the user types to confirm. Deliberately not the subdomain — a friend

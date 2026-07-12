@@ -7,6 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { reauthAndDelete, exportVaultToFile, baseDomainURL, clearLocalVault, DELETE_CONFIRM_PHRASE } from '../account-delete.js';
 
+// clearLocalVault dynamic-imports ./push.js for the best-effort unsubscribe;
+// mock it so the test observes the call without dragging in the real module.
+const { mockUnsubscribe } = vi.hoisted(() => ({ mockUnsubscribe: vi.fn(async () => {}) }));
+vi.mock('../push.js', () => ({ unsubscribe: mockUnsubscribe }));
+
 let fetchCalls;
 
 // Node exposes globalThis.navigator as a read-only accessor, so a plain
@@ -126,18 +131,68 @@ describe('baseDomainURL', () => {
 });
 
 describe('clearLocalVault', () => {
-  it('deletes the local mirror and caches, swallowing failures', async () => {
-    const deleted = [];
-    globalThis.indexedDB = { deleteDatabase: (n) => deleted.push(n) };
+  let unregister;
+
+  // fire names the IDBOpenDBRequest event handler ('onsuccess' | 'onerror' |
+  // 'onblocked') the mock request delivers, one microtask after deleteDatabase
+  // returns — i.e. after clearLocalVault has assigned its handlers.
+  function stubIdb(fire, error) {
+    const req = { error };
+    globalThis.indexedDB = {
+      deleteDatabase: vi.fn((name) => {
+        expect(name).toBe('medtracker-cloud');
+        queueMicrotask(() => req[fire] && req[fire]());
+        return req;
+      }),
+    };
+  }
+
+  beforeEach(() => {
+    mockUnsubscribe.mockClear();
+    mockUnsubscribe.mockResolvedValue(undefined);
+    unregister = vi.fn(async () => true);
+    setNavigator({ serviceWorker: { getRegistration: vi.fn(async () => ({ unregister })) } });
     globalThis.caches = { keys: async () => ['c1', 'c2'], delete: vi.fn(async () => true) };
+  });
+
+  afterEach(() => {
+    delete globalThis.indexedDB;
+    delete globalThis.caches;
+  });
+
+  it('verifies the IDB delete, clears caches, and attempts push + SW cleanup', async () => {
+    stubIdb('onsuccess');
 
     await clearLocalVault();
 
-    expect(deleted).toContain('medtracker-cloud');
+    expect(globalThis.indexedDB.deleteDatabase).toHaveBeenCalledWith('medtracker-cloud');
+    expect(mockUnsubscribe).toHaveBeenCalled();
+    expect(unregister).toHaveBeenCalled();
     expect(globalThis.caches.delete).toHaveBeenCalledTimes(2);
+  });
 
-    delete globalThis.indexedDB;
-    delete globalThis.caches;
+  it('rejects with a recoverable "close other tabs" error when the delete is blocked', async () => {
+    stubIdb('onblocked');
+
+    await expect(clearLocalVault()).rejects.toThrow(/close other open tabs/i);
+    expect(globalThis.caches.delete).not.toHaveBeenCalled();
+  });
+
+  it('rejects when the delete errors', async () => {
+    stubIdb('onerror', new Error('quota gremlin'));
+
+    await expect(clearLocalVault()).rejects.toThrow('quota gremlin');
+  });
+
+  it('still wipes when push unsubscribe and SW unregister both throw', async () => {
+    stubIdb('onsuccess');
+    mockUnsubscribe.mockRejectedValue(new Error('push down'));
+    unregister.mockRejectedValue(new Error('sw down'));
+
+    await clearLocalVault();
+
+    expect(globalThis.indexedDB.deleteDatabase).toHaveBeenCalled();
+    expect(globalThis.caches.delete).toHaveBeenCalledTimes(2);
   });
 });
 
