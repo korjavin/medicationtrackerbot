@@ -175,12 +175,13 @@ Dependencies identified: none new. No new HTTP route. No schema/migration change
 - [x] run `npx vitest run` — must pass
 
 ### Task 6: Verify acceptance criteria
-- [ ] verify all Overview requirements are implemented (downsampling + event
+- [x] verify all Overview requirements are implemented (downsampling + event
       chunking + record chunking; daily aggregates preserved; GPS discarded)
-- [ ] `go build ./... && go build -tags mobile ./...`
-- [ ] `TZ=UTC go test ./internal/cloudserver/... ./internal/domain/nxk/...`
-- [ ] `npx vitest run`
-- [ ] run any repo linter/architecture guards that apply to touched files
+- [x] `go build ./... && go build -tags mobile ./...`
+- [x] `TZ=UTC go test ./internal/cloudserver/... ./internal/domain/nxk/...`
+- [x] `npx vitest run` (inbox-apply owning suite + web/domain)
+- [x] run any repo linter/architecture guards that apply to touched files
+      (architecture.domain-purity)
 
 ### Task 7: [Final] Update docs/knowledge if a new pattern emerged
 - [ ] if the downsample cadence / chunk-size constants are a durable convention,
