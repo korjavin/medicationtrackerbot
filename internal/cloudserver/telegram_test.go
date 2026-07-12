@@ -55,7 +55,7 @@ func fakeTG(t *testing.T, responses map[string]string) *httptest.Server {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		// The real API pairs an ok:false envelope with a matching HTTP status,
-		// and tgclient.IsClientError classifies on that status â so a fake that
+		// and tgclient.IsClientError classifies on that status — so a fake that
 		// always answered 200 could never exercise the permanent-vs-transient
 		// split. Mirror error_code onto the status line.
 		var probe struct {
@@ -137,8 +137,8 @@ func TestBootstrapGetMeRetry(t *testing.T) {
 }
 
 // TestTelegramProvisioningStateMachine guards the managed-bot binding flow end
-// to end against a fake Telegram API: provision â status pending â managed_bot
-// webhook â status bot_created with the token sealed at rest; a webhook whose
+// to end against a fake Telegram API: provision → status pending → managed_bot
+// webhook → status bot_created with the token sealed at rest; a webhook whose
 // username never matched a pending row (edited username) leaves status pending.
 func TestTelegramProvisioningStateMachine(t *testing.T) {
 	store := setupStore(t)
@@ -165,7 +165,7 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 
 	session := registerAndGetSession(t, top, host, claimToken)
 
-	// provision â deep link + suggested username
+	// provision → deep link + suggested username
 	provRec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/provision", host, session, nil)
 	if provRec.Code != http.StatusOK {
 		t.Fatalf("provision status = %d, body %q", provRec.Code, provRec.Body.String())
@@ -188,7 +188,7 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 		t.Fatalf("status after provision = %q, want pending", got)
 	}
 
-	// managed_bot webhook with the matching suggested username â bot created
+	// managed_bot webhook with the matching suggested username → bot created
 	managerSecret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
 	update := `{"update_id":1,"message":{"message_id":1,"from":{"id":6918132008},"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":909,"username":"` + prov.Suggested + `"}}}}`
 	whRec := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, update)
@@ -238,7 +238,7 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 		t.Fatalf("status after edited-username webhook = %q, want pending (unmatched drop)", got)
 	}
 
-	// reset clears the stuck pending row â status back to none, no TTL wait
+	// reset clears the stuck pending row → status back to none, no TTL wait
 	if resetRec := doReq(t, top, http.MethodPost, "http://"+host2+"/api/telegram/reset", host2, session2, nil); resetRec.Code != http.StatusOK {
 		t.Fatalf("reset status = %d, body %q", resetRec.Code, resetRec.Body.String())
 	}
@@ -251,7 +251,7 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 	}
 
 	// A managed_bot webhook that arrives after reset deleted the pending row
-	// (the "start over" race) must NOT bind a bot â the atomic pending gate in
+	// (the "start over" race) must NOT bind a bot — the atomic pending gate in
 	// UpsertManagedBotIfPending drops it with 200 and status stays none.
 	rc := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret,
 		`{"update_id":3,"message":{"message_id":3,"from":{"id":6918132008},"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":911,"username":"`+prov2.Suggested+`"}}}}`)
@@ -262,7 +262,7 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 		t.Fatalf("status after post-reset webhook = %q, want none (no bind after reset)", got)
 	}
 
-	// wrong secret â 403
+	// wrong secret → 403
 	if whRec3 := postWebhook(t, top, "/tg/manager/deadbeef", "deadbeef", update); whRec3.Code != http.StatusForbidden {
 		t.Fatalf("wrong-secret webhook status = %d, want 403", whRec3.Code)
 	}
@@ -273,7 +273,7 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 const fakePhotoBytes = "\xff\xd8\xffFAKEJPEG"
 
 // recordingTG is a fake api.telegram.org that records sendMessage payloads and
-// rejects getMe for a sentinel bad token â enough to exercise the linking +
+// rejects getMe for a sentinel bad token — enough to exercise the linking +
 // BYO-validation contract of Task 4.
 type recordingTG struct {
 	srv *httptest.Server
@@ -301,7 +301,7 @@ func newRecordingTG(t *testing.T) *recordingTG {
 	rec.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
 		// The file-download endpoint (/file/bot<token>/<path>) streams raw bytes,
-		// not the {ok,result} envelope â handle it before the JSON content type.
+		// not the {ok,result} envelope — handle it before the JSON content type.
 		if len(parts) > 0 && parts[0] == "file" {
 			rec.mu.Lock()
 			body := rec.mu.fileBody
@@ -373,7 +373,7 @@ func newRecordingTG(t *testing.T) *recordingTG {
 
 // med-jjd: Telegram never re-sends managed_bot_created on demand, so a dropped
 // event strands the account unbound with no recovery path. A 429 on
-// getManagedBotToken is transient â the handler must answer non-2xx so Telegram
+// getManagedBotToken is transient — the handler must answer non-2xx so Telegram
 // redelivers, NOT 200 (which reads as "handled, stop retrying"). The pending row
 // is a plain lookup, not consumed here, so the redelivery still binds inside its
 // TTL. A permanent 4xx (bot deleted) must still drop with 200.
@@ -472,7 +472,7 @@ func TestTelegramLinkingAndBYO(t *testing.T) {
 
 	session := registerAndGetSession(t, top, host, claimToken)
 
-	// provision + managed_bot webhook â a linked bot row exists (unlinked chat)
+	// provision + managed_bot webhook → a linked bot row exists (unlinked chat)
 	provRec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/provision", host, session, nil)
 	if provRec.Code != http.StatusOK {
 		t.Fatalf("provision status = %d", provRec.Code)
@@ -493,13 +493,13 @@ func TestTelegramLinkingAndBYO(t *testing.T) {
 	}
 	childPath := "/tg/bot/" + account.ID + "/" + bot.WebhookSecret
 
-	// wrong child secret â 403
+	// wrong child secret → 403
 	startBody := `{"update_id":2,"message":{"message_id":1,"text":"/start","chat":{"id":12345,"type":"private"}}}`
 	if wrong := postWebhook(t, top, "/tg/bot/"+account.ID+"/deadbeef", "deadbeef", startBody); wrong.Code != http.StatusForbidden {
 		t.Fatalf("wrong child secret status = %d, want 403", wrong.Code)
 	}
 
-	// /start with the right secret â chat linked + welcome sent
+	// /start with the right secret → chat linked + welcome sent
 	if ok := postWebhook(t, top, childPath, bot.WebhookSecret, startBody); ok.Code != http.StatusOK {
 		t.Fatalf("/start webhook status = %d, body %q", ok.Code, ok.Body.String())
 	}
@@ -510,7 +510,7 @@ func TestTelegramLinkingAndBYO(t *testing.T) {
 		t.Fatalf("welcome not sent to chat 12345: %v", tg.mu.sent)
 	}
 
-	// BYO with a token getMe rejects â 400
+	// BYO with a token getMe rejects → 400
 	byoRec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/byo", host, session, []byte(`{"token":"BAD:TOKEN"}`))
 	if byoRec.Code != http.StatusBadRequest {
 		t.Fatalf("BYO invalid token status = %d, want 400", byoRec.Code)
@@ -525,7 +525,7 @@ func TestTelegramLinkingAndBYO(t *testing.T) {
 		t.Fatalf("test message not sent: %v", tg.mu.sent)
 	}
 
-	// DELETE cascades the row away â status back to none
+	// DELETE cascades the row away → status back to none
 	if delRec := doReq(t, top, http.MethodDelete, "http://"+host+"/api/telegram", host, session, nil); delRec.Code != http.StatusOK {
 		t.Fatalf("delete status = %d", delRec.Code)
 	}
@@ -533,7 +533,7 @@ func TestTelegramLinkingAndBYO(t *testing.T) {
 		t.Fatalf("status after delete = %q, want none", got)
 	}
 
-	// BYO from the pending page clears the leftover pending row â a later
+	// BYO from the pending page clears the leftover pending row — a later
 	// unlink must land on none, not resurrect the stale pending state.
 	if provRec2 := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/provision", host, session, nil); provRec2.Code != http.StatusOK {
 		t.Fatalf("re-provision status = %d", provRec2.Code)
@@ -559,7 +559,7 @@ func TestTelegramLinkingAndBYO(t *testing.T) {
 // the BYO path never commits a bot_created row whose webhook was never set: the
 // bot row is the commit point (set webhook first). Because the pending row is
 // deleted up front, a failed bind cleanly falls back to none so the user can
-// retry â never a phantom bot_created that /start can't reach.
+// retry — never a phantom bot_created that /start can't reach.
 func TestTelegramBYOWebhookFailureLeavesNoBot(t *testing.T) {
 	store := setupStore(t)
 	account, claimToken := setupInvite(t, store)
@@ -585,7 +585,7 @@ func TestTelegramBYOWebhookFailureLeavesNoBot(t *testing.T) {
 
 	session := registerAndGetSession(t, top, host, claimToken)
 
-	// provision â pending, then BYO from the pending page with setWebhook failing
+	// provision → pending, then BYO from the pending page with setWebhook failing
 	if provRec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/provision", host, session, nil); provRec.Code != http.StatusOK {
 		t.Fatalf("provision status = %d", provRec.Code)
 	}
@@ -597,7 +597,7 @@ func TestTelegramBYOWebhookFailureLeavesNoBot(t *testing.T) {
 	if byoRec.Code != http.StatusInternalServerError {
 		t.Fatalf("BYO with failing setWebhook status = %d, want 500", byoRec.Code)
 	}
-	// No bot row written (bot row is the commit point) and pending deleted â none.
+	// No bot row written (bot row is the commit point) and pending deleted → none.
 	if _, err := store.BotByAccount(t.Context(), account.ID); err == nil {
 		t.Fatal("bot row written despite setWebhook failure; want no row")
 	}
@@ -606,7 +606,7 @@ func TestTelegramBYOWebhookFailureLeavesNoBot(t *testing.T) {
 	}
 }
 
-// managerFixture wires just the manager webhook against a recording Telegram â
+// managerFixture wires just the manager webhook against a recording Telegram —
 // the onboarding conversation needs no session, no subdomain routing, and no
 // Bootstrap (it never builds a deep link).
 func managerFixture(t *testing.T) (*cloudstore.Repo, *recordingTG, http.Handler, string) {
@@ -706,7 +706,7 @@ func TestManagerOnboarding(t *testing.T) {
 
 	// The cap counts live invites over the whole claim TTL, not a rolling day.
 	// Yesterday's unclaimed invites are still claimable, so they must still
-	// occupy the quota â otherwise a user could stack quota Ã TTL/day claim
+	// occupy the quota — otherwise a user could stack quota × TTL/day claim
 	// links by saying "yes" three times a day until the first batch expires.
 	t.Run("day-old unclaimed invites still occupy the quota", func(t *testing.T) {
 		store, tg, top, secret := managerFixture(t)
@@ -753,7 +753,7 @@ func TestManagerOnboarding(t *testing.T) {
 	})
 
 	// ...but once they expire the sweep frees the quota, so "I lost my link"
-	// still recovers â just not before the old link is dead.
+	// still recovers — just not before the old link is dead.
 	t.Run("expired unclaimed invites free the quota", func(t *testing.T) {
 		store, tg, top, secret := managerFixture(t)
 		old := time.Now().UTC().Add(-15 * 24 * time.Hour)
@@ -964,7 +964,7 @@ type tapFixture struct {
 }
 
 // linkedBotTap builds an account whose bot is provisioned and whose chat (12345)
-// is linked â the state a Confirm/Snooze tap arrives in.
+// is linked — the state a Confirm/Snooze tap arrives in.
 func linkedBotTap(t *testing.T, tg *recordingTG) tapFixture {
 	t.Helper()
 	store := setupStore(t)
@@ -1084,7 +1084,7 @@ func TestChildWebhook_CallbackQuerySealsEventToMailbox(t *testing.T) {
 	if got.Kind != inboxEventKindIntakeSlot || got.SlotUnix != 1767225600 || got.Action != tgclient.CallbackActionConfirm {
 		t.Fatalf("sealed event = %+v", got)
 	}
-	// The SERVER stamps the tap instant â that is what backdates the intake.
+	// The SERVER stamps the tap instant — that is what backdates the intake.
 	if got.AtUnix < before || got.AtUnix > time.Now().UTC().Unix()+2 {
 		t.Errorf("at_unix = %d, want a server timestamp near now (%d)", got.AtUnix, before)
 	}
@@ -1097,8 +1097,8 @@ func TestChildWebhook_CallbackQuerySealsEventToMailbox(t *testing.T) {
 }
 
 // The zero-knowledge invariant. An account that never unlocked a client has no
-// inbox key, so there is nothing to seal to. The tap is DROPPED â never written
-// readable â and the user is told to open the app.
+// inbox key, so there is nothing to seal to. The tap is DROPPED — never written
+// readable — and the user is told to open the app.
 func TestChildWebhook_CallbackQueryWithoutInboxKeyDropsRatherThanStorePlaintext(t *testing.T) {
 	tg := newRecordingTG(t)
 	f := linkedBotTap(t, tg) // no publishInboxKey
@@ -1136,7 +1136,7 @@ func TestChildWebhook_CallbackQueryUnparseableIsAnsweredAndDropped(t *testing.T)
 	tg.mu.Lock()
 	defer tg.mu.Unlock()
 	if len(tg.mu.answered) != 4 {
-		t.Fatalf("answered %d of 4 taps â a button would spin forever", len(tg.mu.answered))
+		t.Fatalf("answered %d of 4 taps — a button would spin forever", len(tg.mu.answered))
 	}
 }
 
@@ -1155,8 +1155,8 @@ func TestChildWebhook_CallbackQueryFromForeignChatIsIgnored(t *testing.T) {
 	}
 }
 
-// Re-delivery of the same tap queues a second event. That is fine â the client's
-// apply is idempotent â but it must never be lost, and it must never 500.
+// Re-delivery of the same tap queues a second event. That is fine — the client's
+// apply is idempotent — but it must never be lost, and it must never 500.
 func TestChildWebhook_CallbackQueryRedeliveryQueuesAgainAndStays200(t *testing.T) {
 	tg := newRecordingTG(t)
 	f := linkedBotTap(t, tg)
@@ -1174,12 +1174,12 @@ func TestChildWebhook_CallbackQueryRedeliveryQueuesAgainAndStays200(t *testing.T
 }
 
 // TestChildWebhook_HelpAndUnknownCommands (bd med-26y): before this, the child
-// webhook answered only /start and CallbackQuery â every other message hit a
+// webhook answered only /start and CallbackQuery — every other message hit a
 // silent 200. /help therefore did nothing, and the autocomplete menu stayed
 // empty until the user's first /start (setMyCommands lived inside that branch).
 // TestHelpAdvertisesSupportedChatCommands pins that /help lists /food (a real
-// chat command since bd med-eas.29.4 â sealed by the relay, AI-parsed on an
-// unlocked client) and /workout (bd med-eas.29.5 â a structured "I did a
+// chat command since bd med-eas.29.4 — sealed by the relay, AI-parsed on an
+// unlocked client) and /workout (bd med-eas.29.5 — a structured "I did a
 // workout" log applied through the shared workout domain at drain time).
 func TestHelpAdvertisesSupportedChatCommands(t *testing.T) {
 	for _, cmd := range []string{"/food", "/workout"} {
@@ -1223,7 +1223,7 @@ func TestChildWebhook_HelpAndUnknownCommands(t *testing.T) {
 		t.Fatalf("manager webhook status = %d", whRec.Code)
 	}
 
-	// Commands are registered at MINT â before any /start has been sent, so
+	// Commands are registered at MINT — before any /start has been sent, so
 	// Telegram autocomplete is populated the moment the user opens the chat.
 	tg.mu.Lock()
 	minted := append([]string(nil), tg.mu.commands...)
@@ -1249,7 +1249,7 @@ func TestChildWebhook_HelpAndUnknownCommands(t *testing.T) {
 		return append([]string(nil), tg.mu.sent[n:]...)
 	}
 
-	// /help is answered WITHOUT a prior /start â it reads no vault data and
+	// /help is answered WITHOUT a prior /start — it reads no vault data and
 	// needs no linked chat.
 	if rec := postWebhook(t, top, childPath, bot.WebhookSecret,
 		`{"update_id":2,"message":{"message_id":1,"text":"/help","chat":{"id":777,"type":"private"}}}`); rec.Code != http.StatusOK {
@@ -1272,8 +1272,8 @@ func TestChildWebhook_HelpAndUnknownCommands(t *testing.T) {
 	// An unknown command is answered, not silently dropped. Since med-eas.29.2
 	// the relay may NOT tell /bogus from /bp (that would mean reading the
 	// command surface of a message it must not understand), so it tries to seal
-	// it. This account has published no inbox key, so the event is DROPPED â
-	// never stored in the clear â and the user is told how to fix that.
+	// it. This account has published no inbox key, so the event is DROPPED —
+	// never stored in the clear — and the user is told how to fix that.
 	if rec := postWebhook(t, top, childPath, bot.WebhookSecret,
 		`{"update_id":4,"message":{"message_id":3,"text":"/bogus","chat":{"id":777,"type":"private"}}}`); rec.Code != http.StatusOK {
 		t.Fatalf("/bogus status = %d", rec.Code)
@@ -1283,7 +1283,7 @@ func TestChildWebhook_HelpAndUnknownCommands(t *testing.T) {
 	}
 
 	// Free text is now sealed for the drain-time AI agent (bd med-vcv.2), the
-	// same as an unknown command â the relay still parses nothing. This account
+	// same as an unknown command — the relay still parses nothing. This account
 	// has published no inbox key, so it too is DROPPED and the user is told how
 	// to fix that (rather than silently ignored, as before med-vcv.2).
 	if rec := postWebhook(t, top, childPath, bot.WebhookSecret,
@@ -1412,7 +1412,7 @@ func TestChildWebhook_SealsCommandVerbatim(t *testing.T) {
 		t.Fatalf("/bp status = %d", rec.Code)
 	}
 
-	// Replied "queued" â never anything derived from the numbers.
+	// Replied "queued" — never anything derived from the numbers.
 	tg.mu.Lock()
 	sent := append([]string(nil), tg.mu.sent[before:]...)
 	tg.mu.Unlock()
@@ -1440,10 +1440,10 @@ func TestChildWebhook_SealsCommandVerbatim(t *testing.T) {
 		t.Fatalf("sealed event = %+v, want kind=%s text=%q", ev, inboxEventKindTGCommand, cmd)
 	}
 	if ev.ReplyMessageID == 0 {
-		t.Errorf("sealed event carries no reply_message_id â the client cannot edit the placeholder")
+		t.Errorf("sealed event carries no reply_message_id — the client cannot edit the placeholder")
 	}
 	if ev.AtUnix == 0 {
-		t.Errorf("sealed event carries no server timestamp â backdating (drain rule 4) breaks")
+		t.Errorf("sealed event carries no server timestamp — backdating (drain rule 4) breaks")
 	}
 
 	// SECURITY INVARIANT: message content never reaches a log line.
@@ -1470,7 +1470,7 @@ func TestChildWebhook_SealsPhotoFileIDNotBytes(t *testing.T) {
 	tg.mu.Unlock()
 
 	secret := childPath[strings.LastIndex(childPath, "/")+1:]
-	// Ascending sizes â the relay must seal the LAST (largest) file_id.
+	// Ascending sizes — the relay must seal the LAST (largest) file_id.
 	body := `{"update_id":9,"message":{"message_id":7,"chat":{"id":12345,"type":"private"},` +
 		`"photo":[{"file_id":"small","file_size":100,"width":90,"height":90},` +
 		`{"file_id":"large","file_size":9000,"width":900,"height":900}]}}`
@@ -1528,11 +1528,11 @@ func TestGetPhoto_StreamsBytesForOwnAccount(t *testing.T) {
 		t.Errorf("streamed body = %q, want the upstream bytes verbatim", rec.Body.String())
 	}
 
-	// Missing file_id â 400.
+	// Missing file_id → 400.
 	if bad := doReq(t, top, http.MethodGet, "http://"+host+"/api/telegram/photo", host, session, nil); bad.Code != http.StatusBadRequest {
 		t.Errorf("missing file_id status = %d, want 400", bad.Code)
 	}
-	// No session â 401 (RequireSession rejects before the handler).
+	// No session → 401 (RequireSession rejects before the handler).
 	if noAuth := doReq(t, top, http.MethodGet, "http://"+host+"/api/telegram/photo?file_id=AgACPHOTO", host, nil, nil); noAuth.Code != http.StatusUnauthorized {
 		t.Errorf("no-session status = %d, want 401", noAuth.Code)
 	}
@@ -1581,7 +1581,7 @@ func TestChildWebhook_SealsFreeTextForTheAgent(t *testing.T) {
 		t.Errorf("sealed text event missing reply id / timestamp: %+v", ev)
 	}
 
-	// A message with no text (e.g. a sticker) has nothing to seal â dropped, no
+	// A message with no text (e.g. a sticker) has nothing to seal → dropped, no
 	// new event, no extra reply.
 	empty := `{"update_id":10,"message":{"message_id":8,"text":"","chat":{"id":12345,"type":"private"}}}`
 	if rec := postWebhook(t, top, childPath, secret, empty); rec.Code != http.StatusOK {
@@ -1593,7 +1593,7 @@ func TestChildWebhook_SealsFreeTextForTheAgent(t *testing.T) {
 }
 
 // TestChildWebhook_CommandWithoutInboxKeyIsDropped: no key means the plaintext
-// has nowhere safe to go, so it must be discarded â never stored in the clear.
+// has nowhere safe to go, so it must be discarded — never stored in the clear.
 func TestChildWebhook_CommandWithoutInboxKeyIsDropped(t *testing.T) {
 	store := setupStore(t)
 	account, claimToken := setupInvite(t, store)
@@ -1650,7 +1650,7 @@ func TestChildWebhook_CommandWithoutInboxKeyIsDropped(t *testing.T) {
 func TestEditReply(t *testing.T) {
 	top, tg, host, _, session, _, _ := tgCommandFixture(t)
 
-	body := []byte(`{"message_id":1001,"text":"â Recorded BP 128/84."}`)
+	body := []byte(`{"message_id":1001,"text":"✅ Recorded BP 128/84."}`)
 	rec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/reply-edit", host, session, body)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("edit status = %d, body %q", rec.Code, rec.Body.String())
@@ -1686,7 +1686,7 @@ func TestEditReply(t *testing.T) {
 	}
 }
 
-// --- med-eas.43: cloudâlocal Bot API proxy migration ------------------------
+// --- med-eas.43: cloud->local Bot API proxy migration ------------------------
 
 // countingTG is an httptest Bot API fake that records, per method, how many
 // times it was called and the last request body — enough to assert that logOut
@@ -1759,7 +1759,7 @@ func TestMigrateBotsToProxy(t *testing.T) {
 		t.Fatalf("migrated=%d failed=%d, want 1/0", migrated, failed)
 	}
 
-	// logOut must go to the cloud, setWebhook to the proxy â file_ids are
+	// logOut must go to the cloud, setWebhook to the proxy — file_ids are
 	// server-bound, so mixing these up is the whole bug.
 	if cloud.count("logOut") != 1 {
 		t.Errorf("cloud logOut count = %d, want 1", cloud.count("logOut"))
