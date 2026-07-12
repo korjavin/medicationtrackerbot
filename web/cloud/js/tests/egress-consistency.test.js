@@ -30,10 +30,12 @@ const ALLOWED = {
   't.me': 'navigation link to the Telegram bot, not a fetch',
 };
 
-function nonTestJsFiles() {
-  return fs.readdirSync(JS_DIR)
-    .filter((f) => f.endsWith('.js'))
-    .map((f) => path.join(JS_DIR, f));
+function nonTestJsFiles(dir = JS_DIR) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return entry.name === 'tests' ? [] : nonTestJsFiles(full);
+    return entry.name.endsWith('.js') ? [full] : [];
+  });
 }
 
 function stripComments(src) {
@@ -53,13 +55,12 @@ function literalHosts(src) {
 
 describe('cloud client egress consistency (med-yor.14)', () => {
   const files = nonTestJsFiles();
-  const hostsByFile = new Map(
-    files.map((f) => [path.basename(f), literalHosts(fs.readFileSync(f, 'utf8'))]),
+  const allHosts = new Set(
+    files.flatMap((f) => [...literalHosts(fs.readFileSync(f, 'utf8'))]),
   );
-  const allHosts = new Set([...hostsByFile.values()].flatMap((s) => [...s]));
 
-  it('scanned a plausible number of files (sanity)', () => {
-    expect(files.length).toBeGreaterThanOrEqual(20);
+  it('the scan actually reached the client sources (sanity)', () => {
+    expect(files.map((f) => path.basename(f))).toContain('rxnorm.js');
     expect(allHosts.size).toBeGreaterThanOrEqual(1);
   });
 

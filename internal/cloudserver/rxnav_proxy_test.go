@@ -1,7 +1,9 @@
 package cloudserver
 
 import (
+	"bytes"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -142,4 +144,39 @@ func TestRxNavProxyAPI(t *testing.T) {
 			t.Errorf("Expected 401, got %d", w.Code)
 		}
 	})
+}
+
+// TestRxNavProxy_UpstreamFailureLogsNoQuery: http.Client.Do errors are
+// *url.Error values whose Error() embeds the full upstream URL — including
+// the drug name. The blind-proxy invariant requires the logged error to be
+// the unwrapped cause only.
+func TestRxNavProxy_UpstreamFailureLogsNoQuery(t *testing.T) {
+	var logBuf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	// A closed server yields a connection-refused *url.Error from client.Do.
+	dead := httptest.NewServer(http.NotFoundHandler())
+	deadURL := dead.URL
+	dead.Close()
+
+	handler, host, claimToken := newRxNavTestHandlerAPI(t, deadURL)
+	session := registerAndGetSession(t, handler, host, claimToken)
+
+	req := httptest.NewRequest(http.MethodGet, "http://"+host+"/api/rxnav/rxcui?name=supersecretdrugname", nil)
+	req.AddCookie(session)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504", w.Code)
+	}
+	logged := logBuf.String()
+	if !strings.Contains(logged, "rxnavproxy: upstream request failed") {
+		t.Fatalf("expected an upstream-failure log line, got %q", logged)
+	}
+	if strings.Contains(logged, "supersecretdrugname") {
+		t.Errorf("SECURITY INVARIANT: log leaked the drug name: %q", logged)
+	}
 }

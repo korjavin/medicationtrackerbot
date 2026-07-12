@@ -1,8 +1,6 @@
 package cloudserver
 
 import (
-	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -21,8 +19,9 @@ const (
 //
 // SECURITY INVARIANT (mirrors FoodProxyAPI): the proxy is blind — the drug
 // name / rxcui / interaction list must never appear in a log line, a
-// response header, or a body beyond the upstream JSON passthrough. Every
-// slog call in this file is a fixed string plus the error value only.
+// response header, or a body beyond the upstream JSON passthrough. Logging
+// lives in proxyUpstream, which strips the URL-bearing *url.Error wrapper
+// before logging (the upstream URL embeds the drug name).
 type RxNavProxyAPI struct {
 	baseURL        string
 	interactionURL string
@@ -110,22 +109,5 @@ func (a *RxNavProxyAPI) Interactions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *RxNavProxyAPI) proxyRequest(upstreamURL string, w http.ResponseWriter, r *http.Request) {
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL, nil)
-	if err != nil {
-		slog.Error("rxnavproxy: failed to create request", "error", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		slog.Error("rxnavproxy: upstream request failed", "error", err)
-		http.Error(w, "gateway timeout", http.StatusGatewayTimeout)
-		return
-	}
-	defer resp.Body.Close()
-
-	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	proxyUpstream(a.client, "rxnavproxy", upstreamURL, "", w, r)
 }
