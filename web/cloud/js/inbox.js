@@ -105,6 +105,20 @@ export async function ackInboxEvent(id, { fetchImpl = fetch } = {}) {
   if (!res.ok) throw new Error(`could not ack inbox event ${id} (${res.status})`);
 }
 
+// clearInbox drops the whole server-side backlog and returns the count cleared.
+// This DISCARDS any un-applied sealed events — the same recovery trade
+// resetLocalSync makes when it wipes un-synced local writes. It exists only for
+// the reset escape hatch (med-eas.51): a permanently un-appliable sealed .nxk
+// wedges sync forever, so un-wedging must also drop the poison backlog or the
+// drain re-fetches it (up to ~160MB) on the very next poll. Never call this on a
+// healthy account — it throws away real queued Confirms.
+export async function clearInbox({ fetchImpl = fetch } = {}) {
+  const res = await fetchImpl('/api/inbox', { method: 'DELETE' });
+  if (!res.ok) throw new Error(`could not clear the inbox (${res.status})`);
+  const { cleared = 0 } = await res.json();
+  return cleared;
+}
+
 // One drain at a time per account. Two overlapping drains in the SAME tab would
 // both apply every event and race on the ack; across tabs/devices that is fine
 // (deletes are idempotent, applies converge) but within a tab it is pure waste.

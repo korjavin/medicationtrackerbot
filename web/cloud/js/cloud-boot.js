@@ -163,6 +163,18 @@ window.MedTrackerCloudReady = (async function boot() {
         async resetLocalSync() {
             const { resetLocalSync } = await import('/js/sync.js');
             await resetLocalSync(ctx);
+            // Un-wedging sync alone doesn't help if a permanently un-appliable
+            // sealed event is what wedged it — the drain would just re-fetch and
+            // re-wedge (med-eas.51). Also drop the server backlog so this one
+            // "Reset local sync" action truly recovers the account. Best-effort:
+            // local reset already succeeded above, so a failed network clear must
+            // not surface as a failed reset.
+            try {
+                const { clearInbox } = await import('/js/inbox.js');
+                await clearInbox({});
+            } catch (err) {
+                console.warn('[cloud] local sync reset; server inbox backlog not cleared', err);
+            }
         },
     };
 

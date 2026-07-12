@@ -136,27 +136,27 @@ recover, reusing med-0ol.7's `syncWedged`/`resetLocalSync` and sync's byte-batch
       it uncovers the next chunk until the backlog drains. Passes.
 
 ### Task 4: Let reset / un-wedge clear the poison inbox backlog
-- [ ] Add a store method `ClearInboxEvents(ctx, accountID) (int64, error)` in
+- [x] Added a store method `ClearInboxEvents(ctx, accountID) (int64, error)` in
       `internal/cloudstore/inbox.go` (`DELETE FROM inbox_events WHERE account_id = ?`,
-      return rows affected), mirroring `DeleteInboxEvent`.
-- [ ] Add `DELETE /api/inbox` to `InboxAPI` (`internal/cloudserver/inbox.go`,
+      returns rows affected), mirroring `DeleteInboxEvent`.
+- [x] Added `DELETE /api/inbox` to `InboxAPI` (`internal/cloudserver/inbox.go`,
       `RegisterRoutes` + a `ClearInbox` handler) — session-scoped to the caller's account,
-      `log/slog` the count cleared, return the count as JSON. Follow the `AckInboxEvent` /
-      `POST /api/telegram/reset` shape. Extend the `inboxStore` interface with the new
-      store method.
-- [ ] Client: in `web/cloud/js/inbox.js` add an exported `clearInbox({ fetchImpl })` that
-      calls `DELETE /api/inbox`. Wire it into the existing recovery affordance: the
-      `resetLocalSync()` wrapper in `web/cloud/js/cloud-boot.js` (which un-wedges sync)
-      should ALSO clear the server inbox backlog, so the one "Reset local sync" action the
-      user already has un-wedges sync AND drops the poison sealed events. Order it so a
-      failure to clear the inbox does not abort the local reset (best-effort, logged) — the
-      account must still recover locally even if the network clear fails.
-- [ ] Document (in the code comment + docs, Task 6) that clearing the inbox DISCARDS any
-      un-applied sealed events (same "discards un-synced local writes" semantics
-      `resetLocalSync` already carries) — this is the escape hatch, acceptable for recovery.
-- [ ] Integration test (`internal/cloudserver/inbox_test.go`): seed events, `DELETE
-      /api/inbox`, assert the account's inbox is empty and the count is returned; assert an
-      event belonging to ANOTHER account is untouched (account scoping).
+      `slog.Info` the count cleared, returns `{cleared: <count>}` JSON. Follows the
+      `AckInboxEvent` shape. Extended the `inboxStore` interface with the new store method.
+- [x] Client: added an exported `clearInbox({ fetchImpl })` in `web/cloud/js/inbox.js` that
+      calls `DELETE /api/inbox` and returns the count. Wired into the `resetLocalSync()`
+      wrapper in `web/cloud/js/cloud-boot.js`: after the local reset un-wedges sync it ALSO
+      clears the server inbox backlog, so the one "Reset local sync" action drops the poison
+      sealed events too. Best-effort — the inbox clear is in its own try/catch AFTER the
+      local reset, so a failed network clear does not abort local recovery (logged).
+- [x] Documented in both code comments (server `ClearInbox`, client `clearInbox`) that
+      clearing the inbox DISCARDS any un-applied sealed events (same "discards un-synced
+      local writes" semantics `resetLocalSync` carries) — the escape hatch, acceptable for
+      recovery. Prose docs land in Task 6.
+- [x] Integration test (`internal/cloudserver/inbox_test.go` `TestInbox_ClearAll`): seeds 3
+      events on account A + 1 on B, `DELETE /api/inbox` returns `cleared:3` and empties A's
+      mailbox, while B's event is untouched (account scoping). Added `DELETE /api/inbox` to
+      `TestInbox_RequiresSession`. Passes.
 
 ### Task 5: Confirm + document the backlog source; file the redesign follow-up
 - [ ] Confirm (from the code path, `web/cloud/js/inbox-apply.js` `vitals_import` +
