@@ -1034,6 +1034,15 @@ func (t *TelegramAPI) sealNXKDocument(w http.ResponseWriter, r *http.Request, re
 
 	tmpPath, err := t.downloadDocument(r.Context(), client, msg.Document)
 	if err != nil {
+		if tgclient.IsFileTooBig(err) {
+			// Telegram's public Bot API refuses getFile for files >20 MB. Most
+			// Mi Band backups exceed that; the fix is the operator running the
+			// local Bot API proxy (CLOUD_TG_API_BASE_URL), not a retry.
+			slog.Warn("telegram child webhook: nxk over 20MB bot limit", "ref", ref)
+			edit("❌ That file is larger than Telegram's 20 MB bot limit. Ask the operator to enable the local Bot API proxy so large Mi Band backups can be imported.")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		slog.Error("telegram child webhook: download nxk", "error", err, "ref", ref)
 		edit("❌ Couldn't download the file — try sending it again.")
 		w.WriteHeader(http.StatusOK)

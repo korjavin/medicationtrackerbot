@@ -88,7 +88,7 @@ TRIAL_RATE_PER_MIN=10              # Per-account sliding-window limit shared acr
 TRIAL_DAILY_PER_ACCOUNT=100        # Per-account DAILY cap on trial AI requests, persisted in cloud.db (default: 100; 0 disables)
 TRIAL_DAILY_GLOBAL=500             # Cross-account DAILY cap on trial AI requests, persisted in cloud.db (default: 500; 0 disables)
 MANAGER_BOT_TOKEN=...              # Optional. BotFather token for the operator's manager bot with "Bot Management Mode" enabled. Enables one-tap managed-bot provisioning + BYO Telegram linking (C3a). Unset = Telegram fully disabled (wizard step + webhook routes skipped). See docs/cloud-deployment.md. NOTE: child bot tokens are sealed with a key derived from SESSION_SECRET — rotating SESSION_SECRET orphans stored tokens (users must re-link).
-CLOUD_TG_API_BASE_URL=...          # Optional. Overrides the Telegram Bot API root (default https://api.telegram.org). For tests/self-hosted proxies only.
+CLOUD_TG_API_BASE_URL=...          # Optional. Overrides the Telegram Bot API root (default https://api.telegram.org). Set to http://telegram-bot-api:8081 (+ TELEGRAM_API_ID/HASH) to enable the local Bot API proxy for large-file/Mi Band imports; see docs/cloud-deployment.md.
 
 # Web Push relay — zero-config: each account gets its own VAPID keypair
 # generated server-side at invite provisioning (backfilled for pre-existing

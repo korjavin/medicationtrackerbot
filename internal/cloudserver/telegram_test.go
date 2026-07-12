@@ -227,6 +227,9 @@ type recordMu struct {
 	// fileBody overrides what the /file download endpoint streams; nil serves
 	// fakePhotoBytes. The NXK document test points this at real .nxk bytes.
 	fileBody []byte
+	// getFileTooBig makes getFile return Telegram's ">20 MB" rejection, standing
+	// in for a large Mi Band backup the public Bot API refuses to resolve.
+	getFileTooBig bool
 }
 
 func newRecordingTG(t *testing.T) *recordingTG {
@@ -253,6 +256,13 @@ func newRecordingTG(t *testing.T) *recordingTG {
 		w.Header().Set("Content-Type", "application/json")
 		switch method {
 		case "getFile":
+			rec.mu.Lock()
+			tooBig := rec.mu.getFileTooBig
+			rec.mu.Unlock()
+			if tooBig {
+				io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: file is too big"}`)
+				return
+			}
 			io.WriteString(w, `{"ok":true,"result":{"file_id":"AgACPHOTO","file_path":"photos/food_0.jpg","file_size":`+strconv.Itoa(len(fakePhotoBytes))+`}}`)
 		case "getMe":
 			if strings.Contains(parts[0], "BAD:TOKEN") {
