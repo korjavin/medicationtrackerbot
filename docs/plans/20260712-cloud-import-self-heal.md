@@ -149,19 +149,19 @@ is caught.
       `async resetLocalSync() { const { resetLocalSync } = await import('/js/sync.js'); await resetLocalSync(ctx); }`.
 
 ### Task 4: Settings "Reset local sync" affordance (med-0ol.7 recovery UI)
-- [ ] In `web/static/index.html`, inside `#settings-importexport`, add a
+- [x] In `web/static/index.html`, inside `#settings-importexport`, add a
       cloud-only group (hidden by default, id `importexport-reset-sync-group`) with
       a heading, a short explanatory note ("Rebuild this device from the server —
       discards unsynced local changes; use if sync is stuck after a failed
       import."), and a button `#importexport-reset-sync-btn`. Reuse existing
       `wg-*` classes only; no inline styles/colors.
-- [ ] In `importexport.js`, reveal the reset group when `isCloud()` (like the
+- [x] In `importexport.js`, reveal the reset group when `isCloud()` (like the
       `.nxk` group) and bind the button once (dataset guard). On click: confirm
       via `safeConfirm`, then `await window.CloudVault.resetLocalSync()`, then
       `location.reload()`. Guard against re-entry with the existing
       `importInFlight`/`setImportBusy` mechanism so it can't collide with an
       in-flight import.
-- [ ] Export the handler on `window.SettingsImportExport` (e.g. `resetSync`) for
+- [x] Export the handler on `window.SettingsImportExport` (e.g. `resetSync`) for
       symmetry and testability, matching `importNxk`.
 
 ### Task 5: Integration tests (med-0ol.7 + med-0ol.8)

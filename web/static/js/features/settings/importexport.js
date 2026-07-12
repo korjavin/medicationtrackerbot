@@ -281,6 +281,31 @@
         }
     }
 
+    // Reset local sync (cloud only, med-0ol.7). Escape hatch when the sync engine
+    // wedges (repeated permanent write errors after a failed import): clears the
+    // local IDB mirror + pending + sync meta and re-bootstraps this device from
+    // the server's compacted snapshot. Shares the import re-entry guard so it can't
+    // collide with an in-flight import (both mutate the same vault).
+    async function doResetSync() {
+        if (importInFlight) return;
+        const confirmed = await safeConfirm(
+            'Reset local sync rebuilds this device from the server and discards any unsynced local changes. Continue?'
+        );
+        if (!confirmed) return;
+        setImportBusy(true, 'Resetting local sync… keep this page open until it finishes.');
+        try {
+            await window.CloudVault.resetLocalSync();
+            // Clear busy BEFORE reload so beforeUnloadGuard doesn't prompt on our
+            // own intended navigation.
+            setImportBusy(false);
+            location.reload();
+        } catch (e) {
+            console.error('Reset local sync failed:', e);
+            setImportBusy(false);
+            safeAlert(e.message || 'Reset failed');
+        }
+    }
+
     function bindControls() {
         // The .nxk endpoint only exists on cmd/cloud; reveal the control there.
         const nxkGroup = el('importexport-nxk-group');
@@ -289,6 +314,15 @@
         if (nxkBtn && !nxkBtn.dataset.bound) {
             nxkBtn.dataset.bound = '1';
             nxkBtn.addEventListener('click', () => { doNxkImport(); });
+        }
+
+        // Reset local sync — cloud only (rebuilds the device from the server).
+        const resetGroup = el('importexport-reset-sync-group');
+        if (resetGroup) resetGroup.hidden = !isCloud();
+        const resetBtn = el('importexport-reset-sync-btn');
+        if (resetBtn && !resetBtn.dataset.bound) {
+            resetBtn.dataset.bound = '1';
+            resetBtn.addEventListener('click', () => { doResetSync(); });
         }
 
         const exportBtn = el('importexport-export-btn');
@@ -320,6 +354,7 @@
         load: () => { bindControls(); },
         export: doExport,
         import: doImport,
-        importNxk: doNxkImport
+        importNxk: doNxkImport,
+        resetSync: doResetSync
     };
 })();
