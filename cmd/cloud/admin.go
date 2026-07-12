@@ -106,6 +106,11 @@ func adminMigrateBotsToProxy(ctx context.Context, store *cloudstore.Repo, cfg co
 	// managerBotToken is unused by the migration itself (it operates on per-bot
 	// sealed tokens), but NewTelegramAPI needs the same config the server uses.
 	tgAPI := cloudserver.NewTelegramAPI(store, cfg.sessionSecret, cfg.managerBotToken, cfg.baseDomain, cfg.tgAPIBaseURL, cfg.claimTTL)
+	if cfg.tgAPIBaseURL != "" {
+		// logOut must hit the real cloud ("") and the re-registered child webhook
+		// must use the internal origin the proxy can reach (bd med-eas.46).
+		tgAPI.ConfigureProxy("", cfg.internalWebhookBase)
+	}
 	migrated, failed, err := tgAPI.MigrateBotsToProxy(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "migrate-bots-to-proxy failed: %v\n", err)

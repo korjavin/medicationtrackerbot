@@ -41,6 +41,10 @@ func New(token, baseURL string) *Client {
 	}
 }
 
+// BaseURL returns the API root the client is bound to (real cloud or a proxy),
+// so callers/tests can tell which server a client will hit.
+func (c *Client) BaseURL() string { return c.baseURL }
+
 // apiError carries Telegram's {ok:false, description} envelope so callers get
 // the server's own message instead of a bare HTTP status. RetryAfter carries
 // parameters.retry_after (seconds), which Telegram sets on 429.

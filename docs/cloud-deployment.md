@@ -174,6 +174,25 @@ of the cloud API for ~10 minutes, so this is an explicit operator command, never
 an automatic per-startup action. Bots linked **while the proxy is enabled** are
 born on the proxy and need no migration.
 
+**Internal webhook delivery.** In `--local` mode the proxy container delivers
+webhook callbacks itself, and it cannot resolve the deployment's public host
+(that name hairpins to loopback inside the container). So proxy-delivered child
+bots register their webhook at an **internal** docker-network origin instead of
+the public URL: `CLOUD_INTERNAL_WEBHOOK_BASE` (default `http://cloud:8080` — the
+`cloud` service + `PORT`; override if you changed `PORT`). This is applied
+automatically whenever `CLOUD_TG_API_BASE_URL` is set, in both `migrate-bots-to-proxy`
+and new-bot provisioning; with the proxy off, webhooks keep the public URL and
+nothing changes. The manager bot itself always stays on `api.telegram.org` (the
+local server doesn't implement the managed-bot token method).
+
+> **Recovery after upgrading to the scoped-proxy build (bd med-eas.46):** an
+> earlier proxy build pointed child webhooks at the unreachable public URL, so
+> `/start` and messages went silently undelivered. After redeploying, re-run
+> `migrate-bots-to-proxy` **once** so every already-migrated child bot has its
+> webhook rewritten to the internal URL. Check delivery health per bot from
+> Settings → Telegram (surfaces `getWebhookInfo.last_error`); the
+> `telegram-bot-api` service now logs delivery attempts at `--verbosity=2`.
+
 ## 4. Mint the first invite
 
 ```bash

@@ -47,6 +47,13 @@ services:
       # CLOUD_TG_API_BASE_URL=http://telegram-bot-api:8081. See
       # docs/cloud-deployment.md → Large-file / Mi Band imports.
       - CLOUD_TG_API_BASE_URL=${CLOUD_TG_API_BASE_URL:-}
+      # Internal docker-network origin the local Bot API proxy uses to deliver
+      # child-bot webhooks: in --local mode the proxy delivers callbacks itself
+      # and can't resolve the public host (it hairpins to loopback), so migrated /
+      # proxy-created bots register http://cloud:8080/tg/bot/... instead. Only
+      # applied when CLOUD_TG_API_BASE_URL is set; default matches this service +
+      # PORT. See docs/cloud-deployment.md → Large-file / Mi Band imports (bd med-eas.46).
+      - CLOUD_INTERNAL_WEBHOOK_BASE=${CLOUD_INTERNAL_WEBHOOK_BASE:-http://cloud:8080}
       # Operator TRIAL provider keys (all optional; unset = pure BYO, trial
       # proxy routes 503). Read by cmd/cloud/main.go via TrialConfigFromEnv.
       # Voice needs BOTH TRIAL_ELEVENLABS_* set or the trial flag stays off.
@@ -114,6 +121,9 @@ services:
 
         # Run server, telling it to switch to our new user
         # We start as root, let the binary drop privileges to appuser (1000)
+        # --verbosity=2 logs webhook delivery attempts/errors: in --local mode the
+        # proxy delivers webhooks itself, so a bad target (e.g. an unreachable
+        # public host) is otherwise silent on both sides (bd med-eas.46).
         exec telegram-bot-api --local \
           --api-id=$${TELEGRAM_API_ID} \
           --api-hash=$${TELEGRAM_API_HASH} \
@@ -121,6 +131,7 @@ services:
           --temp-dir=/tmp \
           --username=appuser \
           --groupname=appgroup \
+          --verbosity=2 \
           --http-port=8081
     volumes:
       - telegram_bot_api_data:/var/lib/telegram-bot-api

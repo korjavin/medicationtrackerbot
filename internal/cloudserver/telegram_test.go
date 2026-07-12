@@ -1807,6 +1807,40 @@ func TestMigrateBotsToProxyRequiresProxy(t *testing.T) {
 	}
 }
 
+// TestProxyScoping pins bd med-eas.46: with a proxy configured (via ConfigureProxy),
+// child webhooks register the INTERNAL origin (the proxy can't reach the public
+// host) and the manager client hits the CLOUD base (the local server lacks the
+// managed-bot token method) — while children keep the proxy. With no proxy, both
+// stay on the public URL / shared base, unchanged.
+func TestProxyScoping(t *testing.T) {
+	t.Run("child webhook internal + manager on cloud when proxy on", func(t *testing.T) {
+		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "cloud.example.com", "http://proxy:8081", time.Hour)
+		tgAPI.ConfigureProxy("", "http://cloud:8080")
+
+		got := tgAPI.childWebhookURL("acc1", "sec1")
+		if want := "http://cloud:8080/tg/bot/acc1/sec1"; got != want {
+			t.Errorf("childWebhookURL = %q, want internal %q", got, want)
+		}
+		// Manager routes to the cloud base (""→real cloud); children keep the proxy
+		// (asserted by TestMigrateBotsToProxy's proxy setWebhook count).
+		if base := tgAPI.managerClient().BaseURL(); base != tgclient.DefaultBaseURL {
+			t.Errorf("manager base = %q, want cloud default %q", base, tgclient.DefaultBaseURL)
+		}
+	})
+
+	t.Run("public webhook + shared base when proxy off", func(t *testing.T) {
+		// No ConfigureProxy call — the no-proxy default path.
+		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "cloud.example.com", "", time.Hour)
+		got := tgAPI.childWebhookURL("acc1", "sec1")
+		if want := "https://cloud.example.com/tg/bot/acc1/sec1"; got != want {
+			t.Errorf("childWebhookURL = %q, want public %q", got, want)
+		}
+		if base := tgAPI.managerClient().BaseURL(); base != tgclient.DefaultBaseURL {
+			t.Errorf("manager base = %q, want cloud default %q", base, tgclient.DefaultBaseURL)
+		}
+	})
+}
+
 // TestDownloadDocumentInvalidFileIDIsClassified pins the condition the child
 // webhook's actionable-hint branch keys on: a cloud-issued file_id sent to the
 // local proxy fails getFile with an error that IsInvalidFileID recognizes.
