@@ -73,13 +73,15 @@ describe('domain/reminders.js — Telegram delivery pref + generic verbosity', (
         expect(entries.some((e) => e.text.includes('Lisinopril'))).toBe(true);
     });
 
-    it('delivery pref defaults to webpush/detailed and round-trips, ignoring invalid values', async () => {
+    it('delivery pref defaults to webpush/generic and round-trips, ignoring invalid values', async () => {
         const { createRemindersDomain } = await import('../../../domain/reminders.js');
         const { createInMemoryRecordsPort } = await import('./helpers/cloud-shim-harness.js');
         const records = createInMemoryRecordsPort();
         const domain = createRemindersDomain({ records, now: () => 1_700_000_000_000 });
 
-        expect(await domain.getDeliveryPref()).toEqual({ delivery: 'webpush', verbosity: 'detailed' });
+        // bd med-yor.13: verbosity defaults to name-free 'generic'; 'detailed'
+        // (medication names over the Telegram relay) is an explicit opt-in.
+        expect(await domain.getDeliveryPref()).toEqual({ delivery: 'webpush', verbosity: 'generic' });
 
         expect(await domain.setDeliveryPref({ delivery: 'both', verbosity: 'generic' }))
             .toEqual({ delivery: 'both', verbosity: 'generic' });

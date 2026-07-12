@@ -511,12 +511,12 @@
                     <div class="wg-settings-row">
                         <div class="wg-settings-row__content">
                             <div class="wg-settings-row__title wg-mono-display">Telegram Reminder Detail</div>
-                            <div class="wg-settings-row__desc">Telegram reminders pass through the server as readable text. "Detailed" includes medication names; "Generic" says only that a reminder is due.</div>
+                            <div class="wg-settings-row__desc">Telegram reminders pass through the server as readable text. The default "Generic" says only that a reminder is due; opt in to "Detailed" to also send medication names.</div>
                         </div>
                         <div class="wg-settings-row__control wg-settings-action-row">
                             <select id="cloud-reminder-verbosity" class="wg-gloss wg-settings-action-btn" aria-label="Telegram reminder detail level">
+                                <option value="generic" selected>Generic (no names)</option>
                                 <option value="detailed">Detailed (includes names)</option>
-                                <option value="generic">Generic (no names)</option>
                             </select>
                         </div>
                     </div>

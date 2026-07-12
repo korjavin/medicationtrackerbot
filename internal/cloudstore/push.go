@@ -200,8 +200,15 @@ func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]Schedul
 	return due, rows.Err()
 }
 
-// MarkPushSent marks a scheduled push as sent so later ticks skip it.
+// MarkPushSent marks a scheduled push as sent so later ticks skip it, and
+// clears the payload in the same UPDATE so fired Telegram plaintext (med name +
+// dose in tg_text/tg_callback) and the NK ciphertext don't accumulate at rest.
+// Every post-send reader filters sent_at_unix IS NULL or reads only timestamps,
+// so the emptied row is never re-read (bd med-yor.13). ct/tg_text/tg_callback
+// are NOT NULL, so they clear to empty rather than SQL NULL.
 func (r *Repo) MarkPushSent(ctx context.Context, id int64, sentAt time.Time) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE scheduled_pushes SET sent_at_unix = ? WHERE id = ?`, storedb.TimeToUnix(sentAt), id)
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE scheduled_pushes SET sent_at_unix = ?, ct = X'', tg_text = '', tg_callback = '' WHERE id = ?`,
+		storedb.TimeToUnix(sentAt), id)
 	return err
 }
