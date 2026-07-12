@@ -133,14 +133,18 @@ tile and make Journey unreachable through existing gating.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] weekly_digest toggle hidden in cloud, visible in bot mode.
-- [ ] gamification toggle renders in both modes, default ON for a fresh cloud
+- [x] weekly_digest toggle hidden in cloud, visible in bot mode. (covered by
+      settings.toggles cloud-mode test — 40 tests pass)
+- [x] gamification toggle renders in both modes, default ON for a fresh cloud
       account (DEFAULT_FEATURES.gamification = true), round-trips + persists.
-- [ ] Confirm no inline `style=` / hardcoded hex added (architecture guards).
-- [ ] Run the relevant suites and the architecture guards:
-      `npx vitest run settings.toggles` and the repo-wide `architecture.*`
-      guards (no-module-state, globals, offline-coverage) — must pass.
-- [ ] Run the full frontend suite `npx vitest run` — must pass.
+      (covered by settings.toggles round-trip test)
+- [x] Confirm no inline `style=` / hardcoded hex added (architecture guards —
+      21 files / 185 tests pass).
+- [x] Run the relevant suites and the architecture guards:
+      `npx vitest run settings.toggles` (40 pass) and the repo-wide
+      `architecture.*` guards (185 pass) — passed.
+- [x] Run the full frontend suite `npx vitest run` — passed (309 files, 3522
+      pass, 29 skipped).
 
 ### Task 7: [Final] Docs
 
