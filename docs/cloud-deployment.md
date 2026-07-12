@@ -148,6 +148,32 @@ enable it:
 Leave all three unset to keep the default behavior — the app talks to
 `api.telegram.org` and small files still import fine.
 
+#### One-time migration for bots linked BEFORE the proxy
+
+Telegram `file_id`s are only valid on the exact Bot API server that issued
+them. A bot linked while the proxy was **off** registered its webhook on
+`api.telegram.org`, so Telegram keeps delivering its updates through the cloud
+with cloud-issued `file_id`s. After you enable the proxy, the app resolves
+`getFile` against the **local** server, which rejects those cloud `file_id`s —
+the user sees `❌ This bot needs a one-time migration…` and the logs show
+`invalid file_id`.
+
+Moving a bot from the cloud to the local server requires releasing it from
+Telegram's datacenter first (per the telegram-bot-api docs): `logOut` on
+`api.telegram.org`, then re-`setWebhook` through the proxy. Run this once, after
+enabling the proxy on a deployment that already has linked bots:
+
+```bash
+docker exec -it medtracker-cloud ./cloud admin migrate-bots-to-proxy
+```
+
+It iterates every not-yet-migrated bot, does the `logOut` → `setWebhook`-via-proxy
+dance, and stamps each as migrated (idempotent — a re-run is a no-op, and it
+never re-`logOut`s an already-migrated bot). **Note:** `logOut` locks a bot out
+of the cloud API for ~10 minutes, so this is an explicit operator command, never
+an automatic per-startup action. Bots linked **while the proxy is enabled** are
+born on the proxy and need no migration.
+
 ## 4. Mint the first invite
 
 ```bash
@@ -180,6 +206,10 @@ against a live container:
   invite)
 - `delete <subdomain>` — delete an account and all its data (asks for
   confirmation)
+- `migrate-bots-to-proxy` — one-time move of pre-proxy linked bots onto the
+  local Bot API proxy (`logOut` on cloud → re-`setWebhook` via proxy) so their
+  `file_id`s resolve. Idempotent; needs `CLOUD_TG_API_BASE_URL` + `SESSION_SECRET`.
+  See [Large-file / Mi Band imports](#large-file--mi-band-imports-local-bot-api-proxy).
 
 Sample `inspect` output (trimmed to one credential per section for brevity —
 a real account can have more devices, a bigger record-type histogram, etc.):

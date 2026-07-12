@@ -30,6 +30,9 @@ type TGBot struct {
 	WebhookSecret string
 	CreatedAt     time.Time
 	LinkedAt      *time.Time
+	// ProxyMigratedAt is nil until the bot's webhook + session live on the local
+	// Bot API proxy. See migration 016 + MarkProxyMigrated.
+	ProxyMigratedAt *time.Time
 }
 
 // CreatePending inserts a short-lived managed-bot provisioning row keyed by the
@@ -150,7 +153,7 @@ func (r *Repo) UpsertManagedBotIfPending(ctx context.Context, b TGBot, suggested
 	return n > 0, nil
 }
 
-const tgBotColumns = `account_id, bot_id, bot_username, token_ct, token_nonce, kind, chat_id, webhook_secret, created_at_unix, linked_at_unix`
+const tgBotColumns = `account_id, bot_id, bot_username, token_ct, token_nonce, kind, chat_id, webhook_secret, created_at_unix, linked_at_unix, proxy_migrated_at_unix`
 
 func scanTGBot(scan func(dest ...any) error) (*TGBot, error) {
 	var (
@@ -158,8 +161,9 @@ func scanTGBot(scan func(dest ...any) error) (*TGBot, error) {
 		chatID      sql.NullInt64
 		createdUnix int64
 		linkedAt    sql.NullInt64
+		migratedAt  sql.NullInt64
 	)
-	if err := scan(&b.AccountID, &b.BotID, &b.BotUsername, &b.TokenCT, &b.TokenNonce, &b.Kind, &chatID, &b.WebhookSecret, &createdUnix, &linkedAt); err != nil {
+	if err := scan(&b.AccountID, &b.BotID, &b.BotUsername, &b.TokenCT, &b.TokenNonce, &b.Kind, &chatID, &b.WebhookSecret, &createdUnix, &linkedAt, &migratedAt); err != nil {
 		return nil, err
 	}
 	if chatID.Valid {
@@ -167,7 +171,51 @@ func scanTGBot(scan func(dest ...any) error) (*TGBot, error) {
 	}
 	b.CreatedAt = storedb.UnixToTime(createdUnix)
 	b.LinkedAt = storedb.NullableUnixToTimePtr(linkedAt)
+	b.ProxyMigratedAt = storedb.NullableUnixToTimePtr(migratedAt)
 	return &b, nil
+}
+
+// MarkProxyMigrated records that a bot's webhook + session now live on the local
+// Bot API proxy — either because it was created while the proxy was enabled, or
+// because `cloud admin migrate-bots-to-proxy` ran the logOut→setWebhook dance for
+// it. Idempotent: re-stamping an already-migrated bot is harmless. Returns
+// sql.ErrNoRows if the account has no bot.
+func (r *Repo) MarkProxyMigrated(ctx context.Context, accountID string, at time.Time) error {
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE tg_bots SET proxy_migrated_at_unix = ? WHERE account_id = ?`,
+		storedb.TimeToUnix(at), accountID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// BotsNeedingProxyMigration returns every linked bot not yet on the proxy
+// (proxy_migrated_at_unix IS NULL) — the pre-proxy bots whose file_ids the local
+// server rejects. Drives `cloud admin migrate-bots-to-proxy`.
+func (r *Repo) BotsNeedingProxyMigration(ctx context.Context) ([]TGBot, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+tgBotColumns+` FROM tg_bots WHERE proxy_migrated_at_unix IS NULL ORDER BY account_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var bots []TGBot
+	for rows.Next() {
+		b, err := scanTGBot(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		bots = append(bots, *b)
+	}
+	return bots, rows.Err()
 }
 
 // BotByAccount returns an account's linked bot, or sql.ErrNoRows if none.

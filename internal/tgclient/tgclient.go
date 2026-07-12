@@ -243,6 +243,19 @@ func (c *Client) DeleteWebhook(ctx context.Context) error {
 	return c.call(ctx, "deleteWebhook", nil, nil)
 }
 
+// LogOut logs the bot out of the Bot API server this client points at. To move
+// a bot from the cloud (api.telegram.org) to a self-hosted --local server, call
+// LogOut against a CLOUD-based client first: it releases the bot from Telegram's
+// datacenter so the local server can claim it (auto-login via the shared
+// TELEGRAM_API_ID/HASH on the first request). After a successful logOut the bot
+// can log in on the local server immediately, but cannot rejoin the cloud for
+// ~10 minutes — so this is effectively one-way and must be operator-driven.
+// file_ids are server-bound, so without this migration a bot whose webhook still
+// lives on the cloud delivers cloud-issued file_ids that the local proxy rejects.
+func (c *Client) LogOut(ctx context.Context) error {
+	return c.call(ctx, "logOut", nil, nil)
+}
+
 // SetMyName changes the bot's name.
 func (c *Client) SetMyName(ctx context.Context, name string) error {
 	return c.call(ctx, "setMyName", map[string]any{
@@ -361,6 +374,18 @@ func IsMessageNotModified(err error) bool {
 func IsFileTooBig(err error) bool {
 	var apiErr *apiError
 	return errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Description), "file is too big")
+}
+
+// IsInvalidFileID reports whether err is Telegram's getFile rejection of a
+// file_id that this Bot API server did not issue ("Bad Request: invalid
+// file_id"). file_ids are only valid on the exact server that minted them, so
+// when the cloud proxy is enabled but a bot's webhook still lives on
+// api.telegram.org, updates carry cloud-issued file_ids that the local proxy
+// rejects here. Callers use this to point the operator at the one-time bot
+// migration (logOut on cloud → re-setWebhook via the proxy) instead of a retry.
+func IsInvalidFileID(err error) bool {
+	var apiErr *apiError
+	return errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Description), "invalid file_id")
 }
 
 // InlineKeyboardButton is one tappable button. Only callback buttons are used —

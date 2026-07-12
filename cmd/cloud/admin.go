@@ -69,6 +69,8 @@ func runAdmin(cfg config, args []string) int {
 			return 1
 		}
 		return adminDelete(ctx, store, args[1])
+	case "migrate-bots-to-proxy":
+		return adminMigrateBotsToProxy(ctx, store, cfg)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown admin subcommand %q\n\n", args[0])
 		printAdminUsage()
@@ -85,7 +87,39 @@ subcommands:
   inspect <subdomain>     show full read-only debug view of one account
   reset-claim <subdomain> issue a fresh claim token for an unclaimed account
   revoke <subdomain>      delete an unclaimed account (withdraw an unused invite)
-  delete <subdomain>      delete an account and all its data (asks for confirmation)`)
+  delete <subdomain>      delete an account and all its data (asks for confirmation)
+  migrate-bots-to-proxy   move pre-proxy linked bots to the local Bot API proxy
+                          (logOut on cloud + re-setWebhook via proxy; one-time)`)
+}
+
+// adminMigrateBotsToProxy runs the one-time cloud→local Bot API migration for
+// every linked bot minted before CLOUD_TG_API_BASE_URL was enabled. Each bot is
+// logOut'd on the cloud (releasing it from Telegram's DC) and re-setWebhook'd
+// through the proxy so its updates carry proxy-issued file_ids that getFile can
+// resolve. logOut locks a bot out of the cloud for ~10 minutes, so this is an
+// explicit operator action, never a silent per-startup sweep (bd med-eas.43).
+func adminMigrateBotsToProxy(ctx context.Context, store *cloudstore.Repo, cfg config) int {
+	if err := validateSessionSecret(cfg.sessionSecret); err != nil {
+		fmt.Fprintf(os.Stderr, "migrate-bots-to-proxy needs SESSION_SECRET to open sealed bot tokens: %v\n", err)
+		return 1
+	}
+	// managerBotToken is unused by the migration itself (it operates on per-bot
+	// sealed tokens), but NewTelegramAPI needs the same config the server uses.
+	tgAPI := cloudserver.NewTelegramAPI(store, cfg.sessionSecret, cfg.managerBotToken, cfg.baseDomain, cfg.tgAPIBaseURL, cfg.claimTTL)
+	migrated, failed, err := tgAPI.MigrateBotsToProxy(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "migrate-bots-to-proxy failed: %v\n", err)
+		return 1
+	}
+	fmt.Printf("migrated %d bot(s) to the proxy", migrated)
+	if failed > 0 {
+		fmt.Printf(", %d failed (see logs; re-run to retry them)", failed)
+	}
+	fmt.Println()
+	if failed > 0 {
+		return 1
+	}
+	return 0
 }
 
 func adminInvite(ctx context.Context, store *cloudstore.Repo, cfg config) int {
