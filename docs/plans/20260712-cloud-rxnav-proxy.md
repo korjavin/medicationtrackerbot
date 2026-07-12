@@ -79,45 +79,45 @@ to connect-src, never emit a wildcard connect-src**):
 ## Implementation Steps
 
 ### Task 1: Add the same-origin RxNav proxy (Go)
-- [ ] Read `internal/cloudserver/food_proxy.go` in full first.
-- [ ] Create `internal/cloudserver/rxnav_proxy.go`: `RxNavProxyAPI` struct
+- [x] Read `internal/cloudserver/food_proxy.go` in full first.
+- [x] Create `internal/cloudserver/rxnav_proxy.go`: `RxNavProxyAPI` struct
       `{baseURL, interactionURL string; store sessionStore; sessionSecret string; client *http.Client}` with `client` timeout `10 * time.Second`.
-- [ ] Add package constants `defaultRxNavBaseURL = "https://rxnav.nlm.nih.gov"`
+- [x] Add package constants `defaultRxNavBaseURL = "https://rxnav.nlm.nih.gov"`
       and `defaultRxNavInteractionURL = "https://lhncbc.nlm.nih.gov/RxNav/APIs"`.
-- [ ] `NewRxNavProxyAPI(store, sessionSecret, baseURL, interactionURL string)`:
+- [x] `NewRxNavProxyAPI(store, sessionSecret, baseURL, interactionURL string)`:
       default empty args to the constants, `strings.TrimRight(..., "/")` both.
-- [ ] `RegisterRoutes(mux)`: four `RequireSession`-wrapped GET routes —
+- [x] `RegisterRoutes(mux)`: four `RequireSession`-wrapped GET routes —
       `GET /api/rxnav/rxcui`, `GET /api/rxnav/approximate`,
       `GET /api/rxnav/properties`, `GET /api/rxnav/interactions`.
-- [ ] Handlers: `Rxcui` (`?name=` → `/REST/rxcui.json?name=<QueryEscape>`),
+- [x] Handlers: `Rxcui` (`?name=` → `/REST/rxcui.json?name=<QueryEscape>`),
       `Approximate` (`?term=` → `/REST/approximateTerm.json?term=<QueryEscape>&maxEntries=1`),
       `Properties` (`?rxcui=` → `/REST/rxcui/<PathEscape>/properties.json`),
       `Interactions` (`?rxcuis=` comma-separated → split on `,`, reject any
       non-all-digit part with 400, rejoin with `+` →
       `/api/interaction/list.json?rxcuis=<joined>`). Each 400s on a missing
       required param.
-- [ ] Shared `proxyRequest(upstreamURL, w, r)` mirroring `food_proxy.go`:
+- [x] Shared `proxyRequest(upstreamURL, w, r)` mirroring `food_proxy.go`:
       `NewRequestWithContext` GET, `client.Do`, copy `Content-Type` + status +
       body via `io.Copy`. No API key. Every `slog` line is a FIXED string only
       (`"rxnavproxy: upstream request failed"`, `"error", err`) — NEVER log the
       query/name/rxcui/body.
-- [ ] Write tests in this task (see Task 2) — combined here.
-- [ ] `go build ./...` and `go test ./internal/cloudserver/...` — must pass.
+- [x] Write tests in this task (see Task 2) — combined here.
+- [x] `go build ./...` and `go test ./internal/cloudserver/...` — must pass.
 
 ### Task 2: RxNav proxy tests (Go)
-- [ ] Create `internal/cloudserver/rxnav_proxy_test.go` copying the
+- [x] Create `internal/cloudserver/rxnav_proxy_test.go` copying the
       `food_proxy_test.go` pattern: `newRxNavTestHandlerAPI` helper
       (`setupStore` / `setupInvite` / `New(...)` / `registerAndGetSession`),
       passing a mock `httptest` upstream URL as BOTH `baseURL` and
       `interactionURL`.
-- [ ] Mock upstream serves the four RxNav JSON shapes
+- [x] Mock upstream serves the four RxNav JSON shapes
       (`/REST/rxcui.json`, `/REST/approximateTerm.json`,
       `/REST/rxcui/<id>/properties.json`, `/api/interaction/list.json`).
-- [ ] Assert each of the four routes proxies correctly (200 + expected JSON).
-- [ ] Assert an unauthenticated request 401s ("Requires session").
-- [ ] Assert `Interactions` rejects a non-numeric `rxcuis` part with 400 and
+- [x] Assert each of the four routes proxies correctly (200 + expected JSON).
+- [x] Assert an unauthenticated request 401s ("Requires session").
+- [x] Assert `Interactions` rejects a non-numeric `rxcuis` part with 400 and
       forwards digit parts joined by `+` (capture the upstream `rxcuis` query).
-- [ ] `go test ./internal/cloudserver/...` — must pass before next task.
+- [x] `go test ./internal/cloudserver/...` — must pass before next task.
 
 ### Task 3: Wire the proxy + rewire the browser port
 - [ ] `cmd/cloud/main.go`: alongside `foodProxyAPI` add
