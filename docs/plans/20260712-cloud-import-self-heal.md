@@ -165,20 +165,20 @@ is caught.
       symmetry and testability, matching `importNxk`.
 
 ### Task 5: Integration tests (med-0ol.7 + med-0ol.8)
-- [ ] In `sync.test.js`, add a `describe` for the med-0ol.7 wedge state machine:
+- [x] In `sync.test.js`, add a `describe` for the med-0ol.7 wedge state machine:
       seed a bootstrapped cursor, stub the ops POST to return 413/400, and assert
       that after `WRITE_ERROR_BUDGET` `flushPending`/`pullOnOpen` cycles
       `getSyncStatus().wedged` is true, `describeSyncStatus` names the recovery,
       and a subsequent cycle issues NO further ops POST (budget stops the retry).
-- [ ] In `sync.test.js`, add a test that `resetLocalSync(ctx)` clears local
+- [x] In `sync.test.js`, add a test that `resetLocalSync(ctx)` clears local
       pending + records, then re-bootstraps from a stubbed 200 snapshot: after it,
       `wedged` is false, `pendingCount` is 0, and the records match the snapshot.
-- [ ] In `sync.test.js`, add the med-0ol.8 snapshot-path invariant: seed a large
+- [x] In `sync.test.js`, add the med-0ol.8 snapshot-path invariant: seed a large
       record set (e.g. 1500 records) via `replaceAllRecords`, run `forceSnapshot`,
       and assert exactly ONE POST to `/api/sync/ops` (the bump) and ONE POST to
       `/api/sync/snapshot` — request count is constant, NOT proportional to the
       record count (proves no per-op fallback).
-- [ ] In `settings.importexport.test.js`, add a test (via the existing harness)
+- [x] In `settings.importexport.test.js`, add a test (via the existing harness)
       that the reset control is hidden outside cloud, revealed in cloud
       (`window.__MEDTRACKER_CLOUD__`), and its click calls
       `window.CloudVault.resetLocalSync` then reloads.
