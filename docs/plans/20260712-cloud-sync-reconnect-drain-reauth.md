@@ -75,10 +75,10 @@ Queued offline edits sync on reconnect without a write or reload; an expired ses
 - [x] run focused sync tests — must pass before Task 5. (sync 54/54 + cloud-boot 10/10 pass)
 
 ### Task 5: Verify acceptance criteria
-- [ ] verify all Overview requirements: online/visibility drain with no write; 401→distinct auth-expired preserving pending ops; passkey re-auth drains; genuine network errors still offline; tests cover each path.
-- [ ] confirm no edits to `internal/cloudserver/*`, `web/cloud/sw.js`, `account-delete.js`, `settings.js`.
-- [ ] run the FULL suite: `PATH=/tmp/node-v20.18.1-linux-x64/bin:$PATH pnpm test` — all pass.
-- [ ] run `go build ./...` (sanity — this is a JS-only change but keep the gate) and any JS lint the project runs in CI.
+- [x] verify all Overview requirements: online/visibility drain with no write (tests 759/767); 401→distinct auth-expired preserving pending ops (626); passkey re-auth drains (660); genuine network errors still offline (584/596); 403/408/429 stay transient (610); tests cover each path.
+- [x] confirm no edits to `internal/cloudserver/*`, `web/cloud/sw.js`, `account-delete.js`, `settings.js` (branch diff touches only sync.js, unlock.js, cloud-boot.js, tests/sync.test.js, plan).
+- [x] run the FULL suite: `PATH=/tmp/node-v20.18.1-linux-x64/bin:$PATH pnpm test` — all pass. (309 files, 3554 passed, 29 skipped)
+- [x] run `go build ./...` (sanity — this is a JS-only change but keep the gate) and any JS lint the project runs in CI. (build OK; vitest architecture tests are the JS gate — no separate linter in CI)
 
 ## Technical Details
 - `authExpired` is a module-global boolean mirroring `offline`, exposed via `getSyncStatus`. Precedence in `describeSyncStatus`: auth-expired > offline > synced/pending, because an expired session is the actionable root cause (offline is a red herring the current bug produces).
