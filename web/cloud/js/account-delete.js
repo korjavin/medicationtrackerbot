@@ -67,16 +67,6 @@ export async function reauthAndDelete() {
   }
 }
 
-// clearLocalVault wipes this device's local mirror + warm-unlock cache after the
-// server delete, so the app can't try to reopen an account that no longer
-// exists. Contract: the IndexedDB deletions are VERIFIED — this resolves only
-// after the browser confirms both databases are gone (`medtracker-cloud`, the
-// encrypted mirror + LDK material, and Dexie's `MedTrackerDB`, the shared
-// frontend's plaintext health caches), and THROWS a recoverable error if a
-// delete fails or is blocked by another open tab, so the caller can surface an
-// honest "local copy not erased" message instead of navigating away. The push
-// unsubscribe, service-worker unregister, and caches cleanup are best-effort:
-// their failures never block or fail the wipe.
 function deleteDbVerified(name) {
   return new Promise((resolve, reject) => {
     const req = indexedDB.deleteDatabase(name);
@@ -86,6 +76,17 @@ function deleteDbVerified(name) {
   });
 }
 
+// clearLocalVault wipes this device's local mirror + warm-unlock cache so the
+// app can't try to reopen an account that no longer exists. The delete flow
+// runs it both before AND after the server delete (see settings.js); it must
+// stay idempotent. Contract: the IndexedDB deletions are VERIFIED — this
+// resolves only after the browser confirms both databases are gone
+// (`medtracker-cloud`, the encrypted mirror + LDK material, and Dexie's
+// `MedTrackerDB`, the shared frontend's plaintext health caches), and THROWS a
+// recoverable error if a delete fails or is blocked by another open tab, so
+// the caller can surface an honest "local copy not erased" message instead of
+// navigating away. The push unsubscribe, service-worker unregister, and caches
+// cleanup are best-effort: their failures never block or fail the wipe.
 export async function clearLocalVault() {
   // Browser-side unsubscribe only: the server rows were already cascaded away
   // by DELETE /api/account, and push.js's unsubscribe() is server-first — its

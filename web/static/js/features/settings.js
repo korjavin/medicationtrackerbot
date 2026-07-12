@@ -534,18 +534,30 @@ function bindDeleteAccount() {
         try {
             const { reauthAndDelete, clearLocalVault, baseDomainURL } = await loadAccountDeleteModule();
             if (!serverDeleted) {
+                // Wipe BEFORE the server delete: once the account is gone its
+                // subdomain serves 404s, so a wipe blocked here and then
+                // abandoned (tab reloaded/closed) would strand plaintext
+                // IndexedDB data with no code left to erase it. Failing
+                // pre-delete is always safe — the account is intact and the
+                // cloud copy is authoritative, so an erased mirror re-syncs if
+                // the user aborts at the passkey prompt.
+                await clearLocalVault();
                 await reauthAndDelete();
                 serverDeleted = true;
             }
+            // Wipe again after the server delete: the page kept running through
+            // the passkey ceremony, so background sync/reads may have re-created
+            // the databases. This is the load-bearing verified erase.
             await clearLocalVault();
             // The subdomain is gone; send the user somewhere that still exists.
             window.location.href = baseDomainURL();
         } catch (err) {
             // Past the server delete, only the local wipe can fail — be honest
-            // that the account is gone but this device isn't clean yet.
+            // that the account is gone but this device isn't clean yet, and
+            // that this tab is the last thing able to finish the wipe.
             const msg = err.message || 'Could not delete the account.';
             if (errorEl) errorEl.textContent = serverDeleted
-                ? `Your account was deleted, but this device's local copy could not be erased. ${msg}`
+                ? `Your account was deleted, but this device's local copy could not be erased. ${msg} Keep this tab open and press Delete again — once this tab closes, the app can no longer wipe this device.`
                 : msg;
             confirmBtn.disabled = false;
         }

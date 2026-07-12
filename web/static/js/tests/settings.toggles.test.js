@@ -861,7 +861,10 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 await vi.waitFor(() => {
                     expect(document.getElementById('delete-account-error').textContent).toMatch(/cancelled/i);
                 });
-                expect(mod.clearLocalVault).not.toHaveBeenCalled();
+                // The pre-delete wipe already ran (safe: the account is intact
+                // and the cloud copy re-syncs), but the post-delete wipe and
+                // navigation must not.
+                expect(mod.clearLocalVault).toHaveBeenCalledTimes(1);
                 expect(window.location.href).toBe(before);
                 // The user can try again.
                 expect(document.getElementById('delete-account-confirm').disabled).toBe(false);
@@ -874,7 +877,9 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         // med-yor.3 — clearLocalVault now throws on unverified local erasure
         // (e.g. the IDB delete was blocked). The server account is already
         // gone at that point, so the UI must NOT navigate, and the message
-        // must be honest about the account being deleted server-side.
+        // must be honest about the account being deleted server-side AND warn
+        // that this tab is the last thing able to finish the wipe (the deleted
+        // subdomain serves 404s — a reload strands the data forever).
         it('a failed local wipe after server delete shows an honest error and does not redirect', async () => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
@@ -883,7 +888,10 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 const baseDomainURL = vi.fn(() => 'https://app.example/');
                 const mod = await mountCloudWithDeleteModule(window, {
                     baseDomainURL,
-                    clearLocalVault: vi.fn(async () => { throw new Error('Close other open tabs of this app and try again.'); }),
+                    // Pre-delete wipe succeeds; the post-delete wipe blocks.
+                    clearLocalVault: vi.fn()
+                        .mockResolvedValueOnce(undefined)
+                        .mockRejectedValue(new Error('Close other open tabs of this app and try again.')),
                 });
                 document.getElementById('delete-account-open').click();
                 const input = document.getElementById('delete-account-confirm-input');
@@ -896,6 +904,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                     const text = document.getElementById('delete-account-error').textContent;
                     expect(text).toMatch(/account was deleted/i);
                     expect(text).toMatch(/close other open tabs/i);
+                    expect(text).toMatch(/keep this tab open/i);
                 });
                 expect(mod.reauthAndDelete).toHaveBeenCalled();
                 expect(baseDomainURL).not.toHaveBeenCalled();
@@ -911,12 +920,14 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         // actually work: the account is already gone server-side, so the retry
         // click must NOT re-run the re-auth ceremony (it would 401 against the
         // deleted account) — it retries only the local wipe, then navigates.
-        it('retrying after a blocked wipe skips re-auth and completes the wipe', async () => {
+        it('retrying after a blocked post-delete wipe skips re-auth and completes the wipe', async () => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
             try {
                 const baseDomainURL = vi.fn(() => 'https://app.example/');
+                // Pre-delete wipe ok, post-delete wipe blocked, retry ok.
                 const clearLocalVault = vi.fn()
+                    .mockResolvedValueOnce(undefined)
                     .mockRejectedValueOnce(new Error('Close other open tabs of this app and try again.'))
                     .mockResolvedValueOnce(undefined);
                 const mod = await mountCloudWithDeleteModule(window, { baseDomainURL, clearLocalVault });
@@ -932,8 +943,50 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
 
                 confirmBtn.click();
                 await vi.waitFor(() => expect(baseDomainURL).toHaveBeenCalled());
-                expect(mod.clearLocalVault).toHaveBeenCalledTimes(2);
+                expect(mod.clearLocalVault).toHaveBeenCalledTimes(3);
                 expect(mod.reauthAndDelete).toHaveBeenCalledTimes(1);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        // The wipe also runs BEFORE the server delete: a blocked wipe must
+        // fail while the account still exists (no reauth, no delete, no
+        // navigation), so abandoning the flow at that point can never strand
+        // plaintext data on a dead origin. Retrying runs the full flow.
+        it('a blocked pre-delete wipe fails before re-auth and is fully retryable', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const before = window.location.href;
+                const baseDomainURL = vi.fn(() => 'https://app.example/');
+                const clearLocalVault = vi.fn()
+                    .mockRejectedValueOnce(new Error('Close other open tabs of this app and try again.'))
+                    .mockResolvedValue(undefined);
+                const mod = await mountCloudWithDeleteModule(window, { baseDomainURL, clearLocalVault });
+                document.getElementById('delete-account-open').click();
+                const input = document.getElementById('delete-account-confirm-input');
+                input.value = 'delete my account';
+                input.dispatchEvent(new window.Event('input'));
+                await Promise.resolve();
+
+                const confirmBtn = document.getElementById('delete-account-confirm');
+                confirmBtn.click();
+                await vi.waitFor(() => {
+                    const text = document.getElementById('delete-account-error').textContent;
+                    expect(text).toMatch(/close other open tabs/i);
+                    // The account is NOT deleted yet — no misleading prefix.
+                    expect(text).not.toMatch(/account was deleted/i);
+                });
+                expect(mod.reauthAndDelete).not.toHaveBeenCalled();
+                expect(window.location.href).toBe(before);
+
+                confirmBtn.click();
+                await vi.waitFor(() => expect(baseDomainURL).toHaveBeenCalled());
+                expect(mod.reauthAndDelete).toHaveBeenCalledTimes(1);
+                // Retry pre-wipe + post-delete wipe, after the first blocked one.
+                expect(mod.clearLocalVault).toHaveBeenCalledTimes(3);
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();
