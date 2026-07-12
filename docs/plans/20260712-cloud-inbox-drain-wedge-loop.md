@@ -102,25 +102,23 @@ recover, reusing med-0ol.7's `syncWedged`/`resetLocalSync` and sync's byte-batch
       `resetLocalSync` clearing it un-pauses the next tick. No new persisted flag.
 
 ### Task 2: Abort-early on flush-false + back off the poll interval
-- [ ] In `drainInbox`, when `flush()` returns false for the FIRST event of a drain, STOP
-      the drain (do not continue applying/acking the rest — replace the current per-event
-      `continue` with a `break` on first-event flush-false) and return a result flagging
-      no-progress (e.g. `{ applied, failed, stalled: true }`). Keep the current
-      leave-queued behaviour (never ack) intact. A later event failing after earlier
-      successes keeps the existing continue behaviour — only the leading flush-false aborts.
-- [ ] In `startInboxPolling`, back off the visible-tab poll when a tick reports
-      `wedged`/`stalled` (no progress): track consecutive no-progress ticks and skip an
-      increasing number of intervals (simple exponential-ish gate on the existing timer —
-      do NOT spin up a second timer). Reset the backoff to the normal interval the moment a
-      tick makes progress (`applied > 0`) or the mailbox is empty.
-- [ ] Keep `drain-on-becoming-visible` responsive: a manual visibility trigger may bypass
-      the backoff gate once (user opened the tab expecting fresh data), but still honours
-      the wedge pause from Task 1.
-- [ ] Integration test (`web/cloud/js/tests/inbox.test.js`): (a) drain PAUSES with zero
+- [x] In `drainInbox`, when `flush()` returns false for the FIRST event of a drain, STOP
+      the drain (do not continue applying/acking the rest — a `break` on leading flush-false,
+      i.e. `applied === 0`) and return `{ applied, failed, stalled: true }`. Leave-queued
+      behaviour (never ack) intact. A later flush-false after earlier successes keeps the
+      existing `continue` — only the leading flush-false aborts.
+- [x] In `startInboxPolling`, back off the visible-tab poll when a tick reports
+      `wedged`/`stalled`: track consecutive no-progress ticks and skip
+      `min(2**noProgress, MAX_INBOX_BACKOFF_TICKS)` fires of the existing timer (no second
+      timer). Reset to normal cadence the moment a tick makes progress (`applied > 0`) or
+      the mailbox is empty / has no key.
+- [x] Keep `drain-on-becoming-visible` responsive: `onVisible` fires `tick({ force: true })`
+      which bypasses the backoff gate once, still honouring the Task 1 wedge pause.
+- [x] Integration test (`web/cloud/js/tests/inbox.test.js`): (a) drain PAUSES with zero
       `GET /api/inbox` calls when wedged; (b) drain ABORTS after the first flush-false
       (only the first event applied, none acked) and signals stalled; (c) polling backs off
-      after consecutive stalls and resumes on progress; (d) a HEALTHY small-event drain
-      (flush true) still applies + acks every event. Must pass before Task 3.
+      after consecutive stalls and resumes on progress; (d) HEALTHY drain still applies +
+      acks every event (existing `drainInbox` barrier tests). All 19 inbox tests pass.
 
 ### Task 3: Byte-cap `GET /api/inbox` so one response is never 160MB
 - [ ] In `internal/cloudserver/inbox.go` `ListInbox`, add a response BYTE budget alongside

@@ -192,7 +192,8 @@ describe('inbox.js — drainInbox', () => {
             apply: vi.fn(async () => {}), records, fetchImpl, flush: async () => false,
         });
 
-        expect(res).toEqual({ applied: 0, failed: 1 });
+        // A leading flush-false aborts the drain and flags stalled (med-eas.51).
+        expect(res).toEqual({ applied: 0, failed: 1, stalled: true });
         expect(deleted).toEqual([]); // still queued for the next drain
         expect(warn).toHaveBeenCalled();
         warn.mockRestore();
@@ -238,6 +239,40 @@ describe('inbox.js — drainInbox', () => {
         expect(res).toEqual({ applied: 2, failed: 0 });
         expect(seen).toEqual([earlier.at_unix, later.at_unix]);
         expect(deleted).toEqual([2, 1]);
+    });
+
+    // med-eas.51: when sync is wedged flushConfirmed can never resolve true, so
+    // no event could ever ack. The drain must NOT even fetch — re-pulling a
+    // ~160MB backlog every poll is the self-DoS this guard stops.
+    it('pauses with ZERO GET /api/inbox fetches when sync is wedged', async () => {
+        const records = await seededRecords();
+        const { fetchImpl } = mailbox([{ id: 7, created_at_unix: 1, ct: VECTOR.sealed_b64 }]);
+        const apply = vi.fn();
+
+        const res = await drainInbox(ctx, { apply, records, fetchImpl, flush: async () => true, wedged: async () => true });
+
+        expect(res).toEqual({ applied: 0, failed: 0, wedged: true });
+        expect(apply).not.toHaveBeenCalled();
+        expect(fetchImpl).not.toHaveBeenCalled(); // not even the GET
+    });
+
+    // med-eas.51: a LEADING flush-false means sync can't confirm anything —
+    // abort the whole drain instead of apply+failing every remaining event.
+    it('aborts after the first flush-false, applying only the first event and acking none', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const records = await seededRecords();
+        const { fetchImpl, deleted } = mailbox([
+            { id: 7, created_at_unix: 1, ct: VECTOR.sealed_b64 },
+            { id: 8, created_at_unix: 2, ct: VECTOR.sealed_b64 },
+        ]);
+        const apply = vi.fn(async () => {});
+
+        const res = await drainInbox(ctx, { apply, records, fetchImpl, flush: async () => false });
+
+        expect(res).toEqual({ applied: 0, failed: 1, stalled: true });
+        expect(apply).toHaveBeenCalledTimes(1); // event 8 never applied — we bailed
+        expect(deleted).toEqual([]); // nothing acked
+        warn.mockRestore();
     });
 
     it('is a no-op when this account has no inbox key yet', async () => {
@@ -286,6 +321,15 @@ describe('startInboxPolling', () => {
         return vi.fn(async () => okJson({ events: [] }));
     }
 
+    // A mailbox that serves one real sealed event on every GET and no-ops DELETEs
+    // (drains are idempotent), so we can drive stall→recover through the flush arg.
+    function oneEventMailbox() {
+        return vi.fn(async (url, opts) => {
+            if (opts && opts.method === 'DELETE') return { ok: true, status: 204 };
+            return okJson({ events: [{ id: 7, created_at_unix: 1, ct: VECTOR.sealed_b64 }] });
+        });
+    }
+
     function fakeDoc(state = 'visible') {
         const listeners = {};
         return {
@@ -331,6 +375,42 @@ describe('startInboxPolling', () => {
         await vi.advanceTimersByTimeAsync(200);
         expect(fetchImpl).toHaveBeenCalled();
         stop();
+        vi.useRealTimers();
+    });
+
+    // med-eas.51: a wedged/stalled account must stop hammering GET /api/inbox
+    // every interval, but resume the normal cadence the moment it recovers.
+    it('backs off after consecutive stalls and resumes the normal cadence on progress', async () => {
+        vi.useFakeTimers();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const doc = fakeDoc('visible');
+        const records = await pollRecords();
+        const fetchImpl = oneEventMailbox();
+        let flushOk = false;
+        const gets = () => fetchImpl.mock.calls.filter(([, opts]) => !opts).length; // GETs only
+
+        const stop = startInboxPolling(ctx, {
+            apply: vi.fn(), intervalMs: 1000, doc, fetchImpl, records, flush: async () => flushOk,
+        });
+
+        // Sustained stall: 6 ticks fire but the backoff gate throttles the actual
+        // drains, so we GET far fewer times than we tick.
+        await vi.advanceTimersByTimeAsync(6000);
+        const throttled = gets();
+        expect(throttled).toBeGreaterThan(0);
+        expect(throttled).toBeLessThan(6);
+
+        // Recovery: flush now confirms. Once the current backoff window elapses
+        // the next drain makes progress, the backoff resets, and the cadence
+        // returns to one drain per interval.
+        flushOk = true;
+        await vi.advanceTimersByTimeAsync(6000);
+        const afterRecovery = gets();
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(gets()).toBe(afterRecovery + 3); // full cadence restored
+
+        stop();
+        warn.mockRestore();
         vi.useRealTimers();
     });
 });

@@ -149,6 +149,7 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
 
     let applied = 0;
     let failed = 0;
+    let stalled = false;
     for (const { id, event } of pending) {
       try {
         // The event id is passed so appliers can derive a DETERMINISTIC record
@@ -161,6 +162,13 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
         if (!flushed) {
           failed++;
           console.warn('[inbox] ops not confirmed flushed; leaving event queued', id);
+          // A LEADING flush-false (nothing acked yet this drain) means sync
+          // can't confirm anything — almost always a wedge just forming. Abort
+          // the whole drain instead of apply+fail every remaining event, and
+          // signal the poller to back off (med-eas.51). Once we've made
+          // progress, a later flush-false is just that event's ops still
+          // settling, so keep the existing leave-queued-and-continue behaviour.
+          if (applied === 0) { stalled = true; break; }
           continue;
         }
         await ackInboxEvent(id, { fetchImpl });
@@ -170,7 +178,7 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
         console.error('[inbox] event failed, leaving it queued', id, e);
       }
     }
-    return { applied, failed };
+    return stalled ? { applied, failed, stalled: true } : { applied, failed };
   } finally {
     draining.delete(key);
   }
@@ -186,6 +194,12 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
 // notification. GET /api/inbox on an empty mailbox is one indexed lookup
 // returning `{"events":[]}`. Revisit if the mailbox ever gets chatty.
 const INBOX_POLL_MS = 5000;
+
+// Backoff ceiling for a wedged/stalled mailbox (med-eas.51). Consecutive
+// no-progress drains skip an exponentially growing number of scheduled ticks so
+// a bricked account stops hammering GET /api/inbox every 5s; capped so recovery
+// (a reset that un-wedges) is still noticed within ~a minute at the 5s interval.
+const MAX_INBOX_BACKOFF_TICKS = 12;
 
 // startInboxPolling drains the mailbox on a timer while the tab is visible, and
 // immediately whenever it becomes visible again. Without it a Confirm tapped in
@@ -203,22 +217,41 @@ export function startInboxPolling(ctx, {
   ...drainOpts
 } = {}) {
   let stopped = false;
+  // Backoff state (med-eas.51): after consecutive no-progress drains (wedged or
+  // stalled), skip `skipTicks` scheduled fires so a bricked account stops
+  // re-fetching the backlog every interval. A manual visibility trigger bypasses
+  // the gate once — the user opened the tab expecting fresh data.
+  let noProgress = 0;
+  let skipTicks = 0;
 
-  const tick = async () => {
+  const tick = async ({ force = false } = {}) => {
     if (stopped || !apply) return;
     // drainInbox already no-ops when another drain is in flight for this
     // account, so a slow drain cannot pile up behind the timer.
     if (doc && doc.visibilityState !== 'visible') return;
+    if (!force && skipTicks > 0) { skipTicks--; return; }
     try {
       const result = await drainInbox(ctx, { apply, ...drainOpts });
-      if (result && result.applied > 0) onApplied(result);
+      if (result && result.applied > 0) {
+        noProgress = 0;
+        skipTicks = 0;
+        onApplied(result);
+      } else if (result && (result.wedged || result.stalled)) {
+        noProgress++;
+        skipTicks = Math.min(2 ** noProgress, MAX_INBOX_BACKOFF_TICKS);
+      } else if (result && !result.skipped) {
+        // Empty mailbox / no key — healthy idle. Drop any backoff so the next
+        // real event is picked up at the normal interval.
+        noProgress = 0;
+        skipTicks = 0;
+      }
     } catch (e) {
       console.error('[inbox] poll drain failed', e);
     }
   };
 
   const timer = setInterval(tick, intervalMs);
-  const onVisible = () => { if (doc.visibilityState === 'visible') tick(); };
+  const onVisible = () => { if (doc.visibilityState === 'visible') tick({ force: true }); };
   if (doc) doc.addEventListener('visibilitychange', onVisible);
 
   return function stop() {
