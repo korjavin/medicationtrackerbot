@@ -346,6 +346,7 @@ func (s *Service) sendToSubscription(sub push.PushSubscription, payload []byte) 
 	slog.Info("WebPush: Sending notification", "host", host, "isApple", isApple, "subject", subject)
 
 	resp, err := webpush.SendNotification(payload, wpSub, &webpush.Options{
+		HTTPClient:      &http.Client{Timeout: 10 * time.Second},
 		Subscriber:      subject,
 		VAPIDPublicKey:  s.vapidPublicKey,
 		VAPIDPrivateKey: s.vapidPrivateKey,

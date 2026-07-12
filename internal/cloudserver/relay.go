@@ -78,6 +78,7 @@ func (s *WebPushSender) Send(ctx context.Context, sub cloudstore.PushSubscriptio
 		Endpoint: sub.Endpoint,
 		Keys:     webpush.Keys{Auth: sub.Auth, P256dh: sub.P256dh},
 	}, &webpush.Options{
+		HTTPClient:      &http.Client{Timeout: 10 * time.Second},
 		Subscriber:      vapidSubjectFor(sub.Endpoint, s.Subject, s.BaseDomain),
 		VAPIDPublicKey:  keys.PublicKey,
 		VAPIDPrivateKey: keys.PrivateKey,
