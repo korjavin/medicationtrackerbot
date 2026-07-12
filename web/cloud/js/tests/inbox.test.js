@@ -1,6 +1,7 @@
 // bd med-76c.2 — client half of the sealed mailbox foundation: the inbox
 // keypair lives in the vault (so every device can drain), only its public half
 // reaches the server, and the mailbox transport opens what the Go server sealed.
+import 'fake-indexeddb/auto';
 import { describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -327,7 +328,7 @@ describe('startInboxPolling', () => {
         // ...but drains the moment it comes back, covering the hidden gap.
         doc.visibilityState = 'visible';
         doc.fire('visibilitychange');
-        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(200);
         expect(fetchImpl).toHaveBeenCalled();
         stop();
         vi.useRealTimers();

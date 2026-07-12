@@ -18,7 +18,7 @@ import {
   toBase64,
   fromBase64,
 } from './crypto.js';
-import { recordsPort, flushConfirmed } from './sync.js';
+import { recordsPort, flushConfirmed, isSyncWedged } from './sync.js';
 
 const INBOXKEY_RECORD_TYPE = 'inboxkey';
 const INBOXKEY_RECORD_ID = 'inboxkey';
@@ -127,11 +127,17 @@ const draining = new Set();
 //
 // One event's failure must not strand the rest: we log it, skip its ack (so it
 // is retried next drain) and continue. Returns a small report for tests/logs.
-export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush = flushConfirmed } = {}) {
+export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush = flushConfirmed, wedged = isSyncWedged } = {}) {
   const key = (ctx && ctx.accountId) || ctx;
   if (draining.has(key)) return { applied: 0, failed: 0, skipped: true };
   draining.add(key);
   try {
+    // Sync wedged (med-eas.51): flushConfirmed can never resolve true, so no
+    // event could ever ack. Skip the fetch entirely — the backlog can be ~160MB
+    // and re-fetching it every poll is the self-DoS this guard exists to stop.
+    // Derived from the same syncWedged meta, so resetLocalSync un-pauses us.
+    if (await wedged(ctx)) return { applied: 0, failed: 0, wedged: true };
+
     const privateKey = await readInboxKey(ctx, { records });
     if (!privateKey) return { applied: 0, failed: 0 };
 

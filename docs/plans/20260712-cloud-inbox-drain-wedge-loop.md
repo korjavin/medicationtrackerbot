@@ -90,17 +90,16 @@ recover, reusing med-0ol.7's `syncWedged`/`resetLocalSync` and sync's byte-batch
 ## Implementation Steps
 
 ### Task 1: Pause the inbox drain when sync is wedged (stops the 160MB loop)
-- [ ] In `web/cloud/js/inbox.js` `drainInbox`, BEFORE calling `listInboxEvents` (before the
+- [x] In `web/cloud/js/inbox.js` `drainInbox`, BEFORE calling `listInboxEvents` (before the
       `GET /api/inbox`), check the sync-wedge state and return early without fetching when
-      wedged. Reuse the existing signal — import a small wedge check from `sync.js`
-      (e.g. `getSyncStatus(ctx).wedged`, or add a tiny exported `isSyncWedged(ctx)` helper
-      that reads the same `syncWedged` meta `flushPending` reads) rather than inventing a
-      new state. Return a shaped result like `{ applied: 0, failed: 0, wedged: true }`.
-- [ ] Ensure the pause is checked inside the existing single-drain guard so a wedged
-      account performs ZERO `GET /api/inbox` fetches per poll (the key win — no 160MB).
-- [ ] The pause must self-resolve: once sync recovers (`resetLocalSync` clears `syncWedged`,
-      or the streak resets), the next tick drains normally. No new persisted flag — derive
-      purely from the existing `syncWedged` meta so recovery is automatic.
+      wedged. Reuse the existing signal — added a tiny exported `isSyncWedged()` helper in
+      `sync.js` that reads the same `syncWedged` meta `flushPending` reads. Returns
+      `{ applied: 0, failed: 0, wedged: true }`.
+- [x] Ensure the pause is checked inside the existing single-drain guard so a wedged
+      account performs ZERO `GET /api/inbox` fetches per poll (the check sits inside the
+      `draining` guard, before `readInboxKey`/`listInboxEvents`).
+- [x] The pause self-resolves: `isSyncWedged()` reads the same `syncWedged` meta, so
+      `resetLocalSync` clearing it un-pauses the next tick. No new persisted flag.
 
 ### Task 2: Abort-early on flush-false + back off the poll interval
 - [ ] In `drainInbox`, when `flush()` returns false for the FIRST event of a drain, STOP

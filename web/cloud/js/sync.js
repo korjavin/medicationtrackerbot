@@ -1017,6 +1017,16 @@ export async function flushConfirmed(ctx) {
   return flushPending(ctx);
 }
 
+// isSyncWedged reports the same syncWedged meta flushPending gates on. The inbox
+// drain (med-eas.51) reads it to skip the whole GET /api/inbox fetch while sync
+// is wedged — a wedged flush can never ack, so re-fetching the (up to 160MB)
+// backlog every poll is pure waste. Derived purely from meta, so resetLocalSync
+// clearing syncWedged un-pauses the drain automatically. No bootstrap: a
+// not-yet-bootstrapped account is not wedged.
+export async function isSyncWedged() {
+  return (await readMeta()).syncWedged === true;
+}
+
 // `flush` defaults true: a single write pushes its op inline, as every UI /
 // voice / MCP / single-command writer expects. A BULK writer (the .nxk inbox
 // import lands hundreds of records per event) passes flush:false so each write
