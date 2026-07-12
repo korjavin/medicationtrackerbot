@@ -289,12 +289,12 @@ func (rl *Relay) send(ctx context.Context, sub cloudstore.PushSubscription, keys
 
 	status, err := rl.sender.Send(sendCtx, sub, keys, ct)
 	if err != nil {
-		slog.Error("push relay: send failed", "endpoint", sub.Endpoint, "error", err)
+		slog.Error("push relay: send failed", "endpoint_fp", endpointFingerprint(sub.Endpoint), "error", err)
 		return
 	}
 	if status == http.StatusNotFound || status == http.StatusGone {
 		if err := rl.store.Disable(ctx, sub.Endpoint); err != nil {
-			slog.Error("push relay: disable subscription", "endpoint", sub.Endpoint, "error", err)
+			slog.Error("push relay: disable subscription", "endpoint_fp", endpointFingerprint(sub.Endpoint), "error", err)
 		}
 	}
 }

@@ -338,13 +338,13 @@ func (a *PushAPI) PostTestPush(w http.ResponseWriter, r *http.Request) {
 	}
 	if status == http.StatusNotFound || status == http.StatusGone {
 		if err := a.store.Disable(r.Context(), sub.Endpoint); err != nil {
-			slog.Error("test push: disable stale subscription", "endpoint", sub.Endpoint, "error", err)
+			slog.Error("test push: disable stale subscription", "endpoint_fp", endpointFingerprint(sub.Endpoint), "error", err)
 		}
 		http.Error(w, "subscription expired", http.StatusGone)
 		return
 	}
 	if status/100 != 2 {
-		slog.Warn("test push: push service rejected send", "endpoint", sub.Endpoint, "status", status)
+		slog.Warn("test push: push service rejected send", "endpoint_fp", endpointFingerprint(sub.Endpoint), "status", status)
 		http.Error(w, "push service rejected send", http.StatusBadGateway)
 		return
 	}

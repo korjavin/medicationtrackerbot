@@ -441,7 +441,11 @@ which the client surfaces as "Vault is full", not as a sync failure.
 ### What to grep at 3am
 
 Every line is `slog` JSON-ish key=value. Nothing below prints secrets — the
-redaction invariants in `trial.go` / `trial_proxy.go` are enforced by tests.
+redaction invariants in `trial.go` / `trial_proxy.go` are enforced by tests,
+and push-subscription endpoints (a per-device bearer capability) are logged as
+a short non-reversible `endpoint_fp=fp_…` fingerprint, never the raw URL
+(`log_redact.go`, guarded by `TestNoRawPushEndpointInLogs`). So a push line
+correlates across retries without any log holding a pushable endpoint.
 
 ```bash
 docker logs medtracker-cloud --since 1h 2>&1 | grep 'level=ERROR'
@@ -460,6 +464,35 @@ docker logs medtracker-cloud --since 1h 2>&1 | grep 'level=ERROR'
 The account id is in most lines; `docker exec medtracker-cloud ./cloud admin
 inspect <subdomain>` turns a subdomain into everything known about that account
 (devices, envelopes, sync cursor, push subscriptions) without touching the vault.
+
+### Proxy access logs and `/mcp/*` capability paths
+
+The app's own `slog` output redacts secrets (above). Your **reverse-proxy
+access log** does not — and hosted MCP capability tokens travel *in the URL
+path* (`/mcp/<token>/…`), exactly the part most proxies log verbatim. A raw
+access log therefore becomes a file full of live MCP bearer tokens.
+
+Traefik's access log is **off by default**, and the app stack does not turn it
+on — so out of the box there is no proxy log to leak. Only enable it if you
+have a reason to, and if you do, drop or hash the capability segment before it
+lands on disk:
+
+- **Prefer not logging paths at all.** Traefik's access log supports field
+  filtering — set `RequestPath` to `drop` (or `redact`) in the access-log
+  `fields` config so the path (and thus the `/mcp/<token>` segment) never
+  reaches the log. Keep `RequestHost`/status/duration if you need ops signal.
+- **If you must keep paths**, put the capability behind a header or terminate
+  it at the app, not in the URL — a path token is unavoidably logged by any
+  intermediary that logs paths (CDN, load balancer, WAF), not just Traefik.
+- **Same rule for any intermediary**: Cloudflare (the wildcard is DNS-only /
+  grey-cloud here, §1, so it does not see paths), a WAF, or an L7 load
+  balancer must not retain `/mcp/*` paths in a queryable log.
+
+Retention and erasure of whatever proxy/app logs you *do* keep — how long,
+where backed up, what a deletion request removes from them — is operator policy,
+documented under bd med-yor.5 (cloud retention/backup/deletion policy), not
+here. This section only covers keeping the capability out of the log in the
+first place.
 
 ## 8. Connect Claude (PoC)
 
