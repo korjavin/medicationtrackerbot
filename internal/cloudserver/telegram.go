@@ -202,10 +202,21 @@ func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDom
 	}
 }
 
+// bootstrapGetMeBudget / bootstrapGetMeInterval bound the getMe retry in
+// Bootstrap. With the local Bot API proxy (CLOUD_TG_API_BASE_URL, bd med-eas.41)
+// the Go app boots in ms while telegram-bot-api --local takes a few seconds to
+// bind :8081, so a single getMe loses a pure startup race and Telegram would stay
+// disabled until a manual container restart (bd med-eas.42). Retry rides that out;
+// a genuinely unreachable URL still gives up after the budget and degrades.
+const (
+	bootstrapGetMeBudget   = 45 * time.Second
+	bootstrapGetMeInterval = 3 * time.Second
+)
+
 // Bootstrap resolves the manager bot's username (no extra env var) and points
 // its webhook at /tg/manager/<secret> on the base host. Called once at startup.
 func (t *TelegramAPI) Bootstrap(ctx context.Context) error {
-	me, err := t.manager.GetMe(ctx)
+	me, err := t.getMeWithRetry(ctx, bootstrapGetMeBudget, bootstrapGetMeInterval)
 	if err != nil {
 		return err
 	}
@@ -217,6 +228,32 @@ func (t *TelegramAPI) Bootstrap(ctx context.Context) error {
 	}
 	slog.Info("telegram manager bot ready", "username", me.Username, "webhook", url)
 	return nil
+}
+
+// getMeWithRetry calls the manager bot's getMe, retrying on failure at a fixed
+// interval until it succeeds or budget is exhausted (bd med-eas.42). It rides out
+// the startup race where the local Bot API proxy hasn't bound its port yet without
+// waiting on compose ordering; the passed-in context still cancels it early, and a
+// truly unreachable URL returns the last error after budget so the caller can
+// disable Telegram gracefully instead of hanging forever.
+func (t *TelegramAPI) getMeWithRetry(ctx context.Context, budget, interval time.Duration) (tgclient.User, error) {
+	deadline := time.Now().Add(budget)
+	for attempt := 1; ; attempt++ {
+		me, err := t.manager.GetMe(ctx)
+		if err == nil {
+			return me, nil
+		}
+		// Give up rather than sleep past the budget on the final attempt.
+		if time.Now().Add(interval).After(deadline) {
+			return me, err
+		}
+		slog.Warn("telegram manager bot getMe failed; retrying", "error", err, "attempt", attempt, "retry_in", interval)
+		select {
+		case <-ctx.Done():
+			return me, ctx.Err()
+		case <-time.After(interval):
+		}
+	}
 }
 
 // RegisterAPIRoutes wires the session-authed /api/telegram/* endpoints onto
