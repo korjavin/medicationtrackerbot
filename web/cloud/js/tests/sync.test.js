@@ -771,7 +771,7 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     expect(opsGets).toBeGreaterThan(0);
   });
 
-  it('rapid online events coalesce into a single in-flight drain', async () => {
+  it('rapid online events coalesce into a single in-flight drain, then one follow-up run', async () => {
     let release;
     const gate = new Promise((r) => { release = r; });
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
@@ -791,7 +791,36 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     await settle(); // debounce fired again while the first drain is still running
     expect(opsGets).toBe(1); // the in-flight guard coalesced the re-triggers
     release();
-    await settle(); // let the held drain finish before teardown
+    await settle(); // the mid-drain events must not be swallowed: the in-flight
+    // run may have already missed the reconnect they signalled (e.g. it was
+    // stuck on a dying fetch), so exactly one follow-up drain runs after it.
+    expect(opsGets).toBe(2);
+  });
+
+  it('reauthenticate serializes with an in-flight auto-drain instead of overlapping it', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        opsGets++;
+        await gate; // hold the auto-drain in flight
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    teardown = startReconnectAutoDrain(ctx);
+    window.dispatchEvent(new Event('online'));
+    await settle(); // auto-drain in flight, blocked on the gate
+
+    // Two concurrent pullOnOpen runs would double-flush the same pending set;
+    // reauthenticate must wait for the in-flight drain before draining itself.
+    const reauth = reauthenticate(ctx);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(opsGets).toBe(1); // reauthenticate's drain has not started yet
+    release();
+    await reauth;
+    expect(opsGets).toBe(2); // it ran after the auto-drain finished
   });
 
   it('a post-teardown online event no longer drains', async () => {

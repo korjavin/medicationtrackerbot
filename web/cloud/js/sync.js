@@ -989,7 +989,7 @@ async function flushPending(ctx) {
     mispredicts++;
     if (mispredicts >= FLUSH_MAX_ATTEMPTS) return false;
     await pullTail(ctx);
-    if (offline) return false; // couldn't advance — retry next open
+    if (offline || authExpired) return false; // couldn't advance — retry next open / after re-auth
   }
 }
 
@@ -1026,7 +1026,12 @@ export async function reauthenticate(ctx) {
   const { assertPasskey } = await import('./unlock.js');
   await assertPasskey();
   authExpired = false;
-  await pullOnOpen(ctx);
+  // Serialize with any reconnect auto-drain in flight — two concurrent
+  // pullOnOpen runs would flush the same pending set under the same predicted
+  // seqs (duplicate ops + a guaranteed mis-predict retry).
+  while (drainInFlight) await drainInFlight;
+  drainInFlight = pullOnOpen(ctx).finally(() => { drainInFlight = null; });
+  await drainInFlight;
   return getSyncStatus(ctx);
 }
 
@@ -1040,11 +1045,19 @@ let drainInFlight = null;
 export function startReconnectAutoDrain(ctx) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
   let debounce = null;
+  let stopped = false;
+  let rerun = false;
   const drain = () => {
-    if (drainInFlight) return drainInFlight;
+    // An event landing mid-drain coalesces into a run that may already have
+    // missed it (e.g. a drain stuck on a dying fetch when connectivity
+    // returned) — remember it and run once more after the current one settles.
+    if (drainInFlight) { rerun = true; return drainInFlight; }
     drainInFlight = pullOnOpen(ctx)
       .catch(() => {}) // failures already land in sync status; retried on the next event
-      .finally(() => { drainInFlight = null; });
+      .finally(() => {
+        drainInFlight = null;
+        if (rerun && !stopped) { rerun = false; drain(); }
+      });
     return drainInFlight;
   };
   const trigger = () => {
@@ -1057,6 +1070,7 @@ export function startReconnectAutoDrain(ctx) {
   window.addEventListener('online', trigger);
   document.addEventListener('visibilitychange', onVisible);
   return () => {
+    stopped = true;
     clearTimeout(debounce);
     window.removeEventListener('online', trigger);
     document.removeEventListener('visibilitychange', onVisible);

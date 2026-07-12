@@ -163,9 +163,13 @@ function renderUnlocked(app, ctx) {
               .then((t) => {
                 el.textContent = t;
                 btn.remove();
+                app.querySelector('section .wizard-error')?.remove();
               })
               .catch((err) => {
                 btn.disabled = false;
+                // Reuse a single error node — repeated retries must not stack
+                // a paragraph per failure.
+                app.querySelector('section .wizard-error')?.remove();
                 const p = document.createElement('p');
                 p.className = 'wizard-error';
                 p.textContent = `Re-authentication failed — try again. (${err.message || String(err)})`;

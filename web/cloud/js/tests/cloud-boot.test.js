@@ -88,12 +88,17 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     // pullOnOpen runs AFTER the wrapper install; if the install threw (the bug),
     // this spy would never be called — so it also guards "boot didn't abort".
     let pullOnOpenCalled = false;
+    let autoDrainStarted = false;
     const { window } = await runBoot({
       setupWindow,
       modules: {
         'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
         'apishim.js': { installApiShim: () => shimCall },
-        'sync.js': { pullOnOpen: async () => { pullOnOpenCalled = true; } },
+        'sync.js': {
+          pullOnOpen: async () => { pullOnOpenCalled = true; },
+          startReconnectAutoDrain: () => { autoDrainStarted = true; return () => {}; },
+          getSyncStatus: async () => ({ authExpired: false }),
+        },
         'reminders.js': { scheduleReminderRecompute: () => {} },
         'mcp-responder.js': { refreshResponder: () => {} },
       },
@@ -101,6 +106,8 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
 
     // Boot ran past the wrapper install (pre-fix it threw here and aborted).
     expect(pullOnOpenCalled).toBe(true);
+    // med-deq.2: the reconnect listeners are wired unconditionally on boot.
+    expect(autoDrainStarted).toBe(true);
     // A workout read now routes to the shim, not the network...
     await window.apiCallDirect('/api/workout/groups');
     expect(shimCalls).toContain('/api/workout/groups');
@@ -129,6 +136,8 @@ describe('CloudVault.resetLocalSync inbox-clear ordering (med-eas.51)', () => {
         'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
         'sync.js': {
           pullOnOpen: async () => {},
+          startReconnectAutoDrain: () => () => {},
+          getSyncStatus: async () => ({ authExpired: false }),
           resetLocalSync: resetImpl || (async () => { order.push('reset'); }),
         },
         'inbox.js': { clearInbox: async () => { order.push('clear'); return 0; } },
@@ -151,7 +160,12 @@ describe('CloudVault.resetLocalSync inbox-clear ordering (med-eas.51)', () => {
       modules: {
         'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
         'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
-        'sync.js': { pullOnOpen: async () => {}, resetLocalSync: async () => { order.push('reset'); } },
+        'sync.js': {
+          pullOnOpen: async () => {},
+          startReconnectAutoDrain: () => () => {},
+          getSyncStatus: async () => ({ authExpired: false }),
+          resetLocalSync: async () => { order.push('reset'); },
+        },
         'inbox.js': { clearInbox: async () => { throw new Error('network down'); } },
         'reminders.js': { scheduleReminderRecompute: () => {} },
         'mcp-responder.js': { refreshResponder: () => {} },
@@ -174,6 +188,8 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
       calls,
       mod: {
         pullOnOpen: async () => {},
+        startReconnectAutoDrain: () => () => {},
+        getSyncStatus: async () => ({ authExpired: false }),
         readAllLiveRecords: async () => [],
         replaceAllRecords: async () => { calls.replaceAllRecords += 1; calls.order.push('replace'); },
         forceSnapshot: async () => { calls.forceSnapshot += 1; },
