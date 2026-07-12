@@ -159,12 +159,15 @@ function renderUnlocked(app, ctx) {
           btn.addEventListener('click', () => {
             btn.disabled = true;
             reauthenticate(ctx)
-              .then(() => describeSyncStatus(ctx))
-              .then((t) => {
+              .then((status) => describeSyncStatus(ctx).then((t) => {
                 el.textContent = t;
+                // The post-ceremony drain can 401 again (cookie dropped by an
+                // intermediary, credential revoked mid-flight) — keep the
+                // button so the user can retry, same guard as cloud-boot.js.
+                if (status.authExpired) { btn.disabled = false; return; }
                 btn.remove();
                 app.querySelector('section .wizard-error')?.remove();
-              })
+              }))
               .catch((err) => {
                 btn.disabled = false;
                 // Reuse a single error node — repeated retries must not stack

@@ -837,7 +837,22 @@ const FLUSH_MAX_ATTEMPTS = 5;
 // (bd med-76c.2) relies on this distinction: it may only ack an inbound event
 // once the ops it produced are durably on the server. Every other caller
 // ignores the value, exactly as before.
-async function flushPending(ctx) {
+// Every flushPending entry point (pullOnOpen, writeRecord's inline push,
+// flushConfirmed) serializes through this chain: two concurrent flushes read
+// the same 'pending' set and predict the same seqs, so the loser's whole batch
+// is AAD-mis-bound — undecryptable junk ops in the oplog plus a wasted
+// re-pull/re-post cycle. The drainInFlight slot only covers drain-vs-drain;
+// this covers writes and the inbox ack barrier too. Safe as a non-reentrant
+// lock: nothing inside flushPendingUnlocked calls back into flushPending
+// (pullTail and maybeSnapshot don't).
+let flushChain = Promise.resolve();
+function flushPending(ctx) {
+  const run = flushChain.then(() => flushPendingUnlocked(ctx));
+  flushChain = run.catch(() => {});
+  return run;
+}
+
+async function flushPendingUnlocked(ctx) {
   // A wedged device stops re-posting the doomed batch (med-0ol.7): after
   // WRITE_ERROR_BUDGET consecutive permanent errors, syncing pauses until the
   // user runs resetLocalSync. Writes still queue durably to 'pending' — nothing
@@ -1030,7 +1045,7 @@ export async function reauthenticate(ctx) {
   // pullOnOpen runs would flush the same pending set under the same predicted
   // seqs (duplicate ops + a guaranteed mis-predict retry).
   while (drainInFlight) await drainInFlight;
-  drainInFlight = pullOnOpen(ctx).finally(() => { drainInFlight = null; });
+  drainInFlight = pullOnOpen(ctx).finally(() => { drainInFlight = null; onDrainSettled(); });
   await drainInFlight;
   return getSyncStatus(ctx);
 }
@@ -1042,6 +1057,10 @@ export async function reauthenticate(ctx) {
 // guard (same posture as recordsLock) prevents overlapping drains. Returns a
 // teardown removing both listeners. No-op outside a DOM context.
 let drainInFlight = null;
+// Installed by startReconnectAutoDrain; reauthenticate's .finally calls it too,
+// so a rerun queued while a reauth-owned drain held the slot is still consumed
+// instead of leaking into a spurious drain after the NEXT auto-drain.
+let onDrainSettled = () => {};
 export function startReconnectAutoDrain(ctx) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
   let debounce = null;
@@ -1056,10 +1075,11 @@ export function startReconnectAutoDrain(ctx) {
       .catch(() => {}) // failures already land in sync status; retried on the next event
       .finally(() => {
         drainInFlight = null;
-        if (rerun && !stopped) { rerun = false; drain(); }
+        onDrainSettled();
       });
     return drainInFlight;
   };
+  onDrainSettled = () => { if (rerun && !stopped) { rerun = false; drain(); } };
   const trigger = () => {
     clearTimeout(debounce);
     debounce = setTimeout(drain, 250);

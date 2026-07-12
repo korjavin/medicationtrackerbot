@@ -823,6 +823,67 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     expect(opsGets).toBe(2); // it ran after the auto-drain finished
   });
 
+  it('an online event during a reauthenticate-owned drain still gets its follow-up run', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        opsGets++;
+        await gate; // hold the reauth-owned drain in flight
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    teardown = startReconnectAutoDrain(ctx);
+    const reauth = reauthenticate(ctx); // owns the drain slot, blocked on the gate
+    await new Promise((r) => setTimeout(r, 50));
+    expect(opsGets).toBe(1);
+
+    window.dispatchEvent(new Event('online'));
+    await settle(); // debounce fired mid-reauth-drain: coalesced, not dropped
+    expect(opsGets).toBe(1);
+    release();
+    await reauth;
+    await settle(); // the queued follow-up must run after the reauth drain settles
+    expect(opsGets).toBe(2);
+  });
+
+  it('a concurrent flush entry point serializes behind an in-flight flush instead of double-posting', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    let postsInFlight = 0;
+    let maxPostsInFlight = 0;
+    let opsPosted = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') {
+        postsInFlight++;
+        maxPostsInFlight = Math.max(maxPostsInFlight, postsInFlight);
+        const { ops } = JSON.parse(init.body);
+        opsPosted += ops.length;
+        await gate; // hold the first flush mid-POST
+        postsInFlight--;
+        return new Response(JSON.stringify({ assigned: ops.map((_, i) => i + 1) }), { status: 200 });
+      }
+      if (String(url).startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    // writeRecord's inline flush blocks mid-POST on the gate…
+    const write = writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await vi.waitFor(() => expect(postsInFlight).toBe(1));
+    // …while the inbox ack barrier enters flushPending through its own door.
+    // Unserialized, it would re-read the same 'pending' set and re-POST note-1
+    // under the same predicted seq — a guaranteed mis-predict.
+    const confirmed = flushConfirmed(ctx);
+    await new Promise((r) => setTimeout(r, 50));
+    release();
+    await write;
+    await expect(confirmed).resolves.toBe(true);
+    expect(maxPostsInFlight).toBe(1); // never two flushes in flight at once
+    expect(opsPosted).toBe(1); // note-1 posted exactly once
+  });
+
   it('a post-teardown online event no longer drains', async () => {
     teardown = startReconnectAutoDrain(ctx);
     teardown();
