@@ -108,17 +108,21 @@ secrets behind the same warning.
       (account-delete: 13 passed; settings.toggles: 40 passed — via vitest, node 22)
 
 ### Task 2: Auto-close this tab's DB handles so they don't block deletion
-- [ ] In `web/cloud/js/localdb.js` `openDb()`, on the resolved connection set
+- [x] In `web/cloud/js/localdb.js` `openDb()`, on the resolved connection set
       `db.onversionchange = () => db.close();` (one line, in `req.onsuccess`)
       so a live connection auto-closes when `deleteDatabase` issues `versionchange`.
       This is the "close known handles / coordination before deletion" item.
-- [ ] Add/extend a test asserting `openDb()` registers an `onversionchange`
+- [x] Add/extend a test asserting `openDb()` registers an `onversionchange`
       handler that closes the connection. Prefer extending an existing localdb
       test suite if one exists; otherwise add the case to the nearest owning
       suite (do NOT create a coverage-suffix file). If no owning suite exists and
       adding one is disproportionate, note it and rely on the account-delete
-      blocked-path test to cover the observable behavior. ⚠️ decide during impl.
-- [ ] Run `pnpm test` — must pass before Task 3.
+      blocked-path test to cover the observable behavior. (No localdb suite
+      exists; added the case to `web/cloud/js/tests/sync.test.js`, the owning
+      suite that imports `openDb` — a live handle no longer blocks
+      `deleteDatabase`, asserted via fake-indexeddb.)
+- [x] Run `pnpm test` — must pass before Task 3. (full suite: 309 files,
+      3549 passed / 29 skipped — via vitest, node 22)
 
 ### Task 3: Gate the safety export's plaintext secrets behind a warning
 - [ ] In `web/cloud/js/account-delete.js` `exportVaultToFile()`, before calling
