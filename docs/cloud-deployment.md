@@ -115,7 +115,38 @@ a disruptive operation. The managed bots themselves stay owned by the users in
 Telegram regardless.
 
 `CLOUD_TG_API_BASE_URL` overrides the Bot API root (default
-`https://api.telegram.org`) — for tests or a self-hosted API proxy only.
+`https://api.telegram.org`) — for tests or a self-hosted API proxy. Enabling
+the proxy is what unlocks large-file imports; see below.
+
+### Large-file / Mi Band imports (local Bot API proxy)
+
+Telegram's public Bot API (`api.telegram.org`) refuses `getFile` for any file
+larger than **20 MB**, so a user sending a Mi Band `.nxk` backup over their
+cloud child bot gets `❌ That file is larger than Telegram's 20 MB bot limit`.
+Most Mi Band backups exceed 20 MB. The fix is the same as bot mode: run a
+self-hosted **local Bot API server** (`--local` mode, ~2 GB limit) that hands
+back downloaded files on a shared volume the app reads directly.
+
+`docker-compose.cloud.yml` ships this as an **opt-in** `telegram-bot-api`
+service that stays inactive (clean exit) unless you provide credentials. To
+enable it:
+
+1. Get a Telegram **API ID + API hash** from <https://my.telegram.org> (app
+   credentials — distinct from a bot token). This is the same
+   `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` prerequisite as bot mode.
+2. Set these stack variables (compose forwards them):
+
+   ```
+   TELEGRAM_API_ID=<id>
+   TELEGRAM_API_HASH=<hash>
+   CLOUD_TG_API_BASE_URL=http://telegram-bot-api:8081
+   ```
+
+3. Redeploy. The `telegram-bot-api` service starts, and the cloud app resolves
+   large files via the proxy over the shared `telegram_bot_api_data` volume.
+
+Leave all three unset to keep the default behavior — the app talks to
+`api.telegram.org` and small files still import fine.
 
 ## 4. Mint the first invite
 

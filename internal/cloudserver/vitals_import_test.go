@@ -214,3 +214,50 @@ func TestChildWebhook_NXKDocumentSealsVitalsToMailbox(t *testing.T) {
 		t.Fatal("queued ack was never edited into a summary")
 	}
 }
+
+// TestChildWebhook_NXKTooBigTellsOperatorToEnableProxy guards bd med-eas.41: a
+// Mi Band backup over Telegram's 20 MB public Bot API limit (getFile returns
+// "file is too big") must edit the ack into an honest "enable the local Bot API
+// proxy" message, NOT the generic "try sending it again" — which would loop the
+// user forever since a retry can never clear a size cap. A genuinely transient
+// download failure keeps the retry wording (covered by the existing path).
+func TestChildWebhook_NXKTooBigTellsOperatorToEnableProxy(t *testing.T) {
+	tg := newRecordingTG(t)
+	tg.mu.Lock()
+	tg.mu.getFileTooBig = true
+	tg.mu.Unlock()
+
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	// file_size passes ValidateImportFile (<= its cap) but getFile still refuses
+	// it: the two limits are independent, and this is the whole point of the bug.
+	update := `{"update_id":7,"message":{"message_id":9,"chat":{"id":12345,"type":"private"},` +
+		`"document":{"file_id":"BIGNXK","file_name":"export.nxk","file_size":1024}}}`
+	rec := postWebhook(t, f.top, f.childPath, f.secret, update)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("nxk too-big webhook status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	// Nothing sealed — the download never produced a file.
+	events, err := f.store.ListInboxEvents(t.Context(), f.accountID, 10)
+	if err != nil {
+		t.Fatalf("ListInboxEvents: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("queued %d events, want 0 (download failed)", len(events))
+	}
+
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.edits) == 0 {
+		t.Fatal("queued ack was never edited")
+	}
+	last := tg.mu.edits[len(tg.mu.edits)-1]
+	if !strings.Contains(last, "20 MB") || !strings.Contains(last, "proxy") {
+		t.Errorf("too-big ack = %q, want the honest 20 MB / proxy message", last)
+	}
+	if strings.Contains(last, "try sending it again") {
+		t.Errorf("too-big ack used the misleading retry wording: %q", last)
+	}
+}

@@ -14,6 +14,12 @@ services:
     command: ["./cloud"]
     volumes:
       - cloud_data:/app/data
+      # Shared with the telegram-bot-api service below. When the local Bot API
+      # proxy is enabled, getFile returns an absolute path on this volume and
+      # the cloud app reads the bytes directly (downloadDocument's os.Open
+      # branch) — needed for Mi Band / large-file (>20 MB) imports. Harmless
+      # when the proxy is off (nothing writes here).
+      - telegram_bot_api_data:/var/lib/telegram-bot-api
     environment:
       - CLOUD_BASE_DOMAIN=${CLOUD_BASE_DOMAIN}
       - SESSION_SECRET=${SESSION_SECRET}
@@ -34,6 +40,12 @@ services:
       # Without it a keyed instance 401s and food search stays broken even
       # though CLOUD_FOOD_DB_URL is set. Never reaches the browser.
       - CLOUD_FOOD_DB_API_KEY=${CLOUD_FOOD_DB_API_KEY:-}
+      # Optional local Bot API proxy for large-file (>20 MB) imports, e.g. Mi
+      # Band backups. Left empty = the app hits api.telegram.org (20 MB getFile
+      # cap). To enable, set TELEGRAM_API_ID / TELEGRAM_API_HASH (starts the
+      # telegram-bot-api service below) AND point this at it:
+      # CLOUD_TG_API_BASE_URL=http://telegram-bot-api:8081. See
+      # docs/cloud-deployment.md → Large-file / Mi Band imports.
       - CLOUD_TG_API_BASE_URL=${CLOUD_TG_API_BASE_URL:-}
       # Operator TRIAL provider keys (all optional; unset = pure BYO, trial
       # proxy routes 503). Read by cmd/cloud/main.go via TrialConfigFromEnv.
@@ -63,6 +75,61 @@ services:
       - "traefik.http.routers.cloud.tls.domains[0].main=${CLOUD_BASE_DOMAIN}"
       - "traefik.http.routers.cloud.tls.domains[0].sans=*.${CLOUD_BASE_DOMAIN}"
       - "traefik.http.services.cloud.loadbalancer.server.port=${PORT:-8080}"
+
+  # Local Telegram Bot API Server - removes the 20MB file download limit so
+  # large Mi Band (.nxk) backups can be imported over the cloud child bots.
+  # OPT-IN: skipped via clean exit when TELEGRAM_API_ID / TELEGRAM_API_HASH are
+  # unset, in which case the cloud app keeps using api.telegram.org exactly as
+  # before. Mirrors the bot stack's service (docker-compose.yml). To use it,
+  # set the two creds AND CLOUD_TG_API_BASE_URL=http://telegram-bot-api:8081 on
+  # the cloud service above; the shared telegram_bot_api_data volume lets the
+  # app read downloaded files off disk.
+  telegram-bot-api:
+    image: ghcr.io/korjavin/telegram-bot-api:2026-02-28
+    pull_policy: if_not_present
+    container_name: medtracker-cloud-telegram-api
+    restart: on-failure
+    user: "0:0"
+    # Default entrypoint forces user 101. We override it to run our own setup.
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        # If the operator hasn't provisioned Telegram Bot API credentials,
+        # exit cleanly so the container doesn't crash-loop. Combined with
+        # restart: on-failure, this leaves the service inactive instead.
+        if [ -z "$${TELEGRAM_API_ID}" ] || [ -z "$${TELEGRAM_API_HASH}" ]; then
+          echo "[telegram-bot-api] TELEGRAM_API_ID / TELEGRAM_API_HASH not set, skipping"
+          exit 0
+        fi
+
+        # Create appuser (1000) manually by modifying /etc/passwd if not exists
+        # This avoids dependency on adduser/useradd which are missing in minimal images
+        grep -q :1000: /etc/group || echo "appgroup:x:1000:" >> /etc/group
+        grep -q :1000: /etc/passwd || echo "appuser:x:1000:1000:appuser:/var/lib/telegram-bot-api:/bin/sh" >> /etc/passwd
+
+        # Fix permissions so appuser can write
+        mkdir -p /var/lib/telegram-bot-api/data
+        chown -R 1000:1000 /var/lib/telegram-bot-api
+
+        # Run server, telling it to switch to our new user
+        # We start as root, let the binary drop privileges to appuser (1000)
+        exec telegram-bot-api --local \
+          --api-id=$${TELEGRAM_API_ID} \
+          --api-hash=$${TELEGRAM_API_HASH} \
+          --dir=/var/lib/telegram-bot-api/data \
+          --temp-dir=/tmp \
+          --username=appuser \
+          --groupname=appgroup \
+          --http-port=8081
+    volumes:
+      - telegram_bot_api_data:/var/lib/telegram-bot-api
+    environment:
+      - TELEGRAM_API_ID=${TELEGRAM_API_ID}
+      - TELEGRAM_API_HASH=${TELEGRAM_API_HASH}
+      - TELEGRAM_LOCAL=1
+    networks:
+      - proxy
 
   # Litestream - SQLite replication of cloud.db to Cloudflare R2.
   # cloud.db holds every account record, device envelope, recovery verifier
@@ -136,3 +203,4 @@ networks:
 
 volumes:
   cloud_data:
+  telegram_bot_api_data:

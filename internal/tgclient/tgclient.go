@@ -353,6 +353,16 @@ func IsMessageNotModified(err error) bool {
 	return errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Description), "message is not modified")
 }
 
+// IsFileTooBig reports whether err is Telegram's getFile rejection for a file
+// over the 20 MB Bot API download limit ("Bad Request: file is too big"). This
+// cap only applies to the public api.telegram.org; a self-hosted --local Bot API
+// server raises it to ~2 GB, so callers use this to tell the user the file needs
+// the local Bot API proxy rather than a retry.
+func IsFileTooBig(err error) bool {
+	var apiErr *apiError
+	return errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Description), "file is too big")
+}
+
 // InlineKeyboardButton is one tappable button. Only callback buttons are used —
 // a tap posts CallbackData back to the bot's webhook.
 type InlineKeyboardButton struct {
