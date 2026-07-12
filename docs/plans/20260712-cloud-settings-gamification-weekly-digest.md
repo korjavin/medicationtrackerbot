@@ -95,7 +95,7 @@ tile and make Journey unreachable through existing gating.
 
 ### Task 2: Sync the gamification checkbox from feature flags
 
-- [ ] In `web/static/js/features/settings.js` `updateFeatureToggles()`
+- [x] In `web/static/js/features/settings.js` `updateFeatureToggles()`
       (~line 772), add
       `document.getElementById('gamification-feature-toggle').checked = !!flags.gamification;`
       following the existing pattern.
