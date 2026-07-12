@@ -144,21 +144,24 @@ Dependencies identified: none new. No new HTTP route. No schema/migration change
 - [x] run `TZ=UTC go test ./internal/cloudserver/...` — must pass
 
 ### Task 4: Client record chunking in importDayBatched (web/domain/vitals.js)
-- [ ] add a named const `MAX_SAMPLES_PER_RECORD = 500` (comment: keeps a record's
+- [x] add a named const `MAX_SAMPLES_PER_RECORD = 500` (comment: keeps a record's
       ct well under the server's 64 KiB `maxOpCTLen`)
-- [ ] in `importDayBatched`, after merging a day's samples, if the merged sample
+- [x] in `importDayBatched`, after merging a day's samples, if the merged sample
       count exceeds `MAX_SAMPLES_PER_RECORD`, split into deterministic sub-records:
       part 0 keyed `<type>-<day>` (backward compatible), overflow parts keyed
       `<type>-<day>#<k>` (k = 1,2,…); split by sorted-sample-index buckets so the
       same input always produces the same partition (re-drain converges)
-- [ ] update `readSamples` if needed so the PK range scan
+- [x] update `readSamples` if needed so the PK range scan
       `<type>-<fromDay>`..`<type>-<toDay>` still catches `#`-suffixed sub-records —
       verify `'#'` (0x23) sorts within the day's range against the `<toDay>` bound
       (`'#' < '-'` 0x2D, and the suffix is only reached after the full `<type>-<day>`
       prefix, which is < `<type>-<toDay>` for any day ≤ toDay); widen the upper
-      bound if the raw ordering does not hold
-- [ ] ensure the merge still dedupes by sample instant across parts so re-applying
-      the same import overwrites its own samples (no duplicates)
+      bound if the raw ordering does not hold — verified: ordering holds (toDay is
+      padded +1 day past nowMs), so no readSamples change needed beyond a doc note
+- [x] ensure the merge still dedupes by sample instant across parts so re-applying
+      the same import overwrites its own samples (no duplicates) — merge now unions
+      base + every `#k` part keyed by instant, then re-partitions + tombstones stale
+      trailing parts
 
 ### Task 5: Client integration test — dense-day split + read-back (inbox-apply.test.js)
 - [ ] add a case in `web/cloud/js/tests/inbox-apply.test.js`: apply a
