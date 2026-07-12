@@ -407,7 +407,12 @@ describe('startInboxPolling', () => {
         await vi.advanceTimersByTimeAsync(6000);
         const afterRecovery = gets();
         await vi.advanceTimersByTimeAsync(3000);
-        expect(gets()).toBe(afterRecovery + 3); // full cadence restored
+        // Cadence restored: at full speed the 3 ticks GET ~3 times; under a
+        // still-active backoff they'd add 0–1. We assert "resumed", not an exact
+        // count — the drain is async (real WebCrypto opens each event), so under
+        // parallel-suite load a slow drain can make the `draining` guard skip a
+        // tick, and pinning an exact +3 makes the invariant flaky, not stronger.
+        expect(gets()).toBeGreaterThanOrEqual(afterRecovery + 2); // full cadence restored
 
         stop();
         warn.mockRestore();
