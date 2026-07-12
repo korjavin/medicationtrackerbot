@@ -1016,6 +1016,20 @@ export async function pullOnOpen(ctx) {
   await maybeSnapshot(ctx);
 }
 
+// med-deq.2 — session-expiry recovery. Re-runs the passkey ceremony (unlock.js
+// assertPasskey — its /api/webauthn/login/finish re-mints the non-sliding
+// 30-day session cookie; the returned dek/accountId are discarded), then
+// immediately drains the queue the 401s stranded. Dynamic import because
+// unlock.js already dynamic-imports sync.js — a static edge here would be a
+// cycle.
+export async function reauthenticate(ctx) {
+  const { assertPasskey } = await import('./unlock.js');
+  await assertPasskey();
+  authExpired = false;
+  await pullOnOpen(ctx);
+  return getSyncStatus(ctx);
+}
+
 // Generic record-store read: live (non-tombstoned) records of a type from the
 // local mirror, newest-first by clientTs. Backs recordsPort() below
 // (web/domain/'s storage port).

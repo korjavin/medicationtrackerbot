@@ -55,10 +55,10 @@ Queued offline edits sync on reconnect without a write or reload; an expired ses
 - [x] run focused sync tests — must pass before Task 2. (49/49 pass)
 
 ### Task 2: reauthenticate(ctx) export that re-runs the passkey ceremony and drains
-- [ ] add exported `async function reauthenticate(ctx)` in sync.js: `const { assertPasskey } = await import('./unlock.js');` then `await assertPasskey();` (re-mints the server session cookie via login/finish — discard the returned dek/accountId), then `authExpired = false;`, then `await pullOnOpen(ctx);` to drain immediately; return `getSyncStatus(ctx)` (or `describeSyncStatus`).
-- [ ] ensure the dynamic import cannot deadlock the static graph (sync.js must NOT statically import unlock.js — unlock.js already dynamic-imports sync.js).
-- [ ] write test: seed an auth-expired state with a pending op; stub `assertPasskey` (mock the `../unlock.js` module) to succeed and make the mocked fetch return 200 for `/api/sync/ops` afterward; assert `reauthenticate` clears `authExpired` and the pending queue drains (pending count → 0).
-- [ ] run focused sync tests — must pass before Task 3.
+- [x] add exported `async function reauthenticate(ctx)` in sync.js: `const { assertPasskey } = await import('./unlock.js');` then `await assertPasskey();` (re-mints the server session cookie via login/finish — discard the returned dek/accountId), then `authExpired = false;`, then `await pullOnOpen(ctx);` to drain immediately; return `getSyncStatus(ctx)` (or `describeSyncStatus`).
+- [x] ensure the dynamic import cannot deadlock the static graph (sync.js must NOT statically import unlock.js — unlock.js already dynamic-imports sync.js). (grep-verified: no static unlock import in sync.js)
+- [x] write test: seed an auth-expired state with a pending op; stub `assertPasskey` (mock the `../unlock.js` module) to succeed and make the mocked fetch return 200 for `/api/sync/ops` afterward; assert `reauthenticate` clears `authExpired` and the pending queue drains (pending count → 0).
+- [x] run focused sync tests — must pass before Task 3. (50/50 pass)
 
 ### Task 3: Reconnect auto-drain listeners
 - [ ] add exported `function startReconnectAutoDrain(ctx)` in sync.js: wire `window.addEventListener('online', trigger)` and `document.addEventListener('visibilitychange', ...)` where the visibility handler calls `trigger` only when `document.visibilityState === 'visible' && navigator.onLine`. `trigger` = a debounced runner that calls `pullOnOpen(ctx)` with a simple in-flight guard so concurrent/overlapping events coalesce into one run (reuse the single-slot-promise pattern à la `withRecordsLock`; e.g. a module `let drainInFlight = null;`). Return a teardown function that removes both listeners (for tests/cleanliness). Guard for missing `window`/`document` (no-op) so non-DOM contexts don't throw.

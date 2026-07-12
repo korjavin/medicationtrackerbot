@@ -1,8 +1,14 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb } from '../localdb.js';
+
+// reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
+// module drives navigator.credentials, which doesn't exist in jsdom.
+vi.mock('../unlock.js', () => ({
+  assertPasskey: vi.fn(async () => ({ accountId: 'amber-falcon-8k3q9x', dek: null, credentialId: null })),
+}));
 
 const accountId = 'amber-falcon-8k3q9x';
 
@@ -649,6 +655,33 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     const status = await getSyncStatus(ctx);
     expect(status.authExpired).toBe(false);
     expect(await describeSyncStatus(ctx)).not.toContain('Session expired');
+  });
+
+  it('reauthenticate re-runs the passkey ceremony, clears auth-expired, and drains the queue', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsStatus = 401;
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    expect(await getSyncStatus(ctx)).toMatchObject({ authExpired: true, pendingCount: 1 });
+
+    // The ceremony re-mints the session cookie server-side; the server accepts
+    // again. Re-stub with contiguous seq assignment (the shared counter already
+    // burned a seq on the 401 POST, which would mis-predict every retry).
+    let nextSeq = 1;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        return new Response(JSON.stringify({ assigned: ops.map(() => nextSeq++) }), { status: 200 });
+      }
+      if (String(url).startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const status = await reauthenticate(ctx);
+
+    const { assertPasskey } = await import('../unlock.js');
+    expect(assertPasskey).toHaveBeenCalled();
+    expect(status.authExpired).toBe(false);
+    expect(status.pendingCount).toBe(0);
   });
 
   it('reports an unnameable permanent refusal honestly, without guessing "full"', async () => {
