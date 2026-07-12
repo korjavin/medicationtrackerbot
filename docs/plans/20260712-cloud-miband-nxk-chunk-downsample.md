@@ -110,21 +110,21 @@ Dependencies identified: none new. No new HTTP route. No schema/migration change
 - [x] keep GPS discarded (no change to the `ParseOutdoorWorkouts` second-return drop)
 
 ### Task 2: Server-side event chunking into bounded events (vitals_import.go)
-- [ ] add named const `maxSamplesPerEvent = 2000` with a comment tying it to
+- [x] add named const `maxSamplesPerEvent = 2000` with a comment tying it to
       `maxInboxDrainBytes` (a bounded event seals well under 1 MiB)
-- [ ] restructure `parseNXKToVitalsEvents` to emit MANY bounded events instead of
+- [x] restructure `parseNXKToVitalsEvents` to emit MANY bounded events instead of
       one: chunk the (downsampled) HR/SpO2/Stress streams into events of at most
       `maxSamplesPerEvent` samples each (one stream's samples per event group is
       simplest; do not mix a partial stream with unrelated ones if it complicates
       determinism), and emit sleep + daystats + workouts in their own bounded
       event(s). Every event keeps `Kind: inboxEventKindVitalsImport`.
-- [ ] deterministic chunk boundaries (stream order is already stable from the
+- [x] deterministic chunk boundaries (stream order is already stable from the
       parse + downsample sort) so re-parsing the same backup yields identical events
-- [ ] preserve the "no vitals data → error" guard (return the existing
+- [x] preserve the "no vitals data → error" guard (return the existing
       `no vitals data found in backup` error when every stream is empty)
-- [ ] update the `parseNXKToVitalsEvents` doc comment + the stale `ponytail: one
+- [x] update the `parseNXKToVitalsEvents` doc comment + the stale `ponytail: one
       event per import` comment to describe the new bounded-event behavior
-- [ ] confirm `sealEvents()` (vitals_import_api.go) and the Telegram path
+- [x] confirm `sealEvents()` (vitals_import_api.go) and the Telegram path
       (telegram.go ~1145) still loop the slice and `SealAndQueue` each — no caller
       change expected; adjust only if they assumed a single event
 

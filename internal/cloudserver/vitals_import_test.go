@@ -107,44 +107,60 @@ func TestParseNXKToVitalsEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseNXKToVitalsEvents: %v", err)
 	}
-	if len(events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(events))
+	// A sparse backup still splits into bounded events (one aggregate event +
+	// one per dense stream). Aggregate stream counts across all of them.
+	agg := sumEventStreams(t, events)
+	if agg.sleep != 1 {
+		t.Errorf("sleep = %d, want 1", agg.sleep)
 	}
-	ev := events[0]
+	if agg.hr != 1 {
+		t.Errorf("hr = %d, want 1", agg.hr)
+	}
+	if agg.spo2 != 1 {
+		t.Errorf("spo2 = %d, want 1", agg.spo2)
+	}
+	if agg.stress != 1 {
+		t.Errorf("stress = %d, want 1", agg.stress)
+	}
+	if agg.daystats != 1 {
+		t.Errorf("daystats = %d, want 1", agg.daystats)
+	}
+	if agg.workouts != 1 {
+		t.Errorf("workouts = %d, want 1", agg.workouts)
+	}
+}
 
-	if ev.Kind != inboxEventKindVitalsImport {
-		t.Errorf("kind = %q, want %q", ev.Kind, inboxEventKindVitalsImport)
-	}
-	if len(ev.Sleep) != 1 {
-		t.Errorf("sleep = %d, want 1", len(ev.Sleep))
-	}
-	if len(ev.HR) != 1 {
-		t.Errorf("hr = %d, want 1", len(ev.HR))
-	}
-	if len(ev.SpO2) != 1 {
-		t.Errorf("spo2 = %d, want 1", len(ev.SpO2))
-	}
-	if len(ev.Stress) != 1 {
-		t.Errorf("stress = %d, want 1", len(ev.Stress))
-	}
-	if len(ev.DayStats) != 1 {
-		t.Errorf("daystats = %d, want 1", len(ev.DayStats))
-	}
-	if len(ev.Workouts) != 1 {
-		t.Errorf("workouts = %d, want 1", len(ev.Workouts))
-	}
+type eventStreamCounts struct{ sleep, hr, spo2, stress, daystats, workouts int }
 
-	// GPS must be absent from the sealed payload entirely — assert on the wire
-	// JSON so a stray field on any nested struct is caught, not just the top level.
-	blob, err := json.Marshal(ev)
-	if err != nil {
-		t.Fatalf("marshal event: %v", err)
-	}
-	for _, banned := range []string{"latitude", "longitude", "gps", "altitude", "13.4", "52.5"} {
-		if strings.Contains(string(blob), banned) {
-			t.Errorf("sealed payload leaks GPS token %q: %s", banned, blob)
+// sumEventStreams totals each stream across every event, asserting each event
+// carries the vitals-import kind and never leaks a GPS token in its wire JSON.
+func sumEventStreams(t *testing.T, events []vitalsImportEvent) eventStreamCounts {
+	t.Helper()
+	var agg eventStreamCounts
+	for _, ev := range events {
+		if ev.Kind != inboxEventKindVitalsImport {
+			t.Errorf("kind = %q, want %q", ev.Kind, inboxEventKindVitalsImport)
+		}
+		agg.sleep += len(ev.Sleep)
+		agg.hr += len(ev.HR)
+		agg.spo2 += len(ev.SpO2)
+		agg.stress += len(ev.Stress)
+		agg.daystats += len(ev.DayStats)
+		agg.workouts += len(ev.Workouts)
+
+		// GPS must be absent from every sealed payload — assert on the wire JSON
+		// so a stray field on any nested struct is caught, not just the top level.
+		blob, err := json.Marshal(ev)
+		if err != nil {
+			t.Fatalf("marshal event: %v", err)
+		}
+		for _, banned := range []string{"latitude", "longitude", "gps", "altitude", "13.4", "52.5"} {
+			if strings.Contains(string(blob), banned) {
+				t.Errorf("sealed payload leaks GPS token %q: %s", banned, blob)
+			}
 		}
 	}
+	return agg
 }
 
 // TestChildWebhook_NXKDocumentSealsVitalsToMailbox guards Task 3: a .nxk document
@@ -177,34 +193,44 @@ func TestChildWebhook_NXKDocumentSealsVitalsToMailbox(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListInboxEvents: %v", err)
 	}
-	if len(events) != 1 {
-		t.Fatalf("queued %d events, want 1", len(events))
+	if len(events) == 0 {
+		t.Fatal("queued 0 events, want at least 1")
 	}
-	// Nothing readable at rest: the kind must not appear in the ciphertext.
-	if bytes.Contains(events[0].CT, []byte(inboxEventKindVitalsImport)) {
-		t.Fatal("mailbox row contains plaintext kind")
-	}
-
-	opened, err := openInbox(privRaw, f.accountID, events[0].CT)
-	if err != nil {
-		t.Fatalf("openInbox: %v", err)
-	}
-	var got vitalsImportEvent
-	if err := json.Unmarshal(opened, &got); err != nil {
-		t.Fatalf("unmarshal sealed event: %v", err)
-	}
-	if got.Kind != inboxEventKindVitalsImport {
-		t.Fatalf("sealed event kind = %q", got.Kind)
-	}
-	if len(got.Sleep) == 0 || len(got.HR) == 0 || len(got.SpO2) == 0 ||
-		len(got.Stress) == 0 || len(got.DayStats) == 0 || len(got.Workouts) == 0 {
-		t.Fatalf("sealed event missing a stream: %+v", got)
-	}
-	// GPS must never reach the sealed payload.
-	for _, banned := range []string{"latitude", "longitude", "gps", "13.4", "52.5"} {
-		if bytes.Contains(opened, []byte(banned)) {
-			t.Errorf("sealed payload leaks GPS token %q", banned)
+	// The import splits into many bounded events; open each and aggregate the
+	// streams so every one is exercised (kind, no plaintext, no GPS).
+	var agg eventStreamCounts
+	for _, row := range events {
+		// Nothing readable at rest: the kind must not appear in the ciphertext.
+		if bytes.Contains(row.CT, []byte(inboxEventKindVitalsImport)) {
+			t.Fatal("mailbox row contains plaintext kind")
 		}
+		opened, err := openInbox(privRaw, f.accountID, row.CT)
+		if err != nil {
+			t.Fatalf("openInbox: %v", err)
+		}
+		var got vitalsImportEvent
+		if err := json.Unmarshal(opened, &got); err != nil {
+			t.Fatalf("unmarshal sealed event: %v", err)
+		}
+		if got.Kind != inboxEventKindVitalsImport {
+			t.Fatalf("sealed event kind = %q", got.Kind)
+		}
+		agg.sleep += len(got.Sleep)
+		agg.hr += len(got.HR)
+		agg.spo2 += len(got.SpO2)
+		agg.stress += len(got.Stress)
+		agg.daystats += len(got.DayStats)
+		agg.workouts += len(got.Workouts)
+		// GPS must never reach any sealed payload.
+		for _, banned := range []string{"latitude", "longitude", "gps", "13.4", "52.5"} {
+			if bytes.Contains(opened, []byte(banned)) {
+				t.Errorf("sealed payload leaks GPS token %q", banned)
+			}
+		}
+	}
+	if agg.sleep == 0 || agg.hr == 0 || agg.spo2 == 0 ||
+		agg.stress == 0 || agg.daystats == 0 || agg.workouts == 0 {
+		t.Fatalf("sealed events missing a stream: %+v", agg)
 	}
 
 	// The "Queued" ack was edited into an outcome summary.

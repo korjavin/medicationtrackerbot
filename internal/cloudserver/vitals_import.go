@@ -46,12 +46,19 @@ func downsampleSamples(samples []vitalsSampleWire, cadence time.Duration) []vita
 	return out
 }
 
-// inboxEventKindVitalsImport seals a whole Mi Band NXK import as ONE event.
+// inboxEventKindVitalsImport tags each sealed event of a Mi Band NXK import.
 // The relay parses the .nxk server-side (transient plaintext, same trust model
-// as the Telegram inbound path), then seals the mapped vitals streams; the
-// client drains and writes them into vault vitals records. GPS is never
-// included (locked scope decision — docs/plans/20260711-cloud-miband-nxk-ingest.md).
+// as the Telegram inbound path), then seals the mapped vitals streams across
+// MANY bounded events; the client drains and writes them into vault vitals
+// records. GPS is never included (locked scope decision —
+// docs/plans/20260711-cloud-miband-nxk-ingest.md).
 const inboxEventKindVitalsImport = "vitals_import"
+
+// maxSamplesPerEvent bounds how many dense samples one sealed event carries. A
+// downsampled sample is a small fixed JSON object, so a per-event count cap keeps
+// each sealed ct far under the inbox per-drain byte cap (maxInboxDrainBytes = 1
+// MiB, inbox.go) without measuring bytes — no single event ever dominates a drain.
+const maxSamplesPerEvent = 2000
 
 // vitalsImportEvent is the sealed payload for one NXK import. Every stream
 // mirrors the field names of internal/store/vitals/repo.go +
@@ -125,12 +132,13 @@ type vitalsWorkoutWire struct {
 // internal/bot/sleep_import.go:importSleepFile but writing to the vault wire
 // shapes instead of the store. GPS is parsed and discarded.
 //
-// Returns one event per import (the whole backup sealed atomically). The caller
-// stamps AtUnix with the server clock and SealAndQueue's each event.
-//
-// ponytail: one event per import even for a 90-day NXK, which seals as one big
-// ct blob (~9k HR samples). Chunk per-stream only if a real inbox/envelope size
-// limit is hit — a []event return keeps that door open without paying for it now.
+// Returns MANY bounded events: the dense HR/SpO2/Stress streams are split into
+// events of at most maxSamplesPerEvent samples each (one stream per event), and
+// the daily aggregates (sleep + daystats + workouts) share one bounded event so
+// no single sealed ct approaches the inbox drain cap. Chunk boundaries are
+// deterministic (streams are sorted by the downsample step), so re-parsing the
+// same backup yields identical events. The caller stamps AtUnix with the server
+// clock and SealAndQueue's each event.
 func parseNXKToVitalsEvents(nxkPath string) ([]vitalsImportEvent, error) {
 	info, err := os.Stat(nxkPath)
 	if err != nil {
@@ -225,5 +233,43 @@ func parseNXKToVitalsEvents(nxkPath string) ([]vitalsImportEvent, error) {
 		return nil, fmt.Errorf("no vitals data found in backup")
 	}
 
-	return []vitalsImportEvent{ev}, nil
+	var events []vitalsImportEvent
+
+	// Daily aggregates: one bounded event (daily cadence keeps them small even
+	// over months — ~1 row/day per stream).
+	if len(ev.Sleep)+len(ev.DayStats)+len(ev.Workouts) > 0 {
+		events = append(events, vitalsImportEvent{
+			Kind:     inboxEventKindVitalsImport,
+			Sleep:    ev.Sleep,
+			DayStats: ev.DayStats,
+			Workouts: ev.Workouts,
+		})
+	}
+
+	// Dense streams: one event type per event, chunked at maxSamplesPerEvent.
+	for _, c := range chunkSamples(ev.HR) {
+		events = append(events, vitalsImportEvent{Kind: inboxEventKindVitalsImport, HR: c})
+	}
+	for _, c := range chunkSamples(ev.SpO2) {
+		events = append(events, vitalsImportEvent{Kind: inboxEventKindVitalsImport, SpO2: c})
+	}
+	for _, c := range chunkSamples(ev.Stress) {
+		events = append(events, vitalsImportEvent{Kind: inboxEventKindVitalsImport, Stress: c})
+	}
+
+	return events, nil
+}
+
+// chunkSamples splits a (sorted) sample stream into deterministic slices of at
+// most maxSamplesPerEvent samples each.
+func chunkSamples(s []vitalsSampleWire) [][]vitalsSampleWire {
+	var out [][]vitalsSampleWire
+	for i := 0; i < len(s); i += maxSamplesPerEvent {
+		end := i + maxSamplesPerEvent
+		if end > len(s) {
+			end = len(s)
+		}
+		out = append(out, s[i:end])
+	}
+	return out
 }
