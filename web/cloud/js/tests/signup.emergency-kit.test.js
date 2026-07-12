@@ -82,15 +82,20 @@ describe('Emergency Kit: the user must actually produce the kit', () => {
     expect(app.querySelector('#kit-continue').disabled).toBe(true);
   });
 
-  it('downloading a file unlocks the checkbox, and only then does Continue arm', async () => {
+  it('downloading a file auto-confirms the attestation and arms Continue (med-eas.47)', async () => {
     const app = await mountKit();
     app.querySelector('#kit-download').click();
 
     const checkbox = app.querySelector('#kit-saved-checkbox');
     expect(checkbox.disabled).toBe(false);
-    // Attestation is a second line of defence, not a bypass: still unticked.
-    expect(app.querySelector('#kit-continue').disabled).toBe(true);
+    // The download IS the confirmation — no separate tick asked of the user.
+    expect(checkbox.checked).toBe(true);
+    expect(app.querySelector('#kit-continue').disabled).toBe(false);
 
+    // Manual fallback still works: unticking re-gates Continue, re-ticking arms.
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new dom.window.Event('change'));
+    expect(app.querySelector('#kit-continue').disabled).toBe(true);
     checkbox.checked = true;
     checkbox.dispatchEvent(new dom.window.Event('change'));
     expect(app.querySelector('#kit-continue').disabled).toBe(false);

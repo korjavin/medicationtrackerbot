@@ -326,7 +326,12 @@ export async function renderEmergencyKit(app, ctx) {
   };
   const markProduced = () => {
     kitProduced = true;
-    hint.textContent = 'Kit saved. Now confirm below.';
+    // The download/print IS the confirmation — auto-tick the attestation so the
+    // user isn't asked to separately confirm what they just did. Honest because
+    // this only fires after a real save action, never on step view. The box
+    // stays interactive as a manual fallback (untick/re-tick still works).
+    checkbox.checked = true;
+    hint.textContent = 'Kit saved and confirmed.';
     sync();
   };
 
