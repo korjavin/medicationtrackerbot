@@ -425,83 +425,8 @@
                 </div>
             </section>
 
-            <section class="wg-card wg-settings-section wg-settings-cloud-devices wg-settings-hidden">
-                <h3 class="wg-settings-section__title">Devices</h3>
-                <p class="wg-settings-section__desc">Manage devices linked to this account</p>
-                <div id="second-device-nudge" class="wg-settings-nudge wg-settings-hidden" role="note">
-                    <div class="wg-settings-nudge__body">
-                        <div class="wg-settings-nudge__title wg-mono-display">Add a second device</div>
-                        <div class="wg-settings-nudge__desc">This account can only be opened from this one device. Enroll a second one (a desktop browser counts) so a lost or broken phone doesn't lock you out of your health data.</div>
-                    </div>
-                    <div class="wg-settings-nudge__actions">
-                        <a id="second-device-nudge-add" class="wg-gloss wg-settings-action-btn" href="/devices">Add a device</a>
-                        <button id="second-device-nudge-dismiss" type="button" class="wg-settings-nudge__dismiss">Not now</button>
-                    </div>
-                </div>
-                <div class="wg-settings-row-list">
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Manage devices</div>
-                            <div class="wg-settings-row__desc">Add a new device</div>
-                        </div>
-                        <div class="wg-settings-row__control">
-                            <a id="settings-devices-link" class="wg-gloss wg-settings-action-btn" href="/devices">Open</a>
-                        </div>
-                    </div>
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Claude connector</div>
-                            <div class="wg-settings-row__desc">Use your data from claude.ai or ChatGPT — with consent</div>
-                        </div>
-                        <div class="wg-settings-row__control">
-                            <a id="settings-claude-connector-link" class="wg-gloss wg-settings-action-btn" href="/connectors">Open</a>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <section class="wg-card wg-settings-section wg-settings-cloud-invite wg-settings-hidden">
-                <h3 class="wg-settings-section__title">Invite a friend</h3>
-                <p class="wg-settings-section__desc">Create a personal account for someone you know</p>
-                <div class="wg-settings-row-list">
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Invite a friend</div>
-                            <div class="wg-settings-row__desc">Up to 100 invites per month</div>
-                        </div>
-                        <div class="wg-settings-row__control">
-                            <button type="button" id="settings-invite-btn" class="wg-gloss wg-settings-action-btn">Invite</button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <section class="wg-card wg-settings-section wg-settings-privacy wg-settings-hidden">
-                <h3 class="wg-settings-section__title">What can the operator see?</h3>
-                <p class="wg-settings-section__desc">Plain-language transparency: what stays private, what the operator can observe, and what leaves your device</p>
-                <details class="wg-privacy-details">
-                    <summary class="wg-privacy-summary">Show what the operator can and cannot see</summary>
-                    <div id="privacy-content" class="wg-privacy-content"></div>
-                </details>
-            </section>
-
-            <section class="wg-card wg-settings-section wg-settings-danger wg-settings-hidden">
-                <h3 class="wg-settings-section__title">Delete account</h3>
-                <p class="wg-settings-section__desc">Permanently erase your account and all of its data from this server. This cannot be undone.</p>
-                <div class="wg-settings-row-list">
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Delete my account</div>
-                            <div class="wg-settings-row__desc">Export your data first if you want to keep it</div>
-                        </div>
-                        <div class="wg-settings-row__control">
-                            <button type="button" id="delete-account-open" class="wg-gloss wg-settings-action-btn wg-settings-action-btn--danger">Delete…</button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <section id="oidc-setup-container" class="wg-card wg-settings-section wg-settings-oidc"></section>
+            <details open class="wg-settings-group">
+                <summary class="wg-settings-group__summary">Preferences</summary>
 
             <section class="wg-card wg-settings-section wg-settings-timezone">
                 <h3 class="wg-settings-section__title">Time &amp; Timezone</h3>
@@ -678,6 +603,11 @@
                     </div>
                 </div>
             </section>
+
+            </details>
+
+            <details class="wg-settings-group">
+                <summary class="wg-settings-group__summary">Targets</summary>
 
             <section id="food-target-settings" class="wg-card wg-settings-section wg-settings-food-targets">
                 <h3 class="wg-settings-section__title">Food Targets</h3>
@@ -859,6 +789,11 @@
                     class="wg-gloss wg-gloss--sun wg-settings-save-btn">Save Targets</button>
             </section>
 
+            </details>
+
+            <details class="wg-settings-group">
+                <summary class="wg-settings-group__summary">Integrations</summary>
+
             <section id="settings-integrations" class="wg-card wg-settings-section wg-settings-integrations">
                 <h3 class="wg-settings-section__title">Integrations</h3>
                 <p class="wg-settings-section__desc">Provider credentials for AI, food database, and voice agent. Stored locally; existing keys appear as <span class="wg-mono-display">***</span> and stay unchanged unless you re-enter them. Empty a field to clear a saved value.</p>
@@ -950,6 +885,69 @@
                 <button id="save-integrations-btn" type="button" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Save Integrations</button>
             </section>
 
+            </details>
+
+            <details class="wg-settings-group">
+                <summary class="wg-settings-group__summary">Devices &amp; connections</summary>
+
+            <section class="wg-card wg-settings-section wg-settings-cloud-devices wg-settings-hidden">
+                <h3 class="wg-settings-section__title">Devices</h3>
+                <p class="wg-settings-section__desc">Manage devices linked to this account</p>
+                <div id="second-device-nudge" class="wg-settings-nudge wg-settings-hidden" role="note">
+                    <div class="wg-settings-nudge__body">
+                        <div class="wg-settings-nudge__title wg-mono-display">Add a second device</div>
+                        <div class="wg-settings-nudge__desc">This account can only be opened from this one device. Enroll a second one (a desktop browser counts) so a lost or broken phone doesn't lock you out of your health data.</div>
+                    </div>
+                    <div class="wg-settings-nudge__actions">
+                        <a id="second-device-nudge-add" class="wg-gloss wg-settings-action-btn" href="/devices">Add a device</a>
+                        <button id="second-device-nudge-dismiss" type="button" class="wg-settings-nudge__dismiss">Not now</button>
+                    </div>
+                </div>
+                <div class="wg-settings-row-list">
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Manage devices</div>
+                            <div class="wg-settings-row__desc">Add a new device</div>
+                        </div>
+                        <div class="wg-settings-row__control">
+                            <a id="settings-devices-link" class="wg-gloss wg-settings-action-btn" href="/devices">Open</a>
+                        </div>
+                    </div>
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Claude connector</div>
+                            <div class="wg-settings-row__desc">Use your data from claude.ai or ChatGPT — with consent</div>
+                        </div>
+                        <div class="wg-settings-row__control">
+                            <a id="settings-claude-connector-link" class="wg-gloss wg-settings-action-btn" href="/connectors">Open</a>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="wg-card wg-settings-section wg-settings-cloud-invite wg-settings-hidden">
+                <h3 class="wg-settings-section__title">Invite a friend</h3>
+                <p class="wg-settings-section__desc">Create a personal account for someone you know</p>
+                <div class="wg-settings-row-list">
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Invite a friend</div>
+                            <div class="wg-settings-row__desc">Up to 100 invites per month</div>
+                        </div>
+                        <div class="wg-settings-row__control">
+                            <button type="button" id="settings-invite-btn" class="wg-gloss wg-settings-action-btn">Invite</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="oidc-setup-container" class="wg-card wg-settings-section wg-settings-oidc"></section>
+
+            </details>
+
+            <details class="wg-settings-group">
+                <summary class="wg-settings-group__summary">Backup &amp; data</summary>
+
             <section id="settings-importexport" class="wg-card wg-settings-section wg-settings-importexport">
                 <h3 class="wg-settings-section__title">Import / Export</h3>
                 <p class="wg-settings-section__desc">Download all your data as one file, or restore from a backup. Importing replaces everything currently stored.</p>
@@ -1021,6 +1019,36 @@
                 </div>
             </section>
 
+            </details>
+
+            <details class="wg-settings-group">
+                <summary class="wg-settings-group__summary">Account &amp; privacy</summary>
+
+            <section class="wg-card wg-settings-section wg-settings-privacy wg-settings-hidden">
+                <h3 class="wg-settings-section__title">What can the operator see?</h3>
+                <p class="wg-settings-section__desc">Plain-language transparency: what stays private, what the operator can observe, and what leaves your device</p>
+                <details class="wg-privacy-details">
+                    <summary class="wg-privacy-summary">Show what the operator can and cannot see</summary>
+                    <div id="privacy-content" class="wg-privacy-content"></div>
+                </details>
+            </section>
+
+            <section class="wg-card wg-settings-section wg-settings-danger wg-settings-hidden">
+                <h3 class="wg-settings-section__title">Delete account</h3>
+                <p class="wg-settings-section__desc">Permanently erase your account and all of its data from this server. This cannot be undone.</p>
+                <div class="wg-settings-row-list">
+                    <div class="wg-settings-row">
+                        <div class="wg-settings-row__content">
+                            <div class="wg-settings-row__title wg-mono-display">Delete my account</div>
+                            <div class="wg-settings-row__desc">Export your data first if you want to keep it</div>
+                        </div>
+                        <div class="wg-settings-row__control">
+                            <button type="button" id="delete-account-open" class="wg-gloss wg-settings-action-btn wg-settings-action-btn--danger">Delete…</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <section id="settings-about" class="wg-card wg-settings-section wg-settings-about wg-settings-hidden">
                 <h3 class="wg-settings-section__title">About</h3>
                 <p class="wg-settings-section__desc">Diagnostics for the embedded server</p>
@@ -1036,6 +1064,8 @@
                     </div>
                 </div>
             </section>
+
+            </details>
 
             <div class="wg-settings-version">
                 <span class="wg-settings-version__label">Version</span>

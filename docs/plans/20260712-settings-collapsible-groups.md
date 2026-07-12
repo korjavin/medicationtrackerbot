@@ -55,14 +55,14 @@
 ## Implementation Steps
 
 ### Task 1: Wrap settings sections into `<details>` groups in index.html
-- [ ] In `web/static/index.html` `#settings-view`, keep `.wg-settings-sync` pinned at top unchanged (not wrapped).
-- [ ] Wrap the Preferences sections (timezone, notifications, notifications-cloud, features, reminders, units) in `<details open class="wg-settings-group">` with a `<summary class="wg-settings-group__summary">Preferences</summary>` — move those existing `<section>` blocks inside verbatim.
-- [ ] Wrap Targets (food-target-settings, gamification-targets-settings) in a folded `<details class="wg-settings-group">` + summary "Targets".
-- [ ] Wrap Integrations (settings-integrations) in a folded `<details>` + summary "Integrations".
-- [ ] Wrap Devices & connections (cloud-devices, cloud-invite, oidc-setup-container) in a folded `<details>` + summary "Devices & connections".
-- [ ] Wrap Backup & data (settings-importexport) in a folded `<details>` + summary "Backup & data".
-- [ ] Wrap Account & privacy (privacy, danger, about) in a folded `<details>` + summary "Account & privacy".
-- [ ] Verify NO section `id` or `class` was changed and no inline `style=` was introduced. Reorder sections into group order only by moving whole `<section>` blocks.
+- [x] In `web/static/index.html` `#settings-view`, keep `.wg-settings-sync` pinned at top unchanged (not wrapped).
+- [x] Wrap the Preferences sections (timezone, notifications, notifications-cloud, features, reminders, units) in `<details open class="wg-settings-group">` with a `<summary class="wg-settings-group__summary">Preferences</summary>` — move those existing `<section>` blocks inside verbatim.
+- [x] Wrap Targets (food-target-settings, gamification-targets-settings) in a folded `<details class="wg-settings-group">` + summary "Targets".
+- [x] Wrap Integrations (settings-integrations) in a folded `<details>` + summary "Integrations".
+- [x] Wrap Devices & connections (cloud-devices, cloud-invite, oidc-setup-container) in a folded `<details>` + summary "Devices & connections".
+- [x] Wrap Backup & data (settings-importexport) in a folded `<details>` + summary "Backup & data".
+- [x] Wrap Account & privacy (privacy, danger, about) in a folded `<details>` + summary "Account & privacy".
+- [x] Verify NO section `id` or `class` was changed and no inline `style=` was introduced. Reorder sections into group order only by moving whole `<section>` blocks.
 
 ### Task 2: Style the group `<details>`/`<summary>` via tokens
 - [ ] In `web/static/css/styles.css` add `.wg-settings-group` + `.wg-settings-group__summary` rules using existing `--wg-*` tokens (spacing, radius, surface, text). Provide a chevron affordance via CSS (e.g. rotate a `::marker`/pseudo-element or `[open]` state) — no hardcoded colors.
