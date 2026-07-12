@@ -340,6 +340,32 @@ describe('startInboxPolling', () => {
         };
     }
 
+    // med-eas.51: a poison event that never applies (apply/decode keeps failing)
+    // is no-progress too — the poller must back off, not re-fetch it every tick.
+    it('backs off when every drain fails to apply, not just on flush-false', async () => {
+        vi.useFakeTimers();
+        const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const doc = fakeDoc('visible');
+        const records = await pollRecords();
+        const fetchImpl = oneEventMailbox();
+        const gets = () => fetchImpl.mock.calls.filter(([, opts]) => !opts).length;
+
+        const stop = startInboxPolling(ctx, {
+            // apply always throws → drainInbox returns {applied:0, failed:1}, no stall flag.
+            apply: async () => { throw new Error('vault write failed'); },
+            intervalMs: 1000, doc, fetchImpl, records, flush: async () => true,
+        });
+
+        await vi.advanceTimersByTimeAsync(6000);
+        // Without backoff this would GET on all 6 ticks; the gate throttles it.
+        expect(gets()).toBeGreaterThan(0);
+        expect(gets()).toBeLessThan(6);
+
+        stop();
+        err.mockRestore();
+        vi.useRealTimers();
+    });
+
     it('drains on an interval while the tab is visible', async () => {
         vi.useFakeTimers();
         const fetchImpl = emptyMailbox();

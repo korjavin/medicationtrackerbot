@@ -246,21 +246,32 @@ export function startInboxPolling(ctx, {
     if (!force && skipTicks > 0) { skipTicks--; return; }
     try {
       const result = await drainInbox(ctx, { apply, ...drainOpts });
-      if (result && result.applied > 0) {
+      if (!result || result.skipped) {
+        // Another drain held the lock — leave the backoff window untouched.
+      } else if (result.applied > 0) {
         noProgress = 0;
         skipTicks = 0;
         onApplied(result);
-      } else if (result && (result.wedged || result.stalled)) {
+      } else if (result.wedged || result.stalled || result.failed > 0) {
+        // No progress this tick: wedged, a leading flush-false stall, or every
+        // event failed to apply (a poison event that throws in apply/decode).
+        // Back off on ANY no-progress drain, not just the flush-false one — the
+        // byte cap already bounds each fetch, but a poison event that never
+        // applies would otherwise re-fetch its chunk every interval (med-eas.51).
         noProgress++;
         skipTicks = Math.min(2 ** noProgress, MAX_INBOX_BACKOFF_TICKS);
-      } else if (result && !result.skipped) {
+      } else {
         // Empty mailbox / no key — healthy idle. Drop any backoff so the next
         // real event is picked up at the normal interval.
         noProgress = 0;
         skipTicks = 0;
       }
     } catch (e) {
+      // A thrown drain (poison event that fails to decrypt, or a network error)
+      // is also no-progress — back off rather than retry at full cadence.
       console.error('[inbox] poll drain failed', e);
+      noProgress++;
+      skipTicks = Math.min(2 ** noProgress, MAX_INBOX_BACKOFF_TICKS);
     }
   };
 
