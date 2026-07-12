@@ -119,16 +119,22 @@ per-account CSP, fresh assets) and refreshes the cache.
       deep-link → `/` shell fallback beyond the required four.)
 
 ### Task 3: Verify acceptance criteria
-- [ ] Re-read med-deq.1 acceptance: offline navigation renders the shell from
-      cache; online is network-first and refreshes cache; `/api/*` never served
-      from SW cache; push handling unchanged; old cache versions pruned on
-      activate; SW unit tests cover all four.
-- [ ] Confirm no changes outside `web/cloud/sw.js` and the new test file
-      (`git diff --stat` shows only those two + this plan).
-- [ ] Run the full `pnpm test` suite (Node 20) — all green, existing cloud SW
-      tests still pass.
-- [ ] Confirm no new `window.*` global was introduced (SW has no window; N/A but
-      verify architecture tests pass).
+- [x] Re-read med-deq.1 acceptance: offline navigation renders the shell from
+      cache (sw.js fetch fallback → `caches.match(request)` → `/` shell); online
+      is network-first and refreshes cache (`cache.put` on `response.ok`);
+      `/api/*` (and `/mcp/*`) never served from SW cache (early return before
+      `respondWith`); push handling unchanged (handlers untouched,
+      `sw.push-resubscribe` + `sw.reminder-actions` green); old cache versions
+      pruned on activate (prefix match, current `SHELL_CACHE` kept); SW unit
+      tests cover all four (8 tests in `sw.fetch-cache.test.js`).
+- [x] Confirm no changes outside `web/cloud/sw.js` and the new test file:
+      `git diff --stat` vs branch point shows only `web/cloud/sw.js`,
+      `sw.fetch-cache.test.js`, `architecture.sw-version.test.js` (the ➕ Task 1
+      item), and this plan.
+- [x] Run the full `pnpm test` suite (Node 20) — all green: 310 files,
+      3554 passed / 29 skipped, existing cloud SW tests pass.
+- [x] Confirm no new `window.*` global was introduced (SW has no window; N/A —
+      architecture tests pass in the full run).
 
 ## Technical Details
 - **Cache name**: `medtracker-cloud-shell-<SW_VERSION>`. `SW_VERSION` is
