@@ -38,6 +38,14 @@ const MIBAND_RECORD_TYPE = 'miband';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
+// MAX_SAMPLES_PER_RECORD keeps a day-batch record's ct well under the server's
+// 64 KiB maxOpCTLen (internal/cloudserver/sync.go): a merged day over this splits
+// into deterministic sub-records ('<type>-<day>#<k>') so the client never emits an
+// op the server 400s. After server downsampling a day is ~96 samples, so this is a
+// defensive net that only trips on un-downsampled input. readSamples' PK range
+// already catches the '#' suffix ('#' 0x23 sorts below the padded <toDay> bound).
+const MAX_SAMPLES_PER_RECORD = 500;
+
 function dayString(ms, timeZone) {
   return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' })
     .format(new Date(ms));
@@ -118,6 +126,11 @@ export function createVitalsDomain({ records, now, timeZone }) {
   // offset the local day and the UTC day disagree, and an unpadded local-day
   // bound would silently drop a whole edge batch. Overshooting costs at most two
   // extra clones; the caller filters to the exact ms window anyway.
+  //
+  // Overflow sub-records ('<type>-<day>#<k>', see importDayBatched) fall inside
+  // this range for free: '#' (0x23) sorts below any digit, so '<type>-<day>#k' is
+  // always < the padded '<type>-<toDay>' bound (toDay is >= the last sample's day
+  // + 1). The loop below unions every part's samples, so a split day reads whole.
   async function readSamples(recordType, fromMs, toMs) {
     const fromDay = utcDayString(fromMs - DAY_MS);
     const toDay = utcDayString(toMs + DAY_MS);
@@ -277,9 +290,16 @@ export function createVitalsDomain({ records, now, timeZone }) {
   // importDayBatched merges an incoming NXK sample stream into the day-batch
   // records the read side already expects ({day, samples:[{date_time, tz_offset,
   // value[, type, info]}]}, recordId '<type>-YYYY-MM-DD'). Samples are grouped by
-  // UTC day, then merged into any existing batch keyed by sample instant so a
-  // re-applied import overwrites its own samples instead of appending duplicates
-  // (LWW: the incoming sample wins). Idempotent — re-draining converges.
+  // UTC day, then merged with any existing batch(es) for that day keyed by sample
+  // instant so a re-applied import overwrites its own samples instead of appending
+  // duplicates (LWW: the incoming sample wins). Idempotent — re-draining converges.
+  //
+  // A day whose merged sample count exceeds MAX_SAMPLES_PER_RECORD splits into
+  // deterministic sub-records: fixed-size chunks over the instant-sorted samples,
+  // part 0 keyed '<type>-<day>' (backward compatible), overflow parts
+  // '<type>-<day>#<k>'. The chunking is a pure function of the sorted sample set,
+  // so the same input always yields the same partition and re-drain converges;
+  // readSamples' PK range scan already unions every part of a day.
   async function importDayBatched(recordType, samples) {
     if (!Array.isArray(samples) || samples.length === 0) return;
     const byDay = new Map();
@@ -292,22 +312,43 @@ export function createVitalsDomain({ records, now, timeZone }) {
       if (!arr) { arr = []; byDay.set(day, arr); }
       arr.push(s);
     }
-    const existing = new Map((await records.list(recordType)).map((r) => [r.recordId, r]));
+    const allRecords = await records.list(recordType);
+    const existing = new Map(allRecords.map((r) => [r.recordId, r]));
     for (const [day, incoming] of byDay) {
-      const recordId = `${recordType}-${day}`;
-      const prev = existing.get(recordId);
-      // Keyed by the sample instant (ms) so two RFC3339 spellings of the same
-      // moment still dedupe; the incoming sample overwrites (LWW).
+      const base = `${recordType}-${day}`;
+      // Merge across EVERY existing part for the day (base + '#k' overflow), keyed
+      // by the sample instant (ms) so two RFC3339 spellings of the same moment
+      // dedupe and the incoming sample overwrites (LWW). Reading all parts is what
+      // lets a re-import with a different partition size not leave stale samples.
       const merged = new Map();
-      if (prev && Array.isArray(prev.samples)) {
-        for (const s of prev.samples) merged.set(Date.parse(s.date_time), s);
+      for (const r of allRecords) {
+        if (r.recordId !== base && !r.recordId.startsWith(`${base}#`)) continue;
+        if (Array.isArray(r.samples)) {
+          for (const s of r.samples) merged.set(Date.parse(s.date_time), s);
+        }
       }
       for (const s of incoming) merged.set(Date.parse(s.date_time), { ...s });
       const samplesOut = [...merged.values()]
         .sort((a, b) => (a.date_time < b.date_time ? -1 : a.date_time > b.date_time ? 1 : 0));
-      await records.put(recordType, {
-        recordId, clientTs: now(), deleted: false, day, samples: samplesOut,
-      });
+      const parts = [];
+      for (let i = 0; i < samplesOut.length; i += MAX_SAMPLES_PER_RECORD) {
+        parts.push(samplesOut.slice(i, i + MAX_SAMPLES_PER_RECORD));
+      }
+      if (parts.length === 0) parts.push([]);
+      for (let k = 0; k < parts.length; k += 1) {
+        const recordId = k === 0 ? base : `${base}#${k}`;
+        await records.put(recordType, {
+          recordId, clientTs: now(), deleted: false, day, samples: parts[k],
+        });
+      }
+      // Tombstone overflow parts a smaller partition no longer fills, else their
+      // stale samples would be re-read as duplicates. Prior writes are contiguous
+      // from #1, so stop at the first gap.
+      for (let k = parts.length; ; k += 1) {
+        const staleId = `${base}#${k}`;
+        if (!existing.has(staleId)) break;
+        await records.del(recordType, staleId);
+      }
     }
   }
 

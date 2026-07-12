@@ -13,6 +13,7 @@ import { createNotesDomain } from '../../../domain/notes.js';
 import { createFoodDomain } from '../../../domain/food.js';
 import { createFoodAIDomain } from '../../../domain/foodai.js';
 import { createWorkoutDomain } from '../../../domain/workout.js';
+import { createVitalsDomain } from '../../../domain/vitals.js';
 import { commandToken, parseCommand } from '../../../domain/tgcommand.js';
 
 const SLOT_UNIX = 1767225600; // 2026-01-01T00:00:00Z
@@ -34,6 +35,11 @@ function fakeRecords(seed = {}) {
         del: async (type, id) => {
             store[type] = (store[type] || []).filter((r) => r.recordId !== id);
         },
+        // Mirrors sync.js recordsPort: inclusive primary-key range, live only —
+        // what vitals.readSamples uses to bound its day-batch window.
+        listRange: async (type, fromId, toId) => (store[type] || [])
+            .filter((r) => !r.deleted && r.recordId >= fromId && r.recordId <= toId)
+            .map((r) => ({ ...r })),
     };
 }
 
@@ -314,6 +320,56 @@ describe('inbox-apply.js — a server-parsed NXK vitals_import', () => {
         expect(miband.steps).toBe(6000);
         expect(miband.distance_m).toBe(5000);
         expect(miband.activity_name).toBe('Outdoor Run');
+    });
+
+    // Task 4/5 (med-0cf) — the defensive client record split. A day whose merged
+    // sample count exceeds MAX_SAMPLES_PER_RECORD (500) must fan out into
+    // '<type>-<day>' + '<type>-<day>#k' sub-records so no single op's ct blows the
+    // server's 64 KiB cap. The read side must still union every part.
+    const MAX_PER_RECORD = 500; // must match web/domain/vitals.js MAX_SAMPLES_PER_RECORD
+
+    // 600 HR samples on one UTC day, 2 min apart from 00:00 (20h, all in-day). The
+    // first 500 (by instant → part 0) read 60, the last 100 (→ #1) read 120, so a
+    // 30d average of exactly 70 is reachable only if BOTH parts are read.
+    function denseDayEvent() {
+        const day0 = Date.parse('2026-01-01T00:00:00.000Z');
+        const hr = Array.from({ length: 600 }, (_, i) => ({
+            date_time: new Date(day0 + i * 120000).toISOString(),
+            tz_offset: 0, value: i < MAX_PER_RECORD ? 60 : 120, type: 0,
+        }));
+        return { kind: VITALS_IMPORT, at_unix: SLOT_UNIX, hr };
+    }
+    // Read after the day so every sample is <= now and inside the 7d/30d window.
+    const readNow = () => Date.parse('2026-01-02T12:00:00.000Z');
+
+    it('splits a dense day into ≤MAX sub-records the read side still unions whole', async () => {
+        const records = fakeRecords();
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS });
+        await apply(denseDayEvent(), 42);
+
+        const hrRecs = await records.list('hrsample');
+        expect(hrRecs.map((r) => r.recordId).sort())
+            .toEqual(['hrsample-2026-01-01', 'hrsample-2026-01-01#1']);
+        for (const r of hrRecs) expect(r.samples.length).toBeLessThanOrEqual(MAX_PER_RECORD);
+        expect(hrRecs.reduce((n, r) => n + r.samples.length, 0)).toBe(600);
+
+        // The read path unions both parts: avg 70 requires all 600 (part 0 alone → 60).
+        const vitals = createVitalsDomain({ records, now: readNow, timeZone: 'UTC' });
+        const ov = await vitals.overview();
+        expect(ov.average_heart_rate_30d).toBe(70);
+    });
+
+    it('re-applying a dense-day import is idempotent (no duplicate samples across parts)', async () => {
+        const records = fakeRecords();
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS });
+        await apply(denseDayEvent(), 42);
+        await apply(denseDayEvent(), 42);
+
+        const hrRecs = await records.list('hrsample');
+        expect(hrRecs).toHaveLength(2);
+        expect(hrRecs.reduce((n, r) => n + r.samples.length, 0)).toBe(600);
+        const vitals = createVitalsDomain({ records, now: readNow, timeZone: 'UTC' });
+        expect((await vitals.overview()).average_heart_rate_30d).toBe(70);
     });
 });
 
