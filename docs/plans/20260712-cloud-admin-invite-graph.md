@@ -50,12 +50,12 @@
 - [x] Add a doc comment noting NULL provenance = admin-CLI root and Claimed = claim token cleared (matches `AccountSummary.Claimed`).
 
 ### Task 2: Pure forest builder + three renderers in `cmd/cloud/invite_graph.go`
-- [ ] Define a `forestNode` type (embeds/holds the `AccountGraphNode` + `Children []*forestNode`).
-- [ ] `buildInviteForest(nodes []cloudstore.AccountGraphNode) (roots []*forestNode, orphans []*forestNode)`: map account ID → node; attach each node to its parent's `Children` when `CreatedBy` resolves to a present node; roots = `CreatedBy == nil`; orphans = `CreatedBy` set but points to a missing account (deleted inviter). Sort children deterministically (by CreatedAt then Subdomain).
-- [ ] Guard cycles: during the tree walk keep a `visited` set keyed by node ID; never recurse into an already-visited node (defensive — provenance shouldn't cycle, but a self/loop reference must not infinite-loop). Render orphan subtrees under a clearly-labelled "orphaned (inviter deleted)" section so they are still visible.
-- [ ] `renderTree(roots, orphans) string`: ASCII tree with `├──`/`└──`/`│  ` connectors; node label = `subdomain [claimed|pending] created=YYYY-MM-DD`. Empty forest → a `no accounts` line.
-- [ ] `renderDOT(nodes []cloudstore.AccountGraphNode) string`: `digraph invites { ... }` — one node stmt per account (label = subdomain, `style=dashed`/distinct marker for pending), one edge `inviter -> invitee` per non-nil resolvable `CreatedBy`.
-- [ ] `renderJSON(nodes []cloudstore.AccountGraphNode) ([]byte, error)`: `{ "nodes": [{id, subdomain, claimed, created_at}], "edges": [{from, to}] }` — edges only for resolvable inviters; stable ordering.
+- [x] Define a `forestNode` type (embeds/holds the `AccountGraphNode` + `Children []*forestNode`).
+- [x] `buildInviteForest(nodes []cloudstore.AccountGraphNode) (roots []*forestNode, orphans []*forestNode)`: map account ID → node; attach each node to its parent's `Children` when `CreatedBy` resolves to a present node; roots = `CreatedBy == nil`; orphans = `CreatedBy` set but points to a missing account (deleted inviter). Sort children deterministically (by CreatedAt then Subdomain).
+- [x] Guard cycles: during the tree walk keep a `visited` set keyed by node ID; never recurse into an already-visited node (defensive — provenance shouldn't cycle, but a self/loop reference must not infinite-loop). Render orphan subtrees under a clearly-labelled "orphaned (inviter deleted)" section so they are still visible.
+- [x] `renderTree(roots, orphans) string`: ASCII tree with `├──`/`└──`/`│  ` connectors; node label = `subdomain [claimed|pending] created=YYYY-MM-DD`. Empty forest → a `no accounts` line.
+- [x] `renderDOT(nodes []cloudstore.AccountGraphNode) string`: `digraph invites { ... }` — one node stmt per account (label = subdomain, `style=dashed`/distinct marker for pending), one edge `inviter -> invitee` per non-nil resolvable `CreatedBy`.
+- [x] `renderJSON(nodes []cloudstore.AccountGraphNode) ([]byte, error)`: `{ "nodes": [{id, subdomain, claimed, created_at}], "edges": [{from, to}] }` — edges only for resolvable inviters; stable ordering.
 
 ### Task 3: Wire the `invite-graph` subcommand into admin dispatch
 - [ ] In `cmd/cloud/admin.go` `runAdmin` switch, add `case "invite-graph": return adminInviteGraph(ctx, store, args[1:])`.
