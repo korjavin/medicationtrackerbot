@@ -75,8 +75,8 @@
 - [x] Do NOT change existing per-section gating (`wg-settings-hidden` toggles keep matching `.wg-settings-*` selectors unchanged).
 
 ### Task 4: Extend the settings render integration test
-- [ ] In `web/static/js/tests/settings.render.test.js`, add cases asserting: the seven groups render with their summaries; Preferences `<details>` has `open` and the rarely-used groups do not; the reset-sync `#importexport-reset-sync-group` still resolves inside Backup & data; a group with all-hidden children is hidden; representative preserved ids/classes still query-select.
-- [ ] Run `npx vitest run web/static/js/tests/settings.render.test.js` — must pass.
+- [x] In `web/static/js/tests/settings.render.test.js`, add cases asserting: the seven groups render with their summaries; Preferences `<details>` has `open` and the rarely-used groups do not; the reset-sync `#importexport-reset-sync-group` still resolves inside Backup & data; a group with all-hidden children is hidden; representative preserved ids/classes still query-select.
+- [x] Run `npx vitest run web/static/js/tests/settings.render.test.js` — must pass.
 
 ### Task 5: Verify acceptance criteria
 - [ ] Settings renders as collapsible groups; owner's four groups (Devices/Claude, Backup/Import, Targets, Integrations) present; rarely-used folded; Preferences open.

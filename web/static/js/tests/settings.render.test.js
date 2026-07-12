@@ -19,6 +19,112 @@ function loadWGSettings() {
     return { window, cleanup: () => dom.window.close() };
 }
 
+// Parse the shipped index.html and hand back just the #settings-view subtree in a
+// live jsdom document, plus the real hideEmptySettingsGroups() from settings.js
+// (a bare global function-decl, so window.eval exposes it as window.<name>).
+function loadSettingsView() {
+    const html = fs.readFileSync(path.join(REPO_ROOT, 'web/static/index.html'), 'utf8');
+    const dom = new JSDOM('<!DOCTYPE html>', { url: 'https://example.test/', runScripts: 'outside-only' });
+    const { window } = dom;
+    const { document } = window;
+    const view = new window.DOMParser()
+        .parseFromString(html, 'text/html')
+        .getElementById('settings-view');
+    document.body.appendChild(document.importNode(view, true));
+    const src = fs.readFileSync(
+        path.join(REPO_ROOT, 'web/static/js/features/settings.js'),
+        'utf8'
+    );
+    window.eval(src);
+    return { window, document, cleanup: () => dom.window.close() };
+}
+
+// Group summary text (accents/entities decoded) → the section selectors it must contain.
+const GROUPS = [
+    ['Preferences', ['.wg-settings-timezone', '.wg-settings-notifications', '.wg-settings-notifications-cloud', '.wg-settings-features', '.wg-settings-reminders', '.wg-settings-units']],
+    ['Targets', ['#food-target-settings', '#gamification-targets-settings']],
+    ['Integrations', ['#settings-integrations']],
+    ['Devices & connections', ['.wg-settings-cloud-devices', '.wg-settings-cloud-invite', '#oidc-setup-container']],
+    ['Backup & data', ['#settings-importexport']],
+    ['Account & privacy', ['.wg-settings-privacy', '.wg-settings-danger', '#settings-about']],
+];
+
+describe('Settings view collapsible groups (index.html)', () => {
+    it('renders the six <details> groups with their summaries, plus a pinned Sync card outside any group', () => {
+        const { document, cleanup } = loadSettingsView();
+        try {
+            const summaries = Array.from(document.querySelectorAll('.wg-settings-group > .wg-settings-group__summary'))
+                .map((s) => s.textContent.trim());
+            expect(summaries).toEqual(GROUPS.map(([title]) => title));
+            // Sync stays pinned at the top, not wrapped in a group.
+            const sync = document.querySelector('.wg-settings-sync');
+            expect(sync).not.toBeNull();
+            expect(sync.closest('.wg-settings-group')).toBeNull();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('opens Preferences by default and leaves the rarely-used groups folded', () => {
+        const { document, cleanup } = loadSettingsView();
+        try {
+            for (const [title] of GROUPS) {
+                const group = Array.from(document.querySelectorAll('.wg-settings-group'))
+                    .find((g) => g.querySelector('.wg-settings-group__summary').textContent.trim() === title);
+                expect(group).toBeDefined();
+                expect(group.hasAttribute('open')).toBe(title === 'Preferences');
+            }
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('keeps every grouped section id/class resolving inside its group', () => {
+        const { document, cleanup } = loadSettingsView();
+        try {
+            for (const [title, selectors] of GROUPS) {
+                const group = Array.from(document.querySelectorAll('.wg-settings-group'))
+                    .find((g) => g.querySelector('.wg-settings-group__summary').textContent.trim() === title);
+                for (const sel of selectors) {
+                    expect(group.querySelector(sel), `${sel} in ${title}`).not.toBeNull();
+                }
+            }
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('keeps the #617 reset-sync control inside Backup & data', () => {
+        const { document, cleanup } = loadSettingsView();
+        try {
+            const reset = document.querySelector('#importexport-reset-sync-group');
+            expect(reset).not.toBeNull();
+            const group = reset.closest('.wg-settings-group');
+            expect(group.querySelector('.wg-settings-group__summary').textContent.trim()).toBe('Backup & data');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('hideEmptySettingsGroups() hides a group whose sections are all hidden and leaves others visible', () => {
+        const { window, document, cleanup } = loadSettingsView();
+        try {
+            expect(typeof window.hideEmptySettingsGroups).toBe('function');
+            const targets = document.querySelector('#food-target-settings').closest('.wg-settings-group');
+            targets.querySelectorAll('.wg-settings-section')
+                .forEach((s) => s.classList.add('wg-settings-hidden'));
+
+            window.hideEmptySettingsGroups();
+
+            expect(targets.classList.contains('wg-settings-hidden')).toBe(true);
+            const prefs = document.querySelector('.wg-settings-timezone').closest('.wg-settings-group');
+            expect(prefs.classList.contains('wg-settings-hidden')).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
+});
+
 describe('WGSettings.section', () => {
     it('exposes window.WGSettings with section/row/infoRow factories', () => {
         const { window, cleanup } = loadWGSettings();
