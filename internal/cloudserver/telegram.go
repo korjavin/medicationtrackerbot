@@ -171,10 +171,15 @@ func botCommand(text string) string {
 // MANAGER_BOT_TOKEN is set; an absent token leaves Telegram fully disabled and
 // no routes are registered.
 type TelegramAPI struct {
-	store           *cloudstore.Repo
-	sessionSecret   string
-	baseDomain      string
-	apiBaseURL      string // tgclient base URL override; "" → real api.telegram.org
+	store         *cloudstore.Repo
+	sessionSecret string
+	baseDomain    string
+	apiBaseURL    string // tgclient base URL override; "" → real api.telegram.org
+	// cloudAPIBaseURL is the base for cloud-only calls (logOut during proxy
+	// migration), which MUST hit api.telegram.org even when apiBaseURL points at
+	// the local proxy — file_ids and sessions are server-bound. "" → real cloud;
+	// tests override it with a fake.
+	cloudAPIBaseURL string
 	manager         *tgclient.Client
 	managerSecret   string // per-deployment webhook path/secret-token
 	managerUsername string // resolved by Bootstrap via getMe
@@ -547,6 +552,9 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+	// Webhook was set through the proxy (if one is configured), so this bot is
+	// born on the proxy and never needs the cloud→local migration.
+	t.markNewBotOnProxy(r.Context(), accountID)
 	// Bind fully succeeded — now retire the pending row (single-use). A retry
 	// that already deleted it lands on ErrPendingInvalid, which is fine.
 	if _, err := t.store.ConsumePendingByUsername(r.Context(), botUsername, now); err != nil && !errors.Is(err, cloudstore.ErrPendingInvalid) {
@@ -1080,6 +1088,16 @@ func (t *TelegramAPI) sealNXKDocument(w http.ResponseWriter, r *http.Request, re
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+		if tgclient.IsInvalidFileID(err) && t.apiBaseURL != "" {
+			// file_ids are server-bound: this bot's webhook still lives on the
+			// cloud (pre-proxy), so it delivers cloud-issued file_ids that the local
+			// proxy rejects. The fix is the one-time cloud→local bot migration, not
+			// a retry (bd med-eas.43).
+			slog.Warn("telegram child webhook: invalid file_id under proxy — bot likely needs proxy migration; run `cloud admin migrate-bots-to-proxy` or re-link the bot", "ref", ref)
+			edit("❌ This bot needs a one-time migration to the local Bot API proxy before it can import large files. Ask the operator to run the bot migration (or re-link the bot).")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		slog.Error("telegram child webhook: download nxk", "error", err, "ref", ref)
 		edit("❌ Couldn't download the file — try sending it again.")
 		w.WriteHeader(http.StatusOK)
@@ -1387,6 +1405,9 @@ func (t *TelegramAPI) BYO(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// Webhook was set through the proxy (if one is configured), so this bot is
+	// born on the proxy and never needs the cloud→local migration.
+	t.markNewBotOnProxy(r.Context(), sess.AccountID)
 	writeJSON(w, http.StatusOK, map[string]string{"bot_username": me.Username})
 }
 
@@ -1652,6 +1673,79 @@ func (t *TelegramAPI) TeardownForAccount(ctx context.Context, accountID string) 
 	if derr := t.store.DeleteBot(ctx, accountID); derr != nil {
 		slog.Warn("account teardown: delete telegram bot row", "error", derr, "account", accountID)
 	}
+}
+
+// markNewBotOnProxy stamps a freshly-linked bot as proxy-migrated when a proxy
+// is configured: its webhook was just set through the proxy, so it was born on
+// the local server and never needs the cloud→local migration. A no-op (and a
+// harmless best-effort stamp) when no proxy is configured — those bots stay NULL
+// so a later `migrate-bots-to-proxy` run picks them up if the proxy is enabled.
+func (t *TelegramAPI) markNewBotOnProxy(ctx context.Context, accountID string) {
+	if t.apiBaseURL == "" {
+		return
+	}
+	if err := t.store.MarkProxyMigrated(ctx, accountID, time.Now().UTC()); err != nil {
+		slog.Warn("telegram: mark new bot proxy-migrated", "error", err, "account", accountID)
+	}
+}
+
+// MigrateBotsToProxy moves every not-yet-migrated linked bot from the cloud Bot
+// API to the local proxy: logOut on api.telegram.org (releasing the bot from
+// Telegram's DC), then re-setWebhook THROUGH the proxy so subsequent updates
+// carry proxy-issued file_ids. file_ids are server-bound, so this is the only
+// way a pre-proxy bot's getFile can succeed against the local server. logOut is
+// effectively one-way for ~10 minutes, so this is an explicit operator action
+// (`cloud admin migrate-bots-to-proxy`), never a silent per-startup sweep.
+// Returns how many bots were migrated and how many failed (left un-stamped so a
+// re-run retries them). Errors only on a proxy misconfiguration or a DB read.
+func (t *TelegramAPI) MigrateBotsToProxy(ctx context.Context) (migrated, failed int, err error) {
+	if t.apiBaseURL == "" {
+		return 0, 0, errors.New("no Bot API proxy configured (CLOUD_TG_API_BASE_URL is empty); nothing to migrate")
+	}
+	bots, err := t.store.BotsNeedingProxyMigration(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("list bots needing migration: %w", err)
+	}
+	for i := range bots {
+		bot := &bots[i]
+		token, oerr := openTGToken(t.sessionSecret, bot.TokenCT, bot.TokenNonce)
+		if oerr != nil {
+			slog.Error("migrate bots: open token", "error", oerr, "account", bot.AccountID)
+			failed++
+			continue
+		}
+		// logOut against the CLOUD server (api.telegram.org), regardless of the
+		// proxy the migrated client will use.
+		cloud := tgclient.New(token, t.cloudAPIBaseURL)
+		if lerr := cloud.LogOut(ctx); lerr != nil {
+			// "already logged out" style responses are fine — the bot is already
+			// free of the cloud DC, so proceed to setWebhook via the proxy.
+			if tgclient.IsClientError(lerr) {
+				slog.Warn("migrate bots: cloud logOut rejected (treating as already logged out)", "error", lerr, "account", bot.AccountID)
+			} else {
+				slog.Error("migrate bots: cloud logOut", "error", lerr, "account", bot.AccountID)
+				failed++
+				continue
+			}
+		}
+		// Re-point the webhook through the proxy. This is the first proxy request,
+		// which auto-logs the bot into the local server (shared TELEGRAM_API_ID/HASH).
+		proxy := tgclient.New(token, t.apiBaseURL)
+		if werr := proxy.SetWebhook(ctx, t.childWebhookURL(bot.AccountID, bot.WebhookSecret), bot.WebhookSecret); werr != nil {
+			slog.Error("migrate bots: setWebhook via proxy", "error", werr, "account", bot.AccountID)
+			failed++
+			continue
+		}
+		setChildCommands(ctx, proxy, bot.AccountID)
+		if merr := t.store.MarkProxyMigrated(ctx, bot.AccountID, time.Now().UTC()); merr != nil {
+			slog.Error("migrate bots: mark migrated", "error", merr, "account", bot.AccountID)
+			failed++
+			continue
+		}
+		slog.Info("migrate bots: migrated to proxy", "account", bot.AccountID, "bot_username", bot.BotUsername)
+		migrated++
+	}
+	return migrated, failed, nil
 }
 
 // childWebhookURL builds the base-host child-webhook URL for a bot secret.

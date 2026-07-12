@@ -183,6 +183,40 @@ func TestSetWebhookSecretToken(t *testing.T) {
 	}
 }
 
+func TestLogOutHitsLogOutMethod(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+	f.responses["logOut"] = `{"ok":true,"result":true}`
+
+	c := New("123:ABC", srv.URL)
+	if err := c.LogOut(context.Background()); err != nil {
+		t.Fatalf("LogOut: %v", err)
+	}
+	if f.lastMethod != "logOut" {
+		t.Fatalf("expected logOut call, got %q", f.lastMethod)
+	}
+}
+
+func TestIsInvalidFileID(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+	f.responses["getFile"] = `{"ok":false,"error_code":400,"description":"Bad Request: invalid file_id"}`
+	f.statuses["getFile"] = 400
+
+	c := New("123:ABC", srv.URL)
+	_, err := c.GetFile(context.Background(), "cloud-issued-id")
+	if err == nil {
+		t.Fatal("expected getFile error")
+	}
+	if !IsInvalidFileID(err) {
+		t.Fatalf("IsInvalidFileID(%v) = false, want true", err)
+	}
+	// A different rejection must not be misclassified.
+	if IsInvalidFileID(&apiError{Code: 400, Description: "Bad Request: file is too big"}) {
+		t.Fatal("IsInvalidFileID matched 'file is too big'")
+	}
+}
+
 func TestGetManagedBotTokenSuccess(t *testing.T) {
 	f, srv := newFake(t)
 	defer srv.Close()

@@ -1685,3 +1685,144 @@ func TestEditReply(t *testing.T) {
 		t.Errorf("unauthenticated edit = %d, want 401", r.Code)
 	}
 }
+
+// --- med-eas.43: cloud->local Bot API proxy migration ------------------------
+
+// countingTG is an httptest Bot API fake that records, per method, how many
+// times it was called and the last request body — enough to assert that logOut
+// hit the cloud fake and setWebhook hit the proxy fake (with the child URL).
+type countingTG struct {
+	mu       sync.Mutex
+	calls    map[string]int
+	lastBody map[string]map[string]any
+	srv      *httptest.Server
+}
+
+func newCountingTG(t *testing.T) *countingTG {
+	t.Helper()
+	rec := &countingTG{calls: map[string]int{}, lastBody: map[string]map[string]any{}}
+	rec.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")
+		method := parts[len(parts)-1]
+		var body map[string]any
+		if raw, _ := io.ReadAll(r.Body); len(raw) > 0 {
+			_ = json.Unmarshal(raw, &body)
+		}
+		rec.mu.Lock()
+		rec.calls[method]++
+		rec.lastBody[method] = body
+		rec.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"ok":true,"result":true}`)
+	}))
+	t.Cleanup(rec.srv.Close)
+	return rec
+}
+
+func (rec *countingTG) count(method string) int {
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	return rec.calls[method]
+}
+
+func TestMigrateBotsToProxy(t *testing.T) {
+	store := setupStore(t)
+	ctx := context.Background()
+
+	// A pre-proxy bot: created without the migrated flag (proxy_migrated_at_unix
+	// NULL), exactly the shape a bot minted before the proxy was enabled has.
+	ct, nonce, err := sealTGToken(tgTestSecret, "123:CHILDTOKEN")
+	if err != nil {
+		t.Fatalf("sealTGToken: %v", err)
+	}
+	const accountID = "acc-migrate"
+	const botSecret = "botsecret-xyz"
+	if err := store.UpsertBot(ctx, cloudstore.TGBot{
+		AccountID: accountID, BotID: 123, BotUsername: "child_bot",
+		TokenCT: ct, TokenNonce: nonce, Kind: "byo", WebhookSecret: botSecret,
+		CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("UpsertBot: %v", err)
+	}
+
+	cloud := newCountingTG(t) // stands in for api.telegram.org (logOut target)
+	proxy := newCountingTG(t) // stands in for the local Bot API proxy
+
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", proxy.srv.URL, time.Hour)
+	tgAPI.cloudAPIBaseURL = cloud.srv.URL
+
+	migrated, failed, err := tgAPI.MigrateBotsToProxy(ctx)
+	if err != nil {
+		t.Fatalf("MigrateBotsToProxy: %v", err)
+	}
+	if migrated != 1 || failed != 0 {
+		t.Fatalf("migrated=%d failed=%d, want 1/0", migrated, failed)
+	}
+
+	// logOut must go to the cloud, setWebhook to the proxy — file_ids are
+	// server-bound, so mixing these up is the whole bug.
+	if cloud.count("logOut") != 1 {
+		t.Errorf("cloud logOut count = %d, want 1", cloud.count("logOut"))
+	}
+	if cloud.count("setWebhook") != 0 {
+		t.Errorf("setWebhook must not hit the cloud (count=%d)", cloud.count("setWebhook"))
+	}
+	if proxy.count("setWebhook") != 1 {
+		t.Errorf("proxy setWebhook count = %d, want 1", proxy.count("setWebhook"))
+	}
+	if proxy.count("logOut") != 0 {
+		t.Errorf("logOut must not hit the proxy (count=%d)", proxy.count("logOut"))
+	}
+	// The re-registered webhook must point at the child route on the base host.
+	if url, _ := proxy.lastBody["setWebhook"]["url"].(string); !strings.Contains(url, "/tg/bot/"+accountID+"/"+botSecret) {
+		t.Errorf("setWebhook url = %q, want child route for %s", url, accountID)
+	}
+
+	// The flag is now persisted.
+	bot, err := store.BotByAccount(ctx, accountID)
+	if err != nil {
+		t.Fatalf("BotByAccount: %v", err)
+	}
+	if bot.ProxyMigratedAt == nil {
+		t.Fatal("ProxyMigratedAt still nil after migration")
+	}
+
+	// Idempotent: a re-run finds nothing to migrate and does not logOut again
+	// (which would needlessly lock the bot out of the cloud for ~10 min).
+	migrated, failed, err = tgAPI.MigrateBotsToProxy(ctx)
+	if err != nil || migrated != 0 || failed != 0 {
+		t.Fatalf("re-run migrated=%d failed=%d err=%v, want 0/0/nil", migrated, failed, err)
+	}
+	if cloud.count("logOut") != 1 {
+		t.Errorf("re-run logged out again: cloud logOut count = %d, want 1", cloud.count("logOut"))
+	}
+}
+
+func TestMigrateBotsToProxyRequiresProxy(t *testing.T) {
+	store := setupStore(t)
+	// No proxy configured (apiBaseURL "").
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", "", time.Hour)
+	if _, _, err := tgAPI.MigrateBotsToProxy(context.Background()); err == nil {
+		t.Fatal("expected an error when no proxy is configured")
+	}
+}
+
+// TestDownloadDocumentInvalidFileIDIsClassified pins the condition the child
+// webhook's actionable-hint branch keys on: a cloud-issued file_id sent to the
+// local proxy fails getFile with an error that IsInvalidFileID recognizes.
+func TestDownloadDocumentInvalidFileIDIsClassified(t *testing.T) {
+	tgSrv := fakeTG(t, map[string]string{
+		"getFile": `{"ok":false,"error_code":400,"description":"Bad Request: invalid file_id"}`,
+	})
+	tgAPI := NewTelegramAPI(setupStore(t), tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, time.Hour)
+	client := tgclient.New("123:CHILDTOKEN", tgSrv.URL)
+
+	_, err := tgAPI.downloadDocument(context.Background(), client,
+		&tgclient.Document{FileID: "cloud-issued-id", FileName: "band.nxk", FileSize: 1})
+	if err == nil {
+		t.Fatal("expected getFile error")
+	}
+	if !tgclient.IsInvalidFileID(err) {
+		t.Fatalf("IsInvalidFileID(%v) = false, want true", err)
+	}
+}
