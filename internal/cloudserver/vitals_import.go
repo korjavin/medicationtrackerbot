@@ -4,10 +4,47 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sort"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/domain/nxk"
 )
+
+// Downsample cadences for the dense continuous streams, matching the app cadence
+// used by internal/seeddemo/vitals_timeseries.go (alignUpToInterval). Buckets are
+// anchored to 00:00 UTC so cloud-imported and seeded data land on the same grid,
+// and the vitals graphs re-bucket hourly so there is no user-visible fidelity loss.
+const (
+	hrCadence     = 15 * time.Minute
+	spo2Cadence   = 15 * time.Minute
+	stressCadence = 30 * time.Minute
+)
+
+// downsampleSamples collapses a dense sample stream to one representative per
+// 00:00-UTC-anchored bucket of width cadence. Sorting first, then keeping the
+// first sample per bucket, is deterministic so re-importing the same backup
+// yields an identical result. TzOffset/Type/Info of the kept sample are
+// preserved. Output is sorted by instant.
+func downsampleSamples(samples []vitalsSampleWire, cadence time.Duration) []vitalsSampleWire {
+	if len(samples) == 0 || cadence <= 0 {
+		return samples
+	}
+	sort.SliceStable(samples, func(i, j int) bool {
+		return samples[i].DateTime.Before(samples[j].DateTime)
+	})
+	bucketSecs := int64(cadence.Seconds())
+	out := make([]vitalsSampleWire, 0, len(samples))
+	prevBucket := int64(-1)
+	for _, s := range samples {
+		bucket := s.DateTime.UTC().Unix() / bucketSecs
+		if bucket == prevBucket {
+			continue
+		}
+		prevBucket = bucket
+		out = append(out, s)
+	}
+	return out
+}
 
 // inboxEventKindVitalsImport seals a whole Mi Band NXK import as ONE event.
 // The relay parses the .nxk server-side (transient plaintext, same trust model
@@ -177,6 +214,12 @@ func parseNXKToVitalsEvents(nxkPath string) ([]vitalsImportEvent, error) {
 			})
 		}
 	}
+
+	// Downsample the dense continuous streams to the app cadence before sealing.
+	// Sleep, daystats, and workouts are daily aggregates and pass through unchanged.
+	ev.HR = downsampleSamples(ev.HR, hrCadence)
+	ev.SpO2 = downsampleSamples(ev.SpO2, spo2Cadence)
+	ev.Stress = downsampleSamples(ev.Stress, stressCadence)
 
 	if len(ev.Sleep)+len(ev.HR)+len(ev.SpO2)+len(ev.Stress)+len(ev.DayStats)+len(ev.Workouts) == 0 {
 		return nil, fmt.Errorf("no vitals data found in backup")

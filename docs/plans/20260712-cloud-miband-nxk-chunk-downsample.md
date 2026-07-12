@@ -95,19 +95,19 @@ Dependencies identified: none new. No new HTTP route. No schema/migration change
 ## Implementation Steps
 
 ### Task 1: Server-side downsampling of dense streams (vitals_import.go)
-- [ ] add named cadence constants in `internal/cloudserver/vitals_import.go`:
+- [x] add named cadence constants in `internal/cloudserver/vitals_import.go`:
       `hrCadence = 15 * time.Minute`, `spo2Cadence = 15 * time.Minute`,
       `stressCadence = 30 * time.Minute` (comment: matches
       `internal/seeddemo/vitals_timeseries.go`, anchored to 00:00 UTC)
-- [ ] add a generic `downsampleSamples(samples []vitalsSampleWire, cadence time.Duration) []vitalsSampleWire`
+- [x] add a generic `downsampleSamples(samples []vitalsSampleWire, cadence time.Duration) []vitalsSampleWire`
       helper: sort by `DateTime` instant, bucket by
       `DateTime.UTC().Unix() / int64(cadence.Seconds())` (00:00-UTC anchored), keep
       exactly ONE deterministic representative per bucket (first after sort),
       preserving its `TzOffset`/`Type`/`Info`; output sorted by instant
-- [ ] apply it to the HR, SpO2, and Stress slices after parsing, before building
+- [x] apply it to the HR, SpO2, and Stress slices after parsing, before building
       events (HR/SpO2 → `hrCadence`/`spo2Cadence`, Stress → `stressCadence`)
-- [ ] do NOT downsample sleep, daystats, or workouts (pass through unchanged)
-- [ ] keep GPS discarded (no change to the `ParseOutdoorWorkouts` second-return drop)
+- [x] do NOT downsample sleep, daystats, or workouts (pass through unchanged)
+- [x] keep GPS discarded (no change to the `ParseOutdoorWorkouts` second-return drop)
 
 ### Task 2: Server-side event chunking into bounded events (vitals_import.go)
 - [ ] add named const `maxSamplesPerEvent = 2000` with a comment tying it to
