@@ -433,6 +433,11 @@ describe('Settings → Integrations section', () => {
         // ai keeps its real granted state; the failed refresh didn't reset it.
         expect(consentRow(document, 'ai').querySelector('[data-trial-consent-state]').textContent).toBe('Allowed');
         expect(consentRow(document, 'ai').querySelector('[data-trial-consent-action]').textContent).toBe('Revoke');
+        // The just-granted voice scope shows the durable grant even though
+        // the reconciliation GET failed — request() resolving true is
+        // authoritative (its PATCH landed).
+        expect(consentRow(document, 'voice').querySelector('[data-trial-consent-state]').textContent).toBe('Allowed');
+        expect(consentRow(document, 'voice').querySelector('[data-trial-consent-action]').textContent).toBe('Revoke');
     });
 
     it('Allow opens the consent disclosure dialog — the grant only lands after the dialog Allow', async () => {

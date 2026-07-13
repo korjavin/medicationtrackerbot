@@ -203,10 +203,15 @@
             // seen before a scope flips true — for `tg` this row is the ONLY
             // grant path (the drain refuses, never prompts), so skipping the
             // dialog here would skip the disclosure entirely. request()
-            // persists the choice itself; re-GET to repaint whatever landed
-            // (grant, refusal, or nothing on dismissal).
+            // persists the choice itself and resolves true only when the
+            // PATCH landed, so apply the grant locally first — the re-GET is
+            // reconciliation only and may fail without unshowing the grant.
             if (window.TrialConsent && typeof window.TrialConsent.request === 'function') {
-                await window.TrialConsent.request(scope);
+                const granted = await window.TrialConsent.request(scope);
+                if (granted === true) {
+                    _trialConsent = { ...(_trialConsent || {}), [scope]: true };
+                    renderTrialConsentRows();
+                }
                 await loadTrialConsent();
             } else if (typeof safeAlert === 'function') {
                 safeAlert('Consent dialog unavailable — reload and try again');
