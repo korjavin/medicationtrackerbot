@@ -35,7 +35,7 @@
         },
         tg: {
             title: 'Let the Telegram assistant use the trial AI?',
-            data: 'Your Telegram messages AND the health data the assistant reads from your vault to answer them — blood pressure history, notes, and other records — will be sent to an AI model.',
+            data: 'Your Telegram messages AND the health data the assistant reads from your vault to answer them — blood pressure history, notes, and other records — will be sent to an AI model. The in-app story narrator shares this consent: it sends computed health summaries (weekly and workout stats) to the same model.',
             transit: 'This content transits the operator’s OpenAI account — the operator’s provider processes it on the operator’s key.',
         },
     };

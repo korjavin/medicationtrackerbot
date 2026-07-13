@@ -270,11 +270,16 @@ export async function applyTGCommand(event, eventId, { bp, weight, notes, intake
           recordIdFor: (i) => `${recordId}-${i}`,
         });
       } catch (e) {
-        // No key (and no trial) is a permanent condition for THIS message —
-        // reply and ack rather than re-queue forever. Anything else (a provider
-        // hiccup, a transient write failure) propagates so the next drain retries.
+        // No key (and no trial) or ungranted trial consent is a permanent
+        // condition for THIS message — reply and ack rather than re-queue
+        // forever. Anything else (a provider hiccup, a transient write
+        // failure) propagates so the next drain retries.
         if (e && e.code === 'no_api_key') {
           await reply('🔑 To log food by message, add an OpenAI key in Settings → Integrations (or the trial AI is unavailable right now).');
+          return;
+        }
+        if (e && e.code === 'trial_consent_required') {
+          await reply('🔑 To log food by message with the trial AI, allow it first in Settings → Integrations (or add your own OpenAI key).');
           return;
         }
         throw e;
@@ -359,6 +364,10 @@ export async function applyTGPhoto(event, eventId, { foodAI, verbosity = 'detail
       await reply('🔑 To log food from a photo, add an OpenAI key in Settings → Integrations (or the trial AI is unavailable right now).');
       return;
     }
+    if (e && e.code === 'trial_consent_required') {
+      await reply('🔑 To log food from a photo with the trial AI, allow it first in Settings → Integrations (or add your own OpenAI key).');
+      return;
+    }
     console.warn('[inbox] could not parse the Telegram photo', e && e.code);
     await reply('📷 I couldn\'t spot any food in that photo.');
     return;
@@ -397,6 +406,10 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
   } catch (e) {
     if (e && e.code === 'no_api_key') {
       await reply('🔑 To chat with the assistant, add an OpenAI key in Settings → Integrations (or the trial AI is unavailable right now).');
+      return;
+    }
+    if (e && e.code === 'trial_consent_required') {
+      await reply('🔑 To chat with the assistant via the trial AI, allow it first in Settings → Integrations (or add your own OpenAI key).');
       return;
     }
     console.warn('[inbox] free-text agent failed', e && e.code);

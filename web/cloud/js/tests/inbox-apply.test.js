@@ -449,6 +449,18 @@ describe('inbox-apply.js — a Telegram data command', () => {
         };
         return { parseMealFromDescription: noKey, parseMealFromImage: noKey };
     }
+    // The trial gate's refusal (web/cloud/js/aiclient.js) — like no_api_key,
+    // a permanent condition for the message: must be answered and acked,
+    // never re-queued.
+    function consentRefusingAIClient() {
+        const refuse = () => {
+            const e = new Error('trial consent required');
+            e.code = 'trial_consent_required';
+            e.scope = 'ai';
+            throw e;
+        };
+        return { parseMealFromDescription: refuse, parseMealFromImage: refuse };
+    }
 
     function domainsFor(records, now, aiClient = stubAIClient(TWO_EGGS)) {
         return {
@@ -638,6 +650,19 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/add an OpenAI key/));
     });
 
+    it('/food with trial consent not granted points at Settings, acks, and logs nothing', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        // Resolves (event acked): ungranted consent is permanent for this
+        // message — re-queuing would retry it on every drain tick forever.
+        await expect(applyTGCommand(commandEvent('/food 2 eggs'), 23, { ...domainsFor(records, now, consentRefusingAIClient()), editReply }))
+            .resolves.toBeUndefined();
+
+        expect(await records.list('foodlog')).toHaveLength(0);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/allow it first in Settings/));
+    });
+
     it('a failed edit never fails the drain — the record is already in the vault', async () => {
         const records = fakeRecords(seed());
         const now = () => DRAIN_MS;
@@ -712,6 +737,17 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/add an OpenAI key/));
     });
 
+    it('a photo with trial consent not granted points at Settings — not the misleading "no food" reply', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        await expect(applyTGPhoto(photoEvent(), 33, { foodAI: foodAIFor(records, now, consentRefusingAIClient()), editReply, fetchPhoto: okFetchPhoto() }))
+            .resolves.toBeUndefined();
+
+        expect(await records.list('foodlog')).toHaveLength(0);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/allow it first in Settings/));
+    });
+
     // --- Free-text AI agent (bd med-vcv.2) ---
     // The loop itself is pinned in tg-agent.test.js; here the agent is a stub so
     // only applyTGText's own responsibility — reply, verbosity, error-ack — is
@@ -761,6 +797,13 @@ describe('inbox-apply.js — a Telegram data command', () => {
         const agent = { run: vi.fn().mockRejectedValue(Object.assign(new Error('no key'), { code: 'no_api_key' })) };
         await expect(applyTGText(textEvent('hi'), 43, { agent, records: fakeRecords(), editReply })).resolves.toBeUndefined();
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/add an OpenAI key/));
+    });
+
+    it('an agent refused for missing trial consent points at Settings, not "try again"', async () => {
+        const editReply = vi.fn();
+        const agent = { run: vi.fn().mockRejectedValue(Object.assign(new Error('consent'), { code: 'trial_consent_required', scope: 'tg' })) };
+        await expect(applyTGText(textEvent('hi'), 45, { agent, records: fakeRecords(), editReply })).resolves.toBeUndefined();
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/allow it first in Settings/));
     });
 
     it('any other agent failure is answered and acked, never left dangling', async () => {

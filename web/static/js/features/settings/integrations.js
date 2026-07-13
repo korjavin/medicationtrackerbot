@@ -123,16 +123,17 @@
     // Trial-consent rows (bd med-yor.2 Task 4). When a trial flag is active
     // in cloud mode, each applicable consent scope gets a row under the
     // provider's trial hint showing its state (Allowed / Not allowed / Not
-    // asked) with an Allow/Revoke button. Writes route through
-    // DataStore.applyOptimistic exactly like saveIntegrations, PATCHing the
-    // encrypted-vault trialconsent record via /api/settings/trial-consent.
+    // asked) with an Allow/Revoke button. Granting routes through the
+    // TrialConsent disclosure dialog (which persists the choice itself);
+    // revoking PATCHes the encrypted-vault trialconsent record directly via
+    // DataStore.applyOptimistic, like saveIntegrations.
     const CONSENT_CACHE_KEY = 'settings_trial_consent';
     const CONSENT_CACHE_TAGS = ['settings'];
     // [meta flag, hint element to mount after, [scope, label]...]
     const CONSENT_MOUNTS = [
         ['medtracker-trial-ai', 'integrations-openai-trial-hint', [
             ['ai', 'Trial AI — meal descriptions & photos'],
-            ['tg', 'Trial AI — Telegram assistant (reads vault data to answer)']
+            ['tg', 'Trial AI — Telegram assistant & narrator (reads vault data to answer)']
         ]],
         ['medtracker-trial-voice', 'integrations-elevenlabs-trial-hint', [
             ['voice', 'Trial voice — operator’s ElevenLabs agent']
@@ -196,6 +197,22 @@
     }
 
     async function setTrialConsentScope(scope, allowed) {
+        if (allowed) {
+            // Granting is a consent ceremony: the disclosure dialog (data
+            // categories, operator-account transit, BYO alternative) must be
+            // seen before a scope flips true — for `tg` this row is the ONLY
+            // grant path (the drain refuses, never prompts), so skipping the
+            // dialog here would skip the disclosure entirely. request()
+            // persists the choice itself; re-GET to repaint whatever landed
+            // (grant, refusal, or nothing on dismissal).
+            if (window.TrialConsent && typeof window.TrialConsent.request === 'function') {
+                await window.TrialConsent.request(scope);
+                await loadTrialConsent();
+            } else if (typeof safeAlert === 'function') {
+                safeAlert('Consent dialog unavailable — reload and try again');
+            }
+            return;
+        }
         const prev = _trialConsent;
         const next = { ...(prev || {}), [scope]: allowed };
         let handle = null;
@@ -409,7 +426,6 @@
         _cacheKey: CACHE_KEY,
         _cacheTags: CACHE_TAGS,
         _resetTelegramMounted: () => { _telegramMounted = false; },
-        _loadTrialConsent: loadTrialConsent,
         _setTelegramLoader: (loader) => { _telegramModuleLoader = loader; }
     };
 })();

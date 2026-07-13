@@ -405,7 +405,53 @@ describe('Settings → Integrations section', () => {
         expect(window.apiCall).not.toHaveBeenCalledWith('/api/settings/trial-consent', 'GET');
     });
 
-    it('Allow/Revoke PATCHes the single scope through DataStore.applyOptimistic and repaints from the response', async () => {
+    it('Allow opens the consent disclosure dialog — the grant only lands after the dialog Allow', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        installTrialMetas(document, ['medtracker-trial-ai']);
+        window.apiCall = trialConsentApiStub(window, { ai: true, voice: null, tg: null, updated_at: 1 });
+
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+
+        // tg starts "Not asked" → the row's Allow mounts the disclosure
+        // dialog instead of PATCHing directly (for `tg` this row is the only
+        // grant path, so the dialog is the only place the disclosure shows).
+        consentRow(document, 'tg').querySelector('[data-trial-consent-action]').click();
+        await new Promise(r => setTimeout(r, 0));
+        expect(window.apiCall).not.toHaveBeenCalledWith('/api/settings/trial-consent', 'PATCH', expect.anything());
+        const dialog = document.querySelector('.wg-trial-consent-modal');
+        expect(dialog).not.toBeNull();
+        expect(dialog.getAttribute('data-trial-consent-scope')).toBe('tg');
+
+        dialog.querySelector('[data-trial-consent-choice="allow"]').click();
+        await new Promise(r => setTimeout(r, 0));
+        await new Promise(r => setTimeout(r, 0));
+        expect(window.apiCall).toHaveBeenCalledWith('/api/settings/trial-consent', 'PATCH', { tg: true });
+        expect(consentRow(document, 'tg').querySelector('[data-trial-consent-state]').textContent).toBe('Allowed');
+        expect(consentRow(document, 'tg').querySelector('[data-trial-consent-action]').textContent).toBe('Revoke');
+    });
+
+    it('a dismissed disclosure dialog persists nothing and leaves the row Not asked', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        installTrialMetas(document, ['medtracker-trial-ai']);
+        window.apiCall = trialConsentApiStub(window, { ai: null, voice: null, tg: null, updated_at: 1 });
+
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+
+        consentRow(document, 'ai').querySelector('[data-trial-consent-action]').click();
+        await new Promise(r => setTimeout(r, 0));
+        document.querySelector('.mt-confirm-backdrop').click();
+        await new Promise(r => setTimeout(r, 0));
+        await new Promise(r => setTimeout(r, 0));
+
+        expect(window.apiCall).not.toHaveBeenCalledWith('/api/settings/trial-consent', 'PATCH', expect.anything());
+        expect(consentRow(document, 'ai').querySelector('[data-trial-consent-state]').textContent).toBe('Not asked');
+    });
+
+    it('Revoke PATCHes the single scope through DataStore.applyOptimistic with no dialog', async () => {
         const { window, document } = env;
         window.__MEDTRACKER_CLOUD__ = true;
         installTrialMetas(document, ['medtracker-trial-ai']);
@@ -418,28 +464,23 @@ describe('Settings → Integrations section', () => {
         const applySpy = vi.fn((key, mutator, tags) => realApply(key, mutator, tags));
         window.DataStore.applyOptimistic = applySpy;
 
-        // tg starts "Not asked" → Allow grants it…
-        consentRow(document, 'tg').querySelector('[data-trial-consent-action]').click();
-        await new Promise(r => setTimeout(r, 0));
-        expect(applySpy).toHaveBeenCalled();
-        expect(applySpy.mock.calls[0][0]).toBe('settings_trial_consent');
-        expect(window.apiCall).toHaveBeenCalledWith('/api/settings/trial-consent', 'PATCH', { tg: true });
-        expect(consentRow(document, 'tg').querySelector('[data-trial-consent-state]').textContent).toBe('Allowed');
-
-        // …and ai starts "Allowed" → the same button revokes it.
+        // ai starts "Allowed" → the button revokes it directly.
         consentRow(document, 'ai').querySelector('[data-trial-consent-action]').click();
         await new Promise(r => setTimeout(r, 0));
+        expect(document.querySelector('.wg-trial-consent-modal')).toBeNull();
+        expect(applySpy).toHaveBeenCalled();
+        expect(applySpy.mock.calls[0][0]).toBe('settings_trial_consent');
         expect(window.apiCall).toHaveBeenCalledWith('/api/settings/trial-consent', 'PATCH', { ai: false });
         expect(consentRow(document, 'ai').querySelector('[data-trial-consent-state]').textContent).toBe('Not allowed');
         expect(consentRow(document, 'ai').querySelector('[data-trial-consent-action]').textContent).toBe('Allow');
     });
 
-    it('rolls back the optimistic consent state and cache row when the PATCH fails', async () => {
+    it('rolls back the optimistic consent state and cache row when the revoke PATCH fails', async () => {
         const { window, document } = env;
         window.__MEDTRACKER_CLOUD__ = true;
         installTrialMetas(document, ['medtracker-trial-ai']);
 
-        const prior = { ai: false, voice: null, tg: null, updated_at: 1 };
+        const prior = { ai: true, voice: null, tg: null, updated_at: 1 };
         await window.DataStore.setCachedWithTags('settings_trial_consent', prior, ['settings']);
         window.apiCall = vi.fn(async (url, method) => {
             if (url === '/api/settings/integrations') return { openai: {}, food: {}, elevenlabs: {} };
@@ -455,7 +496,7 @@ describe('Settings → Integrations section', () => {
         consentRow(document, 'ai').querySelector('[data-trial-consent-action]').click();
         await new Promise(r => setTimeout(r, 0));
 
-        expect(consentRow(document, 'ai').querySelector('[data-trial-consent-state]').textContent).toBe('Not allowed');
+        expect(consentRow(document, 'ai').querySelector('[data-trial-consent-state]').textContent).toBe('Allowed');
         expect(await window.DataStore.getCached('settings_trial_consent')).toEqual(prior);
         expect(alerts[0]).toContain('Failed to update trial consent');
     });

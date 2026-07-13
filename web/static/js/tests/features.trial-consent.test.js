@@ -71,6 +71,9 @@ describe('features/trial-consent.js — disclosure dialog + retry seam', () => {
         expect(text).toMatch(/blood pressure history/i);
         expect(text).toMatch(/vault/i);
         expect(text).toMatch(/operator[’']s OpenAI account/i);
+        // The gamification narrator rides this scope (plan ➕ note) — the
+        // disclosure must say so.
+        expect(text).toMatch(/narrator/i);
         modal().querySelector('[data-trial-consent-choice="deny"]').click();
     });
 
