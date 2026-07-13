@@ -20,12 +20,82 @@ const CACHE_PREFIX = 'medtracker-cloud';
 // each deploy gets a fresh cache and activate prunes the old ones below.
 const SHELL_CACHE = `${CACHE_PREFIX}-shell-${SW_VERSION}`;
 
+// Same-origin subresource refs in the served '/' document: <script src> and
+// <link href> tags only — all root-relative in web/static/index.html plus the
+// tags router.go injects. Anchor hrefs (<a href="/devices">) are navigation
+// targets, not shell assets: warming one would cache the ceremony document
+// (signup.html) WITHOUT its own css/js — offlineFallback would then serve
+// that exact cached doc with rejecting subresources, a blank ceremony page.
+// Ceremony pages offline are only served from a prior full online visit.
+// Cross-origin URLs don't start with '/' and never match.
+const SHELL_REF_RE = /<(?:script|link)\b[^>]*?(?:src|href)="(\/[^"]*)"/g;
+
+// Literal ES-module specifiers: `from './x.js'` (incl. re-exports) and
+// `import('/js/x.js')`. Only path-like specifiers (leading '/' or '.') are
+// followed, which drops prose that happens to follow the keyword `from`.
+const MODULE_IMPORT_RE = /\b(?:from|import\s*\()\s*['"]([^'"]+)['"]/g;
+
+// Which cached files get scanned for module imports: any same-origin .js/.mjs
+// except vendor bundles (minified, treated as self-contained).
+const CRAWLABLE_RE = /^\/(?!static\/vendor\/|vendor\/).*\.m?js$/;
+
+function moduleDeps(url, source) {
+  const deps = [];
+  for (const m of source.matchAll(MODULE_IMPORT_RE)) {
+    const spec = m[1];
+    if (spec[0] !== '/' && spec[0] !== '.') continue;
+    const dep = new URL(spec, url);
+    if (dep.origin === self.location.origin) deps.push(dep.href);
+  }
+  return deps;
+}
+
+// Warm the COMPLETE app shell: the '/' document, every subresource it
+// references (the fingerprinted /static/* URLs it will request offline), and
+// the transitive ES-module graph reachable from them (/js/cloud-boot.js →
+// unlock/apishim/sync → /domain/*), which never appears in the HTML because
+// it's loaded via import(). cache.add('/') alone is not enough — offline, the
+// cached HTML's subresource fetches reject (a subresource deliberately never
+// gets the HTML shell below) and the app boots blank.
+//
+// Any failure REJECTS, failing install. That is deliberate, not flaky-fetch
+// paranoia to swallow: activate prunes the previous version's complete cache,
+// so activating behind a partial warm trades a working offline shell for a
+// broken one. A failed install keeps the old SW + old cache live and the
+// browser retries the update on the next navigation/update check. The
+// disk-backed install test in sw.fetch-cache.test.js pins every crawled URL to
+// a real repo file so a bad ref can't permanently wedge updates (med-jb7.2).
+async function warmShell() {
+  const cache = await caches.open(SHELL_CACHE);
+  const doc = await fetch('/');
+  if (!doc.ok) throw new Error('shell warm: / => ' + doc.status);
+  const html = await doc.clone().text();
+  await cache.put('/', doc);
+  const seen = new Set();
+  let wave = [];
+  for (const m of html.matchAll(SHELL_REF_RE)) {
+    const href = new URL(m[1], self.location.origin).href;
+    if (!seen.has(href)) {
+      seen.add(href);
+      wave.push(href);
+    }
+  }
+  while (wave.length) {
+    const found = await Promise.all(
+      wave.map(async (url) => {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('shell warm: ' + url + ' => ' + res.status);
+        const deps = CRAWLABLE_RE.test(new URL(url).pathname) ? moduleDeps(url, await res.clone().text()) : [];
+        await cache.put(url, res);
+        return deps;
+      })
+    );
+    wave = found.flat().filter((u) => !seen.has(u) && (seen.add(u), true));
+  }
+}
+
 self.addEventListener('install', (event) => {
-  // Warm the shell document so the very first offline open works even before
-  // any online navigation runs under this SW version — a fresh install, or a
-  // deploy (activate below prunes the previous version's cache, which held the
-  // only copy of '/'). Best-effort: install must never fail on a flaky fetch.
-  event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.add('/')).catch(() => {}));
+  event.waitUntil(warmShell());
   self.skipWaiting();
 });
 

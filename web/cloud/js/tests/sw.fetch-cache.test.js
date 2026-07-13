@@ -5,6 +5,10 @@
 // same) the cached copy renders; the '/' shell fallback applies to navigations
 // only and never to ceremony pages (signup.html is a different document);
 // /api/* and non-GET are never intercepted.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SW_ORIGIN as ORIGIN, loadCloudSw } from './helpers/sw-loader.js';
@@ -232,25 +236,129 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         expect(evt.respondWith).not.toHaveBeenCalled();
     });
 
-    it('install warms the shell document into the versioned cache', async () => {
-        fetchMock.mockResolvedValue(networkResponse());
-
-        const handler = listeners.get('install')[0];
-        let waited;
-        handler({ waitUntil: (p) => { waited = p; } });
-        await waited;
-
-        expect(self.skipWaiting).toHaveBeenCalled();
-        expect(caches.store.get(SHELL_CACHE).get('/')).toBeDefined();
+    // A body-carrying response for the install warm: clone() and text() are
+    // what warmShell consumes.
+    const bodyResponse = (body, status = 200) => ({
+        ok: status >= 200 && status < 300,
+        status,
+        clone() { return this; },
+        text: async () => body,
     });
 
-    it('install survives a failed warm-up fetch', async () => {
-        fetchMock.mockRejectedValue(new TypeError('network down'));
-
+    const fireInstall = () => {
         const handler = listeners.get('install')[0];
         let waited;
         handler({ waitUntil: (p) => { waited = p; } });
-        await expect(waited).resolves.toBeUndefined();
+        return waited;
+    };
+
+    it('install warms the complete shell: document, its subresources, and the crawled module graph', async () => {
+        const files = {
+            // The two <a> tags must be SKIPPED: same-origin /devices serves a
+            // different HTML document whose own subresources the warm doesn't
+            // crawl — caching it would break the ceremony page offline. There
+            // is no /devices entry in `files`, so fetching it would 404 and
+            // reject install; this test passing proves anchors are ignored.
+            '/': '<script src="/static/a.js?v=1"></script><link rel="stylesheet" href="/static/s.css?v=1">'
+                + '<script src="/js/boot.js"></script><a href="/devices">nav</a>'
+                + '<a href="https://example.com/off-origin">x</a>',
+            '/static/a.js?v=1': '// classic script, no imports',
+            '/static/s.css?v=1': 'body{}',
+            // Dynamic import + static re-export + relative resolution across mounts.
+            '/js/boot.js': "const m = await import('/js/mod.js'); // from 'not a path'",
+            '/js/mod.js': "export { x } from '../../domain/pure.js';\nimport('/static/vendor/opaque.min.js');",
+            '/domain/pure.js': 'export const x = 1;',
+            // Vendor is cached but NOT crawled — its `from "./chunk.js"` must be ignored.
+            '/static/vendor/opaque.min.js': 'z=1;from"./chunk-does-not-exist.js"',
+        };
+        fetchMock.mockImplementation(async (url) => {
+            const u = new URL(url, ORIGIN);
+            const body = files[u.pathname + u.search];
+            return body === undefined ? bodyResponse('', 404) : bodyResponse(body);
+        });
+
+        await fireInstall();
+
+        expect(self.skipWaiting).toHaveBeenCalled();
+        const cached = caches.store.get(SHELL_CACHE);
+        for (const key of Object.keys(files)) expect(cached.has(key), key).toBe(true);
+        expect(cached.size).toBe(Object.keys(files).length);
+    });
+
+    it('install REJECTS on a failed warm-up, so activate never prunes the old complete cache', async () => {
+        // The inverse of the pre-med-deq.1 "best effort" behavior: a partial
+        // warm must not activate, because activation deletes the previous
+        // version's complete cache.
+        fetchMock.mockRejectedValue(new TypeError('network down'));
+        await expect(fireInstall()).rejects.toThrow();
+    });
+
+    it('install REJECTS when a referenced subresource 404s', async () => {
+        fetchMock.mockImplementation(async (url) =>
+            new URL(url, ORIGIN).pathname === '/'
+                ? bodyResponse('<script src="/static/gone.js"></script>')
+                : bodyResponse('', 404)
+        );
+        await expect(fireInstall()).rejects.toThrow('/static/gone.js');
+    });
+
+    // Disk-backed install: replay the warm against the REAL repo files, routed
+    // the way router.go routes them. install rejects on any 404, so this test
+    // fails the moment index.html or the /js + /domain module graph references
+    // a file that doesn't exist — the guard that keeps the atomic install from
+    // permanently wedging SW updates in production (med-jb7.2).
+    it('install warm resolves against the real repo tree and caches the boot-critical module graph', async () => {
+        const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+        const routerGo = fs.readFileSync(path.join(REPO_ROOT, 'internal/cloudserver/router.go'), 'utf8');
+        // The served '/' document is index.html plus router.go's injected
+        // scripts; pin the emulation to router.go's actual srcs.
+        for (const injected of ['/js/cloud-boot.js', '/js/update-check.js']) {
+            expect(routerGo, `router.go no longer injects ${injected}`).toContain(injected);
+        }
+        const appIndex = fs
+            .readFileSync(path.join(REPO_ROOT, 'web/static/index.html'), 'utf8')
+            .replace(
+                '<head>',
+                '<head><script src="/js/cloud-boot.js"></script><script type="module" src="/js/update-check.js"></script>'
+            );
+        // No mapping for ceremony paths (/devices, /connectors, …): index.html
+        // links to them via <a href>, which the warm must skip — if it fetched
+        // one it would fall through to a nonexistent web/cloud/devices, 404,
+        // and reject install, failing this test.
+        fetchMock.mockImplementation(async (url) => {
+            const { pathname } = new URL(url, ORIGIN);
+            let body;
+            if (pathname === '/') body = appIndex;
+            else {
+                let file;
+                if (pathname === '/static/config.js') return { ok: true, status: 200, clone() { return this; }, text: async () => '// generated by router.go' };
+                if (pathname.startsWith('/static/')) file = 'web/static/' + pathname.slice('/static/'.length);
+                else if (pathname.startsWith('/domain/')) file = 'web/domain/' + pathname.slice('/domain/'.length);
+                else file = 'web/cloud' + pathname;
+                const abs = path.join(REPO_ROOT, file);
+                if (!fs.existsSync(abs)) return { ok: false, status: 404, clone() { return this; } };
+                body = fs.readFileSync(abs, 'utf8');
+            }
+            return { ok: true, status: 200, clone() { return this; }, text: async () => body };
+        });
+
+        await fireInstall();
+
+        const cached = caches.store.get(SHELL_CACHE);
+        const keys = [...cached.keys()];
+        // The offline boot chain: document → cloud-boot → dynamic imports →
+        // apishim's relative ../../domain/* — each layer must be warmed.
+        expect(cached.has('/')).toBe(true);
+        for (const mod of ['/js/cloud-boot.js', '/js/unlock.js', '/js/apishim.js', '/js/sync.js', '/domain/vault.js', '/domain/bp.js']) {
+            expect(cached.has(mod), mod).toBe(true);
+        }
+        // The HTML's fingerprinted classic scripts are cached under their full URL.
+        expect(keys).toContain('/static/js/core/utils.js?v=TIMESTAMP_PLACEHOLDER');
+        expect(keys.filter((k) => k.startsWith('/static/')).length).toBeGreaterThan(50);
+        // Anchor-linked ceremony pages are never warmed (see mock note above).
+        for (const p of ['/unlock', '/claim', '/recover', '/devices', '/connectors']) {
+            expect(cached.has(p), p).toBe(false);
+        }
     });
 
     it('activate prunes old prefixed caches, keeps the current shell cache and unrelated caches', async () => {

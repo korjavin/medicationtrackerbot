@@ -89,6 +89,21 @@ per-account CSP, fresh assets) and refreshes the cache.
       the current version), still ending with `self.clients.claim()`.
 - [x] Leave push / notificationclick / pushsubscriptionchange / decodePush /
       readNK and all their helpers **byte-for-byte unchanged**.
+- [x] ➕ Complete-shell install warm (codex review): `cache.add('/')` alone left
+      every subresource uncached — offline boot served cached HTML whose
+      ~115 `/static/*` scripts/styles and the dynamic `/js/*`→`/domain/*`
+      module graph all rejected (subresources deliberately never get the HTML
+      shell), a blank app on first offline open and right after a deploy
+      (activate prunes the old complete cache). Now `warmShell()` fetches `/`,
+      extracts its same-origin `<script src>`/`<link href>` refs (anchor hrefs
+      like `/devices` are navigations to a different document and are skipped —
+      warming them would cache signup.html without its own css/js and break
+      the ceremony page offline), crawls literal ES-module specifiers through
+      non-vendor `.js`/`.mjs`, and caches the closure.
+      Install REJECTS on any failure (atomic — old SW + old complete cache stay
+      live, browser retries), and a disk-backed test replays the warm against
+      the real repo tree so a dangling ref fails CI instead of wedging SW
+      updates (med-jb7.2).
 - [x] ➕ Update `web/cloud/js/tests/architecture.sw-version.test.js`: its
       "declares no cache it never serves from" case asserted the SW is
       push-only (no fetch handler, no `caches.open`) — obsolete by design now;
