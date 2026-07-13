@@ -30,16 +30,23 @@ type recoveryStore interface {
 // session.
 type RecoveryAPI struct {
 	store recoveryStore
+	// limiter throttles this unauthenticated endpoint per client IP, on top of
+	// the per-account DB throttle in VerifyRecoveryAttempt (the IP limit is
+	// additive — it caps an attacker spraying many accounts from one IP).
+	limiter *rateLimiter
 }
 
 // NewRecoveryAPI builds the recovery-redemption handler.
 func NewRecoveryAPI(store recoveryStore) *RecoveryAPI {
-	return &RecoveryAPI{store: store}
+	return &RecoveryAPI{
+		store:   store,
+		limiter: newRateLimiter(ceremonyRateLimitMax, ceremonyRateLimitWindow),
+	}
 }
 
 // RegisterRoutes adds the recovery route to mux.
 func (a *RecoveryAPI) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/recover", a.Recover)
+	mux.HandleFunc("POST /api/recover", limitByIP(a.limiter, a.Recover))
 }
 
 type recoverResponse struct {
