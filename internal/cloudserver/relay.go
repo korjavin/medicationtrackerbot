@@ -289,7 +289,10 @@ func (rl *Relay) send(ctx context.Context, sub cloudstore.PushSubscription, keys
 
 	status, err := rl.sender.Send(sendCtx, sub, keys, ct)
 	if err != nil {
-		slog.Error("push relay: send failed", "endpoint_fp", endpointFingerprint(sub.Endpoint), "error", err)
+		// err from webpush-go is a raw *url.Error whose Error() embeds the full
+		// endpoint URL — unwrap it so the fingerprint stays the only endpoint
+		// reference in the log (bd med-yor.16).
+		slog.Error("push relay: send failed", "endpoint_fp", endpointFingerprint(sub.Endpoint), "error", urlErrCause(err))
 		return
 	}
 	if status == http.StatusNotFound || status == http.StatusGone {
