@@ -228,7 +228,7 @@ refusal, revocation, BYO precedence.
 
 ### Task 3: Consent gate for trial voice in elevenlabs-call.js
 
-- [ ] In `web/static/js/features/elevenlabs-call.js` `fetchSignedURL()` cloud
+- [x] In `web/static/js/features/elevenlabs-call.js` `fetchSignedURL()` cloud
       branch (:84-88): before calling `fetchTrialSignedURL()`, read consent via
       the shim route (`window.apiCall('/api/settings/trial-consent', 'GET')` —
       in cloud mode apiCall routes through apishim; guard for its absence). If
@@ -237,12 +237,22 @@ refusal, revocation, BYO precedence.
       present) and proceed only on an affirmative result; otherwise throw an
       error telling the user trial voice needs consent (Settings →
       Integrations). BYO path (hasKey true) untouched.
-- [ ] Write tests in the existing elevenlabs-call feature suite: (a) no
+      (`ensureTrialVoiceConsent()` — throws the shared contract:
+      `err.code = 'trial_consent_required'`, `err.scope = 'voice'`; apiCall
+      absent or failing counts as no consent.)
+- [x] Write tests in the existing elevenlabs-call feature suite: (a) no
       consent → no fetch to `/api/trial/elevenlabs/signed-url`, error state
       shown; (b) consent granted (stubbed GET returns `{ voice: true }`) →
       trial signed URL fetched as before; (c) BYO key present → consent never
-      read; (d) declined prompt → no fetch.
-- [ ] Run the touched vitest files — must pass before Task 4.
+      read; (d) declined prompt → no fetch. (Also covered: revoked
+      `voice: false`, `ai`-only scope separation, prompt-allows-then-fetch,
+      apiCall-absent refusal, and a startCall-driven error-state test.
+      `cloudEnv` grants `{ voice: true }` by default so the pre-gate trial
+      tests keep their assertions unweakened.)
+- [x] Run the touched vitest files — must pass before Task 4. (44/44 in
+      features.elevenlabs-call; shim-contract.elevenlabs, call-indicator,
+      auth-headers, offline-coverage, globals, egress-consistency all green —
+      46 more tests.)
 
 ### Task 4: Consent disclosure dialog + Settings → Integrations grant/revoke controls
 

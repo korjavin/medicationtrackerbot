@@ -853,10 +853,20 @@ describe('features/elevenlabs-call.js — trial-voice fallback precedence (cloud
     // Wire a cloud env around fetchSignedURL(): vault-key presence via
     // CloudElevenLabs.hasKey, trial availability via the injected meta flag,
     // and the trial proxy route via a fetch stub.
-    function cloudEnv({ hasKey, trialFlag, trialStatus = 200, trialBody } = {}) {
+    // `consent` is the trialconsent record the shim route returns; default
+    // grants the voice scope so the pre-gate trial-path tests keep pinning
+    // the same fetch behavior. Pass null for a never-asked record.
+    function cloudEnv({ hasKey, trialFlag, trialStatus = 200, trialBody, consent = { voice: true } } = {}) {
         const env = createEnv();
         const { window } = env;
         window.__MEDTRACKER_CLOUD__ = true;
+        const consentGet = vi.fn(async (url, method) => {
+            if (url === '/api/settings/trial-consent' && method === 'GET') {
+                return consent === null ? { ai: null, voice: null, tg: null } : consent;
+            }
+            throw new Error(`Unexpected apiCall: ${url}`);
+        });
+        window.apiCall = consentGet;
         if (trialFlag) {
             const meta = window.document.createElement('meta');
             meta.setAttribute('name', 'medtracker-trial-voice');
@@ -895,27 +905,29 @@ describe('features/elevenlabs-call.js — trial-voice fallback precedence (cloud
             hasKey: vi.fn(async () => Boolean(hasKey)),
         };
         window.CloudElevenLabsAgent = { provision };
-        return { ...env, trialFetch, byoFetchSignedURL, provision };
+        return { ...env, trialFetch, byoFetchSignedURL, provision, consentGet };
     }
 
-    it('vault key present → provision + browser-direct path, trial route never hit (even with flag set)', async () => {
-        const { window, trialFetch, byoFetchSignedURL, provision, cleanup } = cloudEnv({ hasKey: true, trialFlag: true });
+    it('vault key present → provision + browser-direct path, trial route never hit, consent never read (even with flag set)', async () => {
+        const { window, trialFetch, byoFetchSignedURL, provision, consentGet, cleanup } = cloudEnv({ hasKey: true, trialFlag: true });
         try {
             const url = await window.WGCallAgent.fetchSignedURL();
             expect(url).toBe('wss://byo.example/signed');
             expect(provision).toHaveBeenCalledTimes(1);
             expect(byoFetchSignedURL).toHaveBeenCalledWith('agent-byo-1');
             expect(trialFetch).not.toHaveBeenCalled();
+            expect(consentGet).not.toHaveBeenCalled();
         } finally {
             cleanup();
         }
     });
 
-    it('no vault key + trial flag → GET /api/trial/elevenlabs/signed-url, provisioning skipped', async () => {
-        const { window, trialFetch, byoFetchSignedURL, provision, cleanup } = cloudEnv({ hasKey: false, trialFlag: true });
+    it('no vault key + trial flag + voice consent → GET /api/trial/elevenlabs/signed-url, provisioning skipped', async () => {
+        const { window, trialFetch, byoFetchSignedURL, provision, consentGet, cleanup } = cloudEnv({ hasKey: false, trialFlag: true });
         try {
             const url = await window.WGCallAgent.fetchSignedURL();
             expect(url).toBe('wss://trial.example/signed');
+            expect(consentGet).toHaveBeenCalledWith('/api/settings/trial-consent', 'GET');
             expect(trialFetch).toHaveBeenCalledWith('/api/trial/elevenlabs/signed-url', { method: 'GET' });
             expect(provision).not.toHaveBeenCalled();
             expect(byoFetchSignedURL).not.toHaveBeenCalled();
@@ -984,6 +996,103 @@ describe('features/elevenlabs-call.js — trial-voice fallback precedence (cloud
         try {
             await expect(window.WGCallAgent.fetchSignedURL())
                 .rejects.toThrow('Failed to get signed URL (429)');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('never-asked consent (all null) → trial_consent_required, trial route never hit', async () => {
+        const { window, trialFetch, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, consent: null });
+        try {
+            const err = await window.WGCallAgent.fetchSignedURL().catch((e) => e);
+            expect(err.code).toBe('trial_consent_required');
+            expect(err.scope).toBe('voice');
+            expect(err.message).toMatch(/needs your consent/);
+            expect(trialFetch).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('revoked consent (voice: false) → refused, trial route never hit', async () => {
+        const { window, trialFetch, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, consent: { ai: true, voice: false, tg: true } });
+        try {
+            await expect(window.WGCallAgent.fetchSignedURL())
+                .rejects.toMatchObject({ code: 'trial_consent_required', scope: 'voice' });
+            expect(trialFetch).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('ai consent alone does not permit trial voice (scope separation)', async () => {
+        const { window, trialFetch, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, consent: { ai: true, voice: null, tg: null } });
+        try {
+            await expect(window.WGCallAgent.fetchSignedURL())
+                .rejects.toMatchObject({ code: 'trial_consent_required', scope: 'voice' });
+            expect(trialFetch).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('no consent + prompt seam declines → no trial fetch, refusal error', async () => {
+        const { window, trialFetch, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, consent: null });
+        try {
+            const request = vi.fn(async () => false);
+            window.TrialConsent = { request };
+            await expect(window.WGCallAgent.fetchSignedURL())
+                .rejects.toMatchObject({ code: 'trial_consent_required', scope: 'voice' });
+            expect(request).toHaveBeenCalledWith('voice');
+            expect(trialFetch).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('no consent + prompt seam allows → trial signed URL fetched', async () => {
+        const { window, trialFetch, cleanup } = cloudEnv({ hasKey: false, trialFlag: true, consent: null });
+        try {
+            const request = vi.fn(async () => true);
+            window.TrialConsent = { request };
+            const url = await window.WGCallAgent.fetchSignedURL();
+            expect(url).toBe('wss://trial.example/signed');
+            expect(request).toHaveBeenCalledWith('voice');
+            expect(trialFetch).toHaveBeenCalledWith('/api/trial/elevenlabs/signed-url', { method: 'GET' });
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('window.apiCall absent → gate refuses (consent unreadable is not consent)', async () => {
+        const { window, trialFetch, cleanup } = cloudEnv({ hasKey: false, trialFlag: true });
+        try {
+            delete window.apiCall;
+            await expect(window.WGCallAgent.fetchSignedURL())
+                .rejects.toMatchObject({ code: 'trial_consent_required', scope: 'voice' });
+            expect(trialFetch).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('startCall without consent surfaces the error state, no trial transmission', async () => {
+        // createConversationEnv patches the SDK loader, so the rejection
+        // reaching startCall's catch is deterministically the consent gate's.
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const meta = window.document.createElement('meta');
+            meta.setAttribute('name', 'medtracker-trial-voice');
+            meta.setAttribute('content', '1');
+            window.document.head.appendChild(meta);
+            window.CloudElevenLabs = { hasKey: vi.fn(async () => false), fetchSignedURL: vi.fn() };
+            window.apiCall = vi.fn(async () => ({ ai: null, voice: null, tg: null }));
+            // The upload-only fetch stub throws on any other URL, so a leaked
+            // trial fetch would surface as a different error message here.
+            const { card } = await startCall(window);
+            expect(card.dataset.state).toBe('error');
+            expect(window.WGCallAgent.getState().message).toMatch(/needs your consent/);
         } finally {
             cleanup();
         }
