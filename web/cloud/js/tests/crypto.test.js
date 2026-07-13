@@ -6,6 +6,7 @@ import {
   deriveKEKRec,
   deriveKMac,
   deriveVerifier,
+  encodeFields,
   encryptTransferPayload,
   generateDEK,
   generateRecoveryCode,
@@ -31,6 +32,13 @@ async function makeEnvelope() {
   const envelope = await wrapEnvelope({ kek, dek, kMac, accountId, credentialId });
   return { prfOutput, dek, kek, kMac, envelope };
 }
+
+describe('encodeFields length guard', () => {
+  it('accepts a field at the uint16 ceiling and rejects one past it', () => {
+    expect(() => encodeFields(new Uint8Array(0xffff))).not.toThrow();
+    expect(() => encodeFields(new Uint8Array(0x10000))).toThrow(RangeError);
+  });
+});
 
 describe('cloud crypto suite v1', () => {
   it('wraps and unwraps the DEK round-trip', async () => {

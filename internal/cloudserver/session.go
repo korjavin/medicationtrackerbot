@@ -20,6 +20,13 @@ const SessionCookieName = "cloud_session"
 
 const sessionTTL = 30 * 24 * time.Hour
 
+// sessionMaxFutureSkew bounds how far in the future a token's mint timestamp
+// may be and still verify. Without it, time.Since(ts) is negative for any
+// future-dated timestamp and always passes the TTL check, so a clock rollback
+// or a future-minted token would extend a session indefinitely. Five minutes
+// absorbs ordinary clock drift between the minting and verifying processes.
+const sessionMaxFutureSkew = 5 * time.Minute
+
 // NewSessionToken mints a stateless HMAC session token for accountID +
 // credentialID, mirroring internal/server/google_auth.go's
 // createSessionToken shape (payload|nonce-free here since account+credential
@@ -55,7 +62,14 @@ func VerifySessionToken(token, secret string) (accountID string, credentialID []
 		return "", nil, false
 	}
 	ts, err := strconv.ParseInt(payloadParts[2], 10, 64)
-	if err != nil || time.Since(time.Unix(ts, 0)) > sessionTTL {
+	if err != nil {
+		return "", nil, false
+	}
+	// age > sessionTTL: expired. age < -sessionMaxFutureSkew: minted too far in
+	// the future (clock rollback / forged forward timestamp), which would
+	// otherwise never expire.
+	age := time.Since(time.Unix(ts, 0))
+	if age > sessionTTL || age < -sessionMaxFutureSkew {
 		return "", nil, false
 	}
 	credID, err := hex.DecodeString(payloadParts[1])
