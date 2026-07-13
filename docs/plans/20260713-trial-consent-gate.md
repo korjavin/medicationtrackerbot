@@ -386,15 +386,18 @@ refusal, revocation, BYO precedence.
 
 ### Task 7: Update documentation
 
-- [ ] Add a short "Trial consent" paragraph to `docs/cloud-mode.md` (near the
+- [x] Add a short "Trial consent" paragraph to `docs/cloud-mode.md` (near the
       trial AI/voice sections — find with `grep -n "trial" docs/cloud-mode.md`):
       consent is an encrypted-vault `trialconsent` singleton with independent
       `ai`/`voice`/`tg` scopes, asked before first trial use, revocable in
       Settings → Integrations, never granted by skipping key setup, not
       exported in backups. Do NOT touch the "## Metadata leakage summary"
-      table (drift guard).
-- [ ] Run `pnpm test` once more if any test-adjacent file changed; otherwise
+      table (drift guard). (Paragraph added at the end of "## Trial provider
+      keys"; metadata-leakage table untouched.)
+- [x] Run `pnpm test` once more if any test-adjacent file changed; otherwise
       confirm the tree is clean and all plan checkboxes are marked.
+      (`privacy.drift.test.js` — the one suite that parses docs/cloud-mode.md
+      — 8/8 green; only docs changed.)
 
 ## Technical Details
 
