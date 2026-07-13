@@ -45,6 +45,15 @@ const VOICEPROV_RECORD_ID = 'voiceprovisioning';
 const TG_PREFS_TYPE = 'tgprefs';
 const TG_PREFS_RECORD_ID = 'tgprefs';
 const TG_PREFS_MAX_CHARS = 4096;
+// Explicit durable consent for the operator's trial AI/voice providers
+// (bd med-yor.2). Three independent scopes; null = never asked, and only a
+// literal `true` passes the client-side trial gate — skipping key setup is
+// not consent. Deliberately NOT in vault.js's VAULT_MANAGED_TYPES: like `nk`
+// and `voiceprovisioning` it survives import untouched, so consent never
+// travels in backups (a fresh account asks fresh consent).
+const TRIALCONSENT_RECORD_TYPE = 'trialconsent';
+const TRIALCONSENT_RECORD_ID = 'trialconsent';
+const TRIALCONSENT_SCOPES = ['ai', 'voice', 'tg'];
 
 // SECRET_MASK mirrors secretMask in settings_integrations_handlers.go: GET
 // returns this sentinel for non-empty secret fields (never the raw key), and
@@ -304,6 +313,33 @@ export function createSettingsDomain({ records, now, timeZone }) {
     return getVoiceProvisioning();
   }
 
+  // getTrialConsent / setTrialConsent back the trial-provider consent gate:
+  // aiclient.js / elevenlabs-call.js refuse trial transmission unless the
+  // relevant scope reads exactly `true`. setTrialConsent merges a partial
+  // {ai?, voice?, tg?} of booleans over the existing record — non-boolean
+  // values are ignored, so a malformed patch can never widen consent.
+  async function getTrialConsent() {
+    const all = await records.list(TRIALCONSENT_RECORD_TYPE);
+    const rec = findSingleton(all, TRIALCONSENT_RECORD_ID);
+    const out = { updated_at: (rec && rec.updated_at) || 0 };
+    for (const scope of TRIALCONSENT_SCOPES) {
+      out[scope] = rec && typeof rec[scope] === 'boolean' ? rec[scope] : null;
+    }
+    return out;
+  }
+
+  async function setTrialConsent(patch) {
+    const cur = await getTrialConsent();
+    for (const scope of TRIALCONSENT_SCOPES) {
+      if (patch && typeof patch[scope] === 'boolean') cur[scope] = patch[scope];
+    }
+    cur.updated_at = now();
+    await records.put(TRIALCONSENT_RECORD_TYPE, {
+      recordId: TRIALCONSENT_RECORD_ID, clientTs: now(), deleted: false, ...cur,
+    });
+    return cur;
+  }
+
   // getTGPrefsNote / setTGPrefsNote back the Settings UI's Telegram agent
   // glossary field (bd med-vcv.4): read the note the agent has learned, or
   // FULL-REPLACE it (never append — that's inbox-apply.js's appendTGPref,
@@ -338,6 +374,8 @@ export function createSettingsDomain({ records, now, timeZone }) {
     setFoodTargets,
     getIntegrations,
     patchIntegrations,
+    getTrialConsent,
+    setTrialConsent,
     getTGPrefsNote,
     setTGPrefsNote,
     getVoiceProvisioning,

@@ -143,7 +143,7 @@ refusal, revocation, BYO precedence.
 
 ### Task 1: `trialconsent` vault singleton in the settings domain + apishim route
 
-- [ ] In `web/domain/settings.js`, add a `trialconsent` singleton record type
+- [x] In `web/domain/settings.js`, add a `trialconsent` singleton record type
       following the `voiceprovisioning` pattern (settings.js:285-305): record
       type + record id `trialconsent`, methods `getTrialConsent()` returning
       `{ ai: true|false|null, voice: true|false|null, tg: true|false|null, updated_at }`
@@ -153,20 +153,25 @@ refusal, revocation, BYO precedence.
       `records.put('trialconsent', { recordId, clientTs: now(), deleted: false, ... })`.
       Ignore/reject non-boolean patch values. Keep the module pure (no browser
       globals — `architecture.domain-purity.test.js` guards this).
-- [ ] In `web/cloud/js/apishim.js` `shimCall`, route
+- [x] In `web/cloud/js/apishim.js` `shimCall`, route
       `GET /api/settings/trial-consent` → `settings.getTrialConsent()` and
       `PATCH /api/settings/trial-consent` → `settings.setTrialConsent(body)`,
       placed next to the `/api/settings/integrations` block (:359-362). Do NOT
       add a catalog op (consent is a human ceremony; agents must not grant it).
-- [ ] Write tests for `getTrialConsent`/`setTrialConsent` in the existing
-      settings-domain test suite (find it: `grep -rl "voiceprovisioning\|getVoiceProvisioning" web/cloud/js/tests/ web/static/js/tests/`):
-      default all-null when no record; set-then-get round trip; partial patch
-      preserves other scopes; non-boolean values rejected/ignored; record is
-      written with `recordType` `trialconsent` (i.e. syncs via the generic
-      records port).
-- [ ] Write tests for the two new shim routes (GET default, PATCH then GET) in
-      the existing apishim test suite.
-- [ ] Run the touched vitest files — must pass before Task 2.
+- [x] Write tests for `getTrialConsent`/`setTrialConsent` in the existing
+      settings-domain test suite (➕ the prescribed grep found no dedicated
+      domain suite; the owning suite driving the real domain module is
+      `web/static/js/tests/cloud.shim-contract.settings.test.js` — tests added
+      there): default all-null when no record; set-then-get round trip; partial
+      patch preserves other scopes; non-boolean values rejected/ignored; record
+      is written with `recordType` `trialconsent` (i.e. syncs via the generic
+      records port — asserted via `records.list('trialconsent')`).
+- [x] Write tests for the two new shim routes (GET default, PATCH then GET) in
+      the existing apishim test suite (same shim-contract file — it drives the
+      routes through the real `window.apiCall` → apishim path).
+- [x] Run the touched vitest files — must pass before Task 2. (15/15 in the
+      settings shim-contract suite; domain-purity, apishim.write-origin, and
+      mcp-responder guards all green.)
 
 ### Task 2: Consent gate in aiclient.js (shared trial seam, `ai` vs `tg` scopes)
 

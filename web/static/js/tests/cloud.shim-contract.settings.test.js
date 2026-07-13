@@ -154,6 +154,65 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(settings.tab_order).toEqual(['weight', 'bp']);
     });
 
+    it('trial-consent GET defaults every scope to null (never asked) on a fresh vault', async () => {
+        const { window } = env;
+
+        const consent = await window.apiCall('/api/settings/trial-consent', 'GET');
+        expect(consent).toEqual({ ai: null, voice: null, tg: null, updated_at: 0 });
+    });
+
+    it('trial-consent PATCH then GET round-trips, and a partial patch preserves other scopes', async () => {
+        const { window } = env;
+
+        await window.apiCall('/api/settings/trial-consent', 'PATCH', { ai: true, voice: false });
+        let consent = await window.apiCall('/api/settings/trial-consent', 'GET');
+        expect(consent.ai).toBe(true);
+        expect(consent.voice).toBe(false);
+        expect(consent.tg).toBeNull();
+        expect(consent.updated_at).toBeGreaterThan(0);
+
+        await window.apiCall('/api/settings/trial-consent', 'PATCH', { tg: true });
+        consent = await window.apiCall('/api/settings/trial-consent', 'GET');
+        expect(consent.ai).toBe(true);
+        expect(consent.voice).toBe(false);
+        expect(consent.tg).toBe(true);
+    });
+
+    it('trial-consent ignores non-boolean patch values — a malformed patch never widens consent', async () => {
+        const { window } = env;
+
+        await window.apiCall('/api/settings/trial-consent', 'PATCH', {
+            ai: 'true', voice: 1, tg: {}, extra: true,
+        });
+
+        const consent = await window.apiCall('/api/settings/trial-consent', 'GET');
+        expect(consent).toEqual({ ai: null, voice: null, tg: null, updated_at: expect.any(Number) });
+        expect(consent.extra).toBeUndefined();
+    });
+
+    it('trial-consent revocation persists: granted then set false reads back false', async () => {
+        const { window } = env;
+
+        await window.apiCall('/api/settings/trial-consent', 'PATCH', { ai: true });
+        await window.apiCall('/api/settings/trial-consent', 'PATCH', { ai: false });
+
+        expect((await window.apiCall('/api/settings/trial-consent', 'GET')).ai).toBe(false);
+    });
+
+    it('trial-consent writes a trialconsent vault singleton (synced record, not localStorage)', async () => {
+        const { window, records } = env;
+
+        await window.apiCall('/api/settings/trial-consent', 'PATCH', { voice: true });
+
+        const all = await records.list('trialconsent');
+        expect(all).toHaveLength(1);
+        expect(all[0]).toMatchObject({
+            recordId: 'trialconsent', deleted: false, voice: true, ai: null, tg: null,
+        });
+        expect(all[0].clientTs).toBeGreaterThan(0);
+        expect(window.localStorage.getItem('trialconsent')).toBeNull();
+    });
+
     it('Integrations round-trip: entering a key, saving, then reloading shows the masked value', async () => {
         const { window, document } = env;
 

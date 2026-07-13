@@ -361,6 +361,14 @@ export function createApiRouter(ctx, {
       if (method === 'PATCH') return settings.patchIntegrations(body);
     }
 
+    // Trial-provider consent (bd med-yor.2). Deliberately NOT a catalogued
+    // MCP op: consent is a human ceremony — an agent must not be able to
+    // grant itself access to the operator's trial providers.
+    if (path === '/api/settings/trial-consent') {
+      if (method === 'GET') return settings.getTrialConsent();
+      if (method === 'PATCH') return settings.setTrialConsent(body);
+    }
+
     // The Telegram agent glossary note (bd med-vcv.4): Settings' full-replace
     // view over the same vault singleton the free-text agent reads/appends
     // to (inbox-apply.js's TG_PREFS_TYPE). PATCH always replaces `note`
