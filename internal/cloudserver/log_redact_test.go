@@ -1,12 +1,52 @@
 package cloudserver
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
+
+// urlErrSender returns a *url.Error whose Error() embeds the endpoint URL,
+// exactly like webpush-go's client.Do on a failed send. It lets the guard
+// below prove the relay unwraps that error before logging it.
+type urlErrSender struct{}
+
+func (urlErrSender) Send(_ context.Context, sub cloudstore.PushSubscription, _ cloudstore.AccountVAPIDKeys, _ []byte) (int, error) {
+	return 0, &url.Error{Op: "Post", URL: sub.Endpoint, Err: errors.New("connection refused")}
+}
+
+// A failed webpush send returns a raw *url.Error carrying the full endpoint
+// URL. The relay logs endpoint_fp (a fingerprint) on purpose, so the raw error
+// must be unwrapped via urlErrCause or it smuggles the endpoint back into the
+// log. See bd med-yor.16.
+func TestNoRawPushEndpointInLogs_SendErrorUnwrapped(t *testing.T) {
+	const secret = "https://fcm.googleapis.com/fcm/send/SECRET-TOKEN-abc123"
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	rl := &Relay{sender: urlErrSender{}}
+	rl.send(context.Background(), cloudstore.PushSubscription{Endpoint: secret}, cloudstore.AccountVAPIDKeys{}, []byte("ct"))
+
+	out := buf.String()
+	if strings.Contains(out, secret) || strings.Contains(out, "SECRET-TOKEN-abc123") || strings.Contains(out, "fcm/send") {
+		t.Fatalf("send-failure log leaks the raw endpoint URL: %q", out)
+	}
+	if !strings.Contains(out, "connection refused") {
+		t.Fatalf("send-failure log dropped the error cause; want \"connection refused\": %q", out)
+	}
+}
 
 // A push subscription endpoint is a per-device bearer capability; logging it
 // raw leaks a secret into application (and downstream proxy) logs. Every push
