@@ -64,6 +64,10 @@ export function encodeFields(...parts) {
   const out = new Uint8Array(total);
   let offset = 0;
   for (const f of fields) {
+    // uint16-BE length prefix caps each field at 65535 bytes; a longer field
+    // would silently truncate to (length & 0xffff) and corrupt every following
+    // field's framing. Fail loudly instead.
+    if (f.length > 0xffff) throw new RangeError(`encodeFields: field of ${f.length} bytes exceeds uint16 length prefix`);
     new DataView(out.buffer).setUint16(offset, f.length, false);
     out.set(f, offset + 2);
     offset += 2 + f.length;
