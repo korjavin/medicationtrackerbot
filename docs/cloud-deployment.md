@@ -299,6 +299,13 @@ in `.env`; leaving the first two unset makes the container exit cleanly
 
 `LITESTREAM_SYNC_INTERVAL` (default `1h`) is your worst-case data-loss window.
 
+> **Retention/deletion policy.** The reference beta does **not** currently run
+> litestream — so there are no backups today and account deletion is physically
+> immediate. This section is the how-to for when you *do* enable it. Once
+> enabled, the backup target must expire every object within **7 days**, and
+> account deletion propagates to backups by that expiry (no proactive purge).
+> See [cloud-operations-security.md](cloud-operations-security.md) §3–§4.
+
 Litestream requires WAL journaling. `cloud.db` is opened through
 `internal/store/db`, which sets `PRAGMA journal_mode=WAL` unconditionally, so
 this holds by construction — verify with
@@ -468,31 +475,42 @@ inspect <subdomain>` turns a subdomain into everything known about that account
 ### Proxy access logs and `/mcp/*` capability paths
 
 The app's own `slog` output redacts secrets (above). Your **reverse-proxy
-access log** does not — and hosted MCP capability tokens travel *in the URL
-path* (`/mcp/<token>/…`), exactly the part most proxies log verbatim. A raw
-access log therefore becomes a file full of live MCP bearer tokens.
+access log** does not, and two URL shapes carry sensitive material in the
+request line that most proxies record verbatim:
+
+- **Hosted MCP capability tokens** travel *in the URL path* (`/mcp/<token>/…`).
+  A raw access log becomes a file full of live MCP bearer tokens.
+- **RxNav drug-name lookups** travel *in the query string* (`/api/rxnav/*?…`).
+  The app itself never logs them (fixed-string log invariant + `urlErrCause`
+  sanitization in `rxnav_proxy.go` / `proxy_upstream.go`), but a proxy that logs
+  request URIs turns its access log into a queryable record of which medications
+  each account looked up.
 
 Traefik's access log is **off by default**, and the app stack does not turn it
 on — so out of the box there is no proxy log to leak. Only enable it if you
 have a reason to, and if you do, drop or hash the capability segment before it
 lands on disk:
 
-- **Prefer not logging paths at all.** Traefik's access log supports field
-  filtering — set `RequestPath` to `drop` (or `redact`) in the access-log
-  `fields` config so the path (and thus the `/mcp/<token>` segment) never
-  reaches the log. Keep `RequestHost`/status/duration if you need ops signal.
+- **Prefer not logging paths or queries at all.** Traefik's access log supports
+  field filtering — set `RequestPath` to `drop` (or `redact`) in the access-log
+  `fields` config so both the `/mcp/<token>` path segment *and* the
+  `/api/rxnav/*` query string never reach the log. Keep `RequestHost`/status/
+  duration if you need ops signal.
 - **If you must keep paths**, put the capability behind a header or terminate
-  it at the app, not in the URL — a path token is unavoidably logged by any
-  intermediary that logs paths (CDN, load balancer, WAF), not just Traefik.
+  it at the app, not in the URL — a path token or a query drug name is
+  unavoidably logged by any intermediary that logs URIs (CDN, load balancer,
+  WAF), not just Traefik.
 - **Same rule for any intermediary**: Cloudflare (the wildcard is DNS-only /
   grey-cloud here, §1, so it does not see paths), a WAF, or an L7 load
-  balancer must not retain `/mcp/*` paths in a queryable log.
+  balancer must not retain `/mcp/*` paths or `/api/rxnav/*` query strings in a
+  queryable log.
 
 Retention and erasure of whatever proxy/app logs you *do* keep — how long,
 where backed up, what a deletion request removes from them — is operator policy,
-documented under bd med-yor.5 (cloud retention/backup/deletion policy), not
-here. This section only covers keeping the capability out of the log in the
-first place.
+documented in
+[cloud-operations-security.md](cloud-operations-security.md) (cloud
+retention/backup/deletion policy), not here. This section only covers keeping
+the capability and drug-name query out of the log in the first place.
 
 ## 8. Connect Claude (PoC)
 
