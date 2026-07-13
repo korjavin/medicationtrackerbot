@@ -14,14 +14,88 @@
 // installed cloud SW is frozen forever, push handler and all (med-jb7.2).
 const SW_VERSION = 'CACHE_VERSION_PLACEHOLDER';
 
-// This service worker is push-only: it handles install/activate/push/
-// notificationclick and has NO fetch handler, so it serves no assets and needs
-// no cache. It used to precache a list of shell URLs that nothing ever read.
-// Should cloud gain a real offline app-shell (deferred at
-// web/static/js/app-shell.js), a cache comes back with a fetch handler beside it.
 const CACHE_PREFIX = 'medtracker-cloud';
 
-self.addEventListener('install', () => {
+// Versioned app-shell cache (med-deq.1). SW_VERSION changes every deploy, so
+// each deploy gets a fresh cache and activate prunes the old ones below.
+const SHELL_CACHE = `${CACHE_PREFIX}-shell-${SW_VERSION}`;
+
+// Same-origin subresource refs in the served '/' document: <script src> and
+// <link href> tags only — all root-relative in web/static/index.html plus the
+// tags router.go injects. Anchor hrefs (<a href="/devices">) are navigation
+// targets, not shell assets: warming one would cache the ceremony document
+// (signup.html) WITHOUT its own css/js — offlineFallback would then serve
+// that exact cached doc with rejecting subresources, a blank ceremony page.
+// Ceremony pages offline are only served from a prior full online visit.
+// Cross-origin URLs don't start with '/' and never match.
+const SHELL_REF_RE = /<(?:script|link)\b[^>]*?(?:src|href)="(\/[^"]*)"/g;
+
+// Literal ES-module specifiers: `from './x.js'` (incl. re-exports) and
+// `import('/js/x.js')`. Only path-like specifiers (leading '/' or '.') are
+// followed, which drops prose that happens to follow the keyword `from`.
+const MODULE_IMPORT_RE = /\b(?:from|import\s*\()\s*['"]([^'"]+)['"]/g;
+
+// Which cached files get scanned for module imports: any same-origin .js/.mjs
+// except vendor bundles (minified, treated as self-contained).
+const CRAWLABLE_RE = /^\/(?!static\/vendor\/|vendor\/).*\.m?js$/;
+
+function moduleDeps(url, source) {
+  const deps = [];
+  for (const m of source.matchAll(MODULE_IMPORT_RE)) {
+    const spec = m[1];
+    if (spec[0] !== '/' && spec[0] !== '.') continue;
+    const dep = new URL(spec, url);
+    if (dep.origin === self.location.origin) deps.push(dep.href);
+  }
+  return deps;
+}
+
+// Warm the COMPLETE app shell: the '/' document, every subresource it
+// references (the fingerprinted /static/* URLs it will request offline), and
+// the transitive ES-module graph reachable from them (/js/cloud-boot.js →
+// unlock/apishim/sync → /domain/*), which never appears in the HTML because
+// it's loaded via import(). cache.add('/') alone is not enough — offline, the
+// cached HTML's subresource fetches reject (a subresource deliberately never
+// gets the HTML shell below) and the app boots blank.
+//
+// Any failure REJECTS, failing install. That is deliberate, not flaky-fetch
+// paranoia to swallow: activate prunes the previous version's complete cache,
+// so activating behind a partial warm trades a working offline shell for a
+// broken one. A failed install keeps the old SW + old cache live and the
+// browser retries the update on the next navigation/update check. The
+// disk-backed install test in sw.fetch-cache.test.js pins every crawled URL to
+// a real repo file so a bad ref can't permanently wedge updates (med-jb7.2).
+async function warmShell() {
+  const cache = await caches.open(SHELL_CACHE);
+  const doc = await fetch('/');
+  if (!doc.ok) throw new Error('shell warm: / => ' + doc.status);
+  const html = await doc.clone().text();
+  await cache.put('/', doc);
+  const seen = new Set();
+  let wave = [];
+  for (const m of html.matchAll(SHELL_REF_RE)) {
+    const href = new URL(m[1], self.location.origin).href;
+    if (!seen.has(href)) {
+      seen.add(href);
+      wave.push(href);
+    }
+  }
+  while (wave.length) {
+    const found = await Promise.all(
+      wave.map(async (url) => {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('shell warm: ' + url + ' => ' + res.status);
+        const deps = CRAWLABLE_RE.test(new URL(url).pathname) ? moduleDeps(url, await res.clone().text()) : [];
+        await cache.put(url, res);
+        return deps;
+      })
+    );
+    wave = found.flat().filter((u) => !seen.has(u) && (seen.add(u), true));
+  }
+}
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(warmShell());
   self.skipWaiting();
 });
 
@@ -29,8 +103,74 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((names) => Promise.all(names.filter((name) => name.startsWith(CACHE_PREFIX)).map((name) => caches.delete(name))))
+      .then((names) =>
+        Promise.all(
+          names.filter((name) => name.startsWith(CACHE_PREFIX) && name !== SHELL_CACHE).map((name) => caches.delete(name))
+        )
+      )
       .then(() => self.clients.claim())
+  );
+});
+
+// Offline app shell: network-first with cache fallback for every same-origin
+// GET except /api/* and /mcp/* (dynamic, never cached, never served from
+// cache; non-GET and cross-origin pass through untouched).
+//
+// CSP-snapshot-freeze rationale: the `/` document carries a per-account CSP
+// computed from stored egress hosts, so a cached copy replayed offline freezes
+// that CSP snapshot. Acceptable: offline there is no egress anyway, and the
+// next successful online navigation (network-first) overwrites the cached
+// copy. A cached document is NEVER served when the network responded.
+// Offline path shared by fetch rejection and proxy 5xx: the exact cached
+// copy, else — for navigations only — the cached '/' app shell (ignoreSearch,
+// so a '/?reminder_action=…' cold start from notificationclick still hits a
+// document cached under '/', and vice versa). A subresource must NOT get the
+// HTML shell: nosniff would block it and a 200 HTML body masks the failure.
+// When nothing is cached, `surface` yields the network outcome (returns the
+// 5xx response / re-throws the rejection).
+//
+// Ceremony pages (served by signup.html in router.go, a DIFFERENT document
+// from '/') must never receive the '/' app shell: the app document's
+// cloud-boot.js redirects a locked device to /unlock, so substituting '/' at
+// /unlock would reload-loop forever offline (med-eas.16's anti-ping-pong
+// guarantee). An exact cached copy from a prior online visit still wins above.
+const CEREMONY_PATHS = new Set(['/unlock', '/claim', '/recover', '/devices', '/connectors']);
+
+function offlineFallback(request, surface) {
+  return caches.match(request).then((cached) => {
+    if (cached) return cached;
+    if (request.mode !== 'navigate') return surface();
+    if (CEREMONY_PATHS.has(new URL(request.url).pathname)) return surface();
+    return caches.match('/', { ignoreSearch: true }).then((shell) => shell || surface());
+  });
+}
+
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/mcp/')) return;
+  event.respondWith(
+    fetch(request).then(
+      (response) => {
+        if (response.ok) {
+          const clone = response.clone();
+          event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.put(request, clone)));
+          return response;
+        }
+        // A proxy 5xx (cloud binary restarting behind Traefik) is functionally
+        // offline — docs/technical-decisions.md "5xx-as-offline", same as
+        // web/static/sw.js. Serve the cached copy; the raw 5xx only when
+        // nothing is cached.
+        if (response.status >= 500) return offlineFallback(request, () => response);
+        return response;
+      },
+      (err) =>
+        offlineFallback(request, () => {
+          throw err;
+        })
+    )
   );
 });
 

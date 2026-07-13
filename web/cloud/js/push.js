@@ -186,7 +186,17 @@ export async function subscribe() {
 // this can run unattended at boot. Returns a state rather than throwing: the
 // caller is a best-effort boot step, and Settings renders the state.
 export async function ensurePushSubscription() {
-  if (!('serviceWorker' in navigator) || typeof PushManager === 'undefined') return { state: 'unsupported' };
+  if (!('serviceWorker' in navigator)) return { state: 'unsupported' };
+  // Register before any push gate: the SW also serves the offline app shell
+  // (med-deq.1), which must exist for users who never granted notification
+  // permission. Only the push arming below is permission-gated.
+  try {
+    await registerServiceWorker();
+  } catch (e) {
+    console.error('[push] could not register the service worker', e);
+    return { state: 'failed', error: e };
+  }
+  if (typeof PushManager === 'undefined') return { state: 'unsupported' };
   // Permission is the user's standing intent to be reminded. Without it there
   // is nothing to repair — enabling push is a deliberate, gestured act.
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
@@ -194,7 +204,6 @@ export async function ensurePushSubscription() {
   }
 
   try {
-    await registerServiceWorker();
     const reg = await navigator.serviceWorker.ready;
     const existing = await reg.pushManager.getSubscription();
     if (existing) {

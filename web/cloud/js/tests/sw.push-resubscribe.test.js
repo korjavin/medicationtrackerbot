@@ -7,11 +7,8 @@
 // (push.resubscribe.test.js). Safari fires this event unreliably, which is
 // exactly why both exist.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+import { loadCloudSw as loadSw } from './helpers/sw-loader.js';
 
 const NEW_SUB = {
     toJSON: () => ({
@@ -20,32 +17,10 @@ const NEW_SUB = {
     }),
 };
 
-function loadCloudSw({ fetchImpl, subscribe } = {}) {
-    const swSrc = fs.readFileSync(path.resolve(REPO_ROOT, 'web/cloud/sw.js'), 'utf-8');
-    const listeners = new Map();
-    const self = {
-        addEventListener: vi.fn((type, fn) => {
-            if (!listeners.has(type)) listeners.set(type, []);
-            listeners.get(type).push(fn);
-        }),
-        clients: { matchAll: vi.fn().mockResolvedValue([]), openWindow: vi.fn(), claim: vi.fn() },
-        registration: {
-            showNotification: vi.fn(),
-            pushManager: { subscribe: subscribe || vi.fn().mockResolvedValue(NEW_SUB) },
-        },
-        skipWaiting: vi.fn(),
-    };
-    const caches = {
-        open: vi.fn().mockResolvedValue({}),
-        match: vi.fn(),
-        keys: vi.fn().mockResolvedValue([]),
-        delete: vi.fn(),
-    };
-    const fetchMock = fetchImpl || vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
-    // eslint-disable-next-line no-new-func
-    new Function('self', 'caches', 'fetch', 'indexedDB', swSrc)(self, caches, fetchMock, { open: vi.fn() });
-    return { self, listeners, fetchMock };
-}
+const loadCloudSw = ({ fetchImpl, subscribe } = {}) => loadSw({
+    fetch: fetchImpl,
+    pushManager: { subscribe: subscribe || vi.fn().mockResolvedValue(NEW_SUB) },
+});
 
 async function fireChange(listeners, oldSubscription) {
     const handler = listeners.get('pushsubscriptionchange')[0];

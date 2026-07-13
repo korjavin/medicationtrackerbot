@@ -4,11 +4,8 @@
 // this is the seam that makes the bot-mode notification actions reachable in
 // cloud mode at all.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+import { loadCloudSw as loadSw } from './helpers/sw-loader.js';
 
 // The SW reads NK out of the 'device' store of the 'medtracker-cloud' IDB.
 // A hand-rolled stand-in is enough — it only ever does one get('nk').
@@ -53,33 +50,7 @@ async function sealPush(nk, payload) {
     return packed.buffer;
 }
 
-function loadCloudSw(nk) {
-    const swSrc = fs.readFileSync(path.resolve(REPO_ROOT, 'web/cloud/sw.js'), 'utf-8');
-    const listeners = new Map();
-    const self = {
-        addEventListener: vi.fn((type, fn) => {
-            if (!listeners.has(type)) listeners.set(type, []);
-            listeners.get(type).push(fn);
-        }),
-        clients: {
-            matchAll: vi.fn().mockResolvedValue([]),
-            openWindow: vi.fn().mockResolvedValue(undefined),
-            claim: vi.fn(),
-        },
-        registration: { showNotification: vi.fn() },
-        skipWaiting: vi.fn(),
-    };
-    const caches = {
-        open: vi.fn().mockResolvedValue({ match: vi.fn(), put: vi.fn(), addAll: vi.fn() }),
-        match: vi.fn(),
-        keys: vi.fn().mockResolvedValue([]),
-        delete: vi.fn(),
-    };
-    const idb = fakeIndexedDB(nk);
-    // eslint-disable-next-line no-new-func
-    new Function('self', 'caches', 'fetch', 'indexedDB', swSrc)(self, caches, vi.fn(), idb);
-    return { self, listeners, idb };
-}
+const loadCloudSw = (nk) => loadSw({ indexedDB: fakeIndexedDB(nk) });
 
 // Drive the push handler. `data` is null (undecodable → generic notification)
 // or a PushMessageData stand-in whose arrayBuffer() returns sealed bytes.
