@@ -279,6 +279,15 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     const wrap = (data) => ({ format: 'medtracker-vault', version: 1, data });
     expect(() => vaultToRecords(wrap({ medications: { items: [{ name: 'x' }] } }), { now: NOW })).toThrow(/Corrupt backup/);
     expect(() => vaultToRecords(wrap({ medications: { items: 'abc' } }), { now: NOW })).toThrow(/Corrupt backup/);
+    // Natural-key streams (med-1tj) would otherwise mint 'miband-undefined' /
+    // 'sleep-undefined' — a non-empty string push() accepts — then silently
+    // vanish after the wipe. Reject both before the destructive replace.
+    expect(() => vaultToRecords(wrap({ workouts: { miband: [{ steps: 100 }] } }), { now: NOW })).toThrow(/Corrupt backup/);
+    expect(() => vaultToRecords(wrap({ vitals: { sleep: [{ start_time: 'not-a-date', duration_min: 400 }] } }), { now: NOW })).toThrow(/Corrupt backup/);
+    // A parseable start_time (or a `day` fallback) is fine — no false positives.
+    expect(() => vaultToRecords(wrap({ vitals: { sleep: [{ start_time: '2026-07-08T23:00:00Z', duration_min: 400 }] } }), { now: NOW })).not.toThrow();
+    expect(() => vaultToRecords(wrap({ vitals: { sleep: [{ start_time: 'not-a-date', day: '2026-07-08', duration_min: 400 }] } }), { now: NOW })).not.toThrow();
+    expect(() => vaultToRecords(wrap({ workouts: { miband: [{ source_start_ms: 1751000000000, steps: 100 }] } }), { now: NOW })).not.toThrow();
   });
 
   it('file content can never override the sync meta fields', () => {

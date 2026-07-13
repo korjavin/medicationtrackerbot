@@ -479,6 +479,12 @@ export function vaultToRecords(vault, { now } = {}) {
     // from source_start_ms) so both cloud import paths converge on ONE record
     // per session instead of double-inserting — the client mirror of bot mode's
     // UNIQUE(source_start_ms). Was mintNum() (import-wall-clock). See med-1tj.
+    // A missing source_start_ms would mint 'miband-undefined' (push() accepts
+    // any non-empty string) with an undefined body id the edit path keys on —
+    // fail before the destructive replace, like the intake guard above.
+    if (!Number.isFinite(w.source_start_ms)) {
+      throw new Error(`Corrupt backup: miband workout has no source_start_ms ${JSON.stringify(w.source_start_ms)}`);
+    }
     push('miband', `miband-${w.source_start_ms}`, { ...rest, id: w.source_start_ms });
   }
 
@@ -496,6 +502,10 @@ export function vaultToRecords(vault, { now } = {}) {
     // UNIQUE(user_id, start_time). Was mintNum() (import-wall-clock). See med-1tj.
     const startMs = Date.parse(sl.start_time);
     const key = Number.isNaN(startMs) ? sl.day : startMs;
+    // Both key sources absent would mint 'sleep-undefined' — reject like intake.
+    if (key == null || key === '') {
+      throw new Error(`Corrupt backup: sleep entry has unparseable start_time ${JSON.stringify(sl.start_time)} and no day`);
+    }
     push('sleep', `sleep-${key}`, { ...sl });
   }
   for (const ds of vitals.day_stats || []) push('daystats', `daystats-${ds.day}`, { ...ds });
