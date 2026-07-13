@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import * as realVault from '../../../domain/vault.js';
 
 // cloud-boot.js is a self-executing classic script (not an ES module) that
 // assigns window.MedTrackerCloudReady and issues dynamic import('/js/*.js')
@@ -263,6 +264,36 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     // in between would otherwise let the next open re-bootstrap the stale server
     // snapshot over the freshly imported records.
     expect(sync.calls.order.indexOf('mark')).toBeLessThan(sync.calls.order.indexOf('replace'));
+  });
+
+  it('a corrupt backup aborts inside the real vaultToRecords, wiping nothing (med-deq.3)', async () => {
+    // No-destruction invariant with the REAL vault module: importAll calls
+    // vaultToRecords BEFORE any destructive op, so a corrupt-natural-key vault
+    // (unparseable sleep start_time / missing miband source_start_ms) must throw
+    // there and leave every existing record untouched — no replace, no marker,
+    // no pending-drop, no snapshot.
+    const corrupt = [
+      '{"format":"medtracker-vault","version":1,"data":{"vitals":{"sleep":[{"start_time":"not-a-date","duration_min":400}]}}}',
+      '{"format":"medtracker-vault","version":1,"data":{"workouts":{"miband":[{"steps":100}]}}}',
+    ];
+    for (const json of corrupt) {
+      const sync = syncModule({ isBootstrapped: async () => true });
+      const { window } = await runBoot({
+        modules: {
+          'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+          'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
+          'sync.js': sync.mod,
+          '/domain/vault.js': realVault,
+          'reminders.js': { scheduleReminderRecompute: () => {} },
+          'mcp-responder.js': { refreshResponder: () => {} },
+        },
+      });
+      await expect(window.CloudVault.importAll(json)).rejects.toThrow(/Corrupt backup/);
+      expect(sync.calls.replaceAllRecords).toBe(0);
+      expect(sync.calls.markForceSnapshotPending).toBe(0);
+      expect(sync.calls.dropPendingForTypes).toHaveLength(0);
+      expect(sync.calls.forceSnapshot).toBe(0);
+    }
   });
 
   it('drops pending managed writes before the replace so they cannot survive the backup', async () => {

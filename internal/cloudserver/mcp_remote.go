@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"math/big"
@@ -27,6 +28,10 @@ import (
 // registry of live hosted mcpshim.Client instances, one per enabled account.
 // Relay, responder, crypto, and cmd/mcpshim are untouched — this is
 // additive.
+
+// errNoPairingKey is returned when a persisted mcp_remote row carries neither a
+// sealed pairing key nor a legacy plaintext one — a corrupt row that can't dial.
+var errNoPairingKey = errors.New("mcp remote: row has no pairing key")
 
 // maxMCPRemoteBodyBytes bounds the enable request body: a pairing code is a
 // base64url-encoded JSON object carrying a URL, an id, and a 32-byte key —
@@ -113,7 +118,8 @@ func serverListenPort(r *http.Request) string {
 // endpoints and startup restore need.
 type mcpRemoteStore interface {
 	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
-	UpsertMCPRemote(ctx context.Context, accountID, token, relayURL, pairingID string, pairingKey []byte, now time.Time) error
+	UpsertMCPRemote(ctx context.Context, accountID, token, relayURL, pairingID string, pairingKeyCT, pairingKeyNonce []byte, now time.Time) error
+	ResealMCPRemotePairingKey(ctx context.Context, accountID string, pairingKeyCT, pairingKeyNonce []byte) error
 	DeleteMCPRemote(ctx context.Context, accountID string) error
 	ListMCPRemote(ctx context.Context) ([]cloudstore.MCPRemote, error)
 }
@@ -260,10 +266,39 @@ func (a *MCPRemoteAPI) Restore(ctx context.Context) {
 		return
 	}
 	for _, row := range rows {
+		key, err := a.restorePairingKey(ctx, row)
+		if err != nil {
+			slog.Error("mcp remote: resolve pairing key on restore", "account_id", row.AccountID, "error", err)
+			continue
+		}
 		a.relayAPI.RestorePairing(row.PairingID, row.AccountID)
-		a.start(row.AccountID, row.Token, &mcpshim.PairingCode{RelayURL: row.RelayURL, PairingID: row.PairingID, Key: row.PairingKey})
+		a.start(row.AccountID, row.Token, &mcpshim.PairingCode{RelayURL: row.RelayURL, PairingID: row.PairingID, Key: key})
 		slog.Info("mcp remote: restored hosted shim", "account_id", row.AccountID)
 	}
+}
+
+// restorePairingKey returns row's plaintext pairing key, transparently sealing
+// legacy plaintext rows in place on first sight (the one-time reseal the sealing
+// migration cannot do in SQL). Sealed rows (PairingKeyCT set) are opened;
+// legacy rows (plaintext PairingKey set) are used as-is and resealed so the next
+// boot reads them via the sealed columns and the plaintext is gone at rest. A
+// failed reseal write is logged but not fatal — the remote still starts on the
+// plaintext key and the reseal retries next boot.
+func (a *MCPRemoteAPI) restorePairingKey(ctx context.Context, row cloudstore.MCPRemote) ([]byte, error) {
+	if len(row.PairingKeyCT) > 0 {
+		return openMCPPairingKey(a.sessionSecret, row.PairingKeyCT, row.PairingKeyNonce)
+	}
+	if len(row.PairingKey) == 0 {
+		return nil, errNoPairingKey
+	}
+	ct, nonce, err := sealMCPPairingKey(a.sessionSecret, row.PairingKey)
+	if err != nil {
+		return nil, err
+	}
+	if err := a.store.ResealMCPRemotePairingKey(ctx, row.AccountID, ct, nonce); err != nil {
+		slog.Error("mcp remote: reseal legacy pairing key", "account_id", row.AccountID, "error", err)
+	}
+	return row.PairingKey, nil
 }
 
 // start installs accountID's live entry, closing out and replacing any prior
@@ -333,6 +368,14 @@ func (a *MCPRemoteAPI) PostRemote(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
+	// Seal the pairing key before it is persisted: no plaintext pairing key ever
+	// lands at rest (mirrors tg_bots token sealing). Pure crypto, no side effects,
+	// so a failure here can 500 before anything is pinned or written.
+	keyCT, keyNonce, err := sealMCPPairingKey(a.sessionSecret, pc.Key)
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
 	// Hold lifecycleMu across the whole pin→persist→start section so no legacy
 	// pairing mutation (CreatePairing/DeletePairing) or self-disable can slip
 	// between the pin and start() and evict the pairing under us. See
@@ -351,7 +394,7 @@ func (a *MCPRemoteAPI) PostRemote(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "pairing no longer active — reconnect and try again", http.StatusConflict)
 		return
 	}
-	if err := a.store.UpsertMCPRemote(r.Context(), session.AccountID, token, pc.RelayURL, pc.PairingID, pc.Key, time.Now().UTC()); err != nil {
+	if err := a.store.UpsertMCPRemote(r.Context(), session.AccountID, token, pc.RelayURL, pc.PairingID, keyCT, keyNonce, time.Now().UTC()); err != nil {
 		// The pin above cleared the pairing's TTL in anticipation of this durable
 		// write. With no row persisted there's nothing to keep it alive for, so
 		// revoke it rather than leave a never-expiring pairing backing no

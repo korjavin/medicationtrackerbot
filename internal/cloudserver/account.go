@@ -43,7 +43,9 @@ func NewAccountAPI(store accountDeleteStore, sessionSecret string, webauthn *Web
 
 func (a *AccountAPI) RegisterRoutes(mux *http.ServeMux) {
 	// Re-auth begin: issue a fresh assertion challenge scoped to /api/account.
-	mux.Handle("POST /api/account/reauth", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.ReauthBegin)))
+	// Per-IP throttled (reusing the WebAuthn ceremony limiter) on top of the
+	// session gate, so a stolen session cannot brute-force the delete re-auth.
+	mux.Handle("POST /api/account/reauth", RequireSession(a.store, a.sessionSecret, limitByIP(a.webauthn.limiter, a.ReauthBegin)))
 	// The delete itself: session AND a fresh passkey assertion in the body.
 	mux.Handle("DELETE /api/account", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.Delete)))
 }

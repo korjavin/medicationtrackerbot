@@ -60,6 +60,10 @@ type WebAuthnAPI struct {
 	// an auth bypass — but keeping them apart makes "re-auth is not login"
 	// structural rather than a matter of which cookie name was used (med-d5t.8).
 	reauthChallenges *challengeStore[loginChallenge]
+	// limiter throttles the unauthenticated ceremony routes (register/login
+	// begin+finish, which also carry the signup-claim and device-enrollment
+	// tokens) per client IP. Shared by AccountAPI's re-auth route too.
+	limiter *rateLimiter
 }
 
 // NewWebAuthnAPI builds the WebAuthn handlers. sessionSecret mints the HMAC
@@ -71,6 +75,7 @@ func NewWebAuthnAPI(store webauthnStore, sessionSecret string) *WebAuthnAPI {
 		challenges:       newChallengeStore[registerChallenge](),
 		loginChallenges:  newChallengeStore[loginChallenge](),
 		reauthChallenges: newChallengeStore[loginChallenge](),
+		limiter:          newRateLimiter(ceremonyRateLimitMax, ceremonyRateLimitWindow),
 	}
 }
 
@@ -78,10 +83,10 @@ func NewWebAuthnAPI(store webauthnStore, sessionSecret string) *WebAuthnAPI {
 // need to combine several APIs' routes onto one mux (cmd/cloud) can do so
 // without a second layer of muxing.
 func (a *WebAuthnAPI) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/webauthn/register/begin", a.RegisterBegin)
-	mux.HandleFunc("POST /api/webauthn/register/finish", a.RegisterFinish)
-	mux.HandleFunc("POST /api/webauthn/login/begin", a.LoginBegin)
-	mux.HandleFunc("POST /api/webauthn/login/finish", a.LoginFinish)
+	mux.HandleFunc("POST /api/webauthn/register/begin", limitByIP(a.limiter, a.RegisterBegin))
+	mux.HandleFunc("POST /api/webauthn/register/finish", limitByIP(a.limiter, a.RegisterFinish))
+	mux.HandleFunc("POST /api/webauthn/login/begin", limitByIP(a.limiter, a.LoginBegin))
+	mux.HandleFunc("POST /api/webauthn/login/finish", limitByIP(a.limiter, a.LoginFinish))
 }
 
 // maxRegisterFinishBodyBytes caps the finish body, which now carries the
