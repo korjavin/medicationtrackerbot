@@ -117,6 +117,122 @@
             const keySet = !!(getInput(inputId)?.value);
             hint.hidden = !trialOn || keySet;
         }
+        renderTrialConsentRows();
+    }
+
+    // Trial-consent rows (bd med-yor.2 Task 4). When a trial flag is active
+    // in cloud mode, each applicable consent scope gets a row under the
+    // provider's trial hint showing its state (Allowed / Not allowed / Not
+    // asked) with an Allow/Revoke button. Writes route through
+    // DataStore.applyOptimistic exactly like saveIntegrations, PATCHing the
+    // encrypted-vault trialconsent record via /api/settings/trial-consent.
+    const CONSENT_CACHE_KEY = 'settings_trial_consent';
+    const CONSENT_CACHE_TAGS = ['settings'];
+    // [meta flag, hint element to mount after, [scope, label]...]
+    const CONSENT_MOUNTS = [
+        ['medtracker-trial-ai', 'integrations-openai-trial-hint', [
+            ['ai', 'Trial AI — meal descriptions & photos'],
+            ['tg', 'Trial AI — Telegram assistant (reads vault data to answer)']
+        ]],
+        ['medtracker-trial-voice', 'integrations-elevenlabs-trial-hint', [
+            ['voice', 'Trial voice — operator’s ElevenLabs agent']
+        ]]
+    ];
+    let _trialConsent = null;
+
+    function consentStateText(value) {
+        if (value === true) return 'Allowed';
+        if (value === false) return 'Not allowed';
+        return 'Not asked';
+    }
+
+    function renderTrialConsentRows() {
+        for (const [metaName, hintId, scopes] of CONSENT_MOUNTS) {
+            const hint = document.getElementById(hintId);
+            if (!hint) continue;
+            const containerId = hintId + '-consent';
+            let container = document.getElementById(containerId);
+            const trialOn = window.__MEDTRACKER_CLOUD__
+                && document.querySelector('meta[name="' + metaName + '"]')?.content === '1';
+            if (!trialOn) {
+                if (container) container.remove();
+                continue;
+            }
+            if (!container) {
+                container = document.createElement('div');
+                container.id = containerId;
+                container.className = 'wg-settings-integrations__consent';
+                hint.insertAdjacentElement('afterend', container);
+            }
+            container.textContent = '';
+            for (const [scope, labelText] of scopes) {
+                const value = _trialConsent ? _trialConsent[scope] : null;
+                const row = document.createElement('div');
+                row.className = 'wg-settings-integrations__consent-row';
+                row.setAttribute('data-trial-consent-scope', scope);
+
+                const label = document.createElement('span');
+                label.className = 'wg-settings-integrations__note';
+                label.textContent = labelText + ': ';
+                row.appendChild(label);
+
+                const state = document.createElement('span');
+                state.className = 'wg-mono-display';
+                state.setAttribute('data-trial-consent-state', String(value));
+                state.textContent = consentStateText(value);
+                row.appendChild(state);
+
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'wg-gloss';
+                btn.setAttribute('data-trial-consent-action', scope);
+                btn.textContent = value === true ? 'Revoke' : 'Allow';
+                btn.addEventListener('click', () => { setTrialConsentScope(scope, value !== true); });
+                row.appendChild(btn);
+
+                container.appendChild(row);
+            }
+        }
+    }
+
+    async function setTrialConsentScope(scope, allowed) {
+        const prev = _trialConsent;
+        const next = { ...(prev || {}), [scope]: allowed };
+        let handle = null;
+        if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+            handle = await window.DataStore.applyOptimistic(CONSENT_CACHE_KEY, () => next, CONSENT_CACHE_TAGS);
+        }
+        _trialConsent = next;
+        renderTrialConsentRows();
+
+        let fresh = null;
+        try {
+            fresh = (typeof apiCall === 'function')
+                ? await apiCall('/api/settings/trial-consent', 'PATCH', { [scope]: allowed })
+                : null;
+        } catch (_) { fresh = null; }
+
+        if (!fresh) {
+            if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+            _trialConsent = prev;
+            renderTrialConsentRows();
+            if (typeof safeAlert === 'function') safeAlert('Failed to update trial consent');
+            return;
+        }
+        if (handle) { try { await handle.commit(fresh); } catch (_) { /* best-effort */ } }
+        _trialConsent = fresh;
+        renderTrialConsentRows();
+    }
+
+    async function loadTrialConsent() {
+        if (!window.__MEDTRACKER_CLOUD__ || typeof apiCall !== 'function') return;
+        const anyTrial = CONSENT_MOUNTS.some(([metaName]) =>
+            document.querySelector('meta[name="' + metaName + '"]')?.content === '1');
+        if (!anyTrial) return;
+        try {
+            _trialConsent = await apiCall('/api/settings/trial-consent', 'GET');
+        } catch (_) { /* keep prior state; rows fall back to "Not asked" */ }
+        renderTrialConsentRows();
     }
 
     // applyCloudFoodDbPlaceholder shows the operator's default food-DB URL
@@ -185,6 +301,10 @@
             if (window.DataStore && typeof window.DataStore.setCachedWithTags === 'function') {
                 try { await window.DataStore.setCachedWithTags(CACHE_KEY, payload, CACHE_TAGS); } catch (_) { /* best-effort cache */ }
             }
+
+            // Fire-and-forget: consent rows repaint when the GET lands; the
+            // integrations payload itself doesn't wait on it.
+            loadTrialConsent();
 
             if (window.__MEDTRACKER_CLOUD__) {
                 const tgMount = document.getElementById('telegram-settings-mount');
@@ -289,6 +409,7 @@
         _cacheKey: CACHE_KEY,
         _cacheTags: CACHE_TAGS,
         _resetTelegramMounted: () => { _telegramMounted = false; },
+        _loadTrialConsent: loadTrialConsent,
         _setTelegramLoader: (loader) => { _telegramModuleLoader = loader; }
     };
 })();

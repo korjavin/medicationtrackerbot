@@ -256,7 +256,7 @@ refusal, revocation, BYO precedence.
 
 ### Task 4: Consent disclosure dialog + Settings → Integrations grant/revoke controls
 
-- [ ] Create `web/static/js/features/trial-consent.js`: a small
+- [x] Create `web/static/js/features/trial-consent.js`: a small
       `window.TrialConsent` module exposing `request(scope)` → shows a modal
       disclosure dialog (textContent/createElement only, no innerHTML; design
       tokens/CSS classes only, no inline styles or hardcoded colors) and
@@ -271,17 +271,33 @@ refusal, revocation, BYO precedence.
       your own key in Settings → Integrations. Load it from the shared script
       loading path the other feature modules use (find where
       `features/elevenlabs-call.js` is loaded and mirror it for both server
-      and cloud shells).
-- [ ] Add `TrialConsent` to the allowlist in
+      and cloud shells). (One `<script>` tag in `web/static/index.html`
+      covers both shells — cloud account subdomains serve the same
+      `web/static` app. Reuses the `.wg-modal` shell classes from
+      `_mountConfirmModal`; dismissal via backdrop/Escape resolves false
+      WITHOUT persisting a refusal — no decision is not a refusal on record;
+      Allow resolves true only when the PATCH actually landed. Also exposes
+      `retryAfterConsent(fn)` — the shared rerun-once seam the food call
+      sites use.)
+- [x] Add `TrialConsent` to the allowlist in
       `tests/architecture.globals.test.js` with a one-line justification.
-- [ ] Wire the food AI paths: where the UI calls meal parsing (find with
+      (➕ also required by architecture guards: added the file to the SW
+      precache list in `web/static/sw.js`, an allowlist entry in
+      `architecture.offline-coverage.test.js`, and updated the two shifted
+      `food/log.js` line keys in `architecture.inline-styles.test.js`.)
+- [x] Wire the food AI paths: where the UI calls meal parsing (find with
       `grep -rn "parseMealFromDescription\|parseMealFromImage" web/static/js web/cloud/js` —
       the food feature + apishim food-ai route), catch
       `err.code === 'trial_consent_required'`, call
       `window.TrialConsent.request(err.scope)`, and retry once on `true`;
       surface the refusal message on `false`. Keep the catch at the smallest
       shared call site (prefer one seam over per-button copies).
-- [ ] In `web/static/js/features/settings/integrations.js`, extend the trial
+      (The retry logic lives once in `TrialConsent.retryAfterConsent`; the
+      two cloud call sites — `food/log.js` parseMealFromDescription and
+      `food/photo.js` parseMealFromPhoto — wrap their parse thunk in it,
+      falling back to a direct call when the module is absent. Refusal
+      rethrows the gate error, which the existing catch paths surface.)
+- [x] In `web/static/js/features/settings/integrations.js`, extend the trial
       hints area (`applyTrialHints`, :107-120): when a trial flag is active in
       cloud mode, render a consent row per applicable scope (`ai` + `tg` under
       the AI trial flag, `voice` under the voice flag) showing current state
@@ -289,18 +305,37 @@ refusal, revocation, BYO precedence.
       go through the `DataStore.applyOptimistic` pattern exactly as
       `saveIntegrations` (:209-250) does: optimistic repaint → PATCH
       `/api/settings/trial-consent` → `commit(fresh)` / `rollback()`.
-- [ ] Update the first-run wizard copy at
+      (Cache key `settings_trial_consent`, tags `['settings']`; rows mount in
+      a container after each hint element and render regardless of own-key
+      state — consent is orthogonal to whether the hint is showing; the
+      consent GET fires fire-and-forget from `load()`.)
+- [x] Update the first-run wizard copy at
       `web/static/js/features/firstrun/screens/integrations.js:195`: "Skip —
       use the trial key" → copy that says trial use will ask for consent on
       first use (e.g. "Skip — decide later (trial asks consent on first
-      use)"); adjust any test that pins the old label.
-- [ ] Write tests: dialog renders disclosure naming operator + provider +
+      use)"); adjust any test that pins the old label. (Label is now "Skip —
+      the trial key asks for consent on first use", which keeps the existing
+      `/trial key/i` pin passing; the trial tagline also gained "you'll be
+      asked for consent before the first trial use" without disturbing its
+      `/already work/`+`/rate-limited/` pins.)
+- [x] Write tests: dialog renders disclosure naming operator + provider +
       data categories + the Telegram tool-result content (assert key phrases);
       Allow PATCHes `{scope: true}` and resolves true; Not now PATCHes false
       and resolves false; Settings consent row renders state and Revoke
       PATCHes `{scope: false}` via applyOptimistic (commit on success,
-      rollback on failure); food path retries after Allow.
-- [ ] Run the touched vitest files — must pass before Task 5.
+      rollback on failure); food path retries after Allow. (New
+      `features.trial-consent.test.js` — 13 tests incl. dismissal,
+      failed-PATCH-Allow-resolves-false, same-scope dialog dedupe, and the
+      retryAfterConsent contract; 4 new tests in
+      `settings.integrations.test.js`; 2 new tests in `food.ai-mode.test.js`
+      — Allow-retries-once and decline-surfaces-refusal-without-retry.
+      ➕ the Task 2 gate tests in `cloud.shim-contract.food-ai.test.js` were
+      updated for the now-real dialog: each refusal test declines the mounted
+      dialog before asserting no-fetch (assertions unweakened), plus a new
+      allow-path test proving the grant persists to the vault record and the
+      parse reruns through the trial proxy.)
+- [x] Run the touched vitest files — must pass before Task 5. (Full
+      `pnpm test` run: 312 files, 3640 passed / 29 skipped, 0 failures.)
 
 ### Task 5: Privacy page entry
 

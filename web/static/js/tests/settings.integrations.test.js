@@ -328,6 +328,138 @@ describe('Settings → Integrations section', () => {
         expect(document.getElementById('integrations-elevenlabs-trial-hint').hidden).toBe(true);
     });
 
+    // Trial-consent rows (bd med-yor.2 Task 4): per-scope grant/revoke
+    // controls under the trial hints, backed by the encrypted-vault
+    // trialconsent record via /api/settings/trial-consent.
+    function installTrialMetas(document, names) {
+        for (const name of names) {
+            const meta = document.createElement('meta');
+            meta.setAttribute('name', name);
+            meta.setAttribute('content', '1');
+            document.head.appendChild(meta);
+        }
+    }
+
+    function trialConsentApiStub(window, consent) {
+        const state = { ...consent };
+        return vi.fn(async (url, method, body) => {
+            if (url === '/api/settings/integrations') {
+                return { openai: {}, food: {}, elevenlabs: {} };
+            }
+            if (url === '/api/settings/trial-consent' && method === 'GET') {
+                return { ...state };
+            }
+            if (url === '/api/settings/trial-consent' && method === 'PATCH') {
+                Object.assign(state, body);
+                state.updated_at = 99;
+                return { ...state };
+            }
+            return null;
+        });
+    }
+
+    function consentRow(document, scope) {
+        return document.querySelector(`[data-trial-consent-scope="${scope}"]`);
+    }
+
+    it('cloud + trial flags: renders ai + tg rows under the AI hint and a voice row under the voice hint, with states from the GET', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        installTrialMetas(document, ['medtracker-trial-ai', 'medtracker-trial-voice']);
+        window.apiCall = trialConsentApiStub(window, { ai: true, voice: null, tg: false, updated_at: 1 });
+
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+
+        const aiRow = consentRow(document, 'ai');
+        const tgRow = consentRow(document, 'tg');
+        const voiceRow = consentRow(document, 'voice');
+        expect(aiRow).not.toBeNull();
+        expect(tgRow).not.toBeNull();
+        expect(voiceRow).not.toBeNull();
+
+        // ai + tg live under the OpenAI hint's container, voice under ElevenLabs'.
+        expect(document.getElementById('integrations-openai-trial-hint-consent').contains(aiRow)).toBe(true);
+        expect(document.getElementById('integrations-openai-trial-hint-consent').contains(tgRow)).toBe(true);
+        expect(document.getElementById('integrations-elevenlabs-trial-hint-consent').contains(voiceRow)).toBe(true);
+
+        expect(aiRow.querySelector('[data-trial-consent-state]').textContent).toBe('Allowed');
+        expect(aiRow.querySelector('[data-trial-consent-action]').textContent).toBe('Revoke');
+        expect(tgRow.querySelector('[data-trial-consent-state]').textContent).toBe('Not allowed');
+        expect(tgRow.querySelector('[data-trial-consent-action]').textContent).toBe('Allow');
+        expect(voiceRow.querySelector('[data-trial-consent-state]').textContent).toBe('Not asked');
+        expect(voiceRow.querySelector('[data-trial-consent-action]').textContent).toBe('Allow');
+
+        // The tg disclosure must be honest about what that scope covers.
+        expect(tgRow.textContent).toMatch(/Telegram assistant/i);
+        expect(tgRow.textContent).toMatch(/vault/i);
+    });
+
+    it('renders no consent rows without trial meta flags (server mode / no trial envs)', async () => {
+        const { window, document } = env;
+        window.apiCall = vi.fn(async () => ({ openai: {}, food: {}, elevenlabs: {} }));
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+        expect(document.querySelector('[data-trial-consent-scope]')).toBeNull();
+        // The consent record is never even read outside cloud+trial.
+        expect(window.apiCall).not.toHaveBeenCalledWith('/api/settings/trial-consent', 'GET');
+    });
+
+    it('Allow/Revoke PATCHes the single scope through DataStore.applyOptimistic and repaints from the response', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        installTrialMetas(document, ['medtracker-trial-ai']);
+        window.apiCall = trialConsentApiStub(window, { ai: true, voice: null, tg: null, updated_at: 1 });
+
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+
+        const realApply = window.DataStore.applyOptimistic.bind(window.DataStore);
+        const applySpy = vi.fn((key, mutator, tags) => realApply(key, mutator, tags));
+        window.DataStore.applyOptimistic = applySpy;
+
+        // tg starts "Not asked" → Allow grants it…
+        consentRow(document, 'tg').querySelector('[data-trial-consent-action]').click();
+        await new Promise(r => setTimeout(r, 0));
+        expect(applySpy).toHaveBeenCalled();
+        expect(applySpy.mock.calls[0][0]).toBe('settings_trial_consent');
+        expect(window.apiCall).toHaveBeenCalledWith('/api/settings/trial-consent', 'PATCH', { tg: true });
+        expect(consentRow(document, 'tg').querySelector('[data-trial-consent-state]').textContent).toBe('Allowed');
+
+        // …and ai starts "Allowed" → the same button revokes it.
+        consentRow(document, 'ai').querySelector('[data-trial-consent-action]').click();
+        await new Promise(r => setTimeout(r, 0));
+        expect(window.apiCall).toHaveBeenCalledWith('/api/settings/trial-consent', 'PATCH', { ai: false });
+        expect(consentRow(document, 'ai').querySelector('[data-trial-consent-state]').textContent).toBe('Not allowed');
+        expect(consentRow(document, 'ai').querySelector('[data-trial-consent-action]').textContent).toBe('Allow');
+    });
+
+    it('rolls back the optimistic consent state and cache row when the PATCH fails', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        installTrialMetas(document, ['medtracker-trial-ai']);
+
+        const prior = { ai: false, voice: null, tg: null, updated_at: 1 };
+        await window.DataStore.setCachedWithTags('settings_trial_consent', prior, ['settings']);
+        window.apiCall = vi.fn(async (url, method) => {
+            if (url === '/api/settings/integrations') return { openai: {}, food: {}, elevenlabs: {} };
+            if (url === '/api/settings/trial-consent' && method === 'GET') return { ...prior };
+            return null; // PATCH fails (offline / server error)
+        });
+        const alerts = [];
+        window.safeAlert = (msg) => alerts.push(msg);
+
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+
+        consentRow(document, 'ai').querySelector('[data-trial-consent-action]').click();
+        await new Promise(r => setTimeout(r, 0));
+
+        expect(consentRow(document, 'ai').querySelector('[data-trial-consent-state]').textContent).toBe('Not allowed');
+        expect(await window.DataStore.getCached('settings_trial_consent')).toEqual(prior);
+        expect(alerts[0]).toContain('Failed to update trial consent');
+    });
+
     it('save() rolls back the optimistic cache row when the PATCH fails', async () => {
         const { window, document } = env;
 

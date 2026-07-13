@@ -251,9 +251,15 @@ async function uploadFoodPhotoFile(file) {
                 // Cloud mode: the photo never leaves the device via /api — it
                 // goes straight from the browser to the user's own AI
                 // provider (web/domain/foodai.js + web/cloud/js/aiclient.js).
+                // Trial path may refuse with trial_consent_required; the
+                // TrialConsent seam shows the disclosure dialog and reruns
+                // the parse once on Allow (bd med-yor.2 Task 4).
+                const parsePhoto = () => window.CloudFoodAI.parseMealFromPhoto(file, { eatenAt });
                 let result;
                 try {
-                    result = await window.CloudFoodAI.parseMealFromPhoto(file, { eatenAt });
+                    result = (window.TrialConsent && typeof window.TrialConsent.retryAfterConsent === 'function')
+                        ? await window.TrialConsent.retryAfterConsent(parsePhoto)
+                        : await parsePhoto();
                 } catch (aiErr) {
                     if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
                     throw aiErr;

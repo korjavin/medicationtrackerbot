@@ -684,9 +684,15 @@ async function saveFoodLogFromDescription() {
             // Cloud mode: the description never leaves the device via /api —
             // it goes straight from the browser to the user's own AI provider
             // (web/domain/foodai.js + web/cloud/js/aiclient.js).
+            // Trial path may refuse with trial_consent_required; the
+            // TrialConsent seam shows the disclosure dialog and reruns the
+            // parse once on Allow (bd med-yor.2 Task 4).
+            const parseDescription = () => window.CloudFoodAI.parseMealFromDescription(description, { eatenAt });
             let result;
             try {
-                result = await window.CloudFoodAI.parseMealFromDescription(description, { eatenAt });
+                result = (window.TrialConsent && typeof window.TrialConsent.retryAfterConsent === 'function')
+                    ? await window.TrialConsent.retryAfterConsent(parseDescription)
+                    : await parseDescription();
             } catch (e) {
                 if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
                 console.error('Food AI parse failed:', e);

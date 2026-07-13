@@ -87,6 +87,7 @@ const WORKOUT_STATS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/st
 const WORKOUT_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/index.js');
 const SETTINGS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings.js');
 const SETTINGS_INTEGRATIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings/integrations.js');
+const TRIAL_CONSENT_JS = path.join(REPO_ROOT, 'web/static/js/features/trial-consent.js');
 const SETTINGS_IMPORTEXPORT_JS = path.join(REPO_ROOT, 'web/static/js/features/settings/importexport.js');
 const WORKOUT_MODALS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/modals.js');
 
@@ -372,6 +373,12 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // its DOMContentLoaded bind sees the same DOM tree the rest of the
   // harness uses.
   evalFileCached(window, SETTINGS_INTEGRATIONS_JS);
+
+  // trial-consent.js — window.TrialConsent consent-disclosure modal +
+  // retryAfterConsent seam (bd med-yor.2 Task 4). Loaded after the settings
+  // modules like production index.html; food/log.js + food/photo.js resolve
+  // it lazily at call time.
+  evalFileCached(window, TRIAL_CONSENT_JS);
 
   // settings/importexport.js — Settings → Import/Export section (C2e Task 6).
   // Static section (no server prefill); binds its export/import/file-change

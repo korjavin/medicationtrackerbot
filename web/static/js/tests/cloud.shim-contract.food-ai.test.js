@@ -581,7 +581,22 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             document.getElementById('food-name').value = 'a banana';
         }
 
-        it('first use with no consent record: refuses before any fetch and points at Settings', async () => {
+        // Since med-yor.2 Task 4 the interactive food paths wrap the parse in
+        // TrialConsent.retryAfterConsent: a gate refusal now mounts the
+        // disclosure dialog instead of surfacing immediately. Decline it —
+        // the refusal assertions below (no trial fetch, consent error
+        // surfaced via safeAlert) are unchanged.
+        async function runAndDecline(document, run) {
+            const pending = run();
+            await flushPromises();
+            const deny = document.querySelector('.wg-trial-consent-modal [data-trial-consent-choice="deny"]');
+            expect(deny, 'expected the consent disclosure dialog to mount').not.toBeNull();
+            deny.click();
+            await pending;
+            await flushPromises();
+        }
+
+        it('first use with no consent record: shows the dialog; declining refuses before any fetch and points at Settings', async () => {
             allowConsoleNoise();
             const { window, document } = env;
             enableTrialAI(env);
@@ -589,15 +604,14 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             vi.stubGlobal('fetch', fetchSpy);
 
             fillAIParse(document);
-            await window.saveFoodLog();
-            await flushPromises();
+            await runAndDecline(document, () => window.saveFoodLog());
 
             expect(fetchSpy).not.toHaveBeenCalled();
             expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/consent/i));
             expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/Settings.*Integrations/i));
         });
 
-        it('refusal: consent explicitly declined refuses the same way', async () => {
+        it('refusal: consent explicitly declined refuses the same way (dialog re-asks, declining keeps the refusal)', async () => {
             allowConsoleNoise();
             const { window, document } = env;
             enableTrialAI(env);
@@ -606,8 +620,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             vi.stubGlobal('fetch', fetchSpy);
 
             fillAIParse(document);
-            await window.saveFoodLog();
-            await flushPromises();
+            await runAndDecline(document, () => window.saveFoodLog());
 
             expect(fetchSpy).not.toHaveBeenCalled();
             expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/consent/i));
@@ -623,8 +636,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             vi.stubGlobal('fetch', fetchSpy);
 
             fillAIParse(document);
-            await window.saveFoodLog();
-            await flushPromises();
+            await runAndDecline(document, () => window.saveFoodLog());
 
             expect(fetchSpy).not.toHaveBeenCalled();
             expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/consent/i));
@@ -639,25 +651,47 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             vi.stubGlobal('fetch', fetchSpy);
 
             fillAIParse(document);
-            await window.saveFoodLog();
-            await flushPromises();
+            await runAndDecline(document, () => window.saveFoodLog());
 
             expect(fetchSpy).not.toHaveBeenCalled();
             expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/consent/i));
         });
 
-        it('photo path is gated too: no consent → no fetch', async () => {
+        it('photo path is gated too: no consent + declined dialog → no fetch', async () => {
             allowConsoleNoise();
-            const { window } = env;
+            const { window, document } = env;
             enableTrialAI(env);
             const fetchSpy = vi.fn();
             vi.stubGlobal('fetch', fetchSpy);
 
-            await window.uploadFoodPhotoFile(makeImageFile(env));
-            await flushPromises();
+            await runAndDecline(document, () => window.uploadFoodPhotoFile(makeImageFile(env)));
 
             expect(fetchSpy).not.toHaveBeenCalled();
             expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/consent/i));
+        });
+
+        it('allowing the dialog persists the grant and reruns the parse through the trial proxy', async () => {
+            allowConsoleNoise();
+            const { window, document } = env;
+            enableTrialAI(env);
+            const fetchSpy = vi.fn().mockResolvedValue(chatCompletionResponse([
+                { name: 'Banana', weight_grams: 120, carbs_100g: 23, protein_100g: 1.1, fat_100g: 0.3 },
+            ]));
+            vi.stubGlobal('fetch', fetchSpy);
+
+            fillAIParse(document);
+            const pending = window.saveFoodLog();
+            await flushPromises();
+            const allow = document.querySelector('.wg-trial-consent-modal [data-trial-consent-choice="allow"]');
+            expect(allow).not.toBeNull();
+            allow.click();
+            await pending;
+            await flushPromises();
+
+            const trialCall = fetchSpy.mock.calls.find(([url]) => String(url).includes('/api/trial/openai/chat/completions'));
+            expect(trialCall).toBeDefined();
+            const consent = await window.apiCall('/api/settings/trial-consent', 'GET');
+            expect(consent.ai).toBe(true);
         });
     });
 

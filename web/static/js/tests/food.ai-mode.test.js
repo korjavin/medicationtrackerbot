@@ -462,6 +462,85 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
         expect(barcodeInput.value).toBe('');
     });
 
+    // bd med-yor.2 Task 4: in cloud mode the trial gate can refuse the parse
+    // with trial_consent_required; the call site routes through
+    // TrialConsent.retryAfterConsent so Allow reruns the parse exactly once
+    // and a refusal surfaces the error without any retry.
+    it('cloud AI parse shows the consent dialog on trial_consent_required and retries once after Allow', async () => {
+        const { document, window } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+
+        const consentErr = Object.assign(new Error('needs consent'), {
+            code: 'trial_consent_required', scope: 'ai',
+        });
+        const parse = vi.fn()
+            .mockRejectedValueOnce(consentErr)
+            .mockResolvedValueOnce({ items: [], failed: 0 });
+        window.CloudFoodAI = { parseMealFromDescription: parse };
+        window.apiCall = vi.fn(async (url, method, body) => {
+            if (url === '/api/settings/trial-consent' && method === 'PATCH') {
+                return { ai: true, voice: null, tg: null, updated_at: 1 };
+            }
+            return null;
+        });
+
+        window.showAddFoodModal();
+        document.getElementById('food-parse-ai').checked = true;
+        document.getElementById('food-datetime').value = '2026-05-17T13:00';
+        document.getElementById('food-name').value = 'two eggs';
+
+        document.getElementById('food-modal-save-btn').click();
+        await flushPromises();
+
+        const dialog = document.querySelector('.wg-trial-consent-modal');
+        expect(dialog).not.toBeNull();
+        expect(parse).toHaveBeenCalledTimes(1);
+
+        dialog.querySelector('[data-trial-consent-choice="allow"]').click();
+        await flushPromises();
+        await flushPromises();
+
+        expect(parse).toHaveBeenCalledTimes(2);
+        expect(window.apiCall).toHaveBeenCalledWith('/api/settings/trial-consent', 'PATCH', { ai: true });
+        expect(window.safeAlert).not.toHaveBeenCalled();
+    });
+
+    it('cloud AI parse surfaces the refusal and does NOT retry when the consent dialog is declined', async () => {
+        const { document, window } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        // The refusal path logs the surfaced parse error; that's the assert
+        // target here, not noise leaking from an unrelated code path.
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        const consentErr = Object.assign(new Error('trial use needs your consent'), {
+            code: 'trial_consent_required', scope: 'ai',
+        });
+        const parse = vi.fn().mockRejectedValue(consentErr);
+        window.CloudFoodAI = { parseMealFromDescription: parse };
+        window.apiCall = vi.fn(async () => ({ ai: false, voice: null, tg: null, updated_at: 1 }));
+
+        window.showAddFoodModal();
+        document.getElementById('food-parse-ai').checked = true;
+        document.getElementById('food-datetime').value = '2026-05-17T13:00';
+        document.getElementById('food-name').value = 'two eggs';
+
+        document.getElementById('food-modal-save-btn').click();
+        await flushPromises();
+
+        const dialog = document.querySelector('.wg-trial-consent-modal');
+        expect(dialog).not.toBeNull();
+        dialog.querySelector('[data-trial-consent-choice="deny"]').click();
+        await flushPromises();
+        await flushPromises();
+
+        expect(parse).toHaveBeenCalledTimes(1);
+        expect(window.apiCall).toHaveBeenCalledWith('/api/settings/trial-consent', 'PATCH', { ai: false });
+        expect(window.safeAlert).toHaveBeenCalledWith(expect.stringContaining('trial use needs your consent'));
+        // Refusal prevents transmission: nothing was invalidated or reloaded.
+        expect(window.DataStore.invalidateTags).not.toHaveBeenCalled();
+        expect(window.loadFoodLogs).not.toHaveBeenCalled();
+    });
+
     it('Add modal resets the AI checkbox to enabled', () => {
         const { document, window } = env;
 

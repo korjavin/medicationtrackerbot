@@ -119,7 +119,8 @@
     }
 
     const TAGLINE_TRIAL = 'AI features — food by description, food photo, and voice — already work, '
-        + 'using a shared trial key that is rate-limited. Add your own OpenAI key to lift the limit '
+        + 'using a shared trial key that is rate-limited; you’ll be asked for consent before the '
+        + 'first trial use. Add your own OpenAI key to lift the limit '
         + 'and keep your prompts off the operator’s key. You can skip this and add one later in '
         + 'Settings → Integrations.';
     const TAGLINE_NO_TRIAL = 'Add your OpenAI API key to unlock food photo analysis and other AI '
@@ -192,7 +193,10 @@
         const skip = document.createElement('button');
         skip.type = 'button';
         skip.className = 'wg-firstrun-btn wg-firstrun-btn--secondary';
-        skip.textContent = trial ? 'Skip — use the trial key' : 'Skip';
+        // Skipping key setup is NOT consent (bd med-yor.2): the trial path
+        // asks for explicit consent on first use, so the label must not read
+        // like a grant.
+        skip.textContent = trial ? 'Skip — the trial key asks for consent on first use' : 'Skip';
         skip.setAttribute('data-firstrun-action', 'skip');
         skip.addEventListener('click', function () {
             helpers.advance('done');
