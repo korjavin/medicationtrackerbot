@@ -33,18 +33,18 @@ func TestRxNavProxyAPI(t *testing.T) {
 	var interactionRawQuery string
 	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.URL.Path == "/REST/rxcui.json":
+		switch r.URL.Path {
+		case "/REST/rxcui.json":
 			if r.URL.Query().Get("name") == "aspirin" {
 				w.Write([]byte(`{"idGroup": {"rxnormId": ["1191"]}}`))
 				return
 			}
 			w.Write([]byte(`{"idGroup": {}}`))
-		case r.URL.Path == "/REST/approximateTerm.json":
+		case "/REST/approximateTerm.json":
 			w.Write([]byte(`{"approximateGroup": {"candidate": [{"rxcui": "1191"}]}}`))
-		case r.URL.Path == "/REST/rxcui/1191/properties.json":
+		case "/REST/rxcui/1191/properties.json":
 			w.Write([]byte(`{"properties": {"rxcui": "1191", "name": "aspirin"}}`))
-		case r.URL.Path == "/api/interaction/list.json":
+		case "/api/interaction/list.json":
 			interactionRawQuery = r.URL.RawQuery
 			w.Write([]byte(`{"fullInteractionTypeGroup": []}`))
 		default:
