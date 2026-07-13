@@ -91,7 +91,19 @@ export const PRIVACY_ITEMS = [
     category: 'visible',
     docSignal: null,
     title: 'Trial AI prompts, if you use the operator\'s key',
-    detail: 'If you use the shared trial AI instead of your own key, your meal descriptions and photos pass through the operator\'s OpenAI account to be parsed. Add your own key in Settings → Integrations to keep them off the operator entirely.',
+    detail: 'If you use the shared trial AI instead of your own key, your meal descriptions and photos pass through the operator\'s OpenAI account to be parsed. This only happens with your explicit consent — you are asked on first use, and can revoke it any time in Settings → Integrations. Add your own key there to keep them off the operator entirely.',
+  },
+  {
+    category: 'visible',
+    docSignal: null,
+    title: 'Telegram assistant answers, if you use the trial key',
+    detail: 'When the Telegram assistant answers you on the trial key, your message AND the health data it reads from your vault to answer — blood pressure history, notes, and the like — transit the operator\'s OpenAI account. This has its own consent, separate from meal parsing, asked on first use and revocable in Settings → Integrations.',
+  },
+  {
+    category: 'visible',
+    docSignal: null,
+    title: 'Trial voice calls, if you use the operator\'s key',
+    detail: 'Trial voice calls run on the operator\'s ElevenLabs account, so your voice audio and the agent conversation pass through it. This requires your explicit consent — asked on first use, revocable in Settings → Integrations. With your own ElevenLabs key the operator is not involved.',
   },
   {
     category: 'visible',

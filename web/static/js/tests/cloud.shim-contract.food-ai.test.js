@@ -14,6 +14,7 @@
 // a real one) for the duration of each test; the picked File is likewise
 // constructed via env.window.File so both come from the same JSDOM realm.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createAIClient } from '../../../cloud/js/aiclient.js';
 import { installApiCache, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 
@@ -61,6 +62,12 @@ function enableTrialAI(env) {
     meta.content = '1';
     env.document.head.appendChild(meta);
     vi.stubGlobal('document', env.document);
+}
+
+// The consent gate (bd med-yor.2) refuses trial transmission until the scope
+// reads exactly true — trial fixtures grant it through the real shim route.
+async function grantTrialConsent(window, patch = { ai: true }) {
+    await window.apiCall('/api/settings/trial-consent', 'PATCH', patch);
 }
 
 describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-undo}.js over web/domain/foodai.js)', () => {
@@ -231,6 +238,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
     it('trial fallback: no vault key + trial meta flag routes to the same-origin proxy with no model and no Authorization', async () => {
         const { window, document } = env;
         enableTrialAI(env);
+        await grantTrialConsent(window);
 
         const fetchSpy = vi.fn().mockResolvedValue(chatCompletionResponse([
             { name: 'Banana', weight_grams: 120, carbs_100g: 23, protein_100g: 1.1, fat_100g: 0.3 }
@@ -260,6 +268,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
     it('trial fallback photo: parseMealFromImage hits the proxy with ?vision=1', async () => {
         const { window } = env;
         enableTrialAI(env);
+        await grantTrialConsent(window);
 
         const fetchSpy = vi.fn().mockResolvedValue(chatCompletionResponse([
             { name: 'Salad', weight_grams: 180, carbs_100g: 5, protein_100g: 2, fat_100g: 3 }
@@ -277,6 +286,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         allowConsoleNoise();
         const { window, document } = env;
         enableTrialAI(env);
+        await grantTrialConsent(window);
 
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
             ok: false,
@@ -303,6 +313,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         allowConsoleNoise();
         const { window, document } = env;
         enableTrialAI(env);
+        await grantTrialConsent(window);
 
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
             ok: false,
@@ -329,6 +340,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         allowConsoleNoise();
         const { window, document } = env;
         enableTrialAI(env);
+        await grantTrialConsent(window);
 
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
             ok: false,
@@ -352,6 +364,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         allowConsoleNoise();
         const { window, document } = env;
         enableTrialAI(env);
+        await grantTrialConsent(window);
 
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
             ok: false,
@@ -374,6 +387,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         allowConsoleNoise();
         const { window, document } = env;
         enableTrialAI(env);
+        await grantTrialConsent(window);
 
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
             ok: false,
@@ -397,6 +411,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         allowConsoleNoise();
         const { window, document } = env;
         enableTrialAI(env);
+        await grantTrialConsent(window);
 
         // Traefik emits its own 503 while the backend restarts — must not
         // read as "add your own key".
@@ -422,6 +437,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         allowConsoleNoise();
         const { window, document } = env;
         enableTrialAI(env);
+        await grantTrialConsent(window);
 
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
             ok: false,
@@ -453,6 +469,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         // console.error, so this asserts the clean path.
         const { window, document } = env;
         enableTrialAI(env);
+        await grantTrialConsent(window);
 
         const rejection = {
             ok: false,
@@ -490,6 +507,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         allowConsoleNoise();
         const { window, document } = env;
         enableTrialAI(env);
+        await grantTrialConsent(window);
 
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
             ok: false,
@@ -512,6 +530,8 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
     it('vault key beats trial: with both present the call stays browser-direct', async () => {
         const { window, document } = env;
         await setOpenAIKey(window);
+        // Deliberately NO consent grant: a BYO key must work without the
+        // consent gate ever being involved.
         enableTrialAI(env);
 
         const fetchSpy = vi.fn().mockResolvedValue(chatCompletionResponse([
@@ -547,5 +567,193 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         const integrations = await window.apiCall('/api/settings/integrations', 'GET');
         expect(integrations.openai.api_key).toBe('***');
         expect(JSON.stringify(integrations)).not.toContain('sk-test-dummy');
+    });
+
+    // bd med-yor.2 — the trial consent gate at the aiclient seam, driven
+    // through the real settings domain + /api/settings/trial-consent shim
+    // route. No scope reading exactly `true` → no trial transmission at all;
+    // skipping key setup is not consent.
+    describe('trial consent gate', () => {
+        function fillAIParse(document) {
+            document.getElementById('food-id').value = '';
+            document.getElementById('food-parse-ai').checked = true;
+            document.getElementById('food-datetime').value = todayAt('09:00');
+            document.getElementById('food-name').value = 'a banana';
+        }
+
+        // Since med-yor.2 Task 4 the interactive food paths wrap the parse in
+        // TrialConsent.retryAfterConsent: a gate refusal now mounts the
+        // disclosure dialog instead of surfacing immediately. Decline it —
+        // the refusal assertions below (no trial fetch, consent error
+        // surfaced via safeAlert) are unchanged.
+        async function runAndDecline(document, run) {
+            const pending = run();
+            await flushPromises();
+            const deny = document.querySelector('.wg-trial-consent-modal [data-trial-consent-choice="deny"]');
+            expect(deny, 'expected the consent disclosure dialog to mount').not.toBeNull();
+            deny.click();
+            await pending;
+            await flushPromises();
+        }
+
+        it('first use with no consent record: shows the dialog; declining refuses before any fetch and points at Settings', async () => {
+            allowConsoleNoise();
+            const { window, document } = env;
+            enableTrialAI(env);
+            const fetchSpy = vi.fn();
+            vi.stubGlobal('fetch', fetchSpy);
+
+            fillAIParse(document);
+            await runAndDecline(document, () => window.saveFoodLog());
+
+            expect(fetchSpy).not.toHaveBeenCalled();
+            expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/consent/i));
+            expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/Settings.*Integrations/i));
+        });
+
+        it('refusal: consent explicitly declined refuses the same way (dialog re-asks, declining keeps the refusal)', async () => {
+            allowConsoleNoise();
+            const { window, document } = env;
+            enableTrialAI(env);
+            await grantTrialConsent(window, { ai: false });
+            const fetchSpy = vi.fn();
+            vi.stubGlobal('fetch', fetchSpy);
+
+            fillAIParse(document);
+            await runAndDecline(document, () => window.saveFoodLog());
+
+            expect(fetchSpy).not.toHaveBeenCalled();
+            expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/consent/i));
+        });
+
+        it('revocation: consent granted then revoked refuses again', async () => {
+            allowConsoleNoise();
+            const { window, document } = env;
+            enableTrialAI(env);
+            await grantTrialConsent(window, { ai: true });
+            await grantTrialConsent(window, { ai: false });
+            const fetchSpy = vi.fn();
+            vi.stubGlobal('fetch', fetchSpy);
+
+            fillAIParse(document);
+            await runAndDecline(document, () => window.saveFoodLog());
+
+            expect(fetchSpy).not.toHaveBeenCalled();
+            expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/consent/i));
+        });
+
+        it('scope separation via the routes: tg consent alone does not permit meal parsing', async () => {
+            allowConsoleNoise();
+            const { window, document } = env;
+            enableTrialAI(env);
+            await grantTrialConsent(window, { tg: true });
+            const fetchSpy = vi.fn();
+            vi.stubGlobal('fetch', fetchSpy);
+
+            fillAIParse(document);
+            await runAndDecline(document, () => window.saveFoodLog());
+
+            expect(fetchSpy).not.toHaveBeenCalled();
+            expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/consent/i));
+        });
+
+        it('photo path is gated too: no consent + declined dialog → no fetch', async () => {
+            allowConsoleNoise();
+            const { window, document } = env;
+            enableTrialAI(env);
+            const fetchSpy = vi.fn();
+            vi.stubGlobal('fetch', fetchSpy);
+
+            await runAndDecline(document, () => window.uploadFoodPhotoFile(makeImageFile(env)));
+
+            expect(fetchSpy).not.toHaveBeenCalled();
+            expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/consent/i));
+        });
+
+        it('allowing the dialog persists the grant and reruns the parse through the trial proxy', async () => {
+            allowConsoleNoise();
+            const { window, document } = env;
+            enableTrialAI(env);
+            const fetchSpy = vi.fn().mockResolvedValue(chatCompletionResponse([
+                { name: 'Banana', weight_grams: 120, carbs_100g: 23, protein_100g: 1.1, fat_100g: 0.3 },
+            ]));
+            vi.stubGlobal('fetch', fetchSpy);
+
+            fillAIParse(document);
+            const pending = window.saveFoodLog();
+            await flushPromises();
+            const allow = document.querySelector('.wg-trial-consent-modal [data-trial-consent-choice="allow"]');
+            expect(allow).not.toBeNull();
+            allow.click();
+            await pending;
+            await flushPromises();
+
+            const trialCall = fetchSpy.mock.calls.find(([url]) => String(url).includes('/api/trial/openai/chat/completions'));
+            expect(trialCall).toBeDefined();
+            const consent = await window.apiCall('/api/settings/trial-consent', 'GET');
+            expect(consent.ai).toBe(true);
+        });
+    });
+
+    // The BYO-precedence and ai/tg scope-separation contracts sit on
+    // createAIClient itself (chat has no UI entry point in this suite), so
+    // these drive the real module directly with a stub settingsDomain.
+    describe('trial consent gate — direct aiclient seam', () => {
+        function stubSettingsDomain({ apiKey = '', consent = {} } = {}) {
+            return {
+                readIntegrationsUnmasked: vi.fn(async () => ({ openai: { api_key: apiKey } })),
+                getTrialConsent: vi.fn(async () => ({ ai: null, voice: null, tg: null, updated_at: 0, ...consent })),
+            };
+        }
+
+        const BANANA = [{ name: 'Banana', weight_grams: 120, carbs_100g: 23, protein_100g: 1.1, fat_100g: 0.3 }];
+
+        it('BYO precedence: with an own key the consent record is never even read', async () => {
+            enableTrialAI(env);
+            const settingsDomain = stubSettingsDomain({ apiKey: 'sk-own' });
+            const client = createAIClient({ settingsDomain });
+            const fetchSpy = vi.fn().mockResolvedValue(chatCompletionResponse(BANANA));
+            vi.stubGlobal('fetch', fetchSpy);
+
+            await client.parseMealFromDescription('a banana');
+            await client.chat({ messages: [{ role: 'user', content: 'hi' }] });
+
+            expect(fetchSpy).toHaveBeenCalledTimes(2);
+            for (const [url] of fetchSpy.mock.calls) {
+                expect(url).toBe('https://api.openai.com/v1/chat/completions');
+            }
+            expect(settingsDomain.getTrialConsent).not.toHaveBeenCalled();
+        });
+
+        it('scope separation: ai consent alone parses meals, but chat refuses with scope tg', async () => {
+            enableTrialAI(env);
+            const client = createAIClient({ settingsDomain: stubSettingsDomain({ consent: { ai: true } }) });
+            const fetchSpy = vi.fn().mockResolvedValue(chatCompletionResponse(BANANA));
+            vi.stubGlobal('fetch', fetchSpy);
+
+            await client.parseMealFromDescription('a banana');
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            expect(fetchSpy.mock.calls[0][0]).toBe('/api/trial/openai/chat/completions');
+
+            await expect(client.chat({ messages: [{ role: 'user', content: 'my bp this week?' }] }))
+                .rejects.toMatchObject({ code: 'trial_consent_required', scope: 'tg' });
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it('scope separation: tg consent alone lets chat through, but meal parsing refuses with scope ai', async () => {
+            enableTrialAI(env);
+            const client = createAIClient({ settingsDomain: stubSettingsDomain({ consent: { tg: true } }) });
+            const fetchSpy = vi.fn().mockResolvedValue(chatCompletionResponse(BANANA));
+            vi.stubGlobal('fetch', fetchSpy);
+
+            const msg = await client.chat({ messages: [{ role: 'user', content: 'hi' }] });
+            expect(msg.content).toBeTruthy();
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            expect(fetchSpy.mock.calls[0][0]).toBe('/api/trial/openai/chat/completions');
+
+            await expect(client.parseMealFromDescription('a banana'))
+                .rejects.toMatchObject({ code: 'trial_consent_required', scope: 'ai' });
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+        });
     });
 });

@@ -46,6 +46,28 @@
         return !!meta && meta.content === '1';
     }
 
+    // Trial voice is gated on the encrypted-vault `trialconsent` record
+    // (`voice` scope) — skipping key setup is NOT consent. Read via the shim
+    // route; when no consent yet, defer to the interactive prompt seam
+    // (window.TrialConsent, Task 4) if present, else refuse. Only literal
+    // `true` passes. BYO-key callers never reach this.
+    async function ensureTrialVoiceConsent() {
+        let consent = null;
+        if (typeof window.apiCall === 'function') {
+            try {
+                consent = await window.apiCall('/api/settings/trial-consent', 'GET');
+            } catch (_) { /* unreadable consent = no consent */ }
+        }
+        if (consent && consent.voice === true) return;
+        if (window.TrialConsent && typeof window.TrialConsent.request === 'function') {
+            if (await window.TrialConsent.request('voice') === true) return;
+        }
+        const err = new Error("Using the operator's trial voice agent needs your consent first — allow it in Settings → Integrations.");
+        err.code = 'trial_consent_required';
+        err.scope = 'voice';
+        throw err;
+    }
+
     async function fetchTrialSignedURL() {
         const resp = await fetch('/api/trial/elevenlabs/signed-url', { method: 'GET' });
         if (resp.ok) {
@@ -83,6 +105,7 @@
         if (window.__MEDTRACKER_CLOUD__ && window.CloudElevenLabs) {
             const hasKey = await window.CloudElevenLabs.hasKey();
             if (!hasKey && trialVoiceAvailable()) {
+                await ensureTrialVoiceConsent();
                 return fetchTrialSignedURL();
             }
             // No key + no trial: provision() throws the existing

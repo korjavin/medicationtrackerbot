@@ -64,6 +64,10 @@ const ALLOWLIST = [
         reason: 'ElevenLabs call widget; reaches for window.offlineAwareApiCall via aliased variable indirection (not statically detectable) and the request is a transient signed-URL fetch, not a cached section render',
     },
     {
+        file: 'trial-consent.js',
+        reason: 'trial-consent disclosure modal (bd med-yor.2); its only network call is the PATCH /api/settings/trial-consent write persisting the user\'s choice — a consent ceremony, not a cached section read',
+    },
+    {
         file: 'food-photo-summary.js',
         reason: 'transient in-app summary card rendered after a photo upload — no API reads, pure DOM construction from a passed-in payload',
     },
