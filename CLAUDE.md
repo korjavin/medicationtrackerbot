@@ -128,6 +128,7 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -topup -seed 42
 | Canonical full-vault export/import format (one-user-all-domains JSON, wire-shape field names, skip list, round-trip normalizations, age encryption) — **v1 implemented (C2e)** | [docs/vault-format.md](docs/vault-format.md) |
 | Cloud-mode crypto (passkey-only key management: WebAuthn PRF envelopes over a random DEK, device enrollment ceremonies, recovery code, formats) — **suite v1 implemented in `web/cloud/js/crypto.js`** | [docs/cloud-crypto.md](docs/cloud-crypto.md) |
 | Cloud deployment (self-hosted `cmd/cloud`: Traefik + Portainer infra layer, DNS-01 wildcard cert, gitops app stack, admin invite) | [docs/cloud-deployment.md](docs/cloud-deployment.md) |
+| Cloud operations security, retention, backup, deletion propagation, per-feature subprocessor table, incident response (operator policy: what remains after deletion, for how long, where data was sent) | [docs/cloud-operations-security.md](docs/cloud-operations-security.md) |
 | API endpoints | [docs/api.md](docs/api.md) |
 | Environment variables | [docs/environment.md](docs/environment.md) |
 | MCP server deployment (Pocket-ID, Docker, Claude config) | [docs/mcp-deployment.md](docs/mcp-deployment.md) |
