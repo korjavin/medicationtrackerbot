@@ -354,21 +354,35 @@ refusal, revocation, BYO precedence.
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] Re-read the bead acceptance criteria and confirm each maps to a
+- [x] Re-read the bead acceptance criteria and confirm each maps to a
       passing test: gated first use, refusal prevents transmission,
       revocation prevents transmission, BYO precedence untouched, disclosure
       names operator/provider visibility AND Telegram tool-result content,
       consent lives in an encrypted-vault synced record (not localStorage —
       `grep -n localStorage` the new files to prove it).
-- [ ] Confirm scope separation is tested: `ai` consent alone does not permit
+      (Mapped: first use → `cloud.shim-contract.food-ai.test.js:599`;
+      refusal → :614; revocation → :629; BYO precedence → :530 + :711;
+      disclosure phrases → `features.trial-consent.test.js:53/:67/:77`
+      (operator's OpenAI/ElevenLabs, meal/photo/voice/vault data categories);
+      vault record → `cloud.shim-contract.settings.test.js` asserts
+      `records.list('trialconsent')`. `grep -n localStorage` over
+      `trial-consent.js`, `web/domain/settings.js`, `aiclient.js` → zero hits.)
+- [x] Confirm scope separation is tested: `ai` consent alone does not permit
       `chat()` trial calls (tg scope), and vice versa.
-- [ ] Run the full frontend suite: `pnpm test` (use Node 20:
+      (`cloud.shim-contract.food-ai.test.js:728` ai-only → chat refuses scope
+      `tg`; :743 tg-only → meal parsing refuses scope `ai`; :645 route-driven
+      variant.)
+- [x] Run the full frontend suite: `pnpm test` (use Node 20:
       `PATH=/tmp/node-v20.18.1-linux-x64/bin:$PATH pnpm test`) — all green.
-- [ ] Run `go build ./...` and `go test ./internal/cloudserver/...` to prove
-      no server-side regression (expected: no Go changes).
-- [ ] Verify no new `window.*` global is missing an allowlist entry and no
+      (312 files, 3640 passed / 29 skipped, 0 failures.)
+- [x] Run `go build ./...` and `go test ./internal/cloudserver/...` to prove
+      no server-side regression (expected: no Go changes). (Build clean;
+      cloudserver `ok` in 63.7s. `git status` confirms no Go files touched.)
+- [x] Verify no new `window.*` global is missing an allowlist entry and no
       inline `.style.` assignments or hardcoded colors were introduced
       (architecture tests cover this — they run in `pnpm test`).
+      (architecture.globals, inline-styles, offline-coverage, domain-purity
+      all green in the full run.)
 
 ### Task 7: Update documentation
 
