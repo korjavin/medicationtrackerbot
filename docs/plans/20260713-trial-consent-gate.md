@@ -339,7 +339,7 @@ refusal, revocation, BYO precedence.
 
 ### Task 5: Privacy page entry
 
-- [ ] In `web/cloud/js/privacy.js`, update the existing trial-AI item
+- [x] In `web/cloud/js/privacy.js`, update the existing trial-AI item
       (:91-95, `docSignal: null`) to state that trial use requires your
       explicit consent (asked on first use, revocable in Settings →
       Integrations) and extend/add `docSignal: null` items so trial VOICE and
@@ -347,9 +347,10 @@ refusal, revocation, BYO precedence.
       answer you transits the operator's OpenAI account on the trial key) are
       named. Keep the drift-test literal phrases intact: `/trial ai/`,
       `/operator's openai/`, `telegram delivers your messages to the bot in
-      the clear`.
-- [ ] Run `web/cloud/js/tests/privacy.drift.test.js` — the doc-table
-      one-to-one checks and phrase assertions must pass unchanged.
+      the clear`. (Two new `docSignal: null` items in the "visible" category:
+      Telegram-assistant tool-result channel + trial voice.)
+- [x] Run `web/cloud/js/tests/privacy.drift.test.js` — the doc-table
+      one-to-one checks and phrase assertions must pass unchanged. (8/8.)
 
 ### Task 6: Verify acceptance criteria
 
