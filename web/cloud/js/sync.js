@@ -50,6 +50,9 @@ function parseTag(tag) {
 }
 
 let offline = false;
+// 401 = server session expired — distinct from network-offline. Pending ops are
+// never dropped; the user re-runs the passkey ceremony to re-mint the session.
+let authExpired = false;
 const kDataCache = new WeakMap();
 
 // Serializes the record-store mutations that must not interleave:
@@ -224,6 +227,7 @@ export async function resetLocalSync(ctx) {
     }
   });
   offline = false;
+  authExpired = false;
   await pullOnOpen(ctx);
   // pullOnOpen swallows a transient bootstrap failure (offline / 5xx behind the
   // proxy) and leaves localLastSeq null — the mirror is now WIPED and empty. If
@@ -446,10 +450,16 @@ async function bootstrap(ctx) {
   // the cursor to 0 — a device that then pulled ?since=0 after a later
   // compaction would silently skip all snapshotted state. Stay null → retry.
   if (snapRes.status !== 200 && snapRes.status !== 204) {
-    offline = true;
+    if (isAuthExpiredStatus(snapRes.status)) {
+      authExpired = true;
+      offline = false;
+    } else {
+      offline = true;
+    }
     return false;
   }
   offline = false;
+  authExpired = false;
   let lastSnapshotSeq = 0;
   if (snapRes.status === 200) {
     const body = await snapRes.json();
@@ -504,10 +514,16 @@ async function pullTail(ctx) {
     // Cheapest possible clock reference: the response's own `Date` header.
     await noteServerDate(res);
     if (!res.ok) {
-      offline = true;
+      if (isAuthExpiredStatus(res.status)) {
+        authExpired = true;
+        offline = false;
+      } else {
+        offline = true;
+      }
       return;
     }
     offline = false;
+    authExpired = false;
     const body = await res.json();
     // The server compacted past our cursor (another device snapshotted while we
     // were away): ops between our cursor and body.snapshot_seq no longer exist,
@@ -575,8 +591,14 @@ async function snapshotAt(ctx, snapshotSeq) {
     offline = true;
     return { ok: false, status: 0 }; // network error — retryable
   }
+  if (isAuthExpiredStatus(res.status)) {
+    authExpired = true;
+    offline = false;
+    return { ok: false, status: res.status };
+  }
   if (!res.ok) return { ok: false, status: res.status }; // 4xx=won't-fit, 5xx=retryable; caller decides offline
   offline = false;
+  authExpired = false;
   // A successful snapshot means the store now fits the server cap, so clear any
   // stale "too large" error a prior oversized snapshot recorded. Covers both the
   // forced path and the threshold-gated maybeSnapshot (e.g. the store shrank, or
@@ -678,6 +700,13 @@ function isPermanentSyncStatus(status) {
   return status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status);
 }
 
+// 401 routes to the distinct auth-expired state (never permanent, never
+// offline): the non-sliding 30-day session lapsed and only a passkey re-auth
+// can clear it. 403/408/429 stay transient-offline.
+function isAuthExpiredStatus(status) {
+  return status === 401;
+}
+
 // Drives (or retries) a pending forced snapshot to completion: advance last_seq
 // with one throwaway op, then upload the snapshot at the server-assigned seq.
 // Clears the marker only once the snapshot upload actually succeeds
@@ -734,6 +763,11 @@ async function tryForceSnapshot(ctx) {
     // wipe), and re-attempting the tiny bump op each open is cheap (not the
     // oversized-snapshot re-encrypt wedge). The user must free account quota for
     // the import to sync.
+    if (isAuthExpiredStatus(res.status)) {
+      authExpired = true;
+      offline = false;
+      return; // marker stays set — retried after re-auth
+    }
     if (isPermanentSyncStatus(res.status)) {
       await writeMeta({ snapshotError: { status: res.status, at: Date.now() } });
       offline = false;
@@ -743,6 +777,7 @@ async function tryForceSnapshot(ctx) {
     return;
   }
   offline = false;
+  authExpired = false;
   const { assigned } = await res.json();
   if (!Array.isArray(assigned) || assigned.length === 0) {
     offline = true; // malformed response — don't poison the cursor with -Infinity
@@ -760,6 +795,7 @@ async function tryForceSnapshot(ctx) {
   // failure is transient: leave the marker set and retry next open.
   const snap = await snapshotAt(ctx, snapshotSeq);
   if (!snap.ok) {
+    if (isAuthExpiredStatus(snap.status)) return; // snapshotAt already flagged authExpired
     if (isPermanentSyncStatus(snap.status)) {
       await writeMeta({ forceSnapshotPending: false, snapshotError: { status: snap.status, at: Date.now() } });
       offline = false;
@@ -801,7 +837,22 @@ const FLUSH_MAX_ATTEMPTS = 5;
 // (bd med-76c.2) relies on this distinction: it may only ack an inbound event
 // once the ops it produced are durably on the server. Every other caller
 // ignores the value, exactly as before.
-async function flushPending(ctx) {
+// Every flushPending entry point (pullOnOpen, writeRecord's inline push,
+// flushConfirmed) serializes through this chain: two concurrent flushes read
+// the same 'pending' set and predict the same seqs, so the loser's whole batch
+// is AAD-mis-bound — undecryptable junk ops in the oplog plus a wasted
+// re-pull/re-post cycle. The drainInFlight slot only covers drain-vs-drain;
+// this covers writes and the inbox ack barrier too. Safe as a non-reentrant
+// lock: nothing inside flushPendingUnlocked calls back into flushPending
+// (pullTail and maybeSnapshot don't).
+let flushChain = Promise.resolve();
+function flushPending(ctx) {
+  const run = flushChain.then(() => flushPendingUnlocked(ctx));
+  flushChain = run.catch(() => {});
+  return run;
+}
+
+async function flushPendingUnlocked(ctx) {
   // A wedged device stops re-posting the doomed batch (med-0ol.7): after
   // WRITE_ERROR_BUDGET consecutive permanent errors, syncing pauses until the
   // user runs resetLocalSync. Writes still queue durably to 'pending' — nothing
@@ -905,6 +956,11 @@ async function flushPending(ctx) {
       //
       // Records stay in 'pending' either way — nothing is lost, and the next
       // open retries — but the status line must name the real cause.
+      if (isAuthExpiredStatus(res.status)) {
+        authExpired = true;
+        offline = false;
+        return false; // pending kept intact — drained after re-auth
+      }
       if (isPermanentSyncStatus(res.status)) {
         // Count consecutive permanent failures against a budget: once it's spent
         // the batch is genuinely doomed, so wedge syncing rather than re-POST it
@@ -923,6 +979,7 @@ async function flushPending(ctx) {
       return false;
     }
     offline = false;
+    authExpired = false;
     await noteServerDate(res);
     const { assigned } = await res.json();
     // Cleared on the first batch the server accepts: the quota was raised, or
@@ -947,7 +1004,7 @@ async function flushPending(ctx) {
     mispredicts++;
     if (mispredicts >= FLUSH_MAX_ATTEMPTS) return false;
     await pullTail(ctx);
-    if (offline) return false; // couldn't advance — retry next open
+    if (offline || authExpired) return false; // couldn't advance — retry next open / after re-auth
   }
 }
 
@@ -972,6 +1029,77 @@ export async function pullOnOpen(ctx) {
   await pullTail(ctx);
   await flushPending(ctx);
   await maybeSnapshot(ctx);
+}
+
+// med-deq.2 — session-expiry recovery. Re-runs the passkey ceremony (unlock.js
+// assertPasskey — its /api/webauthn/login/finish re-mints the non-sliding
+// 30-day session cookie; the returned dek/accountId are discarded), then
+// immediately drains the queue the 401s stranded. Dynamic import because
+// unlock.js already dynamic-imports sync.js — a static edge here would be a
+// cycle.
+export async function reauthenticate(ctx) {
+  const { assertPasskey } = await import('./unlock.js');
+  await assertPasskey();
+  authExpired = false;
+  // Serialize with any reconnect auto-drain in flight — two concurrent
+  // pullOnOpen runs would flush the same pending set under the same predicted
+  // seqs (duplicate ops + a guaranteed mis-predict retry).
+  while (drainInFlight) await drainInFlight;
+  drainInFlight = pullOnOpen(ctx).finally(() => { drainInFlight = null; onDrainSettled(); });
+  await drainInFlight;
+  return getSyncStatus(ctx);
+}
+
+// med-deq.2 — reconnect auto-drain. Without this, queued offline edits sit
+// until the next write or a reload. On window 'online' and on the tab becoming
+// visible while navigator.onLine, re-run the boot drain path (pullOnOpen). A
+// short setTimeout debounce coalesces event bursts; a single-slot in-flight
+// guard (same posture as recordsLock) prevents overlapping drains. Returns a
+// teardown removing both listeners. No-op outside a DOM context.
+let drainInFlight = null;
+// Installed by startReconnectAutoDrain; reauthenticate's .finally calls it too,
+// so a rerun queued while a reauth-owned drain held the slot is still consumed
+// instead of leaking into a spurious drain after the NEXT auto-drain.
+let onDrainSettled = () => {};
+export function startReconnectAutoDrain(ctx, { onAuthExpired } = {}) {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
+  let debounce = null;
+  let stopped = false;
+  let rerun = false;
+  const drain = () => {
+    // An event landing mid-drain coalesces into a run that may already have
+    // missed it (e.g. a drain stuck on a dying fetch when connectivity
+    // returned) — remember it and run once more after the current one settles.
+    if (drainInFlight) { rerun = true; return drainInFlight; }
+    drainInFlight = pullOnOpen(ctx)
+      .catch(() => {}) // failures already land in sync status; retried on the next event
+      .finally(() => {
+        drainInFlight = null;
+        onDrainSettled();
+        // A mid-session expiry (the common case for a non-sliding 30-day
+        // cookie in a long-lived PWA tab) is only ever detected by these
+        // event-driven drains — the boot-time check already ran. Hand it to
+        // the caller so the UI can surface it instead of queueing silently.
+        if (authExpired && !stopped && onAuthExpired) onAuthExpired();
+      });
+    return drainInFlight;
+  };
+  onDrainSettled = () => { if (rerun && !stopped) { rerun = false; drain(); } };
+  const trigger = () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(drain, 250);
+  };
+  const onVisible = () => {
+    if (document.visibilityState === 'visible' && navigator.onLine) trigger();
+  };
+  window.addEventListener('online', trigger);
+  document.addEventListener('visibilitychange', onVisible);
+  return () => {
+    stopped = true;
+    clearTimeout(debounce);
+    window.removeEventListener('online', trigger);
+    document.removeEventListener('visibilitychange', onVisible);
+  };
 }
 
 // Generic record-store read: live (non-tombstoned) records of a type from the
@@ -1131,6 +1259,7 @@ export async function getSyncStatus(ctx) {
     lastSyncedAt: meta.lastSyncedAt,
     pendingCount,
     offline,
+    authExpired,
     integrityErrors: meta.integrityErrors,
     snapshotError: meta.snapshotError || null,
     writeError: meta.writeError || null,
@@ -1142,7 +1271,9 @@ export async function getSyncStatus(ctx) {
 export async function describeSyncStatus(ctx) {
   const status = await getSyncStatus(ctx);
   const parts = [];
-  parts.push(status.offline ? 'Offline' : status.lastSyncedAt ? `Synced ${new Date(status.lastSyncedAt).toLocaleTimeString()}` : 'Not yet synced');
+  // auth-expired leads: an expired session is the actionable root cause, and
+  // "Offline" for it is exactly the red herring this state exists to replace.
+  parts.push(status.authExpired ? 'Session expired — re-authenticate' : status.offline ? 'Offline' : status.lastSyncedAt ? `Synced ${new Date(status.lastSyncedAt).toLocaleTimeString()}` : 'Not yet synced');
   if (status.pendingCount > 0) parts.push(`${status.pendingCount} pending`);
   if (status.integrityErrors > 0) parts.push(`${status.integrityErrors} sync-integrity warning(s)`);
   // 413 is the quota; any other permanent 4xx is a refusal we can't name, so

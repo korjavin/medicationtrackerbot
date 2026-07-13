@@ -1,8 +1,14 @@
 import 'fake-indexeddb/auto';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb } from '../localdb.js';
+
+// reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
+// module drives navigator.credentials, which doesn't exist in jsdom.
+vi.mock('../unlock.js', () => ({
+  assertPasskey: vi.fn(async () => ({ accountId: 'amber-falcon-8k3q9x', dek: null, credentialId: null })),
+}));
 
 const accountId = 'amber-falcon-8k3q9x';
 
@@ -583,18 +589,99 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
 
     const status = await getSyncStatus(ctx);
     expect(status.offline).toBe(true);
+    expect(status.authExpired).toBe(false);
     expect(status.writeError).toBeNull();
   });
 
-  it('still treats 401/403/408/429 as transient, not as a full vault', async () => {
+  it('treats a thrown fetch (genuine network failure) as offline, not auth-expired', async () => {
     await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
-    opsStatus = 429; // a reverse proxy can return this even though cmd/cloud did not
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') throw new TypeError('network down');
+      return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+    }));
 
     await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
 
     const status = await getSyncStatus(ctx);
     expect(status.offline).toBe(true);
+    expect(status.authExpired).toBe(false);
+  });
+
+  it('still treats 403/408/429 as transient, not as a full vault', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    for (const transient of [403, 408, 429]) {
+      opsStatus = transient; // a reverse proxy can return these even though cmd/cloud did not
+
+      await writeRecord(ctx, 'note', { recordId: `note-${transient}`, text: 'hello' });
+
+      const status = await getSyncStatus(ctx);
+      expect(status.offline).toBe(true);
+      expect(status.authExpired).toBe(false);
+      expect(status.writeError).toBeNull();
+    }
+  });
+
+  // med-deq.2 — an expired 30-day session returns 401 forever; bucketing it as
+  // "Offline" stranded the pending queue with no recovery path.
+  it('reports a 401 as auth-expired, not offline, and keeps the write pending', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsStatus = 401;
+
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+
+    const status = await getSyncStatus(ctx);
+    expect(status.authExpired).toBe(true);
+    expect(status.offline).toBe(false);
     expect(status.writeError).toBeNull();
+    // The queue is preserved — nothing dropped, drained after re-auth.
+    expect(status.pendingCount).toBe(1);
+    const notes = await listRecords(ctx, 'note');
+    expect(notes.map((n) => n.recordId)).toContain('note-1');
+  });
+
+  it('leads the status line with the re-authenticate wording when auth-expired', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsStatus = 401;
+
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+
+    const line = await describeSyncStatus(ctx);
+    expect(line).toContain('Session expired — re-authenticate');
+    expect(line).not.toContain('Offline');
+
+    // A successful batch (session re-minted) clears the state again.
+    opsStatus = 200;
+    await writeRecord(ctx, 'note', { recordId: 'note-2', text: 'world' });
+    const status = await getSyncStatus(ctx);
+    expect(status.authExpired).toBe(false);
+    expect(await describeSyncStatus(ctx)).not.toContain('Session expired');
+  });
+
+  it('reauthenticate re-runs the passkey ceremony, clears auth-expired, and drains the queue', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsStatus = 401;
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    expect(await getSyncStatus(ctx)).toMatchObject({ authExpired: true, pendingCount: 1 });
+
+    // The ceremony re-mints the session cookie server-side; the server accepts
+    // again. Re-stub with contiguous seq assignment (the shared counter already
+    // burned a seq on the 401 POST, which would mis-predict every retry).
+    let nextSeq = 1;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        return new Response(JSON.stringify({ assigned: ops.map(() => nextSeq++) }), { status: 200 });
+      }
+      if (String(url).startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    const status = await reauthenticate(ctx);
+
+    const { assertPasskey } = await import('../unlock.js');
+    expect(assertPasskey).toHaveBeenCalled();
+    expect(status.authExpired).toBe(false);
+    expect(status.pendingCount).toBe(0);
   });
 
   it('reports an unnameable permanent refusal honestly, without guessing "full"', async () => {
@@ -606,6 +693,233 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     const line = await describeSyncStatus(ctx);
     expect(line).toContain('refused');
     expect(line).not.toContain('Vault is full');
+  });
+});
+
+// med-deq.2 — reconnect auto-drain: queued offline edits must sync when the
+// browser comes back online (or the tab regains visibility while online)
+// without waiting for the next user write or a reload. The vitest env is node,
+// so window/document are stubbed with bare EventTargets — exactly the surface
+// startReconnectAutoDrain touches.
+describe('reconnect auto-drain (med-deq.2)', () => {
+  let ctx;
+  let teardown;
+  let doc;
+  let opsGets;
+
+  const seedMeta = async (meta) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('sync_meta', 'readwrite');
+        const store = tx.objectStore('sync_meta');
+        for (const [k, v] of Object.entries(meta)) store.put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  // The debounce is 250ms; wait past it plus a settle margin for pullOnOpen.
+  const settle = () => new Promise((r) => setTimeout(r, 400));
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, dek: await generateDEK() };
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsGets = 0;
+
+    vi.stubGlobal('window', new EventTarget());
+    doc = new EventTarget();
+    doc.visibilityState = 'visible';
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('navigator', { onLine: true });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        opsGets++;
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+  });
+
+  afterEach(() => {
+    teardown?.();
+    teardown = null;
+    vi.unstubAllGlobals();
+  });
+
+  it('an online event triggers a drain with no user write', async () => {
+    teardown = startReconnectAutoDrain(ctx);
+    expect(opsGets).toBe(0); // starting the listeners alone must not drain
+    window.dispatchEvent(new Event('online'));
+    await settle();
+    expect(opsGets).toBeGreaterThan(0); // pullTail's ops GET fired — no writeRecord involved
+  });
+
+  it('a visibility regain while online triggers the same drain', async () => {
+    teardown = startReconnectAutoDrain(ctx);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await settle();
+    expect(opsGets).toBeGreaterThan(0);
+  });
+
+  it('rapid online events coalesce into a single in-flight drain, then one follow-up run', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        opsGets++;
+        await gate; // hold the first drain in flight
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    teardown = startReconnectAutoDrain(ctx);
+    window.dispatchEvent(new Event('online'));
+    await settle(); // first drain is now in flight, blocked on the gate
+    window.dispatchEvent(new Event('online'));
+    window.dispatchEvent(new Event('online'));
+    await settle(); // debounce fired again while the first drain is still running
+    expect(opsGets).toBe(1); // the in-flight guard coalesced the re-triggers
+    release();
+    await settle(); // the mid-drain events must not be swallowed: the in-flight
+    // run may have already missed the reconnect they signalled (e.g. it was
+    // stuck on a dying fetch), so exactly one follow-up drain runs after it.
+    expect(opsGets).toBe(2);
+  });
+
+  it('reauthenticate serializes with an in-flight auto-drain instead of overlapping it', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        opsGets++;
+        await gate; // hold the auto-drain in flight
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    teardown = startReconnectAutoDrain(ctx);
+    window.dispatchEvent(new Event('online'));
+    await settle(); // auto-drain in flight, blocked on the gate
+
+    // Two concurrent pullOnOpen runs would double-flush the same pending set;
+    // reauthenticate must wait for the in-flight drain before draining itself.
+    const reauth = reauthenticate(ctx);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(opsGets).toBe(1); // reauthenticate's drain has not started yet
+    release();
+    await reauth;
+    expect(opsGets).toBe(2); // it ran after the auto-drain finished
+  });
+
+  it('an online event during a reauthenticate-owned drain still gets its follow-up run', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        opsGets++;
+        await gate; // hold the reauth-owned drain in flight
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    teardown = startReconnectAutoDrain(ctx);
+    const reauth = reauthenticate(ctx); // owns the drain slot, blocked on the gate
+    await new Promise((r) => setTimeout(r, 50));
+    expect(opsGets).toBe(1);
+
+    window.dispatchEvent(new Event('online'));
+    await settle(); // debounce fired mid-reauth-drain: coalesced, not dropped
+    expect(opsGets).toBe(1);
+    release();
+    await reauth;
+    await settle(); // the queued follow-up must run after the reauth drain settles
+    expect(opsGets).toBe(2);
+  });
+
+  it('a concurrent flush entry point serializes behind an in-flight flush instead of double-posting', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    let postsInFlight = 0;
+    let maxPostsInFlight = 0;
+    let opsPosted = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') {
+        postsInFlight++;
+        maxPostsInFlight = Math.max(maxPostsInFlight, postsInFlight);
+        const { ops } = JSON.parse(init.body);
+        opsPosted += ops.length;
+        await gate; // hold the first flush mid-POST
+        postsInFlight--;
+        return new Response(JSON.stringify({ assigned: ops.map((_, i) => i + 1) }), { status: 200 });
+      }
+      if (String(url).startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    // writeRecord's inline flush blocks mid-POST on the gate…
+    const write = writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await vi.waitFor(() => expect(postsInFlight).toBe(1));
+    // …while the inbox ack barrier enters flushPending through its own door.
+    // Unserialized, it would re-read the same 'pending' set and re-POST note-1
+    // under the same predicted seq — a guaranteed mis-predict.
+    const confirmed = flushConfirmed(ctx);
+    await new Promise((r) => setTimeout(r, 50));
+    release();
+    await write;
+    await expect(confirmed).resolves.toBe(true);
+    expect(maxPostsInFlight).toBe(1); // never two flushes in flight at once
+    expect(opsPosted).toBe(1); // note-1 posted exactly once
+  });
+
+  it('a drain that settles auth-expired invokes onAuthExpired (mid-session expiry surface)', async () => {
+    // The boot-time banner check runs exactly once; a session expiring under a
+    // long-lived tab is only ever detected by these event-driven drains, so
+    // the drain must hand the state to the caller instead of queueing silently.
+    let surfaced = 0;
+    let sessionValid = false;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        opsGets++;
+        if (!sessionValid) return new Response('unauthorized', { status: 401 });
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    teardown = startReconnectAutoDrain(ctx, { onAuthExpired: () => { surfaced++; } });
+    window.dispatchEvent(new Event('online'));
+    await settle();
+    expect(opsGets).toBe(1);
+    expect(surfaced).toBe(1); // the 401 drain surfaced the expiry
+
+    // Session restored (e.g. re-auth completed): a successful drain must not
+    // re-fire the callback (this also clears the module auth-expired state).
+    sessionValid = true;
+    window.dispatchEvent(new Event('online'));
+    await settle();
+    expect(surfaced).toBe(1);
+  });
+
+  it('a post-teardown online event no longer drains', async () => {
+    teardown = startReconnectAutoDrain(ctx);
+    teardown();
+    teardown = null;
+    window.dispatchEvent(new Event('online'));
+    await settle();
+    expect(opsGets).toBe(0);
   });
 });
 

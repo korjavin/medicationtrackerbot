@@ -188,7 +188,7 @@ window.MedTrackerCloudReady = (async function boot() {
     // (see decision above). A failed sync/shim-install is not a reason to evict
     // the user to the unlock screen.
     try {
-        const [{ installApiShim }, { pullOnOpen }] = await Promise.all([
+        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, getSyncStatus, reauthenticate }] = await Promise.all([
             import('/js/apishim.js'),
             import('/js/sync.js'),
         ]);
@@ -219,6 +219,47 @@ window.MedTrackerCloudReady = (async function boot() {
                 : realApiCallDirect(endpoint, method, body, opts)
         );
         await pullOnOpen(ctx);
+        // med-deq.2: the sync-status re-auth affordance lives in the unlock
+        // shell, but a device with a warm LDK cache never sees that shell
+        // (/unlock redirects straight back to /), so the real app must surface
+        // an expired session itself. Called once after the boot drain and
+        // again whenever a reconnect auto-drain settles into auth-expired —
+        // a session expiring under a long-lived tab must not queue silently.
+        // Best-effort, never blocks boot; the banner id dedupes repeat calls.
+        const surfaceAuthExpired = () => (async () => {
+            if (!(await getSyncStatus(ctx)).authExpired) return;
+            if (!document.body) await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
+            if (document.getElementById('auth-expired-banner')) return;
+            const banner = document.createElement('div');
+            banner.id = 'auth-expired-banner';
+            banner.className = 'offline-banner'; // reuse the sync-degraded strip style
+            banner.setAttribute('aria-live', 'polite');
+            banner.append('Session expired — sync is paused. ');
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = 'Re-authenticate';
+            btn.addEventListener('click', () => {
+                btn.disabled = true;
+                reauthenticate(ctx)
+                    .then(async (status) => {
+                        if (status.authExpired) { btn.disabled = false; return; }
+                        banner.remove();
+                        // The drain may have pulled peer changes — repaint the
+                        // shim-served tags, same set as the boot drain above.
+                        if (window.DataStore && typeof window.DataStore.invalidateTags === 'function') {
+                            await window.DataStore.invalidateTags(['bp', 'weight', 'medications', 'history', 'workout']);
+                        }
+                    })
+                    .catch(() => { btn.disabled = false; });
+            });
+            banner.appendChild(btn);
+            document.body.prepend(banner);
+        })().catch((e) => console.error('[cloud-boot] auth-expired surface failed', e));
+        // Reconnect auto-drain: online / visibility-regain events re-run the
+        // boot drain so queued offline edits sync without a write or reload;
+        // a drain that settles auth-expired re-surfaces the banner above.
+        startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired });
+        surfaceAuthExpired();
         if (window.DataStore && typeof window.DataStore.invalidateTags === 'function') {
             // Cloud mode has no change-poll loop — pullOnOpen is the only sync
             // trigger — so every shim-served tag must be evicted here or a

@@ -144,13 +144,42 @@ function renderUnlocked(app, ctx) {
   // threat model treats the server as hostile; XSS here reads the DEK).
   app.querySelector('#account-id').textContent = ctx.accountId;
   import('./sync.js')
-    .then(({ pullOnOpen, describeSyncStatus }) =>
+    .then(({ pullOnOpen, describeSyncStatus, getSyncStatus, reauthenticate }) =>
       pullOnOpen(ctx)
         .catch(() => {})
-        .then(() => describeSyncStatus(ctx))
-        .then((text) => {
+        .then(() => Promise.all([describeSyncStatus(ctx), getSyncStatus(ctx)]))
+        .then(([text, status]) => {
           const el = app.querySelector('#sync-status');
-          if (el) el.textContent = text;
+          if (!el) return;
+          el.textContent = text;
+          if (!status.authExpired || app.querySelector('#reauth-button')) return;
+          const btn = document.createElement('button');
+          btn.id = 'reauth-button';
+          btn.textContent = 'Re-authenticate';
+          btn.addEventListener('click', () => {
+            btn.disabled = true;
+            reauthenticate(ctx)
+              .then((status) => describeSyncStatus(ctx).then((t) => {
+                el.textContent = t;
+                // The post-ceremony drain can 401 again (cookie dropped by an
+                // intermediary, credential revoked mid-flight) — keep the
+                // button so the user can retry, same guard as cloud-boot.js.
+                if (status.authExpired) { btn.disabled = false; return; }
+                btn.remove();
+                app.querySelector('section .wizard-error')?.remove();
+              }))
+              .catch((err) => {
+                btn.disabled = false;
+                // Reuse a single error node — repeated retries must not stack
+                // a paragraph per failure.
+                app.querySelector('section .wizard-error')?.remove();
+                const p = document.createElement('p');
+                p.className = 'wizard-error';
+                p.textContent = `Re-authentication failed — try again. (${err.message || String(err)})`;
+                app.querySelector('section').appendChild(p);
+              });
+          });
+          el.after(btn);
         })
     )
     .catch(() => {});
