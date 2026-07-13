@@ -405,6 +405,36 @@ describe('Settings → Integrations section', () => {
         expect(window.apiCall).not.toHaveBeenCalledWith('/api/settings/trial-consent', 'GET');
     });
 
+    it('a failed consent refresh keeps prior state instead of repainting granted scopes as "Not asked"', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        installTrialMetas(document, ['medtracker-trial-ai', 'medtracker-trial-voice']);
+        // apiCall's offline wrapper swallows GET failures into null (no throw)
+        // — loadTrialConsent must not let that null wipe the loaded record.
+        let failGets = false;
+        const stub = trialConsentApiStub(window, { ai: true, voice: null, tg: null, updated_at: 1 });
+        window.apiCall = vi.fn(async (url, method, body) => {
+            if (url === '/api/settings/trial-consent' && method === 'GET' && failGets) return null;
+            return stub(url, method, body);
+        });
+
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+        expect(consentRow(document, 'ai').querySelector('[data-trial-consent-state]').textContent).toBe('Allowed');
+
+        // Grant voice through the dialog; the post-grant refresh GET fails.
+        failGets = true;
+        consentRow(document, 'voice').querySelector('[data-trial-consent-action]').click();
+        await new Promise(r => setTimeout(r, 0));
+        document.querySelector('.wg-trial-consent-modal [data-trial-consent-choice="allow"]').click();
+        await new Promise(r => setTimeout(r, 0));
+        await new Promise(r => setTimeout(r, 0));
+
+        // ai keeps its real granted state; the failed refresh didn't reset it.
+        expect(consentRow(document, 'ai').querySelector('[data-trial-consent-state]').textContent).toBe('Allowed');
+        expect(consentRow(document, 'ai').querySelector('[data-trial-consent-action]').textContent).toBe('Revoke');
+    });
+
     it('Allow opens the consent disclosure dialog — the grant only lands after the dialog Allow', async () => {
         const { window, document } = env;
         window.__MEDTRACKER_CLOUD__ = true;

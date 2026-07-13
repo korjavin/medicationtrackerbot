@@ -247,8 +247,12 @@
             document.querySelector('meta[name="' + metaName + '"]')?.content === '1');
         if (!anyTrial) return;
         try {
-            _trialConsent = await apiCall('/api/settings/trial-consent', 'GET');
-        } catch (_) { /* keep prior state; rows fall back to "Not asked" */ }
+            // apiCall returns null (not a throw) on transient GET failures —
+            // only overwrite prior state with a real record, so a failed
+            // refresh doesn't repaint granted scopes as "Not asked".
+            const fresh = await apiCall('/api/settings/trial-consent', 'GET');
+            if (fresh && typeof fresh === 'object') _trialConsent = fresh;
+        } catch (_) { /* aborted — keep prior state */ }
         renderTrialConsentRows();
     }
 
