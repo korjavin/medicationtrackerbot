@@ -55,6 +55,17 @@ function trialBudgetUnavailableError() {
   return err;
 }
 
+// Skipping key setup is not consent (bd med-yor.2): trial transmission is
+// refused until the user explicitly allowed the scope in the trialconsent
+// vault record. Interactive UI paths catch this code and run the disclosure
+// dialog; the Telegram drain path lets it surface (no user present to ask).
+function trialConsentRequiredError(scope) {
+  const err = new Error("Using the operator's trial AI needs your consent first — allow it in Settings → Integrations.");
+  err.code = 'trial_consent_required';
+  err.scope = scope;
+  return err;
+}
+
 function trialAIAvailable() {
   if (typeof document === 'undefined') return false;
   return document.querySelector('meta[name="medtracker-trial-ai"]')?.content === '1';
@@ -286,10 +297,19 @@ export function createAIClient({ settingsDomain }) {
     };
   }
 
+  // Only a literal `true` passes — null (never asked), false (declined), or a
+  // missing record all refuse before any trial transmission. BYO calls never
+  // reach this (useTrial is false), so consent is never even read.
+  async function ensureTrialConsent(scope) {
+    const consent = await settingsDomain.getTrialConsent();
+    if (!consent || consent[scope] !== true) throw trialConsentRequiredError(scope);
+  }
+
   async function parseMealFromDescription(description) {
     const { text } = await credentials();
     const useTrial = !text.apiKey;
     if (useTrial && !trialAIAvailable()) throw noKeyError();
+    if (useTrial) await ensureTrialConsent('ai');
     const post = (body) => (useTrial
       ? postTrialChatCompletion(false, body)
       : postChatCompletion(`${text.url.replace(/\/$/, '')}/chat/completions`, text.apiKey, body));
@@ -322,6 +342,7 @@ export function createAIClient({ settingsDomain }) {
     const { vision } = await credentials();
     const useTrial = !vision.apiKey;
     if (useTrial && !trialAIAvailable()) throw noKeyError();
+    if (useTrial) await ensureTrialConsent('ai');
     const post = (body) => (useTrial
       ? postTrialChatCompletion(true, body)
       : postChatCompletion(`${vision.url.replace(/\/$/, '')}/chat/completions`, vision.apiKey, body));
@@ -361,10 +382,16 @@ export function createAIClient({ settingsDomain }) {
   // assistant message (content + tool_calls). The caller owns the loop. Uses the
   // same vault-key/trial plumbing as meal parsing; the trial path degrades to a
   // plain answer when the operator's model does not support tools.
+  // Trial calls gate on the `tg` scope: both production callers — the Telegram
+  // free-text agent (inbox-apply.js) and the gamification narrator — feed
+  // vault-derived health data into the messages, which is exactly what the tg
+  // disclosure names. The narrator's own error fallback turns a refusal into
+  // deterministic prose, never a surfaced error.
   async function chat({ messages, tools, temperature = 0.2 }) {
     const { text } = await credentials();
     const useTrial = !text.apiKey;
     if (useTrial && !trialAIAvailable()) throw noKeyError();
+    if (useTrial) await ensureTrialConsent('tg');
     const body = { model: text.model, temperature, messages };
     if (tools && tools.length) {
       body.tools = tools;

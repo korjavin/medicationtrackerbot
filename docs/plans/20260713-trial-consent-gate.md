@@ -175,7 +175,7 @@ refusal, revocation, BYO precedence.
 
 ### Task 2: Consent gate in aiclient.js (shared trial seam, `ai` vs `tg` scopes)
 
-- [ ] In `web/cloud/js/aiclient.js`, add a
+- [x] In `web/cloud/js/aiclient.js`, add a
       `trialConsentRequiredError(scope)` factory (code:
       `trial_consent_required`, `err.scope = scope`, message pointing at
       Settings → Integrations) and a private
@@ -183,7 +183,7 @@ refusal, revocation, BYO precedence.
       `settingsDomain.getTrialConsent()` and throws unless the scope is
       exactly `true` (null/false/missing all refuse — skipping setup is not
       consent).
-- [ ] Gate all three trial decisions: in `parseMealFromDescription` (:291) and
+- [x] Gate all three trial decisions: in `parseMealFromDescription` (:291) and
       `parseMealFromImage` (:323) call `await ensureTrialConsent('ai')` when
       `useTrial` is true (after the existing `trialAIAvailable()` check); in
       `chat` (:366) call `await ensureTrialConsent('tg')` when `useTrial` is
@@ -192,21 +192,39 @@ refusal, revocation, BYO precedence.
       (`inbox-apply.js:481-482`); if another caller exists, note it here with ➕
       and pick its scope explicitly. BYO path (apiKey present) must remain
       completely untouched — no consent read at all.
-- [ ] Update existing aiclient trial tests to grant consent in fixtures (a
+      ➕ The grep found a second production `chat` caller: the gamification
+      narrator (`web/cloud/js/gamification-narrator.js:141`, wired in
+      `apishim.js:143`). It sends vault-derived, already-computed health
+      summaries — the same data category the `tg` disclosure names — so
+      `chat()` gates uniformly on the `tg` scope for both callers. The
+      narrator's invariant-3 catch turns a refusal into its deterministic
+      fallback (`{ text: null }`), so no error ever surfaces from that path;
+      without `tg` consent trial narration simply doesn't happen.
+- [x] Update existing aiclient trial tests to grant consent in fixtures (a
       settingsDomain stub whose `getTrialConsent` returns the needed scope) —
-      do not weaken assertions.
-- [ ] Write new tests in the aiclient suite: (a) first use — no consent record
+      do not weaken assertions. (The existing trial tests in
+      `cloud.shim-contract.food-ai.test.js` drive the REAL settings domain, so
+      they grant via the real shim route — `grantTrialConsent(window)` PATCHes
+      `/api/settings/trial-consent`; the stub approach is used in the new
+      direct-seam tests. The "vault key beats trial" test deliberately grants
+      nothing, proving BYO works with the gate never involved.)
+- [x] Write new tests in the aiclient suite: (a) first use — no consent record
       → `trial_consent_required` and NO fetch to `/api/trial/...`; (b) refusal
       — scope `false` → same refusal, no fetch; (c) revocation — consent
       granted then set false → refused; (d) BYO precedence — apiKey present →
       request goes to the provider URL and `getTrialConsent` is never called;
       (e) scope separation — `{ ai: true, tg: null }` lets meal parsing
       through but `chat()` still throws `trial_consent_required` with
-      scope `tg` (and vice versa).
-- [ ] Write a tg-agent-level test (existing tg-agent suite): a `chat` port that
+      scope `tg` (and vice versa). (Two new describe blocks in
+      `cloud.shim-contract.food-ai.test.js`: route-driven gate tests incl. the
+      photo path, plus direct `createAIClient` tests for (d)/(e).)
+- [x] Write a tg-agent-level test (existing tg-agent suite): a `chat` port that
       throws `trial_consent_required` results in no trial transmission and a
       surfaced error (no crash/hang of the drain loop).
-- [ ] Run the touched vitest files — must pass before Task 3.
+- [x] Run the touched vitest files — must pass before Task 3. (31/31 in the
+      food-ai + tg-agent suites; inbox-apply, gamification-narrator,
+      elevenlabs + settings shim-contract, and firstrun suites all green —
+      95 more tests.)
 
 ### Task 3: Consent gate for trial voice in elevenlabs-call.js
 

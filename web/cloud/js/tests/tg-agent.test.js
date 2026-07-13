@@ -74,4 +74,21 @@ describe('tg-agent.js — free-text tool loop', () => {
     // 2 budgeted tool rounds + 1 forced no-tools final.
     expect(chat).toHaveBeenCalledTimes(3);
   });
+
+  // bd med-yor.2 — the drain runs with no user present, so a chat port refusing
+  // trial consent must surface as an ordinary rejection (inbox-apply answers and
+  // acks it, same as any agent failure) with no tool dispatch and no hang.
+  it('a chat port refusing trial consent rejects cleanly without dispatching any tool', async () => {
+    const handle = vi.fn();
+    const chat = vi.fn(async () => {
+      const err = new Error('trial consent required');
+      err.code = 'trial_consent_required';
+      err.scope = 'tg';
+      throw err;
+    });
+
+    await expect(createTGAgent({ chat, dispatcher: { handle } }).run('what was my BP this week?'))
+      .rejects.toMatchObject({ code: 'trial_consent_required', scope: 'tg' });
+    expect(handle).not.toHaveBeenCalled();
+  });
 });
