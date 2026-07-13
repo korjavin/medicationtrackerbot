@@ -1,8 +1,6 @@
 package cloudserver
 
 import (
-	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -91,25 +89,5 @@ func (a *FoodProxyAPI) Barcode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *FoodProxyAPI) proxyRequest(upstreamURL string, w http.ResponseWriter, r *http.Request) {
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, upstreamURL, nil)
-	if err != nil {
-		slog.Error("foodproxy: failed to create request", "error", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	if a.foodDBAPIKey != "" {
-		req.Header.Set("X-API-Key", a.foodDBAPIKey)
-	}
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		slog.Error("foodproxy: upstream request failed", "error", err)
-		http.Error(w, "gateway timeout", http.StatusGatewayTimeout)
-		return
-	}
-	defer resp.Body.Close()
-
-	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	proxyUpstream(a.client, "foodproxy", upstreamURL, a.foodDBAPIKey, w, r)
 }

@@ -1,21 +1,17 @@
-// Browser implementation of the rxnorm port (C2b Task 6) — direct
-// fetch()es from the browser to the public RxNav APIs, exact URLs and
-// warning-string format from internal/rxnorm/client.go. Nothing is
-// persisted beyond rxcui/normalized_name on the med record (Task 2); this
-// module never proxies through the cloud server, so drug-name queries hit
-// RxNav (NIH) directly from the client's own IP, not the operator's.
+// Browser implementation of the rxnorm port (C2b Task 6) — routes through
+// the operator's blind same-origin RxNav proxy (`/api/rxnav/*`,
+// internal/cloudserver/rxnav_proxy.go), not browser-direct: the DEK-bearing
+// app document's `connect-src` is 'self' + BYO hosts only, so direct fetches
+// to rxnav.nlm.nih.gov / lhncbc.nlm.nih.gov are structurally CSP-blocked.
+// Tradeoff: the operator sees the drug-name query in transit, but the proxy
+// is blind by the fixed-string log invariant (never logs name/rxcui/body),
+// and nothing is persisted beyond rxcui/normalized_name on the med record.
+// Warning-string format still mirrors internal/rxnorm/client.go.
 //
-// CORS check (2026-07-05): rxnav.nlm.nih.gov's rxcui.json,
-// approximateTerm.json and rxcui/{id}/properties.json all send
-// `access-control-allow-origin: *` — fine from the browser. The
-// interaction endpoint (lhncbc.nlm.nih.gov/RxNav/APIs/api/interaction/
-// list.json) is NOT a CORS problem, it's gone: every request 403s with a
-// static CloudFront/S3 error page, matching NLM's public interaction-API
-// decommission. checkInteractions() below degrades to [] on any
-// non-OK/non-JSON response, same as a network failure — the med save
-// still succeeds, it just never surfaces an interaction warning.
-const BASE_URL = 'https://rxnav.nlm.nih.gov';
-const INTERACTION_URL = 'https://lhncbc.nlm.nih.gov/RxNav/APIs';
+// NLM decommissioned the public interaction-list endpoint (403s); the proxy
+// forwards anyway and checkInteractions() degrades to [] on any non-OK/
+// non-JSON response, same as a network failure — the med save still
+// succeeds, it just never surfaces an interaction warning.
 
 // 10s cap mirrors internal/rxnorm/client.go's http.Client{Timeout: 10s}. A
 // bare fetch() has no timeout, so a half-open stall (captive portal, degraded
@@ -38,7 +34,7 @@ async function fetchJson(url) {
 }
 
 async function searchApproximate(term) {
-  const url = `${BASE_URL}/REST/approximateTerm.json?term=${encodeURIComponent(term)}&maxEntries=1`;
+  const url = `/api/rxnav/approximate?term=${encodeURIComponent(term)}`;
   const data = await fetchJson(url);
   const candidates = data && data.approximateGroup && data.approximateGroup.candidate;
   return (candidates && candidates.length > 0 && candidates[0].rxcui) || '';
@@ -49,7 +45,7 @@ async function searchApproximate(term) {
 export async function searchRxNorm(name) {
   let rxcui = '';
   try {
-    const searchUrl = `${BASE_URL}/REST/rxcui.json?name=${encodeURIComponent(name)}`;
+    const searchUrl = `/api/rxnav/rxcui?name=${encodeURIComponent(name)}`;
     const data = await fetchJson(searchUrl);
     const ids = data && data.idGroup && data.idGroup.rxnormId;
     rxcui = (ids && ids.length > 0 && ids[0]) || '';
@@ -60,7 +56,7 @@ export async function searchRxNorm(name) {
   if (!rxcui) return { rxcui: '', normalizedName: '' };
 
   try {
-    const propUrl = `${BASE_URL}/REST/rxcui/${rxcui}/properties.json`;
+    const propUrl = `/api/rxnav/properties?rxcui=${encodeURIComponent(rxcui)}`;
     const data = await fetchJson(propUrl);
     const normalizedName = (data && data.properties && data.properties.name) || '';
     return { rxcui, normalizedName };
@@ -74,7 +70,7 @@ export async function searchRxNorm(name) {
 export async function checkInteractions(rxcuis) {
   if (!rxcuis || rxcuis.length < 2) return [];
   try {
-    const url = `${INTERACTION_URL}/api/interaction/list.json?rxcuis=${rxcuis.map(encodeURIComponent).join('+')}`;
+    const url = `/api/rxnav/interactions?rxcuis=${encodeURIComponent(rxcuis.join(','))}`;
     const data = await fetchJson(url);
     const groups = (data && data.fullInteractionTypeGroup) || [];
     const warnings = [];

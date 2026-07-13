@@ -21,15 +21,28 @@ function canAllowlist(host) {
 
 // hostsFromIntegrations extracts the unique lowercased hostnames the DEK page
 // connects to browser-direct: the BYO AI provider (openai.url / vision_url)
-// and the BYO food-DB (food.url). api.elevenlabs.io is fixed and always
-// allowed server-side, so it is intentionally NOT included here. Unparseable
-// or empty URLs (e.g. an unset provider, or a bare host with no scheme) and
-// hosts the server would reject (see canAllowlist) are skipped.
+// and the BYO food-DB (food.url, or the bare-host food.domain fallback that
+// fooddb.js baseURL() uses when food.url is unset). api.elevenlabs.io is fixed
+// and always allowed server-side, so it is intentionally NOT included here.
+// Unparseable or empty URLs (e.g. an unset provider) and hosts the server
+// would reject (see canAllowlist) are skipped.
 export function hostsFromIntegrations(integrations) {
+  const food = (integrations && integrations.food) || {};
+  const foodURL = typeof food.url === 'string' ? food.url.trim() : '';
+  // food.domain is only contacted when food.url is unset (fooddb.js baseURL()
+  // precedence), so only register it then — keep connect-src minimal. It may be
+  // a bare host with no scheme; fooddb.js prepends https:// before fetching, so
+  // normalize the same way here or new URL() rejects it and it never registers.
+  let foodDomain = '';
+  if (!foodURL && typeof food.domain === 'string' && food.domain.trim()) {
+    foodDomain = food.domain.trim();
+    if (!/^https?:\/\//.test(foodDomain)) foodDomain = `https://${foodDomain}`;
+  }
   const urls = [
     integrations && integrations.openai && integrations.openai.url,
     integrations && integrations.openai && integrations.openai.vision_url,
-    integrations && integrations.food && integrations.food.url,
+    foodURL,
+    foodDomain,
   ];
   const hosts = [];
   for (const raw of urls) {

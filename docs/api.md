@@ -98,6 +98,10 @@ All routes gate on the `gamification_enabled` flag in the service layer: when of
 |--------|----------|-------------|
 | GET | `/api/food/search` | Same-origin proxy for the operator default `CLOUD_FOOD_DB_URL` (bypasses browser CORS requirements) |
 | GET | `/api/food/barcode/{barcode}` | Same-origin proxy for the operator default `CLOUD_FOOD_DB_URL` |
+| GET | `/api/rxnav/rxcui` | Same-origin blind proxy → RxNav `/REST/rxcui.json?name=` (drug-name → rxcui) |
+| GET | `/api/rxnav/approximate` | Same-origin blind proxy → RxNav `/REST/approximateTerm.json?term=` |
+| GET | `/api/rxnav/properties` | Same-origin blind proxy → RxNav `/REST/rxcui/{rxcui}/properties.json` (rxcui digits-only) |
+| GET | `/api/rxnav/interactions` | Same-origin blind proxy → `/api/interaction/list.json?rxcuis=` (rxcuis digits-only; upstream currently decommissioned by NLM, degrades to `[]`) |
 
 ## Cloud Mode Invites (`cmd/cloud` only)
 
