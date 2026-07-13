@@ -169,4 +169,20 @@ describe('features/trial-consent.js — disclosure dialog + retry seam', () => {
         await expect(p2).resolves.toBe(true);
         expect(env.window.apiCall).toHaveBeenCalledTimes(1);
     });
+
+    it('modal CSS lifts the dialog onto the backdrop layer (--z-confirm)', async () => {
+        // The dialog reuses .mt-confirm-backdrop (z-index: var(--z-confirm),
+        // 1050) but the .wg-modal shell sits at var(--z-modal) (1001). Without
+        // an explicit .wg-trial-consent-modal rule on the confirm layer the
+        // backdrop occludes the dialog and every tap hit-tests to the
+        // backdrop's dismiss handler — consent could never be granted by
+        // pointer. jsdom does no z-index hit-testing, so pin the rule itself.
+        const { readFileSync } = await import('node:fs');
+        const { fileURLToPath } = await import('node:url');
+        const cssPath = fileURLToPath(new URL('../../css/styles.css', import.meta.url));
+        const css = readFileSync(cssPath, 'utf8');
+        const rule = css.match(/\.wg-trial-consent-modal\s*\{[^}]*\}/);
+        expect(rule, '.wg-trial-consent-modal rule missing from styles.css').not.toBeNull();
+        expect(rule[0]).toMatch(/z-index:\s*var\(--z-confirm\)/);
+    });
 });

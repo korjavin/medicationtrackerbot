@@ -3802,6 +3802,14 @@ input:checked+.toggle-slider:before {
     z-index: var(--z-confirm);
 }
 
+/* Trial-consent disclosure dialog shares the confirm backdrop
+   (.mt-confirm-backdrop at --z-confirm), so the modal must sit on the same
+   layer — at the .wg-modal default (--z-modal) the backdrop would occlude
+   the dialog and swallow every tap as a dismiss. */
+.wg-trial-consent-modal {
+    z-index: var(--z-confirm);
+}
+
 .mt-confirm-modal__message {
     margin: 0;
     font-family: var(--wg-font-ui);
