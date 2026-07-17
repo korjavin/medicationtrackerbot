@@ -73,9 +73,9 @@ BP `bp.list`; meds `medications.list` + `intake.history`; sleep `vitals.sleep({f
 - [x] Run the analysis test + domain-purity — must pass before Task 3.
 
 ### Task 3: analysis.js — fitness
-- [ ] Implement `fitness({from,to,days,excludeNotes})`: workouts (completion_rate incl. mi-band + group/variant names), steps (avg_daily_steps), nutrition (per-day macro sums, **food names dropped**, avg calories/protein), weight (current_kg/change_kg/trend_direction ±0.1 kg, **kg-only**), diary notes; gates workout/food/weight; `unavailable` list. Match the `{period, workouts?, …, warning?}` shape.
-- [ ] Write tests against `fitness_test.go`-derived expectations + a gated-off case.
-- [ ] Run the analysis test — must pass before Task 4.
+- [x] Implement `fitness({from,to,days,excludeNotes})`: workouts (completion_rate incl. mi-band + group/variant names), steps (avg_daily_steps), nutrition (per-day macro sums, **food names dropped**, avg calories/protein), weight (current_kg/change_kg/trend_direction ±0.1 kg, **kg-only**), diary notes; gates workout/food/weight; `unavailable` list. Match the `{period, workouts?, …, warning?}` shape.
+- [x] Write tests against `fitness_test.go`-derived expectations + a gated-off case.
+- [x] Run the analysis test — must pass before Task 4.
 
 ### Task 4: Cloud-extra catalog + responder merge
 - [ ] Add `web/cloud/js/mcp-catalog.cloud-extra.js` exporting `CLOUD_EXTRA = [ {…cardiovascular op}, {…fitness op} ]` with `id, topic:"health", method:"GET", path, risk:"read", description, response_summary, params_schema:{start_date,end_date,days,exclude_notes}, response_example` (example copied from a real `analysis.js` result for seeded data).

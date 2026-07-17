@@ -190,5 +190,179 @@ export function createAnalysis({
     return response;
   }
 
-  return { cardiovascular };
+  // -- fitness --
+
+  // Manual session view (workout.listSessions) → the Go WorkoutSessionResult
+  // shape (type "manual", date-only scheduled_date, omit-empty optional fields).
+  function manualSessionResult(view) {
+    const s = view.session;
+    const result = {
+      type: 'manual',
+      group_name: view.group_name,
+      scheduled_date: String(s.scheduled_date).slice(0, 10),
+      status: s.status,
+    };
+    if (view.variant_name) result.variant_name = view.variant_name;
+    if (s.started_at) result.started_at = s.started_at;
+    if (s.completed_at) result.completed_at = s.completed_at;
+    if (s.notes) result.notes = s.notes;
+    return result;
+  }
+
+  // Mi-band workout (workout.listMiBand) → WorkoutSessionResult (type "miband",
+  // always counted as a completed session). Optional metric fields drop when
+  // zero, matching the Go `if wo.Steps > 0 { ... }` guards.
+  function mibandSessionResult(wo) {
+    const result = {
+      type: 'miband',
+      group_name: wo.activity_name,
+      scheduled_date: String(wo.start_time).slice(0, 10),
+      status: 'completed',
+      started_at: wo.start_time,
+      completed_at: wo.end_time,
+      duration_sec: wo.duration_sec,
+      distance_m: wo.distance_m,
+    };
+    if (wo.steps > 0) result.steps = wo.steps;
+    if (wo.calories > 0) result.calories = wo.calories;
+    if (wo.heart_rate_avg > 0) result.heart_rate_avg = wo.heart_rate_avg;
+    return result;
+  }
+
+  async function fitness({
+    from, to, days, excludeNotes, features,
+  } = {}) {
+    const { fromMs, toMs, period } = resolveWindow({ from, to, days }, now(), timeZone);
+    const inRange = (ms) => ms >= fromMs && ms <= toMs;
+    const unavailable = [];
+    const warnings = [];
+    const response = { period };
+
+    // Workouts (gated): manual sessions in range + mi-band workouts in range,
+    // every mi-band counted as a completed session (fetchWorkoutsSection).
+    if (gated(features, 'workout')) {
+      const manual = (await workout.listSessions(1000))
+        .filter((v) => inRange(Date.parse(v.session.scheduled_date)));
+      const miband = (await workout.listMiBand(1000))
+        .filter((w) => inRange(Date.parse(w.start_time)));
+      const sessions = [
+        ...manual.map(manualSessionResult),
+        ...miband.map(mibandSessionResult),
+      ];
+      // Descending by started_at (falling back to scheduled_date), matching
+      // the Go sort.Slice on the same string keys.
+      sessions.sort((a, b) => {
+        const ka = a.started_at || a.scheduled_date;
+        const kb = b.started_at || b.scheduled_date;
+        return ka < kb ? 1 : ka > kb ? -1 : 0;
+      });
+      const total = manual.length + miband.length;
+      const completed = manual.filter((v) => v.session.status === 'completed').length + miband.length;
+      response.workouts = {
+        sessions,
+        total_sessions: total,
+        completion_rate: total > 0 ? (completed / total) * 100 : 0,
+      };
+    } else {
+      unavailable.push('workouts (feature disabled)');
+    }
+
+    // Steps (no gate): per-day step/calorie/distance rows in range.
+    const dayStats = await vitals.listDayStats({
+      from: fmtDay(fromMs, timeZone), to: fmtDay(toMs, timeZone),
+    });
+    const daily = dayStats.map((d) => ({
+      date: d.day, steps: d.steps, calories: d.calories, distance: d.distance,
+    }));
+    response.steps = {
+      daily,
+      avg_daily_steps: daily.length > 0
+        ? Math.trunc(daily.reduce((sum, d) => sum + d.steps, 0) / daily.length) : 0,
+    };
+
+    // Nutrition (gated): per-day macro sums, food names dropped, avg over
+    // days-with-data. Group individual logs by their local day (matching
+    // fetchNutritionSection); the instant filter owns the exact window.
+    if (gated(features, 'food')) {
+      const startDay = startOfDayMs(fmtDay(fromMs, timeZone), timeZone);
+      const endDay = startOfDayMs(fmtDay(toMs, timeZone), timeZone);
+      const totalDays = Math.round((endDay - startDay) / DAY_MS) + 1;
+      // +2 days of slack so a DST-skewed count never trims an edge day; the
+      // per-log instant filter below re-imposes the exact [fromMs,toMs] window.
+      const groups = await food.listGrouped({ date: fmtDay(toMs, timeZone), days: totalDays + 2 });
+      const dayMap = new Map();
+      for (const g of groups) {
+        for (const log of g.logs) {
+          const ms = Date.parse(log.eaten_at);
+          if (!inRange(ms)) continue;
+          const day = fmtDay(ms, timeZone);
+          let dt = dayMap.get(day);
+          if (!dt) {
+            dt = {
+              date: day, calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0,
+            };
+            dayMap.set(day, dt);
+          }
+          dt.calories += log.calories;
+          dt.protein_g += log.protein;
+          dt.carbs_g += log.carbs;
+          dt.fat_g += log.fat;
+        }
+      }
+      const dailyTotals = [...dayMap.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+      const daysWithData = dailyTotals.length;
+      response.nutrition = {
+        daily_totals: dailyTotals,
+        avg_daily_calories: daysWithData > 0
+          ? Math.trunc(dailyTotals.reduce((s, d) => s + d.calories, 0) / daysWithData) : 0,
+        avg_daily_protein: daysWithData > 0
+          ? Math.trunc(dailyTotals.reduce((s, d) => s + d.protein_g, 0) / daysWithData) : 0,
+      };
+    } else {
+      unavailable.push('nutrition (feature disabled)');
+    }
+
+    // Weight (gated): kg-only logs in range (newest-first), current + change +
+    // trend direction (±0.1 kg), insufficient_data with a single reading.
+    if (gated(features, 'weight')) {
+      const logs = (await weight.list({ days: 0, limit: 0 }))
+        .filter((l) => inRange(Date.parse(l.measured_at)))
+        .map((l) => {
+          const entry = { measured_at: fmtDay(Date.parse(l.measured_at), timeZone), weight_kg: l.weight };
+          if (l.weight_trend != null) entry.trend_kg = l.weight_trend;
+          if (l.body_fat != null) entry.body_fat_percent = l.body_fat;
+          if (l.notes) entry.notes = l.notes;
+          return entry;
+        });
+      const section = { logs };
+      if (logs.length > 0) {
+        const current = logs[0].weight_kg;
+        section.current_kg = current;
+        if (logs.length >= 2) {
+          const change = current - logs[logs.length - 1].weight_kg;
+          section.change_kg = change;
+          section.trend_direction = change > 0.1 ? 'gaining' : change < -0.1 ? 'losing' : 'stable';
+        } else {
+          section.trend_direction = 'insufficient_data';
+        }
+      }
+      response.weight = section;
+    } else {
+      unavailable.push('weight (feature disabled)');
+    }
+
+    if (!excludeNotes) {
+      const { notes: notesOut, truncated } = await diaryNotes(fromMs, toMs);
+      if (notesOut.length > 0) response.diary_notes = notesOut;
+      if (truncated) warnings.push(NOTES_TRUNCATED_WARNING);
+    }
+
+    if (unavailable.length > 0) {
+      warnings.push(`Unavailable sections: ${unavailable.join(', ')}.`);
+    }
+    if (warnings.length > 0) response.warning = warnings.join(' ');
+    return response;
+  }
+
+  return { cardiovascular, fitness };
 }
