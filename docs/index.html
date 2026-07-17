@@ -4,9 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Medication Tracker — Private health tracking, without the inconvenience</title>
+    <title>Give AI your health context — without giving anyone permanent access</title>
     <meta name="description"
-        content="A self-hosted, end-to-end encrypted health companion. Your devices hold the keys; the server holds a sealed blob. Track meds, BP, weight, workouts, food, sleep — with sync, reminders, and AI that still work.">
+        content="An AI-native, zero-knowledge health record. Point any compatible AI at your full history — it can only reach your data while you're there with an unlocked device. No device, no access. Self-hosted, yours.">
     <link rel="icon" type="image/jpeg" href="logo.jpg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,9 +16,9 @@
 
     <style>
         :root {
-            /* Wandergeek — the product's own identity */
             --surface: #0f2522;
             --surface-2: #18302d;
+            --surface-3: #12201d;
             --primary: #56AC8A;
             --primary-bright: #9CE4CC;
             --secondary: #FBBD0D;
@@ -30,6 +30,7 @@
             --line-dark: rgba(255, 255, 255, 0.12);
             --on-dark: #F4FBF7;
             --on-dark-soft: rgba(244, 251, 247, 0.72);
+            --danger: #E7856B;
         }
 
         * {
@@ -55,24 +56,44 @@
             margin: 0;
         }
 
-        a {
-            color: inherit;
-        }
-
         .wrap {
-            max-width: 1040px;
+            max-width: 1080px;
             margin: 0 auto;
             padding: 0 1.5rem;
+        }
+
+        /* ---------- Phone / screenshot frames ---------- */
+        .phone {
+            border-radius: 36px;
+            border: 9px solid #0a1917;
+            background: #0a1917;
+            box-shadow: 0 34px 70px rgba(0, 0, 0, 0.45);
+            overflow: hidden;
+            width: 100%;
+            max-width: 290px;
+        }
+
+        .phone img {
+            display: block;
+            width: 100%;
+        }
+
+        .shot {
+            display: block;
+            width: 100%;
+            border-radius: 14px;
+            border: 1px solid var(--line);
+            box-shadow: 0 22px 48px rgba(0, 0, 0, 0.28);
         }
 
         /* ---------- Hero ---------- */
         .hero {
             background:
-                radial-gradient(1200px 600px at 70% -10%, rgba(86, 172, 138, 0.35), transparent 60%),
-                radial-gradient(900px 500px at 10% 10%, rgba(251, 189, 13, 0.10), transparent 55%),
+                radial-gradient(1200px 620px at 78% -10%, rgba(86, 172, 138, 0.4), transparent 60%),
+                radial-gradient(900px 520px at 6% 8%, rgba(251, 189, 13, 0.1), transparent 55%),
                 var(--surface);
             color: var(--on-dark);
-            padding: 2rem 0 5.5rem;
+            padding: 1.5rem 0 5rem;
             border-bottom: 1px solid var(--line-dark);
         }
 
@@ -110,9 +131,12 @@
             color: var(--on-dark);
         }
 
-        .hero-inner {
-            max-width: 760px;
-            margin-top: 3.5rem;
+        .hero-grid {
+            display: grid;
+            grid-template-columns: 1.15fr 0.85fr;
+            gap: 2.5rem;
+            align-items: center;
+            margin-top: 2.5rem;
         }
 
         .eyebrow {
@@ -126,12 +150,11 @@
             border-radius: 999px;
             font-size: 0.82rem;
             font-weight: 600;
-            letter-spacing: 0.02em;
             margin-bottom: 1.5rem;
         }
 
         .hero h1 {
-            font-size: clamp(2.3rem, 5.5vw, 3.6rem);
+            font-size: clamp(2.1rem, 4.8vw, 3.3rem);
             color: var(--on-dark);
         }
 
@@ -140,10 +163,22 @@
         }
 
         .hero .lead {
-            font-size: clamp(1.05rem, 2vw, 1.28rem);
+            font-size: clamp(1.02rem, 1.8vw, 1.22rem);
             color: var(--on-dark-soft);
-            margin: 1.4rem 0 2.2rem;
-            max-width: 640px;
+            margin: 1.3rem 0 1.5rem;
+            max-width: 620px;
+        }
+
+        .stamp {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            color: var(--on-dark);
+            font-size: 1.02rem;
+            margin: 0 0 1.9rem;
+        }
+
+        .stamp .no {
+            color: var(--secondary);
         }
 
         .cta-row {
@@ -162,7 +197,7 @@
             font-family: 'Outfit', sans-serif;
             text-decoration: none;
             font-size: 1rem;
-            transition: transform 0.15s ease, box-shadow 0.15s ease;
+            transition: transform 0.15s ease;
         }
 
         .btn:hover {
@@ -181,27 +216,157 @@
             border: 1px solid var(--line-dark);
         }
 
-        .promise {
-            margin-top: 2.6rem;
-            padding-top: 1.6rem;
-            border-top: 1px solid var(--line-dark);
-            color: var(--on-dark-soft);
-            font-size: 0.98rem;
-            max-width: 660px;
+        .hero-phone {
+            display: flex;
+            justify-content: center;
         }
 
-        .promise strong {
+        /* ---------- Device-gate ---------- */
+        .gate {
+            background: var(--surface-3);
             color: var(--on-dark);
+            padding: 4rem 0;
+        }
+
+        .gate .lede {
+            text-align: center;
+            max-width: 660px;
+            margin: 0 auto 2.6rem;
+        }
+
+        .gate .lede h2 {
+            font-size: clamp(1.6rem, 3.4vw, 2.2rem);
+        }
+
+        .gate .lede p {
+            color: var(--on-dark-soft);
+            font-size: 1.08rem;
+            margin: 0.8rem 0 0;
+        }
+
+        .states {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.25rem;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .state {
+            border-radius: 18px;
+            padding: 1.7rem;
+            border: 1px solid var(--line-dark);
+            background: var(--surface-2);
+        }
+
+        .state.ok {
+            border-color: rgba(86, 172, 138, 0.5);
+        }
+
+        .state.no {
+            border-color: rgba(231, 133, 107, 0.45);
+        }
+
+        .state .flow {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 700;
+            font-size: 0.98rem;
+            margin-bottom: 0.9rem;
+        }
+
+        .chip {
+            padding: 0.3rem 0.7rem;
+            border-radius: 9px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--line-dark);
+        }
+
+        .arrow {
+            color: var(--on-dark-soft);
+        }
+
+        .state.ok .result {
+            color: var(--primary-bright);
+        }
+
+        .state.no .result {
+            color: var(--danger);
+        }
+
+        .state .result {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+        }
+
+        .state p {
+            margin: 0.5rem 0 0;
+            color: var(--on-dark-soft);
+            font-size: 0.95rem;
+        }
+
+        .sees {
+            max-width: 900px;
+            margin: 1.5rem auto 0;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.9rem;
+            font-size: 0.9rem;
+        }
+
+        .sees div {
+            border: 1px dashed var(--line-dark);
+            border-radius: 12px;
+            padding: 0.9rem 1rem;
+            color: var(--on-dark-soft);
+        }
+
+        .sees strong {
+            display: block;
+            color: var(--on-dark);
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.82rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 0.3rem;
+        }
+
+        .proof {
+            max-width: 900px;
+            margin: 2.8rem auto 0;
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            gap: 2.2rem;
+            align-items: center;
+        }
+
+        .proof .cap h3 {
+            color: var(--on-dark);
+            font-size: 1.3rem;
+            margin-bottom: 0.6rem;
+        }
+
+        .proof .cap p {
+            color: var(--on-dark-soft);
+            margin: 0;
+        }
+
+        .proof .cap .quote {
+            color: var(--primary-bright);
+            font-weight: 600;
         }
 
         /* ---------- Sections ---------- */
-        section {
+        section.pad {
             padding: 4.5rem 0;
         }
 
         .section-head {
-            max-width: 640px;
-            margin-bottom: 2.6rem;
+            max-width: 680px;
+            margin-bottom: 2.4rem;
         }
 
         .kicker {
@@ -224,131 +389,64 @@
             margin: 0.9rem 0 0;
         }
 
-        /* ---------- Steps ---------- */
-        .steps {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1.25rem;
-        }
-
-        .step {
-            background: var(--card);
-            border: 1px solid var(--line);
-            border-radius: 18px;
-            padding: 1.8rem;
-        }
-
-        .step .num {
-            width: 40px;
-            height: 40px;
-            border-radius: 11px;
-            background: var(--surface);
-            color: var(--primary-bright);
-            font-family: 'Outfit', sans-serif;
-            font-weight: 800;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 1.1rem;
-        }
-
-        .step h3 {
-            font-size: 1.2rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .step p {
-            color: var(--ink-soft);
-            margin: 0;
-            font-size: 0.98rem;
-        }
-
-        /* ---------- Privacy band ---------- */
-        .band {
-            background: var(--surface);
-            color: var(--on-dark);
-        }
-
-        .band .kicker {
-            color: var(--primary-bright);
-        }
-
-        .band .section-head h2 {
-            color: var(--on-dark);
-        }
-
-        .band .section-head p {
-            color: var(--on-dark-soft);
-        }
-
-        .split {
+        .pillar {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 1.25rem;
+            gap: 2.5rem;
+            align-items: center;
         }
 
-        .pcard {
-            background: var(--surface-2);
-            border: 1px solid var(--line-dark);
-            border-radius: 18px;
-            padding: 1.8rem;
-        }
-
-        .pcard .tag {
-            font-size: 0.8rem;
-            font-weight: 700;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            color: var(--secondary);
-            margin-bottom: 0.6rem;
-        }
-
-        .pcard h3 {
-            font-size: 1.3rem;
-            color: var(--on-dark);
-            margin-bottom: 0.6rem;
-        }
-
-        .pcard p {
-            color: var(--on-dark-soft);
+        .pillar ul {
+            list-style: none;
+            padding: 0;
             margin: 0;
         }
 
-        .keeps {
-            margin-top: 1.75rem;
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1rem;
+        .pillar li {
+            position: relative;
+            padding-left: 1.7rem;
+            margin-bottom: 0.7rem;
+            color: var(--ink-soft);
         }
 
-        .keep {
-            border: 1px solid var(--line-dark);
+        .pillar li::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 8px;
+            width: 1rem;
+            height: 1rem;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" fill="%2356AC8A" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>');
+            background-size: contain;
+            background-repeat: no-repeat;
+        }
+
+        .ask {
+            background: var(--surface);
+            color: var(--on-dark);
             border-radius: 14px;
-            padding: 1.2rem 1.3rem;
+            padding: 1.1rem 1.3rem;
+            margin-bottom: 1.5rem;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
         }
 
-        .keep h4 {
-            font-family: 'Outfit', sans-serif;
-            font-size: 1.02rem;
-            margin: 0 0 0.35rem;
+        .ask span {
             color: var(--primary-bright);
         }
 
-        .keep p {
+        .evidence figcaption {
+            margin-top: 0.8rem;
+            font-size: 0.9rem;
+            color: var(--ink-soft);
+            text-align: center;
+        }
+
+        .evidence {
             margin: 0;
-            font-size: 0.92rem;
-            color: var(--on-dark-soft);
         }
 
-        .honest {
-            margin-top: 1.75rem;
-            font-size: 0.92rem;
-            color: var(--on-dark-soft);
-            border-left: 3px solid var(--secondary);
-            padding: 0.4rem 0 0.4rem 1rem;
-        }
-
-        /* ---------- Features ---------- */
+        /* ---------- Feature grid ---------- */
         .grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -379,90 +477,133 @@
             font-size: 0.94rem;
         }
 
-        /* ---------- Run modes ---------- */
-        .modes {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1.25rem;
+        /* ---------- Interfaces ---------- */
+        .band {
+            background: var(--surface);
+            color: var(--on-dark);
         }
 
-        .mode {
+        .band .kicker {
+            color: var(--primary-bright);
+        }
+
+        .band .section-head h2 {
+            color: var(--on-dark);
+        }
+
+        .band .section-head p {
+            color: var(--on-dark-soft);
+        }
+
+        .iface-grid {
+            display: grid;
+            grid-template-columns: 290px 1fr;
+            gap: 2.5rem;
+            align-items: center;
+        }
+
+        .iface-list {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .iface {
+            background: var(--surface-2);
+            border: 1px solid var(--line-dark);
+            border-radius: 16px;
+            padding: 1.4rem 1.5rem;
+            display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+        }
+
+        .iface .ico {
+            font-size: 1.6rem;
+            line-height: 1;
+        }
+
+        .iface h3 {
+            font-size: 1.15rem;
+            color: var(--on-dark);
+            margin-bottom: 0.25rem;
+        }
+
+        .iface p {
+            margin: 0;
+            color: var(--on-dark-soft);
+            font-size: 0.95rem;
+        }
+
+        /* ---------- Trust ---------- */
+        .trust {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.1rem;
+        }
+
+        .tcard {
             border: 1px solid var(--line);
-            border-radius: 18px;
-            padding: 2rem;
+            border-radius: 16px;
+            padding: 1.6rem;
             background: var(--card);
         }
 
-        .mode.rec {
-            border-color: var(--primary);
-            box-shadow: 0 16px 40px rgba(86, 172, 138, 0.15);
-        }
-
-        .mode .pill {
-            display: inline-block;
-            font-size: 0.72rem;
-            font-weight: 700;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            padding: 0.25rem 0.7rem;
-            border-radius: 999px;
-            background: var(--primary);
-            color: #06231b;
-            margin-bottom: 0.9rem;
-        }
-
-        .mode .pill.muted {
-            background: rgba(18, 32, 29, 0.08);
-            color: var(--ink-soft);
-        }
-
-        .mode h3 {
-            font-size: 1.4rem;
+        .tcard h3 {
+            font-size: 1.1rem;
             margin-bottom: 0.5rem;
         }
 
-        .mode ul {
-            list-style: none;
-            padding: 0;
-            margin: 1.1rem 0 1.4rem;
-        }
-
-        .mode li {
-            position: relative;
-            padding-left: 1.6rem;
-            margin-bottom: 0.6rem;
+        .tcard p {
+            margin: 0;
             color: var(--ink-soft);
-            font-size: 0.96rem;
+            font-size: 0.95rem;
         }
 
-        .mode li::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 8px;
-            width: 1rem;
-            height: 1rem;
-            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" fill="%2356AC8A" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>');
-            background-size: contain;
-            background-repeat: no-repeat;
-        }
-
-        .mode a.link {
-            font-weight: 700;
+        .tcard a {
             color: var(--primary);
+            font-weight: 700;
             text-decoration: none;
-            font-family: 'Outfit', sans-serif;
         }
 
-        .mode a.link:hover {
+        .tcard a:hover {
             text-decoration: underline;
         }
 
-        /* ---------- Footer ---------- */
+        .honest {
+            margin-top: 2rem;
+            font-size: 0.95rem;
+            color: var(--ink-soft);
+            border-left: 3px solid var(--secondary);
+            padding: 0.5rem 0 0.5rem 1.1rem;
+            max-width: 780px;
+        }
+
+        /* ---------- Final ---------- */
+        .final {
+            background: var(--surface-3);
+            color: var(--on-dark);
+            padding: 4.5rem 0;
+            text-align: center;
+        }
+
+        .final h2 {
+            font-size: clamp(1.8rem, 4vw, 2.6rem);
+            color: var(--on-dark);
+            max-width: 720px;
+            margin: 0 auto 1rem;
+        }
+
+        .final p {
+            color: var(--on-dark-soft);
+            max-width: 560px;
+            margin: 0 auto 2rem;
+            font-size: 1.08rem;
+        }
+
         footer {
             background: var(--surface);
             color: var(--on-dark-soft);
-            padding: 3rem 0;
+            padding: 2.2rem 0;
             border-top: 1px solid var(--line-dark);
         }
 
@@ -472,6 +613,7 @@
             justify-content: space-between;
             align-items: center;
             gap: 1rem;
+            font-size: 0.92rem;
         }
 
         .foot a {
@@ -485,13 +627,28 @@
             color: var(--primary-bright);
         }
 
-        @media (max-width: 820px) {
+        @media (max-width: 860px) {
 
-            .steps,
-            .split,
-            .keeps,
+            .hero-grid,
+            .pillar,
+            .proof,
+            .iface-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .hero-phone {
+                order: -1;
+            }
+
+            .proof {
+                justify-items: center;
+                text-align: center;
+            }
+
+            .states,
+            .sees,
             .grid,
-            .modes {
+            .trust {
                 grid-template-columns: 1fr;
             }
 
@@ -512,245 +669,286 @@
                     <img src="logo.jpg" alt="">
                     <span>Medication Tracker</span>
                 </div>
-                <div>
-                    <a class="ghost" href="https://github.com/korjavin/medicationtrackerbot">GitHub ↗</a>
-                </div>
+                <a class="ghost" href="https://github.com/korjavin/medicationtrackerbot">GitHub ↗</a>
             </nav>
 
-            <div class="hero-inner">
-                <span class="eyebrow">🔒 Zero-knowledge · self-hosted · yours</span>
-                <h1>Private health tracking,<br><span class="accent">without the inconvenience.</span></h1>
-                <p class="lead">
-                    Most privacy-first apps make you trade away sync, reminders, and AI to get it.
-                    This one is built the other way around: your data is end-to-end encrypted and the
-                    keys live on <strong>your</strong> devices — so everything still just works.
-                </p>
-                <div class="cta-row">
-                    <a class="btn btn-primary"
-                        href="https://github.com/korjavin/medicationtrackerbot/blob/master/docs/cloud-deployment.md">Deploy
-                        the cloud →</a>
-                    <a class="btn btn-ghost"
-                        href="https://github.com/korjavin/medicationtrackerbot/blob/master/docs/cloud-mode.md">How it
-                        works</a>
+            <div class="hero-grid">
+                <div class="hero-inner">
+                    <span class="eyebrow">🔑 AI-native · zero-knowledge · self-hosted</span>
+                    <h1>Give AI your health context —<br><span class="accent">without giving anyone
+                            permanent access.</span></h1>
+                    <p class="lead">
+                        Your whole health history lives in one encrypted vault only your devices can
+                        open. Point a compatible AI at it — Claude, a voice agent, your own model — and
+                        it can work with your data <strong>only while you're there with an unlocked
+                            device.</strong> Close the tab and the door shuts.
+                    </p>
+                    <p class="stamp">Your unlocked device answers. <span class="no">No device, no
+                            data.</span></p>
+                    <div class="cta-row">
+                        <a class="btn btn-primary"
+                            href="https://github.com/korjavin/medicationtrackerbot/blob/master/docs/cloud-deployment.md">Deploy
+                            the cloud →</a>
+                        <a class="btn btn-ghost"
+                            href="https://github.com/korjavin/medicationtrackerbot/blob/master/docs/cloud-mode.md">How
+                            it works</a>
+                    </div>
                 </div>
-                <p class="promise">
-                    <strong>Your vault and synced health records are end-to-end encrypted.</strong>
-                    Optional integrations you choose to turn on — Telegram, AI, food lookup — reach
-                    outside the vault and have separately disclosed boundaries.
-                </p>
+                <div class="hero-phone">
+                    <div class="phone">
+                        <img src="assets/today.png"
+                            alt="The Today dashboard: call agent, food logging, blood pressure and weight trends, and an AI daily forecast.">
+                    </div>
+                </div>
             </div>
         </div>
     </header>
 
-    <!-- Start in seconds -->
-    <section>
+    <!-- Device-gate -->
+    <section class="gate">
         <div class="wrap">
-            <div class="section-head">
-                <div class="kicker">Start in seconds</div>
-                <h2>No account form. No password. Just open it.</h2>
-                <p>Onboarding is three taps. The heavy machinery — keys, encryption, sync — sets itself
-                    up in the background.</p>
+            <div class="lede">
+                <h2>Access isn't a privacy policy. It's the architecture.</h2>
+                <p>An AI reaches your records only through a device you've unlocked. There's no other
+                    door — so nothing can query your health in the background while you're asleep or
+                    away.</p>
             </div>
-            <div class="steps">
-                <div class="step">
-                    <div class="num">1</div>
-                    <h3>Open one URL</h3>
-                    <p>Your invite opens a page that installs as an app (PWA). Nothing to download from
-                        a store, nothing to configure.</p>
+
+            <div class="states">
+                <div class="state ok">
+                    <div class="flow">
+                        <span class="chip">🔓 Device unlocked</span>
+                        <span class="arrow">→</span>
+                        <span class="chip">Scoped session</span>
+                        <span class="arrow">→</span>
+                        <span class="result">AI can query</span>
+                    </div>
+                    <p>You explicitly pair the AI; your unlocked device decrypts, answers, and re-seals.
+                        Pairings expire, and closing the tab ends access immediately.</p>
                 </div>
-                <div class="step">
-                    <div class="num">2</div>
-                    <h3>Create a passkey</h3>
-                    <p>Face ID or a fingerprint unlocks a random encryption key that never leaves your
-                        device. Save the Emergency Kit — that's your recovery.</p>
+                <div class="state no">
+                    <div class="flow">
+                        <span class="chip">🔒 Locked / offline</span>
+                        <span class="arrow">→</span>
+                        <span class="result">Request denied</span>
+                    </div>
+                    <p>No unlocked device means nothing can decrypt the vault. The request simply can't
+                        be answered — there's no key anywhere else to answer it with.</p>
                 </div>
-                <div class="step">
-                    <div class="num">3</div>
-                    <h3>Add to home screen</h3>
-                    <p>You're tracking. Everything you enter is encrypted before it leaves the browser,
-                        and syncs to your other devices automatically.</p>
+            </div>
+
+            <div class="sees">
+                <div><strong>The server</strong>Moves sealed frames between the AI and your device.
+                    Never holds a key, never sees plaintext.</div>
+                <div><strong>Your device</strong>Holds the only key. Decrypts on demand, only while
+                    unlocked and present.</div>
+                <div><strong>The AI you choose</strong>Sees exactly what you send it for that task —
+                    and nothing when you're gone.</div>
+            </div>
+
+            <div class="proof">
+                <div class="phone">
+                    <img src="assets/connector.png"
+                        alt="The pairing screen: paste a connector URL into claude.ai or ChatGPT, and keep an unlocked tab open.">
+                </div>
+                <div class="cap">
+                    <h3>Pair any AI in one paste.</h3>
+                    <p>Drop the connector URL into claude.ai or ChatGPT and they can work with your
+                        record — but only, in the app's own words,
+                        <span class="quote">"keep an unlocked tab open."</span> Disconnect, or just
+                        close the tab, and the connection goes dark.</p>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Privacy band -->
-    <section class="band">
+    <!-- Pillar 1: Useful AI -->
+    <section class="pad">
         <div class="wrap">
             <div class="section-head">
-                <div class="kicker">Private by architecture</div>
-                <h2>Your devices hold the keys. The server holds a sealed blob.</h2>
-                <p>There are two kinds of place your data can live, and this app is careful about which
-                    is which.</p>
+                <div class="kicker">Useful AI, a door only you open</div>
+                <h2>Years of your own data — finally answerable in a sentence.</h2>
+                <p>Compatible AI agents can query the records you enable, across every corner of your
+                    health, through one open, agent-native protocol (MCP).</p>
             </div>
-
-            <div class="split">
-                <div class="pcard">
-                    <div class="tag">Your devices</div>
-                    <h3>Keys &amp; plaintext</h3>
-                    <p>Encryption and decryption happen on your device. A passkey unwraps a random data
-                        key that never leaves it — there's no password to steal and no server-side
-                        secret to crack.</p>
+            <div class="pillar">
+                <div>
+                    <div class="ask">"Build me a 6-month medication-and-symptom timeline for my
+                        appointment." <span>→ answered from years of your own data.</span></div>
+                    <ul>
+                        <li>One record spanning meds, blood pressure, weight, sleep, heart rate,
+                            workouts, food, and your own notes.</li>
+                        <li>Ask across all of it at once — the AI reads the connections, not eight
+                            disconnected apps.</li>
+                        <li>Provider-neutral: bring Claude, a voice agent, or your own model. No lock-in,
+                            no vendor owning your history.</li>
+                        <li>Every session runs through a device you unlocked — you're always in the loop.</li>
+                    </ul>
                 </div>
-                <div class="pcard">
-                    <div class="tag">The server</div>
-                    <h3>A blind sealed blob</h3>
-                    <p>A blind sync-and-backup hub that stores ciphertext and rings your reminders on
-                        schedule. A breach, subpoena, or curious operator yields ciphertext and timing
-                        metadata — not your health.</p>
-                </div>
+                <figure class="evidence">
+                    <img class="shot" src="assets/ai-ops.png"
+                        alt="An AI assistant connected to the record, reporting it is online and verified with operations across Food, Health, Medications, and Workouts.">
+                    <figcaption>A paired assistant, live against the record — food, health, meds, and
+                        workouts, all in one session.</figcaption>
+                </figure>
             </div>
-
-            <div class="section-head" style="margin-top:3rem;margin-bottom:1.5rem;">
-                <h2 style="font-size:1.5rem;color:var(--on-dark)">The hard parts survive the encryption
-                    — reminders, chat, mobile.</h2>
-            </div>
-            <div class="keeps">
-                <div class="keep">
-                    <h4>Blind push relay</h4>
-                    <p>Reminder content is encrypted before upload. The relay knows <em>when</em> to
-                        ring, not <em>what for</em>. Your device decrypts and shows the real text.</p>
-                </div>
-                <div class="keep">
-                    <h4>On-device notifications</h4>
-                    <p>The native Android build schedules local notifications straight from your phone —
-                        no relay, no server round-trip, works with the network off.</p>
-                </div>
-                <div class="keep">
-                    <h4>Optional Telegram</h4>
-                    <p>Bring your own bot to log and answer reminders in chat. Off by default, clearly
-                        labeled — it crosses the relay in plaintext by design.</p>
-                </div>
-            </div>
-
-            <p class="honest">
-                Honest about the boundary: the vault is zero-knowledge, but web-delivered crypto trusts
-                the origin, and removing a device retires it rather than rotating keys. Full trust model
-                &amp; caveats are in the docs.
-            </p>
         </div>
     </section>
 
-    <!-- Features -->
-    <section>
+    <!-- Pillar 2: Your story -->
+    <section class="pad band">
         <div class="wrap">
             <div class="section-head">
-                <div class="kicker">One system, all of it</div>
-                <h2>Flexible enough to actually replace the pile of apps.</h2>
-                <p>Everything in one encrypted place, with a rich web dashboard and a minimalist chat
-                    interface over the same data.</p>
+                <div class="kicker">Your story, exactly the shape you want</div>
+                <h2>Turn on only what matters to you. The value is the connections.</h2>
+                <p>Build a holistic picture from the parts you care about — and feed in the devices you
+                    already use, without ever exposing the vault.</p>
             </div>
             <div class="grid">
                 <div class="feat">
                     <span class="ico">💊</span>
                     <h3>Medications</h3>
-                    <p>Scheduled, weekly &amp; as-needed doses, snooze/skip/log-past, inventory with
-                        low-stock alerts, drug-interaction checks.</p>
+                    <p>Scheduled, weekly &amp; as-needed doses, snooze/skip/log-past, inventory,
+                        low-stock alerts, interaction checks.</p>
                 </div>
                 <div class="feat">
                     <span class="ico">❤️</span>
-                    <h3>Blood pressure</h3>
-                    <p>Quick logging, goals, reminders, 7-day trends and statistics, CSV import/export.</p>
+                    <h3>Blood pressure &amp; weight</h3>
+                    <p>Quick logging, goals, trends and statistics, EMA weight line, CSV import/export.</p>
                 </div>
                 <div class="feat">
-                    <span class="ico">⚖️</span>
-                    <h3>Weight</h3>
-                    <p>Logging, goals, EMA trend line, weekly reminders, Libra-compatible export.</p>
+                    <span class="ico">😴</span>
+                    <h3>Sleep &amp; vitals</h3>
+                    <p>Sleep, heart rate, SpO2, stress and steps in one overview — the context an AI
+                        needs.</p>
                 </div>
                 <div class="feat">
                     <span class="ico">🏋️</span>
                     <h3>Workouts</h3>
-                    <p>A/B/C/D rotation splits (PPL, PHUL), per-exercise logging, ad-hoc sessions, Mi
-                        Band &amp; external feed ingestion.</p>
+                    <p>A/B/C/D rotation splits, per-exercise logging, ad-hoc sessions, planned routines.</p>
                 </div>
                 <div class="feat">
                     <span class="ico">🍽️</span>
-                    <h3>Food</h3>
-                    <p>Manual logging, saved meals, nutrition targets, Open Food Facts search, AI that
-                        splits "chicken with rice" into items.</p>
+                    <h3>Food &amp; diary</h3>
+                    <p>Meals, nutrition targets, food-database lookup, and free-text notes that feed AI
+                        context.</p>
                 </div>
                 <div class="feat">
-                    <span class="ico">😴</span>
-                    <h3>Vitals &amp; diary</h3>
-                    <p>Sleep, heart rate, SpO2, stress and steps in one overview — plus free-text notes
-                        that feed AI context.</p>
+                    <span class="ico">⌚</span>
+                    <h3>Plug in your world</h3>
+                    <p>Ingest from Mi Band / Mi Fitness, external feeds and CSV, so your wearable becomes
+                        part of the same encrypted story.</p>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Your AI -->
-    <section class="band">
+    <!-- Pillar 3: Interfaces -->
+    <section class="pad band" style="background:var(--surface-3)">
         <div class="wrap">
             <div class="section-head">
-                <div class="kicker">Your AI, your data</div>
-                <h2>Point your own assistant at your own health data.</h2>
-                <p>Ask it to weigh your blood pressure against your sleep and medications, or summarize a
-                    week of workouts, steps, nutrition and weight — your notes ride along as context.</p>
+                <div class="kicker">Capture it however you like</div>
+                <h2>Voice, text, or a photo — one encrypted record behind all of them.</h2>
             </div>
-            <div class="split">
-                <div class="pcard">
-                    <div class="tag">Cloud mode</div>
-                    <h3>Runs in your browser</h3>
-                    <p>Your AI calls your own provider keys, stored inside the encrypted vault. The
-                        operator never sees the prompt or the data. A disclosed trial key is available
-                        if you'd rather not bring your own.</p>
+            <div class="iface-grid">
+                <div class="hero-phone">
+                    <div class="phone">
+                        <img src="assets/voice.png"
+                            alt="A live voice call with the health agent, listening, launched straight from the Today dashboard.">
+                    </div>
                 </div>
-                <div class="pcard">
-                    <div class="tag">Server mode</div>
-                    <h3>OAuth-protected MCP</h3>
-                    <p>A separate, Pocket-ID-protected endpoint. Point Claude or any MCP client at it,
-                        discover operations, and run sandboxed multi-step analyses in a single call.</p>
+                <div class="iface-list">
+                    <div class="iface">
+                        <span class="ico">🎙️</span>
+                        <div>
+                            <h3>Voice</h3>
+                            <p>Call your health agent and just talk — log a reading or ask what's due,
+                                hands-free, right from the Today screen.</p>
+                        </div>
+                    </div>
+                    <div class="iface">
+                        <span class="ico">💬</span>
+                        <div>
+                            <h3>Text</h3>
+                            <p>Chat to log or ask a question — optionally from a Telegram bot you bring
+                                yourself.</p>
+                        </div>
+                    </div>
+                    <div class="iface">
+                        <span class="ico">📷</span>
+                        <div>
+                            <h3>Photo</h3>
+                            <p>Snap a meal or scan a barcode; it becomes structured, logged nutrition
+                                data.</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Run modes -->
-    <section>
+    <!-- Trust -->
+    <section class="pad" style="background:var(--paper)">
         <div class="wrap">
             <div class="section-head">
-                <div class="kicker">Two ways to run it</div>
-                <h2>Self-hosted, either way — on infrastructure you control.</h2>
+                <div class="kicker">Trust, proven — not asserted</div>
+                <h2>We hold none of your data, and we test that in the open.</h2>
             </div>
-            <div class="modes">
-                <div class="mode rec">
-                    <span class="pill">Recommended</span>
-                    <h3>Cloud — zero-knowledge PWA</h3>
-                    <ul>
-                        <li>Passkey-only unlock over a random 256-bit key</li>
-                        <li>Encrypted sync + blind push relay</li>
-                        <li>Bring your own AI, voice &amp; food-DB keys</li>
-                        <li>Emergency Kit recovery; invite-only</li>
-                    </ul>
-                    <a class="link"
-                        href="https://github.com/korjavin/medicationtrackerbot/blob/master/docs/cloud-deployment.md">Cloud
-                        deployment →</a>
+            <div class="trust">
+                <div class="tcard">
+                    <h3>🔐 Zero-knowledge vault</h3>
+                    <p>Passkey unlock over a random key. No password to phish, no server-side secret to
+                        steal. A breach yields sealed data.</p>
                 </div>
-                <div class="mode">
-                    <span class="pill muted">Single-user</span>
-                    <h3>Server — Telegram-native</h3>
-                    <ul>
-                        <li>One Go binary: bot + web + scheduler + MCP</li>
-                        <li>Telegram is the fastest interface for real life</li>
-                        <li>Offline-first web app for trends &amp; editing</li>
-                        <li>Local SQLite you own outright</li>
-                    </ul>
-                    <a class="link"
-                        href="https://github.com/korjavin/medicationtrackerbot/blob/master/docs/installer.md">Installation
-                        guide →</a>
+                <div class="tcard">
+                    <h3>🧪 Adversarial review, published</h3>
+                    <p>We hammer our own product with frontier models hunting for weaknesses — and the
+                        reports live in the open.
+                        <a href="https://github.com/korjavin/medicationtrackerbot/blob/master/docs/2026-07-12-gpt-5.6-sol-cloud-privacy-audit.md">Read
+                            the privacy audit →</a>
+                    </p>
                 </div>
+                <div class="tcard">
+                    <h3>📖 Honest boundaries</h3>
+                    <p>We publish what we can and can't see, and where the limits are — on purpose.
+                        <a href="https://github.com/korjavin/medicationtrackerbot/blob/master/docs/cloud-mode.md">Trust
+                            model →</a>
+                    </p>
+                </div>
+            </div>
+            <p class="honest">
+                Straight about the edges: what you choose to send an AI provider is seen by that
+                provider once it arrives — we control <em>whether</em> and <em>what</em> leaves and stay
+                blind to it, but we don't govern their retention. Web-delivered crypto trusts the
+                origin; we mitigate and disclose it. Self-hosting means the trust is yours to hold.
+            </p>
+        </div>
+    </section>
+
+    <!-- Final CTA -->
+    <section class="final">
+        <div class="wrap">
+            <h2>Your health history, finally useful — and still only yours.</h2>
+            <p>Self-hosted and invite-only. Stand up the encrypted cloud, mint an invite, and point
+                your AI at a record no one else can read.</p>
+            <div class="cta-row" style="justify-content:center">
+                <a class="btn btn-primary"
+                    href="https://github.com/korjavin/medicationtrackerbot/blob/master/docs/cloud-deployment.md">Deploy
+                    the cloud →</a>
+                <a class="btn btn-ghost" href="https://github.com/korjavin/medicationtrackerbot">See the
+                    code</a>
             </div>
         </div>
     </section>
 
     <footer>
         <div class="wrap foot">
-            <div>Self-hosted health tracking you actually own. No ads, no lock-in.</div>
+            <div>Self-hosted, AI-native health tracking you actually own.</div>
             <div>
                 <a href="https://github.com/korjavin/medicationtrackerbot">GitHub</a>
                 <a href="https://github.com/korjavin/medicationtrackerbot/blob/master/docs/cloud-mode.md">Docs</a>
-                <a href="https://github.com/korjavin/medicationtrackerbot/blob/master/README.md">README</a>
+                <a
+                    href="https://github.com/korjavin/medicationtrackerbot/blob/master/docs/2026-07-12-gpt-5.6-sol-cloud-privacy-audit.md">Audits</a>
             </div>
         </div>
     </footer>
