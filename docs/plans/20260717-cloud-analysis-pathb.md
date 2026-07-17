@@ -62,9 +62,9 @@ BP `bp.list`; meds `medications.list` + `intake.history`; sleep `vitals.sleep({f
 ## Implementation Steps
 
 ### Task 1: Windowed vitals accessor (web/domain/vitals.js)
-- [ ] Export a windowed read for raw heart-rate + SpO2 samples and for daystats (steps) over an arbitrary `[from,to]` range (reuse the internal `readSamples`/`readDayStats`; e.g. `listHeart({from,to})`, `listSpO2({from,to})`, `listDayStats({from,to})`, or an `overviewRange({from,to})`). Keep `overview`/`sleep`/`importSamples` unchanged.
-- [ ] Write tests for the new windowed reads (seeded samples over a range → expected aggregates/rows).
-- [ ] Run the vitals domain test + `architecture.domain-purity.test.js` — must pass before Task 2.
+- [x] Export a windowed read for raw heart-rate + SpO2 samples and for daystats (steps) over an arbitrary `[from,to]` range (reuse the internal `readSamples`/`readDayStats`; e.g. `listHeart({from,to})`, `listSpO2({from,to})`, `listDayStats({from,to})`, or an `overviewRange({from,to})`). Keep `overview`/`sleep`/`importSamples` unchanged.
+- [x] Write tests for the new windowed reads (seeded samples over a range → expected aggregates/rows).
+- [x] Run the vitals domain test + `architecture.domain-purity.test.js` — must pass before Task 2.
 
 ### Task 2: analysis.js — cardiovascular (web/domain/analysis.js)
 - [ ] Create `web/domain/analysis.js` exporting a pure factory `createAnalysis({ bp, vitals, medications, intake, food, weight, workout, notes, now, timeZone })`.
