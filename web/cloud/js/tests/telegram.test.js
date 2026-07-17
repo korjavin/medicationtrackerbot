@@ -310,6 +310,21 @@ describe('telegram.js onboarding module', () => {
     expect(app.querySelector('#tg-webhook-health').className).not.toContain('wizard-error');
   });
 
+  it('flags unknown health (not OK) when diag returns getWebhookInfo_error (bd med-eas.48)', async () => {
+    global.fetch = fetchStub({
+      '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'linked', bot_username: 'mt_abc_bot' }) },
+      '/api/telegram/diag': { ok: true, json: async () => ({ bot_username: 'mt_abc_bot', getWebhookInfo_error: 'Unauthorized' }) },
+    });
+    await mountTelegram(app, {});
+    await vi.waitFor(() => {
+      const el = app.querySelector('#tg-webhook-health');
+      if (!el || !el.textContent.includes('Could not check webhook status')) throw new Error('not yet');
+    });
+    const el = app.querySelector('#tg-webhook-health');
+    expect(el.className).toContain('wizard-error');
+    expect(el.textContent).not.toContain('OK');
+  });
+
   // bd med-vcv.4 — the chat agent glossary editor, Settings-only.
   describe('tgprefs glossary editor (med-vcv.4)', () => {
     function statusFetchStub() {

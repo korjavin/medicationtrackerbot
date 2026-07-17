@@ -358,11 +358,17 @@ export async function mountTelegram(container, opts = {}) {
     apiJSON('/api/telegram/diag').then((d) => {
       const el = container.querySelector('#tg-webhook-health');
       if (!el) return;
-      if (d && d.last_error) {
+      if (!d) return;
+      if (d.last_error) {
         el.className = 'wizard-error';
         const ts = d.webhook_info && d.webhook_info.last_error_date;
         const when = ts ? ` (${new Date(ts * 1000).toLocaleString()})` : '';
         el.textContent = `⚠ Webhook delivery error: ${d.last_error}${when}`;
+      } else if (d.getWebhookInfo_error) {
+        // Diag reached the server but Telegram's getWebhookInfo call failed —
+        // health is unknown, not OK. Surface it rather than a false all-clear.
+        el.className = 'wizard-error';
+        el.textContent = `⚠ Could not check webhook status: ${d.getWebhookInfo_error}`;
       } else {
         el.textContent = 'Webhook delivery OK.';
       }
