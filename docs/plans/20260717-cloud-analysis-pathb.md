@@ -85,10 +85,10 @@ BP `bp.list`; meds `medications.list` + `intake.history`; sleep `vitals.sleep({f
 - [x] Run `pnpm test` for `mcp-responder.test.js` help-count/enumeration — must pass before Task 5. (Coverage sweep + response_example conformance in the same file are Task 5's gate — they need the router routes + seed fixtures.)
 
 ### Task 5: Router routes (apishim.js)
-- [ ] In `createApiRouter`, instantiate the analysis composer (~`:143`) from the already-built domains: `const analysis = createAnalysis({ bp, vitals, medications, intake, food, weight, workout, notes, now, timeZone })`.
-- [ ] Add two routes (near the other `/api/health/*` routes): `GET /api/health/cardiovascular-analysis` and `GET /api/health/fitness-analysis`, parsing `start_date`/`end_date`/`days`/`exclude_notes` from the query, applying the feature gates, and returning `analysis.cardiovascular(...)` / `analysis.fitness(...)`.
-- [ ] Add seed fixtures for the two ops in `mcp-responder.test.js` `inputsFor`/`seedFixtures` so the `response_example` conformance check has non-empty results (no new assertions — the sweep + conformance validate automatically).
-- [ ] Run `web/cloud/js/tests/mcp-responder.test.js` — coverage sweep (both routes served) + response_example conformance must pass before Task 6.
+- [x] In `createApiRouter`, instantiate the analysis composer (~`:143`) from the already-built domains: `const analysis = createAnalysis({ bp, vitals, medications, intake, food, weight, workout, notes, now, timeZone })`.
+- [x] Add two routes (near the other `/api/health/*` routes): `GET /api/health/cardiovascular-analysis` and `GET /api/health/fitness-analysis`, parsing `start_date`/`end_date`/`days`/`exclude_notes` from the query, applying the feature gates, and returning `analysis.cardiovascular(...)` / `analysis.fitness(...)`.
+- [x] Add seed fixtures for the two ops in `mcp-responder.test.js` `inputsFor`/`seedFixtures` so the `response_example` conformance check has non-empty results (no new assertions — the sweep + conformance validate automatically). (Added HR/SpO2/daystats seeds to `seedRecordsPort`; the two ops carry no required params so the coverage sweep routes them bare.)
+- [x] Run `web/cloud/js/tests/mcp-responder.test.js` — coverage sweep (both routes served) + response_example conformance must pass before Task 6.
 
 ### Task 6: Verify acceptance + full suite
 - [ ] Verify both analyses appear in `mcp_help` and return correct aggregates via `mcp_call` in cloud; **no Go changed**; `mcp-catalog.generated.js` untouched.
