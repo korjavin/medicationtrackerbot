@@ -83,6 +83,64 @@ describe('domain/reminders.js — low-stock reminder kind', () => {
     });
 });
 
+// med-eas.59 — workout-session reminder kind, ported from internal/scheduler/workout.go.
+// Primary fire only: fires at scheduledInstant - notification_advance_minutes for
+// recurring groups, at the scheduled moment for planned ad-hoc sessions.
+describe('domain/reminders.js — workout reminder kind', () => {
+    const nowMs = Date.UTC(2026, 6, 7, 6, 0, 0); // July 7, 2026 06:00 UTC
+    const group = {
+        id: 1, name: 'Push Day', active: true, is_rotating: false,
+        days_of_week: '[0,1,2,3,4,5,6]', scheduled_time: '18:00', notification_advance_minutes: 30,
+    };
+    const variant = { id: 10, group_id: 1, name: 'Variant A', rotation_order: 0 };
+    const exercise = {
+        id: 100, variant_id: 10, exercise_name: 'Bench Press',
+        target_sets: 3, target_reps_min: 8, order_index: 0,
+    };
+
+    it('emits a workout entry at scheduledInstant - advance for a recurring group', () => {
+        const entries = computeReminderHorizon({
+            timeZone: 'UTC', now: nowMs,
+            workoutGroups: [group], workoutVariants: [variant], workoutExercises: [exercise],
+            workoutStatus: { enabled: true },
+        });
+        const workout = entries.filter((e) => e.kind === 'workout');
+        expect(workout.length).toBeGreaterThan(0);
+        // Today 18:00 UTC minus 30 min advance → 17:30 UTC.
+        expect(workout[0].fireAtUnix).toBe(Date.UTC(2026, 6, 7, 17, 30, 0) / 1000);
+        expect(workout[0].text).toContain('Push Day - Variant A');
+        expect(workout[0].text).toContain('Bench Press');
+        // genericText is name-free.
+        expect(workout[0].genericText).not.toContain('Push Day');
+        expect(workout[0].genericText.length).toBeGreaterThan(0);
+    });
+
+    it('emits a workout entry for a planned ad-hoc session at its scheduled moment', () => {
+        const session = {
+            id: 5, group_id: -1, status: 'pending',
+            scheduled_date: '2026-07-09T00:00:00.000Z', scheduled_time: '19:00',
+        };
+        const entries = computeReminderHorizon({
+            timeZone: 'UTC', now: nowMs,
+            workoutSessions: [session],
+            workoutStatus: { enabled: true },
+        });
+        const workout = entries.filter((e) => e.kind === 'workout');
+        expect(workout.length).toBe(1);
+        expect(workout[0].fireAtUnix).toBe(Date.UTC(2026, 6, 9, 19, 0, 0) / 1000);
+        expect(workout[0].genericText.length).toBeGreaterThan(0);
+    });
+
+    it('emits nothing when the workout reminder pref is disabled', () => {
+        const entries = computeReminderHorizon({
+            timeZone: 'UTC', now: nowMs,
+            workoutGroups: [group], workoutVariants: [variant], workoutExercises: [exercise],
+            workoutStatus: { enabled: false },
+        });
+        expect(entries.some((e) => e.kind === 'workout')).toBe(false);
+    });
+});
+
 // bd med-76c.1 — Telegram reminders transit the cloud relay as plaintext, so
 // every entry must carry a name-free twin the user can opt into, and the
 // delivery/verbosity pref must default to the documented values.

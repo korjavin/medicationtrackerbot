@@ -23,6 +23,11 @@ const TZPLAN_RECORD_TYPE = 'tzplan';
 const TZPLAN_RECORD_ID = 'tzplan-current';
 const BP_RECORD_TYPE = 'bp';
 const WEIGHT_RECORD_TYPE = 'weight';
+const WORKOUT_GROUP_RECORD_TYPE = 'workoutgroup';
+const WORKOUT_VARIANT_RECORD_TYPE = 'workoutvariant';
+const WORKOUT_EXERCISE_RECORD_TYPE = 'workoutexercise';
+const WORKOUT_ROTATION_RECORD_TYPE = 'workoutrotation';
+const WORKOUT_SESSION_RECORD_TYPE = 'workoutsession';
 const DEBOUNCE_MS = 2000;
 
 const timers = new Map();
@@ -37,12 +42,20 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
   const now = () => Date.now();
   const remindersDomain = createRemindersDomain({ records, now });
 
-  const [medications, intakes, tzplans, bps, weights] = await Promise.all([
+  const [
+    medications, intakes, tzplans, bps, weights,
+    workoutGroups, workoutVariants, workoutExercises, workoutRotations, workoutSessions,
+  ] = await Promise.all([
     records.list(MEDICATION_RECORD_TYPE),
     records.list(INTAKE_RECORD_TYPE),
     records.list(TZPLAN_RECORD_TYPE),
     records.list(BP_RECORD_TYPE),
     records.list(WEIGHT_RECORD_TYPE),
+    records.list(WORKOUT_GROUP_RECORD_TYPE),
+    records.list(WORKOUT_VARIANT_RECORD_TYPE),
+    records.list(WORKOUT_EXERCISE_RECORD_TYPE),
+    records.list(WORKOUT_ROTATION_RECORD_TYPE),
+    records.list(WORKOUT_SESSION_RECORD_TYPE),
   ]);
   const tzPlan = tzplans.find((r) => r.recordId === TZPLAN_RECORD_ID && !r.deleted) || null;
 
@@ -51,6 +64,11 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     intakes: intakes.filter((i) => !i.deleted),
     bps: bps.filter((b) => !b.deleted),
     weights: weights.filter((w) => !w.deleted),
+    workoutGroups: workoutGroups.filter((r) => !r.deleted),
+    workoutVariants: workoutVariants.filter((r) => !r.deleted),
+    workoutExercises: workoutExercises.filter((r) => !r.deleted),
+    workoutRotations: workoutRotations.filter((r) => !r.deleted),
+    workoutSessions: workoutSessions.filter((r) => !r.deleted),
     timeZone,
     tzPlan,
   });

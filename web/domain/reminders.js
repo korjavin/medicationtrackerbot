@@ -92,8 +92,45 @@ const GENERIC_REREMIND_TEXT = '\u{1F514} You have an unconfirmed medication';
 const GENERIC_BP_TEXT = '\u{1F4CA} Time for a scheduled measurement';
 const GENERIC_WEIGHT_TEXT = '\u{2696}\u{FE0F} Time for a scheduled measurement';
 const GENERIC_LOW_STOCK_TEXT = '\u{26A0}\u{FE0F} Some medications are running low';
+const GENERIC_WORKOUT_TEXT = '\u{1F3CB}\u{FE0F} Time for your workout';
 
 const LOW_STOCK_HOUR = 11; // bot fires the daily low-stock warning at 11:00 local (low_stock.go)
+
+const WORKOUT_ADHOC_GROUP_ID = -1;
+// Ad-hoc sessions have no group/variant/exercise list threaded (see the plan's
+// record-type list); mirror the bot's header-only body for a planned one-off.
+const WORKOUT_ADHOC_TEXT = '\u{1F3CB}\u{FE0F} **Workout starting now**';
+
+function parseHHMM(s) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(s || '');
+  return m ? { hour: +m[1], minute: +m[2] } : null;
+}
+
+// Ported from sendWorkoutNotification (internal/scheduler/workout.go:539): the
+// "starting in N minutes" header, the "Group - Variant" line, and one bullet
+// per exercise `N. **name**: sets × reps[ @ Wkg]` (reps as `min-max` when a
+// distinct max is set).
+function workoutRecurringText(advanceMinutes, groupName, variantName, exercises) {
+  const lines = [
+    `\u{1F3CB}\u{FE0F} **Workout starting in ${advanceMinutes} minutes**`,
+    '',
+    `**${groupName} - ${variantName}**`,
+  ];
+  if (exercises.length > 0) {
+    lines.push('', 'Exercises:');
+    exercises.forEach((ex, i) => {
+      const max = ex.target_reps_max;
+      const reps = max !== null && max !== undefined && max !== ex.target_reps_min
+        ? `${ex.target_reps_min}-${max}` : `${ex.target_reps_min}`;
+      let line = `${i + 1}. **${ex.exercise_name}**: ${ex.target_sets} \u{00D7} ${reps}`;
+      if (ex.target_weight_kg !== null && ex.target_weight_kg !== undefined) {
+        line += ` @ ${Math.round(ex.target_weight_kg)}kg`;
+      }
+      lines.push(line);
+    });
+  }
+  return lines.join('\n');
+}
 
 // Ported from internal/scheduler/low_stock.go's Check text builder: a header
 // plus one bullet per low med `• **<Name>**: <N> units (~<D> days left)`.
@@ -119,7 +156,10 @@ function lowStockText(lowMeds) {
 // is the optional active tzplan record (a passthrough, see tzplan.js).
 export function computeReminderHorizon({
   medications = [], intakes = [], bps = [], weights = [],
+  workoutGroups = [], workoutVariants = [], workoutExercises = [],
+  workoutRotations = [], workoutSessions = [],
   timeZone, now, tzPlan, bpStatus = { enabled: false }, weightStatus = { enabled: false },
+  workoutStatus = { enabled: false },
 } = {}) {
   const meds = medications.filter((m) => !m.deleted && !m.archived);
   const medById = new Map(meds.map((m) => [m.recordId ?? m.id, m]));
@@ -279,6 +319,102 @@ export function computeReminderHorizon({
         text: lowStockText(lowMeds),
         genericText: GENERIC_LOW_STOCK_TEXT,
       });
+    }
+  }
+
+  // Workout-session reminders (med-eas.59), ported from internal/scheduler/workout.go.
+  // PRIMARY FIRE ONLY: the bot's interactive re-notify(+3h)/auto-skip(+6h)/snooze/
+  // stale-90min state machine needs server-observed session state a blind relay
+  // can't see, so we emit only the single "workout starting" push — the same
+  // accepted limitation as the medication re-reminders above (see the plan).
+  if (workoutStatus.enabled) {
+    const workoutMutedUntil = mutedUntil(workoutStatus);
+    const variants = workoutVariants.filter((v) => !v.deleted);
+    const variantById = new Map(variants.map((v) => [v.id, v]));
+
+    const variantsByGroup = new Map();
+    for (const v of variants) {
+      const list = variantsByGroup.get(v.group_id) || [];
+      list.push(v);
+      variantsByGroup.set(v.group_id, list);
+    }
+    // listVariants order: rotation_order asc (999 default), then name — the
+    // first variant is the non-rotating group's picked variant.
+    for (const list of variantsByGroup.values()) {
+      list.sort((a, b) => {
+        const ra = a.rotation_order !== null && a.rotation_order !== undefined ? a.rotation_order : 999;
+        const rb = b.rotation_order !== null && b.rotation_order !== undefined ? b.rotation_order : 999;
+        if (ra !== rb) return ra - rb;
+        return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+      });
+    }
+
+    const rotationByGroup = new Map();
+    for (const r of workoutRotations.filter((r) => !r.deleted)) {
+      rotationByGroup.set(r.group_id, r.current_variant_id);
+    }
+
+    const exercisesByVariant = new Map();
+    for (const e of workoutExercises.filter((e) => !e.deleted)) {
+      const list = exercisesByVariant.get(e.variant_id) || [];
+      list.push(e);
+      exercisesByVariant.set(e.variant_id, list);
+    }
+    for (const list of exercisesByVariant.values()) {
+      list.sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+    }
+
+    // resolveVariantId ports next.go's resolveVariantID: rotation cursor for a
+    // rotating group (if present), else the first variant; 0 when none.
+    const resolveVariantId = (group) => {
+      if (group.is_rotating && rotationByGroup.has(group.id)) return rotationByGroup.get(group.id);
+      const vs = variantsByGroup.get(group.id) || [];
+      return vs.length > 0 ? vs[0].id : 0;
+    };
+
+    const pushWorkout = (fireMs, text) => {
+      if (fireMs <= now || fireMs <= workoutMutedUntil) return;
+      entries.push({ fireAtUnix: Math.floor(fireMs / 1000), kind: 'workout', text, genericText: GENERIC_WORKOUT_TEXT });
+    };
+
+    const { year, month, day } = localDateParts(now, timeZone);
+
+    // Recurring groups: every matching-weekday occurrence within the horizon,
+    // fired at scheduledInstant - notification_advance_minutes.
+    for (const group of workoutGroups.filter((g) => !g.deleted && g.active)) {
+      let daysOfWeek;
+      try { daysOfWeek = JSON.parse(group.days_of_week); } catch { continue; }
+      if (!Array.isArray(daysOfWeek)) continue;
+      const variantId = resolveVariantId(group);
+      if (!variantId) continue;
+      const variant = variantById.get(variantId);
+      if (!variant) continue;
+      const hhmm = parseHHMM(group.scheduled_time);
+      if (!hhmm) continue;
+      const advance = group.notification_advance_minutes || 0;
+      const text = workoutRecurringText(advance, group.name, variant.name, exercisesByVariant.get(variantId) || []);
+      for (let d = 0; d < FORECAST_DAYS; d++) {
+        const weekday = new Date(Date.UTC(year, month - 1, day + d)).getUTCDay();
+        if (!daysOfWeek.includes(weekday)) continue;
+        const scheduledMs = localWallToUtcMs(Date.UTC(year, month - 1, day + d, hhmm.hour, hhmm.minute), timeZone);
+        pushWorkout(scheduledMs - advance * 60 * 1000, text);
+      }
+    }
+
+    // Planned ad-hoc sessions (group_id === -1, status 'pending'): a concrete
+    // scheduled_date (local midnight rendered as an offset-stamped instant) +
+    // scheduled_time. Extract the UTC calendar day like adHocScheduledMoment,
+    // then re-anchor HH:MM to the local wall.
+    for (const s of workoutSessions.filter((s) => !s.deleted && s.group_id === WORKOUT_ADHOC_GROUP_ID && s.status === 'pending')) {
+      const hhmm = parseHHMM(s.scheduled_time);
+      if (!hhmm) continue;
+      const dateUtc = new Date(s.scheduled_date);
+      if (Number.isNaN(dateUtc.getTime())) continue;
+      const scheduledMs = localWallToUtcMs(
+        Date.UTC(dateUtc.getUTCFullYear(), dateUtc.getUTCMonth(), dateUtc.getUTCDate(), hhmm.hour, hhmm.minute),
+        timeZone,
+      );
+      pushWorkout(scheduledMs, WORKOUT_ADHOC_TEXT);
     }
   }
 
@@ -448,11 +584,14 @@ export function createRemindersDomain({ records, now }) {
   // "disabled -> upload empty med portion" rule.
   async function buildHorizon({
     medications, intakes, bps, weights, timeZone, tzPlan,
+    workoutGroups = [], workoutVariants = [], workoutExercises = [],
+    workoutRotations = [], workoutSessions = [],
   }) {
-    const [{ enabled }, bpStatus, weightStatus] = await Promise.all([
+    const [{ enabled }, bpStatus, weightStatus, workoutStatus] = await Promise.all([
       getStatus(),
       getBPStatus(),
-      getWeightStatus()
+      getWeightStatus(),
+      getWorkoutStatus(),
     ]);
 
     // We compute the horizon for everything enabled. If medication reminders are disabled,
@@ -470,11 +609,17 @@ export function createRemindersDomain({ records, now }) {
       intakes: intakesToPass,
       bps,
       weights,
+      workoutGroups,
+      workoutVariants,
+      workoutExercises,
+      workoutRotations,
+      workoutSessions,
       timeZone,
       now: now(),
       tzPlan,
       bpStatus,
-      weightStatus
+      weightStatus,
+      workoutStatus,
     });
   }
 
