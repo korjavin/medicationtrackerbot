@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,10 +100,11 @@ func TestVaultImportEmptyFeaturesPreservesEnabled(t *testing.T) {
 	}
 }
 
-// TestVaultDemoModeForbidden verifies the export/import endpoints refuse to run
-// under DEMO_MODE, where auth is bypassed: export would leak the operator's raw
-// integration API keys and import would let anyone wipe the shared demo data.
-func TestVaultDemoModeForbidden(t *testing.T) {
+// TestVaultDemoMode verifies that under DEMO_MODE (auth bypassed, every request
+// is the shared seeded user): export is allowed but strips the operator's raw
+// integration API keys regardless of the include_secrets param, while import
+// stays forbidden so no anonymous visitor can wipe the shared demo data.
+func TestVaultDemoMode(t *testing.T) {
 	db, err := store.New(":memory:")
 	if err != nil {
 		t.Fatalf("store.New: %v", err)
@@ -110,14 +112,27 @@ func TestVaultDemoModeForbidden(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	srv := newServer(db, "tok", "sec", 123, OIDCConfig{}, "bot", "")
 	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+
+	const secret = "sk-operator-secret-key"
+	if err := db.Settings.SetIntegrationOpenAI(context.Background(), settings.IntegrationOpenAI{APIKey: secret}); err != nil {
+		t.Fatalf("seed integration key: %v", err)
+	}
 	srv.SetDemoMode(true)
 
+	// Export allowed, but must not carry the operator's secret even when the
+	// caller explicitly asks for it.
 	rec := httptest.NewRecorder()
-	srv.handleVaultExport(rec, httptest.NewRequest(http.MethodGet, "/api/export", nil))
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("export in demo mode: got %d, want %d", rec.Code, http.StatusForbidden)
+	req := httptest.NewRequest(http.MethodGet, "/api/export?include_secrets=1", nil)
+	req = req.WithContext(context.WithValue(req.Context(), UserCtxKey, &TelegramUser{ID: 123}))
+	srv.handleVaultExport(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("export in demo mode: got %d, want %d", rec.Code, http.StatusOK)
+	}
+	if strings.Contains(rec.Body.String(), secret) {
+		t.Error("export in demo mode leaked the operator's integration API key")
 	}
 
+	// Import still blocked.
 	rec = httptest.NewRecorder()
 	srv.handleVaultImport(rec, httptest.NewRequest(http.MethodPost, "/api/import", bytes.NewReader([]byte(`{}`))))
 	if rec.Code != http.StatusForbidden {
