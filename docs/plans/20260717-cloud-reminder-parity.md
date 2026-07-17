@@ -66,10 +66,10 @@ unchanged. Delivery uses the existing relay + delivery-pref (channel/verbosity).
 - [x] Run tests — must pass before Task 4.
 
 ### Task 4: Weekly-digest formatter + fire-time helper (med-eas.58 part 1)
-- [ ] In `web/domain/reminders.js` (or a pure sibling in `web/domain/`), add `formatWeeklyDigest(review)` porting Go `FormatWeeklyReview` (`internal/bot/gamification_commands.go:71-93`) line-for-line: `🗓 Your week` header / `A quiet week …` fallback, Health Score line, lever line, weight line, BP-in-range line, resting-HR line, best-day line — each omitted when its data is absent.
-- [ ] Add `nextWeeklyDigestFireUnix(now, timeZone)` → next Sunday 19:00 local via `localDateParts`/`localWallToUtcMs`.
-- [ ] Write tests: formatter over a populated `getWeeklyReview`-shaped review (asserts the section lines) and a quiet-week review (asserts the fallback); fire-time correctness vs `Date.UTC`.
-- [ ] Run tests — must pass before Task 5.
+- [x] In `web/domain/reminders.js` (or a pure sibling in `web/domain/`), add `formatWeeklyDigest(review)` porting Go `FormatWeeklyReview` (`internal/bot/gamification_commands.go:71-93`) line-for-line: `🗓 Your week` header / `A quiet week …` fallback, Health Score line, lever line, weight line, BP-in-range line, resting-HR line, best-day line — each omitted when its data is absent.
+- [x] Add `nextWeeklyDigestFireUnix(now, timeZone)` → next Sunday 19:00 local via `localDateParts`/`localWallToUtcMs`.
+- [x] Write tests: formatter over a populated `getWeeklyReview`-shaped review (asserts the section lines) and a quiet-week review (asserts the fallback); fire-time correctness vs `Date.UTC`.
+- [x] Run tests — must pass before Task 5.
 
 ### Task 5: Wire the digest into the cloud horizon + un-hide the toggle (med-eas.58 part 2)
 - [ ] In `web/cloud/js/reminders.js` `computeReminderEntries`: when `getFeatures().weekly_digest` (and gamification enabled), build `createGamificationDomain({records, now: () => now() - 86400000, timeZone}).getWeeklyReview()`, and append `{fireAtUnix: nextWeeklyDigestFireUnix(now(), timeZone), kind:'digest', text: formatWeeklyDigest(review), genericText: 'Your weekly summary is ready'}` (skip when `review.enabled === false`). No callback.

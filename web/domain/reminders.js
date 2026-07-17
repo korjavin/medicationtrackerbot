@@ -151,6 +151,110 @@ function lowStockText(lowMeds) {
   return lines.join('\n');
 }
 
+// ---- Weekly digest (med-eas.58) --------------------------------------------
+// Ports the Go text formatter internal/bot/gamification_commands.go's
+// FormatWeeklyReview + friends line-for-line. Input is the snake_case
+// WeeklyReview read model web/domain/gamification.js getWeeklyReview() returns
+// (identical shape to the Go read model). Kept pure so the same file runs in
+// goja server-side later. Wired into the horizon by web/cloud/js/reminders.js
+// (Task 5).
+const DIGEST_LEVER_LABELS = { bedtime: 'Bedtime', movement: 'Movement', nourishment: 'Nourishment' };
+const DIGEST_PACE_LABELS = {
+  on_pace: 'on pace',
+  too_slow: 'slower than your pace',
+  too_fast: 'faster than your pace',
+  wrong_direction: 'moving away from goal',
+};
+const DIGEST_ACCEL_LABELS = { speeding_up: 'speeding up', holding: 'holding steady', slowing: 'slowing' };
+const DIGEST_WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function digestScoreLine(hs) {
+  if (!hs || !hs.now || hs.now.value === null || hs.now.value === undefined) return '';
+  const now = Math.round(hs.now.value);
+  if (!hs.prior || hs.prior.value === null || hs.prior.value === undefined) return `Health Score ${now}`;
+  const delta = now - Math.round(hs.prior.value);
+  if (delta === 0) return `Health Score ${now} \u{00B7} holding steady`;
+  return delta > 0 ? `Health Score ${now} \u{00B7} up ${delta}` : `Health Score ${now} \u{00B7} down ${-delta}`;
+}
+
+function digestLeverLine(levers) {
+  if (!levers || levers.length === 0) return '';
+  return levers.map((lv, i) => {
+    const label = DIGEST_LEVER_LABELS[lv.key] || lv.key;
+    return i === 0 ? `${label} closed ${lv.closed_this_week} of 7` : `${label} ${lv.closed_this_week}`;
+  }).join(' \u{00B7} ');
+}
+
+function digestWeightLine(w) {
+  if (!w || w.status !== 'ok') return '';
+  const sign = w.velocity_pct_per_week >= 0 ? '+' : '';
+  const parts = [`${sign}${w.velocity_pct_per_week.toFixed(1)}%/wk`];
+  const pace = DIGEST_PACE_LABELS[w.pace_status];
+  if (pace) parts.push(pace);
+  const accel = DIGEST_ACCEL_LABELS[w.acceleration];
+  if (accel) parts.push(accel);
+  return 'Weight ' + parts.join(' \u{00B7} ');
+}
+
+function digestBPLine(bp, priorShare) {
+  if (!bp || bp.status !== 'ok' || !(bp.count_30d > 0)) return '';
+  const share = Math.round((bp.share_30d || 0) * 100);
+  const prior = Math.round((priorShare || 0) * 100);
+  if (prior <= 0) return `BP in range ${share}%`;
+  const delta = share - prior;
+  const word = delta > 0 ? `up from ${prior}%` : delta < 0 ? `down from ${prior}%` : 'holding steady';
+  return `BP in range ${share}% \u{00B7} ${word}`;
+}
+
+function digestRestingHRLine(hr) {
+  if (!hr || hr.status !== 'ok') return '';
+  const recent = Math.round(hr.recent_14d_mean);
+  const delta = Math.round(hr.delta_from_baseline);
+  const deltaWord = delta > 0 ? `${delta} above your baseline`
+    : delta < 0 ? `${-delta} below your baseline` : 'at your baseline';
+  return `Resting HR ${recent} avg \u{00B7} ${deltaWord}`;
+}
+
+function digestBestDayLine(bd) {
+  if (!bd) return '';
+  const day = DIGEST_WEEKDAYS[new Date(bd.day_unix * 1000).getUTCDay()];
+  const plural = bd.rings_closed === 1 ? '' : 's';
+  return `Best day: ${day} \u{00B7} ${bd.rings_closed} ring${plural} closed`;
+}
+
+export function formatWeeklyDigest(review) {
+  if (!review || !review.enabled) return '\u{1F3AE} Gamification is turned off in Settings.';
+  if (review.quiet) {
+    return '\u{1F5D3} Your week\nA quiet week \u{2014} everything picks up where you left off.';
+  }
+  const g = review.gauges || {};
+  const lines = ['\u{1F5D3} Your week'];
+  for (const line of [
+    digestScoreLine(review.health_score),
+    digestLeverLine(review.levers),
+    digestWeightLine(g.weight),
+    digestBPLine(g.bp, g.bp_share_30d_prior),
+    digestRestingHRLine(g.resting_hr),
+    digestBestDayLine(review.best_day),
+  ]) {
+    if (line !== '') lines.push(line);
+  }
+  return lines.join('\n');
+}
+
+// Next Sunday 19:00 in the given IANA zone, as unix seconds. Mirrors the bot's
+// fire gate (weekly_digest.go: now.Weekday()==Sunday && now.Hour()==19). If the
+// current Sunday's 19:00 has already passed, rolls to next week.
+export const WEEKLY_DIGEST_HOUR = 19;
+export function nextWeeklyDigestFireUnix(now, timeZone) {
+  const { year, month, day } = localDateParts(now, timeZone);
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  const daysUntilSunday = (7 - weekday) % 7; // 0 when today is Sunday
+  let fireMs = localWallToUtcMs(Date.UTC(year, month - 1, day + daysUntilSunday, WEEKLY_DIGEST_HOUR, 0), timeZone);
+  if (fireMs <= now) fireMs = localWallToUtcMs(Date.UTC(year, month - 1, day + daysUntilSunday + 7, WEEKLY_DIGEST_HOUR, 0), timeZone);
+  return Math.floor(fireMs / 1000);
+}
+
 // computeReminderHorizon is pure: medications/intakes are raw records
 // (server field names), timeZone is an IANA string, now is ms epoch, tzPlan
 // is the optional active tzplan record (a passthrough, see tzplan.js).

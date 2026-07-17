@@ -141,6 +141,71 @@ describe('domain/reminders.js — workout reminder kind', () => {
     });
 });
 
+// med-eas.58 — the weekly-digest formatter ports Go FormatWeeklyReview, and
+// the fire-time helper lands on the next Sunday 19:00 local (weekly_digest.go).
+describe('domain/reminders.js — weekly digest formatter + fire time', () => {
+    it('formats a populated weekly review into the section lines', async () => {
+        const { formatWeeklyDigest } = await import('../../../domain/reminders.js');
+        const review = {
+            enabled: true, quiet: false,
+            health_score: { now: { value: 72.4 }, prior: { value: 68.6 } },
+            levers: [
+                { key: 'bedtime', closed_this_week: 5 },
+                { key: 'movement', closed_this_week: 3 },
+            ],
+            best_day: { day_unix: Date.UTC(2026, 6, 8, 0, 0, 0) / 1000, rings_closed: 3 }, // Wed
+            gauges: {
+                weight: { status: 'ok', velocity_pct_per_week: -0.42, pace_status: 'on_pace', acceleration: 'holding' },
+                bp: { status: 'ok', count_30d: 12, share_30d: 0.75 },
+                bp_share_30d_prior: 0.6,
+                resting_hr: { status: 'ok', recent_14d_mean: 58.3, delta_from_baseline: -2.1 },
+            },
+        };
+        const text = formatWeeklyDigest(review);
+        expect(text).toContain('\u{1F5D3} Your week');
+        expect(text).toContain('Health Score 72 \u{00B7} up 3');
+        expect(text).toContain('Bedtime closed 5 of 7 \u{00B7} Movement 3');
+        expect(text).toContain('Weight -0.4%/wk \u{00B7} on pace \u{00B7} holding steady');
+        expect(text).toContain('BP in range 75% \u{00B7} up from 60%');
+        expect(text).toContain('Resting HR 58 avg \u{00B7} 2 below your baseline');
+        expect(text).toContain('Best day: Wednesday \u{00B7} 3 rings closed');
+    });
+
+    it('renders the quiet-week fallback', async () => {
+        const { formatWeeklyDigest } = await import('../../../domain/reminders.js');
+        const text = formatWeeklyDigest({ enabled: true, quiet: true });
+        expect(text).toBe('\u{1F5D3} Your week\nA quiet week \u{2014} everything picks up where you left off.');
+    });
+
+    it('omits absent gauge sections and singularizes one ring', async () => {
+        const { formatWeeklyDigest } = await import('../../../domain/reminders.js');
+        const text = formatWeeklyDigest({
+            enabled: true, quiet: false,
+            health_score: { now: { value: 50 }, prior: { value: null } },
+            levers: [],
+            best_day: { day_unix: Date.UTC(2026, 6, 12, 0, 0, 0) / 1000, rings_closed: 1 }, // Sun
+            gauges: { weight: { status: 'insufficient_data' }, bp: { status: 'insufficient_data' }, resting_hr: { status: 'insufficient_data' } },
+        });
+        expect(text).toContain('Health Score 50');
+        expect(text).not.toContain('Weight');
+        expect(text).not.toContain('BP in range');
+        expect(text).not.toContain('Resting HR');
+        expect(text).toContain('Best day: Sunday \u{00B7} 1 ring closed');
+    });
+
+    it('nextWeeklyDigestFireUnix lands on next Sunday 19:00 local', async () => {
+        const { nextWeeklyDigestFireUnix } = await import('../../../domain/reminders.js');
+        // Tue July 7, 2026 06:00 UTC → next Sunday is July 12.
+        const now = Date.UTC(2026, 6, 7, 6, 0, 0);
+        expect(nextWeeklyDigestFireUnix(now, 'UTC')).toBe(Date.UTC(2026, 6, 12, 19, 0, 0) / 1000);
+        // On Sunday before 19:00 → today 19:00; after 19:00 → next week.
+        expect(nextWeeklyDigestFireUnix(Date.UTC(2026, 6, 12, 10, 0, 0), 'UTC')).toBe(Date.UTC(2026, 6, 12, 19, 0, 0) / 1000);
+        expect(nextWeeklyDigestFireUnix(Date.UTC(2026, 6, 12, 20, 0, 0), 'UTC')).toBe(Date.UTC(2026, 6, 19, 19, 0, 0) / 1000);
+        // Timezone offset applies: America/Los_Angeles Sunday 19:00 = Mon 02:00/03:00 UTC (PDT UTC-7).
+        expect(nextWeeklyDigestFireUnix(now, 'America/Los_Angeles')).toBe(Date.UTC(2026, 6, 13, 2, 0, 0) / 1000);
+    });
+});
+
 // bd med-76c.1 — Telegram reminders transit the cloud relay as plaintext, so
 // every entry must carry a name-free twin the user can opt into, and the
 // delivery/verbosity pref must default to the documented values.
