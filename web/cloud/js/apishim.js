@@ -340,6 +340,12 @@ export function createApiRouter(ctx, {
         // PORTED_SET would silently auto-enable it. GET/bootstrap clamp reads.
         if (enabled && !PORTED_SET.has(feature)) return null;
         await settings.setFeature(feature, enabled);
+        // workout/weekly_digest/gamification gate reminder-horizon kinds, so a
+        // toggle must re-push immediately (acceptance: "toggle on → fires"),
+        // not wait for the next unlock.
+        if (feature === 'workout' || feature === 'weekly_digest' || feature === 'gamification') {
+          scheduleReminderRecompute(ctx, { records, timeZone });
+        }
         return { enabled };
       }
     }
@@ -541,13 +547,19 @@ export function createApiRouter(ctx, {
     // POST /api/vitals/import or sent to the cloud bot is parsed + sealed to the
     // inbox, then the vitals_import applier writes vault records at drain time.
     if (path === '/api/workout/groups' && method === 'GET') return workout.listGroups();
-    if (path === '/api/workout/groups/create' && method === 'POST') return workout.createGroup(body);
+    if (path === '/api/workout/groups/create' && method === 'POST') {
+      const res = await workout.createGroup(body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
+    }
     if (path === '/api/workout/groups/update' && method === 'PUT') {
       await workout.updateGroup(intParam(params, 'id', 0), body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
     if (path === '/api/workout/groups/delete' && method === 'DELETE') {
       await workout.deleteGroup(intParam(params, 'id', 0));
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
 
@@ -625,10 +637,15 @@ export function createApiRouter(ctx, {
       // consumed server-side for notification cleanup, so don't leak it here.
       const outcome = await workout.setSessionStatus(intParam(params, 'id', 0), body && body.status);
       if (!outcome) throw apiError(404, 'session not found');
+      // A skip/complete suppresses that day's recurring reminder — re-push so
+      // the blind relay drops it (matches the bot cancelling on status change).
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
     if (path === '/api/workout/sessions/schedule' && method === 'POST') {
-      return workout.schedulePlannedAdHocSession(body);
+      const res = await workout.schedulePlannedAdHocSession(body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
     }
     if (path === '/api/workout/sessions/adhoc' && method === 'POST') {
       const session = await workout.createAdHocSession();
@@ -645,6 +662,9 @@ export function createApiRouter(ctx, {
         else if (action === 'preskip') await workout.preSkipSession(id);
         else if (action === 'cancel-preskip') await workout.cancelPreSkipSession(id);
         else await workout.nextVariant(id);
+        // start/snooze/skip change the session's status, which the horizon uses
+        // to suppress the recurring reminder — re-push so the relay follows.
+        scheduleReminderRecompute(ctx, { records, timeZone });
         return true;
       }
     }
