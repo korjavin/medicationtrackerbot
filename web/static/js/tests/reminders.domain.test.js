@@ -131,6 +131,25 @@ describe('domain/reminders.js — workout reminder kind', () => {
         expect(workout[0].genericText.length).toBeGreaterThan(0);
     });
 
+    // Regression: scheduled_date is an offset-carrying local-midnight instant
+    // (scheduledDateRFC). Reading it via new Date().getUTCDate() shifts the day
+    // backward in positive-offset zones and fires the reminder a day early.
+    it('anchors a positive-offset ad-hoc session to its local calendar day', () => {
+        const session = {
+            id: 6, group_id: -1, status: 'pending',
+            scheduled_date: '2026-07-09T00:00:00+02:00', scheduled_time: '19:00',
+        };
+        const entries = computeReminderHorizon({
+            timeZone: 'Europe/Berlin', now: nowMs,
+            workoutSessions: [session],
+            workoutStatus: { enabled: true },
+        });
+        const workout = entries.filter((e) => e.kind === 'workout');
+        expect(workout.length).toBe(1);
+        // July 9 19:00 Berlin (CEST, UTC+2) → 17:00 UTC — the same local day, not July 8.
+        expect(workout[0].fireAtUnix).toBe(Date.UTC(2026, 6, 9, 17, 0, 0) / 1000);
+    });
+
     it('emits nothing when the workout reminder pref is disabled', () => {
         const entries = computeReminderHorizon({
             timeZone: 'UTC', now: nowMs,
@@ -250,33 +269,6 @@ describe('domain/reminders.js — Telegram delivery pref + generic verbosity', (
         // Garbage keeps the stored value rather than silently resetting to defaults.
         expect(await domain.setDeliveryPref({ delivery: 'carrier-pigeon', verbosity: 'shouty' }))
             .toEqual({ delivery: 'both', verbosity: 'generic' });
-    });
-
-    // med-eas.59 part 1 — workout-session reminder pref singleton.
-    it('workout pref defaults to disabled with no active mute, and toggles/mutes round-trip', async () => {
-        const { createRemindersDomain, SNOOZE_MS, DONT_BUG_MS } = await import('../../../domain/reminders.js');
-        const { createInMemoryRecordsPort } = await import('./helpers/cloud-shim-harness.js');
-        const records = createInMemoryRecordsPort();
-        const fixedNow = 1_700_000_000_000;
-        const domain = createRemindersDomain({ records, now: () => fixedNow });
-
-        expect(await domain.getWorkoutStatus()).toEqual({ enabled: false, snoozed_until: 0, dont_remind_until: 0 });
-
-        expect(await domain.setWorkoutEnabled(true)).toEqual({ enabled: true, snoozed_until: 0, dont_remind_until: 0 });
-
-        // snooze/dont-bug are mute-until instants; enabling must not clear them.
-        const snoozed = await domain.snoozeWorkout();
-        expect(snoozed.enabled).toBe(true);
-        expect(snoozed.snoozed_until).toBe(fixedNow + SNOOZE_MS);
-
-        const bugged = await domain.dontBugWorkout();
-        expect(bugged.dont_remind_until).toBe(fixedNow + DONT_BUG_MS);
-        expect(bugged.snoozed_until).toBe(fixedNow + SNOOZE_MS); // not clobbered
-
-        const toggled = await domain.setWorkoutEnabled(false);
-        expect(toggled.enabled).toBe(false);
-        expect(toggled.snoozed_until).toBe(fixedNow + SNOOZE_MS);
-        expect(toggled.dont_remind_until).toBe(fixedNow + DONT_BUG_MS);
     });
 });
 

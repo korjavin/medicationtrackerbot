@@ -82,7 +82,7 @@ Cloud computes the reminder horizon client-side (`web/domain/reminders.js` `buil
 | TZ-shifted dose times | `scheduler/tz_plan_notifier.go` | `reminders.js:56` | parity |
 | Low-stock reminder push | `scheduler/low_stock.go` | `reminders.js` `low_stock` kind (`web/domain/reminders.js`, reuses `medschedule.js` `listLowOnStock`) | parity (med-eas.57) |
 | Weekly digest | `scheduler/weekly_digest.go` | `digest` kind via `computeReminderEntries` (`reminders.js`) + `formatWeeklyDigest`/`nextWeeklyDigestFireUnix` (`web/domain/reminders.js`); Settings toggle un-hidden | parity (med-eas.58) |
-| Workout-session reminder | `scheduler/workout.go` | `workout` kind in horizon + `workoutreminderpref` singleton (`web/domain/reminders.js`) | parity (med-eas.59) — **primary fire only**: the interactive re-notify(+3h)/auto-skip(+6h)/snooze/stale-90min state machine is intentionally not reproduced over the blind relay (server-observed session state a blind relay can't see; same accepted limitation as medication re-reminders) |
+| Workout-session reminder | `scheduler/workout.go` | `workout` kind in horizon, gated on the `workout` feature flag (`web/domain/reminders.js`, mirroring the bot's `GetWorkoutEnabled`) | parity (med-eas.59) — **primary fire only**: the interactive re-notify(+3h)/auto-skip(+6h)/snooze/stale-90min state machine is intentionally not reproduced over the blind relay (server-observed session state a blind relay can't see; same accepted limitation as medication re-reminders) |
 | **TZ-plan progress notifications** (non-dose) | `scheduler/tz_plan_notifier.go` | appears absent | **gap (verify/scope)** → bead |
 
 ---

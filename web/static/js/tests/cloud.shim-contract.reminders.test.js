@@ -180,6 +180,38 @@ describe('cloud shim horizon — weekly digest entry', () => {
     });
 });
 
+// med-eas.59 — workout reminders ride the workout feature flag (matching the
+// bot's GetWorkoutEnabled gate), not a dedicated pref, so they must reach the
+// uploaded horizon by default and vanish when the feature is off.
+describe('cloud shim horizon — workout entry (feature-flag gate)', () => {
+    // Mon Jun 15 2026, 06:00 UTC. Group scheduled 18:00 daily, 0 advance.
+    const NOW = Date.UTC(2026, 5, 15, 6, 0, 0);
+    beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    const seed = () => ({
+        workoutgroup: [{ recordId: 'g1', clientTs: NOW, deleted: false, id: 1, name: 'Push Day', active: true, is_rotating: false, days_of_week: '[0,1,2,3,4,5,6]', scheduled_time: '18:00', notification_advance_minutes: 0 }],
+        workoutvariant: [{ recordId: 'v1', clientTs: NOW, deleted: false, id: 10, group_id: 1, name: 'Variant A', rotation_order: 0 }],
+    });
+
+    it('emits workout entries by default (workout feature on)', async () => {
+        const records = createInMemoryRecordsPort(seed());
+        const entries = await computeReminderEntries({}, { records, timeZone: 'UTC' });
+        const workout = entries.filter((e) => e.kind === 'workout');
+        expect(workout.length).toBeGreaterThan(0);
+        expect(workout[0].text).toContain('Push Day - Variant A');
+    });
+
+    it('emits no workout entries when the workout feature is off', async () => {
+        const records = createInMemoryRecordsPort({
+            ...seed(),
+            features: [{ recordId: 'features', clientTs: NOW, deleted: false, flags: { workout: false } }],
+        });
+        const entries = await computeReminderEntries({}, { records, timeZone: 'UTC' });
+        expect(entries.filter((e) => e.kind === 'workout')).toHaveLength(0);
+    });
+});
+
 // The bot-mode /api/bp/reminder/test route fans a BP card out through every
 // notifier. Cloud has no server-side notifier, so the shim maps it onto the
 // encrypted this-device-only push the Settings test button already uses.

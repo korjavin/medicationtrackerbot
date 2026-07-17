@@ -43,6 +43,7 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
   const timeZone = tzOverride || defaultTimeZone();
   const now = () => Date.now();
   const remindersDomain = createRemindersDomain({ records, now });
+  const features = await createSettingsDomain({ records, now, timeZone }).getFeatures();
 
   const [
     medications, intakes, tzplans, bps, weights,
@@ -71,11 +72,12 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     workoutExercises: workoutExercises.filter((r) => !r.deleted),
     workoutRotations: workoutRotations.filter((r) => !r.deleted),
     workoutSessions: workoutSessions.filter((r) => !r.deleted),
+    workoutEnabled: features.workout,
     timeZone,
     tzPlan,
   });
 
-  const digest = await computeDigestEntry(records, timeZone, now());
+  const digest = await computeDigestEntry(records, timeZone, now(), features);
   if (digest) entries.push(digest);
   return entries;
 }
@@ -85,14 +87,12 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
 // weekly_digest.go). The review is anchored on now-24h so it reports the week
 // that just ended (matches Go weekly_digest.go). Forward-dated + replace-all
 // means the next Sunday 19:00 is re-derived on each recompute — no last-sent
-// state. Skipped when the review comes back disabled (gamification off).
-async function computeDigestEntry(records, timeZone, now) {
-  const features = await createSettingsDomain({ records, now: () => now, timeZone }).getFeatures();
+// state. Both-on gate lives in the caller (features passed in).
+async function computeDigestEntry(records, timeZone, now, features) {
   if (!features.weekly_digest || !features.gamification) return null;
 
   const gamification = createGamificationDomain({ records, now: () => now - 86400000, timeZone });
   const review = await gamification.getWeeklyReview();
-  if (review && review.enabled === false) return null;
 
   return {
     fireAtUnix: nextWeeklyDigestFireUnix(now, timeZone),

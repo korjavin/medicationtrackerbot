@@ -24,8 +24,6 @@ const BP_REMINDERPREF_RECORD_TYPE = 'bpreminderpref';
 const BP_REMINDERPREF_RECORD_ID = 'bpreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_TYPE = 'weightreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_ID = 'weightreminderpref';
-const WORKOUT_REMINDERPREF_RECORD_TYPE = 'workoutreminderpref';
-const WORKOUT_REMINDERPREF_RECORD_ID = 'workoutreminderpref';
 const DELIVERYPREF_RECORD_TYPE = 'reminderdeliverypref';
 const DELIVERYPREF_RECORD_ID = 'reminderdeliverypref';
 
@@ -427,12 +425,13 @@ export function computeReminderHorizon({
   }
 
   // Workout-session reminders (med-eas.59), ported from internal/scheduler/workout.go.
+  // Gated on the workout feature flag (workoutStatus.enabled), mirroring the bot's
+  // GetWorkoutEnabled gate — the bot has no separate workout-reminder pref.
   // PRIMARY FIRE ONLY: the bot's interactive re-notify(+3h)/auto-skip(+6h)/snooze/
   // stale-90min state machine needs server-observed session state a blind relay
   // can't see, so we emit only the single "workout starting" push — the same
   // accepted limitation as the medication re-reminders above (see the plan).
   if (workoutStatus.enabled) {
-    const workoutMutedUntil = mutedUntil(workoutStatus);
     const variants = workoutVariants.filter((v) => !v.deleted);
     const variantById = new Map(variants.map((v) => [v.id, v]));
 
@@ -477,7 +476,7 @@ export function computeReminderHorizon({
     };
 
     const pushWorkout = (fireMs, text) => {
-      if (fireMs <= now || fireMs <= workoutMutedUntil) return;
+      if (fireMs <= now) return;
       entries.push({ fireAtUnix: Math.floor(fireMs / 1000), kind: 'workout', text, genericText: GENERIC_WORKOUT_TEXT });
     };
 
@@ -507,15 +506,16 @@ export function computeReminderHorizon({
 
     // Planned ad-hoc sessions (group_id === -1, status 'pending'): a concrete
     // scheduled_date (local midnight rendered as an offset-stamped instant) +
-    // scheduled_time. Extract the UTC calendar day like adHocScheduledMoment,
-    // then re-anchor HH:MM to the local wall.
+    // scheduled_time. The date prefix IS the local calendar day (scheduledDateRFC,
+    // workout.js) — read it as a string, never via UTC parts, which shift the day
+    // backward in positive-offset zones. Re-anchor HH:MM to the local wall.
     for (const s of workoutSessions.filter((s) => !s.deleted && s.group_id === WORKOUT_ADHOC_GROUP_ID && s.status === 'pending')) {
       const hhmm = parseHHMM(s.scheduled_time);
       if (!hhmm) continue;
-      const dateUtc = new Date(s.scheduled_date);
-      if (Number.isNaN(dateUtc.getTime())) continue;
+      const datePrefix = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s.scheduled_date));
+      if (!datePrefix) continue;
       const scheduledMs = localWallToUtcMs(
-        Date.UTC(dateUtc.getUTCFullYear(), dateUtc.getUTCMonth(), dateUtc.getUTCDate(), hhmm.hour, hhmm.minute),
+        Date.UTC(+datePrefix[1], +datePrefix[2] - 1, +datePrefix[3], hhmm.hour, hhmm.minute),
         timeZone,
       );
       pushWorkout(scheduledMs, WORKOUT_ADHOC_TEXT);
@@ -622,41 +622,6 @@ export function createRemindersDomain({ records, now }) {
     return putWeightPref({ dont_remind_until: now() + DONT_BUG_MS });
   }
 
-  // Workout-session reminder pref (med-eas.59). Same mute-until shape as
-  // bp/weight, minus a preferred hour: workout reminders fire relative to each
-  // session's own scheduled time (scheduled - notification_advance_minutes),
-  // not at a fixed daily hour. Default enabled:false matches the bp/weight
-  // convention (opt-in).
-  async function getWorkoutStatus() {
-    const all = await records.list(WORKOUT_REMINDERPREF_RECORD_TYPE);
-    const rec = findSingleton(all, WORKOUT_REMINDERPREF_RECORD_ID);
-    return {
-      enabled: rec ? !!rec.enabled : false,
-      snoozed_until: (rec && rec.snoozed_until) || 0,
-      dont_remind_until: (rec && rec.dont_remind_until) || 0,
-    };
-  }
-
-  async function putWorkoutPref(patch) {
-    const current = await getWorkoutStatus();
-    await records.put(WORKOUT_REMINDERPREF_RECORD_TYPE, {
-      recordId: WORKOUT_REMINDERPREF_RECORD_ID, clientTs: now(), deleted: false, ...current, ...patch,
-    });
-    return getWorkoutStatus();
-  }
-
-  async function setWorkoutEnabled(enabled) {
-    return putWorkoutPref({ enabled: !!enabled });
-  }
-
-  async function snoozeWorkout() {
-    return putWorkoutPref({ snoozed_until: now() + SNOOZE_MS });
-  }
-
-  async function dontBugWorkout() {
-    return putWorkoutPref({ dont_remind_until: now() + DONT_BUG_MS });
-  }
-
   // Where reminders are delivered, and how much they say. Telegram reminders
   // transit the relay as plaintext, so `verbosity` is the user's control over
   // what leaves the vault: 'generic' (default) sends only "Medication time",
@@ -689,14 +654,14 @@ export function createRemindersDomain({ records, now }) {
   async function buildHorizon({
     medications, intakes, bps, weights, timeZone, tzPlan,
     workoutGroups = [], workoutVariants = [], workoutExercises = [],
-    workoutRotations = [], workoutSessions = [],
+    workoutRotations = [], workoutSessions = [], workoutEnabled = false,
   }) {
-    const [{ enabled }, bpStatus, weightStatus, workoutStatus] = await Promise.all([
+    const [{ enabled }, bpStatus, weightStatus] = await Promise.all([
       getStatus(),
       getBPStatus(),
       getWeightStatus(),
-      getWorkoutStatus(),
     ]);
+    const workoutStatus = { enabled: !!workoutEnabled };
 
     // We compute the horizon for everything enabled. If medication reminders are disabled,
     // we still need to compute BP/Weight reminders if they are enabled.
@@ -730,7 +695,6 @@ export function createRemindersDomain({ records, now }) {
   return {
     getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled,
     snoozeBPReminder, dontBugBPReminder, snoozeWeightReminder, dontBugWeightReminder,
-    getWorkoutStatus, setWorkoutEnabled, snoozeWorkout, dontBugWorkout,
     getDeliveryPref, setDeliveryPref, buildHorizon,
   };
 }
