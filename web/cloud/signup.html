@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Med Tracker</title>
+<!-- Make the origin installable during onboarding, so the signup wizard's
+     "Add to Home Screen" step actually works — iOS web push requires an
+     installed PWA (med-v1z). Assets are served from the C1 app tree. -->
+<link rel="manifest" href="/static/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Med Tracker">
+<link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <link rel="stylesheet" href="/css/cloud.css">
 </head>
 <body>

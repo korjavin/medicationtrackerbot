@@ -14,6 +14,15 @@ vi.mock('../unlock.js', () => ({ establishLdkCache: vi.fn(async () => {}) }));
 // Telegram self-gates and calls onDone immediately when disabled; the wizard
 // tail is what's under test, not the step itself.
 vi.mock('../telegram.js', () => ({ mountTelegram: async (_app, { onDone }) => onDone() }));
+// The install step that follows Telegram derives its state from push.js's
+// window-based probe; report standalone so it auto-skips (this env has no
+// window) — the install step's own behavior is covered in
+// signup.install-step.test.js.
+vi.mock('../push.js', () => ({
+  isStandalone: () => true,
+  isIOS: () => false,
+  iosInstallStepsHtml: () => '',
+}));
 
 let dom;
 
