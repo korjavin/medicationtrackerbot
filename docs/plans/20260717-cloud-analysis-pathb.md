@@ -78,11 +78,11 @@ BP `bp.list`; meds `medications.list` + `intake.history`; sleep `vitals.sleep({f
 - [x] Run the analysis test — must pass before Task 4.
 
 ### Task 4: Cloud-extra catalog + responder merge
-- [ ] Add `web/cloud/js/mcp-catalog.cloud-extra.js` exporting `CLOUD_EXTRA = [ {…cardiovascular op}, {…fitness op} ]` with `id, topic:"health", method:"GET", path, risk:"read", description, response_summary, params_schema:{start_date,end_date,days,exclude_notes}, response_example` (example copied from a real `analysis.js` result for seeded data).
-- [ ] Edit `web/cloud/js/mcp-responder.js` `:17`/`:22`: merge `export const CATALOG = [...GENERATED, ...CLOUD_EXTRA]`. No other responder change. **Do not touch `mcp-catalog.generated.js`.**
-- [ ] Confirm drift: run `go test ./internal/mcp/catalogjs/...` — must still pass (generated file unchanged).
-- [ ] Add/confirm a test that `mcp_help` enumeration includes both new op ids (rides the existing sweep).
-- [ ] Run `pnpm test` for `mcp-responder.test.js` help-count/enumeration — must pass before Task 5.
+- [x] Add `web/cloud/js/mcp-catalog.cloud-extra.js` exporting `CLOUD_EXTRA = [ {…cardiovascular op}, {…fitness op} ]` with `id, topic:"health", method:"GET", path, risk:"read", description, response_summary, params_schema:{start_date,end_date,days,exclude_notes}, response_example` (example copied from a real `analysis.js` result for seeded data).
+- [x] Edit `web/cloud/js/mcp-responder.js` `:17`/`:22`: merge `export const CATALOG = [...GENERATED, ...CLOUD_EXTRA]`. No other responder change. **Do not touch `mcp-catalog.generated.js`.**
+- [x] Confirm drift: run `go test ./internal/mcp/catalogjs/...` — must still pass (generated file unchanged).
+- [x] Add/confirm a test that `mcp_help` enumeration includes both new op ids (rides the existing sweep).
+- [x] Run `pnpm test` for `mcp-responder.test.js` help-count/enumeration — must pass before Task 5. (Coverage sweep + response_example conformance in the same file are Task 5's gate — they need the router routes + seed fixtures.)
 
 ### Task 5: Router routes (apishim.js)
 - [ ] In `createApiRouter`, instantiate the analysis composer (~`:143`) from the already-built domains: `const analysis = createAnalysis({ bp, vitals, medications, intake, food, weight, workout, notes, now, timeZone })`.

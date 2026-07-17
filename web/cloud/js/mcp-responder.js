@@ -14,12 +14,16 @@
 
 import { openMCPFrame, sealMCPFrame, utf8 } from './crypto.js';
 import { openDb } from './localdb.js';
-import { CATALOG } from './mcp-catalog.generated.js';
+import { CATALOG as GENERATED } from './mcp-catalog.generated.js';
+import { CLOUD_EXTRA } from './mcp-catalog.cloud-extra.js';
 
-// Re-exported: the catalog is generated from internal/mcp/registry by
-// cmd/genmcpcatalog, but this module stays its import site for the rest of
-// cloud mode. Regenerate with `go run ./cmd/genmcpcatalog`.
-export { CATALOG };
+// The generated catalog is produced from internal/mcp/registry by
+// cmd/genmcpcatalog (regenerate with `go run ./cmd/genmcpcatalog`) and is
+// drift-guarded — never hand-edit it. Cloud-only ops with no Go counterpart
+// live in mcp-catalog.cloud-extra.js and are merged in here, so they surface on
+// every catalog consumer at once (mcp_help, mcp_call, the voice dispatcher, the
+// relay responder, and the tests) without touching the generated file.
+export const CATALOG = [...GENERATED, ...CLOUD_EXTRA];
 
 const decoder = new TextDecoder();
 

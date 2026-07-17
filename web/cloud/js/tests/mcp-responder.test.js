@@ -443,6 +443,11 @@ describe('mcp_help wire contract (generated catalog)', () => {
     for (const id of ['workouts.groups.list', 'medications.list', 'food.log.create', 'health.bp.list']) {
       expect(ids).toContain(id);
     }
+    // Cloud-only composite analyses (mcp-catalog.cloud-extra.js) merged into the
+    // catalog surface on mcp_help just like the generated ops.
+    for (const id of ['health.analyze_cardiovascular', 'health.analyze_fitness']) {
+      expect(ids).toContain(id);
+    }
   });
 
   it('drills into full entries by operation_ids and notes unknown ids instead of throwing', async () => {
