@@ -11,7 +11,9 @@
 // Task 7 alongside the route table that wires those domains into the shim in
 // the first place — this module only ships the reusable recompute+upload
 // primitive.
-import { createRemindersDomain } from '../../domain/reminders.js';
+import { createRemindersDomain, formatWeeklyDigest, nextWeeklyDigestFireUnix } from '../../domain/reminders.js';
+import { createSettingsDomain } from '../../domain/settings.js';
+import { createGamificationDomain } from '../../domain/gamification.js';
 import { recordsPort } from './sync.js';
 import { pushSchedule, sendTestPush } from './push.js';
 
@@ -23,6 +25,11 @@ const TZPLAN_RECORD_TYPE = 'tzplan';
 const TZPLAN_RECORD_ID = 'tzplan-current';
 const BP_RECORD_TYPE = 'bp';
 const WEIGHT_RECORD_TYPE = 'weight';
+const WORKOUT_GROUP_RECORD_TYPE = 'workoutgroup';
+const WORKOUT_VARIANT_RECORD_TYPE = 'workoutvariant';
+const WORKOUT_EXERCISE_RECORD_TYPE = 'workoutexercise';
+const WORKOUT_ROTATION_RECORD_TYPE = 'workoutrotation';
+const WORKOUT_SESSION_RECORD_TYPE = 'workoutsession';
 const DEBOUNCE_MS = 2000;
 
 const timers = new Map();
@@ -36,24 +43,74 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
   const timeZone = tzOverride || defaultTimeZone();
   const now = () => Date.now();
   const remindersDomain = createRemindersDomain({ records, now });
+  const features = await createSettingsDomain({ records, now, timeZone }).getFeatures();
 
-  const [medications, intakes, tzplans, bps, weights] = await Promise.all([
+  const [
+    medications, intakes, tzplans, bps, weights,
+    workoutGroups, workoutVariants, workoutExercises, workoutRotations, workoutSessions,
+  ] = await Promise.all([
     records.list(MEDICATION_RECORD_TYPE),
     records.list(INTAKE_RECORD_TYPE),
     records.list(TZPLAN_RECORD_TYPE),
     records.list(BP_RECORD_TYPE),
     records.list(WEIGHT_RECORD_TYPE),
+    records.list(WORKOUT_GROUP_RECORD_TYPE),
+    records.list(WORKOUT_VARIANT_RECORD_TYPE),
+    records.list(WORKOUT_EXERCISE_RECORD_TYPE),
+    records.list(WORKOUT_ROTATION_RECORD_TYPE),
+    records.list(WORKOUT_SESSION_RECORD_TYPE),
   ]);
   const tzPlan = tzplans.find((r) => r.recordId === TZPLAN_RECORD_ID && !r.deleted) || null;
 
-  return remindersDomain.buildHorizon({
+  const entries = await remindersDomain.buildHorizon({
     medications: medications.filter((m) => !m.deleted),
     intakes: intakes.filter((i) => !i.deleted),
     bps: bps.filter((b) => !b.deleted),
     weights: weights.filter((w) => !w.deleted),
+    workoutGroups: workoutGroups.filter((r) => !r.deleted),
+    workoutVariants: workoutVariants.filter((r) => !r.deleted),
+    workoutExercises: workoutExercises.filter((r) => !r.deleted),
+    workoutRotations: workoutRotations.filter((r) => !r.deleted),
+    workoutSessions: workoutSessions.filter((r) => !r.deleted),
+    workoutEnabled: features.workout,
     timeZone,
     tzPlan,
   });
+
+  const digest = await computeDigestEntry(records, timeZone, now(), features);
+  if (digest) entries.push(digest);
+  return entries;
+}
+
+// Weekly-digest horizon entry (med-eas.58): gated on both the weekly_digest
+// feature flag and gamification being on (mirrors the bot's both-on gate,
+// weekly_digest.go). The review is anchored on now-24h so it reports the week
+// ending at recompute time; unlike the bot (which recomputes AT Sunday 19:00),
+// a mid-week recompute forward-schedules a snapshot that can be up to a week
+// stale by the time it fires — an accepted blind-relay limitation, self-healing
+// for active users. Forward-dated + replace-all means the next Sunday 19:00 is
+// re-derived on each recompute — no last-sent state. Both-on gate + failure
+// isolation live here: a digest-compute error must NOT reject computeReminderEntries
+// (that would strand the already-built medication/BP/weight/workout horizon and
+// stop replace-all propagation). The bot isolates weekly_digest as a best-effort
+// checker for the same reason — its failure never affects other reminders.
+async function computeDigestEntry(records, timeZone, now, features) {
+  if (!features.weekly_digest || !features.gamification) return null;
+
+  try {
+    const gamification = createGamificationDomain({ records, now: () => now - 86400000, timeZone });
+    const review = await gamification.getWeeklyReview();
+
+    return {
+      fireAtUnix: nextWeeklyDigestFireUnix(now, timeZone),
+      kind: 'digest',
+      text: formatWeeklyDigest(review),
+      genericText: 'Your weekly summary is ready',
+    };
+  } catch (e) {
+    console.error('[reminders] digest compute failed', e);
+    return null;
+  }
 }
 
 // getDeliveryPref/setDeliveryPref back the cloud notification settings' channel

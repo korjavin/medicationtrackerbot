@@ -13,7 +13,10 @@
 // matching the server always reminding while the medication feature is on)
 // gating whether the med portion of the horizon is computed at all.
 import { planDosesWithTzPlan } from './tzplan.js';
-import { minDoseIntervalMs, localWallToUtcMs, localDateParts } from './medschedule.js';
+import {
+  minDoseIntervalMs, localWallToUtcMs, localDateParts,
+  listLowOnStock, getDaysOfStockRemaining,
+} from './medschedule.js';
 
 const REMINDERPREF_RECORD_TYPE = 'medreminderpref';
 const REMINDERPREF_RECORD_ID = 'medreminderpref';
@@ -86,13 +89,179 @@ const GENERIC_DOSE_TEXT = '\u{1F48A} Medication time';
 const GENERIC_REREMIND_TEXT = '\u{1F514} You have an unconfirmed medication';
 const GENERIC_BP_TEXT = '\u{1F4CA} Time for a scheduled measurement';
 const GENERIC_WEIGHT_TEXT = '\u{2696}\u{FE0F} Time for a scheduled measurement';
+const GENERIC_LOW_STOCK_TEXT = '\u{26A0}\u{FE0F} Some medications are running low';
+const GENERIC_WORKOUT_TEXT = '\u{1F3CB}\u{FE0F} Time for your workout';
+
+const LOW_STOCK_HOUR = 11; // bot fires the daily low-stock warning at 11:00 local (low_stock.go)
+
+const WORKOUT_ADHOC_GROUP_ID = -1;
+// Ad-hoc sessions have no group/variant/exercise list threaded (see the plan's
+// record-type list); mirror the bot's header-only body for a planned one-off.
+const WORKOUT_ADHOC_TEXT = '\u{1F3CB}\u{FE0F} **Workout starting now**';
+
+function parseHHMM(s) {
+  const m = /^(\d{1,2}):(\d{2})/.exec(s || '');
+  return m ? { hour: +m[1], minute: +m[2] } : null;
+}
+
+// Ported from sendWorkoutNotification (internal/scheduler/workout.go:539): the
+// "starting in N minutes" header, the "Group - Variant" line, and one bullet
+// per exercise `N. **name**: sets × reps[ @ Wkg]` (reps as `min-max` when a
+// distinct max is set).
+function workoutRecurringText(advanceMinutes, groupName, variantName, exercises) {
+  const lines = [
+    `\u{1F3CB}\u{FE0F} **Workout starting in ${advanceMinutes} minutes**`,
+    '',
+    `**${groupName} - ${variantName}**`,
+  ];
+  if (exercises.length > 0) {
+    lines.push('', 'Exercises:');
+    exercises.forEach((ex, i) => {
+      const max = ex.target_reps_max;
+      const reps = max !== null && max !== undefined && max !== ex.target_reps_min
+        ? `${ex.target_reps_min}-${max}` : `${ex.target_reps_min}`;
+      let line = `${i + 1}. **${ex.exercise_name}**: ${ex.target_sets} \u{00D7} ${reps}`;
+      if (ex.target_weight_kg !== null && ex.target_weight_kg !== undefined) {
+        line += ` @ ${Math.round(ex.target_weight_kg)}kg`;
+      }
+      lines.push(line);
+    });
+  }
+  return lines.join('\n');
+}
+
+// Ported from internal/scheduler/low_stock.go's Check text builder: a header
+// plus one bullet per low med `• **<Name>**: <N> units (~<D> days left)`.
+function lowStockText(lowMeds) {
+  const lines = [
+    '\u{26A0}\u{FE0F} **Low Stock Warning**',
+    '',
+    'The following medications are running low (< 7 days):',
+    '',
+  ];
+  for (const med of lowMeds) {
+    const days = getDaysOfStockRemaining(med);
+    const daysStr = days !== null && days !== undefined ? ` (~${Math.round(days)} days left)` : '';
+    lines.push(`\u{2022} **${med.name}**: ${med.inventory_count} units${daysStr}`);
+  }
+  lines.push('');
+  lines.push('Please restock soon!');
+  return lines.join('\n');
+}
+
+// ---- Weekly digest (med-eas.58) --------------------------------------------
+// Ports the Go text formatter internal/bot/gamification_commands.go's
+// FormatWeeklyReview + friends line-for-line. Input is the snake_case
+// WeeklyReview read model web/domain/gamification.js getWeeklyReview() returns
+// (identical shape to the Go read model). Kept pure so the same file runs in
+// goja server-side later. Wired into the horizon by web/cloud/js/reminders.js
+// (Task 5).
+const DIGEST_LEVER_LABELS = { bedtime: 'Bedtime', movement: 'Movement', nourishment: 'Nourishment' };
+const DIGEST_PACE_LABELS = {
+  on_pace: 'on pace',
+  too_slow: 'slower than your pace',
+  too_fast: 'faster than your pace',
+  wrong_direction: 'moving away from goal',
+};
+const DIGEST_ACCEL_LABELS = { speeding_up: 'speeding up', holding: 'holding steady', slowing: 'slowing' };
+const DIGEST_WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function digestScoreLine(hs) {
+  if (!hs || !hs.now || hs.now.value === null || hs.now.value === undefined) return '';
+  const now = Math.round(hs.now.value);
+  if (!hs.prior || hs.prior.value === null || hs.prior.value === undefined) return `Health Score ${now}`;
+  const delta = now - Math.round(hs.prior.value);
+  if (delta === 0) return `Health Score ${now} \u{00B7} holding steady`;
+  return delta > 0 ? `Health Score ${now} \u{00B7} up ${delta}` : `Health Score ${now} \u{00B7} down ${-delta}`;
+}
+
+function digestLeverLine(levers) {
+  if (!levers || levers.length === 0) return '';
+  return levers.map((lv, i) => {
+    const label = DIGEST_LEVER_LABELS[lv.key] || lv.key;
+    return i === 0 ? `${label} closed ${lv.closed_this_week} of 7` : `${label} ${lv.closed_this_week}`;
+  }).join(' \u{00B7} ');
+}
+
+function digestWeightLine(w) {
+  if (!w || w.status !== 'ok') return '';
+  const sign = w.velocity_pct_per_week >= 0 ? '+' : '';
+  const parts = [`${sign}${w.velocity_pct_per_week.toFixed(1)}%/wk`];
+  const pace = DIGEST_PACE_LABELS[w.pace_status];
+  if (pace) parts.push(pace);
+  const accel = DIGEST_ACCEL_LABELS[w.acceleration];
+  if (accel) parts.push(accel);
+  return 'Weight ' + parts.join(' \u{00B7} ');
+}
+
+function digestBPLine(bp, priorShare) {
+  if (!bp || bp.status !== 'ok' || !(bp.count_30d > 0)) return '';
+  const share = Math.round((bp.share_30d || 0) * 100);
+  const prior = Math.round((priorShare || 0) * 100);
+  if (prior <= 0) return `BP in range ${share}%`;
+  const delta = share - prior;
+  const word = delta > 0 ? `up from ${prior}%` : delta < 0 ? `down from ${prior}%` : 'holding steady';
+  return `BP in range ${share}% \u{00B7} ${word}`;
+}
+
+function digestRestingHRLine(hr) {
+  if (!hr || hr.status !== 'ok') return '';
+  const recent = Math.round(hr.recent_14d_mean);
+  const delta = Math.round(hr.delta_from_baseline);
+  const deltaWord = delta > 0 ? `${delta} above your baseline`
+    : delta < 0 ? `${-delta} below your baseline` : 'at your baseline';
+  return `Resting HR ${recent} avg \u{00B7} ${deltaWord}`;
+}
+
+function digestBestDayLine(bd) {
+  if (!bd) return '';
+  const day = DIGEST_WEEKDAYS[new Date(bd.day_unix * 1000).getUTCDay()];
+  const plural = bd.rings_closed === 1 ? '' : 's';
+  return `Best day: ${day} \u{00B7} ${bd.rings_closed} ring${plural} closed`;
+}
+
+export function formatWeeklyDigest(review) {
+  if (!review || !review.enabled) return '\u{1F3AE} Gamification is turned off in Settings.';
+  if (review.quiet) {
+    return '\u{1F5D3} Your week\nA quiet week \u{2014} everything picks up where you left off.';
+  }
+  const g = review.gauges || {};
+  const lines = ['\u{1F5D3} Your week'];
+  for (const line of [
+    digestScoreLine(review.health_score),
+    digestLeverLine(review.levers),
+    digestWeightLine(g.weight),
+    digestBPLine(g.bp, g.bp_share_30d_prior),
+    digestRestingHRLine(g.resting_hr),
+    digestBestDayLine(review.best_day),
+  ]) {
+    if (line !== '') lines.push(line);
+  }
+  return lines.join('\n');
+}
+
+// Next Sunday 19:00 in the given IANA zone, as unix seconds. Mirrors the bot's
+// fire gate (weekly_digest.go: now.Weekday()==Sunday && now.Hour()==19). If the
+// current Sunday's 19:00 has already passed, rolls to next week.
+export const WEEKLY_DIGEST_HOUR = 19;
+export function nextWeeklyDigestFireUnix(now, timeZone) {
+  const { year, month, day } = localDateParts(now, timeZone);
+  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  const daysUntilSunday = (7 - weekday) % 7; // 0 when today is Sunday
+  let fireMs = localWallToUtcMs(Date.UTC(year, month - 1, day + daysUntilSunday, WEEKLY_DIGEST_HOUR, 0), timeZone);
+  if (fireMs <= now) fireMs = localWallToUtcMs(Date.UTC(year, month - 1, day + daysUntilSunday + 7, WEEKLY_DIGEST_HOUR, 0), timeZone);
+  return Math.floor(fireMs / 1000);
+}
 
 // computeReminderHorizon is pure: medications/intakes are raw records
 // (server field names), timeZone is an IANA string, now is ms epoch, tzPlan
 // is the optional active tzplan record (a passthrough, see tzplan.js).
 export function computeReminderHorizon({
   medications = [], intakes = [], bps = [], weights = [],
+  workoutGroups = [], workoutVariants = [], workoutExercises = [],
+  workoutRotations = [], workoutSessions = [],
   timeZone, now, tzPlan, bpStatus = { enabled: false }, weightStatus = { enabled: false },
+  workoutStatus = { enabled: false },
 } = {}) {
   const meds = medications.filter((m) => !m.deleted && !m.archived);
   const medById = new Map(meds.map((m) => [m.recordId ?? m.id, m]));
@@ -231,6 +400,141 @@ export function computeReminderHorizon({
     }
   }
 
+  // Low-stock warnings (med-eas.57), ported from internal/scheduler/low_stock.go:
+  // the bot fires a daily 11:00-local warning when any med is < 7 days of supply.
+  // Gated on the med-reminder enable flag upstream (buildHorizon blanks
+  // `medications` when disabled, so `meds` is empty here). No callback (bot has
+  // no buttons on this notification).
+  {
+    const { year, month, day } = localDateParts(now, timeZone);
+    for (let d = 0; d < FORECAST_DAYS; d++) {
+      const wallAsUtc = Date.UTC(year, month - 1, day + d, LOW_STOCK_HOUR, 0);
+      const targetMs = localWallToUtcMs(wallAsUtc, timeZone);
+      if (targetMs <= now) continue;
+      // listLowOnStock keys off `now` (via end_date proximity), so evaluate at
+      // the fire instant rather than the current time.
+      const lowMeds = listLowOnStock(meds, targetMs);
+      if (lowMeds.length === 0) continue;
+      entries.push({
+        fireAtUnix: Math.floor(targetMs / 1000),
+        kind: 'low_stock',
+        text: lowStockText(lowMeds),
+        genericText: GENERIC_LOW_STOCK_TEXT,
+      });
+    }
+  }
+
+  // Workout-session reminders (med-eas.59), ported from internal/scheduler/workout.go.
+  // Gated on the workout feature flag (workoutStatus.enabled), mirroring the bot's
+  // GetWorkoutEnabled gate — the bot has no separate workout-reminder pref.
+  // PRIMARY FIRE ONLY: the bot's interactive re-notify(+3h)/auto-skip(+6h)/snooze/
+  // stale-90min state machine needs server-observed session state a blind relay
+  // can't see, so we emit only the single "workout starting" push — the same
+  // accepted limitation as the medication re-reminders above (see the plan).
+  if (workoutStatus.enabled) {
+    const variants = workoutVariants.filter((v) => !v.deleted);
+    const variantById = new Map(variants.map((v) => [v.id, v]));
+
+    const variantsByGroup = new Map();
+    for (const v of variants) {
+      const list = variantsByGroup.get(v.group_id) || [];
+      list.push(v);
+      variantsByGroup.set(v.group_id, list);
+    }
+    // listVariants order: rotation_order asc (999 default), then name — the
+    // first variant is the non-rotating group's picked variant.
+    for (const list of variantsByGroup.values()) {
+      list.sort((a, b) => {
+        const ra = a.rotation_order !== null && a.rotation_order !== undefined ? a.rotation_order : 999;
+        const rb = b.rotation_order !== null && b.rotation_order !== undefined ? b.rotation_order : 999;
+        if (ra !== rb) return ra - rb;
+        return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+      });
+    }
+
+    const rotationByGroup = new Map();
+    for (const r of workoutRotations.filter((r) => !r.deleted)) {
+      rotationByGroup.set(r.group_id, r.current_variant_id);
+    }
+
+    const exercisesByVariant = new Map();
+    for (const e of workoutExercises.filter((e) => !e.deleted)) {
+      const list = exercisesByVariant.get(e.variant_id) || [];
+      list.push(e);
+      exercisesByVariant.set(e.variant_id, list);
+    }
+    for (const list of exercisesByVariant.values()) {
+      list.sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+    }
+
+    // resolveVariantId ports next.go's resolveVariantID: rotation cursor for a
+    // rotating group (if present), else the first variant; 0 when none.
+    const resolveVariantId = (group) => {
+      if (group.is_rotating && rotationByGroup.has(group.id)) return rotationByGroup.get(group.id);
+      const vs = variantsByGroup.get(group.id) || [];
+      return vs.length > 0 ? vs[0].id : 0;
+    };
+
+    const pushWorkout = (fireMs, text) => {
+      if (fireMs <= now) return;
+      entries.push({ fireAtUnix: Math.floor(fireMs / 1000), kind: 'workout', text, genericText: GENERIC_WORKOUT_TEXT });
+    };
+
+    // Schedule-materialized sessions (real group_id, keyed by local day) suppress
+    // the primary fire once the user has acted: the bot only notifies a 'pending'
+    // session (workout.go step 9), and getNext skips completed/skipped ones. Key
+    // by `group_id|YYYY-MM-DD` — the scheduled_date prefix IS the local day.
+    const sessionStatusByKey = new Map();
+    for (const s of workoutSessions.filter((x) => !x.deleted && x.group_id !== WORKOUT_ADHOC_GROUP_ID)) {
+      const p = /^(\d{4}-\d{2}-\d{2})/.exec(String(s.scheduled_date));
+      if (p) sessionStatusByKey.set(`${s.group_id}|${p[1]}`, s.status);
+    }
+
+    const { year, month, day } = localDateParts(now, timeZone);
+
+    // Recurring groups: every matching-weekday occurrence within the horizon,
+    // fired at scheduledInstant - notification_advance_minutes.
+    for (const group of workoutGroups.filter((g) => !g.deleted && g.active)) {
+      let daysOfWeek;
+      try { daysOfWeek = JSON.parse(group.days_of_week); } catch { continue; }
+      if (!Array.isArray(daysOfWeek)) continue;
+      const variantId = resolveVariantId(group);
+      if (!variantId) continue;
+      const variant = variantById.get(variantId);
+      if (!variant) continue;
+      const hhmm = parseHHMM(group.scheduled_time);
+      if (!hhmm) continue;
+      const advance = group.notification_advance_minutes || 0;
+      const text = workoutRecurringText(advance, group.name, variant.name, exercisesByVariant.get(variantId) || []);
+      for (let d = 0; d < FORECAST_DAYS; d++) {
+        const occ = new Date(Date.UTC(year, month - 1, day + d));
+        if (!daysOfWeek.includes(occ.getUTCDay())) continue;
+        const dateStr = `${occ.getUTCFullYear()}-${String(occ.getUTCMonth() + 1).padStart(2, '0')}-${String(occ.getUTCDate()).padStart(2, '0')}`;
+        const existingStatus = sessionStatusByKey.get(`${group.id}|${dateStr}`);
+        if (existingStatus !== undefined && existingStatus !== 'pending') continue;
+        const scheduledMs = localWallToUtcMs(Date.UTC(year, month - 1, day + d, hhmm.hour, hhmm.minute), timeZone);
+        pushWorkout(scheduledMs - advance * 60 * 1000, text);
+      }
+    }
+
+    // Planned ad-hoc sessions (group_id === -1, status 'pending'): a concrete
+    // scheduled_date (local midnight rendered as an offset-stamped instant) +
+    // scheduled_time. The date prefix IS the local calendar day (scheduledDateRFC,
+    // workout.js) — read it as a string, never via UTC parts, which shift the day
+    // backward in positive-offset zones. Re-anchor HH:MM to the local wall.
+    for (const s of workoutSessions.filter((s) => !s.deleted && s.group_id === WORKOUT_ADHOC_GROUP_ID && s.status === 'pending')) {
+      const hhmm = parseHHMM(s.scheduled_time);
+      if (!hhmm) continue;
+      const datePrefix = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s.scheduled_date));
+      if (!datePrefix) continue;
+      const scheduledMs = localWallToUtcMs(
+        Date.UTC(+datePrefix[1], +datePrefix[2] - 1, +datePrefix[3], hhmm.hour, hhmm.minute),
+        timeZone,
+      );
+      pushWorkout(scheduledMs, WORKOUT_ADHOC_TEXT);
+    }
+  }
+
   entries.sort((a, b) => a.fireAtUnix - b.fireAtUnix);
   return entries.slice(0, MAX_HORIZON_ENTRIES);
 }
@@ -362,12 +666,15 @@ export function createRemindersDomain({ records, now }) {
   // "disabled -> upload empty med portion" rule.
   async function buildHorizon({
     medications, intakes, bps, weights, timeZone, tzPlan,
+    workoutGroups = [], workoutVariants = [], workoutExercises = [],
+    workoutRotations = [], workoutSessions = [], workoutEnabled = false,
   }) {
     const [{ enabled }, bpStatus, weightStatus] = await Promise.all([
       getStatus(),
       getBPStatus(),
-      getWeightStatus()
+      getWeightStatus(),
     ]);
+    const workoutStatus = { enabled: !!workoutEnabled };
 
     // We compute the horizon for everything enabled. If medication reminders are disabled,
     // we still need to compute BP/Weight reminders if they are enabled.
@@ -384,11 +691,17 @@ export function createRemindersDomain({ records, now }) {
       intakes: intakesToPass,
       bps,
       weights,
+      workoutGroups,
+      workoutVariants,
+      workoutExercises,
+      workoutRotations,
+      workoutSessions,
       timeZone,
       now: now(),
       tzPlan,
       bpStatus,
-      weightStatus
+      weightStatus,
+      workoutStatus,
     });
   }
 

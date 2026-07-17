@@ -625,10 +625,10 @@ async function loadSettings() {
         // oplog sync engine, which never touches this status bar — so the pane
         // sits empty under its own heading (med-8q2).
         document.querySelector('.wg-settings-sync')?.classList.add('wg-settings-hidden');
-        // weekly_digest is a bot/server-mode scheduler feature (Telegram Sunday
-        // summary); cloud mode has no digest sender and clamps the flag to false,
-        // so hide the dead toggle row rather than render a no-op control (med-eas.44).
-        document.querySelector('mt-setting-toggle[input-id="weekly-digest-feature-toggle"]')?.classList.add('wg-settings-hidden');
+        // weekly_digest now drives a cloud horizon producer (med-eas.58), so the
+        // toggle is live in cloud. It only makes sense alongside gamification
+        // (the digest is a gamification summary, both-on gate per the bot), so
+        // updateWeeklyDigestVisibility hides it when gamification is off.
         document.querySelector('.wg-settings-notifications-cloud')?.classList.remove('wg-settings-hidden');
         await bindCloudNotifications();
         // Devices row (add/manage a second device) only makes sense in cloud
@@ -836,6 +836,16 @@ function updateFeatureToggles() {
     document.getElementById('workout-feature-toggle').checked = !!flags.workout;
     document.getElementById('weekly-digest-feature-toggle').checked = !!flags.weekly_digest;
     document.getElementById('gamification-feature-toggle').checked = !!flags.gamification;
+    updateWeeklyDigestVisibility(flags);
+}
+
+// In cloud mode the weekly-digest toggle drives a gamification-summary push, so
+// it's only meaningful when gamification is on (both-on gate, matching the bot).
+// Bot/server mode leaves the row always visible as before.
+function updateWeeklyDigestVisibility(flags) {
+    if (!window.__MEDTRACKER_CLOUD__) return;
+    const row = document.querySelector('mt-setting-toggle[input-id="weekly-digest-feature-toggle"]');
+    row?.classList.toggle('wg-settings-hidden', !flags.gamification);
 }
 
 function updateFoodTargetsVisibility() {
@@ -1016,6 +1026,9 @@ function updateFeatureTabVisibility() {
     }
     updateFoodTargetsVisibility();
     updateGamificationTargetsVisibility();
+    // Gamification toggling here also gates the weekly-digest row (both-on), so
+    // refresh its visibility on the toggle success path — not just on load.
+    updateWeeklyDigestVisibility(window.featureSettings || {});
     // A toggle just changed a target section's visibility; roll that back up to
     // the parent <details> group so an all-hidden Targets fold doesn't linger
     // (and reappears when a target is re-enabled) without a full Settings reload.

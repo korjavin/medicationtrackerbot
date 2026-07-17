@@ -47,6 +47,203 @@ describe('domain/reminders.js — horizon scheduling', () => {
     });
 });
 
+// med-eas.57 — low-stock warning kind, ported from internal/scheduler/low_stock.go.
+// Fires daily at 11:00 local when any med is < 7 days of supply; no callback.
+describe('domain/reminders.js — low-stock reminder kind', () => {
+    const nowMs = Date.UTC(2026, 6, 7, 6, 0, 0); // July 7, 06:00 UTC — before today's 11:00
+
+    it('emits a low_stock entry at the next local 11:00 naming the low med', () => {
+        const entries = computeReminderHorizon({
+            medications: [{ id: 'm1', name: 'Lisinopril', schedule: '08:00', inventory_count: 3 }],
+            intakes: [], bps: [], weights: [], timeZone: 'UTC', now: nowMs,
+        });
+        const low = entries.filter((e) => e.kind === 'low_stock');
+        expect(low.length).toBeGreaterThan(0);
+        // 3 units / 1 dose/day = 3 days < 7 → low. First fire is today 11:00 UTC.
+        expect(low[0].fireAtUnix).toBe(Date.UTC(2026, 6, 7, 11, 0, 0) / 1000);
+        expect(low[0].text).toContain('Lisinopril');
+        expect(low[0].text).toContain('3 units');
+        expect(low[0].text).toContain('~3 days left');
+        expect(low[0].callback).toBeUndefined();
+        // genericText is name-free.
+        expect(low[0].genericText).not.toContain('Lisinopril');
+        expect(low[0].genericText.length).toBeGreaterThan(0);
+    });
+
+    it('does not emit for well-stocked, null-inventory, or as-needed meds', () => {
+        const entries = computeReminderHorizon({
+            medications: [
+                { id: 'm1', name: 'Plenty', schedule: '08:00', inventory_count: 100 },
+                { id: 'm2', name: 'Untracked', schedule: '08:00', inventory_count: null },
+                { id: 'm3', name: 'AsNeeded', schedule: JSON.stringify({ type: 'as_needed', times: [] }), inventory_count: 1 },
+            ],
+            intakes: [], bps: [], weights: [], timeZone: 'UTC', now: nowMs,
+        });
+        expect(entries.some((e) => e.kind === 'low_stock')).toBe(false);
+    });
+});
+
+// med-eas.59 — workout-session reminder kind, ported from internal/scheduler/workout.go.
+// Primary fire only: fires at scheduledInstant - notification_advance_minutes for
+// recurring groups, at the scheduled moment for planned ad-hoc sessions.
+describe('domain/reminders.js — workout reminder kind', () => {
+    const nowMs = Date.UTC(2026, 6, 7, 6, 0, 0); // July 7, 2026 06:00 UTC
+    const group = {
+        id: 1, name: 'Push Day', active: true, is_rotating: false,
+        days_of_week: '[0,1,2,3,4,5,6]', scheduled_time: '18:00', notification_advance_minutes: 30,
+    };
+    const variant = { id: 10, group_id: 1, name: 'Variant A', rotation_order: 0 };
+    const exercise = {
+        id: 100, variant_id: 10, exercise_name: 'Bench Press',
+        target_sets: 3, target_reps_min: 8, order_index: 0,
+    };
+
+    it('emits a workout entry at scheduledInstant - advance for a recurring group', () => {
+        const entries = computeReminderHorizon({
+            timeZone: 'UTC', now: nowMs,
+            workoutGroups: [group], workoutVariants: [variant], workoutExercises: [exercise],
+            workoutStatus: { enabled: true },
+        });
+        const workout = entries.filter((e) => e.kind === 'workout');
+        expect(workout.length).toBeGreaterThan(0);
+        // Today 18:00 UTC minus 30 min advance → 17:30 UTC.
+        expect(workout[0].fireAtUnix).toBe(Date.UTC(2026, 6, 7, 17, 30, 0) / 1000);
+        expect(workout[0].text).toContain('Push Day - Variant A');
+        expect(workout[0].text).toContain('Bench Press');
+        // genericText is name-free.
+        expect(workout[0].genericText).not.toContain('Push Day');
+        expect(workout[0].genericText.length).toBeGreaterThan(0);
+    });
+
+    it('emits a workout entry for a planned ad-hoc session at its scheduled moment', () => {
+        const session = {
+            id: 5, group_id: -1, status: 'pending',
+            scheduled_date: '2026-07-09T00:00:00.000Z', scheduled_time: '19:00',
+        };
+        const entries = computeReminderHorizon({
+            timeZone: 'UTC', now: nowMs,
+            workoutSessions: [session],
+            workoutStatus: { enabled: true },
+        });
+        const workout = entries.filter((e) => e.kind === 'workout');
+        expect(workout.length).toBe(1);
+        expect(workout[0].fireAtUnix).toBe(Date.UTC(2026, 6, 9, 19, 0, 0) / 1000);
+        expect(workout[0].genericText.length).toBeGreaterThan(0);
+    });
+
+    // Regression: scheduled_date is an offset-carrying local-midnight instant
+    // (scheduledDateRFC). Reading it via new Date().getUTCDate() shifts the day
+    // backward in positive-offset zones and fires the reminder a day early.
+    it('anchors a positive-offset ad-hoc session to its local calendar day', () => {
+        const session = {
+            id: 6, group_id: -1, status: 'pending',
+            scheduled_date: '2026-07-09T00:00:00+02:00', scheduled_time: '19:00',
+        };
+        const entries = computeReminderHorizon({
+            timeZone: 'Europe/Berlin', now: nowMs,
+            workoutSessions: [session],
+            workoutStatus: { enabled: true },
+        });
+        const workout = entries.filter((e) => e.kind === 'workout');
+        expect(workout.length).toBe(1);
+        // July 9 19:00 Berlin (CEST, UTC+2) → 17:00 UTC — the same local day, not July 8.
+        expect(workout[0].fireAtUnix).toBe(Date.UTC(2026, 6, 9, 17, 0, 0) / 1000);
+    });
+
+    // The bot only notifies a 'pending' session (workout.go step 9); a session
+    // the user already completed/skipped for that day suppresses the primary fire.
+    it('suppresses the recurring fire for a day whose session is already completed', () => {
+        const doneToday = {
+            id: 7, group_id: 1, status: 'completed',
+            scheduled_date: '2026-07-07T00:00:00.000Z', scheduled_time: '18:00',
+        };
+        const entries = computeReminderHorizon({
+            timeZone: 'UTC', now: nowMs,
+            workoutGroups: [group], workoutVariants: [variant], workoutExercises: [exercise],
+            workoutSessions: [doneToday],
+            workoutStatus: { enabled: true },
+        });
+        const workout = entries.filter((e) => e.kind === 'workout');
+        // Today (17:30 UTC) is suppressed; tomorrow (July 8) is the first fire.
+        expect(workout.some((e) => e.fireAtUnix === Date.UTC(2026, 6, 7, 17, 30, 0) / 1000)).toBe(false);
+        expect(workout[0].fireAtUnix).toBe(Date.UTC(2026, 6, 8, 17, 30, 0) / 1000);
+    });
+
+    it('emits nothing when the workout reminder pref is disabled', () => {
+        const entries = computeReminderHorizon({
+            timeZone: 'UTC', now: nowMs,
+            workoutGroups: [group], workoutVariants: [variant], workoutExercises: [exercise],
+            workoutStatus: { enabled: false },
+        });
+        expect(entries.some((e) => e.kind === 'workout')).toBe(false);
+    });
+});
+
+// med-eas.58 — the weekly-digest formatter ports Go FormatWeeklyReview, and
+// the fire-time helper lands on the next Sunday 19:00 local (weekly_digest.go).
+describe('domain/reminders.js — weekly digest formatter + fire time', () => {
+    it('formats a populated weekly review into the section lines', async () => {
+        const { formatWeeklyDigest } = await import('../../../domain/reminders.js');
+        const review = {
+            enabled: true, quiet: false,
+            health_score: { now: { value: 72.4 }, prior: { value: 68.6 } },
+            levers: [
+                { key: 'bedtime', closed_this_week: 5 },
+                { key: 'movement', closed_this_week: 3 },
+            ],
+            best_day: { day_unix: Date.UTC(2026, 6, 8, 0, 0, 0) / 1000, rings_closed: 3 }, // Wed
+            gauges: {
+                weight: { status: 'ok', velocity_pct_per_week: -0.42, pace_status: 'on_pace', acceleration: 'holding' },
+                bp: { status: 'ok', count_30d: 12, share_30d: 0.75 },
+                bp_share_30d_prior: 0.6,
+                resting_hr: { status: 'ok', recent_14d_mean: 58.3, delta_from_baseline: -2.1 },
+            },
+        };
+        const text = formatWeeklyDigest(review);
+        expect(text).toContain('\u{1F5D3} Your week');
+        expect(text).toContain('Health Score 72 \u{00B7} up 3');
+        expect(text).toContain('Bedtime closed 5 of 7 \u{00B7} Movement 3');
+        expect(text).toContain('Weight -0.4%/wk \u{00B7} on pace \u{00B7} holding steady');
+        expect(text).toContain('BP in range 75% \u{00B7} up from 60%');
+        expect(text).toContain('Resting HR 58 avg \u{00B7} 2 below your baseline');
+        expect(text).toContain('Best day: Wednesday \u{00B7} 3 rings closed');
+    });
+
+    it('renders the quiet-week fallback', async () => {
+        const { formatWeeklyDigest } = await import('../../../domain/reminders.js');
+        const text = formatWeeklyDigest({ enabled: true, quiet: true });
+        expect(text).toBe('\u{1F5D3} Your week\nA quiet week \u{2014} everything picks up where you left off.');
+    });
+
+    it('omits absent gauge sections and singularizes one ring', async () => {
+        const { formatWeeklyDigest } = await import('../../../domain/reminders.js');
+        const text = formatWeeklyDigest({
+            enabled: true, quiet: false,
+            health_score: { now: { value: 50 }, prior: { value: null } },
+            levers: [],
+            best_day: { day_unix: Date.UTC(2026, 6, 12, 0, 0, 0) / 1000, rings_closed: 1 }, // Sun
+            gauges: { weight: { status: 'insufficient_data' }, bp: { status: 'insufficient_data' }, resting_hr: { status: 'insufficient_data' } },
+        });
+        expect(text).toContain('Health Score 50');
+        expect(text).not.toContain('Weight');
+        expect(text).not.toContain('BP in range');
+        expect(text).not.toContain('Resting HR');
+        expect(text).toContain('Best day: Sunday \u{00B7} 1 ring closed');
+    });
+
+    it('nextWeeklyDigestFireUnix lands on next Sunday 19:00 local', async () => {
+        const { nextWeeklyDigestFireUnix } = await import('../../../domain/reminders.js');
+        // Tue July 7, 2026 06:00 UTC → next Sunday is July 12.
+        const now = Date.UTC(2026, 6, 7, 6, 0, 0);
+        expect(nextWeeklyDigestFireUnix(now, 'UTC')).toBe(Date.UTC(2026, 6, 12, 19, 0, 0) / 1000);
+        // On Sunday before 19:00 → today 19:00; after 19:00 → next week.
+        expect(nextWeeklyDigestFireUnix(Date.UTC(2026, 6, 12, 10, 0, 0), 'UTC')).toBe(Date.UTC(2026, 6, 12, 19, 0, 0) / 1000);
+        expect(nextWeeklyDigestFireUnix(Date.UTC(2026, 6, 12, 20, 0, 0), 'UTC')).toBe(Date.UTC(2026, 6, 19, 19, 0, 0) / 1000);
+        // Timezone offset applies: America/Los_Angeles Sunday 19:00 = Mon 02:00/03:00 UTC (PDT UTC-7).
+        expect(nextWeeklyDigestFireUnix(now, 'America/Los_Angeles')).toBe(Date.UTC(2026, 6, 13, 2, 0, 0) / 1000);
+    });
+});
+
 // bd med-76c.1 — Telegram reminders transit the cloud relay as plaintext, so
 // every entry must carry a name-free twin the user can opt into, and the
 // delivery/verbosity pref must default to the documented values.
@@ -54,7 +251,8 @@ describe('domain/reminders.js — Telegram delivery pref + generic verbosity', (
     it('every horizon entry carries a genericText with no medication name in it', () => {
         const nowMs = Date.UTC(2026, 6, 7, 6, 0, 0);
         const entries = computeReminderHorizon({
-            medications: [{ id: 'm1', name: 'Lisinopril', dosage: '10 mg', schedule: '20:00' }],
+            // Low inventory so a low_stock entry is also produced and covered here.
+            medications: [{ id: 'm1', name: 'Lisinopril', dosage: '10 mg', schedule: '20:00', inventory_count: 2 }],
             intakes: [],
             bps: [], weights: [],
             timeZone: 'UTC',
@@ -63,6 +261,7 @@ describe('domain/reminders.js — Telegram delivery pref + generic verbosity', (
             weightStatus: { enabled: true, preferred_reminder_hour: 9 },
         });
 
+        expect(entries.some((e) => e.kind === 'low_stock')).toBe(true);
         expect(entries.length).toBeGreaterThan(0);
         for (const e of entries) {
             expect(typeof e.genericText).toBe('string');
