@@ -182,6 +182,56 @@ describe('analysis.cardiovascular', () => {
     expect(resp.period).toBe('2026-07-17 to 2026-07-17');
   });
 
+  it('degrades a failed diary-notes read instead of aborting the whole analysis', async () => {
+    // The notes read was previously unguarded, so a notes failure rejected the
+    // entire analysis. It must degrade like every other section (Go parity).
+    const now = () => NOW;
+    const timeZone = 'UTC';
+    const records = createInMemoryRecordsPort({
+      bp: [{
+        recordId: 'bp-1', deleted: false, measured_at: '2026-07-10T09:00:00Z',
+        systolic: 120, diastolic: 80, category: 'Normal',
+      }],
+    });
+    const bp = createBPDomain({ records, now, timeZone });
+    const vitals = createVitalsDomain({ records, now, timeZone });
+    const medications = createMedicationsDomain({
+      records, now, timeZone, rxnorm: { normalize: async () => null },
+    });
+    const intake = createIntakeDomain({ records, now, timeZone });
+    const throwingNotes = { list: async () => { throw new Error('notes boom'); } };
+    const analysis = createAnalysis({
+      bp, vitals, medications, intake, notes: throwingNotes, now, timeZone,
+    });
+
+    const resp = await analysis.cardiovascular({ from: '2026-07-10', to: '2026-07-17' });
+
+    expect(resp.blood_pressure).toBeTruthy(); // other sections still resolved
+    expect(resp.diary_notes).toBeUndefined();
+    expect(resp.warning).toContain('diary notes (query failed)');
+  });
+
+  it('resolves the window by local date under a UTC+14 timezone', async () => {
+    // A noon-UTC anchor lands on the next local date at UTC+14, shifting the
+    // whole window forward a day; the period must name the requested dates.
+    const now = () => NOW;
+    const timeZone = 'Pacific/Kiritimati'; // UTC+14
+    const records = createInMemoryRecordsPort({});
+    const bp = createBPDomain({ records, now, timeZone });
+    const vitals = createVitalsDomain({ records, now, timeZone });
+    const notes = createNotesDomain({ records, now });
+    const medications = createMedicationsDomain({
+      records, now, timeZone, rxnorm: { normalize: async () => null },
+    });
+    const intake = createIntakeDomain({ records, now, timeZone });
+    const analysis = createAnalysis({
+      bp, vitals, medications, intake, notes, now, timeZone,
+    });
+
+    const resp = await analysis.cardiovascular({ from: '2026-07-10', to: '2026-07-12' });
+    expect(resp.period).toBe('2026-07-10 to 2026-07-12');
+  });
+
   it('omits a gated-off section and lists it as unavailable', async () => {
     const analysis = build({
       medication: [{

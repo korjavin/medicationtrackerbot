@@ -11,7 +11,7 @@
 // warning list and omitted, never aborting the whole analysis — mirroring the Go
 // handlers' per-section `unavailable = append(...)` pattern.
 
-import { dayStartMs } from './bp.js';
+import { localWallToUtcMs } from './medschedule.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Default + max lookback window, matching Config.MaxQueryDays (90) — the bot's
@@ -33,11 +33,20 @@ function fmtDay(ms, timeZone) {
   }).format(new Date(ms));
 }
 
-// Start of the local day named by a YYYY-MM-DD string. Anchoring on noon UTC
-// keeps the calendar day from rolling over under any real tz offset (±14h);
-// dayStartMs then snaps to the local midnight.
+// Local midnight (UTC instant) of the calendar day named by a YYYY-MM-DD string,
+// built with calendar + DST-aware wall→UTC conversion (localWallToUtcMs). A
+// noon-UTC anchor would roll to the next local date under tz offsets beyond ±12h
+// (UTC+13/UTC+14), so parse the Y/M/D directly instead.
 function startOfDayMs(dateStr, timeZone) {
-  return dayStartMs(Date.parse(`${dateStr}T12:00:00Z`), timeZone);
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return localWallToUtcMs(Date.UTC(y, m - 1, d, 0, 0, 0), timeZone);
+}
+// Local midnight `offsetDays` calendar days from the given YYYY-MM-DD. Date.UTC
+// carries day/month overflow, so this adds/subtracts whole days without the
+// fixed-DAY_MS drift that skews a boundary by an hour across a DST transition.
+function startOfDayPlus(dateStr, offsetDays, timeZone) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return localWallToUtcMs(Date.UTC(y, m - 1, d + offsetDays, 0, 0, 0), timeZone);
 }
 
 // resolveWindow reproduces resolveCompositeRange + parseDateRange: end defaults
@@ -46,24 +55,26 @@ function startOfDayMs(dateStr, timeZone) {
 function resolveWindow({ from, to, days }, nowMs, timeZone) {
   let endMs;
   if (to) {
-    endMs = startOfDayMs(to, timeZone) + DAY_MS - 1;
+    endMs = startOfDayPlus(to, 1, timeZone) - 1;
   } else if (!from && days > 0) {
     // Go's resolveCompositeRange normalizes an empty end to today's *date* in
     // the days-shorthand path, which parseDateRange then extends to end-of-day
-    // (23:59:59) — not the wall-clock `now` instant the plain-default path uses.
-    endMs = startOfDayMs(fmtDay(nowMs, timeZone), timeZone) + DAY_MS - 1;
+    // (next local midnight − 1ms) — not the wall-clock `now` instant the
+    // plain-default path uses.
+    endMs = startOfDayPlus(fmtDay(nowMs, timeZone), 1, timeZone) - 1;
   } else {
     endMs = nowMs;
   }
+  const endDay = fmtDay(endMs, timeZone);
   let startMs;
   if (from) {
     startMs = startOfDayMs(from, timeZone);
   } else if (days > 0) {
-    startMs = startOfDayMs(fmtDay(endMs, timeZone), timeZone) - (days - 1) * DAY_MS;
+    startMs = startOfDayPlus(endDay, -(days - 1), timeZone);
   } else {
-    startMs = endMs - MAX_DAYS * DAY_MS;
+    startMs = startOfDayPlus(endDay, -MAX_DAYS, timeZone);
   }
-  const maxStart = endMs - MAX_DAYS * DAY_MS;
+  const maxStart = startOfDayPlus(endDay, -MAX_DAYS, timeZone);
   if (startMs < maxStart) startMs = maxStart;
   return {
     fromMs: startMs,
@@ -106,6 +117,19 @@ export function createAnalysis({
     const truncated = inWindow.length > NOTES_LIMIT;
     const out = inWindow.slice(0, NOTES_LIMIT).map((n) => ({ content: n.content, created_at: n.created_at }));
     return { notes: out, truncated };
+  }
+
+  // attachNotes degrades a failed notes read into an `unavailable` entry rather
+  // than rejecting the whole analysis — the Go handlers wrap the context-notes
+  // fetch the same way (a diary-notes warning, never an abort).
+  async function attachNotes(response, unavailable, warnings, fromMs, toMs) {
+    try {
+      const { notes: notesOut, truncated } = await diaryNotes(fromMs, toMs);
+      if (notesOut.length > 0) response.diary_notes = notesOut;
+      if (truncated) warnings.push(NOTES_TRUNCATED_WARNING);
+    } catch {
+      unavailable.push('diary notes (query failed)');
+    }
   }
 
   async function cardiovascular({
@@ -207,9 +231,7 @@ export function createAnalysis({
     });
 
     if (!excludeNotes) {
-      const { notes: notesOut, truncated } = await diaryNotes(fromMs, toMs);
-      if (notesOut.length > 0) response.diary_notes = notesOut;
-      if (truncated) warnings.push(NOTES_TRUNCATED_WARNING);
+      await attachNotes(response, unavailable, warnings, fromMs, toMs);
     }
 
     if (unavailable.length > 0) {
@@ -273,6 +295,10 @@ export function createAnalysis({
       await runSection(unavailable, 'workouts', async () => {
         const manual = (await workout.listSessions(1000))
           .filter((v) => inRange(Date.parse(v.session.scheduled_date)));
+        // listMiBand applies the bot's own last-90-days cutoff (miband.go:335,
+        // used by fitness.go fetchWorkoutsSection), so a window entirely >90d in
+        // the past yields no mi-band rows here — deliberately, to stay value-exact
+        // with the bot oracle. Reading uncapped would diverge from bot parity.
         const miband = (await workout.listMiBand(1000))
           .filter((w) => inRange(Date.parse(w.start_time)));
         const sessions = [
@@ -389,9 +415,7 @@ export function createAnalysis({
     }
 
     if (!excludeNotes) {
-      const { notes: notesOut, truncated } = await diaryNotes(fromMs, toMs);
-      if (notesOut.length > 0) response.diary_notes = notesOut;
-      if (truncated) warnings.push(NOTES_TRUNCATED_WARNING);
+      await attachNotes(response, unavailable, warnings, fromMs, toMs);
     }
 
     if (unavailable.length > 0) {
