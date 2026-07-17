@@ -6,7 +6,8 @@ vi.mock('../../../cloud/js/push.js', () => ({
     pushSchedule: vi.fn(async () => {}),
     sendTestPush: vi.fn(async () => {}),
 }));
-import { sendTestPush } from '../../../cloud/js/push.js';
+import { pushSchedule, sendTestPush } from '../../../cloud/js/push.js';
+import { computeReminderEntries } from '../../../cloud/js/reminders.js';
 import { loadCloudShimFrontendEnv, createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
 import { installApiShim } from '../../../cloud/js/apishim.js';
 
@@ -135,6 +136,161 @@ describe('cloud shim contract — reminder actions (snooze / dontbug / test)', (
             const res = await window.offlineAwareApiCall(path, 'POST');
             expect(res.status).toBe('success');
         }
+    });
+});
+
+// med-eas.58 Task 5 — the weekly-digest horizon entry, wired in
+// computeReminderEntries behind the weekly_digest + gamification both-on gate.
+describe('cloud shim horizon — weekly digest entry', () => {
+    // Mon Jun 15 2026, noon UTC → next Sunday 19:00 local (UTC) is Jun 21.
+    const NOW = Date.UTC(2026, 5, 15, 12, 0, 0);
+    const EXPECTED_FIRE = Date.UTC(2026, 5, 21, 19, 0, 0) / 1000;
+
+    beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    const featuresRecord = (flags) => ({
+        recordId: 'features', clientTs: NOW, deleted: false, flags,
+    });
+
+    it('emits one digest entry at next Sunday 19:00 when the toggle is on', async () => {
+        const records = createInMemoryRecordsPort({ features: [featuresRecord({ weekly_digest: true })] });
+        const entries = await computeReminderEntries({}, { records, timeZone: 'UTC' });
+        const digests = entries.filter((e) => e.kind === 'digest');
+        expect(digests).toHaveLength(1);
+        expect(digests[0].fireAtUnix).toBe(EXPECTED_FIRE);
+        expect(digests[0].callback).toBeUndefined();
+        expect(digests[0].text).toContain('\u{1F5D3} Your week');
+        // genericText must be name/data-free.
+        expect(digests[0].genericText).toBe('Your weekly summary is ready');
+    });
+
+    it('emits no digest entry when the toggle is off (default)', async () => {
+        const records = createInMemoryRecordsPort({});
+        const entries = await computeReminderEntries({}, { records, timeZone: 'UTC' });
+        expect(entries.filter((e) => e.kind === 'digest')).toHaveLength(0);
+    });
+
+    it('emits no digest entry when gamification is off (both-on gate)', async () => {
+        const records = createInMemoryRecordsPort({
+            features: [featuresRecord({ weekly_digest: true, gamification: false })],
+        });
+        const entries = await computeReminderEntries({}, { records, timeZone: 'UTC' });
+        expect(entries.filter((e) => e.kind === 'digest')).toHaveLength(0);
+    });
+});
+
+// med-eas.59 — workout reminders ride the workout feature flag (matching the
+// bot's GetWorkoutEnabled gate), not a dedicated pref, so they must reach the
+// uploaded horizon by default and vanish when the feature is off.
+describe('cloud shim horizon — workout entry (feature-flag gate)', () => {
+    // Mon Jun 15 2026, 06:00 UTC. Group scheduled 18:00 daily, 0 advance.
+    const NOW = Date.UTC(2026, 5, 15, 6, 0, 0);
+    beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    const seed = () => ({
+        workoutgroup: [{ recordId: 'g1', clientTs: NOW, deleted: false, id: 1, name: 'Push Day', active: true, is_rotating: false, days_of_week: '[0,1,2,3,4,5,6]', scheduled_time: '18:00', notification_advance_minutes: 0 }],
+        workoutvariant: [{ recordId: 'v1', clientTs: NOW, deleted: false, id: 10, group_id: 1, name: 'Variant A', rotation_order: 0 }],
+    });
+
+    it('emits workout entries by default (workout feature on)', async () => {
+        const records = createInMemoryRecordsPort(seed());
+        const entries = await computeReminderEntries({}, { records, timeZone: 'UTC' });
+        const workout = entries.filter((e) => e.kind === 'workout');
+        expect(workout.length).toBeGreaterThan(0);
+        expect(workout[0].text).toContain('Push Day - Variant A');
+    });
+
+    it('emits no workout entries when the workout feature is off', async () => {
+        const records = createInMemoryRecordsPort({
+            ...seed(),
+            features: [{ recordId: 'features', clientTs: NOW, deleted: false, flags: { workout: false } }],
+        });
+        const entries = await computeReminderEntries({}, { records, timeZone: 'UTC' });
+        expect(entries.filter((e) => e.kind === 'workout')).toHaveLength(0);
+    });
+});
+
+// Codex parity finding — the workout-horizon-affecting writes must trigger a
+// debounced recompute+push, like the group / session-status routes already do.
+// Without it, an edited variant/exercise leaves stale queued reminder text, a
+// rotation init leaves the wrong variant queued, and deleting a planned session
+// leaves its already-uploaded reminder in the relay until an unrelated recompute.
+describe('cloud shim — workout mutations re-push the horizon', () => {
+    let env;
+    // 2000ms shim debounce (reminders.js DEBOUNCE_MS) + microtask flush.
+    const flush = async () => { await vi.advanceTimersByTimeAsync(2100); };
+
+    // Fixed clock so the scheduled-session date below is unambiguously future.
+    const NOW = Date.UTC(2026, 5, 15, 6, 0, 0);
+    beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); pushSchedule.mockClear(); env = loadCloudShimFrontendEnv(); });
+    afterEach(() => { env.cleanup(); env = null; vi.useRealTimers(); });
+
+    async function seedGroupVariant(window) {
+        const group = await window.offlineAwareApiCall('/api/workout/groups/create', 'POST', {
+            name: 'Push Day', is_rotating: false, days_of_week: '[0,1,2,3,4,5,6]', scheduled_time: '18:00',
+        });
+        const variant = await window.offlineAwareApiCall('/api/workout/variants/create', 'POST', {
+            group_id: group.id, name: 'Variant A', rotation_order: 0,
+        });
+        return { group, variant };
+    }
+
+    it('variant create/update/delete each schedule a recompute+push', async () => {
+        const { window } = env;
+        const { variant } = await seedGroupVariant(window);
+        await flush();
+        expect(pushSchedule).toHaveBeenCalled();
+
+        pushSchedule.mockClear();
+        await window.offlineAwareApiCall('/api/workout/variants/update?id=' + variant.id, 'PUT', { name: 'Variant B' });
+        await flush();
+        expect(pushSchedule).toHaveBeenCalledTimes(1);
+
+        pushSchedule.mockClear();
+        await window.offlineAwareApiCall('/api/workout/variants/delete?id=' + variant.id, 'DELETE');
+        await flush();
+        expect(pushSchedule).toHaveBeenCalledTimes(1);
+    });
+
+    it('exercise create/update/delete each schedule a recompute+push', async () => {
+        const { window } = env;
+        const { variant } = await seedGroupVariant(window);
+        await flush();
+
+        pushSchedule.mockClear();
+        const ex = await window.offlineAwareApiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variant.id, name: 'Bench', order_index: 0,
+        });
+        await flush();
+        expect(pushSchedule).toHaveBeenCalledTimes(1);
+
+        pushSchedule.mockClear();
+        await window.offlineAwareApiCall('/api/workout/exercises/update?id=' + ex.id, 'PUT', { name: 'Incline Bench' });
+        await flush();
+        expect(pushSchedule).toHaveBeenCalledTimes(1);
+
+        pushSchedule.mockClear();
+        await window.offlineAwareApiCall('/api/workout/exercises/delete?id=' + ex.id, 'DELETE');
+        await flush();
+        expect(pushSchedule).toHaveBeenCalledTimes(1);
+    });
+
+    it('deleting a session schedules a recompute+push', async () => {
+        const { window } = env;
+        const { group } = await seedGroupVariant(window);
+        const scheduled = await window.offlineAwareApiCall('/api/workout/sessions/schedule', 'POST', {
+            group_id: group.id, scheduled_date: '2026-06-20', scheduled_time: '18:00',
+            exercises: [{ exercise_name: 'Bench', target_sets: 3, target_reps_min: 5 }],
+        });
+        const sid = (scheduled && scheduled.id) || (scheduled && scheduled.session && scheduled.session.id);
+        await flush();
+
+        pushSchedule.mockClear();
+        await window.offlineAwareApiCall('/api/workout/sessions/delete?id=' + sid, 'DELETE');
+        await flush();
+        expect(pushSchedule).toHaveBeenCalledTimes(1);
     });
 });
 

@@ -1,6 +1,8 @@
 # Bot-mode vs Cloud-mode feature parity
 
-Cloud mode (`cmd/cloud`, `internal/cloudserver`, `web/cloud`) is the target surface; bot/server mode (`cmd/bot`, `internal/server`, `web/static`) is treated as legacy but remains the reference feature set. This is a living **parity matrix**: one row per user-facing capability, classified **parity** / **gap** / **intentional divergence**, with `file:line` evidence.
+Cloud mode (`cmd/cloud`, `internal/cloudserver`, `web/cloud`) is the primary/future surface; bot/server mode (`cmd/bot`, `internal/server`, `web/static`) is **going legacy** and is used here only as the reference feature set to catch up to. This is a living **parity matrix**: one row per user-facing capability, classified **parity** / **gap** / **intentional divergence**, with `file:line` evidence.
+
+**Direction is one-way: bot → cloud.** As of 2026-07-17 the goal "bot mode should have everything cloud has" is dropped. We bring bot features into cloud; we do **not** backport cloud-only features into bot. A "reverse gap" (cloud has it, bot doesn't) is therefore **intentional, not a gap to close**. A change that would *force* new bot-server code to land a cloud feature is a red flag (cloud→bot coupling) — prefer a cloud-only path instead.
 
 **How to read it.** Cloud is a *blind relay*: the server never sees plaintext, all domain logic runs client-side (`web/domain/*`, `web/cloud/js/*`) over an encrypted vault + oplog sync. So "unrouted in cloud" is only a gap if the capability isn't re-implemented client-side. Many bot `/api/*` routes are intentionally unrouted in cloud because the same feature is served browser-direct (BYO key → provider), via `CloudVault`, or via the in-tab MCP dispatcher.
 
@@ -55,8 +57,8 @@ All core CRUD + domain reads/writes route in cloud: meds & intake (`server.go:81
 | AI meal parse (photo/vision) | `internal/ai/openai.go:439` | `aiclient.js:341` | parity (photo never crosses `/api`) |
 | Food barcode lookup | `internal/store/food/openfoodfacts_api.go` | browser-direct/trial-proxy (`fooddb.js`) | parity |
 | ElevenLabs signed-URL + voice | `elevenlabs_handlers.go:62` | browser-direct `elevenlabs-signed-url.js:14` | parity |
-| ElevenLabs in-call **"Send photo"** | `elevenlabs_handlers.go:131`; UI `elevenlabs-call.js:502` | browser-direct `uploadFile` added; UI still guarded at `elevenlabs-call.js:502` **and** `call-indicator.js:112` | **gap — tracked by med-eas.55** (in progress). Fix must un-guard **both** render sites. |
-| Gamification AI narration | none | `gamification-narrator.js` | reverse divergence (cloud-only). Note only — confirm cloud-first is intentional; no bead unless bot parity is wanted. |
+| ElevenLabs in-call **"Send photo"** | `elevenlabs_handlers.go:131` | browser-direct `uploadFile`; both render sites un-guarded | parity (med-eas.55, merged #649) |
+| Gamification AI narration | none | `gamification-narrator.js` | **intentional divergence (cloud-only)** — reverse gap; not backported to bot per the one-way bot→cloud direction. |
 
 ---
 
@@ -80,9 +82,9 @@ Cloud computes the reminder horizon client-side (`web/domain/reminders.js` `buil
 | BP reminder | `scheduler/bp_reminders.go` | `reminders.js:191-207` | parity |
 | Weight reminder | `scheduler/weight_reminders.go` | `reminders.js:212-229` | parity |
 | TZ-shifted dose times | `scheduler/tz_plan_notifier.go` | `reminders.js:56` | parity |
-| **Low-stock reminder push** | `scheduler/low_stock.go` | detection only (`medschedule.js:168`); no `buildHorizon` kind | **gap** → bead |
-| **Weekly digest** | `scheduler/weekly_digest.go` | toggle only (`settings.js:86`), no producer | **gap** → bead |
-| **Workout-session reminder** | `scheduler/workout.go` | no `workout` kind in horizon | **gap** → bead |
+| Low-stock reminder push | `scheduler/low_stock.go` | `reminders.js` `low_stock` kind (`web/domain/reminders.js`, reuses `medschedule.js` `listLowOnStock`) | parity (med-eas.57) — **minor divergence**: cloud reuses the medication-reminder enable gate (no separate pref), so turning med reminders off silences low-stock too; the bot fires it independent of that toggle |
+| Weekly digest | `scheduler/weekly_digest.go` | `digest` kind via `computeReminderEntries` (`reminders.js`) + `formatWeeklyDigest`/`nextWeeklyDigestFireUnix` (`web/domain/reminders.js`); Settings toggle un-hidden | parity (med-eas.58) — **content freshness caveat**: the bot recomputes the review at Sunday 19:00 fire time; cloud snapshots it at recompute time and forward-schedules, so a mid-week-only user can receive a digest up to a week stale (blind-relay limitation, self-heals for active users) |
+| Workout-session reminder | `scheduler/workout.go` | `workout` kind in horizon, gated on the `workout` feature flag (`web/domain/reminders.js`, mirroring the bot's `GetWorkoutEnabled`) | parity (med-eas.59) — **primary fire only**: the interactive re-notify(+3h)/auto-skip(+6h)/snooze/stale-90min state machine is intentionally not reproduced over the blind relay (server-observed session state a blind relay can't see; same accepted limitation as medication re-reminders) |
 | **TZ-plan progress notifications** (non-dose) | `scheduler/tz_plan_notifier.go` | appears absent | **gap (verify/scope)** → bead |
 
 ---
@@ -101,14 +103,14 @@ Cloud computes the reminder horizon client-side (`web/domain/reminders.js` `buil
 
 Retained after product triage 2026-07-17 (beads under the `med-eas` epic, discovered-from `med-eas.54`):
 
-1. **med-eas.56** (P2) — Composite MCP `analyze_*` → client-side cloud implementation; cloud's substitute for the unavailable `mcp_execute`. *(prioritized)*
-2. **med-eas.57** (P3) — Low-stock reminder never pushed in cloud.
-3. **med-eas.58** (P3) — Weekly-digest toggle has no cloud producer.
-4. **med-eas.59** (P3) — Workout-session reminders absent from cloud horizon.
-5. **med-eas.60** (P3) — TZ-plan progress notifications — verify/scope cloud surface.
+1. **med-eas.56** (P2) — Composite MCP `analyze_*` → client-side cloud implementation; cloud's substitute for the unavailable `mcp_execute`. *In progress via a cloud-only catalog seam (Path B — no bot/Go), per the one-way bot→cloud direction.*
+2. ~~**med-eas.57** (P3) — Low-stock reminder never pushed in cloud.~~ **Closed** — `low_stock` horizon kind shipped (see table above).
+3. ~~**med-eas.58** (P3) — Weekly-digest toggle has no cloud producer.~~ **Closed** — `digest` producer + un-hidden toggle shipped.
+4. ~~**med-eas.59** (P3) — Workout-session reminders absent from cloud horizon.~~ **Closed** — `workout` horizon kind shipped (primary fire only).
+5. ~~**med-eas.60** (P3) — TZ-plan progress notifications.~~ **Closed — covered:** the bot's only tz-plan progress notification (the approval prompt) is already surfaced in cloud via the in-app `TZPlanBanner` (Apply/Cancel), tested by `cloud.shim-contract.tz-plan.test.js`; step-advance/completion pushes don't exist in the bot. Nothing to port.
 
 Cut at triage (reclassified as intentional divergence, no bead): BP/weight CSV export, mi-band GPS detail, external workout webhook feed.
 
-Already tracked: **med-eas.55** (ElevenLabs "Send photo" — must un-guard both `elevenlabs-call.js:502` and `call-indicator.js:112`).
+Closed: **med-eas.55** (ElevenLabs "Send photo") — shipped, merged #649 (both render sites un-guarded).
 
-Reverse (cloud-only, note not bead): gamification AI narration.
+Reverse (cloud-only): gamification AI narration — **intentional, not backported** to bot (one-way bot→cloud direction).

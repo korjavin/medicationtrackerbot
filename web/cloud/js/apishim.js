@@ -145,9 +145,12 @@ export function createApiRouter(ctx, {
   // PORTED_SET: the feature domains this shim can actually serve end-to-end
   // (records + domain module + shim routes wired). Clamped onto every read
   // of the features map so a stored/toggled flag for an unported domain
-  // (food/workout/gamification/weekly_digest — C2c/d) can never surface as
-  // enabled, per docs/cloud-mode.md "C2 shim architecture".
-  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication', 'food', 'workout', 'gamification']);
+  // can never surface as enabled, per docs/cloud-mode.md "C2 shim architecture".
+  // weekly_digest is ported cloud-side as a horizon producer (med-eas.58,
+  // reminders.js computeDigestEntry) rather than an HTTP-served domain — it has
+  // no nav tab and no /api routes, but the flag must persist + read back so the
+  // Settings toggle drives the digest push.
+  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication', 'food', 'workout', 'gamification', 'weekly_digest']);
   function clampFeatures(flags) {
     const out = {};
     for (const key of Object.keys(flags)) out[key] = PORTED_SET.has(key) ? !!flags[key] : false;
@@ -337,6 +340,12 @@ export function createApiRouter(ctx, {
         // PORTED_SET would silently auto-enable it. GET/bootstrap clamp reads.
         if (enabled && !PORTED_SET.has(feature)) return null;
         await settings.setFeature(feature, enabled);
+        // workout/weekly_digest/gamification gate reminder-horizon kinds, so a
+        // toggle must re-push immediately (acceptance: "toggle on → fires"),
+        // not wait for the next unlock.
+        if (feature === 'workout' || feature === 'weekly_digest' || feature === 'gamification') {
+          scheduleReminderRecompute(ctx, { records, timeZone });
+        }
         return { enabled };
       }
     }
@@ -538,39 +547,61 @@ export function createApiRouter(ctx, {
     // POST /api/vitals/import or sent to the cloud bot is parsed + sealed to the
     // inbox, then the vitals_import applier writes vault records at drain time.
     if (path === '/api/workout/groups' && method === 'GET') return workout.listGroups();
-    if (path === '/api/workout/groups/create' && method === 'POST') return workout.createGroup(body);
+    if (path === '/api/workout/groups/create' && method === 'POST') {
+      const res = await workout.createGroup(body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
+    }
     if (path === '/api/workout/groups/update' && method === 'PUT') {
       await workout.updateGroup(intParam(params, 'id', 0), body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
     if (path === '/api/workout/groups/delete' && method === 'DELETE') {
       await workout.deleteGroup(intParam(params, 'id', 0));
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
 
     if (path === '/api/workout/variants' && method === 'GET') {
       return workout.listVariants(intParam(params, 'group_id', 0));
     }
-    if (path === '/api/workout/variants/create' && method === 'POST') return workout.createVariant(body);
+    // Variant + exercise writes feed the workout horizon: the resolved variant's
+    // name (and its exercise list) is rendered into the queued recurring-reminder
+    // text, and add/delete changes which variant resolveVariantId picks. Re-push
+    // so the blind relay follows, like the group routes above.
+    if (path === '/api/workout/variants/create' && method === 'POST') {
+      const res = await workout.createVariant(body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
+    }
     if (path === '/api/workout/variants/update' && method === 'PUT') {
       await workout.updateVariant(intParam(params, 'id', 0), body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
     if (path === '/api/workout/variants/delete' && method === 'DELETE') {
       await workout.deleteVariant(intParam(params, 'id', 0));
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
 
     if (path === '/api/workout/exercises' && method === 'GET') {
       return workout.listExercises(intParam(params, 'variant_id', 0));
     }
-    if (path === '/api/workout/exercises/create' && method === 'POST') return workout.createExercise(body);
+    if (path === '/api/workout/exercises/create' && method === 'POST') {
+      const res = await workout.createExercise(body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
+    }
     if (path === '/api/workout/exercises/update' && method === 'PUT') {
       await workout.updateExercise(intParam(params, 'id', 0), body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
     if (path === '/api/workout/exercises/delete' && method === 'DELETE') {
       await workout.deleteExercise(intParam(params, 'id', 0));
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
 
@@ -589,6 +620,9 @@ export function createApiRouter(ctx, {
         Number(body && body.group_id) || 0,
         Number(body && body.starting_variant_id) || 0,
       );
+      // Seeds the rotation cursor resolveVariantId reads — re-push so the queued
+      // recurring reminder names the newly-selected variant.
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
 
@@ -614,6 +648,10 @@ export function createApiRouter(ctx, {
     }
     if (path === '/api/workout/sessions/delete' && method === 'DELETE') {
       await workout.deleteSession(intParam(params, 'id', 0));
+      // Deleting a planned ad-hoc session drops the reminder it emitted, and
+      // deleting a materialized recurring session un-suppresses that day's fire —
+      // re-push so the relay reflects the change (matches session status above).
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
     if (path === '/api/workout/sessions/status' && method === 'PUT') {
@@ -622,10 +660,15 @@ export function createApiRouter(ctx, {
       // consumed server-side for notification cleanup, so don't leak it here.
       const outcome = await workout.setSessionStatus(intParam(params, 'id', 0), body && body.status);
       if (!outcome) throw apiError(404, 'session not found');
+      // A skip/complete suppresses that day's recurring reminder — re-push so
+      // the blind relay drops it (matches the bot cancelling on status change).
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
     if (path === '/api/workout/sessions/schedule' && method === 'POST') {
-      return workout.schedulePlannedAdHocSession(body);
+      const res = await workout.schedulePlannedAdHocSession(body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
     }
     if (path === '/api/workout/sessions/adhoc' && method === 'POST') {
       const session = await workout.createAdHocSession();
@@ -642,6 +685,9 @@ export function createApiRouter(ctx, {
         else if (action === 'preskip') await workout.preSkipSession(id);
         else if (action === 'cancel-preskip') await workout.cancelPreSkipSession(id);
         else await workout.nextVariant(id);
+        // start/snooze/skip change the session's status, which the horizon uses
+        // to suppress the recurring reminder — re-push so the relay follows.
+        scheduleReminderRecompute(ctx, { records, timeZone });
         return true;
       }
     }

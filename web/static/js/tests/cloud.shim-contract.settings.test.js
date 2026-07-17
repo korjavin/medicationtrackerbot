@@ -42,31 +42,26 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect((await window.apiCall('/api/settings/features', 'GET')).food).toBe(false);
     });
 
-    it('feature clamp holds: enabling an unported feature never surfaces as enabled from the shim', async () => {
+    it('weekly_digest now round-trips through the shim (ported as a cloud horizon producer, med-eas.58)', async () => {
         const { window } = env;
         window.rebuildCanonicalBottomNav = vi.fn();
 
-        // Establish the real post-bootstrap baseline: the shim clamps
-        // 'weekly_digest' off (it's not in PORTED_SET, unlike 'bp'/'weight'/
-        // 'health'/'medication'/'food'/'workout'/'gamification' — 'gamification'
-        // joined PORTED_SET in the Discovery Atlas POC, Phase 1).
+        // weekly_digest defaults off but is now in PORTED_SET — it has no nav tab
+        // or /api route, but the flag must persist + read back so the Settings
+        // toggle drives the digest push (reminders.js computeDigestEntry).
         const boot0 = await window.apiCall('/api/bootstrap');
         window.SettingsState.applyBootstrapFeatures(boot0.features);
         expect(window.featureSettings.weekly_digest).toBe(false);
 
         await window.toggleFeatureSetting('weekly_digest', true);
 
-        // In-session too: the shim rejects the unported enable so the UI never
-        // flips window.featureSettings on (which nav filtering trusts), so no
-        // dead tab surfaces before the next reload.
-        expect(window.featureSettings.weekly_digest).toBe(false);
-        expect(window.rebuildCanonicalBottomNav).not.toHaveBeenCalled();
+        expect(window.featureSettings.weekly_digest).toBe(true);
 
         const flags = await window.apiCall('/api/settings/features', 'GET');
-        expect(flags.weekly_digest).toBe(false);
+        expect(flags.weekly_digest).toBe(true);
 
         const boot = await window.apiCall('/api/bootstrap');
-        expect(boot.features.weekly_digest).toBe(false);
+        expect(boot.features.weekly_digest).toBe(true);
     });
 
     it('saveTabOrder persists through the shim and is echoed by bootstrap', async () => {
