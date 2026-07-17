@@ -48,10 +48,10 @@ unchanged. Delivery uses the existing relay + delivery-pref (channel/verbosity).
 ## Implementation Steps
 
 ### Task 1: Low-stock reminder kind (med-eas.57)
-- [ ] In `web/domain/reminders.js` `computeReminderHorizon`, append a `low_stock` block gated on the medication-reminder enable flag (already resolved in `buildHorizon`): for each day 0..`FORECAST_DAYS`, compute local 11:00; if in the future and `listLowOnStock(medications, targetInstant)` (import from `web/domain/medschedule.js`) is non-empty, push one entry.
-- [ ] Entry shape `{fireAtUnix, kind:'low_stock', text, genericText}` — `text` = `⚠️ Low Stock Warning` header + `• <Name>: <N> units (~<D> days left)` per low med (mirror `low_stock.go:75-86`); `genericText` = name-free (e.g. `⚠️ Some medications are running low`); no callback.
-- [ ] Write tests: low-inventory med → a `low_stock` entry at the next local 11:00 with the med named in `text` and not in `genericText`; high-inventory / null-inventory / as-needed → no entry; extend the genericText contract test.
-- [ ] Run the reminders domain suite — must pass before Task 2.
+- [x] In `web/domain/reminders.js` `computeReminderHorizon`, append a `low_stock` block gated on the medication-reminder enable flag (already resolved in `buildHorizon`): for each day 0..`FORECAST_DAYS`, compute local 11:00; if in the future and `listLowOnStock(medications, targetInstant)` (import from `web/domain/medschedule.js`) is non-empty, push one entry.
+- [x] Entry shape `{fireAtUnix, kind:'low_stock', text, genericText}` — `text` = `⚠️ Low Stock Warning` header + `• <Name>: <N> units (~<D> days left)` per low med (mirror `low_stock.go:75-86`); `genericText` = name-free (e.g. `⚠️ Some medications are running low`); no callback.
+- [x] Write tests: low-inventory med → a `low_stock` entry at the next local 11:00 with the med named in `text` and not in `genericText`; high-inventory / null-inventory / as-needed → no entry; extend the genericText contract test.
+- [x] Run the reminders domain suite — must pass before Task 2.
 
 ### Task 2: Workout reminder preference singleton (med-eas.59 part 1)
 - [ ] In `web/domain/reminders.js` factory, add a `workoutreminderpref` singleton (mirror the bp/weight pref pattern: `enabled`, `snoozed_until`, `dont_remind_until`) with `getWorkoutStatus`/`setWorkoutEnabled`/`snoozeWorkout`/`dontBugWorkout`. Default `enabled` per the bp/weight convention.

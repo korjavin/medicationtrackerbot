@@ -47,6 +47,42 @@ describe('domain/reminders.js — horizon scheduling', () => {
     });
 });
 
+// med-eas.57 — low-stock warning kind, ported from internal/scheduler/low_stock.go.
+// Fires daily at 11:00 local when any med is < 7 days of supply; no callback.
+describe('domain/reminders.js — low-stock reminder kind', () => {
+    const nowMs = Date.UTC(2026, 6, 7, 6, 0, 0); // July 7, 06:00 UTC — before today's 11:00
+
+    it('emits a low_stock entry at the next local 11:00 naming the low med', () => {
+        const entries = computeReminderHorizon({
+            medications: [{ id: 'm1', name: 'Lisinopril', schedule: '08:00', inventory_count: 3 }],
+            intakes: [], bps: [], weights: [], timeZone: 'UTC', now: nowMs,
+        });
+        const low = entries.filter((e) => e.kind === 'low_stock');
+        expect(low.length).toBeGreaterThan(0);
+        // 3 units / 1 dose/day = 3 days < 7 → low. First fire is today 11:00 UTC.
+        expect(low[0].fireAtUnix).toBe(Date.UTC(2026, 6, 7, 11, 0, 0) / 1000);
+        expect(low[0].text).toContain('Lisinopril');
+        expect(low[0].text).toContain('3 units');
+        expect(low[0].text).toContain('~3 days left');
+        expect(low[0].callback).toBeUndefined();
+        // genericText is name-free.
+        expect(low[0].genericText).not.toContain('Lisinopril');
+        expect(low[0].genericText.length).toBeGreaterThan(0);
+    });
+
+    it('does not emit for well-stocked, null-inventory, or as-needed meds', () => {
+        const entries = computeReminderHorizon({
+            medications: [
+                { id: 'm1', name: 'Plenty', schedule: '08:00', inventory_count: 100 },
+                { id: 'm2', name: 'Untracked', schedule: '08:00', inventory_count: null },
+                { id: 'm3', name: 'AsNeeded', schedule: JSON.stringify({ type: 'as_needed', times: [] }), inventory_count: 1 },
+            ],
+            intakes: [], bps: [], weights: [], timeZone: 'UTC', now: nowMs,
+        });
+        expect(entries.some((e) => e.kind === 'low_stock')).toBe(false);
+    });
+});
+
 // bd med-76c.1 — Telegram reminders transit the cloud relay as plaintext, so
 // every entry must carry a name-free twin the user can opt into, and the
 // delivery/verbosity pref must default to the documented values.
@@ -54,7 +90,8 @@ describe('domain/reminders.js — Telegram delivery pref + generic verbosity', (
     it('every horizon entry carries a genericText with no medication name in it', () => {
         const nowMs = Date.UTC(2026, 6, 7, 6, 0, 0);
         const entries = computeReminderHorizon({
-            medications: [{ id: 'm1', name: 'Lisinopril', dosage: '10 mg', schedule: '20:00' }],
+            // Low inventory so a low_stock entry is also produced and covered here.
+            medications: [{ id: 'm1', name: 'Lisinopril', dosage: '10 mg', schedule: '20:00', inventory_count: 2 }],
             intakes: [],
             bps: [], weights: [],
             timeZone: 'UTC',
@@ -63,6 +100,7 @@ describe('domain/reminders.js — Telegram delivery pref + generic verbosity', (
             weightStatus: { enabled: true, preferred_reminder_hour: 9 },
         });
 
+        expect(entries.some((e) => e.kind === 'low_stock')).toBe(true);
         expect(entries.length).toBeGreaterThan(0);
         for (const e of entries) {
             expect(typeof e.genericText).toBe('string');

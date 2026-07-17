@@ -13,7 +13,10 @@
 // matching the server always reminding while the medication feature is on)
 // gating whether the med portion of the horizon is computed at all.
 import { planDosesWithTzPlan } from './tzplan.js';
-import { minDoseIntervalMs, localWallToUtcMs, localDateParts } from './medschedule.js';
+import {
+  minDoseIntervalMs, localWallToUtcMs, localDateParts,
+  listLowOnStock, getDaysOfStockRemaining,
+} from './medschedule.js';
 
 const REMINDERPREF_RECORD_TYPE = 'medreminderpref';
 const REMINDERPREF_RECORD_ID = 'medreminderpref';
@@ -86,6 +89,28 @@ const GENERIC_DOSE_TEXT = '\u{1F48A} Medication time';
 const GENERIC_REREMIND_TEXT = '\u{1F514} You have an unconfirmed medication';
 const GENERIC_BP_TEXT = '\u{1F4CA} Time for a scheduled measurement';
 const GENERIC_WEIGHT_TEXT = '\u{2696}\u{FE0F} Time for a scheduled measurement';
+const GENERIC_LOW_STOCK_TEXT = '\u{26A0}\u{FE0F} Some medications are running low';
+
+const LOW_STOCK_HOUR = 11; // bot fires the daily low-stock warning at 11:00 local (low_stock.go)
+
+// Ported from internal/scheduler/low_stock.go's Check text builder: a header
+// plus one bullet per low med `• **<Name>**: <N> units (~<D> days left)`.
+function lowStockText(lowMeds) {
+  const lines = [
+    '\u{26A0}\u{FE0F} **Low Stock Warning**',
+    '',
+    'The following medications are running low (< 7 days):',
+    '',
+  ];
+  for (const med of lowMeds) {
+    const days = getDaysOfStockRemaining(med);
+    const daysStr = days !== null && days !== undefined ? ` (~${Math.round(days)} days left)` : '';
+    lines.push(`\u{2022} **${med.name}**: ${med.inventory_count} units${daysStr}`);
+  }
+  lines.push('');
+  lines.push('Please restock soon!');
+  return lines.join('\n');
+}
 
 // computeReminderHorizon is pure: medications/intakes are raw records
 // (server field names), timeZone is an IANA string, now is ms epoch, tzPlan
@@ -228,6 +253,30 @@ export function computeReminderHorizon({
       if (targetMs > now && targetMs > weightMutedUntil && targetMs - lastWeightMs > 7 * 24 * 60 * 60 * 1000) {
         entries.push({ fireAtUnix: Math.floor(targetMs / 1000), kind: 'weight', text: "⚖️ **Time to track your weight**\n\nIt's been about a week since your last measurement. Regular tracking helps you stay on top of your goals!", genericText: GENERIC_WEIGHT_TEXT });
       }
+    }
+  }
+
+  // Low-stock warnings (med-eas.57), ported from internal/scheduler/low_stock.go:
+  // the bot fires a daily 11:00-local warning when any med is < 7 days of supply.
+  // Gated on the med-reminder enable flag upstream (buildHorizon blanks
+  // `medications` when disabled, so `meds` is empty here). No callback (bot has
+  // no buttons on this notification).
+  {
+    const { year, month, day } = localDateParts(now, timeZone);
+    for (let d = 0; d < FORECAST_DAYS; d++) {
+      const wallAsUtc = Date.UTC(year, month - 1, day + d, LOW_STOCK_HOUR, 0);
+      const targetMs = localWallToUtcMs(wallAsUtc, timeZone);
+      if (targetMs <= now) continue;
+      // listLowOnStock keys off `now` (via end_date proximity), so evaluate at
+      // the fire instant rather than the current time.
+      const lowMeds = listLowOnStock(meds, targetMs);
+      if (lowMeds.length === 0) continue;
+      entries.push({
+        fireAtUnix: Math.floor(targetMs / 1000),
+        kind: 'low_stock',
+        text: lowStockText(lowMeds),
+        genericText: GENERIC_LOW_STOCK_TEXT,
+      });
     }
   }
 
