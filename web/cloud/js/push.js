@@ -11,12 +11,30 @@ import { openDb } from './localdb.js';
 
 const REMINDERS_KEY = 'demoReminders';
 
-function isStandalone() {
+// Exported so the signup wizard's install step (web/cloud/js/signup.js) derives
+// the same shown/skipped/iOS state from display-mode instead of duplicating the
+// platform probe — docs/cloud-mode.md Onboarding ("derive steps from
+// display-mode: standalone").
+export function isStandalone() {
   return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 }
 
-function isIOS() {
+export function isIOS() {
   return /iP(hone|ad|od)/.test(navigator.userAgent);
+}
+
+// The two load-bearing iOS install instructions, shared by the post-onboarding
+// Reminders gate (renderInstallFirst) and the signup wizard's install step so
+// the Share → "Add to Home Screen" wording can't drift between them. `lastStep`
+// closes the list with the context-appropriate "what next" line. Callers only
+// ever pass hardcoded copy — never user input — so this is safe to inject.
+export function iosInstallStepsHtml(lastStep) {
+  return `
+      <ol>
+        <li>Tap the Share button in Safari.</li>
+        <li>Choose "Add to Home Screen".</li>
+        <li>${lastStep}</li>
+      </ol>`;
 }
 
 // Local mirror of this device's not-yet-fired demo reminders — needed because
@@ -308,11 +326,7 @@ function renderInstallFirst(app, onExit) {
       <h1>Reminders</h1>
       <p>Install this app to your Home Screen before enabling notifications —
          iOS only delivers push to an installed app.</p>
-      <ol>
-        <li>Tap the Share button in Safari.</li>
-        <li>Choose "Add to Home Screen".</li>
-        <li>Open Med Tracker from your Home Screen and come back here.</li>
-      </ol>
+      ${iosInstallStepsHtml('Open Med Tracker from your Home Screen and come back here.')}
       <button id="push-back">Back</button>
     </section>`;
   app.querySelector('#push-back').addEventListener('click', onExit);

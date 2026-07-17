@@ -17,8 +17,22 @@ import {
   toBase64,
 } from './crypto.js';
 import { establishLdkCache } from './unlock.js';
+import { isIOS, isStandalone, iosInstallStepsHtml } from './push.js';
 
 const EXPIRED_LINK_MESSAGE = 'Could not start passkey registration — the invite link may be expired.';
+
+// Android/desktop fire `beforeinstallprompt` when the origin becomes
+// installable — which can happen well before the wizard reaches its install
+// step. Capture (and suppress) it at module load so the install step can offer a
+// real one-tap "Add to Home Screen" instead of only browser-menu instructions.
+// iOS never fires this event, which is why that platform gets manual steps.
+let deferredInstallPrompt = null;
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+  });
+}
 
 // Probe register/begin before rendering: a claimed link must never show
 // "Create your passkey". The probe's challenge cookie is harmlessly overwritten
@@ -452,10 +466,76 @@ function printKit(docHtml) {
 async function renderTelegramStep(app, ctx) {
   try {
     const { mountTelegram } = await import('./telegram.js');
-    await mountTelegram(app, { onDone: () => enterApp(ctx) });
+    await mountTelegram(app, { onDone: () => renderInstallStep(app, ctx) });
   } catch (e) {
     console.error('[signup] telegram step failed', e);
+    renderInstallStep(app, ctx);
+  }
+}
+
+// Wizard step 6: platform-aware "Add to Home Screen". Installing the PWA is what
+// makes iOS web push work at all — Safari only delivers push to an installed
+// app, so a user who finishes signup and never installs gets no reminders
+// (med-v1z). It also improves push reliability + engagement on Android/desktop,
+// so every non-standalone user is nudged, not just iOS. Derived state per
+// docs/cloud-mode.md: already running standalone means it's installed, so skip
+// straight through with no dead step. Never blocks — a "Skip for now" path
+// always reaches the app, with the reactive Reminders-screen gate as fallback.
+function renderInstallStep(app, ctx) {
+  if (isStandalone()) {
     enterApp(ctx);
+    return;
+  }
+  if (isIOS()) {
+    renderIOSInstallStep(app, ctx);
+    return;
+  }
+  renderGenericInstallStep(app, ctx);
+}
+
+function renderIOSInstallStep(app, ctx) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>Add to your Home Screen</h1>
+      <p>Install Med Tracker to your Home Screen so reminders can reach you —
+         iOS only delivers notifications to an installed app.</p>
+      ${iosInstallStepsHtml('Open Med Tracker from your Home Screen — your reminders will work from there.')}
+      <button id="install-continue">I've installed it</button>
+      <button id="install-skip" class="secondary">Skip for now</button>
+    </section>`;
+  app.querySelector('#install-continue').addEventListener('click', () => enterApp(ctx));
+  app.querySelector('#install-skip').addEventListener('click', () => enterApp(ctx));
+}
+
+function renderGenericInstallStep(app, ctx) {
+  const hasPrompt = !!deferredInstallPrompt;
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>Add to your Home Screen</h1>
+      <p>Install Med Tracker for reliable reminders and one-tap access.</p>
+      ${hasPrompt
+        ? '<button id="install-now">Add to Home Screen</button>'
+        : '<p>Open your browser menu and choose “Install app” / “Add to Home Screen”.</p>'}
+      <button id="install-skip" class="secondary">Skip for now</button>
+    </section>`;
+  app.querySelector('#install-skip').addEventListener('click', () => enterApp(ctx));
+  const now = app.querySelector('#install-now');
+  if (now) {
+    now.addEventListener('click', async () => {
+      now.disabled = true;
+      try {
+        deferredInstallPrompt.prompt();
+        await deferredInstallPrompt.userChoice;
+      } catch (e) {
+        // A rejected/interrupted prompt must not strand the wizard — the app is
+        // installable later from the browser menu, and reminders re-arm on the
+        // Reminders screen regardless.
+        console.error('[signup] install prompt failed', e);
+      }
+      // One-shot: the browser will not let the same event prompt twice.
+      deferredInstallPrompt = null;
+      enterApp(ctx);
+    });
   }
 }
 
