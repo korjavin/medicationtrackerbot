@@ -60,13 +60,13 @@ Dependencies: none new. Reuses existing `settingsDomain`, `window.CloudElevenLab
 - [x] Run `pnpm test` for touched suites — must pass before Task 2. (features.elevenlabs-call: 44 passed.)
 
 ### Task 2: Route sendPhoto browser-direct in cloud mode and remove the guard
-- [ ] In `web/static/js/features/elevenlabs-call.js`, make the upload mode-aware: when `window.__MEDTRACKER_CLOUD__ && window.CloudElevenLabs?.uploadFile`, call `window.CloudElevenLabs.uploadFile(conversationId, file)` to get the fileId; otherwise keep the existing `uploadFileViaProxy` (bot) path. Preserve the existing conversation-id resolution, hang-up-during-await guard, and status-message behavior in `sendPhoto`.
-- [ ] Remove the `if (!window.__MEDTRACKER_CLOUD__)` wrapper around the "Send photo" button + input in `buildCard` (~line 501) so the control renders in both modes; delete the now-stale bot-only-proxy comment / update it to describe the mode-aware path. Keep the `ponytail:` note only if still accurate (it is not — remove it).
-- [ ] Confirm no new `window.*` global is introduced (reuses existing `window.CloudElevenLabs`); no hardcoded colors or inline `.style.` assignments added (rule 3); no direct `navigator`/`getUserMedia` use (rule 10 — file input is already the existing mechanism).
-- [ ] Update the `sendPhoto` describe block in `web/static/js/tests/features.elevenlabs-call.test.js`: add a cloud case asserting `window.CloudElevenLabs.uploadFile` is called (with conversationId + file) and its returned fileId is passed to `sendMultimodalMessage`, and that the `/api/elevenlabs/upload-file` proxy fetch is NOT called in cloud mode.
-- [ ] Add a cloud error case: `CloudElevenLabs.uploadFile` rejects → status surfaces "Photo upload failed" and `sendPhoto` rejects.
-- [ ] Keep/verify the existing bot-mode happy-path test (posts to `/api/elevenlabs/upload-file`) still passes unchanged.
-- [ ] Run `pnpm test` for the call suite — must pass before Task 3.
+- [x] In `web/static/js/features/elevenlabs-call.js`, make the upload mode-aware: when `window.__MEDTRACKER_CLOUD__ && window.CloudElevenLabs?.uploadFile`, call `window.CloudElevenLabs.uploadFile(conversationId, file)` to get the fileId; otherwise keep the existing `uploadFileViaProxy` (bot) path. Preserve the existing conversation-id resolution, hang-up-during-await guard, and status-message behavior in `sendPhoto`. (Added `uploadFile(conv, file)` dispatcher + shared `resolveConversationId`.)
+- [x] Remove the `if (!window.__MEDTRACKER_CLOUD__)` wrapper around the "Send photo" button + input in `buildCard` (~line 501) so the control renders in both modes; delete the now-stale bot-only-proxy comment / update it to describe the mode-aware path. Keep the `ponytail:` note only if still accurate (removed — no longer accurate).
+- [x] Confirm no new `window.*` global is introduced (reuses existing `window.CloudElevenLabs`); no hardcoded colors or inline `.style.` assignments added (rule 3); no direct `navigator`/`getUserMedia` use (rule 10 — file input is already the existing mechanism).
+- [x] Update the `sendPhoto` describe block in `web/static/js/tests/features.elevenlabs-call.test.js`: add a cloud case asserting `window.CloudElevenLabs.uploadFile` is called (with conversationId + file) and its returned fileId is passed to `sendMultimodalMessage`, and that the `/api/elevenlabs/upload-file` proxy fetch is NOT called in cloud mode.
+- [x] Add a cloud error case: `CloudElevenLabs.uploadFile` rejects → status surfaces "Photo upload failed" and `sendPhoto` rejects.
+- [x] Keep/verify the existing bot-mode happy-path test (posts to `/api/elevenlabs/upload-file`) still passes unchanged.
+- [x] Run `pnpm test` for the call suite — must pass before Task 3. (features.elevenlabs-call: 46 passed.)
 
 ### Task 3: Verify acceptance criteria
 - [ ] Verify: cloud mode renders "Send photo"; cloud upload goes browser-direct to `api.elevenlabs.io` with the vault key; no `/api/elevenlabs/upload-file` dependency in the cloud branch.
