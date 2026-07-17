@@ -91,8 +91,8 @@ BP `bp.list`; meds `medications.list` + `intake.history`; sleep `vitals.sleep({f
 - [x] Run `web/cloud/js/tests/mcp-responder.test.js` — coverage sweep (both routes served) + response_example conformance must pass before Task 6.
 
 ### Task 6: Verify acceptance + full suite
-- [ ] Verify both analyses appear in `mcp_help` and return correct aggregates via `mcp_call` in cloud; **no Go changed**; `mcp-catalog.generated.js` untouched.
-- [ ] Run `go build ./...` (should be untouched), `go test ./internal/mcp/catalogjs/...` (drift green), and the full frontend suite (`pnpm test`) incl. domain-purity + globals — all must pass.
+- [x] Verify both analyses appear in `mcp_help` and return correct aggregates via `mcp_call` in cloud; **no Go changed**; `mcp-catalog.generated.js` untouched. (mcp-responder coverage sweep + response_example conformance drive both cloud-extra ops through the real router; `git diff` shows no `*.go` change and the generated catalog byte-untouched.)
+- [x] Run `go build ./...` (should be untouched), `go test ./internal/mcp/catalogjs/...` (drift green), and the full frontend suite (`pnpm test`) incl. domain-purity + globals — all must pass. (go build exit 0; catalogjs drift ok; 316 test files / 3678 tests pass via Node 20 — system Node 18 can't load current vitest/rolldown.)
 
 ### Task 7: [Final] Docs
 - [ ] Update `web/cloud/js/mcp-responder.js` USAGE_PROTOCOL: cloud now offers the two composite analyses (still no `mcp_execute`; these are the aggregation shortcut).
