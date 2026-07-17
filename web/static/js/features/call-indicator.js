@@ -105,44 +105,42 @@
         });
         rootEl.appendChild(muteEl);
 
-        // Cloud mode has no /api/elevenlabs/upload-file route, so photo upload
-        // always 404s there (this PoC doesn't implement browser-direct upload).
-        // Skip the control in cloud; render()'s `if (photoEl)` guard handles the
-        // absence. ponytail: drop when cloud gets a browser-direct upload path.
-        if (!window.__MEDTRACKER_CLOUD__) {
-            photoEl = document.createElement('button');
-            photoEl.type = 'button';
-            photoEl.className = 'wg-call-indicator__photo';
-            photoEl.textContent = 'Photo';
-            photoEl.hidden = true;
-            rootEl.appendChild(photoEl);
+        // Photo upload is mode-aware via WGCallAgent.sendPhoto: cloud mode POSTs
+        // browser-direct to api.elevenlabs.io with the vault key
+        // (window.CloudElevenLabs.uploadFile), bot mode proxies through
+        // /api/elevenlabs/upload-file. Render in both.
+        photoEl = document.createElement('button');
+        photoEl.type = 'button';
+        photoEl.className = 'wg-call-indicator__photo';
+        photoEl.textContent = 'Photo';
+        photoEl.hidden = true;
+        rootEl.appendChild(photoEl);
 
-            photoInputEl = document.createElement('input');
-            photoInputEl.type = 'file';
-            photoInputEl.accept = 'image/*';
-            photoInputEl.capture = 'environment';
-            photoInputEl.className = 'wg-call-indicator__photo-input';
-            photoInputEl.addEventListener('change', (event) => {
-                const file = event.target && event.target.files && event.target.files[0];
-                if (file) {
-                    const agent = window.WGCallAgent;
-                    if (agent && typeof agent.sendPhoto === 'function') {
-                        try {
-                            const ret = agent.sendPhoto(file);
-                            if (ret && typeof ret.catch === 'function') {
-                                ret.catch(() => { /* status surfaced via wg-call-state */ });
-                            }
-                        } catch (_) { /* ignore */ }
-                    }
+        photoInputEl = document.createElement('input');
+        photoInputEl.type = 'file';
+        photoInputEl.accept = 'image/*';
+        photoInputEl.capture = 'environment';
+        photoInputEl.className = 'wg-call-indicator__photo-input';
+        photoInputEl.addEventListener('change', (event) => {
+            const file = event.target && event.target.files && event.target.files[0];
+            if (file) {
+                const agent = window.WGCallAgent;
+                if (agent && typeof agent.sendPhoto === 'function') {
+                    try {
+                        const ret = agent.sendPhoto(file);
+                        if (ret && typeof ret.catch === 'function') {
+                            ret.catch(() => { /* status surfaced via wg-call-state */ });
+                        }
+                    } catch (_) { /* ignore */ }
                 }
-                try { photoInputEl.value = ''; } catch (_) { /* ignore */ }
-            });
-            rootEl.appendChild(photoInputEl);
+            }
+            try { photoInputEl.value = ''; } catch (_) { /* ignore */ }
+        });
+        rootEl.appendChild(photoInputEl);
 
-            photoEl.addEventListener('click', () => {
-                if (photoInputEl) photoInputEl.click();
-            });
-        }
+        photoEl.addEventListener('click', () => {
+            if (photoInputEl) photoInputEl.click();
+        });
 
         hangUpEl = document.createElement('button');
         hangUpEl.type = 'button';
