@@ -11,7 +11,9 @@
 // Task 7 alongside the route table that wires those domains into the shim in
 // the first place — this module only ships the reusable recompute+upload
 // primitive.
-import { createRemindersDomain } from '../../domain/reminders.js';
+import { createRemindersDomain, formatWeeklyDigest, nextWeeklyDigestFireUnix } from '../../domain/reminders.js';
+import { createSettingsDomain } from '../../domain/settings.js';
+import { createGamificationDomain } from '../../domain/gamification.js';
 import { recordsPort } from './sync.js';
 import { pushSchedule, sendTestPush } from './push.js';
 
@@ -59,7 +61,7 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
   ]);
   const tzPlan = tzplans.find((r) => r.recordId === TZPLAN_RECORD_ID && !r.deleted) || null;
 
-  return remindersDomain.buildHorizon({
+  const entries = await remindersDomain.buildHorizon({
     medications: medications.filter((m) => !m.deleted),
     intakes: intakes.filter((i) => !i.deleted),
     bps: bps.filter((b) => !b.deleted),
@@ -72,6 +74,32 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     timeZone,
     tzPlan,
   });
+
+  const digest = await computeDigestEntry(records, timeZone, now());
+  if (digest) entries.push(digest);
+  return entries;
+}
+
+// Weekly-digest horizon entry (med-eas.58): gated on both the weekly_digest
+// feature flag and gamification being on (mirrors the bot's both-on gate,
+// weekly_digest.go). The review is anchored on now-24h so it reports the week
+// that just ended (matches Go weekly_digest.go). Forward-dated + replace-all
+// means the next Sunday 19:00 is re-derived on each recompute — no last-sent
+// state. Skipped when the review comes back disabled (gamification off).
+async function computeDigestEntry(records, timeZone, now) {
+  const features = await createSettingsDomain({ records, now: () => now, timeZone }).getFeatures();
+  if (!features.weekly_digest || !features.gamification) return null;
+
+  const gamification = createGamificationDomain({ records, now: () => now - 86400000, timeZone });
+  const review = await gamification.getWeeklyReview();
+  if (review && review.enabled === false) return null;
+
+  return {
+    fireAtUnix: nextWeeklyDigestFireUnix(now, timeZone),
+    kind: 'digest',
+    text: formatWeeklyDigest(review),
+    genericText: 'Your weekly summary is ready',
+  };
 }
 
 // getDeliveryPref/setDeliveryPref back the cloud notification settings' channel

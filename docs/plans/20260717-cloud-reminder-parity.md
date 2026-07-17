@@ -72,10 +72,10 @@ unchanged. Delivery uses the existing relay + delivery-pref (channel/verbosity).
 - [x] Run tests — must pass before Task 5.
 
 ### Task 5: Wire the digest into the cloud horizon + un-hide the toggle (med-eas.58 part 2)
-- [ ] In `web/cloud/js/reminders.js` `computeReminderEntries`: when `getFeatures().weekly_digest` (and gamification enabled), build `createGamificationDomain({records, now: () => now() - 86400000, timeZone}).getWeeklyReview()`, and append `{fireAtUnix: nextWeeklyDigestFireUnix(now(), timeZone), kind:'digest', text: formatWeeklyDigest(review), genericText: 'Your weekly summary is ready'}` (skip when `review.enabled === false`). No callback.
-- [ ] In `web/static/js/features/settings.js` (~:628-631), stop hiding the `weekly-digest-feature-toggle` row in cloud so the toggle drives the producer (keep it hidden only if gamification is off, matching the bot's both-on gate). No hardcoded styles.
-- [ ] Write tests: toggle on + seeded gamification records → exactly one `digest` entry at next Sunday 19:00 local, no callback, name-free `genericText`, `text` containing `🗓 Your week`; toggle off → no digest entry.
-- [ ] Run tests — must pass before Task 6.
+- [x] In `web/cloud/js/reminders.js` `computeReminderEntries`: when `getFeatures().weekly_digest` (and gamification enabled), build `createGamificationDomain({records, now: () => now() - 86400000, timeZone}).getWeeklyReview()`, and append `{fireAtUnix: nextWeeklyDigestFireUnix(now(), timeZone), kind:'digest', text: formatWeeklyDigest(review), genericText: 'Your weekly summary is ready'}` (skip when `review.enabled === false`). No callback.
+- [x] In `web/static/js/features/settings.js` (~:628-631), stop hiding the `weekly-digest-feature-toggle` row in cloud so the toggle drives the producer (keep it hidden only if gamification is off, matching the bot's both-on gate). No hardcoded styles. ➕ Added `weekly_digest` to the shim's `PORTED_SET` (`web/cloud/js/apishim.js`) so the toggle write persists + reads back — the producer reads the unclamped vault flag but the POST handler previously rejected unported enables. Updated the two tests whose premise was "weekly_digest is unported" (`cloud.shim-contract.settings.test.js` clamp test, `settings.toggles.test.js` visibility test).
+- [x] Write tests: toggle on + seeded gamification records → exactly one `digest` entry at next Sunday 19:00 local, no callback, name-free `genericText`, `text` containing `🗓 Your week`; toggle off → no digest entry.
+- [x] Run tests — must pass before Task 6.
 
 ### Task 6: Verify acceptance + full suite
 - [ ] Verify the uploaded horizon includes `low_stock`, `workout`, and `digest` entries under the right gates; bot mode unchanged (no Go touched).

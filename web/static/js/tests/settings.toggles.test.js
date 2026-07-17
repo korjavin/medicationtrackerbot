@@ -606,20 +606,28 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         }
     });
 
-    it('hides the weekly-digest toggle in cloud mode, keeps it visible in bot mode', async () => {
+    it('weekly-digest toggle: cloud shows it only with gamification on; bot mode always shows it (med-eas.58)', async () => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();
         try {
             window.apiCall = vi.fn(async () => { throw new Error('offline'); });
             const weeklyDigest = () => document.querySelector('mt-setting-toggle[input-id="weekly-digest-feature-toggle"]');
+            await window.loadSettings(); // mount the DOM
 
-            // Bot mode: visible.
-            await window.loadSettings();
+            // Bot mode: visible regardless of gamification.
+            window.featureSettings = { weekly_digest: false, gamification: false };
+            window.SettingsView.updateFeatureToggles();
             expect(weeklyDigest().classList.contains('wg-settings-hidden')).toBe(false);
 
-            // Cloud mode: hidden.
+            // Cloud + gamification on: visible (the toggle drives the digest push).
             window.__MEDTRACKER_CLOUD__ = true;
-            await window.loadSettings();
+            window.featureSettings = { weekly_digest: true, gamification: true };
+            window.SettingsView.updateFeatureToggles();
+            expect(weeklyDigest().classList.contains('wg-settings-hidden')).toBe(false);
+
+            // Cloud + gamification off: hidden (both-on gate, matching the bot).
+            window.featureSettings = { weekly_digest: true, gamification: false };
+            window.SettingsView.updateFeatureToggles();
             expect(weeklyDigest().classList.contains('wg-settings-hidden')).toBe(true);
         } finally {
             delete window.__MEDTRACKER_CLOUD__;

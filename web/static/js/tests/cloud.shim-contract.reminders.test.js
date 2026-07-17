@@ -7,6 +7,7 @@ vi.mock('../../../cloud/js/push.js', () => ({
     sendTestPush: vi.fn(async () => {}),
 }));
 import { sendTestPush } from '../../../cloud/js/push.js';
+import { computeReminderEntries } from '../../../cloud/js/reminders.js';
 import { loadCloudShimFrontendEnv, createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
 import { installApiShim } from '../../../cloud/js/apishim.js';
 
@@ -135,6 +136,47 @@ describe('cloud shim contract — reminder actions (snooze / dontbug / test)', (
             const res = await window.offlineAwareApiCall(path, 'POST');
             expect(res.status).toBe('success');
         }
+    });
+});
+
+// med-eas.58 Task 5 — the weekly-digest horizon entry, wired in
+// computeReminderEntries behind the weekly_digest + gamification both-on gate.
+describe('cloud shim horizon — weekly digest entry', () => {
+    // Mon Jun 15 2026, noon UTC → next Sunday 19:00 local (UTC) is Jun 21.
+    const NOW = Date.UTC(2026, 5, 15, 12, 0, 0);
+    const EXPECTED_FIRE = Date.UTC(2026, 5, 21, 19, 0, 0) / 1000;
+
+    beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    const featuresRecord = (flags) => ({
+        recordId: 'features', clientTs: NOW, deleted: false, flags,
+    });
+
+    it('emits one digest entry at next Sunday 19:00 when the toggle is on', async () => {
+        const records = createInMemoryRecordsPort({ features: [featuresRecord({ weekly_digest: true })] });
+        const entries = await computeReminderEntries({}, { records, timeZone: 'UTC' });
+        const digests = entries.filter((e) => e.kind === 'digest');
+        expect(digests).toHaveLength(1);
+        expect(digests[0].fireAtUnix).toBe(EXPECTED_FIRE);
+        expect(digests[0].callback).toBeUndefined();
+        expect(digests[0].text).toContain('\u{1F5D3} Your week');
+        // genericText must be name/data-free.
+        expect(digests[0].genericText).toBe('Your weekly summary is ready');
+    });
+
+    it('emits no digest entry when the toggle is off (default)', async () => {
+        const records = createInMemoryRecordsPort({});
+        const entries = await computeReminderEntries({}, { records, timeZone: 'UTC' });
+        expect(entries.filter((e) => e.kind === 'digest')).toHaveLength(0);
+    });
+
+    it('emits no digest entry when gamification is off (both-on gate)', async () => {
+        const records = createInMemoryRecordsPort({
+            features: [featuresRecord({ weekly_digest: true, gamification: false })],
+        });
+        const entries = await computeReminderEntries({}, { records, timeZone: 'UTC' });
+        expect(entries.filter((e) => e.kind === 'digest')).toHaveLength(0);
     });
 });
 

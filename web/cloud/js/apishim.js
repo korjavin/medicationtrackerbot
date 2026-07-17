@@ -145,9 +145,12 @@ export function createApiRouter(ctx, {
   // PORTED_SET: the feature domains this shim can actually serve end-to-end
   // (records + domain module + shim routes wired). Clamped onto every read
   // of the features map so a stored/toggled flag for an unported domain
-  // (food/workout/gamification/weekly_digest — C2c/d) can never surface as
-  // enabled, per docs/cloud-mode.md "C2 shim architecture".
-  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication', 'food', 'workout', 'gamification']);
+  // can never surface as enabled, per docs/cloud-mode.md "C2 shim architecture".
+  // weekly_digest is ported cloud-side as a horizon producer (med-eas.58,
+  // reminders.js computeDigestEntry) rather than an HTTP-served domain — it has
+  // no nav tab and no /api routes, but the flag must persist + read back so the
+  // Settings toggle drives the digest push.
+  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication', 'food', 'workout', 'gamification', 'weekly_digest']);
   function clampFeatures(flags) {
     const out = {};
     for (const key of Object.keys(flags)) out[key] = PORTED_SET.has(key) ? !!flags[key] : false;
