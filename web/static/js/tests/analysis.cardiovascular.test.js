@@ -140,6 +140,48 @@ describe('analysis.cardiovascular', () => {
     });
   });
 
+  it('degrades a section whose read throws into an unavailable warning', async () => {
+    // A failing domain read must not abort the whole analysis — it drops that
+    // one section and adds `<label> (query failed)`, mirroring the Go handlers.
+    const now = () => NOW;
+    const timeZone = 'UTC';
+    const throwingBp = { list: async () => { throw new Error('boom'); } };
+    const records = createInMemoryRecordsPort({});
+    const vitals = createVitalsDomain({ records, now, timeZone });
+    const notes = createNotesDomain({ records, now });
+    const medications = createMedicationsDomain({
+      records, now, timeZone, rxnorm: { normalize: async () => null },
+    });
+    const intake = createIntakeDomain({ records, now, timeZone });
+    const analysis = createAnalysis({
+      bp: throwingBp, vitals, medications, intake, notes, now, timeZone,
+    });
+
+    const resp = await analysis.cardiovascular({ from: '2026-07-10', to: '2026-07-17' });
+
+    expect(resp.blood_pressure).toBeUndefined();
+    expect(resp.warning).toContain('blood_pressure (query failed)');
+    // The rest of the analysis still resolves.
+    expect(resp.sleep).toBeTruthy();
+    expect(resp.medications).toBeTruthy();
+  });
+
+  it('days shorthand extends the window to end-of-today, not the now instant', async () => {
+    // NOW is midnight; a reading later today is after the wall-clock instant but
+    // within the day. Go's days-shorthand path ends at 23:59:59, so it counts.
+    const analysis = build({
+      bp: [{
+        recordId: 'bp-today', deleted: false, measured_at: '2026-07-17T10:00:00Z',
+        systolic: 130, diastolic: 85, category: 'Elevated',
+      }],
+    });
+
+    const resp = await analysis.cardiovascular({ days: 1 });
+
+    expect(resp.blood_pressure.readings).toHaveLength(1);
+    expect(resp.period).toBe('2026-07-17 to 2026-07-17');
+  });
+
   it('omits a gated-off section and lists it as unavailable', async () => {
     const analysis = build({
       medication: [{
