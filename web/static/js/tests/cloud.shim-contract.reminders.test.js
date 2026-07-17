@@ -6,7 +6,7 @@ vi.mock('../../../cloud/js/push.js', () => ({
     pushSchedule: vi.fn(async () => {}),
     sendTestPush: vi.fn(async () => {}),
 }));
-import { sendTestPush } from '../../../cloud/js/push.js';
+import { pushSchedule, sendTestPush } from '../../../cloud/js/push.js';
 import { computeReminderEntries } from '../../../cloud/js/reminders.js';
 import { loadCloudShimFrontendEnv, createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
 import { installApiShim } from '../../../cloud/js/apishim.js';
@@ -209,6 +209,88 @@ describe('cloud shim horizon — workout entry (feature-flag gate)', () => {
         });
         const entries = await computeReminderEntries({}, { records, timeZone: 'UTC' });
         expect(entries.filter((e) => e.kind === 'workout')).toHaveLength(0);
+    });
+});
+
+// Codex parity finding — the workout-horizon-affecting writes must trigger a
+// debounced recompute+push, like the group / session-status routes already do.
+// Without it, an edited variant/exercise leaves stale queued reminder text, a
+// rotation init leaves the wrong variant queued, and deleting a planned session
+// leaves its already-uploaded reminder in the relay until an unrelated recompute.
+describe('cloud shim — workout mutations re-push the horizon', () => {
+    let env;
+    // 2000ms shim debounce (reminders.js DEBOUNCE_MS) + microtask flush.
+    const flush = async () => { await vi.advanceTimersByTimeAsync(2100); };
+
+    // Fixed clock so the scheduled-session date below is unambiguously future.
+    const NOW = Date.UTC(2026, 5, 15, 6, 0, 0);
+    beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); pushSchedule.mockClear(); env = loadCloudShimFrontendEnv(); });
+    afterEach(() => { env.cleanup(); env = null; vi.useRealTimers(); });
+
+    async function seedGroupVariant(window) {
+        const group = await window.offlineAwareApiCall('/api/workout/groups/create', 'POST', {
+            name: 'Push Day', is_rotating: false, days_of_week: '[0,1,2,3,4,5,6]', scheduled_time: '18:00',
+        });
+        const variant = await window.offlineAwareApiCall('/api/workout/variants/create', 'POST', {
+            group_id: group.id, name: 'Variant A', rotation_order: 0,
+        });
+        return { group, variant };
+    }
+
+    it('variant create/update/delete each schedule a recompute+push', async () => {
+        const { window } = env;
+        const { variant } = await seedGroupVariant(window);
+        await flush();
+        expect(pushSchedule).toHaveBeenCalled();
+
+        pushSchedule.mockClear();
+        await window.offlineAwareApiCall('/api/workout/variants/update?id=' + variant.id, 'PUT', { name: 'Variant B' });
+        await flush();
+        expect(pushSchedule).toHaveBeenCalledTimes(1);
+
+        pushSchedule.mockClear();
+        await window.offlineAwareApiCall('/api/workout/variants/delete?id=' + variant.id, 'DELETE');
+        await flush();
+        expect(pushSchedule).toHaveBeenCalledTimes(1);
+    });
+
+    it('exercise create/update/delete each schedule a recompute+push', async () => {
+        const { window } = env;
+        const { variant } = await seedGroupVariant(window);
+        await flush();
+
+        pushSchedule.mockClear();
+        const ex = await window.offlineAwareApiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variant.id, name: 'Bench', order_index: 0,
+        });
+        await flush();
+        expect(pushSchedule).toHaveBeenCalledTimes(1);
+
+        pushSchedule.mockClear();
+        await window.offlineAwareApiCall('/api/workout/exercises/update?id=' + ex.id, 'PUT', { name: 'Incline Bench' });
+        await flush();
+        expect(pushSchedule).toHaveBeenCalledTimes(1);
+
+        pushSchedule.mockClear();
+        await window.offlineAwareApiCall('/api/workout/exercises/delete?id=' + ex.id, 'DELETE');
+        await flush();
+        expect(pushSchedule).toHaveBeenCalledTimes(1);
+    });
+
+    it('deleting a session schedules a recompute+push', async () => {
+        const { window } = env;
+        const { group } = await seedGroupVariant(window);
+        const scheduled = await window.offlineAwareApiCall('/api/workout/sessions/schedule', 'POST', {
+            group_id: group.id, scheduled_date: '2026-06-20', scheduled_time: '18:00',
+            exercises: [{ exercise_name: 'Bench', target_sets: 3, target_reps_min: 5 }],
+        });
+        const sid = (scheduled && scheduled.id) || (scheduled && scheduled.session && scheduled.session.id);
+        await flush();
+
+        pushSchedule.mockClear();
+        await window.offlineAwareApiCall('/api/workout/sessions/delete?id=' + sid, 'DELETE');
+        await flush();
+        expect(pushSchedule).toHaveBeenCalledTimes(1);
     });
 });
 

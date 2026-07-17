@@ -566,26 +566,42 @@ export function createApiRouter(ctx, {
     if (path === '/api/workout/variants' && method === 'GET') {
       return workout.listVariants(intParam(params, 'group_id', 0));
     }
-    if (path === '/api/workout/variants/create' && method === 'POST') return workout.createVariant(body);
+    // Variant + exercise writes feed the workout horizon: the resolved variant's
+    // name (and its exercise list) is rendered into the queued recurring-reminder
+    // text, and add/delete changes which variant resolveVariantId picks. Re-push
+    // so the blind relay follows, like the group routes above.
+    if (path === '/api/workout/variants/create' && method === 'POST') {
+      const res = await workout.createVariant(body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
+    }
     if (path === '/api/workout/variants/update' && method === 'PUT') {
       await workout.updateVariant(intParam(params, 'id', 0), body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
     if (path === '/api/workout/variants/delete' && method === 'DELETE') {
       await workout.deleteVariant(intParam(params, 'id', 0));
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
 
     if (path === '/api/workout/exercises' && method === 'GET') {
       return workout.listExercises(intParam(params, 'variant_id', 0));
     }
-    if (path === '/api/workout/exercises/create' && method === 'POST') return workout.createExercise(body);
+    if (path === '/api/workout/exercises/create' && method === 'POST') {
+      const res = await workout.createExercise(body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
+    }
     if (path === '/api/workout/exercises/update' && method === 'PUT') {
       await workout.updateExercise(intParam(params, 'id', 0), body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
     if (path === '/api/workout/exercises/delete' && method === 'DELETE') {
       await workout.deleteExercise(intParam(params, 'id', 0));
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
 
@@ -604,6 +620,9 @@ export function createApiRouter(ctx, {
         Number(body && body.group_id) || 0,
         Number(body && body.starting_variant_id) || 0,
       );
+      // Seeds the rotation cursor resolveVariantId reads — re-push so the queued
+      // recurring reminder names the newly-selected variant.
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
 
@@ -629,6 +648,10 @@ export function createApiRouter(ctx, {
     }
     if (path === '/api/workout/sessions/delete' && method === 'DELETE') {
       await workout.deleteSession(intParam(params, 'id', 0));
+      // Deleting a planned ad-hoc session drops the reminder it emitted, and
+      // deleting a materialized recurring session un-suppresses that day's fire —
+      // re-push so the relay reflects the change (matches session status above).
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
     if (path === '/api/workout/sessions/status' && method === 'PUT') {
