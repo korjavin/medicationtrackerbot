@@ -15,6 +15,7 @@ import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
 import { createWorkoutDomain } from '../../domain/workout.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
+import { createAnalysis } from '../../domain/analysis.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
 import { recordsPort, ORIGIN_UI, ORIGIN_EXTERNAL } from './sync.js';
 import { scheduleReminderRecompute, sendTestPush } from './reminders.js';
@@ -141,6 +142,12 @@ export function createApiRouter(ctx, {
   // returns prose; any no-key/error path returns { text: null } so every
   // narrate route degrades to the deterministic card journey.js already shows.
   const narrator = createGamificationNarrator({ aiClient });
+  // Composite health analyses (analyze_cardiovascular / analyze_fitness) —
+  // pure aggregation over the domains built above, served as cloud-only MCP
+  // ops (docs/plans/20260717-cloud-analysis-pathb.md).
+  const analysis = createAnalysis({
+    bp, vitals, medications, intake, food, weight, workout, notes, now, timeZone,
+  });
 
   // PORTED_SET: the feature domains this shim can actually serve end-to-end
   // (records + domain module + shim routes wired). Clamped onto every read
@@ -386,6 +393,20 @@ export function createApiRouter(ctx, {
     if (path === '/api/settings/tgprefs') {
       if (method === 'GET') return { note: await settings.getTGPrefsNote() };
       if (method === 'PATCH') return { note: await settings.setTGPrefsNote(body && body.note) };
+    }
+
+    // Composite analyses — one call aggregating many domains, gated by the
+    // vault's feature flags (a disabled section lands in the `warning` field).
+    if ((path === '/api/health/cardiovascular-analysis' || path === '/api/health/fitness-analysis') && method === 'GET') {
+      const opts = {
+        from: params.get('start_date') || undefined,
+        to: params.get('end_date') || undefined,
+        days: intParam(params, 'days', undefined),
+        excludeNotes: params.get('exclude_notes') === 'true',
+        features: await settings.getFeatures(),
+      };
+      return path.endsWith('cardiovascular-analysis')
+        ? analysis.cardiovascular(opts) : analysis.fitness(opts);
     }
 
     if (path === '/api/health/overview' && method === 'GET') return vitals.overview();

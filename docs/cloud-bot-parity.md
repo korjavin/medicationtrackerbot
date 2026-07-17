@@ -52,7 +52,7 @@ All core CRUD + domain reads/writes route in cloud: meds & intake (`server.go:81
 |---|---|---|---|
 | `mcp_help` / `mcp_call` / operation registry | `internal/mcp/`, `registry/` | `mcp-responder.js`, generated `mcp-catalog.generated.js` | parity |
 | `mcp_execute` (server-side Python runner) | `internal/mcp/execute.go`, `executor/` | throws `-32601` by design (`mcp-responder.js:579`) | intentional divergence — zero-knowledge: no server-side plaintext to run a script against |
-| Composite analysis (`analyze_cardiovascular`, `analyze_fitness`) | `internal/mcp/cardiovascular.go:427`, `fitness.go:443` | none | **gap → bead (prioritized).** Cloud has no `mcp_execute` (no server-side runtime), so a voice/agent LLM would have to chain dozens of `mcp_call` reads to get a CV/fitness summary — fragile and slow. Port the composite aggregation to a **client-side** implementation (JS, over the in-tab dispatcher / `web/domain`) so cloud regains this analysis without a Python runner. This is cloud's substitute for the `mcp_execute` capability it can't deliver. |
+| Composite analysis (`analyze_cardiovascular`, `analyze_fitness`) | `internal/mcp/cardiovascular.go:427`, `fitness.go:443` | `web/domain/analysis.js`, cloud-only ops in `mcp-catalog.cloud-extra.js`, routes in `apishim.js` | **parity** (Path B, cloud-only — no bot change). Ported client-side: a pure `analysis.js` reproduces the Go aggregation over vault data; two ops (`health.analyze_cardiovascular`/`health.analyze_fitness`) are added via a **cloud-only catalog seam** (`CLOUD_EXTRA` merged into the responder's `CATALOG` at import, leaving the drift-guarded generated file untouched) and served by `GET /api/health/{cardiovascular,fitness}-analysis` in `createApiRouter`. Discoverable via `mcp_help`, callable via `mcp_call` — cloud's substitute for the `mcp_execute` it can't deliver. |
 | AI meal parse (text) | `internal/ai/openai.go:175` | `aiclient.js:308` | parity (browser-direct BYO) |
 | AI meal parse (photo/vision) | `internal/ai/openai.go:439` | `aiclient.js:341` | parity (photo never crosses `/api`) |
 | Food barcode lookup | `internal/store/food/openfoodfacts_api.go` | browser-direct/trial-proxy (`fooddb.js`) | parity |
@@ -103,7 +103,7 @@ Cloud computes the reminder horizon client-side (`web/domain/reminders.js` `buil
 
 Retained after product triage 2026-07-17 (beads under the `med-eas` epic, discovered-from `med-eas.54`):
 
-1. **med-eas.56** (P2) — Composite MCP `analyze_*` → client-side cloud implementation; cloud's substitute for the unavailable `mcp_execute`. *In progress via a cloud-only catalog seam (Path B — no bot/Go), per the one-way bot→cloud direction.*
+1. ~~**med-eas.56** (P2) — Composite MCP `analyze_*` → client-side cloud implementation; cloud's substitute for the unavailable `mcp_execute`.~~ **Closed** — shipped via Path B (cloud-only catalog seam, no bot/Go); see the composite-analysis parity row above.
 2. ~~**med-eas.57** (P3) — Low-stock reminder never pushed in cloud.~~ **Closed** — `low_stock` horizon kind shipped (see table above).
 3. ~~**med-eas.58** (P3) — Weekly-digest toggle has no cloud producer.~~ **Closed** — `digest` producer + un-hidden toggle shipped.
 4. ~~**med-eas.59** (P3) — Workout-session reminders absent from cloud horizon.~~ **Closed** — `workout` horizon kind shipped (primary fire only).

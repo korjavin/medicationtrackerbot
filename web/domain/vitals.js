@@ -268,6 +268,27 @@ export function createVitalsDomain({ records, now, timeZone }) {
     };
   }
 
+  // Windowed raw reads for the composite analyses (web/domain/analysis.js).
+  // readSamples reads the day-batches overlapping the range but overshoots by a
+  // padded day on each side; these clamp to the exact [fromMs, toMs] instant
+  // window, mirroring the SQL `date_time BETWEEN ?` the bot's ListHeart/ListSpO2
+  // use. Return the raw {ms, value} samples so the caller owns avg/min/max/count.
+  async function listSamplesWindowed(recordType, fromMs, toMs) {
+    return (await readSamples(recordType, fromMs, toMs))
+      .filter((s) => s.ms >= fromMs && s.ms <= toMs);
+  }
+  const listHeart = ({ from, to }) => listSamplesWindowed(HR_RECORD_TYPE, from, to);
+  const listSpO2 = ({ from, to }) => listSamplesWindowed(SPO2_RECORD_TYPE, from, to);
+
+  // listDayStats returns per-day step/calorie/distance rows within an inclusive
+  // day-string range (YYYY-MM-DD), newest→oldest-agnostic (sorted ascending),
+  // mirroring fetchStepsSection's ListDayStats(since)+After(end) window.
+  async function listDayStats({ from, to } = {}) {
+    return (await readDayStats())
+      .filter((d) => (!from || d.day >= from) && (!to || d.day <= to))
+      .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+  }
+
   // sleep mirrors handleListSleepLogs: raw sessions over an explicit from/to
   // range (default 90d look-back), newest-first, optional limit.
   // ponytail: skips the server's bare-date "inclusive of whole day" nuance
@@ -463,5 +484,7 @@ export function createVitalsDomain({ records, now, timeZone }) {
     }
   }
 
-  return { overview, sleep, importSamples };
+  return {
+    overview, sleep, importSamples, listHeart, listSpO2, listDayStats,
+  };
 }

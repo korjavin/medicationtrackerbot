@@ -14,12 +14,16 @@
 
 import { openMCPFrame, sealMCPFrame, utf8 } from './crypto.js';
 import { openDb } from './localdb.js';
-import { CATALOG } from './mcp-catalog.generated.js';
+import { CATALOG as GENERATED } from './mcp-catalog.generated.js';
+import { CLOUD_EXTRA } from './mcp-catalog.cloud-extra.js';
 
-// Re-exported: the catalog is generated from internal/mcp/registry by
-// cmd/genmcpcatalog, but this module stays its import site for the rest of
-// cloud mode. Regenerate with `go run ./cmd/genmcpcatalog`.
-export { CATALOG };
+// The generated catalog is produced from internal/mcp/registry by
+// cmd/genmcpcatalog (regenerate with `go run ./cmd/genmcpcatalog`) and is
+// drift-guarded — never hand-edit it. Cloud-only ops with no Go counterpart
+// live in mcp-catalog.cloud-extra.js and are merged in here, so they surface on
+// every catalog consumer at once (mcp_help, mcp_call, the voice dispatcher, the
+// relay responder, and the tests) without touching the generated file.
+export const CATALOG = [...GENERATED, ...CLOUD_EXTRA];
 
 const decoder = new TextDecoder();
 
@@ -27,7 +31,8 @@ export const USAGE_PROTOCOL = 'Decision rule: (1) Discover — call mcp_help wit
   + 'terse catalog, then drill in with operation_id=/operation_ids=[...] for full schemas. The catalog is too large '
   + 'to return in full; only an id drill-in returns schemas. (2) Run exactly ONE operation per call with '
   + 'mcp_call({op, params}). There is no mcp_execute in cloud mode: cloud mode runs no server-side domain or script '
-  + 'runtime — chain mcp_call instead. Every call is answered by '
+  + 'runtime — chain mcp_call instead. Two composite analyses (health.analyze_cardiovascular, '
+  + 'health.analyze_fitness) aggregate multi-row health data in one mcp_call as a shortcut for that chaining. Every call is answered by '
   + 'your unlocked Med Tracker browser tab over an end-to-end encrypted channel; the relay server sees only frame '
   + 'sizes and timing (a hosted remote connector, if you enabled one, does see MCP request and response plaintext '
   + 'in transit between you and the relay — that is what enabling it consents to). If no device is unlocked and online, mcp_call returns an '

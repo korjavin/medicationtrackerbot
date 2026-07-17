@@ -443,6 +443,11 @@ describe('mcp_help wire contract (generated catalog)', () => {
     for (const id of ['workouts.groups.list', 'medications.list', 'food.log.create', 'health.bp.list']) {
       expect(ids).toContain(id);
     }
+    // Cloud-only composite analyses (mcp-catalog.cloud-extra.js) merged into the
+    // catalog surface on mcp_help just like the generated ops.
+    for (const id of ['health.analyze_cardiovascular', 'health.analyze_fitness']) {
+      expect(ids).toContain(id);
+    }
   });
 
   it('drills into full entries by operation_ids and notes unknown ids instead of throwing', async () => {
@@ -1199,6 +1204,23 @@ describe('cloud MCP response_example conformance', () => {
         heart_rate_avg: 56,
         spo2_avg: 97,
         notes: 'restless',
+      }],
+      // Raw HR/SpO2 day-batches + a daystats row feed the composite-analysis
+      // ops' heart_rate / spo2 / steps sections (health.analyze_cardiovascular /
+      // health.analyze_fitness), so their response_example keys come back present.
+      hrsample: [{
+        recordId: 'hrsample-2026-07-06',
+        samples: [
+          { date_time: '2026-07-06T06:00:00.000Z', value: 58 },
+          { date_time: '2026-07-06T07:00:00.000Z', value: 72 },
+        ],
+      }],
+      spo2sample: [{
+        recordId: 'spo2sample-2026-07-06',
+        samples: [{ date_time: '2026-07-06T06:00:00.000Z', value: 97 }],
+      }],
+      daystats: [{
+        recordId: 'daystats-2026-07-06', day: '2026-07-06', steps: 8421, calories: 2100, distance: 6300,
       }],
       miband: [{
         recordId: 'miband-88',
