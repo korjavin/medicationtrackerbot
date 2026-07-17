@@ -53,11 +53,11 @@ Dependencies: none new. Reuses existing `settingsDomain`, `window.CloudElevenLab
 ## Implementation Steps
 
 ### Task 1: Add browser-direct uploadFile to the cloud ElevenLabs client
-- [ ] In `web/cloud/js/elevenlabs-signed-url.js`, add an `uploadFile(conversationId, file)` method to the object returned by `createElevenLabsClient`: read `elevenlabs.api_key` via `settingsDomain.readIntegrationsUnmasked()` (throw the same "Set your ElevenLabs API key in Settings → Integrations" error when absent); build a `FormData` with `file` field (filename `file.name || 'photo.jpg'`); `fetch` POST to `https://api.elevenlabs.io/v1/convai/conversations/${encodeURIComponent(conversationId)}/files` with header `xi-api-key`; on non-2xx throw an `Error` carrying `.status`; parse JSON and return the `file_id` (throw if missing).
-- [ ] Guard `conversationId` the same way the server does — reject if it contains `/`, `?`, or `#` (path-safety), throwing a clear error.
-- [ ] Export `uploadFile` from the returned client object alongside `fetchSignedURL` and `hasKey`.
-- [ ] If `web/cloud/js/` has a test suite for this module, add success + error (no key, non-2xx, missing file_id) cases; otherwise note coverage is via Task 3's integration tests.
-- [ ] Run `pnpm test` for touched suites — must pass before Task 2.
+- [x] In `web/cloud/js/elevenlabs-signed-url.js`, add an `uploadFile(conversationId, file)` method to the object returned by `createElevenLabsClient`: read `elevenlabs.api_key` via `settingsDomain.readIntegrationsUnmasked()` (throw the same "Set your ElevenLabs API key in Settings → Integrations" error when absent); build a `FormData` with `file` field (filename `file.name || 'photo.jpg'`); `fetch` POST to `https://api.elevenlabs.io/v1/convai/conversations/${encodeURIComponent(conversationId)}/files` with header `xi-api-key`; on non-2xx throw an `Error` carrying `.status`; parse JSON and return the `file_id` (throw if missing).
+- [x] Guard `conversationId` the same way the server does — reject if it contains `/`, `?`, or `#` (path-safety), throwing a clear error.
+- [x] Export `uploadFile` from the returned client object alongside `fetchSignedURL` and `hasKey`.
+- [x] If `web/cloud/js/` has a test suite for this module, add success + error (no key, non-2xx, missing file_id) cases; otherwise note coverage is via Task 3's integration tests. (No sibling suite exists — coverage deferred to Task 3.)
+- [x] Run `pnpm test` for touched suites — must pass before Task 2. (features.elevenlabs-call: 44 passed.)
 
 ### Task 2: Route sendPhoto browser-direct in cloud mode and remove the guard
 - [ ] In `web/static/js/features/elevenlabs-call.js`, make the upload mode-aware: when `window.__MEDTRACKER_CLOUD__ && window.CloudElevenLabs?.uploadFile`, call `window.CloudElevenLabs.uploadFile(conversationId, file)` to get the fileId; otherwise keep the existing `uploadFileViaProxy` (bot) path. Preserve the existing conversation-id resolution, hang-up-during-await guard, and status-message behavior in `sendPhoto`.
