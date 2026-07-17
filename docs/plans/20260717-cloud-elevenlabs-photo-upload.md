@@ -69,11 +69,11 @@ Dependencies: none new. Reuses existing `settingsDomain`, `window.CloudElevenLab
 - [x] Run `pnpm test` for the call suite — must pass before Task 3. (features.elevenlabs-call: 46 passed.)
 
 ### Task 3: Verify acceptance criteria
-- [ ] Verify: cloud mode renders "Send photo"; cloud upload goes browser-direct to `api.elevenlabs.io` with the vault key; no `/api/elevenlabs/upload-file` dependency in the cloud branch.
-- [ ] Verify: bot mode still proxies through the server route (test + code read).
-- [ ] Verify: the `!window.__MEDTRACKER_CLOUD__` guard around the photo UI is gone.
-- [ ] Run full `pnpm test` (frontend) and `go build ./...` + `go build -tags mobile ./...` (no Go changes expected, but confirm nothing broke) — all must pass.
-- [ ] Run the frontend architecture tests (globals allowlist, native-abstractions, no-hardcoded-style) — must pass.
+- [x] Verify: cloud mode renders "Send photo"; cloud upload goes browser-direct to `api.elevenlabs.io` with the vault key; no `/api/elevenlabs/upload-file` dependency in the cloud branch. (elevenlabs-call.js:315-324 dispatches to `window.CloudElevenLabs.uploadFile`; elevenlabs-signed-url.js:47 POSTs to `api.elevenlabs.io/.../files` with `xi-api-key`.)
+- [x] Verify: bot mode still proxies through the server route (test + code read). (uploadFileViaProxy at elevenlabs-call.js:331 unchanged, POSTs to `/api/elevenlabs/upload-file`.)
+- [x] Verify: the `!window.__MEDTRACKER_CLOUD__` guard around the photo UI is gone. (Only remaining refs are signed-URL, MCP dispatcher, and the mode-aware uploadFile branch.)
+- [x] Run full `pnpm test` (frontend) and `go build ./...` + `go build -tags mobile ./...` (no Go changes expected, but confirm nothing broke) — all must pass. (Both Go builds OK; frontend 3651 passed / 29 skipped across 312 files under Node 20.)
+- [x] Run the frontend architecture tests (globals allowlist, native-abstractions, no-hardcoded-style) — must pass. (Ran within full suite — all architecture.* files green.)
 
 ### Task 4: [Final] Docs
 - [ ] If `docs/features.md` or a cloud-parity note references the photo-in-cloud gap, update it to reflect parity is now closed. No new doc required.
