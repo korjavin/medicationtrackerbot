@@ -6,6 +6,7 @@
 // credential seam. CORS on get_signed_url returns `allow-origin: *`, so the
 // browser can call it directly with the xi-api-key header.
 const SIGNED_URL_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/conversation/get_signed_url';
+const CONVERSATIONS_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/conversations';
 
 export function createElevenLabsClient({ settingsDomain }) {
   // agentId is the app-provisioned agent (elevenlabs-agent.js provision());
@@ -39,5 +40,35 @@ export function createElevenLabsClient({ settingsDomain }) {
     return Boolean(elevenlabs && elevenlabs.api_key);
   }
 
-  return { fetchSignedURL, hasKey };
+  // Browser-direct file upload for the in-call "Send photo" control. Bot mode
+  // proxies this through /api/elevenlabs/upload-file; cloud has no such route, so
+  // the tab POSTs multipart straight to api.elevenlabs.io with the vault key —
+  // same BYO seam as fetchSignedURL. Mirrors server handleElevenLabsUploadFile.
+  async function uploadFile(conversationId, file) {
+    const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
+    if (!elevenlabs || !elevenlabs.api_key) {
+      throw new Error('Set your ElevenLabs API key in Settings → Integrations');
+    }
+    if (typeof conversationId !== 'string' || /[/?#]/.test(conversationId)) {
+      throw new Error('Invalid conversation id');
+    }
+    const form = new FormData();
+    form.append('file', file, file.name || 'photo.jpg');
+    const url = `${CONVERSATIONS_ENDPOINT}/${encodeURIComponent(conversationId)}/files`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'xi-api-key': elevenlabs.api_key },
+      body: form,
+    });
+    if (!resp.ok) {
+      const err = new Error(`Failed to upload file (${resp.status})`);
+      err.status = resp.status;
+      throw err;
+    }
+    const data = await resp.json();
+    if (!data || !data.file_id) throw new Error('Response missing file_id');
+    return data.file_id;
+  }
+
+  return { fetchSignedURL, hasKey, uploadFile };
 }

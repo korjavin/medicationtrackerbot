@@ -301,14 +301,35 @@
         setMute(!activeMuted);
     }
 
+    function resolveConversationId(conv) {
+        return (typeof conv.getId === 'function')
+            ? conv.getId()
+            : (conv.conversationId || conv.id || null);
+    }
+
+    // Mode-aware file upload for the in-call "Send photo" control. Cloud mode
+    // POSTs multipart straight to api.elevenlabs.io with the user's vault key
+    // (window.CloudElevenLabs.uploadFile — the BYO seam, key never crosses /api).
+    // Bot mode proxies through the server route so the operator's key stays
+    // hidden (see uploadFileViaProxy).
+    async function uploadFile(conv, file) {
+        if (window.__MEDTRACKER_CLOUD__ && window.CloudElevenLabs
+            && typeof window.CloudElevenLabs.uploadFile === 'function') {
+            const conversationId = resolveConversationId(conv);
+            if (!conversationId) {
+                throw new Error('Conversation id unavailable');
+            }
+            return window.CloudElevenLabs.uploadFile(conversationId, file);
+        }
+        return uploadFileViaProxy(conv, file);
+    }
+
     // Proxy the file through our backend so the server's xi-api-key can sign
     // the upload. The SDK's conv.uploadFile() posts directly to ElevenLabs
     // from the browser and 401s with `sign_in_required` because we never
     // expose the API key to the client.
     async function uploadFileViaProxy(conv, file) {
-        const conversationId = (typeof conv.getId === 'function')
-            ? conv.getId()
-            : (conv.conversationId || conv.id || null);
+        const conversationId = resolveConversationId(conv);
         if (!conversationId) {
             throw new Error('Conversation id unavailable');
         }
@@ -370,7 +391,7 @@
             : activeMessage;
         setState(activeState, startMessage);
         try {
-            const fileId = await uploadFileViaProxy(conv, file);
+            const fileId = await uploadFile(conv, file);
             if (conv !== activeConversation) {
                 // Call ended mid-upload — bail without touching UI state.
                 return;
@@ -494,36 +515,32 @@
         });
         controls.appendChild(muteBtn);
 
-        // Photo upload proxies through the bot-mode /api/elevenlabs/upload-file
-        // route, which cloud mode doesn't serve — so it always 404s there. This
-        // PoC doesn't implement browser-direct upload, so hide the control in
-        // cloud mode rather than showing a button that always fails.
-        // ponytail: drop when cloud gets a browser-direct upload path.
-        if (!window.__MEDTRACKER_CLOUD__) {
-            const photoBtn = document.createElement('button');
-            photoBtn.type = 'button';
-            photoBtn.className = 'wg-call-card__photo';
-            photoBtn.textContent = 'Send photo';
-            controls.appendChild(photoBtn);
+        // Photo upload is mode-aware: cloud mode POSTs browser-direct to
+        // api.elevenlabs.io with the vault key (window.CloudElevenLabs.uploadFile),
+        // bot mode proxies through /api/elevenlabs/upload-file. Render in both.
+        const photoBtn = document.createElement('button');
+        photoBtn.type = 'button';
+        photoBtn.className = 'wg-call-card__photo';
+        photoBtn.textContent = 'Send photo';
+        controls.appendChild(photoBtn);
 
-            const photoInput = document.createElement('input');
-            photoInput.type = 'file';
-            photoInput.accept = 'image/*';
-            photoInput.capture = 'environment';
-            photoInput.className = 'wg-call-card__photo-input';
-            photoInput.addEventListener('change', (event) => {
-                const file = event.target && event.target.files && event.target.files[0];
-                if (file) {
-                    sendPhoto(file).catch(() => { /* status surfaced via setState */ });
-                }
-                try { photoInput.value = ''; } catch (_) { /* ignore */ }
-            });
-            controls.appendChild(photoInput);
+        const photoInput = document.createElement('input');
+        photoInput.type = 'file';
+        photoInput.accept = 'image/*';
+        photoInput.capture = 'environment';
+        photoInput.className = 'wg-call-card__photo-input';
+        photoInput.addEventListener('change', (event) => {
+            const file = event.target && event.target.files && event.target.files[0];
+            if (file) {
+                sendPhoto(file).catch(() => { /* status surfaced via setState */ });
+            }
+            try { photoInput.value = ''; } catch (_) { /* ignore */ }
+        });
+        controls.appendChild(photoInput);
 
-            photoBtn.addEventListener('click', () => {
-                photoInput.click();
-            });
-        }
+        photoBtn.addEventListener('click', () => {
+            photoInput.click();
+        });
 
         const status = document.createElement('div');
         status.className = 'wg-call-card__status';

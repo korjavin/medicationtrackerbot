@@ -575,6 +575,56 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
             cleanup();
         }
     });
+
+    it('cloud mode: uploads browser-direct via CloudElevenLabs.uploadFile (not the proxy) and forwards fileId', async () => {
+        const { window, conversation, cleanup } = createConversationEnv();
+        window.__MEDTRACKER_CLOUD__ = true;
+        window.CloudElevenLabs = {
+            hasKey: async () => true,
+            fetchSignedURL: async () => 'wss://stub.example/',
+            uploadFile: vi.fn(async () => 'cloud_file_1'),
+        };
+        try {
+            await startCall(window);
+            const blob = makeImageBlob(window);
+            await window.WGCallAgent.sendPhoto(blob);
+            // The cloud client handled the upload with (conversationId, file).
+            expect(window.CloudElevenLabs.uploadFile).toHaveBeenCalledTimes(1);
+            const [convId, sentFile] = window.CloudElevenLabs.uploadFile.mock.calls[0];
+            expect(convId).toBe('conv_test');
+            expect(sentFile).toBe(blob);
+            // The bot-mode proxy fetch must NOT be used in cloud mode.
+            const proxyCalls = window.fetch.mock.calls.filter(
+                ([url]) => typeof url === 'string' && url.startsWith('/api/elevenlabs/upload-file'),
+            );
+            expect(proxyCalls).toHaveLength(0);
+            // The returned fileId is forwarded to the SDK.
+            expect(conversation.sendMultimodalMessage).toHaveBeenCalledWith({ fileId: 'cloud_file_1' });
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('cloud mode: CloudElevenLabs.uploadFile rejection surfaces "Photo upload failed" and rejects', async () => {
+        const { window, conversation, events, cleanup } = createConversationEnv();
+        window.__MEDTRACKER_CLOUD__ = true;
+        window.CloudElevenLabs = {
+            hasKey: async () => true,
+            fetchSignedURL: async () => 'wss://stub.example/',
+            uploadFile: vi.fn(async () => { throw new Error('no key'); }),
+        };
+        try {
+            await startCall(window);
+            const blob = makeImageBlob(window);
+            await expect(window.WGCallAgent.sendPhoto(blob)).rejects.toThrow();
+            const last = events[events.length - 1];
+            expect(last.state).toBe('in_call');
+            expect(last.message).toBe('Photo upload failed');
+            expect(conversation.sendMultimodalMessage).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
 });
 
 describe('features/elevenlabs-call.js — wg-call-state event detail', () => {

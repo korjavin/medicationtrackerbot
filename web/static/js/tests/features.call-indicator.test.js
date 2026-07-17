@@ -265,6 +265,23 @@ describe('features/call-indicator.js — persistent call-state pill', () => {
         }
     });
 
+    it('renders the photo control in cloud mode too (browser-direct upload, no guard)', () => {
+        // The upload is mode-aware via WGCallAgent.sendPhoto (cloud goes
+        // browser-direct to api.elevenlabs.io), so the control must render in
+        // cloud mode — the old !__MEDTRACKER_CLOUD__ guard is gone.
+        const { window, document, cleanup } = createEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            window.WGCallIndicator.mount(document.body);
+            const photo = document.querySelector('.wg-call-indicator__photo');
+            const input = document.querySelector('.wg-call-indicator__photo-input');
+            expect(photo).not.toBeNull();
+            expect(input).not.toBeNull();
+        } finally {
+            cleanup();
+        }
+    });
+
     it('hides mute and photo when state is idle', () => {
         const { window, document, cleanup } = createEnv();
         try {
