@@ -4,10 +4,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Give AI your health context — without giving anyone permanent access</title>
+    <title>myhealthbot — Give AI your health context, without giving anyone permanent access</title>
     <meta name="description"
         content="An AI-native, zero-knowledge health record. Point any compatible AI at your full history — it can only reach your data while you're there with an unlocked device. No device, no access. Self-hosted, yours.">
     <link rel="icon" type="image/jpeg" href="logo.jpg">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="myhealthbot — give AI your health context, without giving anyone permanent access">
+    <meta property="og:description"
+        content="An AI-native, zero-knowledge health record. Any AI can work with your full history — but only while your unlocked device is online. No device, no access.">
+    <meta property="og:image" content="https://korjavin.github.io/medicationtrackerbot/assets/today.png">
+    <meta property="og:url" content="https://korjavin.github.io/medicationtrackerbot/">
+    <meta name="twitter:card" content="summary_large_image">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -35,6 +42,13 @@
 
         * {
             box-sizing: border-box;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            * {
+                transition: none !important;
+                scroll-behavior: auto !important;
+            }
         }
 
         body {
@@ -179,6 +193,13 @@
 
         .stamp .no {
             color: var(--secondary);
+        }
+
+        .proofline {
+            margin: 1.4rem 0 0;
+            font-size: 0.88rem;
+            color: var(--on-dark-soft);
+            font-weight: 500;
         }
 
         .cta-row {
@@ -667,7 +688,7 @@
             <nav class="nav">
                 <div class="brand">
                     <img src="logo.jpg" alt="">
-                    <span>Medication Tracker</span>
+                    <span>myhealthbot<span style="color:var(--primary-bright)">.ai</span></span>
                 </div>
                 <a class="ghost" href="https://github.com/korjavin/medicationtrackerbot">GitHub ↗</a>
             </nav>
@@ -693,10 +714,12 @@
                             href="https://github.com/korjavin/medicationtrackerbot/blob/master/docs/cloud-mode.md">How
                             it works</a>
                     </div>
+                    <p class="proofline">Working product · open-source · self-hostable today — every
+                        screenshot here is the real app.</p>
                 </div>
                 <div class="hero-phone">
                     <div class="phone">
-                        <img src="assets/today.png"
+                        <img src="assets/today.png" width="1082" height="2402" fetchpriority="high"
                             alt="The Today dashboard: call agent, food logging, blood pressure and weight trends, and an AI daily forecast.">
                     </div>
                 </div>
@@ -748,7 +771,7 @@
 
             <div class="proof">
                 <div class="phone">
-                    <img src="assets/connector.png"
+                    <img src="assets/connector.png" width="1082" height="2402" loading="lazy"
                         alt="The pairing screen: paste a connector URL into claude.ai or ChatGPT, and keep an unlocked tab open.">
                 </div>
                 <div class="cap">
@@ -786,7 +809,7 @@
                     </ul>
                 </div>
                 <figure class="evidence">
-                    <img class="shot" src="assets/ai-ops.png"
+                    <img class="shot" src="assets/ai-ops.png" width="1432" height="778" loading="lazy"
                         alt="An AI assistant connected to the record, reporting it is online and verified with operations across Food, Health, Medications, and Workouts.">
                     <figcaption>A paired assistant, live against the record — food, health, meds, and
                         workouts, all in one session.</figcaption>
@@ -796,7 +819,7 @@
     </section>
 
     <!-- Pillar 2: Your story -->
-    <section class="pad band">
+    <section class="pad">
         <div class="wrap">
             <div class="section-head">
                 <div class="kicker">Your story, exactly the shape you want</div>
@@ -808,13 +831,14 @@
                 <div class="feat">
                     <span class="ico">💊</span>
                     <h3>Medications</h3>
-                    <p>Scheduled, weekly &amp; as-needed doses, snooze/skip/log-past, inventory,
-                        low-stock alerts, interaction checks.</p>
+                    <p>Never miss a dose — reminders, refills, and interaction checks, with a full
+                        history the AI can reason over.</p>
                 </div>
                 <div class="feat">
                     <span class="ico">❤️</span>
                     <h3>Blood pressure &amp; weight</h3>
-                    <p>Quick logging, goals, trends and statistics, EMA weight line, CSV import/export.</p>
+                    <p>Log a reading in seconds and watch the trend — then let the AI weigh it against
+                        everything else.</p>
                 </div>
                 <div class="feat">
                     <span class="ico">😴</span>
@@ -825,7 +849,8 @@
                 <div class="feat">
                     <span class="ico">🏋️</span>
                     <h3>Workouts</h3>
-                    <p>A/B/C/D rotation splits, per-exercise logging, ad-hoc sessions, planned routines.</p>
+                    <p>Plan and log training, then ask how it moved your weight, sleep, and resting
+                        heart rate.</p>
                 </div>
                 <div class="feat">
                     <span class="ico">🍽️</span>
@@ -853,7 +878,7 @@
             <div class="iface-grid">
                 <div class="hero-phone">
                     <div class="phone">
-                        <img src="assets/voice.png"
+                        <img src="assets/voice.png" width="1082" height="2402" loading="lazy"
                             alt="A live voice call with the health agent, listening, launched straight from the Today dashboard.">
                     </div>
                 </div>
@@ -901,11 +926,11 @@
                         steal. A breach yields sealed data.</p>
                 </div>
                 <div class="tcard">
-                    <h3>🧪 Adversarial review, published</h3>
-                    <p>We hammer our own product with frontier models hunting for weaknesses — and the
-                        reports live in the open.
+                    <h3>🧪 We attack our own product</h3>
+                    <p>Internal, AI-assisted adversarial reviews with frontier models — findings published
+                        in full, not buried. Independent third-party audit is on the roadmap.
                         <a href="https://github.com/korjavin/medicationtrackerbot/blob/master/docs/2026-07-12-gpt-5.6-sol-cloud-privacy-audit.md">Read
-                            the privacy audit →</a>
+                            the review →</a>
                     </p>
                 </div>
                 <div class="tcard">
