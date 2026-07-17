@@ -599,6 +599,59 @@
             max-width: 780px;
         }
 
+        /* ---------- Two acts / vision ---------- */
+        .acts {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.25rem;
+        }
+
+        .act {
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 1.9rem;
+            background: var(--card);
+        }
+
+        .act.next {
+            border-color: rgba(86, 172, 138, 0.5);
+            background: linear-gradient(180deg, rgba(86, 172, 138, 0.07), var(--card));
+        }
+
+        .act .tag {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            font-size: 0.78rem;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--primary);
+            margin-bottom: 0.6rem;
+        }
+
+        .act h3 {
+            font-size: 1.3rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .act p {
+            margin: 0;
+            color: var(--ink-soft);
+        }
+
+        .whynow {
+            margin-top: 1.6rem;
+            background: var(--surface);
+            color: var(--on-dark-soft);
+            border-radius: 14px;
+            padding: 1.2rem 1.4rem;
+            font-size: 0.98rem;
+        }
+
+        .whynow strong {
+            color: var(--secondary);
+            font-family: 'Outfit', sans-serif;
+        }
+
         /* ---------- Final ---------- */
         .final {
             background: var(--surface-3);
@@ -669,7 +722,8 @@
             .states,
             .sees,
             .grid,
-            .trust {
+            .trust,
+            .acts {
                 grid-template-columns: 1fr;
             }
 
@@ -946,6 +1000,36 @@
                 blind to it, but we don't govern their retention. Web-delivered crypto trusts the
                 origin; we mitigate and disclose it. Self-hosting means the trust is yours to hold.
             </p>
+        </div>
+    </section>
+
+    <!-- Where this is going -->
+    <section class="pad" style="background:var(--paper)">
+        <div class="wrap">
+            <div class="section-head">
+                <div class="kicker">Where this is going</div>
+                <h2>Holding the data is the liability. We hold none of it.</h2>
+                <p>The same guarantee scales from one person to the whole system — one thesis, two acts.</p>
+            </div>
+            <div class="acts">
+                <div class="act">
+                    <div class="tag">Act 1 · Today</div>
+                    <h3>Your private record, that your AI can actually use</h3>
+                    <p>An app you own outright: log everything, point any assistant at it, and keep the
+                        keys on your device. Free to self-host; a hosted plan for everyone else.</p>
+                </div>
+                <div class="act next">
+                    <div class="tag">Act 2 · Next</div>
+                    <h3>The custody-free layer, everywhere you already are</h3>
+                    <p>The apps, clinics, and assistants you already trust can offer real AI health
+                        insight — without ever holding your data. Access without custody, licensed as
+                        infrastructure.</p>
+                </div>
+            </div>
+            <div class="whynow">
+                <strong>Why now:</strong> AI agents finally make personal health data useful — and make
+                holding it a liability. We built the layer that gives access without custody.
+            </div>
         </div>
     </section>
 
