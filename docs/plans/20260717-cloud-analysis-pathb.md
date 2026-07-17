@@ -67,10 +67,10 @@ BP `bp.list`; meds `medications.list` + `intake.history`; sleep `vitals.sleep({f
 - [x] Run the vitals domain test + `architecture.domain-purity.test.js` — must pass before Task 2.
 
 ### Task 2: analysis.js — cardiovascular (web/domain/analysis.js)
-- [ ] Create `web/domain/analysis.js` exporting a pure factory `createAnalysis({ bp, vitals, medications, intake, food, weight, workout, notes, now, timeZone })`.
-- [ ] Implement `cardiovascular({from,to,days,excludeNotes})`: resolve the range (default+max 90d), then per-section gated aggregation matching the Go output — BP (avg sys/dia integer + days_measured), medications (adherence over resolved intakes), sleep (avg duration/deep), heart_rate (avg/min/max/count), spo2 (avg/min/count), diary notes unless excluded; disabled/empty section → `unavailable` warning list. Match the `{period, blood_pressure?, …, warning?}` shape exactly.
-- [ ] Write tests seeding bp/meds/intake/sleep/hr/spo2/notes records and asserting the JSON against `cardiovascular_test.go`-derived expectations; add a gated-off/empty case.
-- [ ] Run the analysis test + domain-purity — must pass before Task 3.
+- [x] Create `web/domain/analysis.js` exporting a pure factory `createAnalysis({ bp, vitals, medications, intake, food, weight, workout, notes, now, timeZone })`.
+- [x] Implement `cardiovascular({from,to,days,excludeNotes})`: resolve the range (default+max 90d), then per-section gated aggregation matching the Go output — BP (avg sys/dia integer + days_measured), medications (adherence over resolved intakes), sleep (avg duration/deep), heart_rate (avg/min/max/count), spo2 (avg/min/count), diary notes unless excluded; disabled/empty section → `unavailable` warning list. Match the `{period, blood_pressure?, …, warning?}` shape exactly.
+- [x] Write tests seeding bp/meds/intake/sleep/hr/spo2/notes records and asserting the JSON against `cardiovascular_test.go`-derived expectations; add a gated-off/empty case.
+- [x] Run the analysis test + domain-purity — must pass before Task 3.
 
 ### Task 3: analysis.js — fitness
 - [ ] Implement `fitness({from,to,days,excludeNotes})`: workouts (completion_rate incl. mi-band + group/variant names), steps (avg_daily_steps), nutrition (per-day macro sums, **food names dropped**, avg calories/protein), weight (current_kg/change_kg/trend_direction ±0.1 kg, **kg-only**), diary notes; gates workout/food/weight; `unavailable` list. Match the `{period, workouts?, …, warning?}` shape.
