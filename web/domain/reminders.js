@@ -480,6 +480,16 @@ export function computeReminderHorizon({
       entries.push({ fireAtUnix: Math.floor(fireMs / 1000), kind: 'workout', text, genericText: GENERIC_WORKOUT_TEXT });
     };
 
+    // Schedule-materialized sessions (real group_id, keyed by local day) suppress
+    // the primary fire once the user has acted: the bot only notifies a 'pending'
+    // session (workout.go step 9), and getNext skips completed/skipped ones. Key
+    // by `group_id|YYYY-MM-DD` — the scheduled_date prefix IS the local day.
+    const sessionStatusByKey = new Map();
+    for (const s of workoutSessions.filter((x) => !x.deleted && x.group_id !== WORKOUT_ADHOC_GROUP_ID)) {
+      const p = /^(\d{4}-\d{2}-\d{2})/.exec(String(s.scheduled_date));
+      if (p) sessionStatusByKey.set(`${s.group_id}|${p[1]}`, s.status);
+    }
+
     const { year, month, day } = localDateParts(now, timeZone);
 
     // Recurring groups: every matching-weekday occurrence within the horizon,
@@ -497,8 +507,11 @@ export function computeReminderHorizon({
       const advance = group.notification_advance_minutes || 0;
       const text = workoutRecurringText(advance, group.name, variant.name, exercisesByVariant.get(variantId) || []);
       for (let d = 0; d < FORECAST_DAYS; d++) {
-        const weekday = new Date(Date.UTC(year, month - 1, day + d)).getUTCDay();
-        if (!daysOfWeek.includes(weekday)) continue;
+        const occ = new Date(Date.UTC(year, month - 1, day + d));
+        if (!daysOfWeek.includes(occ.getUTCDay())) continue;
+        const dateStr = `${occ.getUTCFullYear()}-${String(occ.getUTCMonth() + 1).padStart(2, '0')}-${String(occ.getUTCDate()).padStart(2, '0')}`;
+        const existingStatus = sessionStatusByKey.get(`${group.id}|${dateStr}`);
+        if (existingStatus !== undefined && existingStatus !== 'pending') continue;
         const scheduledMs = localWallToUtcMs(Date.UTC(year, month - 1, day + d, hhmm.hour, hhmm.minute), timeZone);
         pushWorkout(scheduledMs - advance * 60 * 1000, text);
       }

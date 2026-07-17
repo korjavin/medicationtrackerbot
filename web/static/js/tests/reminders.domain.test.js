@@ -150,6 +150,25 @@ describe('domain/reminders.js — workout reminder kind', () => {
         expect(workout[0].fireAtUnix).toBe(Date.UTC(2026, 6, 9, 17, 0, 0) / 1000);
     });
 
+    // The bot only notifies a 'pending' session (workout.go step 9); a session
+    // the user already completed/skipped for that day suppresses the primary fire.
+    it('suppresses the recurring fire for a day whose session is already completed', () => {
+        const doneToday = {
+            id: 7, group_id: 1, status: 'completed',
+            scheduled_date: '2026-07-07T00:00:00.000Z', scheduled_time: '18:00',
+        };
+        const entries = computeReminderHorizon({
+            timeZone: 'UTC', now: nowMs,
+            workoutGroups: [group], workoutVariants: [variant], workoutExercises: [exercise],
+            workoutSessions: [doneToday],
+            workoutStatus: { enabled: true },
+        });
+        const workout = entries.filter((e) => e.kind === 'workout');
+        // Today (17:30 UTC) is suppressed; tomorrow (July 8) is the first fire.
+        expect(workout.some((e) => e.fireAtUnix === Date.UTC(2026, 6, 7, 17, 30, 0) / 1000)).toBe(false);
+        expect(workout[0].fireAtUnix).toBe(Date.UTC(2026, 6, 8, 17, 30, 0) / 1000);
+    });
+
     it('emits nothing when the workout reminder pref is disabled', () => {
         const entries = computeReminderHorizon({
             timeZone: 'UTC', now: nowMs,
