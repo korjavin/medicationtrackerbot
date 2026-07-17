@@ -79,6 +79,84 @@ describe('cloud shim contract — ElevenLabs signed URL (web/cloud/js/elevenlabs
         expect(integrations.elevenlabs.api_key).toBe('***');
         expect(JSON.stringify(integrations)).not.toContain('xi-test-key');
     });
+
+    // Browser-direct "Send photo" upload — same BYO fetch boundary as the
+    // signed-URL path. Bot mode proxies this through the server; cloud POSTs
+    // multipart straight to api.elevenlabs.io with the vault key.
+    it('uploadFile: POSTs multipart to the conversation files endpoint with the vault key, returns file_id', async () => {
+        const { window } = env;
+        await window.apiCall('/api/settings/integrations', 'PATCH', {
+            elevenlabs: { api_key: 'xi-test-key', agent_id: 'agent-123' }
+        });
+
+        const fetchSpy = vi.fn().mockResolvedValue({
+            ok: true, status: 200,
+            async json() { return { file_id: 'file-abc' }; }
+        });
+        vi.stubGlobal('fetch', fetchSpy);
+
+        const file = new File(['bytes'], 'meal.jpg', { type: 'image/jpeg' });
+        const id = await window.CloudElevenLabs.uploadFile('conv_test', file);
+        expect(id).toBe('file-abc');
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        const [calledUrl, opts] = fetchSpy.mock.calls[0];
+        expect(calledUrl).toBe('https://api.elevenlabs.io/v1/convai/conversations/conv_test/files');
+        expect(opts.method).toBe('POST');
+        expect(opts.headers['xi-api-key']).toBe('xi-test-key');
+        expect(opts.body).toBeInstanceOf(FormData);
+        expect(opts.body.get('file')).toBeInstanceOf(File);
+        expect(opts.body.get('file').name).toBe('meal.jpg');
+    });
+
+    it('uploadFile: missing key throws a Settings/Integrations hint without calling fetch', async () => {
+        const { window } = env;
+        const fetchSpy = vi.fn();
+        vi.stubGlobal('fetch', fetchSpy);
+
+        const file = new File(['bytes'], 'meal.jpg', { type: 'image/jpeg' });
+        await expect(window.CloudElevenLabs.uploadFile('conv_test', file))
+            .rejects.toThrow(/Settings.*Integrations/i);
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('uploadFile: rejects a path-unsafe conversation id without calling fetch', async () => {
+        const { window } = env;
+        await window.apiCall('/api/settings/integrations', 'PATCH', {
+            elevenlabs: { api_key: 'xi-test-key' }
+        });
+        const fetchSpy = vi.fn();
+        vi.stubGlobal('fetch', fetchSpy);
+
+        const file = new File(['bytes'], 'meal.jpg', { type: 'image/jpeg' });
+        await expect(window.CloudElevenLabs.uploadFile('conv/../evil', file))
+            .rejects.toThrow(/Invalid conversation id/i);
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('uploadFile: propagates a non-ok response as an error with .status', async () => {
+        const { window } = env;
+        await window.apiCall('/api/settings/integrations', 'PATCH', {
+            elevenlabs: { api_key: 'xi-test-key' }
+        });
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 413, async json() { return {}; } }));
+
+        const file = new File(['bytes'], 'meal.jpg', { type: 'image/jpeg' });
+        await expect(window.CloudElevenLabs.uploadFile('conv_test', file))
+            .rejects.toMatchObject({ status: 413 });
+    });
+
+    it('uploadFile: throws when the response is missing file_id', async () => {
+        const { window } = env;
+        await window.apiCall('/api/settings/integrations', 'PATCH', {
+            elevenlabs: { api_key: 'xi-test-key' }
+        });
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, async json() { return {}; } }));
+
+        const file = new File(['bytes'], 'meal.jpg', { type: 'image/jpeg' });
+        await expect(window.CloudElevenLabs.uploadFile('conv_test', file))
+            .rejects.toThrow(/missing file_id/i);
+    });
 });
 
 // Plan 2026-07-06 cloud-voice, Task 5 — the browser-direct agent + tool
