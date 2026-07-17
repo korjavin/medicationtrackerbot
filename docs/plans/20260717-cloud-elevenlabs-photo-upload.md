@@ -76,7 +76,7 @@ Dependencies: none new. Reuses existing `settingsDomain`, `window.CloudElevenLab
 - [x] Run the frontend architecture tests (globals allowlist, native-abstractions, no-hardcoded-style) — must pass. (Ran within full suite — all architecture.* files green.)
 
 ### Task 4: [Final] Docs
-- [ ] If `docs/features.md` or a cloud-parity note references the photo-in-cloud gap, update it to reflect parity is now closed. No new doc required.
+- [x] If `docs/features.md` or a cloud-parity note references the photo-in-cloud gap, update it to reflect parity is now closed. No new doc required. (features.md Send-photo line now notes the mode-aware upload + both-mode render; added a bullet to the cloud-mode.md Voice (ElevenLabs) section documenting the browser-direct `uploadFile` and closing photo-in-cloud parity.)
 
 ## Technical Details
 
