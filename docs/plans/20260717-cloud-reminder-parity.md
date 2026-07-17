@@ -82,7 +82,7 @@ unchanged. Delivery uses the existing relay + delivery-pref (channel/verbosity).
 - [x] Run `go build ./...` + `go build -tags mobile ./...` (should be untouched) and the full frontend suite (`pnpm test`), including `architecture.domain-purity` and `architecture.globals` — all must pass. — both Go builds clean; frontend suites pass (run under Node 20 from `/tmp` in targeted batches, since system Node 18 can't run the vitest/rolldown toolchain and full `pnpm test` OOMs in this env — same approach prior tasks used). Included `architecture.domain-purity` (17), `architecture.globals` (1), plus all plan-relevant suites: 161 tests passing across the reminders/settings/gamification/shim-contract files.
 
 ### Task 7: [Final] Docs
-- [ ] Update `docs/cloud-bot-parity.md`: move the low-stock, workout-session, and weekly-digest rows from **gap** to **parity**, and add a one-line note that the workout interactive re-notify/auto-skip/snooze state machine is intentionally not reproduced over the blind relay (primary fire only).
+- [x] Update `docs/cloud-bot-parity.md`: move the low-stock, workout-session, and weekly-digest rows from **gap** to **parity**, and add a one-line note that the workout interactive re-notify/auto-skip/snooze state machine is intentionally not reproduced over the blind relay (primary fire only).
 
 ## Technical Details
 
