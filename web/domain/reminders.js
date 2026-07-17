@@ -24,6 +24,8 @@ const BP_REMINDERPREF_RECORD_TYPE = 'bpreminderpref';
 const BP_REMINDERPREF_RECORD_ID = 'bpreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_TYPE = 'weightreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_ID = 'weightreminderpref';
+const WORKOUT_REMINDERPREF_RECORD_TYPE = 'workoutreminderpref';
+const WORKOUT_REMINDERPREF_RECORD_ID = 'workoutreminderpref';
 const DELIVERYPREF_RECORD_TYPE = 'reminderdeliverypref';
 const DELIVERYPREF_RECORD_ID = 'reminderdeliverypref';
 
@@ -380,6 +382,41 @@ export function createRemindersDomain({ records, now }) {
     return putWeightPref({ dont_remind_until: now() + DONT_BUG_MS });
   }
 
+  // Workout-session reminder pref (med-eas.59). Same mute-until shape as
+  // bp/weight, minus a preferred hour: workout reminders fire relative to each
+  // session's own scheduled time (scheduled - notification_advance_minutes),
+  // not at a fixed daily hour. Default enabled:false matches the bp/weight
+  // convention (opt-in).
+  async function getWorkoutStatus() {
+    const all = await records.list(WORKOUT_REMINDERPREF_RECORD_TYPE);
+    const rec = findSingleton(all, WORKOUT_REMINDERPREF_RECORD_ID);
+    return {
+      enabled: rec ? !!rec.enabled : false,
+      snoozed_until: (rec && rec.snoozed_until) || 0,
+      dont_remind_until: (rec && rec.dont_remind_until) || 0,
+    };
+  }
+
+  async function putWorkoutPref(patch) {
+    const current = await getWorkoutStatus();
+    await records.put(WORKOUT_REMINDERPREF_RECORD_TYPE, {
+      recordId: WORKOUT_REMINDERPREF_RECORD_ID, clientTs: now(), deleted: false, ...current, ...patch,
+    });
+    return getWorkoutStatus();
+  }
+
+  async function setWorkoutEnabled(enabled) {
+    return putWorkoutPref({ enabled: !!enabled });
+  }
+
+  async function snoozeWorkout() {
+    return putWorkoutPref({ snoozed_until: now() + SNOOZE_MS });
+  }
+
+  async function dontBugWorkout() {
+    return putWorkoutPref({ dont_remind_until: now() + DONT_BUG_MS });
+  }
+
   // Where reminders are delivered, and how much they say. Telegram reminders
   // transit the relay as plaintext, so `verbosity` is the user's control over
   // what leaves the vault: 'generic' (default) sends only "Medication time",
@@ -444,6 +481,7 @@ export function createRemindersDomain({ records, now }) {
   return {
     getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled,
     snoozeBPReminder, dontBugBPReminder, snoozeWeightReminder, dontBugWeightReminder,
+    getWorkoutStatus, setWorkoutEnabled, snoozeWorkout, dontBugWorkout,
     getDeliveryPref, setDeliveryPref, buildHorizon,
   };
 }

@@ -54,9 +54,9 @@ unchanged. Delivery uses the existing relay + delivery-pref (channel/verbosity).
 - [x] Run the reminders domain suite — must pass before Task 2.
 
 ### Task 2: Workout reminder preference singleton (med-eas.59 part 1)
-- [ ] In `web/domain/reminders.js` factory, add a `workoutreminderpref` singleton (mirror the bp/weight pref pattern: `enabled`, `snoozed_until`, `dont_remind_until`) with `getWorkoutStatus`/`setWorkoutEnabled`/`snoozeWorkout`/`dontBugWorkout`. Default `enabled` per the bp/weight convention.
-- [ ] Write tests for the pref read/write defaults (via `createInMemoryRecordsPort`).
-- [ ] Run tests — must pass before Task 3.
+- [x] In `web/domain/reminders.js` factory, add a `workoutreminderpref` singleton (mirror the bp/weight pref pattern: `enabled`, `snoozed_until`, `dont_remind_until`) with `getWorkoutStatus`/`setWorkoutEnabled`/`snoozeWorkout`/`dontBugWorkout`. Default `enabled` per the bp/weight convention.
+- [x] Write tests for the pref read/write defaults (via `createInMemoryRecordsPort`).
+- [x] Run tests — must pass before Task 3.
 
 ### Task 3: Workout-session reminder kind (med-eas.59 part 2)
 - [ ] Thread workout data into the horizon: update `web/cloud/js/reminders.js` `computeReminderEntries` to list the workout record types (`workoutgroup`, `workoutvariant`, `workoutexercise`, `workoutrotation`, `workoutsession`) and pass them (plus `workoutStatus`) into `buildHorizon` → `computeReminderHorizon` as new args.

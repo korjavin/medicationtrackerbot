@@ -128,6 +128,33 @@ describe('domain/reminders.js — Telegram delivery pref + generic verbosity', (
         expect(await domain.setDeliveryPref({ delivery: 'carrier-pigeon', verbosity: 'shouty' }))
             .toEqual({ delivery: 'both', verbosity: 'generic' });
     });
+
+    // med-eas.59 part 1 — workout-session reminder pref singleton.
+    it('workout pref defaults to disabled with no active mute, and toggles/mutes round-trip', async () => {
+        const { createRemindersDomain, SNOOZE_MS, DONT_BUG_MS } = await import('../../../domain/reminders.js');
+        const { createInMemoryRecordsPort } = await import('./helpers/cloud-shim-harness.js');
+        const records = createInMemoryRecordsPort();
+        const fixedNow = 1_700_000_000_000;
+        const domain = createRemindersDomain({ records, now: () => fixedNow });
+
+        expect(await domain.getWorkoutStatus()).toEqual({ enabled: false, snoozed_until: 0, dont_remind_until: 0 });
+
+        expect(await domain.setWorkoutEnabled(true)).toEqual({ enabled: true, snoozed_until: 0, dont_remind_until: 0 });
+
+        // snooze/dont-bug are mute-until instants; enabling must not clear them.
+        const snoozed = await domain.snoozeWorkout();
+        expect(snoozed.enabled).toBe(true);
+        expect(snoozed.snoozed_until).toBe(fixedNow + SNOOZE_MS);
+
+        const bugged = await domain.dontBugWorkout();
+        expect(bugged.dont_remind_until).toBe(fixedNow + DONT_BUG_MS);
+        expect(bugged.snoozed_until).toBe(fixedNow + SNOOZE_MS); // not clobbered
+
+        const toggled = await domain.setWorkoutEnabled(false);
+        expect(toggled.enabled).toBe(false);
+        expect(toggled.snoozed_until).toBe(fixedNow + SNOOZE_MS);
+        expect(toggled.dont_remind_until).toBe(fixedNow + DONT_BUG_MS);
+    });
 });
 
 // bd med-9b8.3 — snooze (2h) / don't-bug (24h) are mute-until instants, not
