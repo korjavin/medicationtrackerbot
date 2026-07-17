@@ -472,6 +472,34 @@ export function createIntakeDomain({ records, now, timeZone }) {
       .map(toResponse);
   }
 
+  // Uncapped, windowed intake log for composite analysis — mirrors the Go
+  // analyze_* handlers' fetchMedicationsSection (ListIntakesSince, uncapped,
+  // then join med name/dosage). history()'s 100-row cap would undercount
+  // adherence, or drop every row for a past-dated window, over a dense range;
+  // this reads the full [fromMs,toMs] slice ascending with the Go row shape
+  // ({medication_name, dosage, scheduled_at, status, taken_at?}).
+  async function listWindow({ fromMs = 0, toMs = Infinity } = {}) {
+    const [intakes, meds] = await Promise.all([loadIntakes(), loadMeds()]);
+    const byId = new Map(meds.map((m) => [m.recordId, m]));
+    return intakes
+      .filter((i) => {
+        const ms = Date.parse(i.scheduled_at);
+        return ms >= fromMs && ms <= toMs;
+      })
+      .sort((a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at))
+      .map((i) => {
+        const med = byId.get(i.medication_id);
+        const row = {
+          medication_name: med ? med.name : '',
+          dosage: med ? med.dosage : '',
+          scheduled_at: i.scheduled_at,
+          status: i.status,
+        };
+        if (i.taken_at) row.taken_at = i.taken_at;
+        return row;
+      });
+  }
+
   return {
     materializeDueDoses,
     confirm,
@@ -485,5 +513,6 @@ export function createIntakeDomain({ records, now, timeZone }) {
     triggerNextIntake,
     nextIntake,
     history,
+    listWindow,
   };
 }

@@ -132,6 +132,12 @@ describe('analysis.cardiovascular', () => {
     // total = TAKEN + SKIPPED + overdue PENDING = 3; taken = 1 → 33.33%.
     expect(resp.medications.adherence_rate).toBeCloseTo(100 / 3, 5);
     expect(resp.medications.intake_log).toHaveLength(4);
+    // intake_log carries the Go MedicationIntakeResult shape (joined med
+    // name + dosage), matching the advertised response_example and bot mode —
+    // and the uncapped windowed read must not drop a past-dated slice.
+    expect(resp.medications.intake_log[0]).toMatchObject({
+      medication_name: 'Aspirin', dosage: '81mg', scheduled_at: '2026-07-11T08:00:00Z', status: 'TAKEN',
+    });
   });
 
   it('omits a gated-off section and lists it as unavailable', async () => {

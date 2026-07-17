@@ -116,15 +116,10 @@ export function createAnalysis({
     if (gated(features, 'medication')) {
       const active = (await medications.list({ archived: false }))
         .map((m) => ({ name: m.name, dosage: m.dosage, schedule: m.schedule }));
-      // history caps at 100 rows and windows only by a `days` look-back, so
-      // derive `days` to cover [fromMs, now] then clamp to [fromMs, toMs].
-      // ponytail: 100-row cap can undercount adherence over a dense 90-day
-      // window; raise the cap or add a windowed intake read if that surfaces.
-      const lookbackDays = Math.max(1, Math.ceil((now() - fromMs) / DAY_MS) + 1);
-      const log = (await intake.history({ days: lookbackDays })).filter((i) => {
-        const ms = Date.parse(i.scheduled_at);
-        return ms >= fromMs && ms <= toMs;
-      });
+      // Uncapped, windowed intake log — mirrors fetchMedicationsSection's
+      // ListIntakesSince (see intake.listWindow); history()'s 100-row cap would
+      // undercount adherence or drop a past-dated window entirely.
+      const log = await intake.listWindow({ fromMs, toMs });
       const nowMs = now();
       let total = 0;
       let taken = 0;
@@ -160,8 +155,10 @@ export function createAnalysis({
       const values = hr.map((s) => s.value);
       response.heart_rate = {
         avg: avgInt(values),
-        min: Math.min(...values),
-        max: Math.max(...values),
+        // reduce, not Math.min(...values) — dense vitals can overflow the
+        // argument-spread limit.
+        min: values.reduce((m, v) => (v < m ? v : m), values[0]),
+        max: values.reduce((m, v) => (v > m ? v : m), values[0]),
         readings_count: hr.length,
       };
     }
@@ -172,7 +169,7 @@ export function createAnalysis({
       const values = spo2.map((s) => s.value);
       response.spo2 = {
         avg: avgInt(values),
-        min: Math.min(...values),
+        min: values.reduce((m, v) => (v < m ? v : m), values[0]),
         readings_count: spo2.length,
       };
     }
