@@ -1026,6 +1026,9 @@ function updateFeatureTabVisibility() {
     }
     updateFoodTargetsVisibility();
     updateGamificationTargetsVisibility();
+    // Gamification toggling here also gates the weekly-digest row (both-on), so
+    // refresh its visibility on the toggle success path — not just on load.
+    updateWeeklyDigestVisibility(window.featureSettings || {});
     // A toggle just changed a target section's visibility; roll that back up to
     // the parent <details> group so an all-hidden Targets fold doesn't linger
     // (and reappears when a target is re-enabled) without a full Settings reload.

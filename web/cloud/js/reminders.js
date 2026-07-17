@@ -85,21 +85,32 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
 // Weekly-digest horizon entry (med-eas.58): gated on both the weekly_digest
 // feature flag and gamification being on (mirrors the bot's both-on gate,
 // weekly_digest.go). The review is anchored on now-24h so it reports the week
-// that just ended (matches Go weekly_digest.go). Forward-dated + replace-all
-// means the next Sunday 19:00 is re-derived on each recompute — no last-sent
-// state. Both-on gate lives in the caller (features passed in).
+// ending at recompute time; unlike the bot (which recomputes AT Sunday 19:00),
+// a mid-week recompute forward-schedules a snapshot that can be up to a week
+// stale by the time it fires — an accepted blind-relay limitation, self-healing
+// for active users. Forward-dated + replace-all means the next Sunday 19:00 is
+// re-derived on each recompute — no last-sent state. Both-on gate + failure
+// isolation live here: a digest-compute error must NOT reject computeReminderEntries
+// (that would strand the already-built medication/BP/weight/workout horizon and
+// stop replace-all propagation). The bot isolates weekly_digest as a best-effort
+// checker for the same reason — its failure never affects other reminders.
 async function computeDigestEntry(records, timeZone, now, features) {
   if (!features.weekly_digest || !features.gamification) return null;
 
-  const gamification = createGamificationDomain({ records, now: () => now - 86400000, timeZone });
-  const review = await gamification.getWeeklyReview();
+  try {
+    const gamification = createGamificationDomain({ records, now: () => now - 86400000, timeZone });
+    const review = await gamification.getWeeklyReview();
 
-  return {
-    fireAtUnix: nextWeeklyDigestFireUnix(now, timeZone),
-    kind: 'digest',
-    text: formatWeeklyDigest(review),
-    genericText: 'Your weekly summary is ready',
-  };
+    return {
+      fireAtUnix: nextWeeklyDigestFireUnix(now, timeZone),
+      kind: 'digest',
+      text: formatWeeklyDigest(review),
+      genericText: 'Your weekly summary is ready',
+    };
+  } catch (e) {
+    console.error('[reminders] digest compute failed', e);
+    return null;
+  }
 }
 
 // getDeliveryPref/setDeliveryPref back the cloud notification settings' channel
