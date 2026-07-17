@@ -95,8 +95,8 @@ BP `bp.list`; meds `medications.list` + `intake.history`; sleep `vitals.sleep({f
 - [x] Run `go build ./...` (should be untouched), `go test ./internal/mcp/catalogjs/...` (drift green), and the full frontend suite (`pnpm test`) incl. domain-purity + globals — all must pass. (go build exit 0; catalogjs drift ok; 316 test files / 3678 tests pass via Node 20 — system Node 18 can't load current vitest/rolldown.)
 
 ### Task 7: [Final] Docs
-- [ ] Update `web/cloud/js/mcp-responder.js` USAGE_PROTOCOL: cloud now offers the two composite analyses (still no `mcp_execute`; these are the aggregation shortcut).
-- [ ] Update `docs/cloud-bot-parity.md`: move the composite-analysis row from gap to **parity**, noting it's served via a cloud-only catalog seam (no bot).
+- [x] Update `web/cloud/js/mcp-responder.js` USAGE_PROTOCOL: cloud now offers the two composite analyses (still no `mcp_execute`; these are the aggregation shortcut).
+- [x] Update `docs/cloud-bot-parity.md`: move the composite-analysis row from gap to **parity**, noting it's served via a cloud-only catalog seam (no bot).
 
 ## Technical Details
 
