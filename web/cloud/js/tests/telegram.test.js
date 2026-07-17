@@ -278,6 +278,38 @@ describe('telegram.js onboarding module', () => {
     expect(fetch).toHaveBeenCalledWith('/api/telegram/test', { method: 'POST' });
   });
 
+  it('surfaces a failing webhook last_error in the linked state (bd med-eas.48)', async () => {
+    global.fetch = fetchStub({
+      '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'linked', bot_username: 'mt_abc_bot' }) },
+      '/api/telegram/diag': { ok: true, json: async () => ({
+        bot_username: 'mt_abc_bot',
+        last_error: 'Wrong response from the webhook: 502 Bad Gateway',
+        webhook_info: { last_error_date: 1_700_000_000 },
+      }) },
+    });
+    await mountTelegram(app, {});
+    await vi.waitFor(() => {
+      const el = app.querySelector('#tg-webhook-health');
+      if (!el || !el.textContent.includes('502 Bad Gateway')) throw new Error('not yet');
+    });
+    const el = app.querySelector('#tg-webhook-health');
+    expect(el.className).toContain('wizard-error');
+    expect(el.textContent).toContain('Webhook delivery error');
+  });
+
+  it('shows webhook OK when diag reports no last_error (bd med-eas.48)', async () => {
+    global.fetch = fetchStub({
+      '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'linked', bot_username: 'mt_abc_bot' }) },
+      '/api/telegram/diag': { ok: true, json: async () => ({ bot_username: 'mt_abc_bot', last_error: '' }) },
+    });
+    await mountTelegram(app, {});
+    await vi.waitFor(() => {
+      const el = app.querySelector('#tg-webhook-health');
+      if (!el || !el.textContent.includes('OK')) throw new Error('not yet');
+    });
+    expect(app.querySelector('#tg-webhook-health').className).not.toContain('wizard-error');
+  });
+
   // bd med-vcv.4 — the chat agent glossary editor, Settings-only.
   describe('tgprefs glossary editor (med-vcv.4)', () => {
     function statusFetchStub() {

@@ -346,9 +346,27 @@ export async function mountTelegram(container, opts = {}) {
           <button id="tg-unlink" class="secondary wg-gloss wg-settings-action-btn">Unlink</button>
         </div>
         <p id="tg-test-result" class="muted wg-settings-section__desc"></p>
+        <p id="tg-webhook-health" class="muted wg-settings-section__desc" aria-live="polite"></p>
         ${inWizard ? '<button id="tg-continue" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Continue</button>' : TG_PREFS_SECTION_HTML}
       </section>`;
     container.querySelector('#tg-bot-username').textContent = `@${status.bot_username}`;
+
+    // Surface a failing webhook (getWebhookInfo last_error from
+    // GET /api/telegram/diag, bd med-eas.46/.48) so a broken delivery path is
+    // visible in Settings without server logs — /status alone never shows it.
+    // Best-effort: a diag failure must not break the connected pane.
+    apiJSON('/api/telegram/diag').then((d) => {
+      const el = container.querySelector('#tg-webhook-health');
+      if (!el) return;
+      if (d && d.last_error) {
+        el.className = 'wizard-error';
+        const ts = d.webhook_info && d.webhook_info.last_error_date;
+        const when = ts ? ` (${new Date(ts * 1000).toLocaleString()})` : '';
+        el.textContent = `⚠ Webhook delivery error: ${d.last_error}${when}`;
+      } else {
+        el.textContent = 'Webhook delivery OK.';
+      }
+    }).catch(() => { /* diag unavailable — leave the health line blank */ });
 
     container.querySelector('#tg-test').addEventListener('click', () => {
       const btn = container.querySelector('#tg-test');
