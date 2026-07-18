@@ -71,8 +71,8 @@ ignores the unknown fields), doesn't break.
 - [x] Run the exercise editor + shim-contract suites (Node 20) — must pass before Task 4.
 
 ### Task 4: Verify + full suite
-- [ ] Verify: routine goal stored + selectable (default hypertrophy); exercise override + cascade pre-fills defaults; bot mode unaffected (Go ignores unknown `training_goal`).
-- [ ] Run the full frontend suite (`pnpm test` equivalent via `node node_modules/vitest/vitest.mjs run`, **Node 20**) incl. domain-purity + globals, and `go build ./...` + `-tags mobile` — all must pass.
+- [x] Verify: routine goal stored + selectable (default hypertrophy); exercise override + cascade pre-fills defaults; bot mode unaffected (Go ignores unknown `training_goal` — both `go build ./...` and `-tags mobile` pass).
+- [x] Run the full frontend suite (`pnpm test` equivalent via `node node_modules/vitest/vitest.mjs run`, **Node 20**) incl. domain-purity + globals, and `go build ./...` + `-tags mobile` — all pass (318 files / 3784 tests; one WorkoutVariantModal layout test is a pre-existing order-dependent flake, green in isolation and on re-run).
 
 ### Task 5: [Final] Docs
 - [ ] Update `docs/workout-depth.md` (goal-aware section / med-qj4.6.1): the training_goal field (group + exercise override), the group-create selector, the editor cascade, and the goal→defaults table as implemented. Note progression/graphs/insight goal-differentiation are med-qj4.6.3/.4/.5.
