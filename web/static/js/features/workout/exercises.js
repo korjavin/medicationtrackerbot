@@ -51,8 +51,18 @@ const WORKOUT_GOAL_DEFAULTS = {
 };
 
 // The routine (group) that owns the exercise being edited, used to resolve an
-// "Inherit from routine" goal to a concrete one.
+// "Inherit from routine" goal to a concrete one. When the group modal is open
+// (the only path that reaches "Add exercise" mid-edit), its live
+// #workout-group-goal select is the source of truth — it reflects an unsaved
+// goal change that cachedGroups (only refreshed on save) wouldn't yet see.
+// When the modal is closed, that select still holds a stale/default value, so
+// fall back to the saved cachedGroups goal.
 function routineGoalForExercise() {
+    const groupModal = document.getElementById('workout-group-modal');
+    const liveGoal = document.getElementById('workout-group-goal');
+    if (groupModal && !groupModal.classList.contains('hidden') && liveGoal && liveGoal.value) {
+        return liveGoal.value;
+    }
     const groupId = window.WorkoutEdit.groupForVariant || window.WorkoutEdit.editingGroupId;
     const group = (window.WorkoutEdit.cachedGroups || []).find(g => g.id === groupId);
     return (group && group.training_goal) || 'hypertrophy';

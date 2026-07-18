@@ -229,6 +229,25 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(document.getElementById('workout-exercise-reps-max').value).toBe('6');
     });
 
+    it('an unsaved live goal change (group modal open) wins over stale cachedGroups', async () => {
+      const { window, document } = env;
+      // Saved goal is hypertrophy; user opened the plan editor and switched the
+      // goal to strength but has NOT saved yet, so cachedGroups is still stale.
+      seedRoutine('hypertrophy');
+      const groupModal = document.getElementById('workout-group-modal');
+      groupModal.classList.remove('hidden');
+      document.getElementById('workout-group-goal').value = 'strength';
+      window.apiCall = vi.fn(async () => []);
+      window.WorkoutLibrary = { populatePickerOptions: vi.fn(async () => {}) };
+
+      await window.showAddExerciseModal();
+
+      // Cascade seeds strength defaults (3/6, linear), not the stale hypertrophy.
+      expect(document.getElementById('workout-exercise-reps-min').value).toBe('3');
+      expect(document.getElementById('workout-exercise-reps-max').value).toBe('6');
+      expect(document.getElementById('workout-exercise-progression').value).toBe('linear');
+    });
+
     it('showEditExerciseModal shows the stored override without clobbering stored fields', async () => {
       const { window, document } = env;
       seedRoutine('strength');
