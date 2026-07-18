@@ -67,8 +67,8 @@ from PR/volume/1RM math.
 Notes (➕): the static frontend is classic `<script>` (no bundler/ESM import), so the new `web/static/js/features/workout/exercise-detail.js` reaches the pure `workout-analysis.js` two ways — tests inject `window.WorkoutAnalysis`; at runtime it dynamic-imports `/domain/workout-analysis.js` (served in cloud, the primary target) and caches null in bot mode (no `/domain/`), degrading the records/PR badge silently. No duplicated arithmetic, no new server route.
 
 ### Task 5: Verify acceptance + full suite
-- [ ] Verify: est-1RM (Epley), PR detection (all record types, warm-ups excluded), per-exercise graphs, PR cue — all working over per-set data; no storage/migration added.
-- [ ] Run the full frontend suite (`pnpm test`) incl. domain-purity + globals, and `go build ./...` + `go build -tags mobile ./...` (untouched) — all must pass.
+- [x] Verify: est-1RM (Epley), PR detection (all record types, warm-ups excluded), per-exercise graphs, PR cue — all working over per-set data; no storage/migration added. (Covered by passing workout-analysis, shim-contract, chart, and workout-stats feature suites.)
+- [x] Run the full frontend suite (`pnpm test`) incl. domain-purity + globals, and `go build ./...` + `go build -tags mobile ./...` (untouched) — all must pass. (317 files / 3738 tests pass; both Go builds pass. Ran vitest with `--pool=forks --maxForks=2` to fit CI memory.)
 
 ### Task 6: [Final] Docs
 - [ ] Update `docs/workout-depth.md` Phase 3: record est-1RM (Epley), the PR types, compute-on-read, the new `listExerciseLogsByName` read, and the per-exercise detail view. (Also fold the `scratchpad/workout-science-basis.md` "science basis" section here if not already present — but keep Phase-3 scope to analysis; goal-aware emphasis is med-qj4.6.)
