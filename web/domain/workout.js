@@ -183,6 +183,9 @@ function toExerciseResponse(record, libById) {
   if (hasValue(record.target_reps_max)) resp.target_reps_max = record.target_reps_max;
   if (hasValue(record.target_weight_kg)) resp.target_weight_kg = record.target_weight_kg;
   if (hasValue(libId)) resp.exercise_library_id = libId;
+  if (record.progression_rule && record.progression_rule.type !== 'none') {
+    resp.progression_rule = record.progression_rule;
+  }
   return resp;
 }
 
@@ -299,6 +302,40 @@ function normalizeSets(sets) {
     }
     return out;
   });
+}
+
+const VALID_PROGRESSION_TYPES = new Set(['none', 'linear', 'double']);
+
+// normalizeProgressionRule validates the optional opt-in progression rule on a
+// workoutexercise record (Phase 4, epic med-qj4.4.1). Absent/null or
+// {type:'none'} means "mirror last performance" (today's behavior) and returns
+// null so nothing is persisted. Otherwise: {type:'linear'|'double',
+// increment_kg>=0, min_reps?, max_reps?} — increment_kg defaults to 2.5;
+// double-progression's rep window defaults are taken from the exercise's
+// target reps at apply time, so min/max_reps are optional here.
+function normalizeProgressionRule(input) {
+  if (input === null || input === undefined) return null;
+  const type = input.type || 'none';
+  if (!VALID_PROGRESSION_TYPES.has(type)) {
+    throw invalidRequest('progression type must be one of none, linear, double');
+  }
+  if (type === 'none') return null;
+  const increment = numOrNull(input.increment_kg, false);
+  if (hasValue(increment) && increment < 0) {
+    throw invalidRequest('increment_kg must be non-negative');
+  }
+  const out = { type, increment_kg: hasValue(increment) ? increment : 2.5 };
+  const minReps = numOrNull(input.min_reps, true);
+  const maxReps = numOrNull(input.max_reps, true);
+  if (hasValue(minReps)) {
+    if (minReps < 0) throw invalidRequest('min_reps must be non-negative');
+    out.min_reps = minReps;
+  }
+  if (hasValue(maxReps)) {
+    if (maxReps < 0) throw invalidRequest('max_reps must be non-negative');
+    out.max_reps = maxReps;
+  }
+  return out;
 }
 
 // deriveSetScalars mirrors the Go mergePayloadValues contract
@@ -537,6 +574,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       target_weight_kg: numOrNull(input && input.target_weight_kg),
       order_index: Number(input && input.order_index) || 0,
     };
+    const rule = normalizeProgressionRule(input && input.progression_rule);
+    if (rule) record.progression_rule = rule;
     // med-spp / med-prk.2: promote the plan exercise into the library
     // (Exercises tab), deduped by name to match the Go (user_id, name) unique
     // index, and link back via exercise_library_id so a later library rename
@@ -610,6 +649,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       order_index: Number(input && input.order_index) || 0,
       clientTs: now(),
     };
+    // Replace the rule from the incoming payload; normalize returns null for
+    // none/absent so setting to None clears a previously-stored rule.
+    const rule = normalizeProgressionRule(input && input.progression_rule);
+    if (rule) updated.progression_rule = rule;
+    else delete updated.progression_rule;
     // Mirror the Go UpdateExercise upsert-by-name: relink the FK to the library
     // row for the (possibly changed) name.
     // Clear the FK on a blank name (promote returns null) so the read falls back

@@ -39,9 +39,9 @@ previews next targets without saving.
 ## Implementation Steps
 
 ### Task 1: progression_rule field on the exercise record
-- [ ] In `web/domain/workout.js`: add `normalizeProgressionRule(input)` (validate `{type:'none'|'linear'|'double', increment_kg>=0, min_reps?, max_reps?}`, default `none`); wire it into `createExercise` (~:515) and `updateExercise` (~:590) to persist on the record body; emit it in `toExerciseResponse` (~:168) when `type !== 'none'`.
-- [ ] Write shim-contract tests: create/update an exercise with a rule → GET round-trips it; `none`/absent omits it.
-- [ ] Run the shim-contract workout suites — must pass before Task 2.
+- [x] In `web/domain/workout.js`: add `normalizeProgressionRule(input)` (validate `{type:'none'|'linear'|'double', increment_kg>=0, min_reps?, max_reps?}`, default `none`); wire it into `createExercise` (~:515) and `updateExercise` (~:590) to persist on the record body; emit it in `toExerciseResponse` (~:168) when `type !== 'none'`.
+- [x] Write shim-contract tests: create/update an exercise with a rule → GET round-trips it; `none`/absent omits it.
+- [x] Run the shim-contract workout suites — must pass before Task 2.
 
 ### Task 2: Upgrade propagateExerciseToSchedule to apply the rule
 - [ ] Thread the completed log's `sets` array into `propagateExerciseToSchedule` (from `createLog`/`updateLog`); keep the existing guards.

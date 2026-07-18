@@ -320,6 +320,51 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(details.logs[0].weight_kg).toBe(50);
     });
 
+    // Phase 4 (epic med-qj4.4.1): opt-in per-exercise progression rule. The
+    // rule nests on the workoutexercise record (additive vault field, no
+    // migration) and round-trips through create/update → GET; none/absent omits
+    // it entirely.
+    it('progression rule: create/update round-trips it through GET; none/absent omits it', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+
+        // Create with a linear rule.
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        expect(ex.progression_rule).toEqual({ type: 'linear', increment_kg: 2.5 });
+
+        let list = await window.apiCall(`/api/workout/exercises?variant_id=${variants[0].id}`);
+        expect(list[0].progression_rule).toEqual({ type: 'linear', increment_kg: 2.5 });
+
+        // Update to double-progression with a rep window.
+        await window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+            exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_reps_max: 10,
+            target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5, min_reps: 8, max_reps: 12 },
+        });
+        list = await window.apiCall(`/api/workout/exercises?variant_id=${variants[0].id}`);
+        expect(list[0].progression_rule).toEqual({ type: 'double', increment_kg: 5, min_reps: 8, max_reps: 12 });
+
+        // Update to type:'none' clears the stored rule; the response omits it.
+        await window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+            exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_reps_max: 10,
+            target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'none' },
+        });
+        list = await window.apiCall(`/api/workout/exercises?variant_id=${variants[0].id}`);
+        expect(list[0].progression_rule).toBeUndefined();
+
+        // Absent rule on create also omits it (default mirror behavior).
+        const ex2 = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Row', target_sets: 3,
+            target_reps_min: 8, order_index: 1,
+        });
+        expect(ex2.progression_rule).toBeUndefined();
+    });
+
     // med-qj4.2.1: a completed session snapshots its planned exercises + targets
     // so later edits to the variant / library / targets do NOT retroactively
     // rewrite what that past session shows.
