@@ -271,6 +271,11 @@ function normalizeSets(sets) {
   // zero the derived scalars and wipe any stored per-set breakdown. Collapse it
   // to the absent sentinel so create/update fall back to flat-scalar behavior.
   if (sets.length === 0) return null;
+  // Cap length at the UI's add-set ceiling. This is the sole write-validation
+  // seam for the cloud/MCP logs/create+update routes, so without a bound a
+  // hostile/malformed write could persist a huge array that OOMs the tab when
+  // toLogResponse emits it and the session card renders one row per set.
+  if (sets.length > 20) throw invalidRequest('sets may not exceed 20 entries');
   return sets.map((s, i) => {
     const weight = numOrNull(s && s.weight_kg, false);
     const reps = numOrNull(s && s.reps, true);

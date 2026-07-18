@@ -365,9 +365,12 @@ function updateLocalSet(logIndex, setIndex, field, value) {
     if (field === 'set_type') {
         s.set_type = SESSION_VALID_SET_TYPES.has(value) ? value : 'normal';
     } else if (field === 'reps') {
-        s.reps = Math.max(0, Math.round(parseFloat(value) || 0));
+        // Clamp to the input's max (100) so a typed/pasted over-max value can't
+        // push reps_completed past the save validator and abort the whole
+        // session save with a misleading "Values exceed maximum allowed".
+        s.reps = Math.min(100, Math.max(0, Math.round(parseFloat(value) || 0)));
     } else if (field === 'weight_kg') {
-        s.weight_kg = Math.max(0, parseFloat(value) || 0);
+        s.weight_kg = Math.min(500, Math.max(0, parseFloat(value) || 0));
     } else if (field === 'rpe') {
         const n = parseFloat(value);
         if (value === '' || Number.isNaN(n)) delete s.rpe;

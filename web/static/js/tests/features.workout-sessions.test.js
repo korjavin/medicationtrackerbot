@@ -990,6 +990,14 @@ describe('features/workout/sessions.js — split-file integration', () => {
     // Clearing RPE drops the key entirely (optional field).
     window.updateLocalSet(0, 0, 'rpe', '');
     expect('rpe' in log.sets[0]).toBe(false);
+
+    // Over-max reps/weight are clamped to the input maxes so a single set row
+    // can't push the derived scalars past the save validator and abort the
+    // whole session save.
+    window.updateLocalSet(0, 1, 'reps', '999');
+    window.updateLocalSet(0, 1, 'weight_kg', '9000');
+    expect(log.sets[1].reps).toBe(100);
+    expect(log.sets[1].weight_kg).toBe(500);
   });
 
   it('saveWorkoutSessionDetails posts the per-set array plus derived scalars for an edited log', async () => {

@@ -286,6 +286,22 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(details.logs[0].sets_completed).toBe(4);
         expect(details.logs[0].reps_completed).toBe(12);
         expect(details.logs[0].weight_kg).toBe(80);
+        // The stale per-set array (which derived 1×5×70) must be dropped so it
+        // can't contradict the new flat scalars — reads fall back to the flat
+        // aggregate. Pins the updateLog reconciliation branch.
+        expect(details.logs[0].sets ?? []).toHaveLength(0);
+    });
+
+    it('per-set: rejects an oversized sets array at the domain trust boundary', async () => {
+        const { window } = env;
+        await makeRotatingGroup(window, ['Push']);
+        const first = await window.apiCallDirect('/api/workout/sessions/next');
+        const sessionId = first.session.id;
+
+        const bigSets = Array.from({ length: 21 }, (_, i) => ({ set_index: i, weight_kg: 60, reps: 8 }));
+        await expect(window.offlineAwareApiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: sessionId, exercise_id: 1, exercise_name: 'Bench', source: 'schedule', sets: bigSets,
+        })).rejects.toThrow();
     });
 
     it('per-set: create with an empty sets:[] falls back to target_* scalars, not zeros', async () => {
