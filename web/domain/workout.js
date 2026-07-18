@@ -338,6 +338,26 @@ function normalizeProgressionRule(input) {
   return out;
 }
 
+// anchorDoubleWindow pins a double-progression rule's rep window to the
+// exercise's current rep targets when the rule doesn't carry its own. Without
+// this the window defaults live at apply time from `target_reps_min` — which
+// progressionPatch *mutates* upward each session as prescribed reps climb — so
+// the "reset to min" floor would drift up and the range collapse over
+// successive sessions. The editor never sends min_reps/max_reps, so anchoring
+// once at persist time keeps the window stable across automated progression.
+function anchorDoubleWindow(rule, exercise) {
+  if (!rule || rule.type !== 'double') return rule;
+  const out = { ...rule };
+  if (!hasValue(out.min_reps) && hasValue(exercise.target_reps_min)) {
+    out.min_reps = exercise.target_reps_min;
+  }
+  const maxTarget = hasValue(exercise.target_reps_max) ? exercise.target_reps_max : exercise.target_reps_min;
+  if (!hasValue(out.max_reps) && hasValue(maxTarget)) {
+    out.max_reps = maxTarget;
+  }
+  return out;
+}
+
 // deriveSetScalars mirrors the Go mergePayloadValues contract
 // (workout_resolver.go): sets_completed=len, reps_completed=max(reps),
 // weight_kg=max(weight_kg) — so propagation, stats, and history keep working
@@ -647,7 +667,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       order_index: Number(input && input.order_index) || 0,
     };
     const rule = normalizeProgressionRule(input && input.progression_rule);
-    if (rule) record.progression_rule = rule;
+    if (rule) record.progression_rule = anchorDoubleWindow(rule, record);
     // med-spp / med-prk.2: promote the plan exercise into the library
     // (Exercises tab), deduped by name to match the Go (user_id, name) unique
     // index, and link back via exercise_library_id so a later library rename
@@ -724,7 +744,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // Replace the rule from the incoming payload; normalize returns null for
     // none/absent so setting to None clears a previously-stored rule.
     const rule = normalizeProgressionRule(input && input.progression_rule);
-    if (rule) updated.progression_rule = rule;
+    if (rule) updated.progression_rule = anchorDoubleWindow(rule, updated);
     else delete updated.progression_rule;
     // Mirror the Go UpdateExercise upsert-by-name: relink the FK to the library
     // row for the (possibly changed) name.

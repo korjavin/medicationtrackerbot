@@ -454,6 +454,36 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(target.target_reps_max).toBe(12);
     });
 
+    it('progression double: rule without an explicit rep window resets to the exercise\'s original floor (no drift)', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        // The editor never sends min_reps/max_reps — the window must anchor to
+        // the exercise's targets at create time so the climbed target_reps_min
+        // doesn't become the reset floor.
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // Climb once (10 reps → prescribed reps advance, mutating target_reps_min).
+        await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+        let target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_reps_min).toBe(11);
+
+        // Top the range → reset must return to the ORIGINAL floor (8), not 11.
+        const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log.id,
+            sets: Array.from({ length: 3 }, (_, i) => ({ set_index: i, weight_kg: 60, reps: 12, set_type: 'normal' })),
+        });
+        target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg).toBe(65);
+        expect(target.target_reps_min).toBe(8);
+        expect(target.target_reps_max).toBe(12);
+    });
+
     it('progression none: still mirrors last performance onto the plan', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);
