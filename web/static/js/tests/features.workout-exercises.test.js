@@ -271,6 +271,46 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(document.getElementById('workout-exercise-progression').value).toBe('linear');
     });
 
+    it('a library pick during Edit does not clobber stored reps (Add handler leak)', async () => {
+      const { window, document } = env;
+      seedRoutine('strength');
+      // Open Add once so its name-input onchange handler + datalist get bound;
+      // that handler persists on the shared name input into the Edit open below.
+      window.apiCall = vi.fn(async () => []);
+      window.WorkoutLibrary = {
+        populatePickerOptions: vi.fn(async (dl) => {
+          const opt = document.createElement('option');
+          opt.value = 'Curl';
+          opt.dataset.repsMin = '12';
+          opt.dataset.repsMax = '15';
+          dl.appendChild(opt);
+        })
+      };
+      await window.showAddExerciseModal();
+
+      // Now edit an existing exercise with the user's own 5–8 rep targets.
+      window.apiCall = vi.fn(async () => [{
+        id: 9,
+        exercise_name: 'Row',
+        target_sets: 3,
+        target_reps_min: 5,
+        target_reps_max: 8,
+        order_index: 0,
+        progression_rule: { type: 'linear', increment_kg: 2.5 },
+        training_goal: ''
+      }]);
+      await window.showEditExerciseModal(9);
+
+      // User renames to a library match — the leaked handler must NOT overwrite
+      // the stored reps in Edit mode.
+      const nameInput = document.getElementById('workout-exercise-name');
+      nameInput.value = 'Curl';
+      nameInput.dispatchEvent(new window.Event('change'));
+
+      expect(document.getElementById('workout-exercise-reps-min').value).toBe('5');
+      expect(document.getElementById('workout-exercise-reps-max').value).toBe('8');
+    });
+
     it('saveExercise includes the training_goal override in the payload', async () => {
       const { window, document } = env;
       const apiSpy = vi.fn(async () => ({ ok: true }));

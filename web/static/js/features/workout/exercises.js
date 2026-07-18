@@ -244,13 +244,20 @@ async function showAddExerciseModal() {
         if (option) {
             if (!document.getElementById('workout-exercise-sets').value && option.dataset.sets)
                 document.getElementById('workout-exercise-sets').value = option.dataset.sets;
-            // Reps are goal-cascade-seeded on open, so the `!value` guard would
-            // never let a picked library exercise's own saved reps through.
-            // A named library pick is explicit — its saved reps win over the seed.
-            if (option.dataset.repsMin)
-                document.getElementById('workout-exercise-reps-min').value = option.dataset.repsMin;
-            if (option.dataset.repsMax)
-                document.getElementById('workout-exercise-reps-max').value = option.dataset.repsMax;
+            // In the Add flow reps are goal-cascade-seeded on open, so a bare
+            // `!value` guard would never let a picked library exercise's own
+            // saved reps through — a named pick is explicit, its reps win over
+            // the seed. This handler is bound only in showAddExerciseModal but
+            // leaks onto the shared name input into a later Edit open, where the
+            // reps fields hold the user's stored targets (no seed); keep the
+            // `!value` guard there so a rename doesn't clobber them.
+            const isAdd = !window.WorkoutEdit.editingExerciseId;
+            const repsMinEl = document.getElementById('workout-exercise-reps-min');
+            const repsMaxEl = document.getElementById('workout-exercise-reps-max');
+            if (option.dataset.repsMin && (isAdd || !repsMinEl.value))
+                repsMinEl.value = option.dataset.repsMin;
+            if (option.dataset.repsMax && (isAdd || !repsMaxEl.value))
+                repsMaxEl.value = option.dataset.repsMax;
             if (!document.getElementById('workout-exercise-weight').value && option.dataset.weight)
                 document.getElementById('workout-exercise-weight').value = option.dataset.weight;
         }
