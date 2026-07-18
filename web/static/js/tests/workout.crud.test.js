@@ -189,7 +189,11 @@ describe('workout.js CRUD flows', () => {
         target_reps_min: 6,
         target_reps_max: 8,
         target_weight_kg: 80,
-        order_index: 2
+        order_index: 2,
+        // Phase 4: the editor always sends progression_rule so selecting "None"
+        // reliably clears a stored rule on the update path (cloud's OMIT-key ==
+        // preserve semantics). An unset selector defaults to {type:'none'}.
+        progression_rule: { type: 'none' }
       });
       expect(closeSpy).toHaveBeenCalledTimes(1);
       expect(reloadSpy).toHaveBeenCalledWith(33, 'workout-exercises-list');

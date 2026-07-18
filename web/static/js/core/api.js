@@ -214,6 +214,13 @@ async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
             // Aborts/timeouts are caller-driven — let them bubble so the
             // caller can render a typed status instead of seeing null.
             if (e && e.aborted) throw e;
+            // Client-side validation rejections (the cloud domain layer's
+            // invalidRequest, code 'invalid_request') mean the request was
+            // malformed and never should have been sent — they are not a
+            // delivery/offline failure, so propagate them to the caller rather
+            // than swallowing to null. Server-origin 4xx from apiCallDirect
+            // carry only .status (no such code), so bot mode is unaffected.
+            if (e && e.code === 'invalid_request') throw e;
             console.error(e);
             // Only show alerts for write operations that fail
             // GET requests failing is expected when offline - UI will handle empty state
@@ -231,6 +238,7 @@ async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
         return await apiCallDirect(endpoint, method, body, opts);
     } catch (e) {
         if (e && e.aborted) throw e;
+        if (e && e.code === 'invalid_request') throw e;
         console.error(e);
         // Only show alerts for write operations that fail
         if (method !== 'GET' && !(e && e.demoLimit)) {

@@ -1310,15 +1310,21 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
   // propagateExerciseToSchedule ports PropagateExerciseToSchedule (repo.go:1330):
   // best-effort write-back of non-null sets/reps/weight onto the scheduled
-  // exercise definition, guarded by the exact same three conditions the SQL
-  // WHERE clause encodes (exercise id+name match, and the session is still
-  // pending/notified/in_progress with that exercise's variant) — a mismatch
-  // on any of them is a silent no-op, matching the SQL affecting zero rows.
+  // exercise definition, guarded only if the session is still
+  // pending/notified/in_progress with that exercise's variant — a mismatch is a
+  // silent no-op, matching the SQL affecting zero rows. Go's WHERE also checks
+  // exercise_name to defend against cross-table id collisions between
+  // exercise_library and workout_exercises; that collision cannot occur here —
+  // findByNumericId is scoped to the EXERCISE record type — so the name check is
+  // dropped. Keeping it would make a rename (which leaves the log's cached
+  // exercise_name stale) wrongly no-op the propagation for that exercise's own
+  // pending session. `exerciseName` is retained in the signature for callers but
+  // is intentionally not part of the guard.
   async function propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, sets, reps, weight, perSet) {
     const session = await findSession(sessionId);
     if (!session || !['pending', 'notified', 'in_progress'].includes(session.status)) return;
     const exercise = await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, exerciseId);
-    if (!exercise || exercise.exercise_name !== exerciseName || exercise.variant_id !== session.variant_id) return;
+    if (!exercise || exercise.variant_id !== session.variant_id) return;
 
     // `none`/absent rule → mirror; linear/double → apply the opt-in rule. An
     // unmet rule returns {} (plan held steady), so the spread leaves it as-is.
