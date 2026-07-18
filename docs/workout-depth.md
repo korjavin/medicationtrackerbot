@@ -114,13 +114,32 @@ is what turns a logger into a coach. But full programmability is over-engineerin
 for our audience; presets deliver the value. Opt-in per exercise so we never
 force a scheme onto someone who just wants to log.
 
-## Data-model decision (Phase 1)
+## Data-model decision (Phase 1) — implemented
 
-Per-set is stored **cloud-first**. The exact shape (nested `sets:[…]` array on the
-exercise-log record vs. a new `workoutset` record type) is decided by the Phase 1
-plan against how the vault/sync/records port works; the bias is toward the simplest
-option that syncs cleanly and keeps warm-up/effort/type per set. The bot-mode Go
-schema change is deferred.
+Per-set is stored **cloud-first** as a **nested `sets:[…]` array on the existing
+`exerciselog` record body** (not a new record type). Each entry is
+`{set_index, weight_kg>=0, reps>=0, rpe?(1–10), set_type∈{normal,warmup,drop,failure}}`.
+Vault records are opaque JSON blobs, so nesting needs **zero** sync / records-port /
+apishim-route / MCP-catalog changes — a new `workoutset` type would have added
+tag/CRUD/route/catalog/cascade wiring for a collection that has no independent
+lifecycle (it is always read/written with its parent log).
+
+The flat scalar aggregates are **derived from `sets` and kept on every write** —
+`sets_completed=len(sets)`, `reps_completed=max(reps)`, `weight_kg=max(weight_kg)` —
+so `propagateExerciseToSchedule`, stats, and history keep working unchanged. When
+`sets` is absent the writer preserves today's flat behavior. Implemented in
+`web/domain/workout.js` (`createLog`/`updateLog`/`validateExerciseValues`/`toLogResponse`)
+and the shared per-set UI in `web/static/js/features/workout/sessions.js`.
+
+`set_type` is stored but **not yet acted on** — warm-up exclusion from PR/volume math
+is Phase 3; storing it now avoids a later migration of historical logs.
+
+**Bot mode is untouched.** The shared `sessions.js` emits `sets` *alongside* the flat
+fields; the Go log handlers (`AddExerciseToSession` / `UpdateExerciseLog`) decode with
+plain `json.NewDecoder(...).Decode` (no `DisallowUnknownFields`), so the unknown `sets`
+key is silently ignored and the flat fields still drive bot storage — no gate, no
+migration. The bot-mode Go schema change (per-set columns) remains a deferred
+follow-up.
 
 ## Success criteria (the spine, done)
 

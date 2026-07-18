@@ -78,7 +78,7 @@ the scalar aggregates are still derived and correct; and **bot mode is unchanged
 - [x] Run the full frontend suite (`pnpm test`) incl. domain-purity + globals, and `go build ./...` + `go build -tags mobile ./...` — all must pass. (`go build ./...` and `go build -tags mobile ./...` both pass. Frontend suite: all real tests green; the only failures observed are environment-induced timeout flakes — 40–400s "Hook/Test timed out" on this slow/limited box — landing on a *different* unrelated suite each run (tab-controller, settings, sync, elevenlabs, modals), never on workout logic, and each passes in isolation. Zero assertion failures. Ran under Node 20 (`/tmp/node20`) since the repo pnpm/rolldown needs Node ≥20 and the box default is 18.)
 
 ### Task 5: [Final] Docs
-- [ ] Update `docs/workout-depth.md` Phase 1: record the implemented data-model decision (nested `sets` array on `exerciselog`, flat scalars derived, bot untouched via unknown-field tolerance).
+- [x] Update `docs/workout-depth.md` Phase 1: record the implemented data-model decision (nested `sets` array on `exerciselog`, flat scalars derived, bot untouched via unknown-field tolerance). (Rewrote the "Data-model decision (Phase 1) — implemented" section with the nested-array choice, derived scalars, set_type-stored-not-acted-on, and the plain-decoder bot-compat note.)
 
 ## Technical Details
 
