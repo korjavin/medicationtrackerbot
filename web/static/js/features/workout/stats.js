@@ -316,7 +316,20 @@ function _renderWorkoutStats(container, stats) {
             const maxW = ex.max_weight_kg > 0 ? `${ex.max_weight_kg} kg max` : '';
 
             const row = document.createElement('li');
-            row.className = 'wg-card wg-workouts-stats__top-row';
+            row.className = 'wg-card wg-workouts-stats__top-row wg-workouts-stats__top-row--tappable';
+            // Tapping a row opens the per-exercise detail view (records + est-1RM/
+            // top-weight graphs, Phase 3 epic med-qj4).
+            row.setAttribute('role', 'button');
+            row.tabIndex = 0;
+            const openDetail = () => {
+                if (window.WorkoutExerciseDetail && typeof window.WorkoutExerciseDetail.open === 'function') {
+                    window.WorkoutExerciseDetail.open(ex.exercise_name);
+                }
+            };
+            row.addEventListener('click', openDetail);
+            row.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(); }
+            });
 
             const head = document.createElement('div');
             head.className = 'wg-workouts-stats__top-row-head';

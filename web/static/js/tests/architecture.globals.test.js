@@ -161,6 +161,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.WorkoutSessions',           // features/workout/sessions.js — session-detail modal + lifecycle public API
     'window.WorkoutSessionsState',      // features/workout/sessions.js — closure-private session-modal state (logs / data / originalStatus) exposed via getter/setter
     'window.WorkoutStats',              // features/workout/stats.js — stats sub-tab public API
+    'window.WorkoutExerciseDetail',     // features/workout/exercise-detail.js — per-exercise records + est-1RM/top-weight graphs (Phase 3, epic med-qj4); also owns the shared workout-analysis.js resolver (dynamic-imports /domain/ in cloud, null in bot) + isPRLog record test consumed by the session log-card PR badge
     'window.WorkoutNextCard',           // features/workout/next-card.js — next-workout card public API
     'window.WorkoutModals',             // features/workout/modals.js — namespace mirroring the workout-start push-notification modal flow (showWorkoutStartModal, closeWorkoutStartModal, startWorkoutFromModal, snoozeWorkout, skipWorkout, skipWorkoutFromModal) extracted from app.js (Plan 2026-06-10 finish-app-js-split, Task 4). The bare function names remain the live call path (app.js bindNotificationControls arrow wrappers + handlePushAction); this object documents the public surface.
 

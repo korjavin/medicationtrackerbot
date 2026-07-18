@@ -59,10 +59,12 @@ from PR/volume/1RM math.
 - [x] Run the chart component test — must pass before Task 4.
 
 ### Task 4: PR badge + per-exercise detail view
-- [ ] Add a **PR cue** to the session log card (`web/static/js/features/workout/sessions.js` header ~:159): when a completed set beats a stored record (computed via `workout-analysis` over that exercise's history), render a small "PR" badge (design-token class, no inline style).
-- [ ] Add a **per-exercise detail view** (new small surface, reachable from the stats "Top Exercises" rows `stats.js:~304` or the log card): fetches `/api/workout/exercises/history?name=`, runs `workout-analysis` (`exercisePRs` + `exerciseSeries`), and renders the records summary + the `est-1rm`/`top-weight` graphs via `WGWorkoutChart`.
-- [ ] Extend `web/static/js/tests/features.workout-stats.test.js` (or a focused test): the detail view renders records + a graph for seeded history; the PR badge appears when a record is beaten.
-- [ ] Run the workout feature + shim-contract suites — must pass before Task 5.
+- [x] Add a **PR cue** to the session log card (`web/static/js/features/workout/sessions.js` header ~:159): when a completed set beats a stored record (computed via `workout-analysis` over that exercise's history), render a small "PR" badge (design-token class, no inline style).
+- [x] Add a **per-exercise detail view** (new small surface, reachable from the stats "Top Exercises" rows `stats.js:~304` or the log card): fetches `/api/workout/exercises/history?name=`, runs `workout-analysis` (`exercisePRs` + `exerciseSeries`), and renders the records summary + the `est-1rm`/`top-weight` graphs via `WGWorkoutChart`.
+- [x] Extend `web/static/js/tests/features.workout-stats.test.js` (or a focused test): the detail view renders records + a graph for seeded history; the PR badge appears when a record is beaten.
+- [x] Run the workout feature + shim-contract suites — must pass before Task 5.
+
+Notes (➕): the static frontend is classic `<script>` (no bundler/ESM import), so the new `web/static/js/features/workout/exercise-detail.js` reaches the pure `workout-analysis.js` two ways — tests inject `window.WorkoutAnalysis`; at runtime it dynamic-imports `/domain/workout-analysis.js` (served in cloud, the primary target) and caches null in bot mode (no `/domain/`), degrading the records/PR badge silently. No duplicated arithmetic, no new server route.
 
 ### Task 5: Verify acceptance + full suite
 - [ ] Verify: est-1RM (Epley), PR detection (all record types, warm-ups excluded), per-exercise graphs, PR cue — all working over per-set data; no storage/migration added.

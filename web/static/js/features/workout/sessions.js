@@ -177,6 +177,13 @@ function _buildSessionExerciseCard(log, index) {
     headerRow.appendChild(deleteButton);
     entry.appendChild(headerRow);
 
+    // PR cue (Phase 3, epic med-qj4): a saved, per-set log that beats a stored
+    // record for its exercise gets a small "PR" badge. Fire-and-forget — resolves
+    // the pure analysis module, folds this exercise's PRIOR history (excluding
+    // this session), and appends the badge only when isPRLog holds. Silent no-op
+    // when analysis is unavailable (bot mode) so no history fetch spam there.
+    _maybeAttachPRBadge(headerRow, log);
+
     const monoRow = document.createElement('div');
     monoRow.className = 'wg-workouts-session-exercise__mono';
     monoRow.textContent = _formatLogMono(log);
@@ -299,6 +306,47 @@ function _buildSessionExerciseCard(log, index) {
     entry.appendChild(notesGroup);
 
     return entry;
+}
+
+// _maybeAttachPRBadge appends a "PR" badge to a saved log card's header when the
+// log sets a new record for its exercise (Phase 3, epic med-qj4). Uses the shared
+// analysis resolver in exercise-detail.js so bot mode (no analysis module) skips
+// the history fetch entirely.
+async function _maybeAttachPRBadge(headerRow, log) {
+    if (!log || !log.id || log.id <= 0) return;
+    if (!Array.isArray(log.sets) || log.sets.length === 0) return;
+    const detail = window.WorkoutExerciseDetail;
+    if (!detail || typeof detail.getAnalysis !== 'function') return;
+
+    const WA = await detail.getAnalysis();
+    if (!WA) return;
+
+    let logs;
+    try {
+        logs = await apiCall(`/api/workout/exercises/history?name=${encodeURIComponent(log.exercise_name)}&limit=500`);
+    } catch (_) {
+        return;
+    }
+    if (!Array.isArray(logs)) return;
+
+    // Baseline = every OTHER session's logs for this exercise; a set beating that
+    // baseline is a fresh PR held by this session.
+    const sessionId = window.WorkoutSessionsState.data && window.WorkoutSessionsState.data.id;
+    const prior = logs.filter((l) => l.session_id !== sessionId);
+    const priorPRs = WA.exercisePRs(prior);
+    if (!detail.isPRLog(log, priorPRs, WA)) return;
+
+    // The card may have been re-rendered (add/remove set) while we awaited — only
+    // decorate the still-mounted header, and don't double-badge.
+    if (!headerRow.isConnected) return;
+    if (headerRow.querySelector('.wg-workouts-session-exercise__pr-badge')) return;
+
+    const badge = document.createElement('span');
+    badge.className = 'wg-workouts-session-exercise__pr-badge';
+    badge.textContent = 'PR';
+    badge.title = 'New personal record';
+    // Sit next to the name (before the delete button anchored right).
+    headerRow.insertBefore(badge, headerRow.children[1] || null);
 }
 
 // -- Per-set editing (Phase 1, epic med-qj4) --

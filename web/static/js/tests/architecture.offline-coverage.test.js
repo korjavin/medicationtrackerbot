@@ -125,6 +125,10 @@ const ALLOWLIST = [
         reason: 'workout session modal + ad-hoc start/skip/snooze flows; apiCall reads load session details when opening an edit modal — not a section-landing read. Mutations bypass the cache and are invalidated via the workout tag',
     },
     {
+        file: 'workout/exercise-detail.js',
+        reason: 'per-exercise detail view (Phase 3, epic med-qj4); its GET /api/workout/exercises/history read is an on-demand drill-down opened from the Stats sub-tab (not a section-landing read) and folds through the cloud-first analysis module, degrading silently offline / in bot mode',
+    },
+    {
         file: 'workout/modals.js',
         reason: 'workout-start push-notification modal — snooze/skip flows only; apiCall is POST-only (no section-landing reads). Mutations apply optimistically and are invalidated via the workout tag',
     },
