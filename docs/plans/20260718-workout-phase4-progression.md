@@ -50,10 +50,10 @@ previews next targets without saving.
 - [x] Run the suites — must pass before Task 3.
 
 ### Task 3: Progression-rule selector in the exercise editor
-- [ ] Add a `<select id="workout-exercise-progression">` (None / Linear / Double progression) + an increment `<input id="workout-exercise-progression-increment">` to the exercise modal (`web/static/index.html` ~:1347, before Order). Reuse `wg-workouts-exercise-modal__label`/`__input` classes.
-- [ ] Wire the three touch points in `web/static/js/features/workout/exercises.js`: set in `showEditExerciseModal` (~:213), clear in `showAddExerciseModal` (~:164), read into `payload` in `saveExercise` (~:227). No hardcoded styles; no new globals.
-- [ ] Extend `web/static/js/tests/workout.exercises.test.js` (or `features.workout-exercises.test.js`): the selector renders, round-trips into the save payload, and clears on add.
-- [ ] Run the workout exercise suites — must pass before Task 4.
+- [x] Add a `<select id="workout-exercise-progression">` (None / Linear / Double progression) + an increment `<input id="workout-exercise-progression-increment">` to the exercise modal (`web/static/index.html` ~:1347, before Order). Reuse `wg-workouts-exercise-modal__label`/`__input` classes.
+- [x] Wire the three touch points in `web/static/js/features/workout/exercises.js`: set in `showEditExerciseModal` (~:213), clear in `showAddExerciseModal` (~:164), read into `payload` in `saveExercise` (~:227). No hardcoded styles; no new globals.
+- [x] Extend `web/static/js/tests/workout.exercises.test.js` (or `features.workout-exercises.test.js`): the selector renders, round-trips into the save payload, and clears on add.
+- [x] Run the workout exercise suites — must pass before Task 4.
 
 ### Task 4: (Optional) MCP progression-preview via the cloud-only seam
 - [ ] Add a pure compute-only preview fn (no `records.put`) that runs the Task-2 rule math over each exercise's latest completed log and returns the proposed next targets.
