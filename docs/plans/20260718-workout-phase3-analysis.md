@@ -48,10 +48,10 @@ from PR/volume/1RM math.
 - [x] Run the analysis + domain-purity suites — must pass before Task 2.
 
 ### Task 2: Per-exercise history read + shim route
-- [ ] In `web/domain/workout.js`, add `listExerciseLogsByName(name, {limit})`: filter LOG records by `exercise_name`, join each log's session (`scheduled_date`), return newest-first `[{date, sets, session_id}]` (completed logs).
-- [ ] Add a route in `web/cloud/js/apishim.js` `createApiRouter` (near the other `/api/workout/*` reads): `GET /api/workout/exercises/history?name=` → `listExerciseLogsByName`. (If MCP-catalogued reads require registry coverage, expose read-only via the router only — this is a UI read, not an MCP op, so no catalog entry.)
-- [ ] Extend `web/static/js/tests/cloud.shim-contract.workout-stats.test.js`: seed a library exercise + ≥2 completed sessions with `sets` → hit `/api/workout/exercises/history?name=` → assert the returned per-log sets + dates.
-- [ ] Run the shim-contract workout suites — must pass before Task 3.
+- [x] In `web/domain/workout.js`, add `listExerciseLogsByName(name, {limit})`: filter LOG records by `exercise_name`, join each log's session (`scheduled_date`), return newest-first `[{date, sets, session_id}]` (completed logs).
+- [x] Add a route in `web/cloud/js/apishim.js` `createApiRouter` (near the other `/api/workout/*` reads): `GET /api/workout/exercises/history?name=` → `listExerciseLogsByName`. (If MCP-catalogued reads require registry coverage, expose read-only via the router only — this is a UI read, not an MCP op, so no catalog entry.)
+- [x] Extend `web/static/js/tests/cloud.shim-contract.workout-stats.test.js`: seed a library exercise + ≥2 completed sessions with `sets` → hit `/api/workout/exercises/history?name=` → assert the returned per-log sets + dates.
+- [x] Run the shim-contract workout suites — must pass before Task 3.
 
 ### Task 3: Chart metrics (est-1rm, top-weight)
 - [ ] In `web/static/js/components/wg-workout-chart.js`: add `est-1rm` and `top-weight` cases to `pickMetric` (read `raw.est_1rm`/`raw.top_weight`) and widen the continuous y-scale branch to `metric !== 'sessions'`.

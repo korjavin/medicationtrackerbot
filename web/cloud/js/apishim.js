@@ -725,6 +725,13 @@ export function createApiRouter(ctx, {
 
     if (path === '/api/workout/stats' && method === 'GET') return workout.getStats();
 
+    // Per-exercise history (Phase 3): completed logs for one exercise, each with
+    // its session date + per-set array, newest-first. UI read only (no MCP op) —
+    // the client folds est-1RM/PRs/series over the sets via workout-analysis.js.
+    if (path === '/api/workout/exercises/history' && method === 'GET') {
+      return workout.listExerciseLogsByName(params.get('name') || '', { limit: intParam(params, 'limit', 500) });
+    }
+
     if (path === '/api/workout/miband' && method === 'GET') {
       return workout.listMiBand(intParam(params, 'limit', 100));
     }
