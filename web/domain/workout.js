@@ -1896,8 +1896,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const out = [];
     for (const exercise of exercises) {
       // Latest completed log for this exercise, newest logged_at first.
+      // Exclude source:'library' logs: their exercise_id lives in the
+      // exercise_library id space, which can numerically collide with a
+      // scheduled exercise's id — matching propagation, which never fires for
+      // library logs (createLog/updateLog skip them). Schedule logs' exercise_id
+      // maps 1:1 to one workout_exercises row, so no variant join is needed here.
       const latest = logs
-        .filter((l) => l.exercise_id === exercise.id && l.status === 'completed')
+        .filter((l) => l.exercise_id === exercise.id && l.status === 'completed' && l.source !== 'library')
         .sort((a, b) => (a.logged_at < b.logged_at ? 1 : a.logged_at > b.logged_at ? -1 : b.id - a.id))[0];
       if (!latest) continue;
 
