@@ -374,6 +374,7 @@ function updateLocalSet(logIndex, setIndex, field, value) {
         else s.rpe = Math.min(10, Math.max(1, n));
     }
     _syncLogScalarsFromSets(log);
+    log._setsDirty = true;
     _markLogDirty(logIndex, log);
 }
 
@@ -396,6 +397,7 @@ function addLocalSet(logIndex) {
     });
     _syncLogScalarsFromSets(log);
     log._dirty = true;
+    log._setsDirty = true;
     _rerenderSessionLogs();
 }
 
@@ -407,6 +409,7 @@ function removeLocalSet(logIndex, setIndex) {
     log.sets.forEach((s, i) => { s.set_index = i; });
     _syncLogScalarsFromSets(log);
     log._dirty = true;
+    log._setsDirty = true;
     _rerenderSessionLogs();
 }
 
@@ -731,14 +734,15 @@ async function saveWorkoutSessionDetails() {
                     weight_kg: parseFloat(log.weight_kg),
                     notes: log.notes || '',
                     // Per-set array rides alongside the derived flat scalars, but
-                    // only when the user actually edited the sets (_dirty). Render
-                    // materializes log.sets on every card (_ensureLogSets), so
-                    // without this guard, saving a session with an untouched
-                    // flat-only/legacy log would persist a fabricated
-                    // N-identical-sets array. Absent key ⇒ cloud updateLog keeps
-                    // any real stored sets (it spreads the existing record); bot
+                    // only when the user actually edited the SETS (_setsDirty),
+                    // not on any edit (_dirty is also set by a notes-only edit).
+                    // Render materializes log.sets on every card (_ensureLogSets),
+                    // so gating on _dirty would persist a fabricated
+                    // N-identical-sets array whenever a legacy/flat-only log's
+                    // notes were touched. Absent key ⇒ cloud updateLog keeps any
+                    // real stored sets (it spreads the existing record); bot
                     // ignores the key either way (Task 3).
-                    ...(log._dirty && Array.isArray(log.sets) ? { sets: log.sets } : {})
+                    ...(log._setsDirty && Array.isArray(log.sets) ? { sets: log.sets } : {})
                 });
             } else if (log._dirty) {
                 // New log that user actually edited — create it
@@ -752,7 +756,7 @@ async function saveWorkoutSessionDetails() {
                     target_weight_kg: parseFloat(log.weight_kg),
                     status: 'completed',
                     notes: log.notes || '',
-                    ...(Array.isArray(log.sets) ? { sets: log.sets } : {})
+                    ...(log._setsDirty && Array.isArray(log.sets) ? { sets: log.sets } : {})
                 });
             }
             if (attempted && logResult === null) {
@@ -1097,6 +1101,7 @@ async function saveNewSessionExercise() {
         notes: notes,
         status: 'completed',
         _dirty: true,
+        _setsDirty: true,
         _optimistic: true
     };
     const prevLogs = window.WorkoutSessionsState.logs;
