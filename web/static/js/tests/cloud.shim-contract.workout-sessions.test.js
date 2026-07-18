@@ -365,6 +365,28 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(ex2.progression_rule).toBeUndefined();
     });
 
+    it('progression rule: an update that OMITS progression_rule (e.g. the MCP update op) preserves the stored rule', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+
+        // The MCP workouts.exercises.update body schema has no progression_rule
+        // field, so a rename/weight edit through it omits the key entirely. It
+        // must NOT wipe the user's opt-in rule.
+        await window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+            exercise_name: 'Bench Press', target_sets: 3, target_reps_min: 8,
+            target_reps_max: 10, target_weight_kg: 62.5, order_index: 0,
+        });
+        const list = await window.apiCall(`/api/workout/exercises?variant_id=${variants[0].id}`);
+        expect(list[0].exercise_name).toBe('Bench Press');
+        expect(list[0].progression_rule).toEqual({ type: 'linear', increment_kg: 2.5 });
+    });
+
     // Phase 4 (epic med-qj4.4.1): the rule is *applied* on a completed log via
     // propagateExerciseToSchedule — the write-back seam. Helper: a completed log
     // whose N work sets each hit `reps` at `weight`, threaded through the domain

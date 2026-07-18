@@ -774,8 +774,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       order_index: Number(input && input.order_index) || 0,
       clientTs: now(),
     };
-    // Replace the rule from the incoming payload; normalize returns null for
-    // none/absent so setting to None clears a previously-stored rule.
+    // Replace the rule from the incoming payload. normalize returns null for an
+    // explicit `none`; only then (i.e. the key is PRESENT) do we clear a stored
+    // rule. A payload that OMITS the key entirely (e.g. the MCP
+    // workouts.exercises.update op, whose body schema has no progression_rule
+    // field, or any non-editor writer) must PRESERVE the stored rule rather than
+    // silently wipe the user's opt-in progression config. The web editor always
+    // sends the key, so its "None clears the rule" behavior is unchanged.
     const rule = normalizeProgressionRule(input && input.progression_rule);
     if (rule) {
       // Preserve an already-anchored double window when the payload omits it —
@@ -798,7 +803,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         if (!hasValue(rule.max_reps) && hasValue(prev.max_reps)) rule.max_reps = prev.max_reps;
       }
       updated.progression_rule = anchorDoubleWindow(rule, updated);
-    } else {
+    } else if (input && 'progression_rule' in input) {
       delete updated.progression_rule;
     }
     // Mirror the Go UpdateExercise upsert-by-name: relink the FK to the library
