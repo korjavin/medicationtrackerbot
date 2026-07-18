@@ -214,3 +214,39 @@ A cloud user can: log each set (weight × reps, mark warm-ups, optional RPE); se
 correct estimated 1RM and get a PR cue when they beat a record; open a per-exercise
 graph of strength over time; trust that editing a routine never rewrites a past
 workout; and optionally have the next target suggested. No social, no watch, no DSL.
+
+## Science basis — loading, effort, and goals (med-qj4.5)
+
+Source: Schoenfeld, Grgic, Van Every, Plotkin (2021), "Loading Recommendations for
+Muscle Strength, Hypertrophy, and Local Endurance: A Re-Examination of the Repetition
+Continuum." *Sports* 9(2):32. DOI 10.3390/sports9020032 · PMC7927075 · PubMed 33671664.
+
+**What the evidence says (departing from the classic continuum):**
+- **Strength is load-dependent** — heavy (>60% 1RM) beats light for 1RM (meta ES ≈ 0.58),
+  but the advantage largely vanishes on non-specific tests (isometric ES ≈ 0.16) — so
+  it's substantially a *specificity* effect: train heavy, in the movement you want strong.
+- **Hypertrophy is load-INdependent across ~30–85%+ 1RM** — high-vs-low-load difference
+  is trivial (ES ≈ 0.03) **provided sets are taken to/near failure**. Below ~30% 1RM gains
+  drop (≈half at 20%). Moderate (8–12) is the *efficient* default, not a magic zone.
+- **Local endurance** — evidence weak/equivocal; the classic light=endurance mapping
+  mostly isn't supported on relative tests.
+- **Elevated above load:** proximity-to-failure (RIR/RPE), volume (hard sets, ~linear for
+  hypertrophy), specificity, individual variation. One line: *pick load by
+  preference/joint-tolerance/time, drive sets near failure, accumulate volume.*
+
+**Default rep/load/effort by goal** (seed defaults behind `training_goal`):
+
+| Goal | Reps | %1RM | Sets | Target RIR |
+|------|------|------|------|-----------|
+| Strength | 3–6 | 80–90% | 3–5 | RIR 1–3 |
+| Hypertrophy (default) | 6–15 (anchor 8–12) | ~65–80% | 3–4 | RIR 0–2 (near failure) |
+| Endurance | 15–25+ | ~40–60% | 2–3 | RIR 0–2 on the top set |
+
+**How this becomes product** (the **goal-aware sub-epic, med-qj4.6**, layered on the
+4-phase core): a `training_goal {strength|hypertrophy|endurance|general}` dimension —
+**asked at routine (group) creation, default Hypertrophy, inherited by exercises with a
+per-exercise override** — drives default rep-range + target RIR + progression preset +
+graph emphasis + a near-failure effort insight. It changes defaults/emphasis only,
+never how a set is stored. Progression is **RIR-gated**: a load bump fires only when
+`reps ≥ target AND RIR ≤ threshold` — hitting reps far from failure triggers the effort
+insight, not more weight. Full progression scripting (a DSL) remains out of scope.
