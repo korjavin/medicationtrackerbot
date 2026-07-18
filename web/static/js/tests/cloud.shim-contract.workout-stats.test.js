@@ -45,6 +45,42 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         ]);
     });
 
+    it('exercises/history returns completed logs for one exercise with per-set arrays + session dates, newest-first', async () => {
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        const { window } = env;
+        const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Bench' });
+
+        // Two completed ad-hoc sessions of the same exercise, each carrying a
+        // per-set array (incl. a warm-up the read passes through untouched).
+        for (const setsArg of [
+            [{ weight_kg: 40, reps: 10, set_type: 'warmup' }, { weight_kg: 80, reps: 5 }],
+            [{ weight_kg: 85, reps: 5 }, { weight_kg: 85, reps: 4 }],
+        ]) {
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: item.id, exercise_name: item.name,
+                source: 'library', status: 'completed', sets: setsArg,
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+        }
+
+        const history = await window.apiCallDirect('/api/workout/exercises/history?name=Bench');
+        expect(history).toHaveLength(2);
+        for (const entry of history) {
+            expect(entry.date).toBeTruthy();
+            expect(Array.isArray(entry.sets)).toBe(true);
+            expect(entry.session_id).toBeGreaterThan(0);
+        }
+        // Per-set arrays ride through verbatim (warm-up preserved for the reader).
+        const allSets = history.flatMap((e) => e.sets);
+        expect(allSets.some((s) => s.set_type === 'warmup' && s.weight_kg === 40)).toBe(true);
+        expect(allSets.some((s) => s.weight_kg === 85 && s.reps === 5)).toBe(true);
+
+        // A different exercise name returns nothing.
+        const none = await window.apiCallDirect('/api/workout/exercises/history?name=Deadlift');
+        expect(none).toEqual([]);
+    });
+
     it('mi-band list respects limit, patch applies diff-semantics over six fields, delete tombstones', async () => {
         const now = Date.now();
         env = loadCloudShimFrontendEnv({
