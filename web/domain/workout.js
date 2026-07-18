@@ -457,7 +457,12 @@ function progressionPatch(exercise, sets, reps, weight, perSet) {
     if (hasValue(goal) && stats.minReps >= goal && hasValue(weightBase)) {
       return { target_weight_kg: weightBase + rule.increment_kg };
     }
-    return {};
+    // Not met: anchor the plan to the stable logged weight so re-propagation is
+    // idempotent — same seam as the double-climb branch below. If an earlier
+    // same-session save qualified (weight += increment) and a later edit drops
+    // below the goal, returning {} would leave that un-earned bump stuck on the
+    // plan with no recovery path. weightBase absent → no anchor, hold as-is.
+    return hasValue(weightBase) ? { target_weight_kg: weightBase } : {};
   }
 
   // double progression
@@ -480,7 +485,10 @@ function progressionPatch(exercise, sets, reps, weight, perSet) {
     if (hasValue(weightBase)) patch.target_weight_kg = weightBase;
     return patch;
   }
-  return {};
+  // Below min: same idempotency anchor as the climb branch — an earlier
+  // same-session save that hit max bumped the weight; without re-pinning to the
+  // logged weight a later edit below min would leave that bump stuck.
+  return hasValue(weightBase) ? { target_weight_kg: weightBase } : {};
 }
 
 const VALID_LOG_STATUSES = new Set(['', 'completed', 'skipped']);

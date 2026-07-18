@@ -448,6 +448,34 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
     });
 
+    it('progression linear: editing a qualifying log DOWN within the same session releases the un-earned bump', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // Qualifying save bumps 60 → 62.5.
+        await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+
+        // The user corrects the same log DOWN (last set was really 9 reps). The
+        // goal is no longer met, so the un-earned bump must be released back to
+        // the logged weight (60) — not left stuck at 62.5 with no recovery path.
+        const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log.id, sets: [
+                { set_index: 0, weight_kg: 60, reps: 10, set_type: 'normal' },
+                { set_index: 1, weight_kg: 60, reps: 10, set_type: 'normal' },
+                { set_index: 2, weight_kg: 60, reps: 9, set_type: 'normal' },
+            ],
+        });
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(60);
+    });
+
     it('progression linear: a flat re-save that omits weight_kg does not compound (anchors to the logged weight)', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);
