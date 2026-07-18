@@ -566,6 +566,76 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(target.target_weight_kg).toBe(65);
     });
 
+    it('progression double: a manual edit that changes the visible rep ceiling re-anchors the hidden window', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // User deliberately narrows the range 8-12 → 6-10 in the editor. The
+        // editor only sends {type, increment_kg}, but the changed ceiling (12→10)
+        // must re-anchor the hidden window rather than keep the stale 8..12.
+        await window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+            variant_id: variants[0].id, exercise_name: 'Bench',
+            target_sets: 3, target_reps_min: 6, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        });
+
+        // Top the NEW range (10) on all sets → weight +5, reps reset to the new
+        // floor (6), and the ceiling holds at the new max (10).
+        await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+        const target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg).toBe(65);
+        expect(target.target_reps_min).toBe(6);
+        expect(target.target_reps_max).toBe(10);
+    });
+
+    it('progression double: a manual edit that lowers only the visible floor re-anchors the hidden window', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // User widens the range 8-12 → 6-12 in the editor: only the floor moves,
+        // the ceiling is untouched. The editor still sends {type, increment_kg},
+        // so a ceiling-only check would wrongly preserve the stale 8..12 window
+        // and reset to 8. The changed floor must re-anchor to the new 6.
+        await window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+            variant_id: variants[0].id, exercise_name: 'Bench',
+            target_sets: 3, target_reps_min: 6, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        });
+
+        // Top the range (12) on all sets → weight +5, reps reset to the new
+        // floor (6), not the stale 8.
+        await logAllSets(window, sessionId, ex.id, 'Bench', 12, 60, 3);
+        const target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg).toBe(65);
+        expect(target.target_reps_min).toBe(6);
+        expect(target.target_reps_max).toBe(12);
+    });
+
+    it('progression double: inverted rep targets (max < min) with an implicit window are rejected', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        // The editor omits min_reps/max_reps, so the window is synthesized from
+        // the exercise targets. Inverted targets would otherwise persist an
+        // invalid (min > max) window and progress on the lower max.
+        await expect(window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Squat', target_sets: 3,
+            target_reps_min: 12, target_reps_max: 10, target_weight_kg: 80, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        })).rejects.toThrow(/min_reps must not exceed max_reps/);
+    });
+
     it('progression none: still mirrors last performance onto the plan', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);

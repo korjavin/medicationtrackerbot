@@ -745,24 +745,59 @@ async function saveWorkoutSessionDetails() {
 
         // Track whether any mutation succeeded so we can invalidate the
         // workout-tagged caches before any early return — otherwise a
-        // partial failure (status saved, later log update returns null)
-        // leaves workout_history / workout_stats holding the pre-mutation
-        // payload until the next manual refresh.
+        // partial failure (a log saved, a later write returns null) leaves
+        // workout_history / workout_stats holding the pre-mutation payload
+        // until the next manual refresh.
         let anyMutationSucceeded = false;
+        let statusPersisted = false;
 
-        // Save status if changed
-        if (statusChanged && sessionData) {
+        // Skipping flips the status BEFORE the log writes below, so those writes
+        // hit an already-skipped session and their plan propagation no-ops — a
+        // skipped session must never advance the plan (mirror/progression is for
+        // completed sessions only). Completing (or staying in_progress) keeps the
+        // inverted order: logs first so propagation runs while the session is
+        // still in_progress, status flip last.
+        const skipFirst = statusChanged && sessionData && newStatus === 'skipped';
+
+        async function persistStatus() {
             const statusResult = await apiCall(`/api/workout/sessions/status?id=${sessionData.id}`, 'PUT', {
                 status: newStatus
             });
-            if (statusResult === null) {
-                await rollbackOptimistic();
-                return;
-            }
+            if (statusResult === null) return false;
             anyMutationSucceeded = true;
+            statusPersisted = true;
+            return true;
         }
 
-        // Save each log — only save new entries that the user actually edited (_dirty)
+        // On failure the optimistic projection is normally rolled back — status is
+        // saved LAST for completion, so a failure before it means the server status
+        // never changed and the projected flip is wrong. But on the skip path the
+        // status PUT already landed first, so its projection matches the server:
+        // commit it and just invalidate so the failed log write reconciles on the
+        // next read (persisted writes are picked up via the tag invalidation).
+        async function settleFailure() {
+            if (statusPersisted) {
+                for (const h of optimisticHandles) {
+                    try { await h.commit(null); } catch (_) { /* best-effort */ }
+                }
+                await invalidateWorkoutCache();
+                return;
+            }
+            await rollbackOptimistic();
+            if (anyMutationSucceeded) await invalidateWorkoutCache();
+        }
+
+        if (skipFirst) {
+            if (!(await persistStatus())) { await settleFailure(); return; }
+        }
+
+        // Save each log before the terminal status flip below (completion path).
+        // Schedule propagation — which applies opt-in progression (linear/double)
+        // onto the plan targets — only fires while the session is still
+        // pending/notified/in_progress. Flipping status to completed first would
+        // make every qualifying log write a no-op, so the "edit sets, Finish
+        // workout" flow would silently skip progression.
+        // Only save new entries that the user actually edited (_dirty).
         for (const log of logs) {
             let logResult;
             let attempted = false;
@@ -802,24 +837,20 @@ async function saveWorkoutSessionDetails() {
                 });
             }
             if (attempted && logResult === null) {
-                if (!anyMutationSucceeded) {
-                    await rollbackOptimistic();
-                } else {
-                    // Status PUT succeeded but a later log update failed. The
-                    // optimistic status flip reflects authoritative server
-                    // state; settle the handles so pendingOptimistic clears
-                    // and future fetchFresh calls aren't permanently
-                    // short-circuited, then invalidate so the next read pulls
-                    // a clean reconciled payload.
-                    for (const h of optimisticHandles) {
-                        try { await h.commit(null); } catch (_) { /* best-effort */ }
-                    }
-                    await invalidateWorkoutCache();
-                }
+                await settleFailure();
                 return;
             }
             if (attempted) anyMutationSucceeded = true;
             // Skip: id===0 && !_dirty — pre-filled but untouched, don't save
+        }
+
+        // Save status LAST — after the logs above have propagated to the plan
+        // (skipped sessions already flipped their status first, above).
+        if (statusChanged && sessionData && !skipFirst) {
+            if (!(await persistStatus())) {
+                await settleFailure();
+                return;
+            }
         }
 
         // All requested mutations succeeded — commit the optimistic state

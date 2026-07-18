@@ -358,6 +358,13 @@ function anchorDoubleWindow(rule, exercise) {
   if (!hasValue(out.max_reps) && hasValue(maxTarget)) {
     out.max_reps = maxTarget;
   }
+  // Re-run the ordering check normalizeProgressionRule can only enforce for an
+  // explicit window: a window synthesized here from inverted exercise targets
+  // (target_reps_max < target_reps_min — which validateExerciseValues doesn't
+  // reject) would otherwise persist min > max and progress on the lower max.
+  if (hasValue(out.min_reps) && hasValue(out.max_reps) && out.min_reps > out.max_reps) {
+    throw invalidRequest('min_reps must not exceed max_reps');
+  }
   return out;
 }
 
@@ -761,8 +768,18 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       // the editor only round-trips {type, increment_kg}. anchorDoubleWindow
       // would otherwise re-derive min/max from target_reps_min, which
       // progressionPatch has already climbed, collapsing the range on any edit.
+      // BUT only preserve when BOTH visible rep targets are unchanged from the
+      // stored exercise. The editor loads target_reps_{min,max} and writes them
+      // back verbatim (parseInt round-trip), so an untouched save re-sends the
+      // stored — possibly climbed — values; a deliberate range change (either
+      // floor OR ceiling, e.g. 8-12 → 6-12) moves at least one and must re-anchor
+      // to the new targets rather than keep the stale hidden window. Comparing
+      // the ceiling alone missed floor-only edits, keeping a stale reset floor.
       const prev = exercise.progression_rule;
-      if (rule.type === 'double' && prev && prev.type === 'double') {
+      const targetsUnchanged =
+        updated.target_reps_min === exercise.target_reps_min &&
+        updated.target_reps_max === exercise.target_reps_max;
+      if (rule.type === 'double' && prev && prev.type === 'double' && targetsUnchanged) {
         if (!hasValue(rule.min_reps) && hasValue(prev.min_reps)) rule.min_reps = prev.min_reps;
         if (!hasValue(rule.max_reps) && hasValue(prev.max_reps)) rule.max_reps = prev.max_reps;
       }
