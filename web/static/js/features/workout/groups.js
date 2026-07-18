@@ -263,6 +263,7 @@ function showAddWorkoutGroupModal() {
     document.getElementById('workout-group-rotating').checked = false;
     document.getElementById('workout-group-time').value = '09:00';
     document.getElementById('workout-group-notification').value = '15';
+    document.getElementById('workout-group-goal').value = 'hypertrophy';
     document.getElementById('workout-group-active').checked = true;
 
     // Clear days
@@ -290,6 +291,7 @@ async function showEditWorkoutGroupModal(groupId) {
     document.getElementById('workout-group-rotating').checked = group.is_rotating;
     document.getElementById('workout-group-time').value = group.scheduled_time;
     document.getElementById('workout-group-notification').value = group.notification_advance_minutes;
+    document.getElementById('workout-group-goal').value = group.training_goal || 'hypertrophy';
     document.getElementById('workout-group-active').checked = group.active;
 
     // Set days
@@ -446,6 +448,7 @@ async function saveWorkoutGroup() {
     const isRotating = document.getElementById('workout-group-rotating').checked;
     const time = document.getElementById('workout-group-time').value;
     const notification = parseInt(document.getElementById('workout-group-notification').value);
+    const trainingGoal = document.getElementById('workout-group-goal').value;
     const active = document.getElementById('workout-group-active').checked;
 
     // Don't save while the rotation off-guard (toggleRotatingFields) is still
@@ -476,7 +479,8 @@ async function saveWorkoutGroup() {
         is_rotating: isRotating,
         days_of_week: JSON.stringify(days),
         scheduled_time: time,
-        notification_advance_minutes: notification
+        notification_advance_minutes: notification,
+        training_goal: trainingGoal
     };
 
     let result;

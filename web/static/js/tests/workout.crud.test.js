@@ -63,7 +63,8 @@ describe('workout.js CRUD flows', () => {
         is_rotating: false,
         days_of_week: JSON.stringify([1, 3]),
         scheduled_time: '08:30',
-        notification_advance_minutes: 20
+        notification_advance_minutes: 20,
+        training_goal: 'hypertrophy'
       });
       expect(closeSpy).toHaveBeenCalledTimes(1);
       expect(reloadSpy).toHaveBeenCalledTimes(1);
@@ -192,8 +193,12 @@ describe('workout.js CRUD flows', () => {
         order_index: 2,
         // Phase 4: the editor always sends progression_rule so selecting "None"
         // reliably clears a stored rule on the update path (cloud's OMIT-key ==
-        // preserve semantics). An unset selector defaults to {type:'none'}.
-        progression_rule: { type: 'none' }
+        // preserve semantics). med-qj4.6.1: opening the Add modal runs the goal
+        // cascade, which seeds the default routine goal (hypertrophy → double)
+        // since no routine is cached here; the untouched selector round-trips it.
+        progression_rule: { type: 'double', increment_kg: 2.5 },
+        // med-qj4.6.1: goal override; "" (Inherit from routine) is the default.
+        training_goal: ''
       });
       expect(closeSpy).toHaveBeenCalledTimes(1);
       expect(reloadSpy).toHaveBeenCalledWith(33, 'workout-exercises-list');

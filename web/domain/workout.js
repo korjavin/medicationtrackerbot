@@ -34,6 +34,7 @@
 
 import { localDateParts, localWallToUtcMs } from './medschedule.js';
 import { formatHHMM } from './reminders.js';
+import { normalizeGoal, TRAINING_GOALS } from './workout-goals.js';
 
 const WORKOUT_RECORD_TYPES = {
   GROUP: 'workoutgroup',
@@ -144,6 +145,7 @@ function toGroupResponse(record) {
     scheduled_time: record.scheduled_time,
     notification_advance_minutes: record.notification_advance_minutes || 0,
     active: !!record.active,
+    training_goal: normalizeGoal(record.training_goal),
     created_at: record.created_at,
     updated_at: record.updated_at,
   };
@@ -190,6 +192,9 @@ function toExerciseResponse(record, libById) {
   if (record.progression_rule && record.progression_rule.type !== 'none') {
     resp.progression_rule = record.progression_rule;
   }
+  // training_goal is an optional per-exercise override; emit only when set —
+  // absent means "inherit the routine's goal" (med-qj4.6.1).
+  if (record.training_goal) resp.training_goal = record.training_goal;
   return resp;
 }
 
@@ -580,6 +585,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       days_of_week: (input && input.days_of_week) || '[]',
       scheduled_time: (input && input.scheduled_time) || '',
       notification_advance_minutes: Number(input && input.notification_advance_minutes) || 0,
+      training_goal: normalizeGoal(input && input.training_goal),
       // CreateGroup's INSERT omits the `active` column, so it always takes
       // the schema DEFAULT 1 regardless of what the create request sends.
       active: true,
@@ -614,6 +620,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       days_of_week: (input && input.days_of_week) || '[]',
       scheduled_time: (input && input.scheduled_time) || '',
       notification_advance_minutes: Number(input && input.notification_advance_minutes) || 0,
+      training_goal: normalizeGoal(input && input.training_goal),
       active: !!(input && input.active),
       clientTs: nowMs,
       updated_at: new Date(nowMs).toISOString(),
@@ -717,6 +724,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     };
     const rule = normalizeProgressionRule(input && input.progression_rule);
     if (rule) record.progression_rule = anchorDoubleWindow(rule, record);
+    // Optional per-exercise goal override — store only a valid enum value;
+    // absent/blank/invalid means inherit from the routine (med-qj4.6.1).
+    const goal = input && input.training_goal;
+    if (TRAINING_GOALS.includes(goal)) record.training_goal = goal;
     // med-spp / med-prk.2: promote the plan exercise into the library
     // (Exercises tab), deduped by name to match the Go (user_id, name) unique
     // index, and link back via exercise_library_id so a later library rename
@@ -822,6 +833,12 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     } else if (input && 'progression_rule' in input) {
       delete updated.progression_rule;
     }
+    // Per-exercise goal override: a valid enum sets it; the editor sending a
+    // blank value (key PRESENT) clears it back to "inherit"; a payload that
+    // OMITS the key preserves the stored override (mirrors progression_rule).
+    const goal = input && input.training_goal;
+    if (TRAINING_GOALS.includes(goal)) updated.training_goal = goal;
+    else if (input && 'training_goal' in input) delete updated.training_goal;
     // Mirror the Go UpdateExercise upsert-by-name: relink the FK to the library
     // row for the (possibly changed) name.
     // Clear the FK on a blank name (promote returns null) so the read falls back

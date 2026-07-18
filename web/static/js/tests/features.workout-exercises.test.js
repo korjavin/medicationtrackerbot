@@ -131,18 +131,20 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(apiSpy.mock.calls[0][2].progression_rule).toEqual({ type: 'none' });
     });
 
-    it('showAddExerciseModal clears the progression selector back to None', async () => {
+    it('showAddExerciseModal clears the increment and seeds progression from the routine goal', async () => {
       const { window, document } = env;
       window.WorkoutEdit.variantForExercise = 1;
       window.apiCall = vi.fn(async () => []);
       window.WorkoutLibrary = { populatePickerOptions: vi.fn(async () => {}) };
 
-      document.getElementById('workout-exercise-progression').value = 'double';
+      document.getElementById('workout-exercise-progression').value = 'linear';
       document.getElementById('workout-exercise-progression-increment').value = '10';
 
       await window.showAddExerciseModal();
 
-      expect(document.getElementById('workout-exercise-progression').value).toBe('none');
+      // No cached routine → the cascade defaults to hypertrophy (double); the
+      // stale increment is still cleared by the reset.
+      expect(document.getElementById('workout-exercise-progression').value).toBe('double');
       expect(document.getElementById('workout-exercise-progression-increment').value).toBe('');
     });
 
@@ -164,6 +166,167 @@ describe('features/workout/exercises.js — split-file integration', () => {
 
       expect(document.getElementById('workout-exercise-progression').value).toBe('linear');
       expect(document.getElementById('workout-exercise-progression-increment').value).toBe('2.5');
+    });
+  });
+
+  describe('training-goal override + cascade (med-qj4.6.1)', () => {
+    function seedRoutine(goal) {
+      env.window.WorkoutEdit.cachedGroups = [{ id: 5, training_goal: goal }];
+      env.window.WorkoutEdit.groupForVariant = 5;
+      env.window.WorkoutEdit.variantForExercise = 1;
+    }
+
+    it('renders the goal selector with Inherit + the four goals', () => {
+      const { document } = env;
+      const sel = document.getElementById('workout-exercise-goal');
+      expect(sel).not.toBeNull();
+      expect(sel.tagName).toBe('SELECT');
+      expect(Array.from(sel.options).map(o => o.value)).toEqual(['', 'strength', 'hypertrophy', 'endurance', 'general']);
+    });
+
+    it('showAddExerciseModal inherits the routine goal and pre-fills its defaults', async () => {
+      const { window, document } = env;
+      seedRoutine('strength');
+      window.apiCall = vi.fn(async () => []);
+      window.WorkoutLibrary = { populatePickerOptions: vi.fn(async () => {}) };
+
+      await window.showAddExerciseModal();
+
+      expect(document.getElementById('workout-exercise-goal').value).toBe('');
+      expect(document.getElementById('workout-exercise-reps-min').value).toBe('3');
+      expect(document.getElementById('workout-exercise-reps-max').value).toBe('6');
+      expect(document.getElementById('workout-exercise-progression').value).toBe('linear');
+    });
+
+    it('changing the goal pre-fills the rep-range + progression preset', async () => {
+      const { window, document } = env;
+      seedRoutine('strength');
+      window.apiCall = vi.fn(async () => []);
+      window.WorkoutLibrary = { populatePickerOptions: vi.fn(async () => {}) };
+      await window.showAddExerciseModal();
+
+      const sel = document.getElementById('workout-exercise-goal');
+      sel.value = 'endurance';
+      sel.dispatchEvent(new window.Event('change'));
+
+      expect(document.getElementById('workout-exercise-reps-min').value).toBe('15');
+      expect(document.getElementById('workout-exercise-reps-max').value).toBe('25');
+      expect(document.getElementById('workout-exercise-progression').value).toBe('double');
+    });
+
+    it('selecting Inherit resolves to the routine goal', async () => {
+      const { window, document } = env;
+      seedRoutine('strength');
+      window.apiCall = vi.fn(async () => []);
+      window.WorkoutLibrary = { populatePickerOptions: vi.fn(async () => {}) };
+      await window.showAddExerciseModal();
+
+      const sel = document.getElementById('workout-exercise-goal');
+      sel.value = '';
+      sel.dispatchEvent(new window.Event('change'));
+
+      expect(document.getElementById('workout-exercise-reps-min').value).toBe('3');
+      expect(document.getElementById('workout-exercise-reps-max').value).toBe('6');
+    });
+
+    it('an unsaved live goal change (group modal open) wins over stale cachedGroups', async () => {
+      const { window, document } = env;
+      // Saved goal is hypertrophy; user opened the plan editor and switched the
+      // goal to strength but has NOT saved yet, so cachedGroups is still stale.
+      seedRoutine('hypertrophy');
+      const groupModal = document.getElementById('workout-group-modal');
+      groupModal.classList.remove('hidden');
+      document.getElementById('workout-group-goal').value = 'strength';
+      window.apiCall = vi.fn(async () => []);
+      window.WorkoutLibrary = { populatePickerOptions: vi.fn(async () => {}) };
+
+      await window.showAddExerciseModal();
+
+      // Cascade seeds strength defaults (3/6, linear), not the stale hypertrophy.
+      expect(document.getElementById('workout-exercise-reps-min').value).toBe('3');
+      expect(document.getElementById('workout-exercise-reps-max').value).toBe('6');
+      expect(document.getElementById('workout-exercise-progression').value).toBe('linear');
+    });
+
+    it('showEditExerciseModal shows the stored override without clobbering stored fields', async () => {
+      const { window, document } = env;
+      seedRoutine('strength');
+      window.apiCall = vi.fn(async () => [{
+        id: 9,
+        exercise_name: 'Curl',
+        target_sets: 3,
+        target_reps_min: 8,
+        target_reps_max: 10,
+        order_index: 0,
+        progression_rule: { type: 'linear', increment_kg: 2.5 },
+        training_goal: 'endurance'
+      }]);
+
+      await window.showEditExerciseModal(9);
+
+      expect(document.getElementById('workout-exercise-goal').value).toBe('endurance');
+      // Stored values kept — the cascade only fires on a change, not on open.
+      expect(document.getElementById('workout-exercise-reps-min').value).toBe('8');
+      expect(document.getElementById('workout-exercise-reps-max').value).toBe('10');
+      expect(document.getElementById('workout-exercise-progression').value).toBe('linear');
+    });
+
+    it('a library pick during Edit does not clobber stored reps (Add handler leak)', async () => {
+      const { window, document } = env;
+      seedRoutine('strength');
+      // Open Add once so its name-input onchange handler + datalist get bound;
+      // that handler persists on the shared name input into the Edit open below.
+      window.apiCall = vi.fn(async () => []);
+      window.WorkoutLibrary = {
+        populatePickerOptions: vi.fn(async (dl) => {
+          const opt = document.createElement('option');
+          opt.value = 'Curl';
+          opt.dataset.repsMin = '12';
+          opt.dataset.repsMax = '15';
+          dl.appendChild(opt);
+        })
+      };
+      await window.showAddExerciseModal();
+
+      // Now edit an existing exercise with the user's own 5–8 rep targets.
+      window.apiCall = vi.fn(async () => [{
+        id: 9,
+        exercise_name: 'Row',
+        target_sets: 3,
+        target_reps_min: 5,
+        target_reps_max: 8,
+        order_index: 0,
+        progression_rule: { type: 'linear', increment_kg: 2.5 },
+        training_goal: ''
+      }]);
+      await window.showEditExerciseModal(9);
+
+      // User renames to a library match — the leaked handler must NOT overwrite
+      // the stored reps in Edit mode.
+      const nameInput = document.getElementById('workout-exercise-name');
+      nameInput.value = 'Curl';
+      nameInput.dispatchEvent(new window.Event('change'));
+
+      expect(document.getElementById('workout-exercise-reps-min').value).toBe('5');
+      expect(document.getElementById('workout-exercise-reps-max').value).toBe('8');
+    });
+
+    it('saveExercise includes the training_goal override in the payload', async () => {
+      const { window, document } = env;
+      const apiSpy = vi.fn(async () => ({ ok: true }));
+      window.apiCall = apiSpy;
+      window.invalidateWorkoutCache = vi.fn(async () => {});
+      window.loadExercisesForVariant = vi.fn();
+      window.WorkoutEdit.variantForExercise = 3;
+
+      document.getElementById('workout-exercise-name').value = 'Squat';
+      document.getElementById('workout-exercise-sets').value = '4';
+      document.getElementById('workout-exercise-reps-min').value = '8';
+      document.getElementById('workout-exercise-goal').value = 'strength';
+
+      await window.saveExercise();
+
+      expect(apiSpy.mock.calls[0][2].training_goal).toBe('strength');
     });
   });
 });

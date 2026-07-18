@@ -39,6 +39,57 @@
     });
 })();
 
+// Goal → editor defaults for the cascade (med-qj4.6.1). Canonical copy lives in
+// web/domain/workout-goals.js (cloud/goja side); duplicated here because the
+// web/static frontend loads as plain scripts, not ES modules. Keep in sync.
+// (RIR is intentionally omitted — the exercise editor has no target-RIR field.)
+const WORKOUT_GOAL_DEFAULTS = {
+    strength:    { reps_min: 3,  reps_max: 6,  progression: 'linear' },
+    hypertrophy: { reps_min: 8,  reps_max: 12, progression: 'double' },
+    endurance:   { reps_min: 15, reps_max: 25, progression: 'double' },
+    general:     { reps_min: 8,  reps_max: 12, progression: 'none' },
+};
+
+// The routine (group) that owns the exercise being edited, used to resolve an
+// "Inherit from routine" goal to a concrete one. When the group modal is open
+// (the only path that reaches "Add exercise" mid-edit), its live
+// #workout-group-goal select is the source of truth — it reflects an unsaved
+// goal change that cachedGroups (only refreshed on save) wouldn't yet see.
+// When the modal is closed, that select still holds a stale/default value, so
+// fall back to the saved cachedGroups goal.
+function routineGoalForExercise() {
+    const groupModal = document.getElementById('workout-group-modal');
+    const liveGoal = document.getElementById('workout-group-goal');
+    if (groupModal && !groupModal.classList.contains('hidden') && liveGoal && liveGoal.value) {
+        return liveGoal.value;
+    }
+    const groupId = window.WorkoutEdit.groupForVariant || window.WorkoutEdit.editingGroupId;
+    const group = (window.WorkoutEdit.cachedGroups || []).find(g => g.id === groupId);
+    return (group && group.training_goal) || 'hypertrophy';
+}
+
+// Effective goal for the cascade: the per-exercise override if picked, else the
+// routine's goal ("" in the selector = inherit).
+function effectiveExerciseGoal() {
+    return document.getElementById('workout-exercise-goal').value || routineGoalForExercise();
+}
+
+// Fill-only cascade: pre-fill rep-range + progression preset from the goal
+// defaults. Never disables editing; the user can still override every field.
+function applyGoalCascade(goal) {
+    const d = WORKOUT_GOAL_DEFAULTS[goal] || WORKOUT_GOAL_DEFAULTS.hypertrophy;
+    document.getElementById('workout-exercise-reps-min').value = d.reps_min;
+    document.getElementById('workout-exercise-reps-max').value = d.reps_max;
+    document.getElementById('workout-exercise-progression').value = d.progression;
+}
+
+// Wire the goal selector so changing it re-runs the cascade for the effective
+// goal. Idempotent (assigns onchange, not addEventListener).
+function bindGoalCascade() {
+    const goalSel = document.getElementById('workout-exercise-goal');
+    if (goalSel) goalSel.onchange = () => applyGoalCascade(effectiveExerciseGoal());
+}
+
 async function loadExercisesForVariant(variantId, containerId = 'workout-exercises-list') {
     window.WorkoutEdit.variantForExercise = variantId;
     window.WorkoutEdit.exercisesContainerId = containerId;
@@ -170,6 +221,12 @@ async function showAddExerciseModal() {
     document.getElementById('workout-exercise-progression').value = 'none';
     document.getElementById('workout-exercise-progression-increment').value = '';
 
+    // New exercise inherits the routine goal; seed the rep-range + progression
+    // defaults for it (all still editable), and wire the change cascade.
+    document.getElementById('workout-exercise-goal').value = '';
+    bindGoalCascade();
+    applyGoalCascade(routineGoalForExercise());
+
     // Load exercise library for autocomplete via the shared picker (med-prk.3).
     let datalist = document.getElementById('exercise-library-datalist');
     if (!datalist) {
@@ -187,10 +244,20 @@ async function showAddExerciseModal() {
         if (option) {
             if (!document.getElementById('workout-exercise-sets').value && option.dataset.sets)
                 document.getElementById('workout-exercise-sets').value = option.dataset.sets;
-            if (!document.getElementById('workout-exercise-reps-min').value && option.dataset.repsMin)
-                document.getElementById('workout-exercise-reps-min').value = option.dataset.repsMin;
-            if (!document.getElementById('workout-exercise-reps-max').value && option.dataset.repsMax)
-                document.getElementById('workout-exercise-reps-max').value = option.dataset.repsMax;
+            // In the Add flow reps are goal-cascade-seeded on open, so a bare
+            // `!value` guard would never let a picked library exercise's own
+            // saved reps through — a named pick is explicit, its reps win over
+            // the seed. This handler is bound only in showAddExerciseModal but
+            // leaks onto the shared name input into a later Edit open, where the
+            // reps fields hold the user's stored targets (no seed); keep the
+            // `!value` guard there so a rename doesn't clobber them.
+            const isAdd = !window.WorkoutEdit.editingExerciseId;
+            const repsMinEl = document.getElementById('workout-exercise-reps-min');
+            const repsMaxEl = document.getElementById('workout-exercise-reps-max');
+            if (option.dataset.repsMin && (isAdd || !repsMinEl.value))
+                repsMinEl.value = option.dataset.repsMin;
+            if (option.dataset.repsMax && (isAdd || !repsMaxEl.value))
+                repsMaxEl.value = option.dataset.repsMax;
             if (!document.getElementById('workout-exercise-weight').value && option.dataset.weight)
                 document.getElementById('workout-exercise-weight').value = option.dataset.weight;
         }
@@ -223,6 +290,11 @@ async function showEditExerciseModal(exerciseId) {
     document.getElementById('workout-exercise-progression').value = rule.type || 'none';
     document.getElementById('workout-exercise-progression-increment').value =
         rule.increment_kg != null ? rule.increment_kg : '';
+
+    // Show the stored override (blank = inherit); the stored rep-range +
+    // progression above are kept as-is — the cascade only fires on a change.
+    document.getElementById('workout-exercise-goal').value = exercise.training_goal || '';
+    bindGoalCascade();
 }
 
 function closeExerciseModal() {
@@ -251,6 +323,9 @@ async function saveExercise() {
         ? { type: 'none' }
         : { type: progressionType, increment_kg: incrementRaw !== '' ? parseFloat(incrementRaw) : 2.5 };
 
+    // Per-exercise goal override; blank ("Inherit from routine") clears it.
+    const trainingGoal = document.getElementById('workout-exercise-goal').value;
+
     const payload = {
         variant_id: window.WorkoutEdit.variantForExercise,
         exercise_name: name,
@@ -259,7 +334,8 @@ async function saveExercise() {
         target_reps_max: repsMax,
         target_weight_kg: weight,
         order_index: order,
-        progression_rule: progressionRule
+        progression_rule: progressionRule,
+        training_goal: trainingGoal
     };
 
     let result;
