@@ -335,6 +335,9 @@ function normalizeProgressionRule(input) {
     if (maxReps < 0) throw invalidRequest('max_reps must be non-negative');
     out.max_reps = maxReps;
   }
+  if (hasValue(out.min_reps) && hasValue(out.max_reps) && out.min_reps > out.max_reps) {
+    throw invalidRequest('min_reps must not exceed max_reps');
+  }
   return out;
 }
 
@@ -421,9 +424,11 @@ function progressionPatch(exercise, sets, reps, weight, perSet) {
   // UI re-sends every existing log on each Save), so basing the increment on
   // the mutable target_weight_kg would compound it (62.5→65→67.5…) each save.
   // The logged weight is a stable input, so `logged + increment` is idempotent
-  // — same seam the rep-climb already uses (stats.minReps + 1). Fall back to
-  // the plan target only when the log carries no weight.
-  const weightBase = hasValue(weight) ? weight : exercise.target_weight_kg;
+  // — same seam the rep-climb already uses (stats.minReps + 1). When the log
+  // carries no weight there is NO stable anchor (the plan target is the very
+  // thing we mutate, so falling back to it re-compounds), so hold the weight
+  // steady — double still resets reps, linear just holds the plan unchanged.
+  const weightBase = hasValue(weight) ? weight : null;
 
   if (rule.type === 'linear') {
     const goal = hasValue(exercise.target_reps_max) ? exercise.target_reps_max : exercise.target_reps_min;

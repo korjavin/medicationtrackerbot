@@ -548,8 +548,8 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         // User edits the exercise (e.g. changes nothing but the name). The editor
         // sends only {type, increment_kg} — no min/max. This must NOT re-anchor the
         // window to the climbed target_reps_min (11); the stored floor (8) is kept.
-        await window.apiCall('/api/workout/exercises/update', 'POST', {
-            id: ex.id, variant_id: variants[0].id, exercise_name: 'Bench Press',
+        await window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+            variant_id: variants[0].id, exercise_name: 'Bench Press',
             target_sets: 3, target_reps_min: 11, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
             progression_rule: { type: 'double', increment_kg: 5 },
         });

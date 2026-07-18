@@ -1068,6 +1068,46 @@ describe('cloud MCP workouts.progression_preview compute', () => {
     });
   });
 
+  it('holds the weight when the latest log carries no weight (no mutable-target anchor to compound)', async () => {
+    // A rule-carrying exercise whose latest completed log logged no weight has
+    // no stable anchor for the bump — falling back to the (mutable) plan target
+    // would re-compound the increment on every propagate re-fire. The rule must
+    // hold the weight steady instead.
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const records = createInMemoryRecordsPort({
+      workoutexercise: [{
+        recordId: 'ex-14', id: 14, variant_id: 3, exercise_name: 'Bench Press',
+        target_sets: 4, target_reps_min: 6, target_reps_max: 6, target_weight_kg: 60,
+        progression_rule: { type: 'linear', increment_kg: 2.5 },
+      }],
+      exerciselog: [{
+        recordId: 'log-14', id: 14, exercise_id: 14, status: 'completed',
+        sets_completed: 4, reps_completed: 6, /* weight_kg omitted */
+        logged_at: '2026-07-05T18:30:00.000Z',
+      }],
+    });
+    const router = createApiRouter(null, { records, now, timeZone: 'UTC' });
+    const { exercises } = await router('/api/workout/progression-preview', 'GET');
+    expect(exercises).toHaveLength(1);
+    expect(exercises[0]).toMatchObject({
+      exercise_id: 14,
+      changed: false,
+      proposed: { target_weight_kg: 60 },
+    });
+  });
+
+  it('rejects a double rule whose min_reps exceeds max_reps', async () => {
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const router = createApiRouter(null, {
+      records: createInMemoryRecordsPort(), now, timeZone: 'UTC',
+    });
+    await expect(router('/api/workout/exercises/create', 'POST', {
+      variant_id: 3, exercise_name: 'Bench', target_sets: 3,
+      target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+      progression_rule: { type: 'double', increment_kg: 5, min_reps: 12, max_reps: 6 },
+    })).rejects.toThrow(/min_reps must not exceed max_reps/);
+  });
+
   it('omits exercises with no rule and returns an empty list when nothing projects', async () => {
     const now = () => Date.parse('2026-07-06T12:00:00.000Z');
     const records = createInMemoryRecordsPort({
