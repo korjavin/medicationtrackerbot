@@ -226,6 +226,57 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(view.total_volume).toBe(3 * 5 * 100);
     });
 
+    // Phase 1 (epic med-qj4): per-set logging. A `sets` array nests inside the
+    // exerciselog record and round-trips through save → session-details; the
+    // flat scalars (sets_completed/reps_completed/weight_kg) are derived from
+    // it (len / max reps / max weight), so bot-compat consumers keep working.
+    it('per-set: create + update round-trip the sets array and derive the flat scalars', async () => {
+        const { window } = env;
+        await makeRotatingGroup(window, ['Push']);
+        const first = await window.apiCallDirect('/api/workout/sessions/next');
+        const sessionId = first.session.id;
+
+        // Create a placeholder-style log, then update it with three sets
+        // (one warm-up, an RPE on the top set) — the shape sessions.js sends.
+        const log = await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: sessionId, exercise_id: 1, exercise_name: 'Bench', source: 'schedule',
+            target_sets: 3, target_reps_min: 8
+        });
+
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log.id,
+            sets: [
+                { set_index: 0, weight_kg: 20, reps: 10, set_type: 'warmup' },
+                { set_index: 1, weight_kg: 60, reps: 8, set_type: 'normal' },
+                { set_index: 2, weight_kg: 65, reps: 6, rpe: 9, set_type: 'normal' },
+            ],
+            // sessions.js keeps the derived flat fields alongside sets; the
+            // domain recomputes them, so the values here are irrelevant.
+            sets_completed: 3, reps_completed: 8, weight_kg: 65,
+        });
+
+        let details = await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`);
+        expect(details.logs[0].sets).toHaveLength(3);
+        expect(details.logs[0].sets[0].set_type).toBe('warmup');
+        expect(details.logs[0].sets[2].rpe).toBe(9);
+        // Derived scalars: len=3, max reps=10, max weight=65 — auto-promoted.
+        expect(details.logs[0].sets_completed).toBe(3);
+        expect(details.logs[0].reps_completed).toBe(10);
+        expect(details.logs[0].weight_kg).toBe(65);
+        expect(details.logs[0].status).toBe('completed');
+
+        // A second update replaces the whole array.
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log.id,
+            sets: [{ set_index: 0, weight_kg: 70, reps: 5, set_type: 'normal' }],
+        });
+        details = await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`);
+        expect(details.logs[0].sets).toHaveLength(1);
+        expect(details.logs[0].sets_completed).toBe(1);
+        expect(details.logs[0].weight_kg).toBe(70);
+        expect(details.logs[0].reps_completed).toBe(5);
+    });
+
     // bd med-9tx: at most one active session at a time. A second ad-hoc Start
     // while one is already active must resume the existing session, not mint a
     // duplicate — matching service.go's CreateAdHocSession guard.

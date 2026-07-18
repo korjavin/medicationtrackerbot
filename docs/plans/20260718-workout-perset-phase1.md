@@ -55,11 +55,11 @@ the scalar aggregates are still derived and correct; and **bot mode is unchanged
 ## Implementation Steps
 
 ### Task 1: Persist per-set in the cloud exerciselog domain
-- [ ] In `web/domain/workout.js` `createLog` (`:1069`) and `updateLog` (`:1130`): accept optional `input.sets` = array of `{set_index, weight_kg, reps, rpe?, set_type}`; validate each entry (extend `validateExerciseValues`: `set_type ∈ {normal,warmup,drop,failure}` default `normal`, `weight_kg>=0`, `reps>=0`, `rpe` optional 1–10); store the normalized array on the record body.
-- [ ] Derive and keep the scalar aggregates from `sets` when present: `sets_completed=len(sets)`, `reps_completed=max(reps)`, `weight_kg=max(weight_kg)` (mirrors the Go `mergePayloadValues` contract) so `propagateExerciseToSchedule`, stats, and history keep working; when `sets` is absent, preserve today's flat behavior.
-- [ ] `toLogResponse` (`:233`): emit `sets` when present (whitelist add). Placeholder writer (`:898-913`): default `sets: []` (optional).
-- [ ] Extend `web/static/js/tests/cloud.shim-contract.workout-sessions.test.js`: create + update a log with a multi-set `sets` array, assert round-trip via `/sessions/details` returns the sets and the derived scalars; a warm-up-tagged set is stored with its `set_type`.
-- [ ] Run the cloud shim-contract workout suites — must pass before Task 2.
+- [x] In `web/domain/workout.js` `createLog` (`:1069`) and `updateLog` (`:1130`): accept optional `input.sets` = array of `{set_index, weight_kg, reps, rpe?, set_type}`; validate each entry (extend `validateExerciseValues`: `set_type ∈ {normal,warmup,drop,failure}` default `normal`, `weight_kg>=0`, `reps>=0`, `rpe` optional 1–10); store the normalized array on the record body.
+- [x] Derive and keep the scalar aggregates from `sets` when present: `sets_completed=len(sets)`, `reps_completed=max(reps)`, `weight_kg=max(weight_kg)` (mirrors the Go `mergePayloadValues` contract) so `propagateExerciseToSchedule`, stats, and history keep working; when `sets` is absent, preserve today's flat behavior.
+- [x] `toLogResponse` (`:233`): emit `sets` when present (whitelist add). Placeholder writer (`:898-913`): default `sets: []` (optional).
+- [x] Extend `web/static/js/tests/cloud.shim-contract.workout-sessions.test.js`: create + update a log with a multi-set `sets` array, assert round-trip via `/sessions/details` returns the sets and the derived scalars; a warm-up-tagged set is stored with its `set_type`.
+- [x] Run the cloud shim-contract workout suites — must pass before Task 2.
 
 ### Task 2: Per-set entry UI in the shared sessions.js
 - [ ] In `web/static/js/features/workout/sessions.js`, replace the single Sets/Reps/Weight row (`renderWorkoutSessionExercise` / `createNumberInputGroup` `:200-250`) with N **repeatable set rows**: per row `weight`, `reps`, optional `rpe`, and a `set_type` selector; add-set / remove-set controls. Update `updateLocalLog` (`:323`) to hold the array.
