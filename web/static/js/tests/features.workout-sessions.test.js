@@ -416,6 +416,41 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(logs.filter((l) => l.exercise_name === 'Bench').length).toBe(1);
   });
 
+  // A plan can carry the same exercise name twice with different targets.
+  // Logging one must not hide the other un-logged row — the snapshot path
+  // dedupes by exercise_id, not name.
+  it('keeps a duplicate-named un-logged snapshot row when its twin is logged', async () => {
+    const { window } = env;
+    installApiCache(window);
+    window.ModalManager.workoutSession.open = vi.fn();
+
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/details')) {
+        return {
+          session: {
+            id: 44, status: 'completed', variant_id: 7,
+            exercise_snapshot: [
+              { exercise_id: 1, exercise_name: 'Bench', target_sets: 5, target_reps_min: 5, target_weight_kg: 60, order_index: 0 },
+              { exercise_id: 2, exercise_name: 'Bench', target_sets: 3, target_reps_min: 12, target_weight_kg: 40, order_index: 1 }
+            ]
+          },
+          logs: [{ id: 5, exercise_id: 1, exercise_name: 'Bench', sets_completed: 5, reps_completed: 5, weight_kg: 60 }]
+        };
+      }
+      return [];
+    });
+
+    await window.WorkoutSessions.open(44);
+
+    const benches = window.WorkoutSessionsState.logs.filter((l) => l.exercise_name === 'Bench');
+    // Logged id=1 row + still-un-logged id=2 row (the drop-set) = 2 rows.
+    expect(benches.length).toBe(2);
+    const unlogged = benches.find((l) => l.exercise_id === 2);
+    expect(unlogged).toBeTruthy();
+    expect(unlogged.reps_completed).toBe(12);
+    expect(unlogged._dirty).toBe(false);
+  });
+
   // Regression: editing an un-logged planned row of a completed (snapshotted)
   // session must save. Snapshot rows used to mint exercise_id 0, which
   // logs/create rejects ("SessionID and ExerciseID are required"), bricking the

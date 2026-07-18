@@ -268,18 +268,28 @@ async function showWorkoutSessionModal(sessionId) {
             try {
                 // Prefer the completion snapshot (immutable "plan as performed") so
                 // later variant/library/target edits don't rewrite this session.
-                // Snapshot rows dedupe against logs by name; each still carries its
-                // exercise_id so editing an un-logged planned row can save (a
-                // logs/create with exercise_id 0 is rejected). Fall back to the
-                // live variant for legacy (snapshot-less) sessions.
+                // Each snapshot row carries its exercise_id so editing an un-logged
+                // planned row can save (a logs/create with exercise_id 0 is
+                // rejected). Dedupe against logs by exercise_id when the row has
+                // one — so a plan with the same exercise name twice keeps both
+                // un-logged rows visible — and fall back to name only for legacy
+                // (id-less) snapshot rows. Fall back to the live variant entirely
+                // for legacy (snapshot-less) sessions.
                 const snapshot = sessionData.exercise_snapshot;
                 let plannedMissingLogs;
                 if (Array.isArray(snapshot)) {
+                    const loggedIds = new Set(
+                        window.WorkoutSessionsState.logs
+                            .filter(log => log.exercise_id)
+                            .map(log => log.exercise_id)
+                    );
                     const loggedNames = new Set(
                         window.WorkoutSessionsState.logs.map(log => log.exercise_name)
                     );
                     plannedMissingLogs = snapshot
-                        .filter(ex => !loggedNames.has(ex.exercise_name))
+                        .filter(ex => ex.exercise_id
+                            ? !loggedIds.has(ex.exercise_id)
+                            : !loggedNames.has(ex.exercise_name))
                         .map(ex => ({
                             id: 0,
                             exercise_id: ex.exercise_id || 0,

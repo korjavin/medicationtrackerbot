@@ -971,8 +971,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     };
     // Snapshot the planned exercises + targets so later edits to the variant,
     // library, or targets don't retroactively rewrite this completed session.
-    // Ad-hoc sessions render exclusively from logs, so skip them.
-    if (session.variant_id !== ADHOC_ID) {
+    // Ad-hoc sessions render exclusively from logs, so skip them. The snapshot
+    // is immutable "plan as performed": once a session carries one (already
+    // spread into `updated`), a repeat/retry completed-status call must not
+    // rebuild it against a now-changed variant.
+    if (session.variant_id !== ADHOC_ID && !updated.exercise_snapshot) {
       updated.exercise_snapshot = (await listExercises(session.variant_id)).map((e) => ({
         exercise_id: e.id,
         exercise_name: e.exercise_name,

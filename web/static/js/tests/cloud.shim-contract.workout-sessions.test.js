@@ -265,6 +265,30 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(sessions.find((s) => s.session.id === sessionId).exercises_count).toBe(1);
     });
 
+    // The snapshot is immutable: a repeat/retry completed-status call after the
+    // variant changed must NOT rebuild it against the now-changed plan.
+    it('re-completing a session does not rewrite its existing snapshot', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_weight_kg: 60, order_index: 0
+        });
+
+        const first = await window.apiCallDirect('/api/workout/sessions/next');
+        const sessionId = first.session.id;
+        await window.apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
+        const before = await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`);
+
+        // Change the plan, then flip the completed status again (a retry).
+        await window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+            exercise_name: 'Bench', target_sets: 9, target_reps_min: 1, target_weight_kg: 200, order_index: 0
+        });
+        await window.apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
+
+        const after = await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`);
+        expect(after.session.exercise_snapshot).toEqual(before.session.exercise_snapshot);
+    });
+
     it('a snapshot-less (legacy) session falls back to the live variant for exercises_count', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);
