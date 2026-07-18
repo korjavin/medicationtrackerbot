@@ -401,6 +401,31 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(target.target_reps_max).toBe(10);
     });
 
+    it('progression linear: re-saving the same qualifying log is idempotent (does not compound the increment)', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // First save bumps 60 → 62.5.
+        await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+
+        // The UI re-sends every existing log on each Save (sessions.js) while the
+        // session is still in progress. Re-updating the SAME log with identical
+        // sets must NOT add the increment again — the bump anchors to the logged
+        // weight, not the (already-bumped) plan target.
+        const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+        const sets = Array.from({ length: 3 }, (_, i) => ({ set_index: i, weight_kg: 60, reps: 10, set_type: 'normal' }));
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', { id: log.id, sets });
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', { id: log.id, sets, notes: 'edited' });
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+    });
+
     it('progression linear: holds the target steady when the rep target is missed on a set', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);

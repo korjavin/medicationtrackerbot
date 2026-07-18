@@ -416,7 +416,14 @@ function progressionPatch(exercise, sets, reps, weight, perSet) {
   const stats = workSetStats(sets, reps, perSet);
   const setsOk = stats && (!hasValue(exercise.target_sets) || stats.count >= exercise.target_sets);
   if (!setsOk) return {};
-  const weightBase = hasValue(exercise.target_weight_kg) ? exercise.target_weight_kg : weight;
+  // Anchor the bump to the LOGGED weight, not the live plan target. propagate
+  // re-fires on every log write while the session is pending/in_progress (the
+  // UI re-sends every existing log on each Save), so basing the increment on
+  // the mutable target_weight_kg would compound it (62.5→65→67.5…) each save.
+  // The logged weight is a stable input, so `logged + increment` is idempotent
+  // — same seam the rep-climb already uses (stats.minReps + 1). Fall back to
+  // the plan target only when the log carries no weight.
+  const weightBase = hasValue(weight) ? weight : exercise.target_weight_kg;
 
   if (rule.type === 'linear') {
     const goal = hasValue(exercise.target_reps_max) ? exercise.target_reps_max : exercise.target_reps_min;
