@@ -34,6 +34,7 @@
 
 import { localDateParts, localWallToUtcMs } from './medschedule.js';
 import { formatHHMM } from './reminders.js';
+import { normalizeGoal } from './workout-goals.js';
 
 const WORKOUT_RECORD_TYPES = {
   GROUP: 'workoutgroup',
@@ -144,6 +145,7 @@ function toGroupResponse(record) {
     scheduled_time: record.scheduled_time,
     notification_advance_minutes: record.notification_advance_minutes || 0,
     active: !!record.active,
+    training_goal: normalizeGoal(record.training_goal),
     created_at: record.created_at,
     updated_at: record.updated_at,
   };
@@ -580,6 +582,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       days_of_week: (input && input.days_of_week) || '[]',
       scheduled_time: (input && input.scheduled_time) || '',
       notification_advance_minutes: Number(input && input.notification_advance_minutes) || 0,
+      training_goal: normalizeGoal(input && input.training_goal),
       // CreateGroup's INSERT omits the `active` column, so it always takes
       // the schema DEFAULT 1 regardless of what the create request sends.
       active: true,
@@ -614,6 +617,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       days_of_week: (input && input.days_of_week) || '[]',
       scheduled_time: (input && input.scheduled_time) || '',
       notification_advance_minutes: Number(input && input.notification_advance_minutes) || 0,
+      training_goal: normalizeGoal(input && input.training_goal),
       active: !!(input && input.active),
       clientTs: nowMs,
       updated_at: new Date(nowMs).toISOString(),

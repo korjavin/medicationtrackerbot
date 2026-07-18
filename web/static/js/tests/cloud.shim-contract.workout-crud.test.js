@@ -40,6 +40,32 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
         expect(list[0].scheduled_time).toBe('19:00');
     });
 
+    it('training_goal round-trips and defaults to hypertrophy', async () => {
+        const { window } = env;
+        // Explicit goal is stored + returned.
+        const strong = await window.apiCall('/api/workout/groups/create', 'POST', {
+            name: 'Strength Block', training_goal: 'strength'
+        });
+        let list = await window.apiCallDirect('/api/workout/groups');
+        expect(list.find(g => g.id === strong.id).training_goal).toBe('strength');
+
+        // Omitted goal defaults to hypertrophy.
+        const dflt = await window.apiCall('/api/workout/groups/create', 'POST', { name: 'No Goal' });
+        list = await window.apiCallDirect('/api/workout/groups');
+        expect(list.find(g => g.id === dflt.id).training_goal).toBe('hypertrophy');
+
+        // Update to a new goal round-trips; invalid falls back to hypertrophy.
+        await window.apiCall(`/api/workout/groups/update?id=${strong.id}`, 'PUT', {
+            name: 'Strength Block', training_goal: 'endurance'
+        });
+        await window.apiCall(`/api/workout/groups/update?id=${dflt.id}`, 'PUT', {
+            name: 'No Goal', training_goal: 'bogus'
+        });
+        list = await window.apiCallDirect('/api/workout/groups');
+        expect(list.find(g => g.id === strong.id).training_goal).toBe('endurance');
+        expect(list.find(g => g.id === dflt.id).training_goal).toBe('hypertrophy');
+    });
+
     it('deleting a group with variants still holding exercises is rejected', async () => {
         const { window } = env;
         const group = await window.apiCall('/api/workout/groups/create', 'POST', { name: 'Push' });

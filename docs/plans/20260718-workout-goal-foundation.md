@@ -58,10 +58,10 @@ ignores the unknown fields), doesn't break.
 - [x] Run it + `architecture.domain-purity.test.js` (Node 20) — must pass before Task 2.
 
 ### Task 2: training_goal on the group record + group-create UI
-- [ ] `web/domain/workout.js`: add `training_goal` to `createGroup` (`:569`, default `'hypertrophy'`), `updateGroup` (`:603`), and `toGroupResponse` (`:137`). Validate against the enum (default hypertrophy on invalid/empty).
-- [ ] `web/static/index.html` + `web/static/js/features/workout/groups.js`: add a `<select id="workout-group-goal">` (Strength/Hypertrophy/Endurance/General) to the group modal; populate it in `showEditGroup` (`:290`); include `training_goal` in the `saveGroup` payload (`:473`); default the add-modal to hypertrophy.
-- [ ] Shim-contract test: create/update a group with `training_goal` → GET round-trips it; default is hypertrophy.
-- [ ] Run the group + shim-contract suites (Node 20) — must pass before Task 3.
+- [x] `web/domain/workout.js`: add `training_goal` to `createGroup` (`:569`, default `'hypertrophy'`), `updateGroup` (`:603`), and `toGroupResponse` (`:137`). Validate against the enum (default hypertrophy on invalid/empty). Uses `normalizeGoal` from `workout-goals.js`.
+- [x] `web/static/index.html` + `web/static/js/features/workout/groups.js`: add a `<select id="workout-group-goal">` (Strength/Hypertrophy/Endurance/General) to the group modal; populate it in `showEditGroup`; include `training_goal` in the `saveGroup` payload; default the add-modal to hypertrophy.
+- [x] Shim-contract test: create/update a group with `training_goal` → GET round-trips it; default is hypertrophy.
+- [x] Run the group + shim-contract suites (Node 20) — must pass before Task 3.
 
 ### Task 3: Per-exercise goal override + cascade in the exercise editor
 - [ ] `web/domain/workout.js`: add optional `training_goal` to `createExercise`/`updateExercise`/`toExerciseResponse` (emit only when set; absent = inherit from the routine).
