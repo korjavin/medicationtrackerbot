@@ -35,16 +35,22 @@
     }
 
     // isPRLog: does `log` set a new record against `priorPRs` (the folded PRs of
-    // that exercise's history EXCLUDING this log's session)? True when any of the
-    // log's non-warmup sets beats the prior heaviest weight or best est-1RM.
+    // that exercise's history EXCLUDING this log's session)? Folds this log's own
+    // sets via exercisePRs (so warm-up exclusion + every PR type stay in one place)
+    // and returns true when any record — heaviest weight, best est-1RM, best set
+    // volume, best session volume, most reps, or a per-rep-count set-record —
+    // beats the prior baseline.
     function isPRLog(log, priorPRs, WA) {
-        if (!log || !priorPRs || !WA) return false;
-        const sets = Array.isArray(log.sets) ? log.sets.filter((s) => s && s.set_type !== 'warmup') : [];
-        for (const s of sets) {
-            const w = Number(s.weight_kg) || 0;
-            const r = Number(s.reps) || 0;
-            if (w > (priorPRs.heaviest_weight || 0)) return true;
-            if (WA.estimated1RM(w, r) > (priorPRs.best_est_1rm || 0)) return true;
+        if (!log || !priorPRs || !WA || typeof WA.exercisePRs !== 'function') return false;
+        const cur = WA.exercisePRs([log]);
+        if (cur.heaviest_weight > (priorPRs.heaviest_weight || 0)) return true;
+        if (cur.best_est_1rm > (priorPRs.best_est_1rm || 0)) return true;
+        if (cur.best_set_volume > (priorPRs.best_set_volume || 0)) return true;
+        if (cur.best_session_volume > (priorPRs.best_session_volume || 0)) return true;
+        if (cur.most_reps > (priorPRs.most_reps || 0)) return true;
+        const priorSet = priorPRs.set_records || {};
+        for (const [reps, w] of Object.entries(cur.set_records || {})) {
+            if (w > (priorSet[reps] || 0)) return true;
         }
         return false;
     }
@@ -148,6 +154,27 @@
             ];
             rows.forEach(([label, value]) => list.appendChild(_recordRow(label, value)));
             root.appendChild(list);
+
+            // Per-rep-count set-records (heaviest weight lifted for exactly N reps).
+            // Computed by exercisePRs but otherwise unsurfaced — list ascending by reps.
+            const setRecords = prs.set_records && typeof prs.set_records === 'object' ? prs.set_records : {};
+            const repCounts = Object.keys(setRecords)
+                .map(Number)
+                .filter((n) => n > 0)
+                .sort((a, b) => a - b);
+            if (repCounts.length) {
+                const repHeading = document.createElement('div');
+                repHeading.className = 'wg-section-label wg-workouts-stats__section-label';
+                repHeading.textContent = 'Rep-max records';
+                root.appendChild(repHeading);
+
+                const repList = document.createElement('ul');
+                repList.className = 'wg-workouts-stats__top-exercises wg-workouts-exercise-detail__records';
+                repCounts.forEach((reps) => {
+                    repList.appendChild(_recordRow(`${reps} rep${reps === 1 ? '' : 's'}`, _fmtWeight(setRecords[reps])));
+                });
+                root.appendChild(repList);
+            }
         } else {
             const unavailable = document.createElement('p');
             unavailable.className = 'text-hint wg-workouts-exercise-detail__unavailable';

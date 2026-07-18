@@ -191,6 +191,37 @@ describe('features/workout/stats.js — split-file integration', () => {
       expect(window.WorkoutExerciseDetail.isPRLog(beats, priorPRs, WorkoutAnalysis)).toBe(true);
       expect(window.WorkoutExerciseDetail.isPRLog(ties, priorPRs, WorkoutAnalysis)).toBe(false);
     });
+
+    it('isPRLog fires on set-volume / most-reps / rep-max records, not just heaviest+1RM', () => {
+      const { window } = env;
+      // Prior best: a heavy low-rep set (100 kg × 5). New: lighter but higher-rep
+      // (80 kg × 12) — not heavier and lower est-1RM (112 < 116.67), but a new best
+      // set volume (960 > 500), most reps (12 > 5), and a fresh 12-rep record.
+      const priorPRs = WorkoutAnalysis.exercisePRs([
+        { sets: [{ weight_kg: 100, reps: 5, set_type: 'normal' }] },
+      ]);
+      const volumePR = { sets: [{ weight_kg: 80, reps: 12, set_type: 'normal' }] };
+      expect(window.WorkoutExerciseDetail.isPRLog(volumePR, priorPRs, WorkoutAnalysis)).toBe(true);
+    });
+
+    it('renderDetail surfaces per-rep-count set-records', () => {
+      const { window, document } = env;
+      const root = document.createElement('div');
+      const prs = {
+        heaviest_weight: 100,
+        best_est_1rm: 116.67,
+        best_set_volume: 960,
+        best_session_volume: 1500,
+        most_reps: 12,
+        set_records: { 5: 100, 12: 80 },
+      };
+      window.WorkoutExerciseDetail.renderDetail(root, 'Bench Press', prs, []);
+      expect(root.textContent).toContain('Rep-max records');
+      const repNames = Array.from(root.querySelectorAll('.wg-workouts-exercise-detail__record .wg-workouts-stats__top-row-name'))
+        .map((n) => n.textContent);
+      expect(repNames).toContain('5 reps');
+      expect(repNames).toContain('12 reps');
+    });
   });
 
   // Phase 3 — PR badge on the session log card.
