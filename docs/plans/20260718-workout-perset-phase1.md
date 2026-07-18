@@ -69,9 +69,9 @@ the scalar aggregates are still derived and correct; and **bot mode is unchanged
 - [x] Run the workout feature + cloud shim-contract suites — must pass before Task 3. (53 tests pass.)
 
 ### Task 3: Confirm bot mode is not regressed (the coupling risk)
-- [ ] Read the Go log handlers (`internal/server/workout_handlers.go` `AddExerciseToSession` / `UpdateExerciseLog` request decoding): confirm they use plain `json.Unmarshal` / `json.NewDecoder` WITHOUT `DisallowUnknownFields`, so the extra `sets` key is silently ignored and the flat fields still drive bot storage.
-- [ ] If (and only if) unknown-field rejection is enabled anywhere on that path, gate the `sets` field out of the body in bot mode (`!window.__MEDTRACKER_CLOUD__`) rather than changing Go. Document the decision in `docs/workout-depth.md`.
-- [ ] Run `go build ./...` + `go test ./internal/server/... -run Workout` — must pass (bot unchanged) before Task 4.
+- [x] Read the Go log handlers (`internal/server/workout_handlers.go` `AddExerciseToSession` / `UpdateExerciseLog` request decoding): confirm they use plain `json.Unmarshal` / `json.NewDecoder` WITHOUT `DisallowUnknownFields`, so the extra `sets` key is silently ignored and the flat fields still drive bot storage. (Both handlers use plain `json.NewDecoder(...).Decode`; the only `DisallowUnknownFields` in `internal/server` is in the unrelated `settings_integrations_handlers.go`.)
+- [x] If (and only if) unknown-field rejection is enabled anywhere on that path, gate the `sets` field out of the body in bot mode (`!window.__MEDTRACKER_CLOUD__`) rather than changing Go. Document the decision in `docs/workout-depth.md`. (N/A — no unknown-field rejection on the log path, so no gating needed.)
+- [x] Run `go build ./...` + `go test ./internal/server/... -run Workout` — must pass (bot unchanged) before Task 4. (Both pass.)
 
 ### Task 4: Verify acceptance + full suite
 - [ ] Verify: cloud logs multiple sets/exercise (weight×reps, warm-up flag, optional RPE) round-tripping through save → session-details; derived scalars correct; bot mode unchanged.
