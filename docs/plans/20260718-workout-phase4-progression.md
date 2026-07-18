@@ -44,10 +44,10 @@ previews next targets without saving.
 - [x] Run the shim-contract workout suites — must pass before Task 2.
 
 ### Task 2: Upgrade propagateExerciseToSchedule to apply the rule
-- [ ] Thread the completed log's `sets` array into `propagateExerciseToSchedule` (from `createLog`/`updateLog`); keep the existing guards.
-- [ ] Branch on `exercise.progression_rule.type`: `none` → current mirror; `linear` → if every work (non-warmup) set met `target_reps_max` (and set count ≥ `target_sets`), `target_weight_kg += increment_kg`; `double` → within `[min_reps,max_reps]`: bump reps toward max; at max on all sets → `target_weight_kg += increment_kg` and reset reps to `min_reps`. Fall back to `reps_completed` (max) when `sets` absent.
-- [ ] Write shim-contract tests: linear rule → +increment when rep target met on all sets (and NOT when unmet); double-progression rep-then-weight; `none` unchanged (mirror).
-- [ ] Run the suites — must pass before Task 3.
+- [x] Thread the completed log's `sets` array into `propagateExerciseToSchedule` (from `createLog`/`updateLog`); keep the existing guards.
+- [x] Branch on `exercise.progression_rule.type`: `none` → current mirror; `linear` → if every work (non-warmup) set met `target_reps_max` (and set count ≥ `target_sets`), `target_weight_kg += increment_kg`; `double` → within `[min_reps,max_reps]`: bump reps toward max; at max on all sets → `target_weight_kg += increment_kg` and reset reps to `min_reps`. Fall back to `reps_completed` (max) when `sets` absent.
+- [x] Write shim-contract tests: linear rule → +increment when rep target met on all sets (and NOT when unmet); double-progression rep-then-weight; `none` unchanged (mirror).
+- [x] Run the suites — must pass before Task 3.
 
 ### Task 3: Progression-rule selector in the exercise editor
 - [ ] Add a `<select id="workout-exercise-progression">` (None / Linear / Double progression) + an increment `<input id="workout-exercise-progression-increment">` to the exercise modal (`web/static/index.html` ~:1347, before Order). Reuse `wg-workouts-exercise-modal__label`/`__input` classes.

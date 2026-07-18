@@ -350,6 +350,78 @@ function deriveSetScalars(sets) {
   };
 }
 
+// workSetStats reduces a completed log to the two numbers the progression
+// rules inspect: the count of work (non-warmup) sets and the *minimum* reps
+// across them ("hit the target on ALL sets" ⟺ min >= target). Prefers the
+// per-set array (Phase 1); when absent, falls back to the derived scalars —
+// `sets`=sets_completed (count), `reps`=reps_completed (max). Returns null when
+// there's nothing to judge (no reps logged), so the rule leaves the plan alone.
+function workSetStats(sets, reps, perSet) {
+  if (Array.isArray(perSet) && perSet.length > 0) {
+    const work = perSet.filter((s) => s.set_type !== 'warmup');
+    if (work.length === 0) return null;
+    return { count: work.length, minReps: Math.min(...work.map((s) => s.reps)) };
+  }
+  if (!hasValue(reps)) return null;
+  return { count: hasValue(sets) ? sets : 0, minReps: reps };
+}
+
+// mirrorPatch is today's "mirror last performance" write-back: best-effort
+// COALESCE of the logged scalars onto the plan targets, widening
+// target_reps_max→null when the log exceeds it. This is the `none` (and
+// default) progression behavior.
+function mirrorPatch(exercise, sets, reps, weight) {
+  const targetRepsMax = (hasValue(reps) && hasValue(exercise.target_reps_max) && reps > exercise.target_reps_max)
+    ? null : exercise.target_reps_max;
+  return {
+    target_sets: hasValue(sets) ? sets : exercise.target_sets,
+    target_reps_min: hasValue(reps) ? reps : exercise.target_reps_min,
+    target_reps_max: targetRepsMax,
+    target_weight_kg: hasValue(weight) ? weight : exercise.target_weight_kg,
+  };
+}
+
+// progressionPatch computes the plan-target delta for a completed log under the
+// exercise's opt-in progression rule (Phase 4, med-qj4.4.1). Returns a partial
+// patch merged over the existing record; {} means "leave the plan unchanged"
+// (condition not met — the rule holds the target steady rather than mirroring).
+//   linear: all work sets hit target_reps_max (and set count >= target_sets)
+//           → target_weight_kg += increment_kg; rep range stays fixed.
+//   double: rep window [min,max] (defaults from the exercise's rep targets) —
+//           all sets at max → weight += increment_kg and reps reset to min;
+//           else all sets >= min → prescribed reps climb one toward max.
+function progressionPatch(exercise, sets, reps, weight, perSet) {
+  const rule = exercise.progression_rule;
+  if (!rule || rule.type === 'none') return mirrorPatch(exercise, sets, reps, weight);
+  const stats = workSetStats(sets, reps, perSet);
+  const setsOk = stats && (!hasValue(exercise.target_sets) || stats.count >= exercise.target_sets);
+  if (!setsOk) return {};
+  const weightBase = hasValue(exercise.target_weight_kg) ? exercise.target_weight_kg : weight;
+
+  if (rule.type === 'linear') {
+    const goal = hasValue(exercise.target_reps_max) ? exercise.target_reps_max : exercise.target_reps_min;
+    if (hasValue(goal) && stats.minReps >= goal && hasValue(weightBase)) {
+      return { target_weight_kg: weightBase + rule.increment_kg };
+    }
+    return {};
+  }
+
+  // double progression
+  const min = hasValue(rule.min_reps) ? rule.min_reps : exercise.target_reps_min;
+  const max = hasValue(rule.max_reps) ? rule.max_reps
+    : (hasValue(exercise.target_reps_max) ? exercise.target_reps_max : exercise.target_reps_min);
+  if (!hasValue(min) || !hasValue(max)) return {};
+  if (stats.minReps >= max) {
+    const patch = { target_reps_min: min, target_reps_max: max };
+    if (hasValue(weightBase)) patch.target_weight_kg = weightBase + rule.increment_kg;
+    return patch;
+  }
+  if (stats.minReps >= min) {
+    return { target_reps_min: Math.min(stats.minReps + 1, max), target_reps_max: max };
+  }
+  return {};
+}
+
 const VALID_LOG_STATUSES = new Set(['', 'completed', 'skipped']);
 
 // assertNoDuplicateLibraryName ports the DB's
@@ -1162,20 +1234,18 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // WHERE clause encodes (exercise id+name match, and the session is still
   // pending/notified/in_progress with that exercise's variant) — a mismatch
   // on any of them is a silent no-op, matching the SQL affecting zero rows.
-  async function propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, sets, reps, weight) {
+  async function propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, sets, reps, weight, perSet) {
     const session = await findSession(sessionId);
     if (!session || !['pending', 'notified', 'in_progress'].includes(session.status)) return;
     const exercise = await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, exerciseId);
     if (!exercise || exercise.exercise_name !== exerciseName || exercise.variant_id !== session.variant_id) return;
 
-    const targetRepsMax = (hasValue(reps) && hasValue(exercise.target_reps_max) && reps > exercise.target_reps_max)
-      ? null : exercise.target_reps_max;
+    // `none`/absent rule → mirror; linear/double → apply the opt-in rule. An
+    // unmet rule returns {} (plan held steady), so the spread leaves it as-is.
+    const patch = progressionPatch(exercise, sets, reps, weight, perSet);
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, {
       ...exercise,
-      target_sets: hasValue(sets) ? sets : exercise.target_sets,
-      target_reps_min: hasValue(reps) ? reps : exercise.target_reps_min,
-      target_reps_max: targetRepsMax,
-      target_weight_kg: hasValue(weight) ? weight : exercise.target_weight_kg,
+      ...patch,
       clientTs: now(),
     });
   }
@@ -1245,7 +1315,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (source !== 'library') {
       const propagateSets = effSets === 0 ? null : effSets;
       const propagateReps = effReps === 0 ? null : effReps;
-      await propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, propagateSets, propagateReps, effWeight);
+      await propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, propagateSets, propagateReps, effWeight, perSet);
     }
 
     return { id: record.id };
@@ -1321,7 +1391,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (log.source !== 'library') {
       const propagateSets = sets === 0 ? null : sets;
       const propagateReps = reps === 0 ? null : reps;
-      await propagateExerciseToSchedule(log.session_id, log.exercise_id, log.exercise_name, propagateSets, propagateReps, weight);
+      await propagateExerciseToSchedule(log.session_id, log.exercise_id, log.exercise_name, propagateSets, propagateReps, weight, perSet);
     }
   }
 
