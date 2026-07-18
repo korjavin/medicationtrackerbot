@@ -120,7 +120,11 @@ function invalidRequest(message, code) {
 function numOrNull(v, isInt) {
   if (v === null || v === undefined || v === '') return null;
   const n = Number(v);
-  if (Number.isNaN(n)) return null;
+  // Reject non-finite (NaN and ±Infinity): a JSON literal like 1e999 parses to
+  // Infinity, and `weightBase + Infinity` would poison target_weight_kg (which
+  // then JSON.stringifies to null, corrupting the plan). Number.isFinite also
+  // excludes NaN, preserving the prior blank/NaN→null behavior.
+  if (!Number.isFinite(n)) return null;
   return isInt ? Math.trunc(n) : n;
 }
 
@@ -456,7 +460,14 @@ function progressionPatch(exercise, sets, reps, weight, perSet) {
     return patch;
   }
   if (stats.minReps >= min) {
-    return { target_reps_min: Math.min(stats.minReps + 1, max), target_reps_max: max };
+    // Track the logged weight here too. propagate merges partial patches over the
+    // live (possibly already-bumped) plan, so if an earlier same-session save hit
+    // max (reset → weight += increment) and a later edit drops to a mere climb,
+    // omitting the weight key would leave the un-earned bump stuck on the plan.
+    // weightBase is the stable logged weight, so this is idempotent.
+    const patch = { target_reps_min: Math.min(stats.minReps + 1, max), target_reps_max: max };
+    if (hasValue(weightBase)) patch.target_weight_kg = weightBase;
+    return patch;
   }
   return {};
 }
@@ -1452,12 +1463,21 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (log.source !== 'library') {
       const propagateSets = sets === 0 ? null : sets;
       const propagateReps = reps === 0 ? null : reps;
+      // Feed progression the EFFECTIVE stored per-set array, not the request-only
+      // `perSet` (null when the update omits `sets` — e.g. a notes-only re-save).
+      // Without this, workSetStats falls back to reps_completed (the MAX) as the
+      // per-set min, so a heterogeneous log like [12,8] would falsely read "all
+      // sets hit 12" and advance the plan on a benign edit. `setsWrite` already
+      // holds the reconciled array: {sets:perSet} kept, {sets:[]} dropped, or {}
+      // meaning the stored log.sets is preserved.
+      const finalSets = perSet ? perSet : ('sets' in setsWrite ? setsWrite.sets : log.sets);
+      const propagatePerSet = Array.isArray(finalSets) && finalSets.length > 0 ? finalSets : null;
       // Pass effWeight (the stored logged weight when the update omits weight_kg),
       // not the raw input weight: progressionPatch anchors its bump to this value,
       // so a re-save that changes reps but omits weight falls back to the stable
       // logged weight rather than the mutable plan target (which would compound
       // the increment on each save). Matches createLog, which passes effWeight.
-      await propagateExerciseToSchedule(log.session_id, log.exercise_id, log.exercise_name, propagateSets, propagateReps, effWeight, perSet);
+      await propagateExerciseToSchedule(log.session_id, log.exercise_id, log.exercise_name, propagateSets, propagateReps, effWeight, propagatePerSet);
     }
   }
 
