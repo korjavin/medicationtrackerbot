@@ -120,7 +120,11 @@ function invalidRequest(message, code) {
 function numOrNull(v, isInt) {
   if (v === null || v === undefined || v === '') return null;
   const n = Number(v);
-  if (Number.isNaN(n)) return null;
+  // Reject non-finite (NaN and ±Infinity): a JSON literal like 1e999 parses to
+  // Infinity, and `weightBase + Infinity` would poison target_weight_kg (which
+  // then JSON.stringifies to null, corrupting the plan). Number.isFinite also
+  // excludes NaN, preserving the prior blank/NaN→null behavior.
+  if (!Number.isFinite(n)) return null;
   return isInt ? Math.trunc(n) : n;
 }
 
@@ -183,6 +187,9 @@ function toExerciseResponse(record, libById) {
   if (hasValue(record.target_reps_max)) resp.target_reps_max = record.target_reps_max;
   if (hasValue(record.target_weight_kg)) resp.target_weight_kg = record.target_weight_kg;
   if (hasValue(libId)) resp.exercise_library_id = libId;
+  if (record.progression_rule && record.progression_rule.type !== 'none') {
+    resp.progression_rule = record.progression_rule;
+  }
   return resp;
 }
 
@@ -301,6 +308,73 @@ function normalizeSets(sets) {
   });
 }
 
+const VALID_PROGRESSION_TYPES = new Set(['none', 'linear', 'double']);
+
+// normalizeProgressionRule validates the optional opt-in progression rule on a
+// workoutexercise record (Phase 4, epic med-qj4.4.1). Absent/null or
+// {type:'none'} means "mirror last performance" (today's behavior) and returns
+// null so nothing is persisted. Otherwise: {type:'linear'|'double',
+// increment_kg>=0, min_reps?, max_reps?} — increment_kg defaults to 2.5;
+// double-progression's rep window defaults are taken from the exercise's
+// target reps at apply time, so min/max_reps are optional here.
+function normalizeProgressionRule(input) {
+  if (input === null || input === undefined) return null;
+  const type = input.type || 'none';
+  if (!VALID_PROGRESSION_TYPES.has(type)) {
+    throw invalidRequest('progression type must be one of none, linear, double');
+  }
+  if (type === 'none') return null;
+  const increment = numOrNull(input.increment_kg, false);
+  // Cap at a physical ceiling: numOrNull already rejects non-finite, but a large
+  // *finite* increment would overflow `weightBase + increment_kg` to Infinity at
+  // apply time, which JSON.stringifies to null and permanently corrupts the plan.
+  if (hasValue(increment) && (increment < 0 || increment > 1000)) {
+    throw invalidRequest('increment_kg must be between 0 and 1000');
+  }
+  const out = { type, increment_kg: hasValue(increment) ? increment : 2.5 };
+  const minReps = numOrNull(input.min_reps, true);
+  const maxReps = numOrNull(input.max_reps, true);
+  if (hasValue(minReps)) {
+    if (minReps < 0) throw invalidRequest('min_reps must be non-negative');
+    out.min_reps = minReps;
+  }
+  if (hasValue(maxReps)) {
+    if (maxReps < 0) throw invalidRequest('max_reps must be non-negative');
+    out.max_reps = maxReps;
+  }
+  if (hasValue(out.min_reps) && hasValue(out.max_reps) && out.min_reps > out.max_reps) {
+    throw invalidRequest('min_reps must not exceed max_reps');
+  }
+  return out;
+}
+
+// anchorDoubleWindow pins a double-progression rule's rep window to the
+// exercise's current rep targets when the rule doesn't carry its own. Without
+// this the window defaults live at apply time from `target_reps_min` — which
+// progressionPatch *mutates* upward each session as prescribed reps climb — so
+// the "reset to min" floor would drift up and the range collapse over
+// successive sessions. The editor never sends min_reps/max_reps, so anchoring
+// once at persist time keeps the window stable across automated progression.
+function anchorDoubleWindow(rule, exercise) {
+  if (!rule || rule.type !== 'double') return rule;
+  const out = { ...rule };
+  if (!hasValue(out.min_reps) && hasValue(exercise.target_reps_min)) {
+    out.min_reps = exercise.target_reps_min;
+  }
+  const maxTarget = hasValue(exercise.target_reps_max) ? exercise.target_reps_max : exercise.target_reps_min;
+  if (!hasValue(out.max_reps) && hasValue(maxTarget)) {
+    out.max_reps = maxTarget;
+  }
+  // Re-run the ordering check normalizeProgressionRule can only enforce for an
+  // explicit window: a window synthesized here from inverted exercise targets
+  // (target_reps_max < target_reps_min — which validateExerciseValues doesn't
+  // reject) would otherwise persist min > max and progress on the lower max.
+  if (hasValue(out.min_reps) && hasValue(out.max_reps) && out.min_reps > out.max_reps) {
+    throw invalidRequest('min_reps must not exceed max_reps');
+  }
+  return out;
+}
+
 // deriveSetScalars mirrors the Go mergePayloadValues contract
 // (workout_resolver.go): sets_completed=len, reps_completed=max(reps),
 // weight_kg=max(weight_kg) — so propagation, stats, and history keep working
@@ -311,6 +385,110 @@ function deriveSetScalars(sets) {
     reps_completed: sets.reduce((m, s) => Math.max(m, s.reps), 0),
     weight_kg: sets.reduce((m, s) => Math.max(m, s.weight_kg), 0),
   };
+}
+
+// workSetStats reduces a completed log to the two numbers the progression
+// rules inspect: the count of work (non-warmup) sets and the *minimum* reps
+// across them ("hit the target on ALL sets" ⟺ min >= target). Prefers the
+// per-set array (Phase 1); when absent, falls back to the derived scalars —
+// `sets`=sets_completed (count), `reps`=reps_completed (max). Returns null when
+// there's nothing to judge (no reps logged), so the rule leaves the plan alone.
+function workSetStats(sets, reps, perSet) {
+  if (Array.isArray(perSet) && perSet.length > 0) {
+    // Exclude warmup (sub-target ramp) AND drop sets (reduced load, done after
+    // the work sets) from the rep-target gate: a drop set's lower reps at lighter
+    // weight would otherwise drag minReps below target and suppress a legitimate
+    // progression. `failure` stays — it's a work set taken to failure at working
+    // weight, so its reps are a valid target judgment.
+    const work = perSet.filter((s) => s.set_type !== 'warmup' && s.set_type !== 'drop');
+    if (work.length === 0) return null;
+    return { count: work.length, minReps: Math.min(...work.map((s) => s.reps)) };
+  }
+  if (!hasValue(reps)) return null;
+  return { count: hasValue(sets) ? sets : 0, minReps: reps };
+}
+
+// mirrorPatch is today's "mirror last performance" write-back: best-effort
+// COALESCE of the logged scalars onto the plan targets, widening
+// target_reps_max→null when the log exceeds it. This is the `none` (and
+// default) progression behavior.
+function mirrorPatch(exercise, sets, reps, weight) {
+  const targetRepsMax = (hasValue(reps) && hasValue(exercise.target_reps_max) && reps > exercise.target_reps_max)
+    ? null : exercise.target_reps_max;
+  return {
+    target_sets: hasValue(sets) ? sets : exercise.target_sets,
+    target_reps_min: hasValue(reps) ? reps : exercise.target_reps_min,
+    target_reps_max: targetRepsMax,
+    target_weight_kg: hasValue(weight) ? weight : exercise.target_weight_kg,
+  };
+}
+
+// progressionPatch computes the plan-target delta for a completed log under the
+// exercise's opt-in progression rule (Phase 4, med-qj4.4.1). Returns a partial
+// patch merged over the existing record; {} means "leave the plan unchanged"
+// (condition not met — the rule holds the target steady rather than mirroring).
+//   linear: all work sets hit target_reps_max (and set count >= target_sets)
+//           → target_weight_kg += increment_kg; rep range stays fixed.
+//   double: rep window [min,max] (defaults from the exercise's rep targets) —
+//           all sets at max → weight += increment_kg and reps reset to min;
+//           else all sets >= min → prescribed reps climb one toward max.
+function progressionPatch(exercise, sets, reps, weight, perSet) {
+  const rule = exercise.progression_rule;
+  if (!rule || rule.type === 'none') return mirrorPatch(exercise, sets, reps, weight);
+  const stats = workSetStats(sets, reps, perSet);
+  const setsOk = stats && (!hasValue(exercise.target_sets) || stats.count >= exercise.target_sets);
+  if (!setsOk) return {};
+  // Anchor the bump to the LOGGED weight, not the live plan target. propagate
+  // re-fires on every log write while the session is pending/in_progress (the
+  // UI re-sends every existing log on each Save), so basing the increment on
+  // the mutable target_weight_kg would compound it (62.5→65→67.5…) each save.
+  // The logged weight is a stable input, so `logged + increment` is idempotent
+  // — same seam the rep-climb already uses (stats.minReps + 1). When the log
+  // carries no weight there is NO stable anchor (the plan target is the very
+  // thing we mutate, so falling back to it re-compounds), so hold the weight
+  // steady — double still resets reps, linear just holds the plan unchanged.
+  // A bodyweight log arrives as weight_kg=0 (the UI/deriveSetScalars collapse
+  // to 0, never null), so treat non-positive as "no anchor" too — otherwise a
+  // bodyweight exercise on linear/double would bump its target to increment_kg.
+  const weightBase = (hasValue(weight) && weight > 0) ? weight : null;
+
+  if (rule.type === 'linear') {
+    const goal = hasValue(exercise.target_reps_max) ? exercise.target_reps_max : exercise.target_reps_min;
+    if (hasValue(goal) && stats.minReps >= goal && hasValue(weightBase)) {
+      return { target_weight_kg: weightBase + rule.increment_kg };
+    }
+    // Not met: anchor the plan to the stable logged weight so re-propagation is
+    // idempotent — same seam as the double-climb branch below. If an earlier
+    // same-session save qualified (weight += increment) and a later edit drops
+    // below the goal, returning {} would leave that un-earned bump stuck on the
+    // plan with no recovery path. weightBase absent → no anchor, hold as-is.
+    return hasValue(weightBase) ? { target_weight_kg: weightBase } : {};
+  }
+
+  // double progression
+  const min = hasValue(rule.min_reps) ? rule.min_reps : exercise.target_reps_min;
+  const max = hasValue(rule.max_reps) ? rule.max_reps
+    : (hasValue(exercise.target_reps_max) ? exercise.target_reps_max : exercise.target_reps_min);
+  if (!hasValue(min) || !hasValue(max)) return {};
+  if (stats.minReps >= max) {
+    const patch = { target_reps_min: min, target_reps_max: max };
+    if (hasValue(weightBase)) patch.target_weight_kg = weightBase + rule.increment_kg;
+    return patch;
+  }
+  if (stats.minReps >= min) {
+    // Track the logged weight here too. propagate merges partial patches over the
+    // live (possibly already-bumped) plan, so if an earlier same-session save hit
+    // max (reset → weight += increment) and a later edit drops to a mere climb,
+    // omitting the weight key would leave the un-earned bump stuck on the plan.
+    // weightBase is the stable logged weight, so this is idempotent.
+    const patch = { target_reps_min: Math.min(stats.minReps + 1, max), target_reps_max: max };
+    if (hasValue(weightBase)) patch.target_weight_kg = weightBase;
+    return patch;
+  }
+  // Below min: same idempotency anchor as the climb branch — an earlier
+  // same-session save that hit max bumped the weight; without re-pinning to the
+  // logged weight a later edit below min would leave that bump stuck.
+  return hasValue(weightBase) ? { target_weight_kg: weightBase } : {};
 }
 
 const VALID_LOG_STATUSES = new Set(['', 'completed', 'skipped']);
@@ -537,6 +715,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       target_weight_kg: numOrNull(input && input.target_weight_kg),
       order_index: Number(input && input.order_index) || 0,
     };
+    const rule = normalizeProgressionRule(input && input.progression_rule);
+    if (rule) record.progression_rule = anchorDoubleWindow(rule, record);
     // med-spp / med-prk.2: promote the plan exercise into the library
     // (Exercises tab), deduped by name to match the Go (user_id, name) unique
     // index, and link back via exercise_library_id so a later library rename
@@ -610,6 +790,38 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       order_index: Number(input && input.order_index) || 0,
       clientTs: now(),
     };
+    // Replace the rule from the incoming payload. normalize returns null for an
+    // explicit `none`; only then (i.e. the key is PRESENT) do we clear a stored
+    // rule. A payload that OMITS the key entirely (e.g. the MCP
+    // workouts.exercises.update op, whose body schema has no progression_rule
+    // field, or any non-editor writer) must PRESERVE the stored rule rather than
+    // silently wipe the user's opt-in progression config. The web editor always
+    // sends the key, so its "None clears the rule" behavior is unchanged.
+    const rule = normalizeProgressionRule(input && input.progression_rule);
+    if (rule) {
+      // Preserve an already-anchored double window when the payload omits it —
+      // the editor only round-trips {type, increment_kg}. anchorDoubleWindow
+      // would otherwise re-derive min/max from target_reps_min, which
+      // progressionPatch has already climbed, collapsing the range on any edit.
+      // BUT only preserve when BOTH visible rep targets are unchanged from the
+      // stored exercise. The editor loads target_reps_{min,max} and writes them
+      // back verbatim (parseInt round-trip), so an untouched save re-sends the
+      // stored — possibly climbed — values; a deliberate range change (either
+      // floor OR ceiling, e.g. 8-12 → 6-12) moves at least one and must re-anchor
+      // to the new targets rather than keep the stale hidden window. Comparing
+      // the ceiling alone missed floor-only edits, keeping a stale reset floor.
+      const prev = exercise.progression_rule;
+      const targetsUnchanged =
+        updated.target_reps_min === exercise.target_reps_min &&
+        updated.target_reps_max === exercise.target_reps_max;
+      if (rule.type === 'double' && prev && prev.type === 'double' && targetsUnchanged) {
+        if (!hasValue(rule.min_reps) && hasValue(prev.min_reps)) rule.min_reps = prev.min_reps;
+        if (!hasValue(rule.max_reps) && hasValue(prev.max_reps)) rule.max_reps = prev.max_reps;
+      }
+      updated.progression_rule = anchorDoubleWindow(rule, updated);
+    } else if (input && 'progression_rule' in input) {
+      delete updated.progression_rule;
+    }
     // Mirror the Go UpdateExercise upsert-by-name: relink the FK to the library
     // row for the (possibly changed) name.
     // Clear the FK on a blank name (promote returns null) so the read falls back
@@ -1114,24 +1326,28 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
   // propagateExerciseToSchedule ports PropagateExerciseToSchedule (repo.go:1330):
   // best-effort write-back of non-null sets/reps/weight onto the scheduled
-  // exercise definition, guarded by the exact same three conditions the SQL
-  // WHERE clause encodes (exercise id+name match, and the session is still
-  // pending/notified/in_progress with that exercise's variant) — a mismatch
-  // on any of them is a silent no-op, matching the SQL affecting zero rows.
-  async function propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, sets, reps, weight) {
+  // exercise definition, guarded only if the session is still
+  // pending/notified/in_progress with that exercise's variant — a mismatch is a
+  // silent no-op, matching the SQL affecting zero rows. Go's WHERE also checks
+  // exercise_name to defend against cross-table id collisions between
+  // exercise_library and workout_exercises; that collision cannot occur here —
+  // findByNumericId is scoped to the EXERCISE record type — so the name check is
+  // dropped. Keeping it would make a rename (which leaves the log's cached
+  // exercise_name stale) wrongly no-op the propagation for that exercise's own
+  // pending session. `exerciseName` is retained in the signature for callers but
+  // is intentionally not part of the guard.
+  async function propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, sets, reps, weight, perSet) {
     const session = await findSession(sessionId);
     if (!session || !['pending', 'notified', 'in_progress'].includes(session.status)) return;
     const exercise = await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, exerciseId);
-    if (!exercise || exercise.exercise_name !== exerciseName || exercise.variant_id !== session.variant_id) return;
+    if (!exercise || exercise.variant_id !== session.variant_id) return;
 
-    const targetRepsMax = (hasValue(reps) && hasValue(exercise.target_reps_max) && reps > exercise.target_reps_max)
-      ? null : exercise.target_reps_max;
+    // `none`/absent rule → mirror; linear/double → apply the opt-in rule. An
+    // unmet rule returns {} (plan held steady), so the spread leaves it as-is.
+    const patch = progressionPatch(exercise, sets, reps, weight, perSet);
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, {
       ...exercise,
-      target_sets: hasValue(sets) ? sets : exercise.target_sets,
-      target_reps_min: hasValue(reps) ? reps : exercise.target_reps_min,
-      target_reps_max: targetRepsMax,
-      target_weight_kg: hasValue(weight) ? weight : exercise.target_weight_kg,
+      ...patch,
       clientTs: now(),
     });
   }
@@ -1201,7 +1417,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (source !== 'library') {
       const propagateSets = effSets === 0 ? null : effSets;
       const propagateReps = effReps === 0 ? null : effReps;
-      await propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, propagateSets, propagateReps, effWeight);
+      await propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, propagateSets, propagateReps, effWeight, perSet);
     }
 
     return { id: record.id };
@@ -1277,7 +1493,21 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (log.source !== 'library') {
       const propagateSets = sets === 0 ? null : sets;
       const propagateReps = reps === 0 ? null : reps;
-      await propagateExerciseToSchedule(log.session_id, log.exercise_id, log.exercise_name, propagateSets, propagateReps, weight);
+      // Feed progression the EFFECTIVE stored per-set array, not the request-only
+      // `perSet` (null when the update omits `sets` — e.g. a notes-only re-save).
+      // Without this, workSetStats falls back to reps_completed (the MAX) as the
+      // per-set min, so a heterogeneous log like [12,8] would falsely read "all
+      // sets hit 12" and advance the plan on a benign edit. `setsWrite` already
+      // holds the reconciled array: {sets:perSet} kept, {sets:[]} dropped, or {}
+      // meaning the stored log.sets is preserved.
+      const finalSets = perSet ? perSet : ('sets' in setsWrite ? setsWrite.sets : log.sets);
+      const propagatePerSet = Array.isArray(finalSets) && finalSets.length > 0 ? finalSets : null;
+      // Pass effWeight (the stored logged weight when the update omits weight_kg),
+      // not the raw input weight: progressionPatch anchors its bump to this value,
+      // so a re-save that changes reps but omits weight falls back to the stable
+      // logged weight rather than the mutable plan target (which would compound
+      // the increment on each save). Matches createLog, which passes effWeight.
+      await propagateExerciseToSchedule(log.session_id, log.exercise_id, log.exercise_name, propagateSets, propagateReps, effWeight, propagatePerSet);
     }
   }
 
@@ -1668,6 +1898,54 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     };
   }
 
+  // progressionPreview (Phase 4, med-qj4.4.1) is the read-only, compute-only
+  // dry run of propagateExerciseToSchedule: for every exercise carrying an
+  // opt-in rule (type != none), it finds that exercise's most recent completed
+  // log and runs the exact same progressionPatch math — but never writes. The
+  // result lets an agent (or the UI) see the suggested next targets before a
+  // session is completed. `none`/absent-rule exercises are skipped: their
+  // "progression" is just mirroring, nothing to preview.
+  async function progressionPreview() {
+    const exercises = (await activeRecords(WORKOUT_RECORD_TYPES.EXERCISE))
+      .filter((e) => e.progression_rule && e.progression_rule.type !== 'none');
+    const logs = await activeRecords(WORKOUT_RECORD_TYPES.LOG);
+    const out = [];
+    for (const exercise of exercises) {
+      // Latest completed log for this exercise, newest logged_at first.
+      // Exclude source:'library' logs: their exercise_id lives in the
+      // exercise_library id space, which can numerically collide with a
+      // scheduled exercise's id — matching propagation, which never fires for
+      // library logs (createLog/updateLog skip them). Schedule logs' exercise_id
+      // maps 1:1 to one workout_exercises row, so no variant join is needed here.
+      const latest = logs
+        .filter((l) => l.exercise_id === exercise.id && l.status === 'completed' && l.source !== 'library')
+        .sort((a, b) => (a.logged_at < b.logged_at ? 1 : a.logged_at > b.logged_at ? -1 : b.id - a.id))[0];
+      if (!latest) continue;
+
+      // Same effective-scalar collapse propagate does at write time.
+      const sets = latest.sets_completed === 0 ? null : latest.sets_completed;
+      const reps = latest.reps_completed === 0 ? null : latest.reps_completed;
+      const patch = progressionPatch(exercise, sets, reps, latest.weight_kg, latest.sets);
+      const current = {
+        target_sets: exercise.target_sets,
+        target_reps_min: exercise.target_reps_min,
+        target_reps_max: exercise.target_reps_max ?? null,
+        target_weight_kg: exercise.target_weight_kg ?? null,
+      };
+      const proposed = { ...current, ...patch };
+      out.push({
+        exercise_id: exercise.id,
+        exercise_name: exercise.exercise_name,
+        variant_id: exercise.variant_id,
+        rule: exercise.progression_rule,
+        current,
+        proposed,
+        changed: Object.keys(patch).some((k) => patch[k] !== current[k]),
+      });
+    }
+    return { exercises: out };
+  }
+
   // listExerciseLogsByName is the per-exercise history read (Phase 3, epic
   // med-qj4): all completed LOG records for one exercise_name, each joined to
   // its session's scheduled_date, newest-first. The per-set `sets` array rides
@@ -1824,6 +2102,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     listSessions,
     getSessionDetails,
     getStats,
+    progressionPreview,
     listExerciseLogsByName,
     listMiBand,
     updateMiBand,

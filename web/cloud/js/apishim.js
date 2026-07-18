@@ -628,6 +628,13 @@ export function createApiRouter(ctx, {
 
     if (path === '/api/workout/exercises/unique' && method === 'GET') return workout.listUniqueExercises();
 
+    // Progression preview (Phase 4): dry-run the opt-in progression rules over
+    // each exercise's latest completed log — read-only, never writes back. This
+    // is a cloud-only op (mcp-catalog.cloud-extra.js), no bot/Go counterpart.
+    if (path === '/api/workout/progression-preview' && method === 'GET') {
+      return workout.progressionPreview();
+    }
+
     if (path === '/api/workout/rotation/state' && method === 'GET') {
       // handleGetRotationState 404s on a missing state (workout_handlers.go:367);
       // returning null here would hand an MCP agent `result: null` where bot mode

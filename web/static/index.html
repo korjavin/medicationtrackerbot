@@ -1343,6 +1343,27 @@
                 </div>
             </div>
 
+            <div class="wg-workouts-exercise-modal__row">
+                <div class="wg-workouts-exercise-modal__field">
+                    <label for="workout-exercise-progression" class="wg-workouts-exercise-modal__label">Progression</label>
+                    <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
+                        <select id="workout-exercise-progression" class="wg-workouts-exercise-modal__input">
+                            <option value="none">None (mirror last)</option>
+                            <option value="linear">Linear</option>
+                            <option value="double">Double progression</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="wg-workouts-exercise-modal__field">
+                    <label for="workout-exercise-progression-increment" class="wg-workouts-exercise-modal__label">Increment (kg)</label>
+                    <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
+                        <input type="number" id="workout-exercise-progression-increment" class="wg-workouts-exercise-modal__input"
+                            step="0.5" min="0" placeholder="2.5">
+                    </div>
+                </div>
+            </div>
+
             <div class="wg-workouts-exercise-modal__field">
                 <label for="workout-exercise-order" class="wg-workouts-exercise-modal__label">Order</label>
                 <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">

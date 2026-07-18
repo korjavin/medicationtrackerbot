@@ -167,6 +167,8 @@ async function showAddExerciseModal() {
     document.getElementById('workout-exercise-reps-max').value = '';
     document.getElementById('workout-exercise-weight').value = '';
     document.getElementById('workout-exercise-order').value = '0';
+    document.getElementById('workout-exercise-progression').value = 'none';
+    document.getElementById('workout-exercise-progression-increment').value = '';
 
     // Load exercise library for autocomplete via the shared picker (med-prk.3).
     let datalist = document.getElementById('exercise-library-datalist');
@@ -216,6 +218,11 @@ async function showEditExerciseModal(exerciseId) {
     document.getElementById('workout-exercise-reps-max').value = exercise.target_reps_max || '';
     document.getElementById('workout-exercise-weight').value = exercise.target_weight_kg || '';
     document.getElementById('workout-exercise-order').value = exercise.order_index;
+
+    const rule = exercise.progression_rule || { type: 'none' };
+    document.getElementById('workout-exercise-progression').value = rule.type || 'none';
+    document.getElementById('workout-exercise-progression-increment').value =
+        rule.increment_kg != null ? rule.increment_kg : '';
 }
 
 function closeExerciseModal() {
@@ -238,6 +245,12 @@ async function saveExercise() {
         return;
     }
 
+    const progressionType = document.getElementById('workout-exercise-progression').value || 'none';
+    const incrementRaw = document.getElementById('workout-exercise-progression-increment').value;
+    const progressionRule = progressionType === 'none'
+        ? { type: 'none' }
+        : { type: progressionType, increment_kg: incrementRaw !== '' ? parseFloat(incrementRaw) : 2.5 };
+
     const payload = {
         variant_id: window.WorkoutEdit.variantForExercise,
         exercise_name: name,
@@ -245,7 +258,8 @@ async function saveExercise() {
         target_reps_min: repsMin,
         target_reps_max: repsMax,
         target_weight_kg: weight,
-        order_index: order
+        order_index: order,
+        progression_rule: progressionRule
     };
 
     let result;

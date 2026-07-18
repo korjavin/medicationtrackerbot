@@ -320,6 +320,542 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(details.logs[0].weight_kg).toBe(50);
     });
 
+    // Phase 4 (epic med-qj4.4.1): opt-in per-exercise progression rule. The
+    // rule nests on the workoutexercise record (additive vault field, no
+    // migration) and round-trips through create/update → GET; none/absent omits
+    // it entirely.
+    it('progression rule: create/update round-trips it through GET; none/absent omits it', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+
+        // Create with a linear rule.
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        expect(ex.progression_rule).toEqual({ type: 'linear', increment_kg: 2.5 });
+
+        let list = await window.apiCall(`/api/workout/exercises?variant_id=${variants[0].id}`);
+        expect(list[0].progression_rule).toEqual({ type: 'linear', increment_kg: 2.5 });
+
+        // Update to double-progression with a rep window.
+        await window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+            exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_reps_max: 10,
+            target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5, min_reps: 8, max_reps: 12 },
+        });
+        list = await window.apiCall(`/api/workout/exercises?variant_id=${variants[0].id}`);
+        expect(list[0].progression_rule).toEqual({ type: 'double', increment_kg: 5, min_reps: 8, max_reps: 12 });
+
+        // Update to type:'none' clears the stored rule; the response omits it.
+        await window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+            exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_reps_max: 10,
+            target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'none' },
+        });
+        list = await window.apiCall(`/api/workout/exercises?variant_id=${variants[0].id}`);
+        expect(list[0].progression_rule).toBeUndefined();
+
+        // Absent rule on create also omits it (default mirror behavior).
+        const ex2 = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Row', target_sets: 3,
+            target_reps_min: 8, order_index: 1,
+        });
+        expect(ex2.progression_rule).toBeUndefined();
+    });
+
+    it('progression rule: an update that OMITS progression_rule (e.g. the MCP update op) preserves the stored rule', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+
+        // The MCP workouts.exercises.update body schema has no progression_rule
+        // field, so a rename/weight edit through it omits the key entirely. It
+        // must NOT wipe the user's opt-in rule.
+        await window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+            exercise_name: 'Bench Press', target_sets: 3, target_reps_min: 8,
+            target_reps_max: 10, target_weight_kg: 62.5, order_index: 0,
+        });
+        const list = await window.apiCall(`/api/workout/exercises?variant_id=${variants[0].id}`);
+        expect(list[0].exercise_name).toBe('Bench Press');
+        expect(list[0].progression_rule).toEqual({ type: 'linear', increment_kg: 2.5 });
+    });
+
+    // Phase 4 (epic med-qj4.4.1): the rule is *applied* on a completed log via
+    // propagateExerciseToSchedule — the write-back seam. Helper: a completed log
+    // whose N work sets each hit `reps` at `weight`, threaded through the domain
+    // exactly like sessions.js sends it.
+    async function logAllSets(window, sessionId, exId, name, reps, weight, count) {
+        const sets = Array.from({ length: count }, (_, i) => ({ set_index: i, weight_kg: weight, reps, set_type: 'normal' }));
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: sessionId, exercise_id: exId, exercise_name: name, source: 'schedule',
+            status: 'completed', sets,
+        });
+    }
+
+    async function exerciseTargets(window, variantId, exId) {
+        const list = await window.apiCall(`/api/workout/exercises?variant_id=${variantId}`);
+        return list.find((e) => e.id === exId);
+    }
+
+    it('progression linear: +increment when the rep target is met on all work sets, unchanged when not', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // All three work sets hit the top of the range (10) → weight bumps +2.5,
+        // the rep range stays put (no mirror widening).
+        await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+        let target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg).toBe(62.5);
+        expect(target.target_reps_min).toBe(8);
+        expect(target.target_reps_max).toBe(10);
+    });
+
+    it('progression linear: re-saving the same qualifying log is idempotent (does not compound the increment)', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // First save bumps 60 → 62.5.
+        await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+
+        // The UI re-sends every existing log on each Save (sessions.js) while the
+        // session is still in progress. Re-updating the SAME log with identical
+        // sets must NOT add the increment again — the bump anchors to the logged
+        // weight, not the (already-bumped) plan target.
+        const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+        const sets = Array.from({ length: 3 }, (_, i) => ({ set_index: i, weight_kg: 60, reps: 10, set_type: 'normal' }));
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', { id: log.id, sets });
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', { id: log.id, sets, notes: 'edited' });
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+    });
+
+    it('progression linear: editing a qualifying log DOWN within the same session releases the un-earned bump', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // Qualifying save bumps 60 → 62.5.
+        await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+
+        // The user corrects the same log DOWN (last set was really 9 reps). The
+        // goal is no longer met, so the un-earned bump must be released back to
+        // the logged weight (60) — not left stuck at 62.5 with no recovery path.
+        const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log.id, sets: [
+                { set_index: 0, weight_kg: 60, reps: 10, set_type: 'normal' },
+                { set_index: 1, weight_kg: 60, reps: 10, set_type: 'normal' },
+                { set_index: 2, weight_kg: 60, reps: 9, set_type: 'normal' },
+            ],
+        });
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(60);
+    });
+
+    it('progression linear: a flat re-save that omits weight_kg does not compound (anchors to the logged weight)', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+
+        // A flat MCP/API re-save that still meets the rep gate but omits weight_kg
+        // (no `sets` array) must anchor the bump to the stored logged weight (60),
+        // not the already-bumped plan target — else each save compounds 62.5→65→…
+        const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', { id: log.id, sets_completed: 3, reps_completed: 10, notes: 'a' });
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', { id: log.id, sets_completed: 3, reps_completed: 10, notes: 'b' });
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+    });
+
+    it('progression linear: holds the target steady when the rep target is missed on a set', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // One set short of the top (9 < 10) → no bump, plan unchanged (not mirrored).
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: sessionId, exercise_id: ex.id, exercise_name: 'Bench', source: 'schedule', status: 'completed',
+            sets: [
+                { set_index: 0, weight_kg: 60, reps: 10, set_type: 'normal' },
+                { set_index: 1, weight_kg: 60, reps: 10, set_type: 'normal' },
+                { set_index: 2, weight_kg: 60, reps: 9, set_type: 'normal' },
+            ],
+        });
+        const target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg).toBe(60);
+        expect(target.target_reps_min).toBe(8);
+    });
+
+    it('progression linear: a reduced-load drop set does not suppress a qualifying progression', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // Three work sets hit the top of the range (10) at 60kg, then a drop set
+        // at reduced load (40kg × 6). The drop set's lower reps must NOT drag the
+        // rep-target gate below the goal — the bump still fires.
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: sessionId, exercise_id: ex.id, exercise_name: 'Bench', source: 'schedule', status: 'completed',
+            sets: [
+                { set_index: 0, weight_kg: 60, reps: 10, set_type: 'normal' },
+                { set_index: 1, weight_kg: 60, reps: 10, set_type: 'normal' },
+                { set_index: 2, weight_kg: 60, reps: 10, set_type: 'normal' },
+                { set_index: 3, weight_kg: 40, reps: 6, set_type: 'drop' },
+            ],
+        });
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+    });
+
+    it('progression: a bodyweight log (weight_kg=0) is treated as no anchor — no phantom weight bump', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        // Bodyweight movement: no plan weight, opted into double progression.
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Pull-up', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 12, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 2.5, min_reps: 8, max_reps: 12 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // Top the range (12) on all bodyweight sets. A weighted exercise would
+        // get weight += 2.5; a bodyweight log (weight_kg=0) has no stable anchor,
+        // so weight stays absent (no phantom 2.5) and reps still reset to min.
+        await logAllSets(window, sessionId, ex.id, 'Pull-up', 12, 0, 3);
+        const target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg == null || target.target_weight_kg === 0).toBe(true);
+        expect(target.target_reps_min).toBe(8);
+        expect(target.target_reps_max).toBe(12);
+
+        // Linear on bodyweight likewise holds steady (returns {} → plan unchanged).
+        const ex2 = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Dip', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, order_index: 1,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        await logAllSets(window, sessionId, ex2.id, 'Dip', 10, 0, 3);
+        const t2 = await exerciseTargets(window, variants[0].id, ex2.id);
+        expect(t2.target_weight_kg == null || t2.target_weight_kg === 0).toBe(true);
+    });
+
+    it('progression double: reps climb toward max, then weight bumps and reps reset to min', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5, min_reps: 8, max_reps: 12 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // 10 reps on all sets (mid-range) → prescribed reps climb one toward max.
+        await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+        let target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_reps_min).toBe(11);
+        expect(target.target_reps_max).toBe(12);
+        expect(target.target_weight_kg).toBe(60);
+
+        // Now top the range (12) on all sets → weight +5, reps reset to min.
+        const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log.id,
+            sets: Array.from({ length: 3 }, (_, i) => ({ set_index: i, weight_kg: 60, reps: 12, set_type: 'normal' })),
+        });
+        target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg).toBe(65);
+        expect(target.target_reps_min).toBe(8);
+        expect(target.target_reps_max).toBe(12);
+    });
+
+    it('progression double: rule without an explicit rep window resets to the exercise\'s original floor (no drift)', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        // The editor never sends min_reps/max_reps — the window must anchor to
+        // the exercise's targets at create time so the climbed target_reps_min
+        // doesn't become the reset floor.
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // Climb once (10 reps → prescribed reps advance, mutating target_reps_min).
+        await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+        let target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_reps_min).toBe(11);
+
+        // Top the range → reset must return to the ORIGINAL floor (8), not 11.
+        const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log.id,
+            sets: Array.from({ length: 3 }, (_, i) => ({ set_index: i, weight_kg: 60, reps: 12, set_type: 'normal' })),
+        });
+        target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg).toBe(65);
+        expect(target.target_reps_min).toBe(8);
+        expect(target.target_reps_max).toBe(12);
+    });
+
+    it('progression double: a manual exercise edit (payload omits the window) preserves the anchored floor', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5, min_reps: 8, max_reps: 12 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // Climb once → target_reps_min mutates to 11 (stored rule window stays 8..12).
+        await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_reps_min).toBe(11);
+
+        // User edits the exercise (e.g. changes nothing but the name). The editor
+        // sends only {type, increment_kg} — no min/max. This must NOT re-anchor the
+        // window to the climbed target_reps_min (11); the stored floor (8) is kept.
+        await window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+            variant_id: variants[0].id, exercise_name: 'Bench Press',
+            target_sets: 3, target_reps_min: 11, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        });
+
+        // Top the range → reset must return to the ORIGINAL floor (8), not 11.
+        const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log.id,
+            sets: Array.from({ length: 3 }, (_, i) => ({ set_index: i, weight_kg: 60, reps: 12, set_type: 'normal' })),
+        });
+        const target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_reps_min).toBe(8);
+        expect(target.target_reps_max).toBe(12);
+        expect(target.target_weight_kg).toBe(65);
+    });
+
+    it('progression double: a manual edit that changes the visible rep ceiling re-anchors the hidden window', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // User deliberately narrows the range 8-12 → 6-10 in the editor. The
+        // editor only sends {type, increment_kg}, but the changed ceiling (12→10)
+        // must re-anchor the hidden window rather than keep the stale 8..12.
+        await window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+            variant_id: variants[0].id, exercise_name: 'Bench',
+            target_sets: 3, target_reps_min: 6, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        });
+
+        // Top the NEW range (10) on all sets → weight +5, reps reset to the new
+        // floor (6), and the ceiling holds at the new max (10).
+        await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+        const target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg).toBe(65);
+        expect(target.target_reps_min).toBe(6);
+        expect(target.target_reps_max).toBe(10);
+    });
+
+    it('progression double: a manual edit that lowers only the visible floor re-anchors the hidden window', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // User widens the range 8-12 → 6-12 in the editor: only the floor moves,
+        // the ceiling is untouched. The editor still sends {type, increment_kg},
+        // so a ceiling-only check would wrongly preserve the stale 8..12 window
+        // and reset to 8. The changed floor must re-anchor to the new 6.
+        await window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+            variant_id: variants[0].id, exercise_name: 'Bench',
+            target_sets: 3, target_reps_min: 6, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        });
+
+        // Top the range (12) on all sets → weight +5, reps reset to the new
+        // floor (6), not the stale 8.
+        await logAllSets(window, sessionId, ex.id, 'Bench', 12, 60, 3);
+        const target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg).toBe(65);
+        expect(target.target_reps_min).toBe(6);
+        expect(target.target_reps_max).toBe(12);
+    });
+
+    it('progression double: inverted rep targets (max < min) with an implicit window are rejected', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        // The editor omits min_reps/max_reps, so the window is synthesized from
+        // the exercise targets. Inverted targets would otherwise persist an
+        // invalid (min > max) window and progress on the lower max.
+        await expect(window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Squat', target_sets: 3,
+            target_reps_min: 12, target_reps_max: 10, target_weight_kg: 80, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        })).rejects.toThrow(/min_reps must not exceed max_reps/);
+    });
+
+    it('progression: rejects an out-of-range increment_kg that would overflow the plan weight', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        // A large finite increment passes finiteness but would sum to Infinity at
+        // apply time (JSON.stringify(Infinity) === "null"), corrupting the plan.
+        await expect(window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Squat', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 80, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 1e308 },
+        })).rejects.toThrow(/increment_kg must be between 0 and 1000/);
+    });
+
+    it('progression none: still mirrors last performance onto the plan', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // No rule → mirror: the plan absorbs the logged weight (65) and reps.
+        await logAllSets(window, sessionId, ex.id, 'Bench', 9, 65, 3);
+        const target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg).toBe(65);
+        expect(target.target_reps_min).toBe(9);
+    });
+
+    // Code-review regression: progression must judge the per-set MINIMUM reps, not
+    // the reps_completed scalar (which deriveSetScalars stores as the MAX). A flat
+    // update that omits `sets` (e.g. a notes-only re-save) previously fell back to
+    // that max, so a heterogeneous log like [12,8] falsely read "all sets hit 12"
+    // and advanced the plan on a benign edit.
+    it('progression double: a notes-only flat re-save does not false-progress on a heterogeneous log', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 2,
+            target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5, min_reps: 8, max_reps: 12 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // Sets [12, 8] → true min is 8 → a climb (reps 9), NOT a top-of-range reset.
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: sessionId, exercise_id: ex.id, exercise_name: 'Bench', source: 'schedule',
+            sets: [
+                { set_index: 0, weight_kg: 60, reps: 12, set_type: 'normal' },
+                { set_index: 1, weight_kg: 60, reps: 8, set_type: 'normal' },
+            ],
+        });
+        let target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_reps_min).toBe(9);
+        expect(target.target_weight_kg).toBe(60);
+
+        // A notes-only flat re-save (omits `sets`; stored reps_completed=12 is the
+        // MAX) must keep judging the stored per-set min (8) — no weight bump/reset.
+        const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', { id: log.id, sets_completed: 2, reps_completed: 12, notes: 'felt good' });
+        target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg).toBe(60);
+        expect(target.target_reps_min).toBe(9);
+    });
+
+    // Code-review regression: propagate merges partial patches over the live plan,
+    // so an earlier same-session save that hit max (reset → weight += increment)
+    // must not leave the bump stuck when a later edit only qualifies as a climb.
+    it('progression double: editing a set down after a reset un-sticks the weight bump', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5, min_reps: 8, max_reps: 12 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // All sets at max (12) → reset: weight +5, reps back to min.
+        await logAllSets(window, sessionId, ex.id, 'Bench', 12, 60, 3);
+        let target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg).toBe(65);
+        expect(target.target_reps_min).toBe(8);
+
+        // Correct one set down to 10 → now a climb at the logged weight, not a
+        // reset: the un-earned +5 must fall back to the logged 60.
+        const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log.id,
+            sets: [
+                { set_index: 0, weight_kg: 60, reps: 12, set_type: 'normal' },
+                { set_index: 1, weight_kg: 60, reps: 12, set_type: 'normal' },
+                { set_index: 2, weight_kg: 60, reps: 10, set_type: 'normal' },
+            ],
+        });
+        target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg).toBe(60);
+        expect(target.target_reps_min).toBe(11);
+    });
+
+    // Code-review regression: a non-finite increment (1e999 parses to Infinity)
+    // must be rejected at the boundary — else weightBase + Infinity poisons
+    // target_weight_kg, which JSON.stringifies to null and corrupts the plan.
+    it('progression: a non-finite increment_kg is rejected and defaults to 2.5', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 1e999 },
+        });
+        expect(ex.progression_rule.increment_kg).toBe(2.5);
+        expect(Number.isFinite(ex.progression_rule.increment_kg)).toBe(true);
+    });
+
     // med-qj4.2.1: a completed session snapshots its planned exercises + targets
     // so later edits to the variant / library / targets do NOT retroactively
     // rewrite what that past session shows.

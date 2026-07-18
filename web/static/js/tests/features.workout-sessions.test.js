@@ -1022,15 +1022,15 @@ describe('features/workout/sessions.js — split-file integration', () => {
     }
   });
 
-  it('saveWorkoutSessionDetails settles optimistic handles on partial failure (status ok, log update fails)', async () => {
+  it('saveWorkoutSessionDetails settles optimistic handles on partial failure (first log ok, second fails)', async () => {
     const { window, document } = env;
     installApiCache(window, {
       workout_history: {
         sessions: [{
           session: { id: 42, status: 'in_progress' },
           group_name: 'Push',
-          exercises_count: 1,
-          exercises_completed: 1
+          exercises_count: 2,
+          exercises_completed: 2
         }],
         miband: []
       }
@@ -1038,27 +1038,27 @@ describe('features/workout/sessions.js — split-file integration', () => {
     window.loadWorkoutHistoryTab = vi.fn();
     window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
     window.WorkoutSessionsState.originalStatus = 'in_progress';
-    window.WorkoutSessionsState.logs = [{
-      id: 7,
-      exercise_name: 'Bench',
-      sets_completed: 3,
-      reps_completed: 8,
-      weight_kg: 80,
-      notes: ''
-    }];
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_name: 'Bench', sets_completed: 3, reps_completed: 8, weight_kg: 80, notes: '' },
+      { id: 8, exercise_name: 'Row', sets_completed: 3, reps_completed: 8, weight_kg: 40, notes: '' }
+    ];
 
     window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
       id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
     });
     document.getElementById('session-status-select').value = 'completed';
 
-    // Status PUT succeeds, but the subsequent log update returns null
-    // (offline / 5xx). Without the partial-success commit, the optimistic
-    // handles never settle and pendingOptimistic stays >0 forever — every
-    // future fetchFresh for workout_history / workout_next would short-circuit.
-    window.apiCall = vi.fn(async (endpoint) => {
+    // Logs are saved BEFORE the terminal status flip (so progression can run
+    // while the session is still active). The first log update succeeds, the
+    // second returns null (offline / 5xx). Without settling the optimistic
+    // handles on this partial failure, pendingOptimistic stays >0 forever —
+    // every future fetchFresh for workout_history / workout_next would
+    // short-circuit.
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) {
+        return payload && payload.id === 8 ? null : { ok: true };
+      }
       if (endpoint.startsWith('/api/workout/sessions/status')) return { ok: true };
-      if (endpoint.startsWith('/api/workout/sessions/logs/update')) return null;
       return [];
     });
 
@@ -1068,6 +1068,79 @@ describe('features/workout/sessions.js — split-file integration', () => {
     // can refresh. This is the property whose violation caused the bug.
     expect(window.DataStore.hasPendingOptimistic('workout_history')).toBe(false);
     expect(window.DataStore.hasPendingOptimistic('workout_next')).toBe(false);
+    // The status PUT is never reached once a log write fails.
+    const statusCalls = window.apiCall.mock.calls.filter(([e]) => e.startsWith('/api/workout/sessions/status'));
+    expect(statusCalls.length).toBe(0);
+  });
+
+  it('saveWorkoutSessionDetails saves log edits before the terminal status flip (progression can run while active)', async () => {
+    const { window, document } = env;
+    installApiCache(window, {
+      workout_history: {
+        sessions: [{ session: { id: 42, status: 'in_progress' }, group_name: 'Push', exercises_count: 1, exercises_completed: 1 }],
+        miband: []
+      }
+    });
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_name: 'Bench', sets_completed: 3, reps_completed: 12, weight_kg: 60, notes: '' }
+    ];
+
+    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
+      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
+    });
+    document.getElementById('session-status-select').value = 'completed';
+
+    const order = [];
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) order.push('log');
+      else if (endpoint.startsWith('/api/workout/sessions/status')) order.push('status');
+      return { ok: true };
+    });
+
+    await window.saveWorkoutSessionDetails();
+
+    // The log write (which drives schedule propagation / opt-in progression,
+    // gated on the session still being pending/notified/in_progress) must land
+    // before the status is flipped to completed — otherwise the guard skips it.
+    expect(order).toEqual(['log', 'status']);
+  });
+
+  it('saveWorkoutSessionDetails flips status to skipped BEFORE saving logs (no progression on skip)', async () => {
+    const { window, document } = env;
+    installApiCache(window, {
+      workout_history: {
+        sessions: [{ session: { id: 42, status: 'in_progress' }, group_name: 'Push', exercises_count: 1, exercises_completed: 1 }],
+        miband: []
+      }
+    });
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_name: 'Bench', sets_completed: 3, reps_completed: 12, weight_kg: 60, notes: '' }
+    ];
+
+    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
+      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
+    });
+    document.getElementById('session-status-select').value = 'skipped';
+
+    const order = [];
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) order.push('log');
+      else if (endpoint.startsWith('/api/workout/sessions/status')) order.push('status');
+      return { ok: true };
+    });
+
+    await window.saveWorkoutSessionDetails();
+
+    // On skip the status flips FIRST so the log write below hits an already-
+    // skipped session and its schedule propagation / progression no-ops — a
+    // skipped session must not advance the plan (that's for completed sessions).
+    expect(order).toEqual(['status', 'log']);
   });
 
   // ===========================================================================
