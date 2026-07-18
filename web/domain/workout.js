@@ -751,8 +751,20 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // Replace the rule from the incoming payload; normalize returns null for
     // none/absent so setting to None clears a previously-stored rule.
     const rule = normalizeProgressionRule(input && input.progression_rule);
-    if (rule) updated.progression_rule = anchorDoubleWindow(rule, updated);
-    else delete updated.progression_rule;
+    if (rule) {
+      // Preserve an already-anchored double window when the payload omits it —
+      // the editor only round-trips {type, increment_kg}. anchorDoubleWindow
+      // would otherwise re-derive min/max from target_reps_min, which
+      // progressionPatch has already climbed, collapsing the range on any edit.
+      const prev = exercise.progression_rule;
+      if (rule.type === 'double' && prev && prev.type === 'double') {
+        if (!hasValue(rule.min_reps) && hasValue(prev.min_reps)) rule.min_reps = prev.min_reps;
+        if (!hasValue(rule.max_reps) && hasValue(prev.max_reps)) rule.max_reps = prev.max_reps;
+      }
+      updated.progression_rule = anchorDoubleWindow(rule, updated);
+    } else {
+      delete updated.progression_rule;
+    }
     // Mirror the Go UpdateExercise upsert-by-name: relink the FK to the library
     // row for the (possibly changed) name.
     // Clear the FK on a blank name (promote returns null) so the read falls back
@@ -1418,7 +1430,12 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (log.source !== 'library') {
       const propagateSets = sets === 0 ? null : sets;
       const propagateReps = reps === 0 ? null : reps;
-      await propagateExerciseToSchedule(log.session_id, log.exercise_id, log.exercise_name, propagateSets, propagateReps, weight, perSet);
+      // Pass effWeight (the stored logged weight when the update omits weight_kg),
+      // not the raw input weight: progressionPatch anchors its bump to this value,
+      // so a re-save that changes reps but omits weight falls back to the stable
+      // logged weight rather than the mutable plan target (which would compound
+      // the increment on each save). Matches createLog, which passes effWeight.
+      await propagateExerciseToSchedule(log.session_id, log.exercise_id, log.exercise_name, propagateSets, propagateReps, effWeight, perSet);
     }
   }
 

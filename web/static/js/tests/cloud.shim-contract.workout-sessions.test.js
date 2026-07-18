@@ -426,6 +426,28 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
     });
 
+    it('progression linear: a flat re-save that omits weight_kg does not compound (anchors to the logged weight)', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+
+        // A flat MCP/API re-save that still meets the rep gate but omits weight_kg
+        // (no `sets` array) must anchor the bump to the stored logged weight (60),
+        // not the already-bumped plan target — else each save compounds 62.5→65→…
+        const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', { id: log.id, sets_completed: 3, reps_completed: 10, notes: 'a' });
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', { id: log.id, sets_completed: 3, reps_completed: 10, notes: 'b' });
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+    });
+
     it('progression linear: holds the target steady when the rep target is missed on a set', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);
@@ -507,6 +529,41 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(target.target_weight_kg).toBe(65);
         expect(target.target_reps_min).toBe(8);
         expect(target.target_reps_max).toBe(12);
+    });
+
+    it('progression double: a manual exercise edit (payload omits the window) preserves the anchored floor', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5, min_reps: 8, max_reps: 12 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // Climb once → target_reps_min mutates to 11 (stored rule window stays 8..12).
+        await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_reps_min).toBe(11);
+
+        // User edits the exercise (e.g. changes nothing but the name). The editor
+        // sends only {type, increment_kg} — no min/max. This must NOT re-anchor the
+        // window to the climbed target_reps_min (11); the stored floor (8) is kept.
+        await window.apiCall('/api/workout/exercises/update', 'POST', {
+            id: ex.id, variant_id: variants[0].id, exercise_name: 'Bench Press',
+            target_sets: 3, target_reps_min: 11, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        });
+
+        // Top the range → reset must return to the ORIGINAL floor (8), not 11.
+        const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log.id,
+            sets: Array.from({ length: 3 }, (_, i) => ({ set_index: i, weight_kg: 60, reps: 12, set_type: 'normal' })),
+        });
+        const target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_reps_min).toBe(8);
+        expect(target.target_reps_max).toBe(12);
+        expect(target.target_weight_kg).toBe(65);
     });
 
     it('progression none: still mirrors last performance onto the plan', async () => {
