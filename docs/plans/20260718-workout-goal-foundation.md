@@ -75,7 +75,7 @@ ignores the unknown fields), doesn't break.
 - [x] Run the full frontend suite (`pnpm test` equivalent via `node node_modules/vitest/vitest.mjs run`, **Node 20**) incl. domain-purity + globals, and `go build ./...` + `-tags mobile` — all pass (318 files / 3784 tests; one WorkoutVariantModal layout test is a pre-existing order-dependent flake, green in isolation and on re-run).
 
 ### Task 5: [Final] Docs
-- [ ] Update `docs/workout-depth.md` (goal-aware section / med-qj4.6.1): the training_goal field (group + exercise override), the group-create selector, the editor cascade, and the goal→defaults table as implemented. Note progression/graphs/insight goal-differentiation are med-qj4.6.3/.4/.5.
+- [x] Update `docs/workout-depth.md` (goal-aware section / med-qj4.6.1): the training_goal field (group + exercise override), the group-create selector, the editor cascade, and the goal→defaults table as implemented. Note progression/graphs/insight goal-differentiation are med-qj4.6.3/.4/.5.
 
 ## Technical Details
 
