@@ -71,7 +71,7 @@ Notes (➕): the static frontend is classic `<script>` (no bundler/ESM import), 
 - [x] Run the full frontend suite (`pnpm test`) incl. domain-purity + globals, and `go build ./...` + `go build -tags mobile ./...` (untouched) — all must pass. (317 files / 3738 tests pass; both Go builds pass. Ran vitest with `--pool=forks --maxForks=2` to fit CI memory.)
 
 ### Task 6: [Final] Docs
-- [ ] Update `docs/workout-depth.md` Phase 3: record est-1RM (Epley), the PR types, compute-on-read, the new `listExerciseLogsByName` read, and the per-exercise detail view. (Also fold the `scratchpad/workout-science-basis.md` "science basis" section here if not already present — but keep Phase-3 scope to analysis; goal-aware emphasis is med-qj4.6.)
+- [x] Update `docs/workout-depth.md` Phase 3: record est-1RM (Epley), the PR types, compute-on-read, the new `listExerciseLogsByName` read, and the per-exercise detail view. (`scratchpad/workout-science-basis.md` does not exist — nothing to fold; kept scope to analysis.)
 
 ## Technical Details
 
