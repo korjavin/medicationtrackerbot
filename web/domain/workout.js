@@ -267,6 +267,10 @@ const VALID_SET_TYPES = new Set(['normal', 'warmup', 'drop', 'failure']);
 function normalizeSets(sets) {
   if (sets === null || sets === undefined) return null;
   if (!Array.isArray(sets)) throw invalidRequest('sets must be an array');
+  // An empty array is "no per-set data", not "zero sets" — otherwise it would
+  // zero the derived scalars and wipe any stored per-set breakdown. Collapse it
+  // to the absent sentinel so create/update fall back to flat-scalar behavior.
+  if (sets.length === 0) return null;
   return sets.map((s, i) => {
     const weight = numOrNull(s && s.weight_kg, false);
     const reps = numOrNull(s && s.reps, true);

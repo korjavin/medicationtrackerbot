@@ -275,6 +275,33 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(details.logs[0].sets_completed).toBe(1);
         expect(details.logs[0].weight_kg).toBe(70);
         expect(details.logs[0].reps_completed).toBe(5);
+
+        // An empty sets:[] from an external caller means "no per-set data",
+        // NOT "zero everything" — it must fall back to the flat scalars and
+        // never wipe the stored breakdown to zeros.
+        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
+            id: log.id, sets: [], sets_completed: 4, reps_completed: 12, weight_kg: 80,
+        });
+        details = await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`);
+        expect(details.logs[0].sets_completed).toBe(4);
+        expect(details.logs[0].reps_completed).toBe(12);
+        expect(details.logs[0].weight_kg).toBe(80);
+    });
+
+    it('per-set: create with an empty sets:[] falls back to target_* scalars, not zeros', async () => {
+        const { window } = env;
+        await makeRotatingGroup(window, ['Push']);
+        const first = await window.apiCallDirect('/api/workout/sessions/next');
+        const sessionId = first.session.id;
+
+        const log = await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: sessionId, exercise_id: 1, exercise_name: 'Bench', source: 'schedule',
+            target_sets: 3, target_reps_min: 8, target_weight_kg: 50, sets: [],
+        });
+        const details = await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`);
+        expect(details.logs[0].sets_completed).toBe(3);
+        expect(details.logs[0].reps_completed).toBe(8);
+        expect(details.logs[0].weight_kg).toBe(50);
     });
 
     // bd med-9tx: at most one active session at a time. A second ad-hoc Start
