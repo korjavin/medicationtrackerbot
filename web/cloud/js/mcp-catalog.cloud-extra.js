@@ -104,4 +104,29 @@ export const CLOUD_EXTRA = [
       },
     },
   },
+  {
+    id: 'workouts.progression_preview',
+    topic: 'workouts',
+    method: 'GET',
+    path: '/api/workout/progression-preview',
+    risk: 'read',
+    description: 'Dry-run the opt-in progression rules (Phase 4) without saving anything. For every scheduled exercise carrying a progression rule (linear or double), this finds its most recent completed log and computes the suggested next plan target — the same math applied automatically when a session is completed, but read-only. Use it to preview whether the next session will add weight or bump the rep target. Exercises with no rule (or rule "none", which just mirrors last performance) and exercises with no completed log yet are omitted. Computed client-side over your vault.',
+    response_summary: 'Object {exercises: [...]}. Each entry has exercise_id, exercise_name, variant_id, rule {type, increment_kg, ...}, current {target_sets, target_reps_min, target_reps_max, target_weight_kg}, proposed (same shape, with the rule applied), and changed (boolean — whether proposed differs from current). An empty exercises array means no rule-carrying exercise has a completed log to project from.',
+    params_schema: { type: 'object', properties: {} },
+    response_example: {
+      exercises: [{
+        exercise_id: 12,
+        exercise_name: 'Bench Press',
+        variant_id: 3,
+        rule: { type: 'linear', increment_kg: 2.5 },
+        current: {
+          target_sets: 4, target_reps_min: 6, target_reps_max: 6, target_weight_kg: 60,
+        },
+        proposed: {
+          target_sets: 4, target_reps_min: 6, target_reps_max: 6, target_weight_kg: 62.5,
+        },
+        changed: true,
+      }],
+    },
+  },
 ];

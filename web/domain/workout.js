@@ -1782,6 +1782,49 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     };
   }
 
+  // progressionPreview (Phase 4, med-qj4.4.1) is the read-only, compute-only
+  // dry run of propagateExerciseToSchedule: for every exercise carrying an
+  // opt-in rule (type != none), it finds that exercise's most recent completed
+  // log and runs the exact same progressionPatch math — but never writes. The
+  // result lets an agent (or the UI) see the suggested next targets before a
+  // session is completed. `none`/absent-rule exercises are skipped: their
+  // "progression" is just mirroring, nothing to preview.
+  async function progressionPreview() {
+    const exercises = (await activeRecords(WORKOUT_RECORD_TYPES.EXERCISE))
+      .filter((e) => e.progression_rule && e.progression_rule.type !== 'none');
+    const logs = await activeRecords(WORKOUT_RECORD_TYPES.LOG);
+    const out = [];
+    for (const exercise of exercises) {
+      // Latest completed log for this exercise, newest logged_at first.
+      const latest = logs
+        .filter((l) => l.exercise_id === exercise.id && l.status === 'completed')
+        .sort((a, b) => (a.logged_at < b.logged_at ? 1 : a.logged_at > b.logged_at ? -1 : b.id - a.id))[0];
+      if (!latest) continue;
+
+      // Same effective-scalar collapse propagate does at write time.
+      const sets = latest.sets_completed === 0 ? null : latest.sets_completed;
+      const reps = latest.reps_completed === 0 ? null : latest.reps_completed;
+      const patch = progressionPatch(exercise, sets, reps, latest.weight_kg, latest.sets);
+      const current = {
+        target_sets: exercise.target_sets,
+        target_reps_min: exercise.target_reps_min,
+        target_reps_max: exercise.target_reps_max ?? null,
+        target_weight_kg: exercise.target_weight_kg ?? null,
+      };
+      const proposed = { ...current, ...patch };
+      out.push({
+        exercise_id: exercise.id,
+        exercise_name: exercise.exercise_name,
+        variant_id: exercise.variant_id,
+        rule: exercise.progression_rule,
+        current,
+        proposed,
+        changed: Object.keys(patch).some((k) => patch[k] !== current[k]),
+      });
+    }
+    return { exercises: out };
+  }
+
   // -- Mi-Band (read/edit side only — see plan Task 5: ingestion has no
   // cloud path, records arrive via the C2e import) --
 
@@ -1922,6 +1965,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     listSessions,
     getSessionDetails,
     getStats,
+    progressionPreview,
     listMiBand,
     updateMiBand,
     deleteMiBand,

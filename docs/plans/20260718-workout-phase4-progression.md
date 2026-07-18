@@ -56,10 +56,10 @@ previews next targets without saving.
 - [x] Run the workout exercise suites — must pass before Task 4.
 
 ### Task 4: (Optional) MCP progression-preview via the cloud-only seam
-- [ ] Add a pure compute-only preview fn (no `records.put`) that runs the Task-2 rule math over each exercise's latest completed log and returns the proposed next targets.
-- [ ] Add a cloud-only op to `web/cloud/js/mcp-catalog.cloud-extra.js` (`workouts.progression_preview`, GET `/api/workout/progression-preview`) and a route in `apishim.js createApiRouter` calling the preview fn (mirror `web/domain/analysis.js` wiring). Keep `mcp-catalog.generated.js` untouched (drift-safe).
-- [ ] Extend `web/cloud/js/tests/mcp-responder.test.js` coverage (the op routes + response_example) — the sweep requires the route.
-- [ ] Run the mcp-responder + shim-contract suites — must pass before Task 5.
+- [x] Add a pure compute-only preview fn (no `records.put`) that runs the Task-2 rule math over each exercise's latest completed log and returns the proposed next targets. (`progressionPreview` in `web/domain/workout.js`)
+- [x] Add a cloud-only op to `web/cloud/js/mcp-catalog.cloud-extra.js` (`workouts.progression_preview`, GET `/api/workout/progression-preview`) and a route in `apishim.js createApiRouter` calling the preview fn (mirror `web/domain/analysis.js` wiring). Keep `mcp-catalog.generated.js` untouched (drift-safe).
+- [x] Extend `web/cloud/js/tests/mcp-responder.test.js` coverage (the op routes + response_example) — the sweep requires the route. (added `workouts.progression_preview compute` describe; the existing coverage-sweep + response_example conformance sweeps auto-pick up the CLOUD_EXTRA op)
+- [x] Run the mcp-responder + shim-contract suites — vitest requires node 20+ (sandbox has node 18, rolldown fails on `styleText`), so ran the domain compute directly against the real `web/domain/workout.js` module (linear bump / unmet-unchanged / no-rule-omitted / latest-log cases all pass) and `node --check` on all edited cloud files.
 
 ### Task 5: Verify acceptance + full suite
 - [ ] Verify: rule stored + round-tripped; linear + double-progression compute correct next targets on completion; `none` preserves mirror; optional preview op works and is discoverable.

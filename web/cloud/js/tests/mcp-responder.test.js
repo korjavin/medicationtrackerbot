@@ -1027,6 +1027,60 @@ describe('cloud MCP coverage sweep', () => {
   });
 });
 
+// --- Progression preview compute (Phase 4, med-qj4.4.1) -------------------
+// The coverage/conformance sweeps only prove the op routes and returns the
+// advertised object shape; this proves the dry-run math actually projects a
+// bump. Records are seeded straight onto the port the router reads.
+describe('cloud MCP workouts.progression_preview compute', () => {
+  it('projects the linear +increment target for a rule-carrying exercise', async () => {
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const records = createInMemoryRecordsPort({
+      workoutexercise: [{
+        recordId: 'ex-12',
+        id: 12,
+        variant_id: 3,
+        exercise_name: 'Bench Press',
+        target_sets: 4,
+        target_reps_min: 6,
+        target_reps_max: 6,
+        target_weight_kg: 60,
+        progression_rule: { type: 'linear', increment_kg: 2.5 },
+      }],
+      exerciselog: [{
+        recordId: 'log-99',
+        id: 99,
+        exercise_id: 12,
+        status: 'completed',
+        sets_completed: 4,
+        reps_completed: 6,
+        weight_kg: 60,
+        logged_at: '2026-07-05T18:30:00.000Z',
+      }],
+    });
+    const router = createApiRouter(null, { records, now, timeZone: 'UTC' });
+    const { exercises } = await router('/api/workout/progression-preview', 'GET');
+    expect(exercises).toHaveLength(1);
+    expect(exercises[0]).toMatchObject({
+      exercise_id: 12,
+      changed: true,
+      current: { target_weight_kg: 60 },
+      proposed: { target_weight_kg: 62.5 },
+    });
+  });
+
+  it('omits exercises with no rule and returns an empty list when nothing projects', async () => {
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const records = createInMemoryRecordsPort({
+      workoutexercise: [{
+        recordId: 'ex-13', id: 13, variant_id: 3, exercise_name: 'Squat', target_sets: 4, target_reps_min: 6,
+      }],
+    });
+    const router = createApiRouter(null, { records, now, timeZone: 'UTC' });
+    const { exercises } = await router('/api/workout/progression-preview', 'GET');
+    expect(exercises).toEqual([]);
+  });
+});
+
 // --- ResponseExample shape conformance (med-csu.3, Task 5) ----------------
 // The registry's ResponseExample is the shape both surfaces advertise to an
 // agent. The coverage sweep above only proves an op *reaches* a domain module;
