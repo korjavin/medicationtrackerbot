@@ -104,6 +104,11 @@ function _naiveDatetimeToUTCMs(dateStr, timeStr, tzName) {
 }
 
 function _renderWorkoutHistory(container, sessions, mibandWorkouts, userTz) {
+    // Guard against a late async render firing after the environment DOM was
+    // torn down (loadSWR's onFresh/onCached can resolve after the tab was
+    // navigated away or, in tests, after jsdom teardown). No-op is the correct
+    // behavior and prevents an unhandled `document is undefined` TypeError.
+    if (typeof document === 'undefined' || !container) return;
     // Build unified list sorted by date DESC
     const items = [];
 

@@ -218,6 +218,7 @@ function toSessionResponse(record) {
   if (record.snoozed_until) resp.snoozed_until = record.snoozed_until;
   if (record.notification_message_id) resp.notification_message_id = record.notification_message_id;
   if (record.notes) resp.notes = record.notes;
+  if (record.exercise_snapshot) resp.exercise_snapshot = record.exercise_snapshot;
   return resp;
 }
 
@@ -965,9 +966,27 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const session = await findSession(id);
     if (!session) return;
     const nowMs = now();
-    await records.put(WORKOUT_RECORD_TYPES.SESSION, {
+    const updated = {
       ...session, status: 'completed', completed_at: new Date(nowMs).toISOString(), clientTs: nowMs,
-    });
+    };
+    // Snapshot the planned exercises + targets so later edits to the variant,
+    // library, or targets don't retroactively rewrite this completed session.
+    // Ad-hoc sessions render exclusively from logs, so skip them. The snapshot
+    // is immutable "plan as performed": once a session carries one (already
+    // spread into `updated`), a repeat/retry completed-status call must not
+    // rebuild it against a now-changed variant.
+    if (session.variant_id !== ADHOC_ID && !updated.exercise_snapshot) {
+      updated.exercise_snapshot = (await listExercises(session.variant_id)).map((e) => ({
+        exercise_id: e.id,
+        exercise_name: e.exercise_name,
+        target_sets: e.target_sets,
+        target_reps_min: e.target_reps_min,
+        target_reps_max: e.target_reps_max ?? null,
+        target_weight_kg: e.target_weight_kg ?? null,
+        order_index: e.order_index,
+      }));
+    }
+    await records.put(WORKOUT_RECORD_TYPES.SESSION, updated);
     await tryAdvanceRotation(session);
   }
 
@@ -1389,7 +1408,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const views = [];
     for (const session of sessions) {
       const logs = allLogs.filter((l) => l.session_id === session.id);
-      const exercises = await listExercises(session.variant_id);
+      // Prefer the completion snapshot so history counts stay stable across
+      // later plan edits; fall back to the live variant for legacy sessions.
+      const exercises = session.exercise_snapshot || (await listExercises(session.variant_id));
 
       let groupName = 'Unknown';
       let variantName = 'Unknown';

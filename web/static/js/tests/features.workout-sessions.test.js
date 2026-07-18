@@ -371,6 +371,152 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(window.WorkoutSessionsState.logs[1].exercise_name).toBe('Overhead');
   });
 
+  // ===========================================================================
+  // Phase 2 non-destructive history: the session modal prefers the completion
+  // snapshot for un-logged planned rows and never hits the live variant.
+  // ===========================================================================
+
+  it('showWorkoutSessionModal prefills un-logged rows from exercise_snapshot without calling the live variant', async () => {
+    const { window } = env;
+    installApiCache(window);
+    window.ModalManager.workoutSession.open = vi.fn();
+
+    const calls = [];
+    window.apiCall = vi.fn(async (endpoint) => {
+      calls.push(endpoint);
+      if (endpoint.startsWith('/api/workout/sessions/details')) {
+        return {
+          session: {
+            id: 42, status: 'completed', variant_id: 7,
+            exercise_snapshot: [
+              { exercise_id: 1, exercise_name: 'Bench', target_sets: 5, target_reps_min: 5, target_weight_kg: 60, order_index: 0 },
+              { exercise_id: 2, exercise_name: 'Squat', target_sets: 3, target_reps_min: 8, target_weight_kg: 100, order_index: 1 }
+            ]
+          },
+          logs: [{ id: 5, exercise_id: 1, exercise_name: 'Bench', sets_completed: 5, reps_completed: 5, weight_kg: 60 }]
+        };
+      }
+      return [];
+    });
+
+    await window.WorkoutSessions.open(42);
+
+    // Live variant endpoint must not be consulted when a snapshot exists.
+    expect(calls.some((c) => c.startsWith('/api/workout/exercises'))).toBe(false);
+
+    const logs = window.WorkoutSessionsState.logs;
+    // Bench already logged (matched by name) → only Squat prefilled from snapshot.
+    const squat = logs.find((l) => l.exercise_name === 'Squat');
+    expect(squat).toBeTruthy();
+    expect(squat.sets_completed).toBe(3);
+    expect(squat.weight_kg).toBe(100);
+    expect(squat._dirty).toBe(false);
+    // Snapshot rows carry their exercise_id so editing them can save.
+    expect(squat.exercise_id).toBe(2);
+    expect(logs.filter((l) => l.exercise_name === 'Bench').length).toBe(1);
+  });
+
+  // A plan can carry the same exercise name twice with different targets.
+  // Logging one must not hide the other un-logged row — the snapshot path
+  // dedupes by exercise_id, not name.
+  it('keeps a duplicate-named un-logged snapshot row when its twin is logged', async () => {
+    const { window } = env;
+    installApiCache(window);
+    window.ModalManager.workoutSession.open = vi.fn();
+
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/details')) {
+        return {
+          session: {
+            id: 44, status: 'completed', variant_id: 7,
+            exercise_snapshot: [
+              { exercise_id: 1, exercise_name: 'Bench', target_sets: 5, target_reps_min: 5, target_weight_kg: 60, order_index: 0 },
+              { exercise_id: 2, exercise_name: 'Bench', target_sets: 3, target_reps_min: 12, target_weight_kg: 40, order_index: 1 }
+            ]
+          },
+          logs: [{ id: 5, exercise_id: 1, exercise_name: 'Bench', sets_completed: 5, reps_completed: 5, weight_kg: 60 }]
+        };
+      }
+      return [];
+    });
+
+    await window.WorkoutSessions.open(44);
+
+    const benches = window.WorkoutSessionsState.logs.filter((l) => l.exercise_name === 'Bench');
+    // Logged id=1 row + still-un-logged id=2 row (the drop-set) = 2 rows.
+    expect(benches.length).toBe(2);
+    const unlogged = benches.find((l) => l.exercise_id === 2);
+    expect(unlogged).toBeTruthy();
+    expect(unlogged.reps_completed).toBe(12);
+    expect(unlogged._dirty).toBe(false);
+  });
+
+  // Regression: editing an un-logged planned row of a completed (snapshotted)
+  // session must save. Snapshot rows used to mint exercise_id 0, which
+  // logs/create rejects ("SessionID and ExerciseID are required"), bricking the
+  // whole save. The row must post the snapshot's real exercise_id.
+  it('editing an un-logged snapshot row saves a logs/create with the real exercise_id', async () => {
+    const { window } = env;
+    installApiCache(window);
+    window.ModalManager.workoutSession.open = vi.fn();
+
+    let createdLogPayload = null;
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint.startsWith('/api/workout/sessions/details')) {
+        return {
+          session: {
+            id: 42, status: 'completed', variant_id: 7,
+            exercise_snapshot: [
+              { exercise_id: 2, exercise_name: 'Squat', target_sets: 3, target_reps_min: 8, target_weight_kg: 100, order_index: 0 }
+            ]
+          },
+          logs: []
+        };
+      }
+      if (endpoint === '/api/workout/sessions/logs/create') {
+        createdLogPayload = payload;
+        return { id: 999 };
+      }
+      return [];
+    });
+
+    await window.WorkoutSessions.open(42);
+
+    const squatIndex = window.WorkoutSessionsState.logs.findIndex((l) => l.exercise_name === 'Squat');
+    expect(squatIndex).toBeGreaterThanOrEqual(0);
+    // User edits the prefilled (un-logged) row → marks it dirty so it saves.
+    window.WorkoutSessions.updateLog(squatIndex, 'reps_completed', '6');
+    await window.WorkoutSessions.save();
+
+    expect(createdLogPayload).not.toBeNull();
+    expect(createdLogPayload.exercise_id).toBe(2);
+  });
+
+  it('showWorkoutSessionModal falls back to the live variant when the session has no snapshot', async () => {
+    const { window } = env;
+    installApiCache(window);
+    window.ModalManager.workoutSession.open = vi.fn();
+
+    const calls = [];
+    window.apiCall = vi.fn(async (endpoint) => {
+      calls.push(endpoint);
+      if (endpoint.startsWith('/api/workout/sessions/details')) {
+        return { session: { id: 43, status: 'completed', variant_id: 7 }, logs: [] };
+      }
+      if (endpoint.startsWith('/api/workout/exercises')) {
+        return [{ id: 9, exercise_name: 'Deadlift', target_sets: 1, target_reps_min: 5, target_weight_kg: 140 }];
+      }
+      return [];
+    });
+
+    await window.WorkoutSessions.open(43);
+
+    expect(calls.some((c) => c.startsWith('/api/workout/exercises'))).toBe(true);
+    const deadlift = window.WorkoutSessionsState.logs.find((l) => l.exercise_name === 'Deadlift');
+    expect(deadlift).toBeTruthy();
+    expect(deadlift.exercise_id).toBe(9);
+  });
+
   it('saveWorkoutSessionDetails flips workout_history.session.status optimistically when the status changes', async () => {
     const { window, document } = env;
     const cache = installApiCache(window, {
