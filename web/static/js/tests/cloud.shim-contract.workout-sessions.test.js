@@ -636,6 +636,18 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         })).rejects.toThrow(/min_reps must not exceed max_reps/);
     });
 
+    it('progression: rejects an out-of-range increment_kg that would overflow the plan weight', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        // A large finite increment passes finiteness but would sum to Infinity at
+        // apply time (JSON.stringify(Infinity) === "null"), corrupting the plan.
+        await expect(window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Squat', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 80, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 1e308 },
+        })).rejects.toThrow(/increment_kg must be between 0 and 1000/);
+    });
+
     it('progression none: still mirrors last performance onto the plan', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);

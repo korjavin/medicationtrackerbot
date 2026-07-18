@@ -325,8 +325,11 @@ function normalizeProgressionRule(input) {
   }
   if (type === 'none') return null;
   const increment = numOrNull(input.increment_kg, false);
-  if (hasValue(increment) && increment < 0) {
-    throw invalidRequest('increment_kg must be non-negative');
+  // Cap at a physical ceiling: numOrNull already rejects non-finite, but a large
+  // *finite* increment would overflow `weightBase + increment_kg` to Infinity at
+  // apply time, which JSON.stringifies to null and permanently corrupts the plan.
+  if (hasValue(increment) && (increment < 0 || increment > 1000)) {
+    throw invalidRequest('increment_kg must be between 0 and 1000');
   }
   const out = { type, increment_kg: hasValue(increment) ? increment : 2.5 };
   const minReps = numOrNull(input.min_reps, true);
