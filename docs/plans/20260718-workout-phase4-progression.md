@@ -66,7 +66,7 @@ previews next targets without saving.
 - [x] Run the full frontend suite (`pnpm test`) incl. domain-purity + globals + catalog drift, and `go build ./...` + `-tags mobile` — all must pass. (`go build ./...` PASS, `go build -tags mobile ./...` PASS, `go test ./internal/mcp/catalogjs/...` PASS. `pnpm test` skipped — vitest/rolldown needs node 20+ `styleText`, sandbox has node 18; same documented limitation as Task 4; acceptance re-verified via the node-direct harness above instead.)
 
 ### Task 6: [Final] Docs
-- [ ] Update `docs/workout-depth.md` Phase 4: the rule field, the `propagate` upgrade, the editor selector, and (if added) the preview op. Note goal-differentiated presets + RIR-gating are the goal-aware sub-epic (med-qj4.6.3).
+- [x] Update `docs/workout-depth.md` Phase 4: the rule field, the `propagate` upgrade, the editor selector, and (if added) the preview op. Note goal-differentiated presets + RIR-gating are the goal-aware sub-epic (med-qj4.6.3).
 
 ## Technical Details
 

@@ -141,6 +141,48 @@ key is silently ignored and the flat fields still drive bot storage — no gate,
 migration. The bot-mode Go schema change (per-set columns) remains a deferred
 follow-up.
 
+## Progression rules (Phase 4) — implemented
+
+Opt-in per-exercise progression is stored **cloud-first** as an additive
+`progression_rule` field on the existing `workoutexercise` record body —
+`{type:'none'|'linear'|'double', increment_kg>=0, min_reps?, max_reps?}`. Like
+Phase 1's `sets`, the record is an opaque vault blob, so this needs **no**
+migration / sync / route / MCP-catalog change. Validated by
+`normalizeProgressionRule()` (defaults to `none`) and round-tripped through
+`createExercise` / `updateExercise` / `toExerciseResponse` (emitted only when
+`type !== 'none'`), all in `web/domain/workout.js`.
+
+**The `propagate` upgrade.** `propagateExerciseToSchedule` — the existing "mirror
+last performance" write-back — now branches on the rule after a completed log:
+
+- `none` → today's mirror behavior (unchanged).
+- `linear` → if every non-warmup set met `target_reps_max` and set count `>=
+  target_sets`, bump `target_weight_kg += increment_kg`.
+- `double` → within `[min_reps, max_reps]`: climb reps toward `max_reps`; once all
+  work sets hit `max_reps`, bump `target_weight_kg += increment_kg` and reset reps
+  to `min_reps`.
+
+The completed log's per-set `sets` array is threaded in from `createLog`/`updateLog`
+so the rule inspects real per-set reps; it falls back to `reps_completed` (max) when
+`sets` is absent. Compute lives in `propagate` (not `completeSession`) because
+`propagate` already loads the exercise and runs per-completed-log.
+
+**Editor UI.** The exercise modal (`web/static/index.html`) carries a
+`<select id="workout-exercise-progression">` + increment input, wired through the
+three touch points in `web/static/js/features/workout/exercises.js`
+(`showEditExerciseModal` set, `showAddExerciseModal` clear, `saveExercise` read).
+
+**Dry-run preview (optional, done).** `progressionPreview` in `web/domain/workout.js`
+runs the same rule math over each exercise's latest completed log **without writing**,
+exposed as the cloud-only MCP op `workouts.progression_preview` (GET
+`/api/workout/progression-preview`) via the med-eas.56 seam
+(`web/cloud/js/mcp-catalog.cloud-extra.js` + `apishim.js createApiRouter`), so
+`mcp-catalog.generated.js` stays untouched (drift-safe).
+
+Presets are **goal-agnostic**: they progress on hitting the numeric rep target only.
+Goal-differentiated presets and RIR-gating (progress only when near failure) are the
+goal-aware sub-epic (`med-qj4.6.3`), not this phase.
+
 ## Success criteria (the spine, done)
 
 A cloud user can: log each set (weight × reps, mark warm-ups, optional RPE); see a
