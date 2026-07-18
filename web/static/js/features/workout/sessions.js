@@ -266,20 +266,21 @@ async function showWorkoutSessionModal(sessionId) {
         const sessionData = window.WorkoutSessionsState.data;
         if (sessionData && sessionData.variant_id > 0) {
             try {
-                const plannedExercises = await apiCall(`/api/workout/exercises?variant_id=${sessionData.variant_id}`);
-                if (Array.isArray(plannedExercises) && plannedExercises.length > 0) {
-                    const existingByExerciseID = new Map();
-                    window.WorkoutSessionsState.logs.forEach(log => {
-                        if (log.exercise_id && !existingByExerciseID.has(log.exercise_id)) {
-                            existingByExerciseID.set(log.exercise_id, true);
-                        }
-                    });
-
-                    const plannedMissingLogs = plannedExercises
-                        .filter(ex => !existingByExerciseID.has(ex.id))
+                // Prefer the completion snapshot (immutable "plan as performed") so
+                // later variant/library/target edits don't rewrite this session.
+                // Snapshot rows carry no exercise_id, so dedupe against logs by name;
+                // fall back to the live variant for legacy (snapshot-less) sessions.
+                const snapshot = sessionData.exercise_snapshot;
+                let plannedMissingLogs;
+                if (Array.isArray(snapshot)) {
+                    const loggedNames = new Set(
+                        window.WorkoutSessionsState.logs.map(log => log.exercise_name)
+                    );
+                    plannedMissingLogs = snapshot
+                        .filter(ex => !loggedNames.has(ex.exercise_name))
                         .map(ex => ({
                             id: 0,
-                            exercise_id: ex.id,
+                            exercise_id: 0,
                             exercise_name: ex.exercise_name,
                             sets_completed: ex.target_sets || 0,
                             reps_completed: ex.target_reps_min || 0,
@@ -288,7 +289,33 @@ async function showWorkoutSessionModal(sessionId) {
                             status: 'completed',
                             _dirty: false  // NOT saved unless user actually edits
                         }));
+                } else {
+                    const plannedExercises = await apiCall(`/api/workout/exercises?variant_id=${sessionData.variant_id}`);
+                    if (Array.isArray(plannedExercises) && plannedExercises.length > 0) {
+                        const existingByExerciseID = new Map();
+                        window.WorkoutSessionsState.logs.forEach(log => {
+                            if (log.exercise_id && !existingByExerciseID.has(log.exercise_id)) {
+                                existingByExerciseID.set(log.exercise_id, true);
+                            }
+                        });
 
+                        plannedMissingLogs = plannedExercises
+                            .filter(ex => !existingByExerciseID.has(ex.id))
+                            .map(ex => ({
+                                id: 0,
+                                exercise_id: ex.id,
+                                exercise_name: ex.exercise_name,
+                                sets_completed: ex.target_sets || 0,
+                                reps_completed: ex.target_reps_min || 0,
+                                weight_kg: ex.target_weight_kg || 0,
+                                notes: '',
+                                status: 'completed',
+                                _dirty: false  // NOT saved unless user actually edits
+                            }));
+                    }
+                }
+
+                if (plannedMissingLogs && plannedMissingLogs.length > 0) {
                     window.WorkoutSessionsState.logs = [...window.WorkoutSessionsState.logs, ...plannedMissingLogs];
                 }
             } catch (prefillError) {

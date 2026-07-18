@@ -51,10 +51,10 @@ session shows; `exercises_count` is stable; sessions completed before this chang
 - [x] Run the cloud shim-contract workout-sessions suite — must pass before Task 2.
 
 ### Task 2: Frontend prefers the snapshot in the session modal
-- [ ] In `web/static/js/features/workout/sessions.js` `showWorkoutSessionModal` (`:259-297`): when `data.session.exercise_snapshot` is present, build the planned/un-logged rows from it instead of calling `/api/workout/exercises?variant_id=…`; keep the live-variant path as the fallback when the snapshot is absent.
-- [ ] No hardcoded colors / inline `.style.` (rule 3); no new `window.*` global (rule 4).
-- [ ] Extend the session-modal test (`features.workout-sessions.test.js` or the shim-contract suite): a completed session with a snapshot renders the snapshot's list/targets and does NOT call the live-variant endpoint.
-- [ ] Run the workout feature + shim-contract suites — must pass before Task 3.
+- [x] In `web/static/js/features/workout/sessions.js` `showWorkoutSessionModal` (`:259-297`): when `data.session.exercise_snapshot` is present, build the planned/un-logged rows from it instead of calling `/api/workout/exercises?variant_id=…`; keep the live-variant path as the fallback when the snapshot is absent. (Snapshot rows carry no `exercise_id`, so the snapshot path dedupes logged rows by `exercise_name`.)
+- [x] No hardcoded colors / inline `.style.` (rule 3); no new `window.*` global (rule 4).
+- [x] Extend the session-modal test (`features.workout-sessions.test.js`): a completed session with a snapshot prefills the snapshot's list/targets and does NOT call the live-variant endpoint; a snapshot-less session falls back to `/api/workout/exercises`.
+- [x] Run the workout feature + shim-contract suites — must pass before Task 3.
 
 ### Task 3: Verify acceptance + full suite
 - [ ] Verify: complete → edit plan (all three ways) → past session unchanged; `exercises_count` stable; legacy (snapshot-less) sessions still render.
