@@ -54,9 +54,9 @@ from PR/volume/1RM math.
 - [x] Run the shim-contract workout suites — must pass before Task 3.
 
 ### Task 3: Chart metrics (est-1rm, top-weight)
-- [ ] In `web/static/js/components/wg-workout-chart.js`: add `est-1rm` and `top-weight` cases to `pickMetric` (read `raw.est_1rm`/`raw.top_weight`) and widen the continuous y-scale branch to `metric !== 'sessions'`.
-- [ ] Extend `web/static/js/tests/components.wg-workout-chart.test.js`: assert the new metric render paths (y-scale + data attribute).
-- [ ] Run the chart component test — must pass before Task 4.
+- [x] In `web/static/js/components/wg-workout-chart.js`: add `est-1rm` and `top-weight` cases to `pickMetric` (read `raw.est_1rm`/`raw.top_weight`) and widen the continuous y-scale branch to `metric !== 'sessions'`.
+- [x] Extend `web/static/js/tests/components.wg-workout-chart.test.js`: assert the new metric render paths (y-scale + data attribute).
+- [x] Run the chart component test — must pass before Task 4.
 
 ### Task 4: PR badge + per-exercise detail view
 - [ ] Add a **PR cue** to the session log card (`web/static/js/features/workout/sessions.js` header ~:159): when a completed set beats a stored record (computed via `workout-analysis` over that exercise's history), render a small "PR" badge (design-token class, no inline style).

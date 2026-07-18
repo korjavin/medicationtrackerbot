@@ -227,4 +227,41 @@ describe('WGWorkoutChart.render', () => {
         expect(sessionsChart.dataset.workoutMetric).toBe('sessions');
         expect(volumeChart.dataset.workoutMetric).toBe('volume');
     });
+
+    it('renders the est-1rm metric from raw.est_1rm with a continuous y-scale', () => {
+        const payload = [
+            { date: new Date('2026-04-01T12:00:00Z'), est_1rm: 116, top_weight: 100 },
+            { date: new Date('2026-04-08T12:00:00Z'), est_1rm: 128, top_weight: 110 },
+            { date: new Date('2026-04-15T12:00:00Z'), est_1rm: 140, top_weight: 120 },
+        ];
+        const svg = env.api.render({ sessions: payload, metric: 'est-1rm' });
+        expect(svg.tagName.toLowerCase()).toBe('svg');
+        expect(svg.dataset.workoutMetric).toBe('est-1rm');
+        // Continuous (non-sessions) y-scale: floor rounds down to a 10, not 0.
+        expect(Number(svg.dataset.workoutYMin)).toBe(110);
+        expect(Number(svg.dataset.workoutYMax)).toBe(150);
+        expect(Number(svg.dataset.workoutPointCount)).toBe(3);
+    });
+
+    it('renders the top-weight metric from raw.top_weight', () => {
+        const payload = [
+            { date: new Date('2026-04-01T12:00:00Z'), est_1rm: 116, top_weight: 100 },
+            { date: new Date('2026-04-08T12:00:00Z'), est_1rm: 128, top_weight: 110 },
+            { date: new Date('2026-04-15T12:00:00Z'), est_1rm: 140, top_weight: 120 },
+        ];
+        const svg = env.api.render({ sessions: payload, metric: 'top-weight' });
+        expect(svg.dataset.workoutMetric).toBe('top-weight');
+        expect(Number(svg.dataset.workoutYMin)).toBe(100);
+        expect(Number(svg.dataset.workoutYMax)).toBe(130);
+        expect(svg.querySelector('path.wg-workout-chart__line')).not.toBeNull();
+    });
+
+    it('returns the empty-state card when the chosen metric field is absent', () => {
+        const payload = [
+            { date: new Date('2026-04-01T12:00:00Z'), completed: 2 },
+            { date: new Date('2026-04-08T12:00:00Z'), completed: 3 },
+        ];
+        const svg = env.api.render({ sessions: payload, metric: 'est-1rm' });
+        expect(svg.classList.contains('wg-workout-chart--empty')).toBe(true);
+    });
 });
