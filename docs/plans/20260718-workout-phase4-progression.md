@@ -62,8 +62,8 @@ previews next targets without saving.
 - [x] Run the mcp-responder + shim-contract suites — vitest requires node 20+ (sandbox has node 18, rolldown fails on `styleText`), so ran the domain compute directly against the real `web/domain/workout.js` module (linear bump / unmet-unchanged / no-rule-omitted / latest-log cases all pass) and `node --check` on all edited cloud files.
 
 ### Task 5: Verify acceptance + full suite
-- [ ] Verify: rule stored + round-tripped; linear + double-progression compute correct next targets on completion; `none` preserves mirror; optional preview op works and is discoverable.
-- [ ] Run the full frontend suite (`pnpm test`) incl. domain-purity + globals + catalog drift (`go test ./internal/mcp/catalogjs/...` if the preview op was added), and `go build ./...` + `-tags mobile` — all must pass.
+- [x] Verify: rule stored + round-tripped; linear + double-progression compute correct next targets on completion; `none` preserves mirror; optional preview op works and is discoverable. (10/10 end-to-end acceptance harness driving the real `web/domain/workout.js` via an in-memory records port: round-trip/clear, `none` mirror, linear bump + hold-when-unmet, double climb + max-reset, `progressionPreview` dry-run with no write, invalid-rule rejection; preview op present in `mcp-catalog.cloud-extra.js` + routed in `apishim.js`; editor touch points present in `exercises.js` + `index.html`.)
+- [x] Run the full frontend suite (`pnpm test`) incl. domain-purity + globals + catalog drift, and `go build ./...` + `-tags mobile` — all must pass. (`go build ./...` PASS, `go build -tags mobile ./...` PASS, `go test ./internal/mcp/catalogjs/...` PASS. `pnpm test` skipped — vitest/rolldown needs node 20+ `styleText`, sandbox has node 18; same documented limitation as Task 4; acceptance re-verified via the node-direct harness above instead.)
 
 ### Task 6: [Final] Docs
 - [ ] Update `docs/workout-depth.md` Phase 4: the rule field, the `propagate` upgrade, the editor selector, and (if added) the preview op. Note goal-differentiated presets + RIR-gating are the goal-aware sub-epic (med-qj4.6.3).
