@@ -229,9 +229,12 @@ defaults/emphasis only — it changes **nothing** about how a set is stored.
 **Defaults module.** `web/domain/workout-goals.js` is a pure, browser-global-free map
 (`GOAL_DEFAULTS`) plus `defaultsForGoal(goal)` (falls back to hypertrophy) and
 `normalizeGoal(goal)` (validates against `TRAINING_GOALS`, defaults hypertrophy).
-Purity is enforced by `architecture.domain-purity.test.js`; it is reused by the editor
-cascade and, later, by goal-differentiated progression/graphs/insight
-(`med-qj4.6.3/.4/.5`).
+Purity is enforced by `architecture.domain-purity.test.js`. `GOAL_DEFAULTS` /
+`defaultsForGoal` are staged for the goja side and the later goal-differentiated
+progression/graphs/insight (`med-qj4.6.3/.4/.5`); today only `normalizeGoal` /
+`TRAINING_GOALS` have callers (`web/domain/workout.js`). The plain-script editor
+cascade can't import ES modules, so it duplicates the table as
+`WORKOUT_GOAL_DEFAULTS` in `exercises.js` — the two are hand-synced.
 
 **Storage (additive vault blobs, no migration).** `training_goal` on the
 `workoutgroup` record (default hypertrophy) round-trips through `createGroup` /
@@ -252,7 +255,8 @@ the four goals, wired through `showEditExerciseModal` / `showAddExerciseModal` /
 **Cascade (fill-only).** On goal-selector change — and when the exercise editor opens
 with a goal — the effective goal (the override, else the routine's goal) pre-fills the
 target **rep-range** (`reps_min`/`reps_max`) and the **progression preset**
-(`workout-exercise-progression`) from `defaultsForGoal(effectiveGoal)`. All fields stay
+(`workout-exercise-progression`) from the editor's `WORKOUT_GOAL_DEFAULTS[effectiveGoal]`
+(the hand-synced copy of `GOAL_DEFAULTS`). All fields stay
 editable; the cascade only fills defaults, never locks. (RIR is in the defaults table
 for the later sub-epics but not surfaced — the exercise editor has no target-RIR field
 yet.)
