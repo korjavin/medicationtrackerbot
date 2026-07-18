@@ -1061,6 +1061,15 @@ async function saveNewSessionExercise() {
         return;
     }
 
+    // Enforce the same ceilings as saveWorkoutSessionDetails / addLocalSet.
+    // The modal's max="20" is only a soft hint — Save is a button handler, so a
+    // typed/pasted value (e.g. 21, or a huge number that would OOM the tab via
+    // Array.from below) reaches here unclamped.
+    if (sets > 20 || reps > 100 || (weight != null && weight > 500)) {
+        safeAlert('Values exceed maximum allowed');
+        return;
+    }
+
     if (!exerciseId) {
         // Try to find in datalist again (autofill may not have fired).
         const datalist = document.getElementById('unique-exercises-list');

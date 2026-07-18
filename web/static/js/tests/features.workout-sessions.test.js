@@ -177,6 +177,29 @@ describe('features/workout/sessions.js — split-file integration', () => {
     await handlerDone;
   });
 
+  it('saveNewSessionExercise rejects sets over the 20-set cap before building the per-set array', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.safeAlert = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.logs = [];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+    window.apiCall = vi.fn();
+
+    // The modal's max="20" is only a hint — a pasted 21 (or a huge value that
+    // would OOM the tab via Array.from) must be rejected in the handler.
+    document.getElementById('session-add-exercise-name').value = 'Squat';
+    document.getElementById('session-add-exercise-id').value = '99';
+    document.getElementById('session-add-exercise-sets').value = '21';
+    document.getElementById('session-add-exercise-reps').value = '5';
+
+    await window.saveNewSessionExercise();
+
+    expect(window.safeAlert).toHaveBeenCalledWith('Values exceed maximum allowed');
+    expect(window.apiCall).not.toHaveBeenCalled();
+    expect(window.WorkoutSessionsState.logs.length).toBe(0);
+  });
+
   // med-prk.3 Task 5 — shared add-exercise picker. Creating a brand-new
   // exercise name mid-session is now allowed: it upserts into the library and
   // the session log references it by id. Real boundary: the name lands in the
