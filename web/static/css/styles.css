@@ -7750,6 +7750,48 @@ textarea.wg-input {
     outline: none;
 }
 
+/* Per-set rows (Phase 1, epic med-qj4): repeatable weight × reps (+ optional
+   RPE, set_type) rows under each exercise, with add/remove controls. */
+.wg-workouts-session-exercise__sets {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-session-exercise__set-row {
+    align-items: flex-end;
+}
+
+.wg-workouts-session-exercise__set-index {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-4);
+    min-width: 1.4em;
+    text-align: right;
+}
+
+.wg-workouts-session-exercise__set-type {
+    text-transform: none;
+}
+
+.wg-workouts-session-exercise__set-remove {
+    flex: 0 0 auto;
+    font-family: var(--wg-font-mono);
+}
+
+.wg-workouts-session-exercise__add-set {
+    align-self: flex-start;
+    margin-top: var(--space-xs);
+    padding: var(--space-xs) 0;
+    background: transparent;
+    border: none;
+    color: var(--wg-fg-2);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.08em;
+    cursor: pointer;
+}
+
 .wg-workouts-session-actions {
     display: flex;
     gap: var(--wg-workouts-session-action-gap);

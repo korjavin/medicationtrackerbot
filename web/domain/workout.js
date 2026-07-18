@@ -244,6 +244,7 @@ function toLogResponse(record) {
   if (hasValue(record.sets_completed)) resp.sets_completed = record.sets_completed;
   if (hasValue(record.reps_completed)) resp.reps_completed = record.reps_completed;
   if (hasValue(record.weight_kg)) resp.weight_kg = record.weight_kg;
+  if (Array.isArray(record.sets)) resp.sets = record.sets;
   if (record.notes) resp.notes = record.notes;
   return resp;
 }
@@ -255,6 +256,61 @@ function validateExerciseValues(sets, reps, weight) {
   if (hasValue(sets) && sets < 0) throw invalidRequest('sets must be non-negative');
   if (hasValue(reps) && reps < 0) throw invalidRequest('reps must be non-negative');
   if (hasValue(weight) && weight < 0) throw invalidRequest('weight must be non-negative');
+}
+
+const VALID_SET_TYPES = new Set(['normal', 'warmup', 'drop', 'failure']);
+
+// normalizeSets validates + normalizes the optional per-set array on an
+// exerciselog write (Phase 1, epic med-qj4). Absent (null/undefined) means
+// "no per-set data" and preserves today's flat-scalar behavior. Each entry is
+// {set_index, weight_kg>=0, reps>=0, rpe?(1-10), set_type∈normal/warmup/drop/
+// failure}; set_index defaults to array position and set_type to 'normal'.
+function normalizeSets(sets) {
+  if (sets === null || sets === undefined) return null;
+  if (!Array.isArray(sets)) throw invalidRequest('sets must be an array');
+  // An empty array is "no per-set data", not "zero sets" — otherwise it would
+  // zero the derived scalars and wipe any stored per-set breakdown. Collapse it
+  // to the absent sentinel so create/update fall back to flat-scalar behavior.
+  if (sets.length === 0) return null;
+  // Cap length at the UI's add-set ceiling. This is the sole write-validation
+  // seam for the cloud/MCP logs/create+update routes, so without a bound a
+  // hostile/malformed write could persist a huge array that OOMs the tab when
+  // toLogResponse emits it and the session card renders one row per set.
+  if (sets.length > 20) throw invalidRequest('sets may not exceed 20 entries');
+  return sets.map((s, i) => {
+    const weight = numOrNull(s && s.weight_kg, false);
+    const reps = numOrNull(s && s.reps, true);
+    if (hasValue(weight) && weight < 0) throw invalidRequest('set weight_kg must be non-negative');
+    if (hasValue(reps) && reps < 0) throw invalidRequest('set reps must be non-negative');
+    const setType = (s && s.set_type) || 'normal';
+    if (!VALID_SET_TYPES.has(setType)) {
+      throw invalidRequest('set_type must be one of normal, warmup, drop, failure');
+    }
+    const out = {
+      set_index: hasValue(s && s.set_index) ? Math.trunc(Number(s.set_index)) : i,
+      weight_kg: hasValue(weight) ? weight : 0,
+      reps: hasValue(reps) ? reps : 0,
+      set_type: setType,
+    };
+    const rpe = numOrNull(s && s.rpe, false);
+    if (hasValue(rpe)) {
+      if (rpe < 1 || rpe > 10) throw invalidRequest('rpe must be between 1 and 10');
+      out.rpe = rpe;
+    }
+    return out;
+  });
+}
+
+// deriveSetScalars mirrors the Go mergePayloadValues contract
+// (workout_resolver.go): sets_completed=len, reps_completed=max(reps),
+// weight_kg=max(weight_kg) — so propagation, stats, and history keep working
+// off the flat aggregates while the per-set array is stored alongside.
+function deriveSetScalars(sets) {
+  return {
+    sets_completed: sets.length,
+    reps_completed: sets.reduce((m, s) => Math.max(m, s.reps), 0),
+    weight_kg: sets.reduce((m, s) => Math.max(m, s.weight_kg), 0),
+  };
 }
 
 const VALID_LOG_STATUSES = new Set(['', 'completed', 'skipped']);
@@ -907,6 +963,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
           sets_completed: null,
           reps_completed: null,
           weight_kg: null,
+          sets: [],
           status: '',
           notes: '',
           logged_at: new Date(nowMs).toISOString(),
@@ -1111,6 +1168,15 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       if (dup) throw invalidRequest('exercise already logged for this session', 'conflict');
     }
 
+    // Per-set array (Phase 1): when present, derive the flat scalars from it
+    // so bot-compat consumers, propagation, and stats keep working; when
+    // absent, fall back to the target_* aggregates as before.
+    const perSet = normalizeSets(input && input.sets);
+    const scalars = perSet ? deriveSetScalars(perSet) : null;
+    const effSets = scalars ? scalars.sets_completed : targetSets;
+    const effReps = scalars ? scalars.reps_completed : targetRepsMin;
+    const effWeight = scalars ? scalars.weight_kg : targetWeightKg;
+
     const nowMs = now();
     const exerciseName = (input && input.exercise_name) || '';
     const record = {
@@ -1121,20 +1187,21 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       session_id: sessionId,
       exercise_id: exerciseId,
       exercise_name: exerciseName,
-      sets_completed: targetSets,
-      reps_completed: targetRepsMin,
-      weight_kg: targetWeightKg,
+      sets_completed: effSets,
+      reps_completed: effReps,
+      weight_kg: effWeight,
       status: (input && input.status) || '',
       notes: (input && input.notes) || '',
       logged_at: new Date(nowMs).toISOString(),
       source,
     };
+    if (perSet) record.sets = perSet;
     await records.put(WORKOUT_RECORD_TYPES.LOG, record);
 
     if (source !== 'library') {
-      const propagateSets = targetSets === 0 ? null : targetSets;
-      const propagateReps = targetRepsMin === 0 ? null : targetRepsMin;
-      await propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, propagateSets, propagateReps, targetWeightKg);
+      const propagateSets = effSets === 0 ? null : effSets;
+      const propagateReps = effReps === 0 ? null : effReps;
+      await propagateExerciseToSchedule(sessionId, exerciseId, exerciseName, propagateSets, propagateReps, effWeight);
     }
 
     return { id: record.id };
@@ -1147,9 +1214,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // "completed" once sets_completed >= 1. A missing log id no-ops, matching
   // the Go store's `UPDATE ... WHERE id = ?` affecting zero rows.
   async function updateLog(id, input) {
-    const sets = numOrNull(input && input.sets_completed, true);
-    const reps = numOrNull(input && input.reps_completed, true);
-    const weight = numOrNull(input && input.weight_kg, false);
+    // Per-set array (Phase 1): when present, the derived scalars override the
+    // flat sets_completed/reps_completed/weight_kg fields (mirroring the Go
+    // mergePayloadValues collapse); when absent, use the flat fields directly.
+    const perSet = normalizeSets(input && input.sets);
+    const derived = perSet ? deriveSetScalars(perSet) : null;
+    const sets = derived ? derived.sets_completed : numOrNull(input && input.sets_completed, true);
+    const reps = derived ? derived.reps_completed : numOrNull(input && input.reps_completed, true);
+    const weight = derived ? derived.weight_kg : numOrNull(input && input.weight_kg, false);
     validateExerciseValues(sets, reps, weight);
 
     const status = (input && input.status) || '';
@@ -1164,12 +1236,35 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     let newStatus = status;
     if (newStatus === '' && wasPlaceholder && hasValue(sets) && sets >= 1) newStatus = 'completed';
 
+    const effSets = hasValue(sets) ? sets : log.sets_completed;
+    const effReps = hasValue(reps) ? reps : log.reps_completed;
+    const effWeight = hasValue(weight) ? weight : log.weight_kg;
+
+    // Reconcile the stored per-set array with a flat-only update. A caller that
+    // changes the scalar aggregates without resending `sets` (the MCP/API
+    // logs/update route) would otherwise leave a stale array that contradicts
+    // the new flat values — and toLogResponse emits both, so reads (and the UI,
+    // which prefers the array) would silently mask the flat change. When the
+    // effective scalars diverge from what the stored sets derive, drop the now-
+    // inconsistent array so reads fall back to the flat aggregate. A notes-only
+    // resend keeps identical scalars, so real per-set data is preserved.
+    let setsWrite = {};
+    if (perSet) {
+      setsWrite = { sets: perSet };
+    } else if (Array.isArray(log.sets) && log.sets.length > 0) {
+      const d = deriveSetScalars(log.sets);
+      if (effSets !== d.sets_completed || effReps !== d.reps_completed || effWeight !== d.weight_kg) {
+        setsWrite = { sets: [] };
+      }
+    }
+
     const nowMs = now();
     await records.put(WORKOUT_RECORD_TYPES.LOG, {
       ...log,
-      sets_completed: hasValue(sets) ? sets : log.sets_completed,
-      reps_completed: hasValue(reps) ? reps : log.reps_completed,
-      weight_kg: hasValue(weight) ? weight : log.weight_kg,
+      sets_completed: effSets,
+      reps_completed: effReps,
+      weight_kg: effWeight,
+      ...setsWrite,
       notes: (input && input.notes) || '',
       // Go's UpdateExerciseLog never writes status; UpdateExerciseLogStatus
       // fires only for a non-empty newStatus. So an omitted status preserves
