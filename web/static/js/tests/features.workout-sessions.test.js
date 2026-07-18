@@ -900,6 +900,149 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(window.DataStore.hasPendingOptimistic('workout_history')).toBe(false);
     expect(window.DataStore.hasPendingOptimistic('workout_next')).toBe(false);
   });
+
+  // ===========================================================================
+  // Per-set logging (workout Phase 1, epic med-qj4)
+  //
+  // The single Sets/Reps/Weight row is replaced by repeatable per-set rows
+  // (weight × reps, optional RPE, set_type). The flat scalars are derived from
+  // the sets and ride alongside `sets` on every write so bot mode + existing
+  // consumers are unaffected.
+  // ===========================================================================
+
+  it('renders one per-set row per synthesized set and supports add/remove', () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.logs = [
+      { id: 5, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60 }
+    ];
+    const container = document.getElementById('workout-session-logs');
+    window.renderWorkoutSessionLogs(container);
+
+    // Existing flat-scalar log synthesizes sets_completed rows.
+    let rows = container.querySelectorAll('.wg-workouts-session-exercise__set-row');
+    expect(rows.length).toBe(2);
+
+    window.addLocalSet(0);
+    rows = container.querySelectorAll('.wg-workouts-session-exercise__set-row');
+    expect(rows.length).toBe(3);
+    expect(window.WorkoutSessionsState.logs[0].sets.length).toBe(3);
+    expect(window.WorkoutSessionsState.logs[0]._dirty).toBe(true);
+
+    window.removeLocalSet(0, 0);
+    rows = container.querySelectorAll('.wg-workouts-session-exercise__set-row');
+    expect(rows.length).toBe(2);
+    expect(window.WorkoutSessionsState.logs[0].sets.length).toBe(2);
+    // Guard: the last remaining row can't be removed (card must stay editable).
+    window.removeLocalSet(0, 0);
+    window.removeLocalSet(0, 0);
+    expect(window.WorkoutSessionsState.logs[0].sets.length).toBe(1);
+  });
+
+  it('updateLocalSet captures set_type + rpe and re-derives the flat scalars', () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.logs = [
+      { id: 5, exercise_id: 1, exercise_name: 'Bench', sets_completed: 1, reps_completed: 5, weight_kg: 40 }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+    window.addLocalSet(0); // now 2 sets
+
+    window.updateLocalSet(0, 0, 'set_type', 'warmup');
+    window.updateLocalSet(0, 0, 'weight_kg', '20');
+    window.updateLocalSet(0, 0, 'reps', '10');
+    window.updateLocalSet(0, 0, 'rpe', '6');
+    window.updateLocalSet(0, 1, 'weight_kg', '60');
+    window.updateLocalSet(0, 1, 'reps', '8');
+
+    const log = window.WorkoutSessionsState.logs[0];
+    expect(log.sets[0].set_type).toBe('warmup');
+    expect(log.sets[0].rpe).toBe(6);
+    // Derived flat scalars: len / max(reps) / max(weight).
+    expect(log.sets_completed).toBe(2);
+    expect(log.reps_completed).toBe(10);
+    expect(log.weight_kg).toBe(60);
+    // Clearing RPE drops the key entirely (optional field).
+    window.updateLocalSet(0, 0, 'rpe', '');
+    expect('rpe' in log.sets[0]).toBe(false);
+  });
+
+  it('saveWorkoutSessionDetails posts the per-set array plus derived scalars for an edited log', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 1, reps_completed: 5, weight_kg: 40, notes: '' }
+    ];
+    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
+      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
+    });
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    // Turn set 0 into a warm-up and add a heavier working set with an RPE.
+    window.updateLocalSet(0, 0, 'set_type', 'warmup');
+    window.updateLocalSet(0, 0, 'weight_kg', '20');
+    window.updateLocalSet(0, 0, 'reps', '10');
+    window.addLocalSet(0);
+    window.updateLocalSet(0, 1, 'weight_kg', '60');
+    window.updateLocalSet(0, 1, 'reps', '8');
+    window.updateLocalSet(0, 1, 'rpe', '9');
+
+    let updatePayload = null;
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint === '/api/workout/sessions/logs/update') { updatePayload = payload; return { ok: true }; }
+      return [];
+    });
+
+    await window.saveWorkoutSessionDetails();
+
+    expect(updatePayload).not.toBeNull();
+    expect(Array.isArray(updatePayload.sets)).toBe(true);
+    expect(updatePayload.sets.length).toBe(2);
+    expect(updatePayload.sets[0].set_type).toBe('warmup');
+    expect(updatePayload.sets[1].rpe).toBe(9);
+    // Derived flat scalars ride alongside for bot compat.
+    expect(updatePayload.sets_completed).toBe(2);
+    expect(updatePayload.reps_completed).toBe(10);
+    expect(updatePayload.weight_kg).toBe(60);
+  });
+
+  it('saveNewSessionExercise posts a per-set array derived from the quick-add fields', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.showWorkoutSessionModal = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.logs = [];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    document.getElementById('session-add-exercise-name').value = 'Squat';
+    document.getElementById('session-add-exercise-id').value = '99';
+    document.getElementById('session-add-exercise-sets').value = '3';
+    document.getElementById('session-add-exercise-reps').value = '5';
+    document.getElementById('session-add-exercise-weight').value = '100';
+
+    let createdPayload = null;
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint === '/api/workout/sessions/logs/create') { createdPayload = payload; return { id: 999 }; }
+      if (endpoint.startsWith('/api/workout/sessions/details')) {
+        return { session: { id: 42, status: 'in_progress' }, logs: [] };
+      }
+      return [];
+    });
+
+    await window.saveNewSessionExercise();
+
+    expect(createdPayload).not.toBeNull();
+    expect(Array.isArray(createdPayload.sets)).toBe(true);
+    expect(createdPayload.sets.length).toBe(3);
+    expect(createdPayload.sets.every((s) => s.reps === 5 && s.weight_kg === 100 && s.set_type === 'normal')).toBe(true);
+    // Flat scalars retained for bot compat.
+    expect(createdPayload.target_sets).toBe(3);
+  });
 });
 
 // ===========================================================================

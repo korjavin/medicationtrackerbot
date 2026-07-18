@@ -62,11 +62,11 @@ the scalar aggregates are still derived and correct; and **bot mode is unchanged
 - [x] Run the cloud shim-contract workout suites — must pass before Task 2.
 
 ### Task 2: Per-set entry UI in the shared sessions.js
-- [ ] In `web/static/js/features/workout/sessions.js`, replace the single Sets/Reps/Weight row (`renderWorkoutSessionExercise` / `createNumberInputGroup` `:200-250`) with N **repeatable set rows**: per row `weight`, `reps`, optional `rpe`, and a `set_type` selector; add-set / remove-set controls. Update `updateLocalLog` (`:323`) to hold the array.
-- [ ] In `saveWorkoutSession` (`:567-583`) and the quick-add path (`:955-961`), include `sets: [...]` in the create/update body **and** keep the derived flat fields (`sets_completed=len`, `reps_completed=max(reps)`, `weight_kg=max(weight)`) so bot mode and existing consumers are unaffected.
-- [ ] No hardcoded colors / inline `.style.` (rule 3 — use tokens/classes); no new `window.*` global (rule 4); keep the file unbranched (no `__MEDTRACKER_CLOUD__` gate) if the flat-fields approach holds.
-- [ ] Extend `web/static/js/tests/features.workout-sessions.test.js`: per-set rows render + add/remove, `set_type`/`rpe` captured, and the POST body carries both `sets` and the derived scalars.
-- [ ] Run the workout feature + cloud shim-contract suites — must pass before Task 3.
+- [x] In `web/static/js/features/workout/sessions.js`, replace the single Sets/Reps/Weight row (`renderWorkoutSessionExercise` / `createNumberInputGroup` `:200-250`) with N **repeatable set rows**: per row `weight`, `reps`, optional `rpe`, and a `set_type` selector; add-set / remove-set controls. Update `updateLocalLog` (`:323`) to hold the array. (New `updateLocalSet`/`addLocalSet`/`removeLocalSet` + `_ensureLogSets`/`_syncLogScalarsFromSets` helpers; `updateLocalLog` kept for notes.)
+- [x] In `saveWorkoutSession` (`:567-583`) and the quick-add path (`:955-961`), include `sets: [...]` in the create/update body **and** keep the derived flat fields (`sets_completed=len`, `reps_completed=max(reps)`, `weight_kg=max(weight)`) so bot mode and existing consumers are unaffected.
+- [x] No hardcoded colors / inline `.style.` (rule 3 — use tokens/classes); no new `window.*` global (rule 4); keep the file unbranched (no `__MEDTRACKER_CLOUD__` gate) if the flat-fields approach holds. (New CSS uses `--wg-*`/`--space-*` tokens only; globals + design-token guards pass; file stays unbranched.)
+- [x] Extend `web/static/js/tests/features.workout-sessions.test.js`: per-set rows render + add/remove, `set_type`/`rpe` captured, and the POST body carries both `sets` and the derived scalars.
+- [x] Run the workout feature + cloud shim-contract suites — must pass before Task 3. (53 tests pass.)
 
 ### Task 3: Confirm bot mode is not regressed (the coupling risk)
 - [ ] Read the Go log handlers (`internal/server/workout_handlers.go` `AddExerciseToSession` / `UpdateExerciseLog` request decoding): confirm they use plain `json.Unmarshal` / `json.NewDecoder` WITHOUT `DisallowUnknownFields`, so the extra `sets` key is silently ignored and the flat fields still drive bot storage.

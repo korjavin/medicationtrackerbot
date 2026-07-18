@@ -177,13 +177,9 @@ function _buildSessionExerciseCard(log, index) {
     headerRow.appendChild(deleteButton);
     entry.appendChild(headerRow);
 
-    const sets = Math.max(0, Math.round(Number(log.sets_completed) || 0));
-    const reps = Math.max(0, Math.round(Number(log.reps_completed) || 0));
-    const weight = Math.max(0, Number(log.weight_kg) || 0);
-    const weightLabel = weight > 0 ? `${weight % 1 === 0 ? weight : weight.toFixed(1)} kg` : 'bodyweight';
     const monoRow = document.createElement('div');
     monoRow.className = 'wg-workouts-session-exercise__mono';
-    monoRow.textContent = `${sets} × ${reps} · ${weightLabel}`;
+    monoRow.textContent = _formatLogMono(log);
     entry.appendChild(monoRow);
 
     if (isUnsaved && !log._dirty) {
@@ -193,10 +189,12 @@ function _buildSessionExerciseCard(log, index) {
         entry.appendChild(hint);
     }
 
-    const inputRow = document.createElement('div');
-    inputRow.className = 'wg-workouts-session-exercise__inputs log-input-row';
-
-    const createNumberInputGroup = (labelText, value, field, min, max, step, inputmode) => {
+    // Per-set rows (Phase 1, epic med-qj4): each set carries weight × reps,
+    // an optional RPE, and a set_type. The flat sets_completed/reps_completed/
+    // weight_kg scalars are derived from these rows (_syncLogScalarsFromSets)
+    // so bot mode + existing stats/propagation keep working; the derived flat
+    // fields ride alongside `sets` on every write.
+    const makeNumberField = (labelText, value, min, max, step, inputmode, onChange) => {
         const group = document.createElement('label');
         group.className = 'wg-gloss--inset wg-workouts-session-exercise__field log-input-group';
 
@@ -210,21 +208,71 @@ function _buildSessionExerciseCard(log, index) {
         input.min = String(min);
         input.max = String(max);
         input.step = String(step);
-        input.value = String(value);
+        input.value = (value === '' || value === null || value === undefined) ? '' : String(value);
         input.setAttribute('inputmode', inputmode);
-        input.addEventListener('change', () => {
-            updateLocalLog(index, field, input.value);
-        });
+        input.addEventListener('change', () => onChange(input.value));
 
         group.appendChild(labelEl);
         group.appendChild(input);
         return group;
     };
 
-    inputRow.appendChild(createNumberInputGroup('Sets', log.sets_completed || 0, 'sets_completed', 0, 20, 1, 'numeric'));
-    inputRow.appendChild(createNumberInputGroup('Reps', log.reps_completed || 0, 'reps_completed', 0, 100, 1, 'numeric'));
-    inputRow.appendChild(createNumberInputGroup('Weight (kg)', log.weight_kg || 0, 'weight_kg', 0, 500, 0.5, 'decimal'));
-    entry.appendChild(inputRow);
+    const setsWrap = document.createElement('div');
+    setsWrap.className = 'wg-workouts-session-exercise__sets';
+    _ensureLogSets(log).forEach((s, si) => {
+        const row = document.createElement('div');
+        row.className = 'wg-workouts-session-exercise__inputs wg-workouts-session-exercise__set-row';
+
+        const idx = document.createElement('span');
+        idx.className = 'wg-workouts-session-exercise__set-index';
+        idx.textContent = String(si + 1);
+        row.appendChild(idx);
+
+        row.appendChild(makeNumberField('Weight', s.weight_kg || 0, 0, 500, 0.5, 'decimal',
+            (v) => updateLocalSet(index, si, 'weight_kg', v)));
+        row.appendChild(makeNumberField('Reps', s.reps || 0, 0, 100, 1, 'numeric',
+            (v) => updateLocalSet(index, si, 'reps', v)));
+        row.appendChild(makeNumberField('RPE', s.rpe == null ? '' : s.rpe, 1, 10, 0.5, 'decimal',
+            (v) => updateLocalSet(index, si, 'rpe', v)));
+
+        const typeGroup = document.createElement('label');
+        typeGroup.className = 'wg-gloss--inset wg-workouts-session-exercise__field log-input-group';
+        const typeLabel = document.createElement('span');
+        typeLabel.className = 'wg-workouts-session-exercise__field-label';
+        typeLabel.textContent = 'Type';
+        const typeSelect = document.createElement('select');
+        typeSelect.className = 'wg-workouts-session-exercise__field-input wg-workouts-session-exercise__set-type';
+        [['normal', 'Normal'], ['warmup', 'Warm-up'], ['drop', 'Drop'], ['failure', 'Failure']].forEach(([val, lab]) => {
+            const o = document.createElement('option');
+            o.value = val;
+            o.textContent = lab;
+            o.selected = (s.set_type || 'normal') === val;
+            typeSelect.appendChild(o);
+        });
+        typeSelect.addEventListener('change', () => updateLocalSet(index, si, 'set_type', typeSelect.value));
+        typeGroup.appendChild(typeLabel);
+        typeGroup.appendChild(typeSelect);
+        row.appendChild(typeGroup);
+
+        const rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'wg-icon-btn wg-workouts-session-exercise__set-remove';
+        rm.setAttribute('aria-label', 'Remove set');
+        rm.title = 'Remove set';
+        rm.textContent = '×';
+        rm.addEventListener('click', () => removeLocalSet(index, si));
+        row.appendChild(rm);
+
+        setsWrap.appendChild(row);
+    });
+    entry.appendChild(setsWrap);
+
+    const addSetBtn = document.createElement('button');
+    addSetBtn.type = 'button';
+    addSetBtn.className = 'wg-workouts-session-exercise__add-set';
+    addSetBtn.textContent = '+ Add set';
+    addSetBtn.addEventListener('click', () => addLocalSet(index));
+    entry.appendChild(addSetBtn);
 
     const notesGroup = document.createElement('label');
     notesGroup.className = 'wg-gloss--inset wg-workouts-session-exercise__field wg-workouts-session-exercise__field--notes log-input-group';
@@ -248,6 +296,110 @@ function _buildSessionExerciseCard(log, index) {
     entry.appendChild(notesGroup);
 
     return entry;
+}
+
+// -- Per-set editing (Phase 1, epic med-qj4) --
+
+const SESSION_VALID_SET_TYPES = new Set(['normal', 'warmup', 'drop', 'failure']);
+
+// _ensureLogSets guarantees log.sets is a non-empty array of set rows. Existing
+// logs (bot mode, or pre-Phase-1 cloud rows) arrive with only flat scalars, so
+// synthesize N rows from sets_completed carrying the aggregate reps/weight — a
+// lossless round-trip for those aggregates (deriveSetScalars gives back the
+// same scalars) and an editable starting point for real per-set data.
+function _ensureLogSets(log) {
+    if (Array.isArray(log.sets) && log.sets.length > 0) return log.sets;
+    const n = Math.max(1, Math.round(Number(log.sets_completed) || 0));
+    const reps = Math.max(0, Math.round(Number(log.reps_completed) || 0));
+    const weight = Math.max(0, Number(log.weight_kg) || 0);
+    log.sets = Array.from({ length: n }, (_, i) => ({
+        set_index: i, weight_kg: weight, reps, set_type: 'normal'
+    }));
+    return log.sets;
+}
+
+// _syncLogScalarsFromSets mirrors the cloud domain's deriveSetScalars (and the
+// Go mergePayloadValues collapse): sets_completed=len, reps_completed=max(reps),
+// weight_kg=max(weight) — so the flat fields the save pipeline + bot mode read
+// stay in lockstep with the per-set array.
+function _syncLogScalarsFromSets(log) {
+    const sets = Array.isArray(log.sets) ? log.sets : [];
+    log.sets_completed = sets.length;
+    log.reps_completed = sets.reduce((m, s) => Math.max(m, Number(s.reps) || 0), 0);
+    log.weight_kg = sets.reduce((m, s) => Math.max(m, Number(s.weight_kg) || 0), 0);
+}
+
+function _formatLogMono(log) {
+    const sets = Math.max(0, Math.round(Number(log.sets_completed) || 0));
+    const reps = Math.max(0, Math.round(Number(log.reps_completed) || 0));
+    const weight = Math.max(0, Number(log.weight_kg) || 0);
+    const weightLabel = weight > 0 ? `${weight % 1 === 0 ? weight : weight.toFixed(1)} kg` : 'bodyweight';
+    return `${sets} × ${reps} · ${weightLabel}`;
+}
+
+function _rerenderSessionLogs() {
+    const c = document.getElementById('workout-session-logs');
+    if (c) renderWorkoutSessionLogs(c);
+}
+
+function _markLogDirty(logIndex, log) {
+    log._dirty = true;
+    const el = document.getElementById(`exercise-log-${logIndex}`);
+    if (el) {
+        el.classList.remove('unsaved');
+        const hint = el.querySelector('.exercise-log-unsaved-hint');
+        if (hint) hint.remove();
+        const mono = el.querySelector('.wg-workouts-session-exercise__mono');
+        if (mono) mono.textContent = _formatLogMono(log);
+    }
+}
+
+function updateLocalSet(logIndex, setIndex, field, value) {
+    const logs = window.WorkoutSessionsState.logs;
+    const log = logs[logIndex];
+    if (!log || !Array.isArray(log.sets) || !log.sets[setIndex]) return;
+    const s = log.sets[setIndex];
+    if (field === 'set_type') {
+        s.set_type = SESSION_VALID_SET_TYPES.has(value) ? value : 'normal';
+    } else if (field === 'reps') {
+        s.reps = Math.max(0, Math.round(parseFloat(value) || 0));
+    } else if (field === 'weight_kg') {
+        s.weight_kg = Math.max(0, parseFloat(value) || 0);
+    } else if (field === 'rpe') {
+        const n = parseFloat(value);
+        if (value === '' || Number.isNaN(n)) delete s.rpe;
+        else s.rpe = Math.min(10, Math.max(1, n));
+    }
+    _syncLogScalarsFromSets(log);
+    _markLogDirty(logIndex, log);
+}
+
+function addLocalSet(logIndex) {
+    const logs = window.WorkoutSessionsState.logs;
+    const log = logs[logIndex];
+    if (!log) return;
+    const sets = _ensureLogSets(log);
+    const last = sets[sets.length - 1];
+    sets.push({
+        set_index: sets.length,
+        weight_kg: last ? last.weight_kg : (Number(log.weight_kg) || 0),
+        reps: last ? last.reps : (Number(log.reps_completed) || 0),
+        set_type: 'normal'
+    });
+    _syncLogScalarsFromSets(log);
+    log._dirty = true;
+    _rerenderSessionLogs();
+}
+
+function removeLocalSet(logIndex, setIndex) {
+    const logs = window.WorkoutSessionsState.logs;
+    const log = logs[logIndex];
+    if (!log || !Array.isArray(log.sets) || log.sets.length <= 1) return;
+    log.sets.splice(setIndex, 1);
+    log.sets.forEach((s, i) => { s.set_index = i; });
+    _syncLogScalarsFromSets(log);
+    log._dirty = true;
+    _rerenderSessionLogs();
 }
 
 async function showWorkoutSessionModal(sessionId) {
@@ -569,7 +721,10 @@ async function saveWorkoutSessionDetails() {
                     sets_completed: Math.round(log.sets_completed),
                     reps_completed: Math.round(log.reps_completed),
                     weight_kg: parseFloat(log.weight_kg),
-                    notes: log.notes || ''
+                    notes: log.notes || '',
+                    // Per-set array rides alongside the derived flat scalars;
+                    // bot mode ignores the unknown key (Task 3), cloud persists it.
+                    ...(Array.isArray(log.sets) ? { sets: log.sets } : {})
                 });
             } else if (log._dirty) {
                 // New log that user actually edited — create it
@@ -582,7 +737,8 @@ async function saveWorkoutSessionDetails() {
                     target_reps_min: Math.round(log.reps_completed),
                     target_weight_kg: parseFloat(log.weight_kg),
                     status: 'completed',
-                    notes: log.notes || ''
+                    notes: log.notes || '',
+                    ...(Array.isArray(log.sets) ? { sets: log.sets } : {})
                 });
             }
             if (attempted && logResult === null) {
@@ -910,6 +1066,12 @@ async function saveNewSessionExercise() {
     // re-render BEFORE awaiting the network call, so the row appears
     // instantly. Carries `_optimistic: true` so we can splice it out on
     // POST failure without removing user-edited rows by accident.
+    // Seed the per-set array from the quick-add sets/reps/weight so the log
+    // round-trips per-set data (and can be refined set-by-set in the modal);
+    // the flat scalars are kept for bot mode + existing consumers.
+    const setRows = Array.from({ length: Math.max(1, sets) }, (_, i) => ({
+        set_index: i, weight_kg: weight == null ? 0 : weight, reps, set_type: 'normal'
+    }));
     const optimisticLog = {
         id: 0,
         exercise_id: parseInt(exerciseId),
@@ -917,6 +1079,7 @@ async function saveNewSessionExercise() {
         sets_completed: sets,
         reps_completed: reps,
         weight_kg: weight == null ? 0 : weight,
+        sets: setRows,
         notes: notes,
         status: 'completed',
         _dirty: true,
@@ -961,7 +1124,8 @@ async function saveNewSessionExercise() {
             target_weight_kg: weight,
             status: 'completed',
             notes: notes,
-            source: 'library'
+            source: 'library',
+            sets: setRows
         });
         if (result === null) {
             restoreOptimistic();
