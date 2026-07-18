@@ -271,6 +271,9 @@ function _buildSessionExerciseCard(log, index) {
     addSetBtn.type = 'button';
     addSetBtn.className = 'wg-workouts-session-exercise__add-set';
     addSetBtn.textContent = '+ Add set';
+    // Mirror the addLocalSet / save-validator cap of 20 sets so the button
+    // isn't a silent no-op once the ceiling is reached.
+    addSetBtn.disabled = _ensureLogSets(log).length >= 20;
     addSetBtn.addEventListener('click', () => addLocalSet(index));
     entry.appendChild(addSetBtn);
 
@@ -379,6 +382,11 @@ function addLocalSet(logIndex) {
     const log = logs[logIndex];
     if (!log) return;
     const sets = _ensureLogSets(log);
+    // Cap at the save-time validator's ceiling (sets_completed > 20 throws in
+    // saveWorkoutSessionDetails). Without this, tapping "+ Add set" past 20
+    // aborts the whole save — status change and every other log discarded —
+    // with a misleading "Values exceed maximum allowed".
+    if (sets.length >= 20) return;
     const last = sets[sets.length - 1];
     sets.push({
         set_index: sets.length,

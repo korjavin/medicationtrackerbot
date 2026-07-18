@@ -1208,13 +1208,35 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     let newStatus = status;
     if (newStatus === '' && wasPlaceholder && hasValue(sets) && sets >= 1) newStatus = 'completed';
 
+    const effSets = hasValue(sets) ? sets : log.sets_completed;
+    const effReps = hasValue(reps) ? reps : log.reps_completed;
+    const effWeight = hasValue(weight) ? weight : log.weight_kg;
+
+    // Reconcile the stored per-set array with a flat-only update. A caller that
+    // changes the scalar aggregates without resending `sets` (the MCP/API
+    // logs/update route) would otherwise leave a stale array that contradicts
+    // the new flat values — and toLogResponse emits both, so reads (and the UI,
+    // which prefers the array) would silently mask the flat change. When the
+    // effective scalars diverge from what the stored sets derive, drop the now-
+    // inconsistent array so reads fall back to the flat aggregate. A notes-only
+    // resend keeps identical scalars, so real per-set data is preserved.
+    let setsWrite = {};
+    if (perSet) {
+      setsWrite = { sets: perSet };
+    } else if (Array.isArray(log.sets) && log.sets.length > 0) {
+      const d = deriveSetScalars(log.sets);
+      if (effSets !== d.sets_completed || effReps !== d.reps_completed || effWeight !== d.weight_kg) {
+        setsWrite = { sets: [] };
+      }
+    }
+
     const nowMs = now();
     await records.put(WORKOUT_RECORD_TYPES.LOG, {
       ...log,
-      sets_completed: hasValue(sets) ? sets : log.sets_completed,
-      reps_completed: hasValue(reps) ? reps : log.reps_completed,
-      weight_kg: hasValue(weight) ? weight : log.weight_kg,
-      ...(perSet ? { sets: perSet } : {}),
+      sets_completed: effSets,
+      reps_completed: effReps,
+      weight_kg: effWeight,
+      ...setsWrite,
       notes: (input && input.notes) || '',
       // Go's UpdateExerciseLog never writes status; UpdateExerciseLogStatus
       // fires only for a non-empty newStatus. So an omitted status preserves
