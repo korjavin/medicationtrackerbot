@@ -494,6 +494,31 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(target.target_reps_min).toBe(8);
     });
 
+    it('progression linear: a reduced-load drop set does not suppress a qualifying progression', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // Three work sets hit the top of the range (10) at 60kg, then a drop set
+        // at reduced load (40kg × 6). The drop set's lower reps must NOT drag the
+        // rep-target gate below the goal — the bump still fires.
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: sessionId, exercise_id: ex.id, exercise_name: 'Bench', source: 'schedule', status: 'completed',
+            sets: [
+                { set_index: 0, weight_kg: 60, reps: 10, set_type: 'normal' },
+                { set_index: 1, weight_kg: 60, reps: 10, set_type: 'normal' },
+                { set_index: 2, weight_kg: 60, reps: 10, set_type: 'normal' },
+                { set_index: 3, weight_kg: 40, reps: 6, set_type: 'drop' },
+            ],
+        });
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+    });
+
     it('progression: a bodyweight log (weight_kg=0) is treated as no anchor — no phantom weight bump', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);

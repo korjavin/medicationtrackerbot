@@ -395,7 +395,12 @@ function deriveSetScalars(sets) {
 // there's nothing to judge (no reps logged), so the rule leaves the plan alone.
 function workSetStats(sets, reps, perSet) {
   if (Array.isArray(perSet) && perSet.length > 0) {
-    const work = perSet.filter((s) => s.set_type !== 'warmup');
+    // Exclude warmup (sub-target ramp) AND drop sets (reduced load, done after
+    // the work sets) from the rep-target gate: a drop set's lower reps at lighter
+    // weight would otherwise drag minReps below target and suppress a legitimate
+    // progression. `failure` stays — it's a work set taken to failure at working
+    // weight, so its reps are a valid target judgment.
+    const work = perSet.filter((s) => s.set_type !== 'warmup' && s.set_type !== 'drop');
     if (work.length === 0) return null;
     return { count: work.length, minReps: Math.min(...work.map((s) => s.reps)) };
   }
