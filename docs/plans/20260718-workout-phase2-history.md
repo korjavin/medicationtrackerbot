@@ -61,7 +61,7 @@ session shows; `exercises_count` is stable; sessions completed before this chang
 - [x] Run the full frontend suite (`pnpm test`) incl. domain-purity + globals, and `go build ./...` + `go build -tags mobile ./...` (untouched — confirm nothing broke). Go builds both exit 0. Every frontend file passes; the host was CPU-starved (load 59 on 4 cores), so 6 unrelated files hit worker timeouts in the parallel run — all re-ran green single-threaded (68/68), incl. `architecture.domain-purity` (18 ✓) and `architecture.globals` (1 ✓). Node 20 required (host ships Node 18; used a local `/tmp/node20`).
 
 ### Task 4: [Final] Docs
-- [ ] Update `docs/workout-depth.md` Phase 2: record the implemented snapshot field + write-at-completion + read-prefer-snapshot-else-live-variant decision.
+- [x] Update workout docs Phase 2: record the implemented snapshot field + write-at-completion + read-prefer-snapshot-else-live-variant decision. (`docs/workout-depth.md` does not exist; workout behaviors are documented in `docs/features.md` under "## Workout Tracking" — added a "Non-destructive session history" bullet there, adjacent to the existing "Exercise library by reference" point-in-time-snapshot note.)
 
 ## Technical Details
 
