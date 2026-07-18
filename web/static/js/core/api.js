@@ -220,7 +220,15 @@ async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
             // delivery/offline failure, so propagate them to the caller rather
             // than swallowing to null. Server-origin 4xx from apiCallDirect
             // carry only .status (no such code), so bot mode is unaffected.
-            if (e && e.code === 'invalid_request') throw e;
+            // Still surface the alert for writes first: uncaught cloud write
+            // handlers (e.g. saveExercise) rely on apiCall for feedback, so a
+            // silent rethrow would leave a malformed save with no explanation.
+            if (e && e.code === 'invalid_request') {
+                if (method !== 'GET' && !(e && e.demoLimit)) {
+                    safeAlert("Error: " + e.message);
+                }
+                throw e;
+            }
             console.error(e);
             // Only show alerts for write operations that fail
             // GET requests failing is expected when offline - UI will handle empty state
@@ -238,7 +246,12 @@ async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
         return await apiCallDirect(endpoint, method, body, opts);
     } catch (e) {
         if (e && e.aborted) throw e;
-        if (e && e.code === 'invalid_request') throw e;
+        if (e && e.code === 'invalid_request') {
+            if (method !== 'GET' && !(e && e.demoLimit)) {
+                safeAlert("Error: " + e.message);
+            }
+            throw e;
+        }
         console.error(e);
         // Only show alerts for write operations that fail
         if (method !== 'GET' && !(e && e.demoLimit)) {
