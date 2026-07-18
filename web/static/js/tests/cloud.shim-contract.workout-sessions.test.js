@@ -494,6 +494,37 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(target.target_reps_min).toBe(8);
     });
 
+    it('progression: a bodyweight log (weight_kg=0) is treated as no anchor — no phantom weight bump', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        // Bodyweight movement: no plan weight, opted into double progression.
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Pull-up', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 12, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 2.5, min_reps: 8, max_reps: 12 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // Top the range (12) on all bodyweight sets. A weighted exercise would
+        // get weight += 2.5; a bodyweight log (weight_kg=0) has no stable anchor,
+        // so weight stays absent (no phantom 2.5) and reps still reset to min.
+        await logAllSets(window, sessionId, ex.id, 'Pull-up', 12, 0, 3);
+        const target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_weight_kg == null || target.target_weight_kg === 0).toBe(true);
+        expect(target.target_reps_min).toBe(8);
+        expect(target.target_reps_max).toBe(12);
+
+        // Linear on bodyweight likewise holds steady (returns {} → plan unchanged).
+        const ex2 = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Dip', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, order_index: 1,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        await logAllSets(window, sessionId, ex2.id, 'Dip', 10, 0, 3);
+        const t2 = await exerciseTargets(window, variants[0].id, ex2.id);
+        expect(t2.target_weight_kg == null || t2.target_weight_kg === 0).toBe(true);
+    });
+
     it('progression double: reps climb toward max, then weight bumps and reps reset to min', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);

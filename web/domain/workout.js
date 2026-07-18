@@ -442,7 +442,10 @@ function progressionPatch(exercise, sets, reps, weight, perSet) {
   // carries no weight there is NO stable anchor (the plan target is the very
   // thing we mutate, so falling back to it re-compounds), so hold the weight
   // steady — double still resets reps, linear just holds the plan unchanged.
-  const weightBase = hasValue(weight) ? weight : null;
+  // A bodyweight log arrives as weight_kg=0 (the UI/deriveSetScalars collapse
+  // to 0, never null), so treat non-positive as "no anchor" too — otherwise a
+  // bodyweight exercise on linear/double would bump its target to increment_kg.
+  const weightBase = (hasValue(weight) && weight > 0) ? weight : null;
 
   if (rule.type === 'linear') {
     const goal = hasValue(exercise.target_reps_max) ? exercise.target_reps_max : exercise.target_reps_min;
