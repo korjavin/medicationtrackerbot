@@ -7692,6 +7692,53 @@ textarea.wg-input {
     white-space: nowrap;
 }
 
+/* PR cue badge on a session log card that holds a personal record
+   (Phase 3, epic med-qj4). Gold "achievement" tag tokens; margin-right:auto
+   keeps it left next to the name with the delete button anchored right. */
+.wg-workouts-session-exercise__pr-badge {
+    margin-right: auto;
+    padding: 2px var(--space-xs);
+    border-radius: var(--radius-sm);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    background: var(--wg-tag-high-bg);
+    color: var(--wg-tag-high-fg);
+    border: 1px solid var(--wg-tag-high-border);
+}
+
+/* Top Exercises rows open the per-exercise detail view on tap. */
+.wg-workouts-stats__top-row--tappable {
+    cursor: pointer;
+}
+
+/* Per-exercise detail view (records + est-1RM/top-weight graphs). */
+.wg-workouts-exercise-detail__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
+}
+
+.wg-workouts-exercise-detail__title {
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wg-workouts-exercise-detail__chart {
+    margin-top: var(--space-md);
+}
+
+.wg-workouts-exercise-detail__unavailable {
+    color: var(--wg-fg-4);
+    text-align: center;
+}
+
 .wg-workouts-session-exercise__mono {
     font-family: var(--wg-font-mono);
     font-size: var(--wg-workouts-session-set-row-size);

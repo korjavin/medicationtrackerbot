@@ -58,6 +58,12 @@
             const v = raw.volume != null ? raw.volume : raw.total_volume_kg;
             return v != null ? Number(v) : null;
         }
+        if (metric === 'est-1rm') {
+            return raw.est_1rm != null ? Number(raw.est_1rm) : null;
+        }
+        if (metric === 'top-weight') {
+            return raw.top_weight != null ? Number(raw.top_weight) : null;
+        }
         // Default: completed-sessions-per-week trend.
         if (raw.value != null) return Number(raw.value);
         if (raw.completed != null) return Number(raw.completed);
@@ -257,10 +263,12 @@
         // so the visual trend doesn't start mid-axis for a single spike.
         const boundedMin = Math.max(Y_FLOOR, Math.min(Y_CEIL, dataMin));
         const boundedMax = Math.max(Y_FLOOR, Math.min(Y_CEIL, dataMax));
-        let yMin = metric === 'volume'
+        // Continuous metrics (volume/est-1rm/top-weight) get a padded,
+        // rounded y-scale; only the sessions-per-week count keeps a 0 floor.
+        let yMin = metric !== 'sessions'
             ? Math.floor(boundedMin / 10) * 10
             : 0;
-        let yMax = metric === 'volume'
+        let yMax = metric !== 'sessions'
             ? Math.ceil((boundedMax + 10) / 10) * 10
             : Math.max(1, Math.ceil(boundedMax + 1));
         if (yMin === yMax) yMax = yMin + 1;

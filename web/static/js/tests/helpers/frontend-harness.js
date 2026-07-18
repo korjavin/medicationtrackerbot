@@ -83,6 +83,7 @@ const WORKOUT_LIBRARY_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/
 const WORKOUT_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/history.js');
 const WORKOUT_MIBAND_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/miband.js');
 const WORKOUT_SESSIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/sessions.js');
+const WORKOUT_EXERCISE_DETAIL_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/exercise-detail.js');
 const WORKOUT_STATS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/stats.js');
 const WORKOUT_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/index.js');
 const SETTINGS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings.js');
@@ -435,6 +436,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
     evalFileCached(window, WORKOUT_HISTORY_JS);
     evalFileCached(window, WORKOUT_MIBAND_JS);
     evalFileCached(window, WORKOUT_SESSIONS_JS);
+    evalFileCached(window, WORKOUT_EXERCISE_DETAIL_JS);
     evalFileCached(window, WORKOUT_STATS_JS);
     evalFileCached(window, WORKOUT_INDEX_JS);
   }

@@ -85,7 +85,7 @@ routine is worse than useless — it lies about what you did. Both benchmark app
 this by storing each logged workout as an independent record decoupled from the
 template; we should too. This also unblocks honest "plan as it was on date X".
 
-### Phase 3 — Analysis: estimated 1RM, PRs, per-exercise graphs (`med-qj4.3`)
+### Phase 3 — Analysis: estimated 1RM, PRs, per-exercise graphs (`med-qj4.3`) — implemented
 
 **Intent:**
 - **Estimated 1RM** via the **Epley formula** (`1RM ≈ weight × (1 + reps/30)`) —
@@ -100,6 +100,31 @@ template; we should too. This also unblocks honest "plan as it was on date X".
 it is pure read-side computation over stored sets. And PRs are the single biggest
 motivation/retention lever in strength training: seeing "best-ever 5-rep squat" is
 why people keep a log at all. It is cheap for us and central for the user.
+
+**As implemented (cloud-first; bot legacy):**
+- **Estimated 1RM** — Epley `1RM = weight × (1 + reps/30)`, computed on read; a set
+  over ~10–12 reps degrades the estimate, but a low-confidence flag is deferred to
+  the goal-aware sub-epic (`med-qj4.6.4`).
+- **PR types** — heaviest weight, best est-1RM, best set volume (`weight × reps` in
+  one set), best session volume (Σ over a session's non-warmup sets), most reps, and
+  per-rep-count set-records (`{<reps>: <weight>}`). **Warm-ups (`set_type==='warmup'`)
+  are excluded from every fold.**
+- **Compute-on-read, no storage/migration** — sets are immutable; the pure module
+  `web/domain/workout-analysis.js` exports `estimated1RM`, `exercisePRs(logs)`, and
+  `exerciseSeries(logs)` (per-session best est-1RM / top-weight / volume). Purity is
+  enforced by `architecture.domain-purity.test.js`.
+- **Per-exercise history read** — `listExerciseLogsByName(name, {limit})` in
+  `web/domain/workout.js` filters LOG records by `exercise_name`, joins each log's
+  session for `scheduled_date`, and returns newest-first `[{date, sets, session_id}]`.
+  Exposed via the router only (a UI read, not an MCP op) as
+  `GET /api/workout/exercises/history?name=` in `web/cloud/js/apishim.js`.
+- **UI** — `wg-workout-chart` gained `est-1rm` / `top-weight` metrics; a new
+  per-exercise detail view (`web/static/js/features/workout/exercise-detail.js`)
+  renders the records summary + graphs, and a "PR" cue badge appears on a
+  record-beating completed set in the session log card. The static frontend has no
+  bundler, so the detail view dynamic-imports `/domain/workout-analysis.js` (served
+  in cloud); in bot mode there is no `/domain/`, so the records/PR badge degrade
+  silently.
 
 ### Phase 4 — Progression rules, opt-in (`med-qj4.4`)
 

@@ -1919,6 +1919,22 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return { exercises: out };
   }
 
+  // listExerciseLogsByName is the per-exercise history read (Phase 3, epic
+  // med-qj4): all completed LOG records for one exercise_name, each joined to
+  // its session's scheduled_date, newest-first. The per-set `sets` array rides
+  // through untouched — web/domain/workout-analysis.js folds est-1RM/PRs/series
+  // over it on the read side. No storage, no MCP catalog entry (UI read only).
+  async function listExerciseLogsByName(name, opts) {
+    const lim = opts && opts.limit > 0 ? opts.limit : 500;
+    const sessions = await activeRecords(WORKOUT_RECORD_TYPES.SESSION);
+    const dateById = new Map(sessions.map((s) => [s.id, s.scheduled_date]));
+    return (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
+      .filter((l) => l.status === 'completed' && l.exercise_name === name && dateById.has(l.session_id))
+      .map((l) => ({ date: dateById.get(l.session_id), sets: l.sets, session_id: l.session_id }))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, lim);
+  }
+
   // -- Mi-Band (read/edit side only — see plan Task 5: ingestion has no
   // cloud path, records arrive via the C2e import) --
 
@@ -2060,6 +2076,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     getSessionDetails,
     getStats,
     progressionPreview,
+    listExerciseLogsByName,
     listMiBand,
     updateMiBand,
     deleteMiBand,
