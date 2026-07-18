@@ -242,7 +242,7 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
 
         const before = await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`);
         expect(before.session.exercise_snapshot).toEqual([
-            { exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0 }
+            { exercise_id: ex.id, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0 }
         ]);
 
         // Mutate the plan three ways: change the exercise's targets, rename the

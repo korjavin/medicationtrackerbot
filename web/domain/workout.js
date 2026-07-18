@@ -974,6 +974,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // Ad-hoc sessions render exclusively from logs, so skip them.
     if (session.variant_id !== ADHOC_ID) {
       updated.exercise_snapshot = (await listExercises(session.variant_id)).map((e) => ({
+        exercise_id: e.id,
         exercise_name: e.exercise_name,
         target_sets: e.target_sets,
         target_reps_min: e.target_reps_min,
