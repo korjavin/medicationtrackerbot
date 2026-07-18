@@ -234,9 +234,12 @@ async function showAddExerciseModal() {
         if (option) {
             if (!document.getElementById('workout-exercise-sets').value && option.dataset.sets)
                 document.getElementById('workout-exercise-sets').value = option.dataset.sets;
-            if (!document.getElementById('workout-exercise-reps-min').value && option.dataset.repsMin)
+            // Reps are goal-cascade-seeded on open, so the `!value` guard would
+            // never let a picked library exercise's own saved reps through.
+            // A named library pick is explicit — its saved reps win over the seed.
+            if (option.dataset.repsMin)
                 document.getElementById('workout-exercise-reps-min').value = option.dataset.repsMin;
-            if (!document.getElementById('workout-exercise-reps-max').value && option.dataset.repsMax)
+            if (option.dataset.repsMax)
                 document.getElementById('workout-exercise-reps-max').value = option.dataset.repsMax;
             if (!document.getElementById('workout-exercise-weight').value && option.dataset.weight)
                 document.getElementById('workout-exercise-weight').value = option.dataset.weight;
