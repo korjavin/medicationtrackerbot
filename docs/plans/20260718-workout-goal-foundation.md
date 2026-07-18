@@ -53,9 +53,9 @@ ignores the unknown fields), doesn't break.
 ## Implementation Steps
 
 ### Task 1: Pure goal-defaults module
-- [ ] Create `web/domain/workout-goals.js`: `GOAL_DEFAULTS` map (strength/hypertrophy/endurance/general → `{reps_min, reps_max, target_rir, progression: 'none'|'linear'|'double'}`) + `defaultsForGoal(goal)` (falls back to hypertrophy for unknown/empty). Pure, no browser globals.
-- [ ] Pure test `web/static/js/tests/workout-goals.test.js` asserting the table + fallback.
-- [ ] Run it + `architecture.domain-purity.test.js` (Node 20) — must pass before Task 2.
+- [x] Create `web/domain/workout-goals.js`: `GOAL_DEFAULTS` map (strength/hypertrophy/endurance/general → `{reps_min, reps_max, target_rir, progression: 'none'|'linear'|'double'}`) + `defaultsForGoal(goal)` (falls back to hypertrophy for unknown/empty). Pure, no browser globals.
+- [x] Pure test `web/static/js/tests/workout-goals.test.js` asserting the table + fallback.
+- [x] Run it + `architecture.domain-purity.test.js` (Node 20) — must pass before Task 2.
 
 ### Task 2: training_goal on the group record + group-create UI
 - [ ] `web/domain/workout.js`: add `training_goal` to `createGroup` (`:569`, default `'hypertrophy'`), `updateGroup` (`:603`), and `toGroupResponse` (`:137`). Validate against the enum (default hypertrophy on invalid/empty).
