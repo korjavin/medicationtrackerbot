@@ -42,10 +42,10 @@ from PR/volume/1RM math.
 ## Implementation Steps
 
 ### Task 1: Pure analysis module (web/domain/workout-analysis.js)
-- [ ] Create `web/domain/workout-analysis.js` exporting pure fns: `estimated1RM(weight, reps)` (Epley), `exercisePRs(logs)` — fold over non-warmup sets across a log list → `{heaviest_weight, best_est_1rm, best_set_volume, best_session_volume, most_reps, set_records: {<reps>: <weight>}}`, and `exerciseSeries(logs)` → `[{date, est_1rm, top_weight, volume}]` per session (session-best est-1RM from its sets).
-- [ ] Exclude `set_type==='warmup'` at the top of each fold; handle empty/absent sets gracefully.
-- [ ] Write `web/static/js/tests/workout-analysis.test.js`: Epley values, PR selection, warm-up exclusion, set-records, empty case — all hand-computed.
-- [ ] Run the analysis + domain-purity suites — must pass before Task 2.
+- [x] Create `web/domain/workout-analysis.js` exporting pure fns: `estimated1RM(weight, reps)` (Epley), `exercisePRs(logs)` — fold over non-warmup sets across a log list → `{heaviest_weight, best_est_1rm, best_set_volume, best_session_volume, most_reps, set_records: {<reps>: <weight>}}`, and `exerciseSeries(logs)` → `[{date, est_1rm, top_weight, volume}]` per session (session-best est-1RM from its sets).
+- [x] Exclude `set_type==='warmup'` at the top of each fold; handle empty/absent sets gracefully.
+- [x] Write `web/static/js/tests/workout-analysis.test.js`: Epley values, PR selection, warm-up exclusion, set-records, empty case — all hand-computed.
+- [x] Run the analysis + domain-purity suites — must pass before Task 2.
 
 ### Task 2: Per-exercise history read + shim route
 - [ ] In `web/domain/workout.js`, add `listExerciseLogsByName(name, {limit})`: filter LOG records by `exercise_name`, join each log's session (`scheduled_date`), return newest-first `[{date, sets, session_id}]` (completed logs).
