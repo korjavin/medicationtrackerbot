@@ -722,9 +722,15 @@ async function saveWorkoutSessionDetails() {
                     reps_completed: Math.round(log.reps_completed),
                     weight_kg: parseFloat(log.weight_kg),
                     notes: log.notes || '',
-                    // Per-set array rides alongside the derived flat scalars;
-                    // bot mode ignores the unknown key (Task 3), cloud persists it.
-                    ...(Array.isArray(log.sets) ? { sets: log.sets } : {})
+                    // Per-set array rides alongside the derived flat scalars, but
+                    // only when the user actually edited the sets (_dirty). Render
+                    // materializes log.sets on every card (_ensureLogSets), so
+                    // without this guard, saving a session with an untouched
+                    // flat-only/legacy log would persist a fabricated
+                    // N-identical-sets array. Absent key ⇒ cloud updateLog keeps
+                    // any real stored sets (it spreads the existing record); bot
+                    // ignores the key either way (Task 3).
+                    ...(log._dirty && Array.isArray(log.sets) ? { sets: log.sets } : {})
                 });
             } else if (log._dirty) {
                 // New log that user actually edited — create it

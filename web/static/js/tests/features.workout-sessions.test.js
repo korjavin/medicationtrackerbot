@@ -1011,6 +1011,37 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(updatePayload.weight_kg).toBe(60);
   });
 
+  it('does not persist a fabricated sets array when saving an untouched flat-only log', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    // Pre-Phase-1 / bot-created log: flat scalars only, no sets.
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 3, reps_completed: 8, weight_kg: 60, notes: '' }
+    ];
+    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
+      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
+    });
+    // Render materializes log.sets via _ensureLogSets — but the user never edits.
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    let updatePayload = null;
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint === '/api/workout/sessions/logs/update') { updatePayload = payload; return { ok: true }; }
+      return [];
+    });
+
+    await window.saveWorkoutSessionDetails();
+
+    // Flat scalars still saved, but no fabricated per-set array is written — the
+    // cloud domain preserves any real stored sets when the key is absent.
+    expect(updatePayload).not.toBeNull();
+    expect('sets' in updatePayload).toBe(false);
+    expect(updatePayload.sets_completed).toBe(3);
+  });
+
   it('saveNewSessionExercise posts a per-set array derived from the quick-add fields', async () => {
     const { window, document } = env;
     installApiCache(window);
