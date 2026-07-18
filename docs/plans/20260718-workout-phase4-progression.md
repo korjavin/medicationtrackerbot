@@ -68,6 +68,12 @@ previews next targets without saving.
 ### Task 6: [Final] Docs
 - [x] Update `docs/workout-depth.md` Phase 4: the rule field, the `propagate` upgrade, the editor selector, and (if added) the preview op. Note goal-differentiated presets + RIR-gating are the goal-aware sub-epic (med-qj4.6.3).
 
+### Task 7: Fix the 3 progression edge-case vitest failures (Node 20 now available)
+Task 5 skipped `pnpm test` (sandbox had Node 18). Run it now with Node 20 — `web/static/js/tests/cloud.shim-contract.workout-sessions.test.js` has **3 real failures** where the committed tests disagree with the code. The tests encode the intended behavior; make code + tests agree. **A Node 20 toolchain is available at `/tmp/node-v20.18.1-linux-x64/bin` — put it on PATH and run vitest via `node node_modules/vitest/vitest.mjs run <file>` (pnpm/corepack is broken in the sandbox).**
+- [ ] **Floor drift:** test `progression double: a manual exercise edit (payload omits the window) preserves the anchored floor` expects `target_reps_min === 8` but gets `11`. A manual `updateExercise` that omits the double-progression window must NOT overwrite the anchored `target_reps_min`. Fix the update/anchor path (`anchorDoubleWindow` / `updateExercise` ~:784-807) so an omitted window preserves the stored floor.
+- [ ] **Invalid rule must reject, not resolve null:** tests `progression double: inverted rep targets (max < min) with an implicit window are rejected` and `progression: rejects an out-of-range increment_kg that would overflow the plan weight` do `await expect(apiCall(...)).rejects...` but the call **resolves `null`** and emits `console.error(Error: min_reps must not exceed max_reps)` / `console.error(...increment_kg must be between 0 and 1000)`. The validation throw (`invalidRequest`) must PROPAGATE as a rejection through the create/update path + shim (not be caught → logged → null). Note a sibling test expects a non-finite `increment_kg` to be *sanitized to 2.5* (clamp), so keep clamp-for-nonfinite but reject-for-out-of-range/inverted — match all three tests.
+- [ ] Run `web/static/js/tests/cloud.shim-contract.workout-sessions.test.js` + the full frontend suite with Node 20 — 0 failures, 0 unhandled errors — before finalizing.
+
 ## Technical Details
 
 - **Rule shape:** `progression_rule: { type:'none'|'linear'|'double', increment_kg, min_reps?, max_reps? }` on the `workoutexercise` record body (additive, opaque blob — no migration).
