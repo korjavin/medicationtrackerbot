@@ -44,11 +44,11 @@ session shows; `exercises_count` is stable; sessions completed before this chang
 ## Implementation Steps
 
 ### Task 1: Snapshot exercise list + targets at completion (cloud domain)
-- [ ] In `web/domain/workout.js` `completeSession` (`:1012`): when `variant_id !== -1`, build `exercise_snapshot = (await listExercises(variant_id)).map(e => ({ exercise_name, target_sets, target_reps_min, target_reps_max, target_weight_kg, order_index }))` and write it onto the session record (alongside the status→completed update). Skip ad-hoc.
-- [ ] `toSessionResponse` (`:205`): emit `exercise_snapshot` when present (mirror the conditional-field pattern of `started_at`/`notes`).
-- [ ] `listSessions` (`:1448`): compute `exercises_count` from `session.exercise_snapshot.length` when present, else today's live `listExercises` count (`:1456,1499`).
-- [ ] Extend `web/static/js/tests/cloud.shim-contract.workout-sessions.test.js`: complete a session → snapshot present; edit the variant's exercises + rename the library item + change targets → the completed session's detail + `exercises_count` are unchanged; a snapshot-less session falls back to the live variant.
-- [ ] Run the cloud shim-contract workout-sessions suite — must pass before Task 2.
+- [x] In `web/domain/workout.js` `completeSession` (`:1012`): when `variant_id !== -1`, build `exercise_snapshot = (await listExercises(variant_id)).map(e => ({ exercise_name, target_sets, target_reps_min, target_reps_max, target_weight_kg, order_index }))` and write it onto the session record (alongside the status→completed update). Skip ad-hoc.
+- [x] `toSessionResponse` (`:205`): emit `exercise_snapshot` when present (mirror the conditional-field pattern of `started_at`/`notes`).
+- [x] `listSessions` (`:1448`): compute `exercises_count` from `session.exercise_snapshot.length` when present, else today's live `listExercises` count (`:1456,1499`).
+- [x] Extend `web/static/js/tests/cloud.shim-contract.workout-sessions.test.js`: complete a session → snapshot present; edit the variant's exercises + rename the library item + change targets → the completed session's detail + `exercises_count` are unchanged; a snapshot-less session falls back to the live variant.
+- [x] Run the cloud shim-contract workout-sessions suite — must pass before Task 2.
 
 ### Task 2: Frontend prefers the snapshot in the session modal
 - [ ] In `web/static/js/features/workout/sessions.js` `showWorkoutSessionModal` (`:259-297`): when `data.session.exercise_snapshot` is present, build the planned/un-logged rows from it instead of calling `/api/workout/exercises?variant_id=…`; keep the live-variant path as the fallback when the snapshot is absent.

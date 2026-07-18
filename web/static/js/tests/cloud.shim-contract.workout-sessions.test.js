@@ -226,6 +226,59 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(view.total_volume).toBe(3 * 5 * 100);
     });
 
+    // med-qj4.2.1: a completed session snapshots its planned exercises + targets
+    // so later edits to the variant / library / targets do NOT retroactively
+    // rewrite what that past session shows.
+    it('completing a session snapshots the plan; later plan edits do not rewrite the past session', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0
+        });
+
+        const first = await window.apiCallDirect('/api/workout/sessions/next');
+        const sessionId = first.session.id;
+        await window.apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
+
+        const before = await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`);
+        expect(before.session.exercise_snapshot).toEqual([
+            { exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0 }
+        ]);
+
+        // Mutate the plan three ways: change the exercise's targets, rename the
+        // library item it links to, and add a second exercise to the variant.
+        await window.apiCall(`/api/workout/exercises/update?id=${ex.id}`, 'PUT', {
+            exercise_name: 'Incline Bench', target_sets: 5, target_reps_min: 3, target_reps_max: 5, target_weight_kg: 80, order_index: 0
+        });
+        const lib = (await window.apiCall('/api/workout/exercise-library')).find((l) => l.name === 'Bench' || l.name === 'Incline Bench');
+        if (lib) await window.apiCall(`/api/workout/exercise-library/update?id=${lib.id}`, 'PUT', { name: 'Renamed', default_sets: 1, default_reps_min: 1 });
+        await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Fly', target_sets: 3, target_reps_min: 12, order_index: 1
+        });
+
+        // Past session's detail snapshot is untouched by all three edits.
+        const after = await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`);
+        expect(after.session.exercise_snapshot).toEqual(before.session.exercise_snapshot);
+
+        // exercises_count is stable at 1 even though the variant now has 2.
+        const sessions = await window.apiCall('/api/workout/sessions?limit=10');
+        expect(sessions.find((s) => s.session.id === sessionId).exercises_count).toBe(1);
+    });
+
+    it('a snapshot-less (legacy) session falls back to the live variant for exercises_count', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, order_index: 0
+        });
+        // Materialize but leave the session pending (no completion → no snapshot).
+        const first = await window.apiCallDirect('/api/workout/sessions/next');
+        const sessions = await window.apiCall('/api/workout/sessions?limit=10');
+        const view = sessions.find((s) => s.session.id === first.session.id);
+        expect(view.session.exercise_snapshot).toBeUndefined();
+        expect(view.exercises_count).toBe(1);
+    });
+
     // bd med-9tx: at most one active session at a time. A second ad-hoc Start
     // while one is already active must resume the existing session, not mint a
     // duplicate — matching service.go's CreateAdHocSession guard.
