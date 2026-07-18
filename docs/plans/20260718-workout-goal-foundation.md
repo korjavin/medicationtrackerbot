@@ -64,11 +64,11 @@ ignores the unknown fields), doesn't break.
 - [x] Run the group + shim-contract suites (Node 20) — must pass before Task 3.
 
 ### Task 3: Per-exercise goal override + cascade in the exercise editor
-- [ ] `web/domain/workout.js`: add optional `training_goal` to `createExercise`/`updateExercise`/`toExerciseResponse` (emit only when set; absent = inherit from the routine).
-- [ ] `web/static/js/features/workout/exercises.js` + `index.html`: add a `<select id="workout-exercise-goal">` with an "Inherit from routine" default + the four goals; populate in `showEditExerciseModal` (`:205`), reset in `showAddExerciseModal` (`:164`), read into the `saveExercise` payload (`:233`).
-- [ ] **Cascade:** on goal-selector change (and when the editor opens with a goal), pre-fill the target rep-range (`reps_min`/`reps_max`), the progression preset (`workout-exercise-progression`), and — if a target-RIR field exists or is added — the RIR, from `defaultsForGoal(effectiveGoal)`. All fields stay editable (the cascade only fills defaults; it never locks). "Inherit" resolves the routine's goal.
-- [ ] Extend `features.workout-exercises.test.js`: the goal selector renders + round-trips; changing the goal pre-fills the rep-range + progression preset; "inherit" uses the routine goal; existing fields stay editable.
-- [ ] Run the exercise editor + shim-contract suites (Node 20) — must pass before Task 4.
+- [x] `web/domain/workout.js`: add optional `training_goal` to `createExercise`/`updateExercise`/`toExerciseResponse` (emit only when set; absent = inherit from the routine).
+- [x] `web/static/js/features/workout/exercises.js` + `index.html`: add a `<select id="workout-exercise-goal">` with an "Inherit from routine" default + the four goals; populate in `showEditExerciseModal` (`:205`), reset in `showAddExerciseModal` (`:164`), read into the `saveExercise` payload (`:233`).
+- [x] **Cascade:** on goal-selector change (and when the editor opens with a goal), pre-fill the target rep-range (`reps_min`/`reps_max`), the progression preset (`workout-exercise-progression`), and — if a target-RIR field exists or is added — the RIR, from `defaultsForGoal(effectiveGoal)`. All fields stay editable (the cascade only fills defaults; it never locks). "Inherit" resolves the routine's goal. (RIR skipped — no target-RIR field in the exercise editor.)
+- [x] Extend `features.workout-exercises.test.js`: the goal selector renders + round-trips; changing the goal pre-fills the rep-range + progression preset; "inherit" uses the routine goal; existing fields stay editable.
+- [x] Run the exercise editor + shim-contract suites (Node 20) — must pass before Task 4.
 
 ### Task 4: Verify + full suite
 - [ ] Verify: routine goal stored + selectable (default hypertrophy); exercise override + cascade pre-fills defaults; bot mode unaffected (Go ignores unknown `training_goal`).
