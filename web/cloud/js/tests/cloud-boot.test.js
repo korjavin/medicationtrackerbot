@@ -186,15 +186,25 @@ describe('cloud-boot feedback launcher mount gate (med-dni.2 Task 3)', () => {
   it('imports feedback-ui and mounts the launcher when a recipient is configured', async () => {
     let mounted = 0;
     let uiImported = false;
+    let autoDrainStarted = 0;
+    let drained = 0;
     await runBoot({
       modules: baseModules({
         'feedback-config.js': { getFeedbackRecipient: () => 'age1recipient' },
         'feedback-ui.js': () => { uiImported = true; return Promise.resolve({ mountFeedbackLauncher: async () => { mounted += 1; } }); },
+        'feedback-submit.js': {
+          startFeedbackAutoDrain: () => { autoDrainStarted += 1; return () => {}; },
+          drainFeedbackOutbox: () => { drained += 1; return Promise.resolve(0); },
+        },
       }),
     });
     await flush();
     expect(uiImported).toBe(true);
     expect(mounted).toBe(1);
+    // med-dni.3: the launcher mount also installs the autodrain and kicks one
+    // drain so a queued-offline item from a prior session delivers on open.
+    expect(autoDrainStarted).toBe(1);
+    expect(drained).toBe(1);
   });
 
   it('never imports feedback-ui when no recipient is configured', async () => {

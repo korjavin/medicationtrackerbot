@@ -6,7 +6,9 @@ const DB_NAME = 'medtracker-cloud';
 // v3: 'recordType' index on records. Without it every records.list(type) was a
 // full-store getAll() + JS filter, structured-cloning every record of every
 // domain (sync.js listRecords).
-const DB_VERSION = 3;
+// v4: 'feedback_outbox' store (med-dni.3) — durable age-ciphertext submit queue,
+// keyed by client_id. Independent of the sync oplog stores.
+const DB_VERSION = 4;
 
 export function openDb() {
   return new Promise((resolve, reject) => {
@@ -17,6 +19,7 @@ export function openDb() {
       if (!db.objectStoreNames.contains('records')) db.createObjectStore('records', { keyPath: 'recordId' });
       if (!db.objectStoreNames.contains('pending')) db.createObjectStore('pending', { keyPath: 'recordId' });
       if (!db.objectStoreNames.contains('sync_meta')) db.createObjectStore('sync_meta');
+      if (!db.objectStoreNames.contains('feedback_outbox')) db.createObjectStore('feedback_outbox', { keyPath: 'client_id' });
       // Existing v2 rows already carry recordType (putRecord always writes it),
       // so createIndex backfills the index from them — no data migration.
       const records = req.transaction.objectStore('records');
