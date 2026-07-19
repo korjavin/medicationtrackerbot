@@ -471,6 +471,32 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(intakes.find((i) => i.recordId === 'intake-med-a-drift').status).toBe('PENDING'); // not double-confirmed
     });
 
+    // Redelivery must not "walk" a named med onto its NEXT in-band dose: drain 1
+    // confirms the on-slot dose, a failed flush re-queues the event, and drain 2
+    // (same deterministic atMs) must see that med as already handled and skip it —
+    // not confirm the drifted dose the user never took.
+    it('identity path does not confirm a second drifted dose on redelivery', async () => {
+        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(); // in band, farther than on-slot
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-a-drift', deleted: false, medication_id: 'med-a', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS;
+        const opts = { records, now, getSlotMeds: slotMeds(['med-a']) };
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), ...opts });
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), ...opts }); // redelivery
+
+        const intakes = await records.list('intake');
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
+        expect(intakes.find((i) => i.recordId === 'intake-med-a-drift').status).toBe('PENDING'); // never taken
+        expect((await records.list('medication')).find((m) => m.recordId === 'med-a').inventory_count).toBe(29); // decremented once
+    });
+
     // Idempotency holds on the identity path too: a redelivery / double-tap re-runs
     // with the named meds already TAKEN → nothing left to apply → the receipt is
     // not clobbered and inventory is not double-decremented.

@@ -155,6 +155,9 @@ function isAlreadyApplied(err) {
 // indistinguishable here, so this is accepted rather than fixed. Requires a
 // narrow conjunction (multi-daily med + drift ≥ interval−band + on-slot dose
 // handled out-of-band + a stale reminder tap); upgrade path is instant-carrying.
+// The same-tap subset — a redelivery of THIS tap re-confirming a drifted dose
+// after the on-slot dose it already confirmed — IS distinguishable (taken_at is
+// the deterministic atMs) and is closed by the doneThisTap skip in the caller.
 function nearestPendingByMed(intakes, medId, slotMs, bandMs) {
   let best = null;
   let bestDelta = Infinity;
@@ -197,6 +200,10 @@ async function getSlotMedicationsSafe(getSlotMeds, slotUnix) {
 export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, getSlotMeds = getSlotMedications }) {
   const slotMs = event.slot_unix * 1000;
   const atMs = event.at_unix * 1000;
+  // confirm() backdates taken_at to atMs deterministically, so this instant is
+  // stable across an at-least-once redelivery of the same tap. Used both to skip
+  // a med a prior redelivery already confirmed and to recount the receipt.
+  const atIso = new Date(atMs).toISOString();
 
   // The tap may name a slot whose intakes were never materialized (the app has
   // not been open since it came due). Materializing first is what makes them
@@ -226,7 +233,20 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   if (medicationIds) {
     atSlot = [];
     for (const medId of medicationIds) {
-      const hit = nearestPendingByMed(intakes, medId, slotMs, medBandMs(medId));
+      const band = medBandMs(medId);
+      // A prior redelivery of THIS tap may have already confirmed this med's dose
+      // (deferred flush failed → inbox re-queues the event). Its taken_at is atMs
+      // exactly, so a TAKEN intake at atMs within band means this tap is done with
+      // this med — skip it instead of picking its NEXT nearest PENDING dose, which
+      // on a multi-daily med with a drifted in-band dose would confirm a second
+      // instant the user never took. Only the same-tap case is closable here (atMs
+      // is deterministic across redeliveries); a genuinely separate confirm at
+      // another instant stays the documented ceiling in nearestPendingByMed.
+      const doneThisTap = intakes.some((i) => !i.deleted && i.status === 'TAKEN'
+        && i.medication_id === medId && i.taken_at === atIso
+        && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= band);
+      if (doneThisTap) continue;
+      const hit = nearestPendingByMed(intakes, medId, slotMs, band);
       if (hit) atSlot.push(hit);
     }
   } else {
@@ -272,7 +292,6 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
       // Identity: count DISTINCT named meds confirmed (not band-matched rows), so
       // the receipt matches "every med the reminder named" — the reported
       // "Confirmed 4" vs 3-taken mismatch. Fallback: band-matched rows, unchanged.
-      const atIso = new Date(atMs).toISOString();
       const taken = (await records.list(INTAKE_RECORD_TYPE)).filter((i) =>
         !i.deleted && i.status === 'TAKEN' && i.taken_at === atIso);
       let confirmed;
