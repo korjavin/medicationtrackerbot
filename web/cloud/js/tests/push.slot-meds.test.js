@@ -59,6 +59,34 @@ describe('pushSchedule slot→meds map (med-eas.67)', () => {
     expect(await getSlotMedications(1000)).toEqual(['med-a']);
   });
 
+  it('serializes overlapping pushes so the map matches the last schedule', async () => {
+    // Two recomputes for the same account overlap (the debounce orders only
+    // scheduling, not execution). Without serialization B would clear+PUT while
+    // A's PUT is still in flight, and if the relay processes them out of order
+    // the local map (last write wins) can name a med the served schedule dropped
+    // — a false-positive Confirm. Serialized, B runs strictly after A.
+    const ctx = { accountId: 'acct-1' };
+    let resolveFirst;
+    let puts = 0;
+    globalThis.fetch = vi.fn(() => {
+      puts += 1;
+      if (puts === 1) return new Promise((r) => { resolveFirst = () => r({ ok: true }); });
+      return Promise.resolve({ ok: true });
+    });
+
+    const pA = pushSchedule(ctx, [rem(1000, ['med-a'])], PREF);
+    const pB = pushSchedule(ctx, [rem(1000, ['med-b'])], PREF);
+
+    // A's PUT hangs; B must not have started its own PUT (it's chained behind A).
+    await new Promise((r) => setTimeout(r, 10));
+    expect(puts).toBe(1);
+
+    resolveFirst();
+    await Promise.all([pA, pB]);
+    expect(puts).toBe(2);
+    expect(await getSlotMedications(1000)).toEqual(['med-b']); // last-run push wins
+  });
+
   it('returns null for an unknown slot', async () => {
     await pushSchedule({}, [rem(1000, ['med-a'])], PREF);
     expect(await getSlotMedications(9999)).toBeNull();

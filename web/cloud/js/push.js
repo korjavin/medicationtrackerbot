@@ -326,11 +326,34 @@ export async function sendTestPush(ctx) {
   }
 }
 
-// pushSchedule uploads the reminder horizon to the blind relay. pref picks the
-// delivery channel and, for Telegram, how much the message says — a Telegram
+// Serialize pushSchedule per account (bd med-eas.67). The debounce in
+// scheduleReminderRecompute only orders the SCHEDULING of recomputes, not their
+// execution — a timer fires and deletes itself regardless of whether the prior
+// recompute's push is still in flight — so two clear→PUT→write sequences can
+// interleave. The two PUTs are independent HTTP requests the relay may process
+// in an order that disagrees with which fresh slot→meds map lands last locally,
+// leaving the map naming a med the served schedule doesn't — the exact
+// false-positive Confirm the clear-before-write guard forbids (its reasoning
+// covers only sequential rewrites). Chaining makes the whole sequence atomic per
+// account: the map always matches the schedule from the same push that ran last.
+const pushChains = new Map();
+
+export function pushSchedule(ctx, reminders, pref = {}) {
+  const key = (ctx && ctx.accountId) || ctx;
+  const run = (pushChains.get(key) || Promise.resolve())
+    .catch(() => {})
+    .then(() => pushScheduleInner(ctx, reminders, pref));
+  // Store a settled-swallowing tail so a rejected push can't wedge the chain,
+  // but return the real promise so callers still see the failure.
+  pushChains.set(key, run.catch(() => {}));
+  return run;
+}
+
+// pushScheduleInner uploads the reminder horizon to the blind relay. pref picks
+// the delivery channel and, for Telegram, how much the message says — a Telegram
 // entry hands the relay PLAINTEXT (it cannot decrypt the vault), so 'generic'
 // verbosity is what keeps medication names out of the relay's reach.
-export async function pushSchedule(ctx, reminders, pref = {}) {
+async function pushScheduleInner(ctx, reminders, pref = {}) {
   const delivery = ['webpush', 'telegram', 'both'].includes(pref.delivery) ? pref.delivery : 'webpush';
   const verbosity = pref.verbosity === 'generic' ? 'generic' : 'detailed';
   const needsCT = delivery === 'webpush' || delivery === 'both';
