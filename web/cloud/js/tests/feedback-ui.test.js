@@ -23,7 +23,13 @@ async function flush() { await new Promise((r) => setTimeout(r, 0)); }
 
 describe('feedback-ui', () => {
     beforeEach(() => {
-        document.body.innerHTML = '';
+        // The launcher mounts into the static #settings-view container (as the
+        // first card, before the existing Sync section) — seed that shape.
+        document.body.innerHTML =
+            '<div id="settings-view">'
+            + '<div id="settings-stale-badge" class="hidden"></div>'
+            + '<section class="wg-card wg-settings-section wg-settings-sync"><h3>Sync</h3></section>'
+            + '</div>';
         enqueueFeedback.mockReset();
         delete window.MediaCapture;
         delete window.SyncManager;
@@ -33,11 +39,22 @@ describe('feedback-ui', () => {
         document.body.innerHTML = '';
     });
 
-    it('mounts one launcher (deduped by id)', async () => {
+    it('mounts one launcher (deduped by id) as the first Settings card', async () => {
         await mountFeedbackLauncher({});
         await mountFeedbackLauncher({});
         expect(document.querySelectorAll('#feedback-launcher').length).toBe(1);
         expect(q('#feedback-launcher').textContent).toBe('Send feedback');
+        // Lives inside Settings, as the first section (before the Sync card).
+        const view = q('#settings-view');
+        expect(q('#feedback-settings').closest('#settings-view')).toBe(view);
+        expect(view.querySelector('.wg-settings-section')).toBe(q('#feedback-settings'));
+    });
+
+    it('does nothing when there is no Settings view', async () => {
+        document.body.innerHTML = '';
+        const res = await mountFeedbackLauncher({});
+        expect(res).toBeNull();
+        expect(q('#feedback-launcher')).toBeNull();
     });
 
     it('opens the modal on launcher click; Send disabled until content', async () => {

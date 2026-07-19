@@ -3816,11 +3816,7 @@ input:checked+.toggle-slider:before {
    --z-confirm layer as its .mt-confirm-backdrop; buttons reuse .wg-gloss so no
    bespoke colours live here. */
 .wg-feedback-launcher {
-    position: fixed;
-    right: var(--space-md);
-    bottom: 80px;
-    z-index: var(--z-overlay);
-    box-shadow: var(--shadow-md);
+    width: 100%;
 }
 
 .wg-feedback-modal {

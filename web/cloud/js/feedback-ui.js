@@ -1,7 +1,7 @@
 // feedback-ui.js — cloud-mode-only "Send feedback" capture UI (bd med-dni.2).
 //
-// mountFeedbackLauncher(ctx) drops one floating launcher button into the live
-// app (post-unlock). Tapping it opens an <mt-modal> where anyone can compose
+// mountFeedbackLauncher(ctx) adds a "Feedback" card as the first section of the
+// Settings screen (post-unlock). Tapping it opens an <mt-modal> where anyone can compose
 // anonymous feedback: free text, an attached image (via the shared
 // MediaCapture.pickPhoto abstraction), and a recorded voice message (via the
 // MediaCapture.recordAudio handle added in med-dni.2 Task 1). Send assembles a
@@ -250,19 +250,46 @@ function openFeedbackModal() {
     return modal;
 }
 
-// Drop the launcher into the live app. Dedupe by id; wait for <body> if the
-// document is still parsing (copy of the cloud-boot auth-expired banner mount).
+// Mount the launcher as the first card in the Settings section. Dedupe by id;
+// wait for <body> if the document is still parsing (the #settings-view
+// container is static in index.html, so it exists once the body is ready).
 export async function mountFeedbackLauncher(ctx) {
     if (!document.body) {
         await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
     }
+    const settingsView = document.getElementById('settings-view');
+    if (!settingsView) return null;
     if (document.getElementById(LAUNCHER_ID)) return null;
+
+    const section = document.createElement('section');
+    section.id = 'feedback-settings';
+    section.className = 'wg-card wg-settings-section wg-feedback-settings';
+
+    const title = document.createElement('h3');
+    title.className = 'wg-settings-section__title';
+    title.textContent = 'Feedback';
+    const desc = document.createElement('p');
+    desc.className = 'wg-settings-section__desc';
+    desc.textContent = 'Send a bug report or suggestion to the developer';
+
+    const rows = document.createElement('div');
+    rows.className = 'wg-settings-row-list';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.id = LAUNCHER_ID;
     btn.className = 'wg-gloss wg-feedback-launcher';
     btn.textContent = 'Send feedback';
     btn.addEventListener('click', () => openFeedbackModal());
-    document.body.appendChild(btn);
+    rows.appendChild(btn);
+
+    section.appendChild(title);
+    section.appendChild(desc);
+    section.appendChild(rows);
+
+    // First card from the top: insert before the first existing settings
+    // section/group (after the thin stale-badge row, which is usually hidden).
+    const firstSection = settingsView.querySelector('.wg-settings-section, .wg-settings-group');
+    if (firstSection) settingsView.insertBefore(section, firstSection);
+    else settingsView.appendChild(section);
     return btn;
 }
