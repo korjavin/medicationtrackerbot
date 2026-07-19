@@ -134,9 +134,10 @@ design choice below prefers the former.
 - [x] Run `inbox-apply.test.js` (Node 20) — must pass before Task 4. (71/71 pass.)
 
 ### Task 4: verify + full suite
-- [ ] Full frontend suite (`node node_modules/vitest/vitest.mjs run`, **Node 20**) incl.
+- [x] Full frontend suite (`node node_modules/vitest/vitest.mjs run`, **Node 20**) incl.
       `architecture.domain-purity.test.js` (reminders.js stays pure) + globals — all green.
-- [ ] `go build ./...` + `go build -tags mobile ./...` (no Go changes expected — confirm).
+      321 files / 3846 passed, 29 skipped (run with bounded forks to avoid OOM).
+- [x] `go build ./...` + `go build -tags mobile ./...` — both pass, no Go changes needed.
 
 ### Task 5: Verify acceptance criteria
 - [ ] Tapping Confirm on an N-med reminder confirms EVERY med the reminder named, including
