@@ -357,15 +357,18 @@ export async function pushSchedule(ctx, reminders, pref = {}) {
     }
     entries.push(entry);
   }
-  // Record the slot → medicationIds map for this horizon before the upload, so
-  // a Confirm tap on any of these reminders can confirm the named meds by
-  // identity (bd med-eas.67). Replace-all: overwriting drops last build's slots,
-  // so no stale entries accumulate. Best-effort — a failed local write just
-  // falls back to the ±band match in inbox-apply, never blocks the push.
+  // Invalidate the previous slot → medicationIds map BEFORE swapping the relay
+  // schedule (bd med-eas.67). A stale map is worse than none: if the rewrite
+  // below fails, is interrupted (tab closed after the PUT lands), or the new
+  // horizon simply drops a med a still-mapped older slot named, the identity path
+  // in inbox-apply would confirm that unnamed med's dose — a false positive the
+  // design forbids. A cleared map makes getSlotMedications return null, so
+  // inbox-apply falls back to the safe ±band match. Best-effort: only a fully
+  // broken IndexedDB leaves the old map, and that same store also fails the write.
   try {
-    await writeSlotMeds(slotMedsFromReminders(reminders));
+    await writeSlotMeds({});
   } catch (e) {
-    console.warn('[push] could not store the slot→meds map', e);
+    console.warn('[push] could not clear the slot→meds map', e);
   }
   const res = await fetch('/api/push/schedule', {
     method: 'PUT',
@@ -373,6 +376,14 @@ export async function pushSchedule(ctx, reminders, pref = {}) {
     body: JSON.stringify({ entries }),
   });
   if (!res.ok) throw new Error('Could not schedule the reminder.');
+  // Record the fresh map only after the upload lands, so the local identity map
+  // never gets ahead of the reminders the relay actually serves. Replace-all:
+  // overwriting drops last build's slots, so no stale entries accumulate.
+  try {
+    await writeSlotMeds(slotMedsFromReminders(reminders));
+  } catch (e) {
+    console.warn('[push] could not store the slot→meds map', e);
+  }
 }
 
 async function addDemoReminder(ctx, minutes, text) {

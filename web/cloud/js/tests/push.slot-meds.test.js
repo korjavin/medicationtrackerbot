@@ -63,4 +63,32 @@ describe('pushSchedule slot→meds map (med-eas.67)', () => {
     await pushSchedule({}, [rem(1000, ['med-a'])], PREF);
     expect(await getSlotMedications(9999)).toBeNull();
   });
+
+  it('clears the prior map — a dropped med never survives a failed rewrite', async () => {
+    // First build names med-a AND med-d for slot 1000.
+    await pushSchedule({}, [rem(1000, ['med-a', 'med-d'])], PREF);
+    expect(await getSlotMedications(1000)).toEqual(['med-a', 'med-d']);
+
+    // Second build drops med-d, the relay upload lands, but the FRESH-map write
+    // fails transiently (the store is fine when the map is cleared and when Confirm
+    // reads it later — only the rewrite didn't persist). The stale [med-a, med-d]
+    // must NOT survive — else Confirm would take med-d's dose the new reminder never
+    // named (a forbidden false positive). pushSchedule clears the map before the
+    // upload, so the failed rewrite leaves no map → band fallback.
+    const realOpen = globalThis.indexedDB.open.bind(globalThis.indexedDB);
+    let opens = 0;
+    globalThis.indexedDB.open = (...args) => {
+      opens += 1;
+      if (opens === 2) throw new Error('transient write failure'); // fresh-map write; clear (open #1) succeeded
+      return realOpen(...args);
+    };
+    try {
+      await pushSchedule({}, [rem(1000, ['med-a'])], PREF);
+    } finally {
+      globalThis.indexedDB.open = realOpen;
+    }
+
+    // Map is gone → inbox-apply falls back to the safe ±band match, not the stale map.
+    expect(await getSlotMedications(1000)).toBeNull();
+  });
 });
