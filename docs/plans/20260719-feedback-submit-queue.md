@@ -87,13 +87,13 @@ test (which mocks the module) keep working.
 - [x] Run the test (Node 20) — must pass before Task 2.
 
 ### Task 2: durable IndexedDB outbox + enqueueFeedback
-- [ ] Add a small feedback outbox store. Prefer a **4th object store** in
+- [x] Add a small feedback outbox store. Prefer a **4th object store** in
       `localdb.js` `openDb()` upgrade (`localdb.js:14-24`) named `feedback_outbox`
       (keyPath `client_id`), so it shares the `medtracker-cloud` DB; if bumping that
       DB's version is risky, use a separate `indexedDB.open('medtracker-feedback', 1)`.
       Helpers: `putFeedbackItem`, `getAllFeedbackItems`, `deleteFeedbackItem`
       (mirror `sync.js:244/248` + `DeleteInboxEvent`-style scoped delete).
-- [ ] Implement `export async function enqueueFeedback(bundle)`:
+- [x] Implement `export async function enqueueFeedback(bundle)`:
       1. `recipient = getFeedbackRecipient()`; if empty, throw (UI gates on this).
       2. `meta = { client_id: crypto.randomUUID(), kind: 'feedback', app_version: <build-id meta>, created_at: new Date().toISOString() }`.
       3. `ciphertext = await encryptToRecipient(serializeFeedback(bundle, meta), recipient)`.
@@ -101,10 +101,10 @@ test (which mocks the module) keep working.
          to `feedback_outbox` (ciphertext only — no plaintext at rest).
       5. Kick the drain (Task 3) — fire-and-forget; resolve as soon as it's durably
          queued (the UI's "sent" is optimistic, delivery is the queue's job).
-- [ ] Tests: `enqueueFeedback` persists exactly one ciphertext item (no plaintext fields
+- [x] Tests: `enqueueFeedback` persists exactly one ciphertext item (no plaintext fields
       in the stored row); a second call with a distinct bundle stores a second item;
       the stored `client_id` is a uuid; missing recipient throws before persisting.
-- [ ] Run the test (Node 20) — must pass before Task 3.
+- [x] Run the test (Node 20) — must pass before Task 3.
 
 ### Task 3: drain loop — POST, error policy, exponential backoff, reconnect
 - [ ] `drainFeedbackOutbox()` (single-slot promise-chain lock like `flushChain`,

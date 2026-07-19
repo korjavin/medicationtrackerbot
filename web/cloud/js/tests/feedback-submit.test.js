@@ -4,11 +4,19 @@
 // vendored typage bundle by an absolute `/static/...` URL that doesn't resolve
 // under Node, so we inject a Node loader via setLoader() (same seam as
 // backup-crypto.test.js:53).
-import { describe, it, expect, beforeAll } from 'vitest';
+import 'fake-indexeddb/auto';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { JSDOM } from 'jsdom';
 import { fromBase64 } from '../crypto.js';
-import { serializeFeedback, encryptToRecipient, setLoader } from '../feedback-submit.js';
+import {
+  serializeFeedback,
+  encryptToRecipient,
+  setLoader,
+  enqueueFeedback,
+  getAllFeedbackItems,
+} from '../feedback-submit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const VENDOR = path.resolve(__dirname, '../../../static/vendor/age.min.js');
@@ -72,5 +80,58 @@ describe('feedback-submit serialize + encrypt (Task 1)', () => {
 
   it('throws when the recipient is empty (feature misconfigured)', async () => {
     await expect(encryptToRecipient(new Uint8Array([1]), '')).rejects.toThrow(/recipient required/);
+  });
+});
+
+describe('feedback-submit durable enqueue (Task 2)', () => {
+  const RECIPIENT = 'meta-recipient';
+
+  function withDocument(recipient) {
+    const meta = recipient
+      ? `<meta name="medtracker-feedback-age-recipient" content="${recipient}"><meta name="medtracker-build-id" content="20260719-1200">`
+      : '';
+    global.document = new JSDOM(`<!doctype html><html><head>${meta}</head></html>`).window.document;
+  }
+
+  beforeEach(async () => {
+    const { IDBFactory } = await import('fake-indexeddb');
+    global.indexedDB = new IDBFactory();
+    // encryptToRecipient hits real typage, so give it a valid recipient key.
+    withDocument(await typage.identityToRecipient(await typage.generateIdentity()));
+  });
+
+  afterEach(() => {
+    delete global.document;
+  });
+
+  it('persists exactly one ciphertext item with no plaintext fields', async () => {
+    await enqueueFeedback({ text: 'secret words', attachments: [] });
+    const items = await getAllFeedbackItems();
+    expect(items).toHaveLength(1);
+    const row = items[0];
+    expect(typeof row.ciphertext).toBe('string');
+    expect(row.ciphertext.length).toBeGreaterThan(0);
+    expect(row.attempts).toBe(0);
+    expect(row.kind).toBe('feedback');
+    expect(row.app_version).toBe('20260719-1200');
+    // client_id is a uuid.
+    expect(row.client_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    // No plaintext leaks into the stored row.
+    expect(JSON.stringify(row)).not.toContain('secret words');
+    expect(row.text).toBeUndefined();
+  });
+
+  it('stores a second distinct item for a second call', async () => {
+    await enqueueFeedback({ text: 'one', attachments: [] });
+    await enqueueFeedback({ text: 'two', attachments: [] });
+    const items = await getAllFeedbackItems();
+    expect(items).toHaveLength(2);
+    expect(new Set(items.map((i) => i.client_id)).size).toBe(2);
+  });
+
+  it('throws before persisting when the recipient is missing', async () => {
+    withDocument('');
+    await expect(enqueueFeedback({ text: 'x', attachments: [] })).rejects.toThrow(/recipient/);
+    expect(await getAllFeedbackItems()).toHaveLength(0);
   });
 });

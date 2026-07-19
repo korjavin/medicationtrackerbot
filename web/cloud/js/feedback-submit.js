@@ -12,6 +12,8 @@
 // ciphertext into a durable IndexedDB outbox, and drain via retry/backoff
 // POST /api/feedback.
 import { toBase64, utf8 } from './crypto.js';
+import { openDb } from './localdb.js';
+import { getFeedbackRecipient } from './feedback-config.js';
 
 // Overridable module loader for the vendored typage (age-encryption) ESM.
 // Production uses the absolute browser path; tests inject a Node loader by file
@@ -66,8 +68,60 @@ export async function encryptToRecipient(bytes, recipient) {
   return toBase64(ct);
 }
 
-// STUB — med-dni.3 Task 2 replaces this with age-encrypt + durable enqueue.
+// --- durable outbox (medtracker-cloud DB, 'feedback_outbox' store) ----------
+// Stores only age-ciphertext rows keyed by client_id — plaintext is encrypted
+// at enqueue time so it never persists. Mirrors sync.js's put/getAll/delete
+// shape on the shared localdb handle.
+
+function outboxTx(mode, fn) {
+  return openDb().then((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction('feedback_outbox', mode);
+    const store = tx.objectStore('feedback_outbox');
+    const req = fn(store);
+    tx.oncomplete = () => resolve(req && req.result);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  }).finally(() => db.close()));
+}
+
+export function putFeedbackItem(item) {
+  return outboxTx('readwrite', (store) => store.put(item));
+}
+
+export function getAllFeedbackItems() {
+  return outboxTx('readonly', (store) => store.getAll());
+}
+
+export function deleteFeedbackItem(clientId) {
+  return outboxTx('readwrite', (store) => store.delete(clientId));
+}
+
+function appVersion() {
+  if (typeof document === 'undefined') return 'dev';
+  return document.querySelector('meta[name="medtracker-build-id"]')?.content || 'dev';
+}
+
+// enqueueFeedback(bundle): age-encrypt the anonymous bundle to the operator
+// recipient and durably persist the ciphertext to the outbox. The UI's "sent"
+// is optimistic — actual delivery is the drain loop's job (Task 3). Throws if
+// feedback is misconfigured (no recipient) so the UI can gate before calling.
 export async function enqueueFeedback(bundle) {
-  const attachmentCount = bundle && Array.isArray(bundle.attachments) ? bundle.attachments.length : 0;
-  console.info('[feedback] enqueued (stub)', { hasText: !!(bundle && bundle.text), attachmentCount });
+  const recipient = getFeedbackRecipient();
+  if (!recipient) throw new Error('enqueueFeedback: feedback recipient not configured');
+  const meta = {
+    client_id: crypto.randomUUID(),
+    kind: 'feedback',
+    app_version: appVersion(),
+    created_at: new Date().toISOString(),
+  };
+  const ciphertext = await encryptToRecipient(serializeFeedback(bundle, meta), recipient);
+  await putFeedbackItem({
+    client_id: meta.client_id,
+    kind: meta.kind,
+    app_version: meta.app_version,
+    ciphertext,
+    attempts: 0,
+    created_at: meta.created_at,
+  });
+  // Task 3 wires drainFeedbackOutbox() here (fire-and-forget).
 }
