@@ -1520,10 +1520,11 @@ func (t *TelegramAPI) Test(w http.ResponseWriter, r *http.Request) {
 const inboxEventKindIntakeSlot = "intake_slot_action"
 
 type intakeSlotEvent struct {
-	Kind     string `json:"kind"`
-	SlotUnix int64  `json:"slot_unix"`
-	Action   string `json:"action"`
-	AtUnix   int64  `json:"at_unix"`
+	Kind      string `json:"kind"`
+	SlotUnix  int64  `json:"slot_unix"`
+	Action    string `json:"action"`
+	AtUnix    int64  `json:"at_unix"`
+	MessageID int64  `json:"message_id"`
 }
 
 // Replies to a button tap. Telegram spins the button until answerCallbackQuery
@@ -1579,12 +1580,21 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// cq.Message is optional — Telegram omits it for old messages, leaving the id
+	// 0. A 0 message_id makes the drain-time edit a safe no-op (the confirm still
+	// records); the data fix is independent of the cosmetic message edit.
+	var messageID int64
+	if cq.Message != nil {
+		messageID = cq.Message.MessageID
+	}
+
 	now := time.Now().UTC()
 	plaintext, err := json.Marshal(intakeSlotEvent{
-		Kind:     inboxEventKindIntakeSlot,
-		SlotUnix: slotUnix,
-		Action:   action,
-		AtUnix:   now.Unix(),
+		Kind:      inboxEventKindIntakeSlot,
+		SlotUnix:  slotUnix,
+		Action:    action,
+		AtUnix:    now.Unix(),
+		MessageID: messageID,
 	})
 	if err != nil {
 		slog.Error("telegram callback: marshal event", "error", err, "ref", ref)

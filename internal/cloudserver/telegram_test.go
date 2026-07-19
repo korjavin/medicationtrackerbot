@@ -1084,6 +1084,11 @@ func TestChildWebhook_CallbackQuerySealsEventToMailbox(t *testing.T) {
 	if got.Kind != inboxEventKindIntakeSlot || got.SlotUnix != 1767225600 || got.Action != tgclient.CallbackActionConfirm {
 		t.Fatalf("sealed event = %+v", got)
 	}
+	// The callback's message_id is plumbed through so the drain can edit that
+	// message to a receipt and drop its buttons (bug 1). callbackUpdate sends 9.
+	if got.MessageID != 9 {
+		t.Errorf("message_id = %d, want 9 (plumbed from cq.Message.MessageID)", got.MessageID)
+	}
 	// The SERVER stamps the tap instant — that is what backdates the intake.
 	if got.AtUnix < before || got.AtUnix > time.Now().UTC().Unix()+2 {
 		t.Errorf("at_unix = %d, want a server timestamp near now (%d)", got.AtUnix, before)

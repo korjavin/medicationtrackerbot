@@ -135,7 +135,7 @@ function isAlreadyApplied(err) {
 // atUnix is the SERVER's timestamp for the tap, so a Confirm tapped at 09:00
 // records taken_at 09:00 even when the app first opens at noon — the backdating
 // rule (docs/cloud-mode.md → drain protocol, rule 4).
-export async function applyIntakeSlotAction(event, { intake, records, now = Date.now }) {
+export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply }) {
   const slotMs = event.slot_unix * 1000;
   const atMs = event.at_unix * 1000;
 
@@ -161,6 +161,7 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
     return Math.abs(Date.parse(i.scheduled_at) - slotMs) <= band;
   });
 
+  let applied = 0;
   for (const i of atSlot) {
     try {
       if (event.action === 'confirm') {
@@ -173,9 +174,22 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
         if (minutes <= 0) continue;
         await intake.snooze(i.recordId, minutes);
       }
+      applied += 1;
     } catch (e) {
       if (!isAlreadyApplied(e)) throw e;
     }
+  }
+
+  // Edit the original reminder message to a receipt and drop its buttons (the
+  // edit sends no reply_markup — bug 1). message_id is absent when Telegram
+  // omitted cq.Message for an old message → editReply is a safe no-op.
+  const text = event.action === 'confirm'
+    ? confirmationText({ kind: 'intake' }, { confirmed: applied }, verbosity)
+    : (verbosity === 'generic' ? '⏰ Snoozed.' : '⏰ Snoozed — will remind you again shortly.');
+  try {
+    await editReply(event.message_id, text);
+  } catch (e) {
+    console.warn('[inbox] could not update the Telegram reply', e);
   }
 }
 
@@ -576,6 +590,8 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
       console.warn('[inbox] ignoring unknown action', event.action);
       return;
     }
-    await applyIntakeSlotAction(event, { intake, records, now });
+    const reminders = createRemindersDomain({ records, now });
+    const { verbosity } = await reminders.getDeliveryPref();
+    await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply });
   };
 }

@@ -226,6 +226,58 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         ).rejects.toThrow(/vault write failed/);
     });
 
+    // Bug 1: Confirm must edit the original reminder message to a receipt (which
+    // also drops its inline buttons, since the edit sends no reply_markup).
+    it('edits the reminder message with the count actually confirmed', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction(
+            { ...confirmEvent, message_id: 4242 },
+            { intake: domainFor(records, now), records, now, editReply },
+        );
+        expect(editReply).toHaveBeenCalledWith(4242, expect.stringMatching(/Confirmed 2 medications/));
+    });
+
+    it('edits the reminder message to a snoozed receipt', async () => {
+        const records = fakeRecords(seed());
+        const now = () => (TAP_UNIX + 60) * 1000; // window still open
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction(
+            { ...snoozeEvent, message_id: 77 },
+            { intake: domainFor(records, now), records, now, editReply },
+        );
+        expect(editReply).toHaveBeenCalledWith(77, expect.stringMatching(/Snoozed/));
+    });
+
+    it('respects generic verbosity in the confirm receipt', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction(
+            { ...confirmEvent, message_id: 1 },
+            { intake: domainFor(records, now), records, now, editReply, verbosity: 'generic' },
+        );
+        expect(editReply).toHaveBeenCalledWith(1, '✅ Recorded.');
+    });
+
+    it('a failed message edit never fails the drain (record already in the vault)', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => { throw new Error('telegram down'); });
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        await expect(
+            applyIntakeSlotAction(
+                { ...confirmEvent, message_id: 9 },
+                { intake: domainFor(records, now), records, now, editReply },
+            ),
+        ).resolves.toBeUndefined();
+        warn.mockRestore();
+        // The confirm still landed.
+        const atSlot = (await records.list('intake')).filter((i) => i.scheduled_at === SLOT_ISO);
+        for (const i of atSlot) expect(i.status).toBe('TAKEN');
+    });
+
     it('confirming a slot with nothing pending is a no-op, not a throw', async () => {
         const records = fakeRecords({ medication: seed().medication, intake: [] });
         const now = () => DRAIN_MS;
