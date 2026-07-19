@@ -126,13 +126,13 @@ dep) — the server treats the blob as opaque bytes.
 - [x] Run `go test ./internal/cloudserver/... ./cmd/cloud/...` — passed.
 
 ### Task 4: wire, verify, docs
-- [ ] Confirm `FeedbackAPI.RegisterRoutes(apiMux)` is called in `cmd/cloud/main.go`
-      alongside the other APIs.
-- [ ] Run `go build ./...` + `go build -tags mobile ./...` (mobile must still compile —
-      cloud files are server-only but the whole tree must build under both tags).
-- [ ] Run `go test ./internal/cloudstore/... ./internal/cloudserver/... ./cmd/cloud/...`
+- [x] Confirm `FeedbackAPI.RegisterRoutes(apiMux)` is called in `cmd/cloud/main.go`
+      alongside the other APIs. (main.go:241)
+- [x] Run `go build ./...` + `go build -tags mobile ./...` (mobile must still compile —
+      cloud files are server-only but the whole tree must build under both tags). Both pass.
+- [x] Run `go test ./internal/cloudstore/... ./internal/cloudserver/... ./cmd/cloud/...`
       and `gofmt`/`go vet` on changed files — all green.
-- [ ] Update `docs/environment.md` with `FEEDBACK_AGE_RECIPIENT` (age X25519 recipient
+- [x] Update `docs/environment.md` with `FEEDBACK_AGE_RECIPIENT` (age X25519 recipient
       pubkey; unset = feedback disabled) and add a one-line note to `docs/cloud-mode.md`
       pointing at the feedback queue as the med-dni epic's server foundation.
 
