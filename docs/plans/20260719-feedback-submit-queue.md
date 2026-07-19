@@ -133,23 +133,23 @@ test (which mocks the module) keep working.
 - [x] Run the test (Node 20) — must pass before Task 4.
 
 ### Task 4: wire startup + verify
-- [ ] Call `startFeedbackAutoDrain()` once from cloud boot (near where med-dni.2's
+- [x] Call `startFeedbackAutoDrain()` once from cloud boot (near where med-dni.2's
       launcher mounts in `web/cloud/js/cloud-boot.js`, gated on the same
       `getFeedbackRecipient()` non-empty check) so a queued item left from a previous
       session drains on next open. Idempotent (dedupe by a module-level guard).
-- [ ] Run the full frontend suite (`node node_modules/vitest/vitest.mjs run`, **Node 20**)
+- [x] Run the full frontend suite (`node node_modules/vitest/vitest.mjs run`, **Node 20**)
       incl. `architecture.globals.test.js` (no new `window.*` global — ES module exports),
-      `architecture.cloud-tokens.test.js` — all green.
-- [ ] `go build ./...` + `go build -tags mobile ./...` (no Go changes; confirm build).
+      `architecture.cloud-tokens.test.js` — all green. (320 files, 3830 passed / 29 skipped.)
+- [x] `go build ./...` + `go build -tags mobile ./...` (no Go changes; confirm build).
 
 ### Task 5: Verify acceptance criteria
-- [ ] Feedback is age-encrypted to the recipient pubkey client-side; the outbox and the
+- [x] Feedback is age-encrypted to the recipient pubkey client-side; the outbox and the
       server store only ciphertext (no plaintext at rest, verified by the enqueue test).
-- [ ] Submit is durable: offline/5xx defers and retries with exponential backoff; drains
+- [x] Submit is durable: offline/5xx defers and retries with exponential backoff; drains
       on `online`/visibility and on next app open; idempotent on `client_id`.
-- [ ] Permanent (4xx) failures are dropped, not retried forever; retryable failures are
+- [x] Permanent (4xx) failures are dropped, not retried forever; retryable failures are
       capped, not infinite.
-- [ ] med-dni.2's UI + its test still pass against the real `enqueueFeedback`.
+- [x] med-dni.2's UI + its test still pass against the real `enqueueFeedback`.
 
 ## Technical Details
 

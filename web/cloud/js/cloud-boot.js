@@ -385,6 +385,13 @@ window.MedTrackerCloudReady = (async function boot() {
                 if (!getFeedbackRecipient()) return;
                 const { mountFeedbackLauncher } = await import('/js/feedback-ui.js');
                 await mountFeedbackLauncher(ctx);
+                // med-dni.3: install the reconnect/visibility autodrain and kick
+                // one drain so an item queued in a previous session (offline at
+                // capture time) is delivered on next open. Idempotent — the module
+                // guards against a duplicate listener pair.
+                const { startFeedbackAutoDrain, drainFeedbackOutbox } = await import('/js/feedback-submit.js');
+                startFeedbackAutoDrain();
+                drainFeedbackOutbox().catch(() => {});
             })
             .catch((e) => console.error('[cloud-boot] feedback launcher mount failed', e));
     } catch (e) {
