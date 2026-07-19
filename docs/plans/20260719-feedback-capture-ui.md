@@ -99,11 +99,11 @@ callers). No bot-mode feature changes.
 - [x] Run those tests (Node 20) — must pass before Task 2.
 
 ### Task 2: feedback-ui.js — modal, capture, bundle assembly, enqueue seam
-- [ ] Add `web/cloud/js/feedback-submit.js`: `export async function enqueueFeedback(bundle)`
+- [x] Add `web/cloud/js/feedback-submit.js`: `export async function enqueueFeedback(bundle)`
       — **stub** for this task (persist nothing; log + resolve; a clear
       `// med-dni.3 implements age-encrypt + durable queue + POST` comment). Signature is
       the contract med-dni.3 fills.
-- [ ] Add `web/cloud/js/feedback-ui.js` exporting `mountFeedbackLauncher(ctx)`:
+- [x] Add `web/cloud/js/feedback-ui.js` exporting `mountFeedbackLauncher(ctx)`:
       - Mounts one launcher button into the live app (dedupe by element id, wait for
         `document.body` — copy the banner pattern `cloud-boot.js:222-244`). Uses `wg-*`
         classes only.
@@ -118,14 +118,14 @@ callers). No bot-mode feature changes.
         Call `enqueueFeedback(bundle)`, then close the modal + show a brief "Thanks, sent"
         confirmation (optimistic — actual delivery reliability is med-dni.3's queue).
       - Disable Send when text is empty AND no attachment. Escape/Cancel dismiss.
-- [ ] Guard: everything degrades gracefully if `MediaCapture.recordAudio` is unavailable
+- [x] Guard: everything degrades gracefully if `MediaCapture.recordAudio` is unavailable
       (older shell) — hide the Record button, keep text+image.
-- [ ] Tests `web/cloud/js/tests/feedback-ui.test.js` (jsdom, Node 20): modal opens from
+- [x] Tests `web/cloud/js/tests/feedback-ui.test.js` (jsdom, Node 20): modal opens from
       the launcher; typing text + (mocked) `pickPhoto`/`recordAudio` returning Blobs →
       Send calls a spied `enqueueFeedback` with a bundle carrying the text + both
       attachments and **no account/PII field**; Send disabled when empty; Cancel/Escape
       close without calling enqueue; Record→Stop toggles and captures the audio Blob.
-- [ ] Run `feedback-ui.test.js` (Node 20) — must pass before Task 3.
+- [x] Run `feedback-ui.test.js` (Node 20) — must pass before Task 3.
 
 ### Task 3: mount the launcher from cloud-boot (gated on configured recipient)
 - [ ] In `web/cloud/js/cloud-boot.js` post-unlock block (after the apishim install,
