@@ -209,6 +209,15 @@ describe('feedback-submit drain loop (Task 3)', () => {
     expect(items[0].attempts).toBe(1);
   });
 
+  it('a 429 (queue full) keeps the item and retries later', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve({ ok: false, status: 429 }));
+    await putFeedbackItem(ITEM());
+    await drainFeedbackOutbox();
+    const items = await getAllFeedbackItems();
+    expect(items).toHaveLength(1);
+    expect(items[0].attempts).toBe(1);
+  });
+
   it('a 400 drops the item (permanent, not retried)', async () => {
     vi.stubGlobal('fetch', () => Promise.resolve({ ok: false, status: 400 }));
     await putFeedbackItem(ITEM());

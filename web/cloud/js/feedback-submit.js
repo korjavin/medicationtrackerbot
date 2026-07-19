@@ -182,13 +182,15 @@ async function drainOutboxUnlocked() {
       retryable = true;
       continue;
     }
-    if (status >= 400 && status < 500) {
-      // Permanent bad payload (400/413) — the server will never accept it, so
-      // give up rather than retry forever.
+    if (status === 400 || status === 413) {
+      // Permanent bad payload — the server will never accept it, so give up
+      // rather than retry forever. (429 queue-full is transient, not permanent,
+      // so it falls through to the retry branch below.)
       await deleteFeedbackItem(item.client_id);
       continue;
     }
-    // Network (status 0), 5xx, or 503 (feature temporarily disabled) → retry.
+    // Network (status 0), 429 (queue full), 5xx, or 503 (feature temporarily
+    // disabled) → retry.
     const attempts = (item.attempts || 0) + 1;
     await putFeedbackItem({ ...item, attempts });
     if (attempts < MAX_ATTEMPTS) retryable = true; // else park it
