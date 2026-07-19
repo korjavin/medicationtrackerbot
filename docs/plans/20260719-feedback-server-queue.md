@@ -68,23 +68,23 @@ dep) — the server treats the blob as opaque bytes.
 ## Implementation Steps
 
 ### Task 1: feedback_queue table + cloudstore repo methods
-- [ ] Add `internal/cloudstore/migrations/018_feedback.sql` (goose Up/Down, copy the
+- [x] Add `internal/cloudstore/migrations/018_feedback.sql` (goose Up/Down, copy the
       shape of `012_inbox.sql`): table `feedback_queue` with
       `id INTEGER PRIMARY KEY AUTOINCREMENT`,
       `account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE`,
       `client_id TEXT NOT NULL UNIQUE`, `kind TEXT NOT NULL DEFAULT ''`,
       `app_version TEXT NOT NULL DEFAULT ''`, `ciphertext BLOB NOT NULL`,
       `created_at_unix INTEGER NOT NULL`. Index on `created_at_unix` for the drain order.
-- [ ] Add `internal/cloudstore/feedback.go`: `AppendFeedback(ctx, accountID, clientID, kind, appVersion string, ciphertext []byte, now time.Time) error`
+- [x] Add `internal/cloudstore/feedback.go`: `AppendFeedback(ctx, accountID, clientID, kind, appVersion string, ciphertext []byte, now time.Time) error`
       using `INSERT ... ON CONFLICT(client_id) DO NOTHING` (idempotent retry-safe);
       `ListFeedback(ctx, limit int) ([]FeedbackItem, error)` ordered by `created_at_unix ASC`
       (for the med-dni.4 CLI drain); `DeleteFeedback(ctx, id int64) error`. Define
       `type FeedbackItem struct` (Id, AccountID, ClientID, Kind, AppVersion, Ciphertext, CreatedAt).
-- [ ] Add `"feedback_queue"` to `accountKeyedTables` (`internal/cloudstore/repo.go:521-536`).
-- [ ] Write `internal/cloudstore/feedback_test.go`: append→list round-trip (ciphertext
+- [x] Add `"feedback_queue"` to `accountKeyedTables` (`internal/cloudstore/repo.go:521-536`).
+- [x] Write `internal/cloudstore/feedback_test.go`: append→list round-trip (ciphertext
       bytes preserved verbatim); duplicate `client_id` append is a no-op (still one row);
       delete removes it; list respects `limit` + ASC order.
-- [ ] Run `go test ./internal/cloudstore/...` (incl. `TestDeleteAccountLeavesNoRows`) — must pass before Task 2.
+- [x] Run `go test ./internal/cloudstore/...` (incl. `TestDeleteAccountLeavesNoRows`) — must pass before Task 2.
 
 ### Task 2: POST /api/feedback handler (blind append, idempotent, disabled-guard)
 - [ ] Add `internal/cloudserver/feedback.go`: `FeedbackAPI{store, sessionSecret, recipient string}`,

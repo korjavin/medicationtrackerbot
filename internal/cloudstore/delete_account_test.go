@@ -68,6 +68,8 @@ func seedAllAccountTables(t *testing.T, r *Repo, accountID string) {
 			[]any{accountID, now, []byte("c")}},
 		{`INSERT INTO trial_usage (day, account_id, requests) VALUES (?,?,?)`,
 			[]any{"2026-07-10", accountID, 3}},
+		{`INSERT INTO feedback_queue (account_id, client_id, kind, app_version, ciphertext, created_at_unix) VALUES (?,?,?,?,?,?)`,
+			[]any{accountID, "fb-" + accountID, "bug", "1.0", []byte("c"), now}},
 	}
 	for _, s := range stmts {
 		if _, err := r.db.ExecContext(ctx, s.sql, s.args...); err != nil {
