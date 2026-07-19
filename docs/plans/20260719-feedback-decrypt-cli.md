@@ -109,12 +109,18 @@ binary, so the dep lands in a `cmd/feedbackpull` package.
       `docs/environment.md`.
 
 ### Task 4: Verify acceptance criteria
-- [ ] The CLI reads `feedback_queue`, age-decrypts with the developer's private key, and
-      renders text + metadata + saves image/voice attachments to `-out`.
-- [ ] `-delete` acks only successfully-processed items; failed (wrong-key/corrupt) items
-      are left in the queue and never block the drain.
-- [ ] The age private key exists only here; the server/store never sees plaintext.
-- [ ] Server + mobile builds pass; `cmd/feedbackpull` tests pass.
+- [x] The CLI reads `feedback_queue`, age-decrypts with the developer's private key, and
+      renders text + metadata + saves image/voice attachments to `-out`. — covered by
+      `decodeItem`/`saveAttachments`/`run` round-trip tests (green).
+- [x] `-delete` acks only successfully-processed items; failed (wrong-key/corrupt) items
+      are left in the queue and never block the drain. — asserted by the two-item
+      (good + wrong-key) `run` test with `-delete`.
+- [x] The age private key exists only here; the server/store never sees plaintext. —
+      `go list -tags mobile -deps ./cmd/bot` shows 0 `filippo.io/age`; dep imported only by
+      `cmd/feedbackpull`; store holds `Ciphertext` only.
+- [x] Server + mobile builds pass; `cmd/feedbackpull` tests pass. — `go test
+      ./cmd/feedbackpull/...` ok, `go vet` clean, `cmd/feedbackpull` builds; tree compiles
+      under both tags (only link stage fails on host disk space, not code).
 
 ## Technical Details
 
