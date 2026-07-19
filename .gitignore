@@ -2,6 +2,12 @@
 /mcptool
 /seeddemo
 /feedbackpull
+# feedbackpull dev/ops secrets: the sole age private key + decrypted user PII
+# output. Documented workflow creates dev.key + ./inbox|./feedback in the repo
+# root — never commit them.
+*.key
+/inbox/
+/feedback/
 /vendor/
 meds.db
 *.db

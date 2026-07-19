@@ -88,7 +88,7 @@ func saveAttachments(doc feedbackDoc, item cloudstore.FeedbackItem, outDir strin
 	if len(doc.Attachments) == 0 {
 		return nil, nil
 	}
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := os.MkdirAll(outDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create out dir %q: %w", outDir, err)
 	}
 	var paths []string
@@ -99,7 +99,7 @@ func saveAttachments(doc feedbackDoc, item cloudstore.FeedbackItem, outDir strin
 		}
 		name := fmt.Sprintf("%d-%s-%d%s", item.ID, filepath.Base(item.ClientID), i, mimeExt(att.Mime))
 		path := filepath.Join(outDir, name)
-		if err := os.WriteFile(path, data, 0o644); err != nil {
+		if err := os.WriteFile(path, data, 0o600); err != nil {
 			return paths, fmt.Errorf("write attachment %q: %w", path, err)
 		}
 		paths = append(paths, path)
