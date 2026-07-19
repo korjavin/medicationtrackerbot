@@ -185,10 +185,12 @@ async function drainOutboxUnlocked() {
       retryable = true;
       continue;
     }
-    if (status === 400 || status === 413) {
-      // Permanent bad payload — the server will never accept it, so give up
-      // rather than retry forever. (429 queue-full is transient, not permanent,
-      // so it falls through to the retry branch below.)
+    if (status >= 400 && status < 500 && status !== 429) {
+      // Any other client-error 4xx is permanent — the origin server emits 400
+      // (bad payload) / 413 (too large), and an intermediary (Traefik/WAF) can
+      // emit 403/404. None succeed on retry, so give up rather than re-POST on
+      // every reconnect forever. (401 auth-pending is handled above; 429
+      // queue-full is transient, so it falls through to the retry branch.)
       await deleteFeedbackItem(item.client_id);
       continue;
     }
