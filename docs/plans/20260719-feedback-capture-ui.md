@@ -149,14 +149,18 @@ callers). No bot-mode feature changes.
       all changed JS.
 
 ### Task 5: Verify acceptance criteria
-- [ ] Cloud mode with a configured recipient shows a "Send feedback" launcher; the modal
+- [x] Cloud mode with a configured recipient shows a "Send feedback" launcher; the modal
       captures text + an image (via `pickPhoto`) + a voice message (via the new
-      `recordAudio` cap).
-- [ ] Send assembles an anonymous bundle (no account id / PII) and calls
-      `enqueueFeedback` (the med-dni.3 seam).
-- [ ] With no recipient configured, the whole feature is absent.
-- [ ] Voice recording goes through `native/` (rule 10); no inline styles / hardcoded
-      colors (rule 3); no new `window.*` global (rule 4).
+      `recordAudio` cap). Verified by `feedback-ui.test.js` (modal-open + capture cases).
+- [x] Send assembles an anonymous bundle (no account id / PII) and calls
+      `enqueueFeedback` (the med-dni.3 seam). Verified by the spy-on-`enqueueFeedback`
+      test asserting text + both attachments and no account/PII field.
+- [x] With no recipient configured, the whole feature is absent. Verified: launcher mount
+      is gated on `getFeedbackRecipient() !== ''` in `cloud-boot.js:383-389`.
+- [x] Voice recording goes through `native/` (rule 10); no inline styles / hardcoded
+      colors (rule 3); no new `window.*` global (rule 4). Verified by
+      `architecture.native-abstractions.test.js`, `architecture.cloud-tokens.test.js`,
+      `architecture.globals.test.js` (all green in Task 4's full-suite run).
 
 ## Technical Details
 
