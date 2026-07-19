@@ -12,8 +12,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -22,6 +24,7 @@ import (
 	"filippo.io/age"
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 )
 
 // feedbackDoc is the decrypted v1 plaintext document produced by the client
@@ -102,8 +105,108 @@ func saveAttachments(doc feedbackDoc, item cloudstore.FeedbackItem, outDir strin
 	return paths, nil
 }
 
+// run drains up to limit oldest items from the queue, decrypting and rendering
+// each. Fail-open: a decrypt/parse/save error for one item is logged to stderr
+// and skipped (never deleted, so it stays in the queue for investigation) — one
+// bad row must not abort the whole drain. When del is set, only successfully
+// processed items are acked. w receives the human render (or, with jsonOut, one
+// JSON line per item).
+func run(store *cloudstore.Repo, ids []age.Identity, outDir string, limit int, del, jsonOut bool, w io.Writer) error {
+	ctx := context.Background()
+	items, err := store.ListFeedback(ctx, limit)
+	if err != nil {
+		return fmt.Errorf("list feedback: %w", err)
+	}
+	for _, item := range items {
+		doc, err := decodeItem(item, ids)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "skip item %d: %v\n", item.ID, err)
+			continue
+		}
+		paths, err := saveAttachments(doc, item, outDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "skip item %d: %v\n", item.ID, err)
+			continue
+		}
+		if jsonOut {
+			line, err := json.Marshal(map[string]any{
+				"id":          item.ID,
+				"account_id":  item.AccountID,
+				"client_id":   item.ClientID,
+				"kind":        item.Kind,
+				"app_version": item.AppVersion,
+				"created_at":  item.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+				"text":        doc.Text,
+				"attachments": paths,
+			})
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "skip item %d: %v\n", item.ID, err)
+				continue
+			}
+			fmt.Fprintln(w, string(line))
+		} else {
+			fmt.Fprintf(w, "─── item %d ── account=%s client=%s kind=%s version=%s at=%s\n",
+				item.ID, item.AccountID, item.ClientID, item.Kind, item.AppVersion,
+				item.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"))
+			for _, p := range paths {
+				fmt.Fprintf(w, "  saved: %s\n", p)
+			}
+			fmt.Fprintf(w, "%s\n\n", doc.Text)
+		}
+		if del {
+			if err := store.DeleteFeedback(ctx, item.ID); err != nil {
+				fmt.Fprintf(os.Stderr, "ack item %d failed: %v\n", item.ID, err)
+			}
+		}
+	}
+	return nil
+}
+
 func main() {
-	// Wired in Task 2 (flags, store drain, render, optional ack).
-	fmt.Fprintln(os.Stderr, "feedbackpull: not yet wired (med-dni.4 Task 2)")
-	os.Exit(1)
+	var (
+		dbPath   = flag.String("db", "", "cloud sqlite path (required)")
+		identity = flag.String("identity", os.Getenv("FEEDBACK_AGE_IDENTITY"), "age identity file (default $FEEDBACK_AGE_IDENTITY)")
+		outDir   = flag.String("out", "./feedback", "attachment output dir")
+		limit    = flag.Int("limit", 100, "max items to drain")
+		del      = flag.Bool("delete", false, "ack (delete) items after a successful decrypt+save")
+		jsonOut  = flag.Bool("json", false, "emit each item as a JSON line instead of the human render")
+	)
+	flag.Parse()
+
+	fail := func(format string, a ...any) {
+		fmt.Fprintf(os.Stderr, "feedbackpull: "+format+"\n", a...)
+		os.Exit(1)
+	}
+	if *dbPath == "" {
+		fail("-db is required")
+	}
+	if *identity == "" {
+		fail("-identity (or $FEEDBACK_AGE_IDENTITY) is required")
+	}
+	idFile, err := os.Open(*identity)
+	if err != nil {
+		fail("open identity file: %v", err)
+	}
+	ids, err := age.ParseIdentities(idFile)
+	idFile.Close()
+	if err != nil {
+		fail("parse identities: %v", err)
+	}
+	if len(ids) == 0 {
+		fail("no identities in %s", *identity)
+	}
+
+	sharedDB, err := storedb.Open(*dbPath)
+	if err != nil {
+		fail("open database: %v", err)
+	}
+	defer sharedDB.Close()
+	store, err := cloudstore.New(sharedDB)
+	if err != nil {
+		fail("init cloudstore: %v", err)
+	}
+
+	if err := run(store, ids, *outDir, *limit, *del, *jsonOut, os.Stdout); err != nil {
+		fail("%v", err)
+	}
 }

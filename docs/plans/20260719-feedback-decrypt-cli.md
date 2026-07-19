@@ -75,25 +75,25 @@ binary, so the dep lands in a `cmd/feedbackpull` package.
 - [x] Run `go test ./cmd/feedbackpull/...` — must pass before Task 2.
 
 ### Task 2: wire the CLI — flags, store drain, render, optional ack
-- [ ] Flags: `-db` (cloud sqlite path, required), `-identity` (age identity file;
+- [x] Flags: `-db` (cloud sqlite path, required), `-identity` (age identity file;
       default from `FEEDBACK_AGE_IDENTITY` env), `-out` (attachment output dir, default
       `./feedback`), `-limit` (default 100), `-delete` (ack items after a successful
       decrypt+save; default false), `-json` (optional: emit each item as a JSON line
       instead of the human render).
-- [ ] `run(store *cloudstore.Repo, ids []age.Identity, outDir string, limit int, del, jsonOut bool, w io.Writer) error`:
+- [x] `run(store *cloudstore.Repo, ids []age.Identity, outDir string, limit int, del, jsonOut bool, w io.Writer) error`:
       `ListFeedback(ctx, limit)`; for each item — `decodeItem` + `saveAttachments`; on
       success print a header (id, account_id, kind, app_version, created_at, saved
       attachment paths) + the text (or a JSON line); if `del` then `DeleteFeedback(id)`.
       **On decrypt/parse error for one item: log to stderr and continue** (never delete a
       failed item; don't abort the whole drain).
-- [ ] `main()`: parse flags, load identities (`age.ParseIdentities`), open the store
+- [x] `main()`: parse flags, load identities (`age.ParseIdentities`), open the store
       (`storedb.Open` → `cloudstore.New`), call `run(..., os.Stdout)`, exit non-zero on a
       fatal (bad flags / can't open DB / no identities), zero otherwise.
-- [ ] Tests: `run` over a seeded in-memory store with two items (one decryptable, one
+- [x] Tests: `run` over a seeded in-memory store with two items (one decryptable, one
       wrong-key) prints the good one, saves its attachments, and with `-delete` acks
       **only** the good one (assert the bad item remains via `ListFeedback`); `-json`
       emits parseable lines; empty queue is a clean no-op.
-- [ ] Run `go test ./cmd/feedbackpull/...` — must pass before Task 3.
+- [x] Run `go test ./cmd/feedbackpull/...` — must pass before Task 3.
 
 ### Task 3: verify + docs
 - [ ] `go build ./...` + `go build -tags mobile ./...` (both green; confirm the age dep
