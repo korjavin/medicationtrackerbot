@@ -163,13 +163,13 @@ blind queue).
 - [x] Run `go test ./internal/cloudserver/...` — must pass before Task 5.
 
 ### Task 5: wire, verify, docs
-- [ ] Confirm `cmd/cloud/main.go` passes `cfg.feedbackAgeRecipient` into
+- [x] Confirm `cmd/cloud/main.go` passes `cfg.feedbackAgeRecipient` into
       `NewTelegramAPI(...)`.
-- [ ] `go build ./...` + `go build -tags mobile ./...`; `go vet` + `gofmt` on changed
+- [x] `go build ./...` + `go build -tags mobile ./...`; `go vet` + `gofmt` on changed
       files.
-- [ ] `go test ./internal/tgclient/... ./internal/cloudstore/... ./internal/cloudserver/...`
+- [x] `go test ./internal/tgclient/... ./internal/cloudstore/... ./internal/cloudserver/...`
       all green.
-- [ ] Docs: note the Telegram feedback channel in `docs/cloud-mode.md` (and the
+- [x] Docs: note the Telegram feedback channel in `docs/cloud-mode.md` (and the
       `feedback_queue` blurb from med-dni.1/.4), including the claimed-account attribution
       limitation and the disabled-when-`FEEDBACK_AGE_RECIPIENT`-unset behavior.
 
