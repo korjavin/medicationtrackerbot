@@ -87,22 +87,22 @@ dep) — the server treats the blob as opaque bytes.
 - [x] Run `go test ./internal/cloudstore/...` (incl. `TestDeleteAccountLeavesNoRows`) — must pass before Task 2.
 
 ### Task 2: POST /api/feedback handler (blind append, idempotent, disabled-guard)
-- [ ] Add `internal/cloudserver/feedback.go`: `FeedbackAPI{store, sessionSecret, recipient string}`,
+- [x] Add `internal/cloudserver/feedback.go`: `FeedbackAPI{store, sessionSecret, recipient string}`,
       `NewFeedbackAPI(store, sessionSecret, recipient string)`, `RegisterRoutes(mux)` mounting
       `POST /api/feedback` under `RequireSession` (copy `inbox.go:44-58`).
-- [ ] Handler `SubmitFeedback`: if `recipient == ""` → 503 (feature disabled). Read body
+- [x] Handler `SubmitFeedback`: if `recipient == ""` → 503 (feature disabled). Read body
       under `http.MaxBytesReader` (cap ~5 MB — audio/screenshot ciphertext; name a const).
       Accept JSON `{ "client_id", "kind", "app_version", "ciphertext" }` where `ciphertext`
       is base64 (age-armored ASCII would also work, but base64-of-bytes keeps it opaque).
       Validate `client_id` non-empty and `ciphertext` decodes + non-empty; 400 otherwise.
       Get `session.AccountID` via `SessionFromContext`. Call `store.AppendFeedback(...)`
       with `time.Now()`. Return 204 on success (dedupe makes retries safe).
-- [ ] Write `internal/cloudserver/feedback_test.go` (copy the `RequireSession`+`httptest`
+- [x] Write `internal/cloudserver/feedback_test.go` (copy the `RequireSession`+`httptest`
       harness from `inbox_test.go`/`push_test.go`): happy-path 204 stores one row scoped to
       the session account; retry with same `client_id` → still 204, still one row; empty
       recipient → 503; oversized body → 413; missing `client_id` / bad base64 → 400; no
       session → 401.
-- [ ] Run `go test ./internal/cloudserver/...` — must pass before Task 3.
+- [x] Run `go test ./internal/cloudserver/...` — must pass before Task 3.
 
 ### Task 3: serve FEEDBACK_AGE_RECIPIENT (ENV → meta tag) + client reader
 - [ ] `cmd/cloud/main.go`: read `feedbackAgeRecipient: os.Getenv("FEEDBACK_AGE_RECIPIENT")`
