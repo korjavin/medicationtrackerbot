@@ -117,9 +117,9 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     // The data-loss regression: the callback slot and the stored intake's
     // scheduled_at are re-derived independently and can drift (schedule edit,
     // tz-plan/DST step, dose clustering). One med's intake sits 1h off the slot,
-    // within its minDoseInterval band. Exact-=== leaves it PENDING (silent
-    // adherence loss); the band still confirms it.
-    it('confirms a drifted intake within the med minDoseInterval band', async () => {
+    // within the fixed drift band. Exact-=== leaves it PENDING (silent adherence
+    // loss); the band still confirms it.
+    it('confirms a drifted intake within the fixed drift band', async () => {
         const driftedIso = new Date((SLOT_UNIX + 3600) * 1000).toISOString();
         const records = fakeRecords({
             medication: [
@@ -139,6 +139,33 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
         // Would be PENDING under the old exact-=== match — the whole bug.
         expect(intakes.find((i) => i.recordId === 'intake-med-b-drift').status).toBe('TAKEN');
+    });
+
+    // The opposite failure the band must NOT cause: a different med due at a
+    // genuinely different time of day is its OWN message (grouped by exact slot),
+    // and tapping Confirm on this slot must not confirm it. A per-med
+    // minDoseInterval band (14.4h for a daily med) would reach the 10:00 dose from
+    // an 08:00 slot; the fixed 2h drift band does not.
+    it('does not confirm a different med scheduled hours away from the slot', async () => {
+        const otherIso = new Date((SLOT_UNIX + 4 * 3600) * 1000).toISOString(); // 4h later, own message
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'Morning', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'Afternoon', schedule: '{"type":"daily","times":["04:00"]}', inventory_count: 20 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-b-other', deleted: false, medication_id: 'med-b', scheduled_at: otherIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
+
+        const intakes = await records.list('intake');
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
+        // The 4h-away dose belongs to its own reminder — untouched by this tap.
+        expect(intakes.find((i) => i.recordId === 'intake-med-b-other').status).toBe('PENDING');
+        expect((await records.list('medication')).find((m) => m.recordId === 'med-b').inventory_count).toBe(20);
     });
 
     // Rule 2. The mailbox is at-least-once: a crash between the vault write and

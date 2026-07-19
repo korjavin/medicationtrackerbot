@@ -20,7 +20,6 @@
 //     confirmation WE composed — the relay forwards that string verbatim, the
 //     same contract it already has for outbound reminder text.
 import { createIntakeDomain } from '../../domain/medintake.js';
-import { minDoseIntervalMs } from '../../domain/medschedule.js';
 import { createBPDomain } from '../../domain/bp.js';
 import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
@@ -103,14 +102,19 @@ function truncateRunes(s, n) {
 }
 
 const INTAKE_RECORD_TYPE = 'intake';
-const MEDICATION_RECORD_TYPE = 'medication';
 
-// Fallback band when the intake's medication is missing from the vault (e.g. a
-// deleted med still holding a PENDING intake). We can't derive the med's own
-// interval, so tolerate a modest drift rather than reintroduce the exact-match
-// data loss. ponytail: fixed 2h fallback, narrow enough not to span a different
-// time-of-day dose; swap for the real interval whenever the med is present.
-const DEFAULT_SLOT_BAND_MS = 2 * 60 * 60 * 1000;
+// How far a single dose's instant may drift between push (computeReminderHorizon)
+// and drain (materializeDueDoses) and still be the SAME dose: a DST/tz-plan step
+// (≤1h) or a ±10min cluster. Deliberately NOT the per-med minDoseInterval (up to
+// 14.4h for a once-daily med): unlike reminders.js/medintake.js — which scope
+// their band per medication_id, where adjacent same-med doses are ≥1 full
+// interval apart so the fractional band can never collide — here we test EVERY
+// med's PENDING intake against ONE foreign callback slot, so a wide band would
+// confirm a different med's different-time-of-day dose (silent wrong adherence +
+// inventory decrement). A fixed 2h band absorbs real drift without reaching a
+// neighbouring scheduled dose. Distinct instants are already separate messages
+// (computeReminderHorizon groups bySlot on exact scheduledAtMs).
+const SLOT_DRIFT_BAND_MS = 2 * 60 * 60 * 1000;
 
 // Mirrors DEFAULT_SNOOZE_MINUTES in web/domain/medintake.js (and the server's
 // own default). Not imported because that module does not export it.
@@ -146,20 +150,13 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
 
   // The callback slot (from computeReminderHorizon at push-time) and the intake
   // scheduled_at (from materializeDueDoses at drain-time) are two independent
-  // re-derivations that diverge for a med whose schedule was edited, whose dose
-  // was clustered, or that a tz-plan/DST step shifted between push and drain.
-  // Match on the same ±minDoseInterval band every other slot↔intake matcher uses
-  // (reminders.js isHandled, medintake.js materialize dedup) so a drifted med is
-  // still confirmed instead of silently left PENDING.
-  const meds = await records.list(MEDICATION_RECORD_TYPE);
-  const medById = new Map(meds.filter((m) => !m.deleted).map((m) => [m.recordId, m]));
+  // re-derivations that can drift for the SAME dose (schedule edit, dose cluster,
+  // tz-plan/DST step). Match every PENDING intake within a fixed drift band of the
+  // slot so a drifted med is still confirmed instead of silently left PENDING —
+  // see SLOT_DRIFT_BAND_MS for why this is a fixed band, not the per-med interval.
   const intakes = await records.list(INTAKE_RECORD_TYPE);
-  const atSlot = intakes.filter((i) => {
-    if (i.deleted || i.status !== 'PENDING') return false;
-    const med = medById.get(i.medication_id);
-    const band = med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : DEFAULT_SLOT_BAND_MS;
-    return Math.abs(Date.parse(i.scheduled_at) - slotMs) <= band;
-  });
+  const atSlot = intakes.filter((i) => !i.deleted && i.status === 'PENDING'
+    && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= SLOT_DRIFT_BAND_MS);
 
   let applied = 0;
   for (const i of atSlot) {
