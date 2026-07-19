@@ -127,6 +127,59 @@ describe('feedback-ui', () => {
             .toEqual(new Uint8Array([7, 8]));
     });
 
+    it('Send tapped during the Stop await still bundles the voice (no data loss)', async () => {
+        // Stop nulls audioHandle before awaiting stop(); a fast Send during that
+        // await must wait on the in-flight stop() rather than enqueue without it.
+        let resolveStop;
+        const audBlob = new Blob([new Uint8Array([5, 6])], { type: 'audio/webm' });
+        const audioHandle = {
+            stop: vi.fn(() => new Promise((r) => { resolveStop = () => r(audBlob); })),
+            cancel: vi.fn(),
+        };
+        window.MediaCapture = { pickPhoto: vi.fn(), recordAudio: vi.fn().mockResolvedValue(audioHandle) };
+
+        await mountFeedbackLauncher({});
+        click(q('#feedback-launcher'));
+        const ta = q('.wg-feedback-modal__textarea');
+        ta.value = 'note';
+        ta.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+        const recBtn = q('[data-feedback-record]');
+        click(recBtn);          // start recording
+        await flush();
+        click(recBtn);          // Stop — stop() stays pending
+        await flush();
+        click(q('[data-feedback-choice="send"]')); // Send while stop() still resolving
+        await flush();
+        resolveStop();          // recording finalizes after Send began
+        await flush();
+
+        expect(audioHandle.stop).toHaveBeenCalledTimes(1);
+        expect(enqueueFeedback).toHaveBeenCalledTimes(1);
+        const bundle = enqueueFeedback.mock.calls[0][0];
+        expect(bundle.attachments.map((a) => a.type)).toContain('audio');
+        expect(new Uint8Array(bundle.attachments.find((a) => a.type === 'audio').bytes))
+            .toEqual(new Uint8Array([5, 6]));
+    });
+
+    it('Cancel during an active recording releases the mic (settle cancels the handle)', async () => {
+        const audioHandle = { stop: vi.fn(), cancel: vi.fn() };
+        window.MediaCapture = { pickPhoto: vi.fn(), recordAudio: vi.fn().mockResolvedValue(audioHandle) };
+
+        await mountFeedbackLauncher({});
+        click(q('#feedback-launcher'));
+        const recBtn = q('[data-feedback-record]');
+        click(recBtn);          // start recording
+        await flush();
+        expect(recBtn.getAttribute('data-feedback-record')).toBe('recording'); // handle set
+        click(q('[data-feedback-choice="cancel"]')); // Cancel with a recording in progress
+
+        // settle() must cancel the live handle — the exact mic-leak this UI prevents.
+        expect(audioHandle.cancel).toHaveBeenCalled();
+        expect(audioHandle.stop).not.toHaveBeenCalled();
+        expect(enqueueFeedback).not.toHaveBeenCalled();
+    });
+
     it('Cancel during an in-flight send does not enqueue', async () => {
         // stop() stays pending so send() is suspended mid-flight; Cancel fires
         // during that await. The feedback must NOT be enqueued behind the modal.

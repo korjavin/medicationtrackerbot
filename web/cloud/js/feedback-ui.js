@@ -106,6 +106,7 @@ function openFeedbackModal() {
     let imageBlob = null;
     let audioBlob = null;
     let audioHandle = null; // set while a recording is in progress
+    let stopPromise = null; // in-flight handle.stop() while the blob resolves
     let starting = false;   // guards the recordAudio() await against a double-tap
 
     function chips() {
@@ -138,10 +139,12 @@ function openFeedbackModal() {
                 const handle = audioHandle;
                 audioHandle = null;
                 recordBtn.disabled = true;
+                stopPromise = handle.stop();
                 try {
-                    audioBlob = await handle.stop();
+                    audioBlob = await stopPromise;
                     chips();
                 } catch (_) { /* recording failed — drop it */ }
+                stopPromise = null;
                 recordBtn.disabled = false;
                 recordBtn.textContent = 'Re-record voice';
                 recordBtn.setAttribute('data-feedback-record', 'idle');
@@ -205,6 +208,12 @@ function openFeedbackModal() {
             const handle = audioHandle;
             audioHandle = null;
             try { audioBlob = await handle.stop(); } catch (_) { /* recording failed — drop it */ }
+        } else if (stopPromise) {
+            // Stop was tapped but its stop() is still resolving. Wait for the
+            // blob so a fast Send-right-after-Stop doesn't enqueue without the
+            // voice (audioBlob is still null mid-await). Can't rely on disabling
+            // Send — refreshSend() (textarea input) re-enables it.
+            try { audioBlob = await stopPromise; } catch (_) { /* recording failed — drop it */ }
         }
         const attachments = [];
         if (imageBlob) {
