@@ -104,17 +104,22 @@ function truncateRunes(s, n) {
 const INTAKE_RECORD_TYPE = 'intake';
 
 // How far a single dose's instant may drift between push (computeReminderHorizon)
-// and drain (materializeDueDoses) and still be the SAME dose: a DST/tz-plan step
-// (≤1h) or a ±10min cluster. Deliberately NOT the per-med minDoseInterval (up to
-// 14.4h for a once-daily med): unlike reminders.js/medintake.js — which scope
-// their band per medication_id, where adjacent same-med doses are ≥1 full
-// interval apart so the fractional band can never collide — here we test EVERY
-// med's PENDING intake against ONE foreign callback slot, so a wide band would
-// confirm a different med's different-time-of-day dose (silent wrong adherence +
-// inventory decrement). A fixed 2h band absorbs real drift without reaching a
-// neighbouring scheduled dose. Distinct instants are already separate messages
-// (computeReminderHorizon groups bySlot on exact scheduledAtMs).
-const SLOT_DRIFT_BAND_MS = 2 * 60 * 60 * 1000;
+// and drain (materializeDueDoses) and still be treated as the SAME dose by a
+// Confirm/Snooze tap. Set to the deterministic dose-clustering window
+// (CLUSTER_WINDOW_MS = 10min, medintake.js): triggerNext/confirmSchedule store a
+// clustered dose's scheduled_at at clusterEarliestMs — up to 10min before its own
+// slot — which is the drift that leaves meds unconfirmed under an exact match (the
+// reported "4 meds, only 2 confirmed" bug). Deliberately NOT a wider band: the
+// callback carries only the slot (callback_data is 64-byte limited; med IDs can't
+// be embedded), so drift and a genuinely different dose are indistinguishable by
+// time alone. A different dose is ≥ the med's minDoseInterval (hours) away — far
+// outside 10min — so this band can NEVER confirm a dose the user didn't take. A
+// larger drift (a DST/tz-plan step, a big schedule edit) falls OUT of the band:
+// that dose stays PENDING and is re-reminded — a safe false-negative, chosen over
+// a false-positive (recording a med as taken when it wasn't is worse for meds).
+// Distinct instants are already separate messages (computeReminderHorizon groups
+// bySlot on exact scheduledAtMs).
+const SLOT_DRIFT_BAND_MS = 10 * 60 * 1000; // = CLUSTER_WINDOW_MS (medintake.js)
 
 // Mirrors DEFAULT_SNOOZE_MINUTES in web/domain/medintake.js (and the server's
 // own default). Not imported because that module does not export it.
@@ -594,7 +599,9 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
       return;
     }
     const reminders = createRemindersDomain({ records, now });
-    const { verbosity } = await reminders.getDeliveryPref();
+    // verbosity only affects the cosmetic receipt text — never gate the confirm
+    // data-write on this read: a rejected pref read falls back to generic.
+    const { verbosity } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic' }));
     await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply });
   };
 }
