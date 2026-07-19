@@ -252,7 +252,16 @@ func encryptFeedbackDoc(recipient string, doc []byte) ([]byte, error) {
 func (t *TelegramAPI) setFeedbackWaiting(chatID int64) {
 	t.feedbackMu.Lock()
 	defer t.feedbackMu.Unlock()
-	t.feedbackWaiting[chatID] = time.Now().Add(feedbackWaitingTTL)
+	now := time.Now()
+	// Reclaim entries from taps that were never followed by a message, so the
+	// map can't grow unbounded on a long-lived process (takeFeedbackWaiting only
+	// clears a chat that sends its own next message).
+	for id, expiry := range t.feedbackWaiting {
+		if !now.Before(expiry) {
+			delete(t.feedbackWaiting, id)
+		}
+	}
+	t.feedbackWaiting[chatID] = now.Add(feedbackWaitingTTL)
 }
 
 // takeFeedbackWaiting reports whether a chat has an unexpired armed feedback
