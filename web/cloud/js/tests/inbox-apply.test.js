@@ -434,6 +434,43 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         for (const i of atSlot) expect(i.status).toBe('TAKEN');
     });
 
+    // A throwing device store (no IndexedDB, a read error) must never fail the
+    // drain — getSlotMedicationsSafe swallows it to null so the ±band fallback still
+    // confirms the on-slot intakes. This is the load-bearing medication-safety guard.
+    it('falls back to the ±band match when the slot→meds store throws', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, {
+            intake: domainFor(records, now), records, now,
+            getSlotMeds: async () => { throw new Error('no idb'); },
+        });
+
+        const atSlot = (await records.list('intake')).filter((i) => i.scheduled_at === SLOT_ISO);
+        expect(atSlot).toHaveLength(2);
+        for (const i of atSlot) expect(i.status).toBe('TAKEN');
+    });
+
+    // Nearest-wins: when a named med has BOTH an on-slot and a drifted PENDING dose
+    // inside its band, only the nearest is acted on — never both (no double-confirm).
+    it('confirms only the nearest PENDING dose of a named med, not both in-band doses', async () => {
+        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(); // 2h: in band, farther than the on-slot dose
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-a-drift', deleted: false, medication_id: 'med-a', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now, getSlotMeds: slotMeds(['med-a']) });
+
+        const intakes = await records.list('intake');
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN'); // nearest
+        expect(intakes.find((i) => i.recordId === 'intake-med-a-drift').status).toBe('PENDING'); // not double-confirmed
+    });
+
     // Idempotency holds on the identity path too: a redelivery / double-tap re-runs
     // with the named meds already TAKEN → nothing left to apply → the receipt is
     // not clobbered and inventory is not double-decremented.
