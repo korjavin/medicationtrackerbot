@@ -172,18 +172,25 @@
             .then(function (stream) {
                 var mimeType = opts.mimeType || 'audio/webm';
                 var recorder;
-                try {
-                    recorder = new window.MediaRecorder(stream, { mimeType: mimeType });
-                } catch (_) {
-                    // Some browsers reject an unsupported mimeType option — fall
-                    // back to the UA default rather than failing the recording.
-                    recorder = new window.MediaRecorder(stream);
-                }
                 var chunks = [];
-                recorder.ondataavailable = function (e) {
-                    if (e && e.data && e.data.size > 0) chunks.push(e.data);
-                };
-                recorder.start();
+                // getUserMedia already opened the mic; if construction or start()
+                // throws, stop the stream before rethrowing so it isn't leaked.
+                try {
+                    try {
+                        recorder = new window.MediaRecorder(stream, { mimeType: mimeType });
+                    } catch (_) {
+                        // Some browsers reject an unsupported mimeType option — fall
+                        // back to the UA default rather than failing the recording.
+                        recorder = new window.MediaRecorder(stream);
+                    }
+                    recorder.ondataavailable = function (e) {
+                        if (e && e.data && e.data.size > 0) chunks.push(e.data);
+                    };
+                    recorder.start();
+                } catch (e) {
+                    stopStream(stream);
+                    throw e;
+                }
 
                 var cancelled = false;
                 function cleanup() { stopStream(stream); }

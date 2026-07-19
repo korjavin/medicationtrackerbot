@@ -340,6 +340,21 @@ describe('native/web/media-capture.js — web impl', () => {
         expect(track.stop).toHaveBeenCalledTimes(1);
     });
 
+    it('recordAudio releases the mic if recorder.start() throws', async () => {
+        const track = { stop: vi.fn() };
+        const stream = { getTracks: () => [track] };
+        const getUserMedia = vi.fn().mockResolvedValue(stream);
+        env = loadEnv({ mediaDevices: { getUserMedia } });
+        const instances = installMediaRecorder(env.window);
+        env.window.MediaRecorder.prototype.start = function () { throw new Error('start failed'); };
+        let caught;
+        try { await env.window.MediaCapture.recordAudio(); } catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('MediaCaptureError');
+        // The stream getUserMedia opened must be stopped, not leaked.
+        expect(track.stop).toHaveBeenCalledTimes(1);
+    });
+
     it('recordAudio rejects with UNAVAILABLE when MediaRecorder is missing', async () => {
         const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [] });
         env = loadEnv({ mediaDevices: { getUserMedia } });

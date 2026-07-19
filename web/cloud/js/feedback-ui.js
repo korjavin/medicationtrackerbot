@@ -194,6 +194,14 @@ function openFeedbackModal() {
         // Disable first — the arrayBuffer() awaits below yield, so a fast
         // double-tap would otherwise enqueue the same feedback twice.
         sendBtn.disabled = true;
+        // A recording still in progress (user tapped Send before Stop) would
+        // otherwise be cancelled by settle() and the voice silently dropped.
+        // Finish it here so it lands in the bundle.
+        if (audioHandle) {
+            const handle = audioHandle;
+            audioHandle = null;
+            try { audioBlob = await handle.stop(); } catch (_) { /* recording failed — drop it */ }
+        }
         const attachments = [];
         if (imageBlob) {
             attachments.push({ type: 'image', mime: imageBlob.type || 'image/jpeg', bytes: await imageBlob.arrayBuffer() });

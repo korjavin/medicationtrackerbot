@@ -101,6 +101,32 @@ describe('feedback-ui', () => {
         expect(q('#feedback-modal')).toBeFalsy();
     });
 
+    it('Send while still recording finishes the recording — voice is not dropped', async () => {
+        const audBlob = new Blob([new Uint8Array([7, 8])], { type: 'audio/webm' });
+        const audioHandle = { stop: vi.fn().mockResolvedValue(audBlob), cancel: vi.fn() };
+        window.MediaCapture = { pickPhoto: vi.fn(), recordAudio: vi.fn().mockResolvedValue(audioHandle) };
+
+        await mountFeedbackLauncher({});
+        click(q('#feedback-launcher'));
+
+        const ta = q('.wg-feedback-modal__textarea');
+        ta.value = 'note';
+        ta.dispatchEvent(new window.Event('input', { bubbles: true }));
+
+        click(q('[data-feedback-record]'));   // start recording
+        await flush();
+        click(q('[data-feedback-choice="send"]'));  // Send before tapping Stop
+        await flush();
+
+        // The in-flight recording was stopped (not cancelled) and its blob bundled.
+        expect(audioHandle.stop).toHaveBeenCalled();
+        expect(audioHandle.cancel).not.toHaveBeenCalled();
+        const bundle = enqueueFeedback.mock.calls[0][0];
+        expect(bundle.attachments.map((a) => a.type)).toContain('audio');
+        expect(new Uint8Array(bundle.attachments.find((a) => a.type === 'audio').bytes))
+            .toEqual(new Uint8Array([7, 8]));
+    });
+
     it('Cancel and Escape close without calling enqueue', async () => {
         await mountFeedbackLauncher({});
 
