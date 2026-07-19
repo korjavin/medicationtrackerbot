@@ -128,14 +128,14 @@ callers). No bot-mode feature changes.
 - [x] Run `feedback-ui.test.js` (Node 20) — must pass before Task 3.
 
 ### Task 3: mount the launcher from cloud-boot (gated on configured recipient)
-- [ ] In `web/cloud/js/cloud-boot.js` post-unlock block (after the apishim install,
+- [x] In `web/cloud/js/cloud-boot.js` post-unlock block (after the apishim install,
       `:191-196`): `import('/js/feedback-config.js')`; if `getFeedbackRecipient()` is
       non-empty, `import('/js/feedback-ui.js')` and call `mountFeedbackLauncher(ctx)`.
       When the recipient is unset, import nothing (feature fully absent — matches the
       med-dni.1 server 503/no-meta disabled state).
-- [ ] Tests: extend the cloud-boot test suite (or feedback-ui suite) to assert the
+- [x] Tests: extend the cloud-boot test suite (or feedback-ui suite) to assert the
       launcher mounts only when a recipient meta is present, and is absent otherwise.
-- [ ] Run the affected cloud suites (Node 20) — must pass before Task 4.
+- [x] Run the affected cloud suites (Node 20) — must pass before Task 4.
 
 ### Task 4: verify + full suite
 - [ ] Run the full frontend suite (`node node_modules/vitest/vitest.mjs run`, **Node 20**)

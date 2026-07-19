@@ -374,6 +374,19 @@ window.MedTrackerCloudReady = (async function boot() {
         // POSTing it itself: warm tab → postMessage, cold start → ?reminder_action.
         // Runs only after unlock, which is exactly when shimCall can serve it.
         installReminderActionHandler(shimCall);
+
+        // Cloud feedback channel (bd med-dni.2): mount the "Send feedback"
+        // launcher only when the operator configured a recipient (the injected
+        // <meta> read by getFeedbackRecipient). Unset → import nothing, feature
+        // fully absent (matches the med-dni.1 server disabled state). Best-effort,
+        // never blocks boot; the encrypt + POST behind enqueueFeedback is med-dni.3.
+        import('/js/feedback-config.js')
+            .then(async ({ getFeedbackRecipient }) => {
+                if (!getFeedbackRecipient()) return;
+                const { mountFeedbackLauncher } = await import('/js/feedback-ui.js');
+                await mountFeedbackLauncher(ctx);
+            })
+            .catch((e) => console.error('[cloud-boot] feedback launcher mount failed', e));
     } catch (e) {
         // Boot the app degraded rather than redirecting — the vault is already
         // unlocked, so /unlock would just bounce straight back to / (med-eas.16).

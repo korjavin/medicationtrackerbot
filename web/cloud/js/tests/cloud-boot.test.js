@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as realVault from '../../../domain/vault.js';
@@ -146,6 +146,67 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
   it('hands a #claim= link to the /unlock shell before touching the warm-unlock cache', async () => {
     const { location } = await runBoot({ hash: '#claim=tok123', modules: {} });
     expect(location.href).toBe('/unlock#claim=tok123');
+  });
+});
+
+describe('cloud-boot feedback launcher mount gate (med-dni.2 Task 3)', () => {
+  // The launcher mounts only when the operator configured a recipient
+  // (getFeedbackRecipient() non-empty). No recipient → feedback-ui.js is never
+  // imported and mountFeedbackLauncher never runs (feature fully absent).
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  // These tests are the first to boot past installReminderActionHandler (existing
+  // tests abort earlier on an unprovided push.js import). That handler reads
+  // navigator.serviceWorker — always present in a browser, absent in this node
+  // env — so provide a stub navigator or boot throws before the feedback block.
+  let priorNavigator;
+  beforeEach(() => { priorNavigator = globalThis.navigator; globalThis.navigator = {}; });
+  afterEach(() => { globalThis.navigator = priorNavigator; });
+
+  // Everything imported in the post-unlock try before the feedback block must be
+  // provided, or the harness's __imp throws and aborts before we reach it.
+  function baseModules(extra) {
+    return {
+      'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+      'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
+      'sync.js': {
+        pullOnOpen: async () => {},
+        startReconnectAutoDrain: () => () => {},
+        getSyncStatus: async () => ({ authExpired: false }),
+        readAllLiveRecords: async () => [],
+      },
+      'reminders.js': { scheduleReminderRecompute: () => {} },
+      'push.js': { ensurePushSubscription: async () => ({}) },
+      'mcp-responder.js': { refreshResponder: () => {} },
+      'inbox.js': { ensureInboxKey: async () => {}, drainInbox: async () => ({ applied: 0 }), startInboxPolling: () => {} },
+      ...extra,
+    };
+  }
+
+  it('imports feedback-ui and mounts the launcher when a recipient is configured', async () => {
+    let mounted = 0;
+    let uiImported = false;
+    await runBoot({
+      modules: baseModules({
+        'feedback-config.js': { getFeedbackRecipient: () => 'age1recipient' },
+        'feedback-ui.js': () => { uiImported = true; return Promise.resolve({ mountFeedbackLauncher: async () => { mounted += 1; } }); },
+      }),
+    });
+    await flush();
+    expect(uiImported).toBe(true);
+    expect(mounted).toBe(1);
+  });
+
+  it('never imports feedback-ui when no recipient is configured', async () => {
+    let uiImported = false;
+    await runBoot({
+      modules: baseModules({
+        'feedback-config.js': { getFeedbackRecipient: () => '' },
+        'feedback-ui.js': () => { uiImported = true; return Promise.resolve({ mountFeedbackLauncher: async () => {} }); },
+      }),
+    });
+    await flush();
+    expect(uiImported).toBe(false);
   });
 });
 
