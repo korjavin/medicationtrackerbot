@@ -18,6 +18,8 @@ import {
   getAllFeedbackItems,
   putFeedbackItem,
   drainFeedbackOutbox,
+  startFeedbackAutoDrain,
+  MAX_ATTEMPTS,
   __resetDrainForTest,
 } from '../feedback-submit.js';
 
@@ -234,6 +236,29 @@ describe('feedback-submit drain loop (Task 3)', () => {
     expect(items[0].attempts).toBe(0);
   });
 
+  it('parks the item at MAX_ATTEMPTS and stops rescheduling drains', async () => {
+    // The attempt cap is the safety valve against an infinite retry spin: once
+    // an item hits MAX_ATTEMPTS it is kept but no backoff timer is scheduled.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let calls = 0;
+    vi.stubGlobal('fetch', () => {
+      calls += 1;
+      return Promise.reject(new Error('offline'));
+    });
+    await putFeedbackItem({ ...ITEM(), attempts: MAX_ATTEMPTS - 1 });
+    await drainFeedbackOutbox();
+    const items = await getAllFeedbackItems();
+    expect(items).toHaveLength(1);
+    expect(items[0].attempts).toBe(MAX_ATTEMPTS); // kept, not dropped
+    expect(calls).toBe(1);
+    // Parked: advancing well past the backoff cap must NOT fire a second drain.
+    await vi.advanceTimersByTimeAsync(BACKOFF_CAP_MS * 2);
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setImmediate(r));
+    }
+    expect(calls).toBe(1);
+  });
+
   it('backoff reschedules a second drain after the timer fires', async () => {
     // Fake only setTimeout/clearTimeout — fake-indexeddb relies on real
     // setImmediate, so faking it would deadlock the IDB reads in the drain.
@@ -254,6 +279,75 @@ describe('feedback-submit drain loop (Task 3)', () => {
       await new Promise((r) => setImmediate(r));
     }
     expect(calls).toBe(2);
+  });
+});
+
+describe('feedback-submit reconnect autodrain (Task 3/4)', () => {
+  const ITEM = () => ({
+    client_id: 'cid-auto',
+    kind: 'feedback',
+    app_version: '20260719-1200',
+    ciphertext: 'YWdlLWN0',
+    attempts: 0,
+    created_at: '2026-07-19T00:00:00.000Z',
+  });
+
+  let dom;
+  beforeEach(async () => {
+    const { IDBFactory } = await import('fake-indexeddb');
+    global.indexedDB = new IDBFactory();
+    __resetDrainForTest();
+    dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', { url: 'https://x.test' });
+    global.window = dom.window;
+    global.document = dom.window.document;
+  });
+
+  afterEach(() => {
+    __resetDrainForTest();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    delete global.window;
+    delete global.document;
+  });
+
+  it('installs exactly one online listener pair and is idempotent', () => {
+    const spy = vi.spyOn(dom.window, 'addEventListener');
+    const stop1 = startFeedbackAutoDrain();
+    const stop2 = startFeedbackAutoDrain(); // second call must be a no-op
+    const onlineListeners = spy.mock.calls.filter((c) => c[0] === 'online').length;
+    expect(onlineListeners).toBe(1);
+    stop1();
+    stop2();
+  });
+
+  it('drains on an online event (after debounce) and teardown stops it', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let calls = 0;
+    vi.stubGlobal('fetch', () => {
+      calls += 1;
+      return Promise.resolve({ ok: true, status: 204 });
+    });
+    await putFeedbackItem(ITEM());
+    const stop = startFeedbackAutoDrain();
+
+    dom.window.dispatchEvent(new dom.window.Event('online'));
+    await vi.advanceTimersByTimeAsync(250); // debounce
+    for (let i = 0; i < 50 && calls < 1; i++) {
+      await new Promise((r) => setImmediate(r));
+    }
+    expect(calls).toBe(1);
+    expect(await getAllFeedbackItems()).toHaveLength(0);
+
+    // After teardown a fresh online event must not drain again.
+    stop();
+    await putFeedbackItem(ITEM());
+    dom.window.dispatchEvent(new dom.window.Event('online'));
+    await vi.advanceTimersByTimeAsync(250);
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setImmediate(r));
+    }
+    expect(calls).toBe(1); // no second drain
+    expect(await getAllFeedbackItems()).toHaveLength(1);
   });
 });
 

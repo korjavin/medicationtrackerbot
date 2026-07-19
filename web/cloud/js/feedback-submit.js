@@ -135,7 +135,7 @@ export async function enqueueFeedback(bundle) {
 // without a user action, capped so it parks rather than spins.
 const BACKOFF_BASE_MS = 2000;
 const BACKOFF_CAP_MS = 5 * 60 * 1000;
-const MAX_ATTEMPTS = 20; // then park the item for the next online/session
+export const MAX_ATTEMPTS = 20; // then park the item for the next online/session
 
 // POST one item's ciphertext to the feedback endpoint. Returns {ok,status}
 // like sync's snapshotAt: a network throw is status 0 (retryable); a relative
