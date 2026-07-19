@@ -36,6 +36,8 @@ import { createApiRouter } from './apishim.js';
 import { createDispatcher } from './mcp-responder.js';
 import { createTGAgent } from './tg-agent.js';
 import { recordsPort, ORIGIN_EXTERNAL } from './sync.js';
+import { getSlotMedications } from './push.js';
+import { minDoseIntervalMs } from '../../domain/medschedule.js';
 
 export const INTAKE_SLOT_ACTION = 'intake_slot_action';
 export const TG_COMMAND = 'tg_command';
@@ -102,6 +104,7 @@ function truncateRunes(s, n) {
 }
 
 const INTAKE_RECORD_TYPE = 'intake';
+const MEDICATION_RECORD_TYPE = 'medication';
 
 // How far a single dose's instant may drift between push (computeReminderHorizon)
 // and drain (materializeDueDoses) and still be treated as the SAME dose by a
@@ -139,12 +142,49 @@ function isAlreadyApplied(err) {
   return !!err && err.code === 'not_pending';
 }
 
-// applyIntakeSlotAction confirms (or snoozes) every PENDING intake at slotUnix.
+// nearestPendingByMed picks a med's single PENDING intake closest to the slot
+// within `bandMs`. Nearest-wins guards the rare case where both an on-slot and a
+// drifted intake of the same med sit inside the band — we act on one, not both.
+function nearestPendingByMed(intakes, medId, slotMs, bandMs) {
+  let best = null;
+  let bestDelta = Infinity;
+  for (const i of intakes) {
+    if (i.deleted || i.status !== 'PENDING' || i.medication_id !== medId) continue;
+    const delta = Math.abs(Date.parse(i.scheduled_at) - slotMs);
+    if (delta <= bandMs && delta < bestDelta) { best = i; bestDelta = delta; }
+  }
+  return best;
+}
+
+// getSlotMedicationsSafe reads the push-time slot→medIds map (device-local), but
+// a Confirm drain must never fail on a missing/unavailable device store: any
+// throw (no IndexedDB, a store read error) is treated as "no map" so the ±band
+// fallback takes over — the load-bearing medication-safety guard. Silent: a
+// mapless slot (every legacy reminder, and a cross-device gap) is the EXPECTED
+// fallback, not an error to log on every such tap.
+async function getSlotMedicationsSafe(getSlotMeds, slotUnix) {
+  try {
+    return await getSlotMeds(slotUnix);
+  } catch {
+    return null;
+  }
+}
+
+// applyIntakeSlotAction confirms (or snoozes) the meds a slot reminder named.
+//
+// It resolves the slot to intakes by IDENTITY when the push-time slot→medIds map
+// is present (getSlotMeds): for each NAMED med it acts on that med's nearest
+// PENDING dose within the med's OWN minDoseInterval of the slot. Scoping the
+// wider interval to the reminder's own named meds is what makes it safe — we only
+// ever touch a dose the reminder explicitly told the user about, so no false
+// positive, even when a course/tz-plan dose drifted HOURS off its clock slot
+// (bd med-eas.67). With no stored map (a legacy reminder, a cross-device gap) it
+// falls back to the fixed ±SLOT_DRIFT_BAND_MS match, unchanged.
 //
 // atUnix is the SERVER's timestamp for the tap, so a Confirm tapped at 09:00
 // records taken_at 09:00 even when the app first opens at noon — the backdating
 // rule (docs/cloud-mode.md → drain protocol, rule 4).
-export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply }) {
+export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, getSlotMeds = getSlotMedications }) {
   const slotMs = event.slot_unix * 1000;
   const atMs = event.at_unix * 1000;
 
@@ -153,15 +193,36 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // exist to confirm; it is idempotent via the deterministic intake id.
   await intake.materializeDueDoses();
 
-  // The callback slot (from computeReminderHorizon at push-time) and the intake
-  // scheduled_at (from materializeDueDoses at drain-time) are two independent
-  // re-derivations that can drift for the SAME dose (schedule edit, dose cluster,
-  // tz-plan/DST step). Match every PENDING intake within a fixed drift band of the
-  // slot so a drifted med is still confirmed instead of silently left PENDING —
-  // see SLOT_DRIFT_BAND_MS for why this is a fixed band, not the per-med interval.
   const intakes = await records.list(INTAKE_RECORD_TYPE);
-  const atSlot = intakes.filter((i) => !i.deleted && i.status === 'PENDING'
-    && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= SLOT_DRIFT_BAND_MS);
+  const medicationIds = await getSlotMedicationsSafe(getSlotMeds, event.slot_unix);
+
+  // medById + each med's own drift band (minDoseInterval) are needed by both the
+  // identity selection and the receipt count, so build them once.
+  const medById = new Map();
+  if (medicationIds) {
+    for (const m of await records.list(MEDICATION_RECORD_TYPE)) medById.set(m.recordId, m);
+  }
+  const medBandMs = (medId) => {
+    const med = medById.get(medId);
+    return med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
+  };
+
+  // atSlot: the PENDING intakes this tap acts on.
+  //   identity — one per NAMED med, its nearest due dose within that med's band.
+  //   fallback — every PENDING intake within the fixed ±SLOT_DRIFT_BAND_MS (why a
+  //   fixed band and not the per-med interval when the med set is unknown:
+  //   see SLOT_DRIFT_BAND_MS).
+  let atSlot;
+  if (medicationIds) {
+    atSlot = [];
+    for (const medId of medicationIds) {
+      const hit = nearestPendingByMed(intakes, medId, slotMs, medBandMs(medId));
+      if (hit) atSlot.push(hit);
+    }
+  } else {
+    atSlot = intakes.filter((i) => !i.deleted && i.status === 'PENDING'
+      && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= SLOT_DRIFT_BAND_MS);
+  }
 
   let applied = 0;
   for (const i of atSlot) {
@@ -197,12 +258,28 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
       // the earlier meds already TAKEN (filtered out of the loop), so `applied`
       // alone would undercount the receipt ("Confirmed 1" when 2 were taken).
       // confirm() backdates taken_at to atMs deterministically, identical across
-      // retries, so band-matched intakes taken at this instant are exactly this
-      // tap's set.
+      // retries, so intakes taken at this instant are exactly this tap's set.
+      // Identity: count DISTINCT named meds confirmed (not band-matched rows), so
+      // the receipt matches "every med the reminder named" — the reported
+      // "Confirmed 4" vs 3-taken mismatch. Fallback: band-matched rows, unchanged.
       const atIso = new Date(atMs).toISOString();
-      const confirmed = (await records.list(INTAKE_RECORD_TYPE)).filter((i) =>
-        !i.deleted && i.status === 'TAKEN' && i.taken_at === atIso
-        && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= SLOT_DRIFT_BAND_MS).length;
+      const taken = (await records.list(INTAKE_RECORD_TYPE)).filter((i) =>
+        !i.deleted && i.status === 'TAKEN' && i.taken_at === atIso);
+      let confirmed;
+      if (medicationIds) {
+        const named = new Set(medicationIds);
+        const distinct = new Set();
+        for (const i of taken) {
+          if (named.has(i.medication_id)
+            && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= medBandMs(i.medication_id)) {
+            distinct.add(i.medication_id);
+          }
+        }
+        confirmed = distinct.size;
+      } else {
+        confirmed = taken.filter((i) =>
+          Math.abs(Date.parse(i.scheduled_at) - slotMs) <= SLOT_DRIFT_BAND_MS).length;
+      }
       text = confirmationText({ kind: 'intake' }, { confirmed }, verbosity);
     } else {
       text = verbosity === 'generic' ? '⏰ Snoozed.' : '⏰ Snoozed — will remind you again shortly.';

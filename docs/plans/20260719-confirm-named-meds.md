@@ -101,20 +101,26 @@ design choice below prefers the former.
 - [x] Run the push test (Node 20) — must pass before Task 3.
 
 ### Task 3: Confirm the named meds by identity (band as fallback)
-- [ ] `web/cloud/js/inbox-apply.js` `applyIntakeSlotAction`: after `materializeDueDoses()`,
+- [x] `web/cloud/js/inbox-apply.js` `applyIntakeSlotAction`: after `materializeDueDoses()`,
       look up `medicationIds = getSlotMedications(records, event.slot_unix)`.
   - **If found (identity path):** for EACH named med, select its PENDING intake nearest
     the slot within `minDoseIntervalMs(med.schedule, med.tz_shift_policy)` of the slot
     (nearest-wins; skip a med with no qualifying PENDING intake). Confirm (or snooze)
     exactly those. This is safe because the set is the reminder's own named meds.
+    Done via `nearestPendingByMed`; the lookup is `getSlotMeds(event.slot_unix)`
+    (device-local, no `records` port arg) wrapped in `getSlotMedicationsSafe` so a
+    missing/unavailable store falls through to the band.
   - **If not found (fallback):** the existing ±`SLOT_DRIFT_BAND_MS` band match, unchanged.
-- [ ] Receipt count = **distinct named meds actually confirmed by this tap** (not a time
+- [x] Receipt count = **distinct named meds actually confirmed by this tap** (not a time
       filter) — fixes the "Confirmed 4" vs 3-taken mismatch. Preserve the at-least-once /
       double-tap idempotency (a redelivery re-runs with the meds already TAKEN → filtered
       out → don't clobber the good receipt; keep the `applied > 0` guard and the
-      deterministic-atMs reasoning).
-- [ ] Snooze path: same identity resolution (snooze each named med's due PENDING intake).
-- [ ] Tests (`web/cloud/js/tests/inbox-apply.test.js`, Node 20) — the regression that
+      deterministic-atMs reasoning). Done: distinct-by-`medication_id` over TAKEN intakes
+      whose `taken_at === atMs` and within the named med's own band; fallback keeps the
+      band-row count.
+- [x] Snooze path: same identity resolution (snooze each named med's due PENDING intake).
+      Done: `atSlot` selection feeds both confirm and snooze.
+- [x] Tests (`web/cloud/js/tests/inbox-apply.test.js`, Node 20) — the regression that
       currently FAILS:
       - **Course-med drift**: 4 meds named for slot S; one med's only PENDING intake sits
         >10 min but < its `minDoseInterval` from S (a tz_step/cluster drift) → Confirm marks
@@ -125,7 +131,7 @@ design choice below prefers the former.
       - **Fallback**: with no stored map, behavior is exactly the current band match
         (existing tests still green).
       - **Idempotency**: redelivery / double-tap doesn't re-confirm or clobber the receipt.
-- [ ] Run `inbox-apply.test.js` (Node 20) — must pass before Task 4.
+- [x] Run `inbox-apply.test.js` (Node 20) — must pass before Task 4. (71/71 pass.)
 
 ### Task 4: verify + full suite
 - [ ] Full frontend suite (`node node_modules/vitest/vitest.mjs run`, **Node 20**) incl.
