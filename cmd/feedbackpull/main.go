@@ -130,6 +130,10 @@ func run(store *cloudstore.Repo, ids []age.Identity, outDir string, limit int, d
 			fmt.Fprintf(os.Stderr, "skip item %d: %v\n", item.ID, err)
 			continue
 		}
+		// Render into a buffer and write once, so a failed write (e.g. redirected
+		// output to a full disk) is caught before we ack — a delivered-plaintext
+		// write failure must not delete the only copy of the feedback.
+		var buf bytes.Buffer
 		if jsonOut {
 			line, err := json.Marshal(map[string]any{
 				"id":          item.ID,
@@ -145,15 +149,19 @@ func run(store *cloudstore.Repo, ids []age.Identity, outDir string, limit int, d
 				fmt.Fprintf(os.Stderr, "skip item %d: %v\n", item.ID, err)
 				continue
 			}
-			fmt.Fprintln(w, string(line))
+			fmt.Fprintln(&buf, string(line))
 		} else {
-			fmt.Fprintf(w, "─── item %d ── account=%s client=%s kind=%s version=%s at=%s\n",
+			fmt.Fprintf(&buf, "─── item %d ── account=%s client=%s kind=%s version=%s at=%s\n",
 				item.ID, item.AccountID, item.ClientID, item.Kind, item.AppVersion,
 				item.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"))
 			for _, p := range paths {
-				fmt.Fprintf(w, "  saved: %s\n", p)
+				fmt.Fprintf(&buf, "  saved: %s\n", p)
 			}
-			fmt.Fprintf(w, "%s\n\n", doc.Text)
+			fmt.Fprintf(&buf, "%s\n\n", doc.Text)
+		}
+		if _, err := w.Write(buf.Bytes()); err != nil {
+			fmt.Fprintf(os.Stderr, "skip item %d: write output: %v\n", item.ID, err)
+			continue
 		}
 		if del {
 			if err := store.DeleteFeedback(ctx, item.ID); err != nil {

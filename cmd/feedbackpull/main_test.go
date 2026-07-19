@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,12 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 )
+
+// failWriter always fails, standing in for a redirected output target that can
+// no longer accept writes (e.g. a full disk).
+type failWriter struct{}
+
+func (failWriter) Write([]byte) (int, error) { return 0, errors.New("disk full") }
 
 func setupStore(t *testing.T) *cloudstore.Repo {
 	t.Helper()
@@ -223,6 +230,21 @@ func TestRun(t *testing.T) {
 		}
 		if got["text"] != "app crashes on save" || got["client_id"] != "good" {
 			t.Errorf("unexpected json: %v", got)
+		}
+	})
+
+	t.Run("write failure skips ack so plaintext is not lost", func(t *testing.T) {
+		st := seed(t)
+		// A writer that always fails simulates redirected output to a full disk.
+		if err := run(st, []age.Identity{id}, t.TempDir(), 100, true, false, failWriter{}); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+		remaining, err := st.ListFeedback(ctx, 100)
+		if err != nil {
+			t.Fatalf("ListFeedback: %v", err)
+		}
+		if len(remaining) != 2 {
+			t.Errorf("expected both items to remain after write failure, got %d", len(remaining))
 		}
 	})
 

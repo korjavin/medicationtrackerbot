@@ -207,7 +207,14 @@ age-keygen -o dev.key            # prints the recipient (age1…) to stderr
 # keep dev.key OFF the server host — it is the only key that can read feedback
 ```
 
-Drain + decrypt (developer machine, against a copy of the cloud sqlite DB):
+Inspect (read-only — safe against a copy of the cloud sqlite DB; no `-delete`):
+
+```bash
+go run ./cmd/feedbackpull -db cloud-copy.db -identity dev.key -out ./inbox
+```
+
+Drain + ack (against the **live** cloud sqlite DB — `-delete` removes queue rows,
+so acking a copy would leave the real queue to be reprocessed on the next pull):
 
 ```bash
 go run ./cmd/feedbackpull -db cloud.db -identity dev.key -out ./inbox -delete
