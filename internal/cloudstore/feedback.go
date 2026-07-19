@@ -22,14 +22,15 @@ type FeedbackItem struct {
 	CreatedAt  time.Time
 }
 
-// AppendFeedback queues one blind feedback blob. Idempotent on client_id via
-// ON CONFLICT DO NOTHING, so the reliable-retry client (med-dni.3) can re-POST
-// the same item over a flaky connection without duplicating rows.
+// AppendFeedback queues one blind feedback blob. Idempotent per (account_id,
+// client_id) via ON CONFLICT DO NOTHING, so the reliable-retry client
+// (med-dni.3) can re-POST the same item over a flaky connection without
+// duplicating rows — and one account's client_id never collides with another's.
 func (r *Repo) AppendFeedback(ctx context.Context, accountID, clientID, kind, appVersion string, ciphertext []byte, now time.Time) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO feedback_queue (account_id, client_id, kind, app_version, ciphertext, created_at_unix)
 		 VALUES (?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(client_id) DO NOTHING`,
+		 ON CONFLICT(account_id, client_id) DO NOTHING`,
 		accountID, clientID, kind, appVersion, ciphertext, storedb.TimeToUnix(now))
 	return err
 }

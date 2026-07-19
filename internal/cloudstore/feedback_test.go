@@ -56,6 +56,23 @@ func TestFeedbackQueue(t *testing.T) {
 		}
 	})
 
+	t.Run("same client_id under two accounts both stored (per-account scope)", func(t *testing.T) {
+		r := setupRepo(t)
+		if err := r.AppendFeedback(ctx, "acc-1", "shared", "", "", []byte("a1"), now); err != nil {
+			t.Fatalf("AppendFeedback acc-1: %v", err)
+		}
+		if err := r.AppendFeedback(ctx, "acc-2", "shared", "", "", []byte("a2"), now.Add(time.Minute)); err != nil {
+			t.Fatalf("AppendFeedback acc-2: %v", err)
+		}
+		items, err := r.ListFeedback(ctx, 10)
+		if err != nil {
+			t.Fatalf("ListFeedback: %v", err)
+		}
+		if len(items) != 2 {
+			t.Fatalf("len = %d, want 2 (client_id unique is per-account, not global)", len(items))
+		}
+	})
+
 	t.Run("delete removes the row", func(t *testing.T) {
 		r := setupRepo(t)
 		if err := r.AppendFeedback(ctx, "acc-1", "cid-del", "", "", []byte("x"), now); err != nil {
