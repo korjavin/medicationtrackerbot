@@ -94,6 +94,53 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(meds.find((m) => m.recordId === 'med-b').inventory_count).toBe(19);
     });
 
+    // Two meds due at the same instant, seeded with a REAL schedule and NO
+    // intake rows: materializeDueDoses mints them at drain, then Confirm must
+    // record BOTH. (The empty-schedule seed above pre-materializes at the exact
+    // slot, which masked the drift bug — this exercises the real path.)
+    it('materializes then confirms every med when the slot had no intake rows yet', async () => {
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'Lisinopril', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'Metformin', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 20 },
+            ],
+            intake: [],
+        });
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
+
+        const atSlot = (await records.list('intake')).filter((i) => i.scheduled_at === SLOT_ISO);
+        expect(atSlot).toHaveLength(2);
+        for (const i of atSlot) expect(i.status).toBe('TAKEN');
+    });
+
+    // The data-loss regression: the callback slot and the stored intake's
+    // scheduled_at are re-derived independently and can drift (schedule edit,
+    // tz-plan/DST step, dose clustering). One med's intake sits 1h off the slot,
+    // within its minDoseInterval band. Exact-=== leaves it PENDING (silent
+    // adherence loss); the band still confirms it.
+    it('confirms a drifted intake within the med minDoseInterval band', async () => {
+        const driftedIso = new Date((SLOT_UNIX + 3600) * 1000).toISOString();
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'Lisinopril', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'Metformin', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 20 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                // med-b's dose drifted 1h past the callback slot.
+                { recordId: `intake-med-b-drift`, deleted: false, medication_id: 'med-b', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
+
+        const intakes = await records.list('intake');
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
+        // Would be PENDING under the old exact-=== match — the whole bug.
+        expect(intakes.find((i) => i.recordId === 'intake-med-b-drift').status).toBe('TAKEN');
+    });
+
     // Rule 2. The mailbox is at-least-once: a crash between the vault write and
     // the ack re-delivers this exact event. It must converge, not double-count.
     it('re-applying the same event converges instead of double-decrementing inventory', async () => {
