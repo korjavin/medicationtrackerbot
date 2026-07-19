@@ -105,23 +105,25 @@ dep) — the server treats the blob as opaque bytes.
 - [x] Run `go test ./internal/cloudserver/...` — must pass before Task 3.
 
 ### Task 3: serve FEEDBACK_AGE_RECIPIENT (ENV → meta tag) + client reader
-- [ ] `cmd/cloud/main.go`: read `feedbackAgeRecipient: os.Getenv("FEEDBACK_AGE_RECIPIENT")`
-      (~`:50-62`), thread it into `cloudserver.New(...)` (add a field to its config/args,
-      `:280`) and into `NewFeedbackAPI(...)` at construction (~`:215-238`).
-- [ ] `internal/cloudserver/router.go` `injectCloudBoot` (`:148-169`): when the recipient
-      is non-empty, emit `<meta name="medtracker-feedback-age-recipient" content="...">`
-      (`html.EscapeString` the value, same as the food-db meta). When empty, emit nothing.
-- [ ] Add `FEEDBACK_AGE_RECIPIENT` wherever `cmd/cloud/env_compose_test.go:29` expects
-      declared env vars to be listed (compose/env docs) so that test stays green.
-- [ ] `web/cloud/js/feedback-config.js` (tiny): export `getFeedbackRecipient()` reading
+- [x] `cmd/cloud/main.go`: read `feedbackAgeRecipient: os.Getenv("FEEDBACK_AGE_RECIPIENT")`
+      (~`:50-62`), thread it into `NewFeedbackAPI(...)` at construction and into the router
+      via `router.SetFeedbackRecipient(...)`. Used a setter (mirroring
+      `SetRequestInviteEmail`/`SetMCPHandler`) instead of a `New` param to avoid churning the
+      ~35 `New` call sites — the food-db meta lives in `appIndex`, which the setter splices.
+- [x] `internal/cloudserver/router.go` `SetFeedbackRecipient`: when the recipient is
+      non-empty, splice `<meta name="medtracker-feedback-age-recipient" content="...">` after
+      `<head>` in the built `appIndex` (`html.EscapeString` the value, same as the food-db
+      meta). When empty, emit nothing.
+- [x] Add `FEEDBACK_AGE_RECIPIENT` to `docker-compose.cloud.yml` (env_compose_test scrapes
+      `Getenv` against compose) so that test stays green.
+- [x] `web/cloud/js/feedback-config.js` (tiny): export `getFeedbackRecipient()` reading
       `document.querySelector('meta[name="medtracker-feedback-age-recipient"]')?.content || ''`
       (mirror `fooddb.js:10-22`). Consumed by med-dni.3; kept minimal here.
-- [ ] Tests: extend `internal/cloudserver/router_test.go` — app document with a recipient
-      set includes the meta tag (value escaped); with it unset the meta is absent, and the
-      per-account CSP is unchanged (no new connect-src — the client talks to
-      api-.elevenlabs-style host? No: feedback POSTs to same-origin `/api/feedback`, so CSP
-      needs no change — assert `/` still emits its per-account `connect-src` with no wildcard).
-- [ ] Run `go test ./internal/cloudserver/... ./cmd/cloud/...` — must pass before Task 4.
+- [x] Tests: extended `internal/cloudserver/router_test.go` (`TestRouter_FeedbackRecipientMeta`)
+      — app document with a recipient set includes the escaped meta tag and does not widen
+      connect-src (feedback POSTs to same-origin `/api/feedback`, no bare-scheme token); with
+      it unset the meta is absent.
+- [x] Run `go test ./internal/cloudserver/... ./cmd/cloud/...` — passed.
 
 ### Task 4: wire, verify, docs
 - [ ] Confirm `FeedbackAPI.RegisterRoutes(apiMux)` is called in `cmd/cloud/main.go`

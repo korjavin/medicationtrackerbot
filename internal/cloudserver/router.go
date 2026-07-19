@@ -117,6 +117,28 @@ func injectRequestInvite(idx []byte, email string) []byte {
 	return out
 }
 
+// SetFeedbackRecipient emits the developer's age recipient pubkey to the app
+// document as a <meta name="medtracker-feedback-age-recipient"> tag (read by
+// web/cloud/js/feedback-config.js — an inline <script> would be blocked by our
+// script-src 'self', same carrier as the food-db meta). Empty recipient →
+// nothing emitted (the feedback feature is disabled; the endpoint also 503s).
+// Setter rather than a New param to avoid churning the ~35 New call sites,
+// mirroring SetRequestInviteEmail. The value is HTML-escaped and spliced right
+// after <head> in the already-built appIndex. bd med-dni.1.
+func (h *Handler) SetFeedbackRecipient(recipient string) {
+	if recipient == "" {
+		return
+	}
+	const marker = "<head>"
+	inject := marker + "\n    <meta name=\"medtracker-feedback-age-recipient\" content=\"" +
+		html.EscapeString(recipient) + "\">"
+	out := bytes.Replace(h.appIndex, []byte(marker), []byte(inject), 1)
+	if bytes.Equal(out, h.appIndex) {
+		panic("cloudserver: appIndex missing <head> to inject feedback recipient meta")
+	}
+	h.appIndex = out
+}
+
 // SetMCPHandler wires the Task 2 hosted-remote streamable-HTTP MCP endpoint
 // onto the router's "/mcp/<token>" path. Separate from New (rather than a
 // constructor param) because it's built from *MCPRemoteAPI, which itself
