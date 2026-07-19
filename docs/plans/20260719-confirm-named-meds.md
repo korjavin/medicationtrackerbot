@@ -75,14 +75,14 @@ design choice below prefers the former.
 ## Implementation Steps
 
 ### Task 1: expose the per-slot medication set from the horizon
-- [ ] `web/domain/reminders.js` `computeReminderHorizon`: build `bySlot` (and the
+- [x] `web/domain/reminders.js` `computeReminderHorizon`: build `bySlot` (and the
       re-remind loop) so each medication entry also carries `medicationIds: [medId…]`
       (dedupe within a slot; include the re-remind entry's single med id for its slot
       stem). Keep `text`/`callback` unchanged. Pure — just richer output.
-- [ ] Tests (`web/domain/` reminders test, or the owning suite): a slot grouping 3 meds
+- [x] Tests (`web/domain/` reminders test, or the owning suite): a slot grouping 3 meds
       emits an entry whose `medicationIds` holds all 3; a re-remind entry carries its one
       med id keyed to the intake-instant slot.
-- [ ] Run the reminders domain test (Node 20) — must pass before Task 2.
+- [x] Run the reminders domain test (Node 20) — must pass before Task 2.
 
 ### Task 2: persist slot → medicationIds at push time
 - [ ] `web/cloud/js/push.js` `pushSchedule`: after building the horizon, write a local

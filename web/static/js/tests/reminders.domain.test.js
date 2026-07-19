@@ -83,6 +83,44 @@ describe('domain/reminders.js — low-stock reminder kind', () => {
     });
 });
 
+// med-eas.67 — per-slot medication identity. Each medication horizon entry
+// carries medicationIds so Confirm can act by identity, not by re-deriving the
+// med set from a ±10-min time band at drain time.
+describe('domain/reminders.js — per-slot medicationIds', () => {
+    const nowMs = Date.UTC(2026, 6, 7, 6, 0, 0); // July 7, 06:00 UTC — before 08:00
+
+    it('a slot grouping 3 meds emits an entry whose medicationIds holds all 3', () => {
+        const entries = computeReminderHorizon({
+            medications: [
+                { id: 'm1', name: 'Aspirin', schedule: '08:00', inventory_count: 30 },
+                { id: 'm2', name: 'Coclav', schedule: '08:00', inventory_count: 30 },
+                { id: 'm3', name: 'Lisinopril', schedule: '08:00', inventory_count: 30 },
+            ],
+            intakes: [], bps: [], weights: [], timeZone: 'UTC', now: nowMs,
+        });
+        const slotUnix = Date.UTC(2026, 6, 7, 8, 0, 0) / 1000;
+        const dose = entries.find((e) => e.kind === 'medication' && e.callback === `s:${slotUnix}`);
+        expect(dose).toBeDefined();
+        expect([...dose.medicationIds].sort()).toEqual(['m1', 'm2', 'm3']);
+    });
+
+    it('a re-remind entry carries its one med id keyed to the intake-instant slot', () => {
+        const scheduledMs = Date.UTC(2026, 6, 7, 4, 0, 0); // 2h ago, still PENDING
+        const entries = computeReminderHorizon({
+            medications: [{ id: 'm1', name: 'Coclav', schedule: '08:00', inventory_count: 30 }],
+            intakes: [{
+                medication_id: 'm1', status: 'PENDING',
+                scheduled_at: new Date(scheduledMs).toISOString(),
+            }],
+            bps: [], weights: [], timeZone: 'UTC', now: nowMs,
+        });
+        const reremind = entries.filter((e) => e.text.includes('REMINDER'));
+        expect(reremind.length).toBeGreaterThan(0);
+        expect(reremind[0].callback).toBe(`s:${scheduledMs / 1000}`);
+        expect(reremind[0].medicationIds).toEqual(['m1']);
+    });
+});
+
 // med-eas.59 — workout-session reminder kind, ported from internal/scheduler/workout.go.
 // Primary fire only: fires at scheduledInstant - notification_advance_minutes for
 // recurring groups, at the scheduled moment for planned ad-hoc sessions.
