@@ -174,14 +174,21 @@ blind queue).
       limitation and the disabled-when-`FEEDBACK_AGE_RECIPIENT`-unset behavior.
 
 ### Task 6: Verify acceptance criteria
-- [ ] A linked user messaging the manager bot sees a "Send feedback" button; tapping it
+- [x] A linked user messaging the manager bot sees a "Send feedback" button; tapping it
       then sending text/voice/photo stores one age-encrypted row in `feedback_queue`
-      attributed to their account; the dev CLI (med-dni.4) decrypts it.
-- [ ] The queue row is ciphertext (server encrypts to the recipient pubkey; cannot
-      decrypt); no plaintext at rest.
-- [ ] Unlinked senders can't queue (no button; stale tap → guided to finish setup).
-- [ ] Feature is absent when `FEEDBACK_AGE_RECIPIENT` is unset. Server + mobile builds
-      pass; the three packages' tests pass.
+      attributed to their account; the dev CLI (med-dni.4) decrypts it. (asserted by Task 4
+      unit tests (a)-(d) in `telegram_test.go`; live tap-through + CLI decrypt is manual —
+      skipped, needs a real cloud deploy with `FEEDBACK_AGE_RECIPIENT` set.)
+- [x] The queue row is ciphertext (server encrypts to the recipient pubkey; cannot
+      decrypt); no plaintext at rest. (asserted by Task 3 round-trip test + Task 4 (c)
+      decrypt-with-test-identity assertion.)
+- [x] Unlinked senders can't queue (no button; stale tap → guided to finish setup).
+      (asserted by Task 4 tests (a) no-button and (e) rejection-reply-no-AppendFeedback.)
+- [x] Feature is absent when `FEEDBACK_AGE_RECIPIENT` is unset. Server + mobile builds
+      pass; the three packages' tests pass. (verified: `go build ./...` +
+      `go build -tags mobile ./...` both green; `go test ./internal/tgclient/...
+      ./internal/cloudstore/... ./internal/cloudserver/...` all pass; disabled-state
+      asserted by Task 4 test (f).)
 
 ## Technical Details
 
