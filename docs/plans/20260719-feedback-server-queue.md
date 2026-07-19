@@ -137,12 +137,15 @@ dep) — the server treats the blob as opaque bytes.
       pointing at the feedback queue as the med-dni epic's server foundation.
 
 ### Task 5: Verify acceptance criteria
-- [ ] `POST /api/feedback` stores an opaque ciphertext blob scoped to the session account,
-      idempotent on `client_id`, 503 when disabled, size-capped.
-- [ ] The queue table is blind (ciphertext BLOB only; no plaintext content column) and
-      cascades on account delete (`TestDeleteAccountLeavesNoRows` green).
-- [ ] The recipient pubkey is exposed to the browser via meta only when configured.
-- [ ] Full server + mobile builds pass; the three affected test packages pass.
+- [x] `POST /api/feedback` stores an opaque ciphertext blob scoped to the session account,
+      idempotent on `client_id`, 503 when disabled, size-capped. (TestFeedback_HappyPathStoresOneBlindRow,
+      _IdempotentOnClientID, _DisabledWhenNoRecipient, _OversizedBody, _BadInput, _RequiresSession all green.)
+- [x] The queue table is blind (ciphertext BLOB only; no plaintext content column) and
+      cascades on account delete. (feedback_queue in accountKeyedTables; TestDeleteAccount_CoverageMatchesSchema,
+      _ByID_LeavesNoRows, _BySubdomain_LeavesNoRows green.)
+- [x] The recipient pubkey is exposed to the browser via meta only when configured. (TestRouter_FeedbackRecipientMeta green.)
+- [x] Full server + mobile builds pass; the three affected test packages pass. (`go build ./...`,
+      `go build -tags mobile ./...`, and the three `go test` packages all green.)
 
 ## Technical Details
 
