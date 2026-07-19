@@ -85,17 +85,20 @@ design choice below prefers the former.
 - [x] Run the reminders domain test (Node 20) — must pass before Task 2.
 
 ### Task 2: persist slot → medicationIds at push time
-- [ ] `web/cloud/js/push.js` `pushSchedule`: after building the horizon, write a local
+- [x] `web/cloud/js/push.js` `pushSchedule`: after building the horizon, write a local
       vault singleton (e.g. record type `reminder_slot_meds`) = `{ slots: { <slotUnix>:
       [medId…] } }`, OVERWRITING it each build (bounded to the current horizon window).
       Reuse any existing local push-state record if one exists. Prefer a device-local
       (non-synced) record to avoid oplog churn — the band fallback (Task 3) covers a
-      cross-device/stale gap.
-- [ ] A tiny reader helper (in push.js or a small module) `getSlotMedications(records,
-      slotUnix) -> medId[]|null` for inbox-apply to consume.
-- [ ] Tests: after `pushSchedule`, the stored map contains each slot with its med ids;
+      cross-device/stale gap. Done: device store key `slotMeds` (same IndexedDB `device`
+      store as `demoReminders`), built from entries' `s:<slotUnix>` stems + `medicationIds`.
+- [x] A tiny reader helper (in push.js or a small module) `getSlotMedications(records,
+      slotUnix) -> medId[]|null` for inbox-apply to consume. Done as
+      `getSlotMedications(slotUnix)` reading the device store (device-local, so no
+      `records` port arg needed; Task 3 injects it into inbox-apply).
+- [x] Tests: after `pushSchedule`, the stored map contains each slot with its med ids;
       re-running with a changed schedule overwrites (no stale slots accumulate).
-- [ ] Run the push test (Node 20) — must pass before Task 3.
+- [x] Run the push test (Node 20) — must pass before Task 3.
 
 ### Task 3: Confirm the named meds by identity (band as fallback)
 - [ ] `web/cloud/js/inbox-apply.js` `applyIntakeSlotAction`: after `materializeDueDoses()`,

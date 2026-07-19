@@ -11,6 +11,14 @@ import { openDb } from './localdb.js';
 
 const REMINDERS_KEY = 'demoReminders';
 
+// Device-local (non-synced) map of slotUnix → [medicationId…] the reminder
+// horizon NAMED for that slot, written on every pushSchedule (replace-all, like
+// the schedule itself) so a Confirm tap can act on the meds by identity instead
+// of re-deriving them from a ±band at drain time (bd med-eas.67). Device store,
+// not the vault, to avoid oplog churn on every horizon build — the ±band
+// fallback in inbox-apply covers a cross-device/stale gap.
+const SLOT_MEDS_KEY = 'slotMeds';
+
 // Exported so the signup wizard's install step (web/cloud/js/signup.js) derives
 // the same shown/skipped/iOS state from display-mode instead of duplicating the
 // platform probe — docs/cloud-mode.md Onboarding ("derive steps from
@@ -63,6 +71,60 @@ async function writeReminders(list) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+  } finally {
+    db.close();
+  }
+}
+
+// The horizon puts an "s:<slotUnix>" stem on every medication entry (grouped
+// dose reminders and re-reminders alike); BP/weight entries have no callback.
+function slotUnixFromCallback(cb) {
+  const m = /^s:(\d+)$/.exec(cb || '');
+  return m ? Number(m[1]) : null;
+}
+
+// Build slotUnix → [medId…] from the horizon entries, deduped within a slot. A
+// re-reminder shares its grouped slot's stem, so its single med id folds in.
+function slotMedsFromReminders(reminders) {
+  const slots = {};
+  for (const r of reminders) {
+    const slotUnix = slotUnixFromCallback(r.callback);
+    if (slotUnix == null || !Array.isArray(r.medicationIds)) continue;
+    const ids = slots[slotUnix] || (slots[slotUnix] = []);
+    for (const id of r.medicationIds) if (id != null && !ids.includes(id)) ids.push(id);
+  }
+  return slots;
+}
+
+async function writeSlotMeds(slots) {
+  const db = await openDb();
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('device', 'readwrite');
+      tx.objectStore('device').put({ slots }, SLOT_MEDS_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+// getSlotMedications returns the med ids the reminder NAMED for slotUnix at push
+// time, or null when this device has no stored map for it (a reminder pushed
+// before this shipped, or from another device) — inbox-apply then falls back to
+// the ±band match.
+export async function getSlotMedications(slotUnix) {
+  const db = await openDb();
+  try {
+    const rec = await new Promise((resolve, reject) => {
+      const tx = db.transaction('device', 'readonly');
+      const req = tx.objectStore('device').get(SLOT_MEDS_KEY);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const ids = rec && rec.slots && rec.slots[slotUnix];
+    return Array.isArray(ids) && ids.length ? ids : null;
   } finally {
     db.close();
   }
@@ -294,6 +356,16 @@ export async function pushSchedule(ctx, reminders, pref = {}) {
       if (r.callback) entry.tg_callback = r.callback;
     }
     entries.push(entry);
+  }
+  // Record the slot → medicationIds map for this horizon before the upload, so
+  // a Confirm tap on any of these reminders can confirm the named meds by
+  // identity (bd med-eas.67). Replace-all: overwriting drops last build's slots,
+  // so no stale entries accumulate. Best-effort — a failed local write just
+  // falls back to the ±band match in inbox-apply, never blocks the push.
+  try {
+    await writeSlotMeds(slotMedsFromReminders(reminders));
+  } catch (e) {
+    console.warn('[push] could not store the slot→meds map', e);
   }
   const res = await fetch('/api/push/schedule', {
     method: 'PUT',
