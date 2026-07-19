@@ -35,6 +35,10 @@ services:
       - CLOUD_DRY_QUEUE_WARN_HOURS=${CLOUD_DRY_QUEUE_WARN_HOURS:-}
       - VAPID_SUBJECT=${VAPID_SUBJECT:-}
       - REQUEST_INVITE_EMAIL=${REQUEST_INVITE_EMAIL:-}
+      # age X25519 recipient pubkey for the cloud feedback channel (bd med-dni).
+      # Unset = feedback disabled: no meta tag reaches the browser and
+      # POST /api/feedback returns 503. Public key only, never a secret.
+      - FEEDBACK_AGE_RECIPIENT=${FEEDBACK_AGE_RECIPIENT:-}
       - MANAGER_BOT_TOKEN=${MANAGER_BOT_TOKEN:-}
       - CLOUD_FOOD_DB_URL=${CLOUD_FOOD_DB_URL:-}
       # Operator key for a KEYED food DB, forwarded upstream as X-API-Key.

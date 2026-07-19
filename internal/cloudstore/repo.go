@@ -533,6 +533,7 @@ var accountKeyedTables = []string{
 	"tg_pending",
 	"inbox_events",
 	"trial_usage",
+	"feedback_queue",
 }
 
 // DeleteAccount removes an account by subdomain (the admin CLI path). Resolves

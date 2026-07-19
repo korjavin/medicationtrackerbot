@@ -317,6 +317,55 @@ func TestRouter_AppDocumentReflectsEgressHosts(t *testing.T) {
 	}
 }
 
+// The feedback recipient pubkey reaches the browser via a <meta> tag on the app
+// document only when SetFeedbackRecipient was given a non-empty value; the value
+// is HTML-escaped, and enabling feedback must not widen the app document's scoped
+// connect-src (feedback POSTs to same-origin /api/feedback). bd med-dni.1.
+func TestRouter_FeedbackRecipientMeta(t *testing.T) {
+	store := setupStore(t)
+	now := time.Now().UTC()
+	if _, err := store.CreateAccount(t.Context(), "acc-1", "known-sub", []byte("hash"), now.Add(time.Hour), now, "", "", ""); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	appDoc := func(h *Handler) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Host = "known-sub.app.example.com"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+		return rec
+	}
+
+	const metaName = `<meta name="medtracker-feedback-age-recipient"`
+
+	t.Run("recipient set emits the escaped meta and does not widen connect-src", func(t *testing.T) {
+		h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "", false, false)
+		h.SetFeedbackRecipient("age1abc<>&\"def")
+		rec := appDoc(h)
+
+		body := rec.Body.String()
+		want := metaName + ` content="age1abc&lt;&gt;&amp;&#34;def">`
+		if !strings.Contains(body, want) {
+			t.Fatalf("app document missing escaped feedback meta %q in:\n%s", want, body)
+		}
+		connect := cspDirective(rec.Header().Get("Content-Security-Policy"), "connect-src")
+		if bare := bareSchemeToken(connect); bare != "" {
+			t.Errorf("connect-src = %q carries bare %q token after enabling feedback", connect, bare)
+		}
+	})
+
+	t.Run("recipient unset emits no meta", func(t *testing.T) {
+		h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "", false, false)
+		h.SetFeedbackRecipient("")
+		if body := appDoc(h).Body.String(); strings.Contains(body, metaName) {
+			t.Fatalf("app document leaks feedback meta when recipient is unset:\n%s", body)
+		}
+	})
+}
+
 // bareSchemeToken returns a bare `https:`/`wss:` token if the CSP directive value
 // carries one (i.e. a scheme not followed by `//host`), or "" if every token is a
 // concrete origin. This is the exfil-gadget guard for connect-src.

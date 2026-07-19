@@ -28,38 +28,40 @@ import (
 // config is the env-driven configuration for cmd/cloud — no flags, per the
 // bot binary's convention (cmd/bot/main_server.go).
 type config struct {
-	dbPath              string
-	port                string
-	baseDomain          string
-	sessionSecret       string
-	claimTTL            time.Duration
-	accountQuotaBytes   int64
-	vapidSubject        string
-	dryQueueWarnHours   time.Duration
-	foodDBURL           string
-	foodDBAPIKey        string
-	managerBotToken     string
-	tgAPIBaseURL        string
-	internalWebhookBase string
-	requestInviteEmail  string
-	trial               cloudserver.TrialConfig
+	dbPath               string
+	port                 string
+	baseDomain           string
+	sessionSecret        string
+	claimTTL             time.Duration
+	accountQuotaBytes    int64
+	vapidSubject         string
+	dryQueueWarnHours    time.Duration
+	foodDBURL            string
+	foodDBAPIKey         string
+	managerBotToken      string
+	tgAPIBaseURL         string
+	internalWebhookBase  string
+	requestInviteEmail   string
+	feedbackAgeRecipient string
+	trial                cloudserver.TrialConfig
 }
 
 func loadConfig() (config, error) {
 	cfg := config{
-		dbPath:              os.Getenv("CLOUD_DB_PATH"),
-		port:                os.Getenv("PORT"),
-		baseDomain:          os.Getenv("CLOUD_BASE_DOMAIN"),
-		claimTTL:            14 * 24 * time.Hour,
-		accountQuotaBytes:   50 << 20, // 50MB
-		vapidSubject:        os.Getenv("VAPID_SUBJECT"),
-		dryQueueWarnHours:   120 * time.Hour,
-		foodDBURL:           os.Getenv("CLOUD_FOOD_DB_URL"),
-		foodDBAPIKey:        os.Getenv("CLOUD_FOOD_DB_API_KEY"),
-		managerBotToken:     os.Getenv("MANAGER_BOT_TOKEN"),
-		tgAPIBaseURL:        os.Getenv("CLOUD_TG_API_BASE_URL"),
-		internalWebhookBase: os.Getenv("CLOUD_INTERNAL_WEBHOOK_BASE"),
-		requestInviteEmail:  os.Getenv("REQUEST_INVITE_EMAIL"),
+		dbPath:               os.Getenv("CLOUD_DB_PATH"),
+		port:                 os.Getenv("PORT"),
+		baseDomain:           os.Getenv("CLOUD_BASE_DOMAIN"),
+		claimTTL:             14 * 24 * time.Hour,
+		accountQuotaBytes:    50 << 20, // 50MB
+		vapidSubject:         os.Getenv("VAPID_SUBJECT"),
+		dryQueueWarnHours:    120 * time.Hour,
+		foodDBURL:            os.Getenv("CLOUD_FOOD_DB_URL"),
+		foodDBAPIKey:         os.Getenv("CLOUD_FOOD_DB_API_KEY"),
+		managerBotToken:      os.Getenv("MANAGER_BOT_TOKEN"),
+		tgAPIBaseURL:         os.Getenv("CLOUD_TG_API_BASE_URL"),
+		internalWebhookBase:  os.Getenv("CLOUD_INTERNAL_WEBHOOK_BASE"),
+		requestInviteEmail:   os.Getenv("REQUEST_INVITE_EMAIL"),
+		feedbackAgeRecipient: os.Getenv("FEEDBACK_AGE_RECIPIENT"),
 	}
 	if cfg.internalWebhookBase == "" {
 		// Docker-network origin the local Bot API proxy uses to deliver child-bot
@@ -236,6 +238,7 @@ func main() {
 	foodProxyAPI.RegisterRoutes(apiMux)
 	rxnavProxyAPI.RegisterRoutes(apiMux)
 	cloudserver.NewEgressAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
+	cloudserver.NewFeedbackAPI(store, cfg.sessionSecret, cfg.feedbackAgeRecipient).RegisterRoutes(apiMux)
 
 	// Telegram is fully disabled unless a manager bot token is configured; the
 	// wizard step simply doesn't render and no webhook routes are wired.
@@ -280,6 +283,7 @@ func main() {
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL, cfg.trial.TrialAIConfigured(), cfg.trial.TrialVoiceConfigured())
 	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
 	router.SetRequestInviteEmail(cfg.requestInviteEmail)
+	router.SetFeedbackRecipient(cfg.feedbackAgeRecipient)
 
 	// A nil *TelegramAPI stored in a TelegramSender interface is NOT a nil
 	// interface, so assign only when Telegram actually came up — otherwise the
