@@ -190,9 +190,23 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // receipt with "ℹ️ Nothing was due". message_id is also absent when Telegram
   // omitted cq.Message for an old message → editReply is a safe no-op.
   if (applied > 0) {
-    const text = event.action === 'confirm'
-      ? confirmationText({ kind: 'intake' }, { confirmed: applied }, verbosity)
-      : (verbosity === 'generic' ? '⏰ Snoozed.' : '⏰ Snoozed — will remind you again shortly.');
+    let text;
+    if (event.action === 'confirm') {
+      // Count every intake THIS tap confirmed, not just the writes from the final
+      // attempt: an at-least-once redelivery after a partial success re-runs with
+      // the earlier meds already TAKEN (filtered out of the loop), so `applied`
+      // alone would undercount the receipt ("Confirmed 1" when 2 were taken).
+      // confirm() backdates taken_at to atMs deterministically, identical across
+      // retries, so band-matched intakes taken at this instant are exactly this
+      // tap's set.
+      const atIso = new Date(atMs).toISOString();
+      const confirmed = (await records.list(INTAKE_RECORD_TYPE)).filter((i) =>
+        !i.deleted && i.status === 'TAKEN' && i.taken_at === atIso
+        && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= SLOT_DRIFT_BAND_MS).length;
+      text = confirmationText({ kind: 'intake' }, { confirmed }, verbosity);
+    } else {
+      text = verbosity === 'generic' ? '⏰ Snoozed.' : '⏰ Snoozed — will remind you again shortly.';
+    }
     try {
       await editReply(event.message_id, text);
     } catch (e) {
