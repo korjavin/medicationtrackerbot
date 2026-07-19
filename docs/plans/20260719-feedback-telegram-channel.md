@@ -110,21 +110,21 @@ blind queue).
 - [x] Run `go test ./internal/cloudstore/...` — must pass before Task 3.
 
 ### Task 3: server-side age encrypt helper + thread recipient into TelegramAPI
-- [ ] Add `encryptFeedbackDoc(recipient string, doc []byte) ([]byte, error)` (in
+- [x] Add `encryptFeedbackDoc(recipient string, doc []byte) ([]byte, error)` (in
       `telegram.go` or a small `feedback_telegram.go`): `age.ParseX25519Recipient` →
       `age.Encrypt(&buf, recip)` → write → **Close** → bytes. Error if recipient empty.
-- [ ] Thread `feedbackAgeRecipient` into `TelegramAPI`: add a field + set it in
+- [x] Thread `feedbackAgeRecipient` into `TelegramAPI`: add a field + set it in
       `NewTelegramAPI` (`telegram.go:209`) (or a setter mirroring
       `router.SetFeedbackRecipient`); pass `cfg.feedbackAgeRecipient` at the
       `NewTelegramAPI(...)` call site in `cmd/cloud/main.go`.
-- [ ] Add the in-memory capture-state map + mutex to `TelegramAPI` (`telegram.go:173`):
+- [x] Add the in-memory capture-state map + mutex to `TelegramAPI` (`telegram.go:173`):
       `feedbackWaiting map[int64]time.Time` + `feedbackMu sync.Mutex`; helpers
       `setFeedbackWaiting(chatID)`, `takeFeedbackWaiting(chatID) bool` (returns true +
       clears iff present and unexpired).
-- [ ] Test: `encryptFeedbackDoc` output decrypts with a matching age identity (round-trip
+- [x] Test: `encryptFeedbackDoc` output decrypts with a matching age identity (round-trip
       via `age.Decrypt`) back to the input JSON; empty recipient errors. Capture-state
       helpers: set→take returns true once then false; expired entry returns false.
-- [ ] Run `go test ./internal/cloudserver/...` — must pass before Task 4.
+- [x] Run `go test ./internal/cloudserver/...` — must pass before Task 4.
 
 ### Task 4: manager webhook — feedback button, callback branch, capture + encrypt + store
 - [ ] `ManagerWebhook` (`telegram.go:451`): add an `upd.CallbackQuery != nil` branch →

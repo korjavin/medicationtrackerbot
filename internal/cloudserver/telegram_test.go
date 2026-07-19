@@ -100,7 +100,7 @@ func countingGetMe(t *testing.T, failUntil int64) (*httptest.Server, *int64) {
 func TestBootstrapGetMeRetry(t *testing.T) {
 	t.Run("succeeds after transient failures", func(t *testing.T) {
 		srv, hits := countingGetMe(t, 2)
-		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "localhost", srv.URL, time.Hour)
+		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "localhost", srv.URL, "", time.Hour)
 		me, err := tgAPI.getMeWithRetry(t.Context(), time.Second, 5*time.Millisecond)
 		if err != nil {
 			t.Fatalf("getMeWithRetry after transient failures: %v", err)
@@ -115,7 +115,7 @@ func TestBootstrapGetMeRetry(t *testing.T) {
 
 	t.Run("gives up after budget", func(t *testing.T) {
 		srv, hits := countingGetMe(t, 1<<30) // never succeeds
-		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "localhost", srv.URL, time.Hour)
+		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "localhost", srv.URL, "", time.Hour)
 		me, err := tgAPI.getMeWithRetry(t.Context(), 30*time.Millisecond, 5*time.Millisecond)
 		if err == nil {
 			t.Fatalf("getMeWithRetry over budget: want error, got username %q", me.Username)
@@ -127,7 +127,7 @@ func TestBootstrapGetMeRetry(t *testing.T) {
 
 	t.Run("context cancellation stops retrying", func(t *testing.T) {
 		srv, _ := countingGetMe(t, 1<<30) // never succeeds
-		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "localhost", srv.URL, time.Hour)
+		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "localhost", srv.URL, "", time.Hour)
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 		if _, err := tgAPI.getMeWithRetry(ctx, time.Hour, time.Minute); err == nil {
@@ -151,7 +151,7 @@ func TestTelegramProvisioningStateMachine(t *testing.T) {
 	})
 
 	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, 14*24*time.Hour)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, "", 14*24*time.Hour)
 	if err := tgAPI.Bootstrap(t.Context()); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
@@ -405,7 +405,7 @@ func TestManagerWebhookRateLimitIsRedeliveredNotDropped(t *testing.T) {
 			})
 
 			webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
-			tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, 14*24*time.Hour)
+			tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, "", 14*24*time.Hour)
 			if err := tgAPI.Bootstrap(t.Context()); err != nil {
 				t.Fatalf("Bootstrap: %v", err)
 			}
@@ -458,7 +458,7 @@ func TestTelegramLinkingAndBYO(t *testing.T) {
 
 	tg := newRecordingTG(t)
 	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, 14*24*time.Hour)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", 14*24*time.Hour)
 	if err := tgAPI.Bootstrap(t.Context()); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
@@ -574,7 +574,7 @@ func TestTelegramBYOWebhookFailureLeavesNoBot(t *testing.T) {
 	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
 	// No Bootstrap: it would call the (scripted-to-fail) manager setWebhook. BYO
 	// doesn't need the resolved manager username.
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, 14*24*time.Hour)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, "", 14*24*time.Hour)
 	apiMux := http.NewServeMux()
 	webauthnAPI.RegisterRoutes(apiMux)
 	tgAPI.RegisterAPIRoutes(apiMux)
@@ -613,7 +613,7 @@ func managerFixture(t *testing.T) (*cloudstore.Repo, *recordingTG, http.Handler,
 	t.Helper()
 	store := setupStore(t)
 	tg := newRecordingTG(t)
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, 14*24*time.Hour)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", 14*24*time.Hour)
 	top := http.NewServeMux()
 	tgAPI.RegisterWebhookRoutes(top)
 	return store, tg, top, deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
@@ -731,7 +731,7 @@ func TestManagerOnboarding(t *testing.T) {
 	t.Run("shortening the claim TTL does not free live invites", func(t *testing.T) {
 		store := setupStore(t)
 		tg := newRecordingTG(t)
-		tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, time.Hour)
+		tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", time.Hour)
 		top := http.NewServeMux()
 		tgAPI.RegisterWebhookRoutes(top)
 		secret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
@@ -904,7 +904,7 @@ func TestChildWebhookRace(t *testing.T) {
 		"sendMessage": `{"ok":true,"result":{}}`,
 	})
 
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, 14*24*time.Hour)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, "", 14*24*time.Hour)
 	top := http.NewServeMux()
 	tgAPI.RegisterWebhookRoutes(top)
 
@@ -972,7 +972,7 @@ func linkedBotTap(t *testing.T, tg *recordingTG) tapFixture {
 	host := account.Subdomain + ".localhost"
 
 	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, 14*24*time.Hour)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", 14*24*time.Hour)
 	if err := tgAPI.Bootstrap(t.Context()); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
@@ -1239,7 +1239,7 @@ func TestChildWebhook_HelpAndUnknownCommands(t *testing.T) {
 
 	tg := newRecordingTG(t)
 	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, 14*24*time.Hour)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", 14*24*time.Hour)
 	if err := tgAPI.Bootstrap(t.Context()); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
@@ -1367,7 +1367,7 @@ func tgCommandFixture(t *testing.T) (http.Handler, *recordingTG, string, string,
 	tg := newRecordingTG(t)
 	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
 	inboxAPI := NewInboxAPI(store, tgTestSecret)
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, 14*24*time.Hour)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", 14*24*time.Hour)
 	if err := tgAPI.Bootstrap(t.Context()); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
@@ -1644,7 +1644,7 @@ func TestChildWebhook_CommandWithoutInboxKeyIsDropped(t *testing.T) {
 	tg := newRecordingTG(t)
 	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
 	inboxAPI := NewInboxAPI(store, tgTestSecret)
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, 14*24*time.Hour)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", 14*24*time.Hour)
 	if err := tgAPI.Bootstrap(t.Context()); err != nil {
 		t.Fatalf("Bootstrap: %v", err)
 	}
@@ -1791,7 +1791,7 @@ func TestMigrateBotsToProxy(t *testing.T) {
 	cloud := newCountingTG(t) // stands in for api.telegram.org (logOut target)
 	proxy := newCountingTG(t) // stands in for the local Bot API proxy
 
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", proxy.srv.URL, time.Hour)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", proxy.srv.URL, "", time.Hour)
 	tgAPI.cloudAPIBaseURL = cloud.srv.URL
 
 	migrated, failed, err := tgAPI.MigrateBotsToProxy(ctx)
@@ -1844,7 +1844,7 @@ func TestMigrateBotsToProxy(t *testing.T) {
 func TestMigrateBotsToProxyRequiresProxy(t *testing.T) {
 	store := setupStore(t)
 	// No proxy configured (apiBaseURL "").
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", "", time.Hour)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", "", "", time.Hour)
 	if _, _, err := tgAPI.MigrateBotsToProxy(context.Background()); err == nil {
 		t.Fatal("expected an error when no proxy is configured")
 	}
@@ -1857,7 +1857,7 @@ func TestMigrateBotsToProxyRequiresProxy(t *testing.T) {
 // stay on the public URL / shared base, unchanged.
 func TestProxyScoping(t *testing.T) {
 	t.Run("child webhook internal + manager on cloud when proxy on", func(t *testing.T) {
-		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "cloud.example.com", "http://proxy:8081", time.Hour)
+		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "cloud.example.com", "http://proxy:8081", "", time.Hour)
 		tgAPI.ConfigureProxy("", "http://cloud:8080")
 
 		got := tgAPI.childWebhookURL("acc1", "sec1")
@@ -1873,7 +1873,7 @@ func TestProxyScoping(t *testing.T) {
 
 	t.Run("public webhook + shared base when proxy off", func(t *testing.T) {
 		// No ConfigureProxy call — the no-proxy default path.
-		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "cloud.example.com", "", time.Hour)
+		tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "cloud.example.com", "", "", time.Hour)
 		got := tgAPI.childWebhookURL("acc1", "sec1")
 		if want := "https://cloud.example.com/tg/bot/acc1/sec1"; got != want {
 			t.Errorf("childWebhookURL = %q, want public %q", got, want)
@@ -1891,7 +1891,7 @@ func TestDownloadDocumentInvalidFileIDIsClassified(t *testing.T) {
 	tgSrv := fakeTG(t, map[string]string{
 		"getFile": `{"ok":false,"error_code":400,"description":"Bad Request: invalid file_id"}`,
 	})
-	tgAPI := NewTelegramAPI(setupStore(t), tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, time.Hour)
+	tgAPI := NewTelegramAPI(setupStore(t), tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, "", time.Hour)
 	client := tgclient.New("123:CHILDTOKEN", tgSrv.URL)
 
 	_, err := tgAPI.downloadDocument(context.Background(), client,
