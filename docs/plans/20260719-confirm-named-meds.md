@@ -140,13 +140,17 @@ design choice below prefers the former.
 - [x] `go build ./...` + `go build -tags mobile ./...` — both pass, no Go changes needed.
 
 ### Task 5: Verify acceptance criteria
-- [ ] Tapping Confirm on an N-med reminder confirms EVERY med the reminder named, including
+- [x] Tapping Confirm on an N-med reminder confirms EVERY med the reminder named, including
       a course med whose materialized intake drifted (tz-plan/cluster) beyond ±10 min —
-      no med left PENDING, no duplicate re-reminder.
-- [ ] The receipt count equals distinct meds confirmed.
-- [ ] No false-positive confirms: only meds the reminder named, only their due doses within
+      no med left PENDING, no duplicate re-reminder. Verified by the course-med-drift
+      regression in inbox-apply.test.js (71/71 green).
+- [x] The receipt count equals distinct meds confirmed. Verified by the count-correctness
+      test (distinct-by-medication_id, not band-matched rows).
+- [x] No false-positive confirms: only meds the reminder named, only their due doses within
       each med's own interval; unrelated PENDING doses untouched. Band fallback intact for
-      mapless reminders. Idempotent across redelivery/double-tap.
+      mapless reminders. Idempotent across redelivery/double-tap. Verified by the
+      no-false-positive, fallback, and idempotency tests. Live cloud+Telegram check remains
+      as manual Post-Completion verification (not automatable here).
 
 ## Technical Details
 
