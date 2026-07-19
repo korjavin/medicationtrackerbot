@@ -116,6 +116,23 @@ describe('feedback-ui', () => {
         expect(enqueueFeedback).not.toHaveBeenCalled();
     });
 
+    it('ignores a second Record tap while the first is still starting (no double mic)', async () => {
+        let resolveRec;
+        const audBlob = new Blob([new Uint8Array([9])], { type: 'audio/webm' });
+        const audioHandle = { stop: vi.fn().mockResolvedValue(audBlob), cancel: vi.fn() };
+        const recordAudio = vi.fn(() => new Promise((r) => { resolveRec = () => r(audioHandle); }));
+        window.MediaCapture = { pickPhoto: vi.fn(), recordAudio };
+
+        await mountFeedbackLauncher({});
+        click(q('#feedback-launcher'));
+        const recBtn = q('[data-feedback-record]');
+        click(recBtn);          // starts recording (getUserMedia still pending)
+        click(recBtn);          // second tap while starting — must be a no-op
+        resolveRec();
+        await flush();
+        expect(recordAudio).toHaveBeenCalledTimes(1);
+    });
+
     it('hides the Record button when recordAudio is unavailable (graceful degradation)', async () => {
         window.MediaCapture = { pickPhoto: vi.fn() }; // no recordAudio
         await mountFeedbackLauncher({});

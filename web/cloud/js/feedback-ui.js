@@ -22,10 +22,6 @@ function canRecordAudio() {
     return !!(window.MediaCapture && typeof window.MediaCapture.recordAudio === 'function');
 }
 
-function toArrayBuffer(blob) {
-    return blob.arrayBuffer();
-}
-
 function toast(message) {
     if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
         window.SyncManager.showToast(message, 'success');
@@ -110,6 +106,7 @@ function openFeedbackModal() {
     let imageBlob = null;
     let audioBlob = null;
     let audioHandle = null; // set while a recording is in progress
+    let starting = false;   // guards the recordAudio() await against a double-tap
 
     function chips() {
         const parts = [];
@@ -151,6 +148,11 @@ function openFeedbackModal() {
                 refreshSend();
                 return;
             }
+            // A second tap while getUserMedia is still resolving would open a
+            // second mic stream and orphan the first (never stopped). Guard it.
+            if (starting) return;
+            starting = true;
+            recordBtn.disabled = true;
             try {
                 audioHandle = await window.MediaCapture.recordAudio();
                 recordBtn.textContent = 'Stop recording';
@@ -158,6 +160,8 @@ function openFeedbackModal() {
             } catch (_) {
                 audioHandle = null; // mic denied / unavailable — stay idle
             }
+            starting = false;
+            recordBtn.disabled = false;
         });
     }
 
@@ -180,10 +184,10 @@ function openFeedbackModal() {
     async function send() {
         const attachments = [];
         if (imageBlob) {
-            attachments.push({ type: 'image', mime: imageBlob.type || 'image/jpeg', bytes: await toArrayBuffer(imageBlob) });
+            attachments.push({ type: 'image', mime: imageBlob.type || 'image/jpeg', bytes: await imageBlob.arrayBuffer() });
         }
         if (audioBlob) {
-            attachments.push({ type: 'audio', mime: audioBlob.type || 'audio/webm', bytes: await toArrayBuffer(audioBlob) });
+            attachments.push({ type: 'audio', mime: audioBlob.type || 'audio/webm', bytes: await audioBlob.arrayBuffer() });
         }
         // Anonymous: text + attachments only, no account id / PII (decided).
         const bundle = { text: textarea.value.trim(), attachments };

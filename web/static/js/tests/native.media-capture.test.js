@@ -328,6 +328,18 @@ describe('native/web/media-capture.js — web impl', () => {
         expect(caught.name).toBe('MediaCaptureError');
     });
 
+    it('recordAudio releases the mic if the recorder errors before stop()', async () => {
+        const track = { stop: vi.fn() };
+        const stream = { getTracks: () => [track] };
+        const getUserMedia = vi.fn().mockResolvedValue(stream);
+        env = loadEnv({ mediaDevices: { getUserMedia } });
+        const instances = installMediaRecorder(env.window);
+        await env.window.MediaCapture.recordAudio();
+        // Recorder errors mid-recording, before the user taps stop.
+        instances[0].onerror({ error: new Error('device lost') });
+        expect(track.stop).toHaveBeenCalledTimes(1);
+    });
+
     it('recordAudio rejects with UNAVAILABLE when MediaRecorder is missing', async () => {
         const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [] });
         env = loadEnv({ mediaDevices: { getUserMedia } });

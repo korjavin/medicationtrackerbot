@@ -188,6 +188,10 @@
                 var cancelled = false;
                 function cleanup() { stopStream(stream); }
 
+                // Release the mic if the recorder errors before the user taps
+                // stop (stop() below re-wires onerror for its own reject path).
+                recorder.onerror = function () { cleanup(); };
+
                 return {
                     stop: function () {
                         return new Promise(function (resolve, reject) {
