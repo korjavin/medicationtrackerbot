@@ -96,10 +96,12 @@ binary, so the dep lands in a `cmd/feedbackpull` package.
 - [x] Run `go test ./cmd/feedbackpull/...` — must pass before Task 3.
 
 ### Task 3: verify + docs
-- [ ] `go build ./...` + `go build -tags mobile ./...` (both green; confirm the age dep
-      doesn't bloat the mobile binary — it isn't imported by mobile targets).
-- [ ] `go vet ./cmd/feedbackpull/...`, `gofmt` clean.
-- [ ] Docs: add `cmd/feedbackpull` to the `cmd/` list in `CLAUDE.md` (Code Layout) and a
+- [x] `go build ./...` + `go build -tags mobile ./...` (both green; confirm the age dep
+      doesn't bloat the mobile binary — it isn't imported by mobile targets). — compile
+      passes under both tags (final link errored only on host disk space, not code);
+      `go list -tags mobile -deps ./cmd/bot` shows 0 `filippo.io/age` refs.
+- [x] `go vet ./cmd/feedbackpull/...`, `gofmt` clean.
+- [x] Docs: add `cmd/feedbackpull` to the `cmd/` list in `CLAUDE.md` (Code Layout) and a
       short usage block in `docs/cloud-operations-security.md` (or `docs/cloud-mode.md`):
       how the operator generates the age keypair (`age-keygen`), sets
       `FEEDBACK_AGE_RECIPIENT` on the server (med-dni.1) and keeps the identity private

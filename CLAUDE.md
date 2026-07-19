@@ -90,7 +90,7 @@ go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -topup -seed 42
 
 ## Code Layout
 
-- `cmd/` — entry points (`bot`, `cloud`, `mcptool`, `mcpshim`, `importer`, `bpimporter`, `genvapid`, `seeddemo`)
+- `cmd/` — entry points (`bot`, `cloud`, `mcptool`, `mcpshim`, `importer`, `bpimporter`, `genvapid`, `seeddemo`, `feedbackpull`). `feedbackpull` is the dev/ops CLI that drains the cloud `feedback_queue`, age-decrypts each item with the developer's private key, prints text + metadata, and saves attachments — the only place the age private key lives (server stores ciphertext blindly). Imports `filippo.io/age` (not linked into the server or mobile binaries).
 - `internal/ai` — AI client (OpenAI-compatible)
 - `internal/store` — per-domain SQLite repositories (one Go package per feature). `store.Repos` (alias: `store.Store`) is a thin aggregator wired in `cmd/bot/main.go` (and `cmd/mcptool`, `cmd/seeddemo`, `cmd/bpimporter`). Sub-packages:
   - `db/` — shared `*sql.DB` open/close + busy-timeout config, `WithTx` cross-repo transaction helper, goose migrations runner, unix-seconds time helpers.

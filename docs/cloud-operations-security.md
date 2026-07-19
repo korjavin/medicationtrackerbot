@@ -192,6 +192,36 @@ to serve — not the full vault and not historical data outside that scope.
 Content is answered by the unlocked browser tab over the blind relay and never
 reaches the server as plaintext; closing the tab ends the horizon entirely.
 
+### 5.2 Feedback channel — decrypt CLI (`cmd/feedbackpull`)
+
+User feedback is end-to-end encrypted: the browser age-encrypts each submission
+to `FEEDBACK_AGE_RECIPIENT` (a public key) before `POST /api/feedback`, and the
+server stores only the ciphertext in `feedback_queue`. Plaintext is recovered
+**only** on the developer's machine, never on the server.
+
+Setup (one-time):
+
+```bash
+age-keygen -o dev.key            # prints the recipient (age1…) to stderr
+# set FEEDBACK_AGE_RECIPIENT=age1… on the cloud server (see docs/environment.md)
+# keep dev.key OFF the server host — it is the only key that can read feedback
+```
+
+Drain + decrypt (developer machine, against a copy of the cloud sqlite DB):
+
+```bash
+go run ./cmd/feedbackpull -db cloud.db -identity dev.key -out ./inbox -delete
+```
+
+- `-db` (required) cloud sqlite path; `-identity` age private-key file (default
+  `$FEEDBACK_AGE_IDENTITY`); `-out` attachment dir (default `./feedback`);
+  `-limit` (default 100); `-delete` acks items after a successful decrypt+save;
+  `-json` emits one JSON line per item instead of the human render.
+- **Fail-open:** an item that fails to decrypt/parse (key rotation, corruption)
+  is logged to stderr and skipped — never deleted — so one bad row can't block
+  the drain or hide the rest. `-delete` acks **only** successfully-processed
+  items.
+
 ## 6. Incident response and user notification
 
 - **Log discipline first.** The redaction invariants (§1.1) and the proxy
