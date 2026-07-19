@@ -99,15 +99,15 @@ blind queue).
 - [x] Run `go test ./internal/tgclient/...` — must pass before Task 2.
 
 ### Task 2: store — claimed-account lookup for a TG creator
-- [ ] `internal/cloudstore` (near `HasClaimedAccountCreatedBy`, `repo.go:182`): add
+- [x] `internal/cloudstore` (near `HasClaimedAccountCreatedBy`, `repo.go:182`): add
       `ClaimedAccountIDForCreator(ctx, creator string) (string, error)` →
       `SELECT id FROM accounts WHERE created_by_account_id=? AND claim_token_hash IS NULL
       ORDER BY ... LIMIT 1`; return `("", nil)` (or a sentinel) when none — caller treats
       empty as "unlinked".
-- [ ] Test (`internal/cloudstore/..._test.go`): a claimed account created by `"tg:42"`
+- [x] Test (`internal/cloudstore/..._test.go`): a claimed account created by `"tg:42"`
       resolves to its id; an unclaimed (pending `claim_token_hash`) one does not; unknown
       creator → empty; picks a claimed one when both exist.
-- [ ] Run `go test ./internal/cloudstore/...` — must pass before Task 3.
+- [x] Run `go test ./internal/cloudstore/...` — must pass before Task 3.
 
 ### Task 3: server-side age encrypt helper + thread recipient into TelegramAPI
 - [ ] Add `encryptFeedbackDoc(recipient string, doc []byte) ([]byte, error)` (in
