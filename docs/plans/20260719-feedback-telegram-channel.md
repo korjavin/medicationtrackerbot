@@ -88,15 +88,15 @@ blind queue).
 ## Implementation Steps
 
 ### Task 1: tgclient — decode Voice + Caption
-- [ ] `internal/tgclient/tgclient.go`: add `Caption string \`json:"caption"\`` and
+- [x] `internal/tgclient/tgclient.go`: add `Caption string \`json:"caption"\`` and
       `Voice *Voice \`json:"voice"\`` to `Message` (`:545`); add
       `type Voice struct { FileID string \`json:"file_id"\`; MimeType string
       \`json:"mime_type"\`; Duration int \`json:"duration"\`; FileSize int64
       \`json:"file_size"\` }`.
-- [ ] Test (`internal/tgclient/tgclient_test.go`): unmarshalling an update JSON with a
+- [x] Test (`internal/tgclient/tgclient_test.go`): unmarshalling an update JSON with a
       `voice` object and a photo `caption` populates the new fields; absence leaves them
       zero/nil.
-- [ ] Run `go test ./internal/tgclient/...` — must pass before Task 2.
+- [x] Run `go test ./internal/tgclient/...` — must pass before Task 2.
 
 ### Task 2: store — claimed-account lookup for a TG creator
 - [ ] `internal/cloudstore` (near `HasClaimedAccountCreatedBy`, `repo.go:182`): add

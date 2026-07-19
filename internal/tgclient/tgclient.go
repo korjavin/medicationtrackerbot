@@ -550,6 +550,18 @@ type Message struct {
 	ManagedBotCreated *ManagedBotCreated `json:"managed_bot_created,omitempty"`
 	Photo             []PhotoSize        `json:"photo,omitempty"`
 	Document          *Document          `json:"document,omitempty"`
+	Voice             *Voice             `json:"voice,omitempty"`
+	Caption           string             `json:"caption,omitempty"`
+}
+
+// Voice is the subset of a Telegram voice message we read: the file_id to
+// resolve+download plus mime/duration/size for typing and bounding. Used by the
+// cloud manager bot's feedback channel (bd med-dni.5).
+type Voice struct {
+	FileID   string `json:"file_id"`
+	MimeType string `json:"mime_type"`
+	Duration int    `json:"duration"`
+	FileSize int64  `json:"file_size"`
 }
 
 // Document is the subset of a Telegram file attachment we read: the file_id to
