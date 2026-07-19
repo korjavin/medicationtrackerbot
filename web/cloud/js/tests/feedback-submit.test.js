@@ -5,7 +5,7 @@
 // under Node, so we inject a Node loader via setLoader() (same seam as
 // backup-crypto.test.js:53).
 import 'fake-indexeddb/auto';
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JSDOM } from 'jsdom';
@@ -16,6 +16,9 @@ import {
   setLoader,
   enqueueFeedback,
   getAllFeedbackItems,
+  putFeedbackItem,
+  drainFeedbackOutbox,
+  __resetDrainForTest,
 } from '../feedback-submit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -98,9 +101,14 @@ describe('feedback-submit durable enqueue (Task 2)', () => {
     global.indexedDB = new IDBFactory();
     // encryptToRecipient hits real typage, so give it a valid recipient key.
     withDocument(await typage.identityToRecipient(await typage.generateIdentity()));
+    // enqueueFeedback now fire-and-forgets a drain; a never-resolving fetch keeps
+    // the in-flight POST from mutating/deleting the row under assertion.
+    vi.stubGlobal('fetch', () => new Promise(() => {}));
   });
 
   afterEach(() => {
+    __resetDrainForTest();
+    vi.unstubAllGlobals();
     delete global.document;
   });
 
@@ -135,3 +143,109 @@ describe('feedback-submit durable enqueue (Task 2)', () => {
     expect(await getAllFeedbackItems()).toHaveLength(0);
   });
 });
+
+describe('feedback-submit drain loop (Task 3)', () => {
+  const ITEM = () => ({
+    client_id: 'cid-1',
+    kind: 'feedback',
+    app_version: '20260719-1200',
+    ciphertext: 'YWdlLWN0', // base64 stand-in — drain doesn't inspect it
+    attempts: 0,
+    created_at: '2026-07-19T00:00:00.000Z',
+  });
+
+  beforeEach(async () => {
+    const { IDBFactory } = await import('fake-indexeddb');
+    global.indexedDB = new IDBFactory();
+    __resetDrainForTest();
+  });
+
+  afterEach(() => {
+    __resetDrainForTest();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('happy path: 204 removes the item and POSTs client_id + ciphertext', async () => {
+    let seen = null;
+    vi.stubGlobal('fetch', (url, init) => {
+      seen = { url, body: JSON.parse(init.body) };
+      return Promise.resolve({ ok: true, status: 204 });
+    });
+    await putFeedbackItem(ITEM());
+    await drainFeedbackOutbox();
+    expect(seen.url).toBe('/api/feedback');
+    expect(seen.body).toEqual({
+      client_id: 'cid-1',
+      kind: 'feedback',
+      app_version: '20260719-1200',
+      ciphertext: 'YWdlLWN0',
+    });
+    expect(await getAllFeedbackItems()).toHaveLength(0);
+  });
+
+  it('a duplicate re-POST still deletes on the 2xx the server dedupes to', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve({ ok: true, status: 200 }));
+    await putFeedbackItem(ITEM());
+    await drainFeedbackOutbox();
+    expect(await getAllFeedbackItems()).toHaveLength(0);
+  });
+
+  it('a network throw keeps the item and increments attempts', async () => {
+    vi.stubGlobal('fetch', () => Promise.reject(new Error('offline')));
+    await putFeedbackItem(ITEM());
+    await drainFeedbackOutbox();
+    const items = await getAllFeedbackItems();
+    expect(items).toHaveLength(1);
+    expect(items[0].attempts).toBe(1);
+  });
+
+  it('a 503 keeps the item and retries later', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve({ ok: false, status: 503 }));
+    await putFeedbackItem(ITEM());
+    await drainFeedbackOutbox();
+    const items = await getAllFeedbackItems();
+    expect(items).toHaveLength(1);
+    expect(items[0].attempts).toBe(1);
+  });
+
+  it('a 400 drops the item (permanent, not retried)', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve({ ok: false, status: 400 }));
+    await putFeedbackItem(ITEM());
+    await drainFeedbackOutbox();
+    expect(await getAllFeedbackItems()).toHaveLength(0);
+  });
+
+  it('a 401 keeps the item without burning the attempt cap', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve({ ok: false, status: 401 }));
+    await putFeedbackItem(ITEM());
+    await drainFeedbackOutbox();
+    const items = await getAllFeedbackItems();
+    expect(items).toHaveLength(1);
+    expect(items[0].attempts).toBe(0);
+  });
+
+  it('backoff reschedules a second drain after the timer fires', async () => {
+    // Fake only setTimeout/clearTimeout — fake-indexeddb relies on real
+    // setImmediate, so faking it would deadlock the IDB reads in the drain.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let calls = 0;
+    vi.stubGlobal('fetch', () => {
+      calls += 1;
+      return Promise.reject(new Error('offline'));
+    });
+    await putFeedbackItem(ITEM());
+    await drainFeedbackOutbox();
+    expect(calls).toBe(1);
+    // Backoff timer scheduled; advancing it triggers a second drain, whose IDB
+    // reads run on real setImmediate — flush those after the fake-timer advance
+    // until the retry POST lands (bounded so a genuine failure still fails).
+    await vi.advanceTimersByTimeAsync(BACKOFF_CAP_MS);
+    for (let i = 0; i < 50 && calls < 2; i++) {
+      await new Promise((r) => setImmediate(r));
+    }
+    expect(calls).toBe(2);
+  });
+});
+
+const BACKOFF_CAP_MS = 5 * 60 * 1000;

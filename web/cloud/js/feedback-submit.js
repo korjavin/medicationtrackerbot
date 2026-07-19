@@ -123,5 +123,143 @@ export async function enqueueFeedback(bundle) {
     attempts: 0,
     created_at: meta.created_at,
   });
-  // Task 3 wires drainFeedbackOutbox() here (fire-and-forget).
+  // Delivery is the queue's job — the UI's "sent" is optimistic. Kick a drain
+  // but don't await it: resolve as soon as the item is durably queued.
+  drainFeedbackOutbox().catch(() => {});
+}
+
+// --- drain loop: POST, error policy, exponential backoff, reconnect ----------
+// Mirrors sync.js's flush shape (single-slot promise-chain lock, same 4xx-drop /
+// 5xx-network-retry classification) and adds the one thing sync lacks: a
+// self-rescheduling backoff timer so a persistently-offline device retries
+// without a user action, capped so it parks rather than spins.
+const BACKOFF_BASE_MS = 2000;
+const BACKOFF_CAP_MS = 5 * 60 * 1000;
+const MAX_ATTEMPTS = 20; // then park the item for the next online/session
+
+// POST one item's ciphertext to the feedback endpoint. Returns {ok,status}
+// like sync's snapshotAt: a network throw is status 0 (retryable); a relative
+// same-origin fetch carries the session cookie automatically.
+async function postFeedback(item) {
+  let res;
+  try {
+    res = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: item.client_id,
+        kind: item.kind,
+        app_version: item.app_version,
+        ciphertext: item.ciphertext,
+      }),
+    });
+  } catch {
+    return { ok: false, status: 0 }; // network error — retryable
+  }
+  return { ok: res.ok, status: res.status };
+}
+
+let drainChain = Promise.resolve();
+export function drainFeedbackOutbox() {
+  const run = drainChain.then(() => drainOutboxUnlocked());
+  drainChain = run.catch(() => {});
+  return run;
+}
+
+async function drainOutboxUnlocked() {
+  const items = await getAllFeedbackItems();
+  let retryable = false;
+  for (const item of items) {
+    const { ok, status } = await postFeedback(item);
+    if (ok) {
+      // 2xx (incl. 204, and a 2xx dedupe of a re-POSTed client_id) → done.
+      await deleteFeedbackItem(item.client_id);
+      continue;
+    }
+    if (status === 401) {
+      // Auth not ready (session not yet minted) — retry later, don't drop and
+      // don't burn the attempt cap on it.
+      retryable = true;
+      continue;
+    }
+    if (status >= 400 && status < 500) {
+      // Permanent bad payload (400/413) — the server will never accept it, so
+      // give up rather than retry forever.
+      await deleteFeedbackItem(item.client_id);
+      continue;
+    }
+    // Network (status 0), 5xx, or 503 (feature temporarily disabled) → retry.
+    const attempts = (item.attempts || 0) + 1;
+    await putFeedbackItem({ ...item, attempts });
+    if (attempts < MAX_ATTEMPTS) retryable = true; // else park it
+  }
+  if (retryable) scheduleBackoffDrain();
+  else backoffRound = 0; // a clean pass resets the backoff floor
+  return items.length;
+}
+
+// Single guarded self-rescheduling timer (see the ponytail note in the plan:
+// one global backoff timer is fine for a low-rate anonymous outbox).
+let backoffTimer = null;
+let backoffRound = 0;
+function scheduleBackoffDrain() {
+  if (backoffTimer) return; // guard against overlapping timers
+  const delay = Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** backoffRound);
+  const jittered = delay * (0.5 + Math.random() * 0.5); // 50–100% jitter
+  backoffRound += 1;
+  backoffTimer = setTimeout(() => {
+    backoffTimer = null;
+    drainFeedbackOutbox().catch(() => {});
+  }, jittered);
+}
+
+// startFeedbackAutoDrain: drain queued items on reconnect / tab-visible, copying
+// sync.js:1064's startReconnectAutoDrain shape (online + visibilitychange gated
+// on navigator.onLine, 250ms debounce, in-flight guard, teardown). No-op outside
+// a DOM context.
+let autoDrainInstalled = false;
+let feedbackDrainInFlight = null;
+export function startFeedbackAutoDrain() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
+  if (autoDrainInstalled) return () => {}; // idempotent — one listener pair per session
+  autoDrainInstalled = true;
+  let debounce = null;
+  let stopped = false;
+  let rerun = false;
+  const drain = () => {
+    if (feedbackDrainInFlight) { rerun = true; return feedbackDrainInFlight; }
+    feedbackDrainInFlight = drainFeedbackOutbox()
+      .catch(() => {})
+      .finally(() => {
+        feedbackDrainInFlight = null;
+        if (rerun && !stopped) { rerun = false; drain(); }
+      });
+    return feedbackDrainInFlight;
+  };
+  const trigger = () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(drain, 250);
+  };
+  const onVisible = () => {
+    if (document.visibilityState === 'visible' && navigator.onLine) trigger();
+  };
+  window.addEventListener('online', trigger);
+  document.addEventListener('visibilitychange', onVisible);
+  return () => {
+    stopped = true;
+    autoDrainInstalled = false;
+    clearTimeout(debounce);
+    window.removeEventListener('online', trigger);
+    document.removeEventListener('visibilitychange', onVisible);
+  };
+}
+
+// Test-only: reset the module-level drain/backoff state between cases.
+export function __resetDrainForTest() {
+  if (backoffTimer) clearTimeout(backoffTimer);
+  backoffTimer = null;
+  backoffRound = 0;
+  drainChain = Promise.resolve();
+  autoDrainInstalled = false;
+  feedbackDrainInFlight = null;
 }

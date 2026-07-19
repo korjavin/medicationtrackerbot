@@ -107,7 +107,7 @@ test (which mocks the module) keep working.
 - [x] Run the test (Node 20) — must pass before Task 3.
 
 ### Task 3: drain loop — POST, error policy, exponential backoff, reconnect
-- [ ] `drainFeedbackOutbox()` (single-slot promise-chain lock like `flushChain`,
+- [x] `drainFeedbackOutbox()` (single-slot promise-chain lock like `flushChain`,
       `sync.js:849`): for each outbox item,
       `await apiCallDirect('/api/feedback','POST',{client_id,kind,app_version,ciphertext})`.
       - success (2xx / `true`) → `deleteFeedbackItem(client_id)`.
@@ -120,17 +120,17 @@ test (which mocks the module) keep working.
         (`setTimeout`, base ~2s, factor 2, cap ~5min, jitter), guarded against
         overlapping timers. Cap `attempts` at a sane max (e.g. 20) then park the item
         (leave it for the next `online`/session, don't infinite-loop).
-- [ ] Wire triggers: kick `drainFeedbackOutbox()` from `enqueueFeedback` and install a
+- [x] Wire triggers: kick `drainFeedbackOutbox()` from `enqueueFeedback` and install a
       `startFeedbackAutoDrain()` copying `startReconnectAutoDrain` (`sync.js:1064`):
       `online` + `visibilitychange`(gated on `navigator.onLine`), 250ms debounce,
       in-flight guard, returns a teardown.
-- [ ] Tests (fake-indexeddb + `vi.stubGlobal('fetch')`): happy path → 204 removes the
+- [x] Tests (fake-indexeddb + `vi.stubGlobal('fetch')`): happy path → 204 removes the
       item + POST body carries the base64 ciphertext + client_id; a network throw keeps
       the item and increments `attempts`; a 503 keeps + retries; a 400 drops the item; a
       duplicate `client_id` re-POST is safe (server dedupes — assert we still delete on
       the 204 it returns); backoff reschedules (use fake timers, assert a second fetch
       after advancing the timer). Assert no unhandled rejections.
-- [ ] Run the test (Node 20) — must pass before Task 4.
+- [x] Run the test (Node 20) — must pass before Task 4.
 
 ### Task 4: wire startup + verify
 - [ ] Call `startFeedbackAutoDrain()` once from cloud boot (near where med-dni.2's
