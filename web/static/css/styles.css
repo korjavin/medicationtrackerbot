@@ -3810,6 +3810,49 @@ input:checked+.toggle-slider:before {
     z-index: var(--z-confirm);
 }
 
+/* Cloud feedback capture (med-dni.2) — floating "Send feedback" launcher +
+   compose modal. Cloud-mode-only; mounted post-unlock by
+   web/cloud/js/feedback-ui.js. Shell is the generic .wg-modal on the same
+   --z-confirm layer as its .mt-confirm-backdrop; buttons reuse .wg-gloss so no
+   bespoke colours live here. */
+.wg-feedback-launcher {
+    position: fixed;
+    right: var(--space-md);
+    bottom: 80px;
+    z-index: var(--z-overlay);
+    box-shadow: var(--shadow-md);
+}
+
+.wg-feedback-modal {
+    z-index: var(--z-confirm);
+}
+
+.wg-feedback-modal__textarea {
+    width: 100%;
+    min-height: 96px;
+    resize: vertical;
+    box-sizing: border-box;
+    padding: var(--space-sm);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    background: var(--wg-bg-card);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-card);
+}
+
+.wg-feedback-modal__capture {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.wg-feedback-modal__chip {
+    margin: 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+}
+
 .mt-confirm-modal__message {
     margin: 0;
     font-family: var(--wg-font-ui);

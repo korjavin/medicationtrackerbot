@@ -260,6 +260,122 @@ describe('native/web/media-capture.js — web impl', () => {
             stubs.restore();
         }
     });
+
+    // recordAudio() — voice-message capture for the cloud feedback modal
+    // (med-dni.2). Returns a { stop, cancel } handle; MediaRecorder lives
+    // inside native/ per rule 10. A fake MediaRecorder drives the lifecycle.
+    function installMediaRecorder(window) {
+        const instances = [];
+        function FakeMediaRecorder(stream, opts) {
+            this.stream = stream;
+            this.mimeType = (opts && opts.mimeType) || 'audio/webm';
+            this.state = 'inactive';
+            this.ondataavailable = null;
+            this.onstop = null;
+            this.onerror = null;
+            instances.push(this);
+        }
+        FakeMediaRecorder.prototype.start = function () { this.state = 'recording'; };
+        FakeMediaRecorder.prototype.stop = function () {
+            this.state = 'inactive';
+            if (this.ondataavailable) {
+                this.ondataavailable({ data: new window.Blob(['voice'], { type: this.mimeType }) });
+            }
+            if (this.onstop) this.onstop();
+        };
+        window.MediaRecorder = FakeMediaRecorder;
+        return instances;
+    }
+
+    it('recordAudio requests audio-only getUserMedia and returns a { stop, cancel } handle', async () => {
+        const track = { stop: vi.fn() };
+        const stream = { getTracks: () => [track] };
+        const getUserMedia = vi.fn().mockResolvedValue(stream);
+        env = loadEnv({ mediaDevices: { getUserMedia } });
+        installMediaRecorder(env.window);
+        const handle = await env.window.MediaCapture.recordAudio();
+        expect(getUserMedia).toHaveBeenCalledWith({ audio: true, video: false });
+        expect(typeof handle.stop).toBe('function');
+        expect(typeof handle.cancel).toBe('function');
+    });
+
+    it('recordAudio stop() resolves an audio Blob and releases the mic tracks', async () => {
+        const track = { stop: vi.fn() };
+        const stream = { getTracks: () => [track] };
+        const getUserMedia = vi.fn().mockResolvedValue(stream);
+        env = loadEnv({ mediaDevices: { getUserMedia } });
+        installMediaRecorder(env.window);
+        const handle = await env.window.MediaCapture.recordAudio();
+        const blob = await handle.stop();
+        expect(blob).toBeInstanceOf(env.window.Blob);
+        expect(blob.type).toBe('audio/webm');
+        expect(blob.size).toBeGreaterThan(0);
+        expect(track.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('recordAudio cancel() releases the mic tracks and stop() then rejects', async () => {
+        const track = { stop: vi.fn() };
+        const stream = { getTracks: () => [track] };
+        const getUserMedia = vi.fn().mockResolvedValue(stream);
+        env = loadEnv({ mediaDevices: { getUserMedia } });
+        installMediaRecorder(env.window);
+        const handle = await env.window.MediaCapture.recordAudio();
+        handle.cancel();
+        expect(track.stop).toHaveBeenCalledTimes(1);
+        let caught;
+        try { await handle.stop(); } catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('MediaCaptureError');
+    });
+
+    it('recordAudio releases the mic if the recorder errors before stop()', async () => {
+        const track = { stop: vi.fn() };
+        const stream = { getTracks: () => [track] };
+        const getUserMedia = vi.fn().mockResolvedValue(stream);
+        env = loadEnv({ mediaDevices: { getUserMedia } });
+        const instances = installMediaRecorder(env.window);
+        await env.window.MediaCapture.recordAudio();
+        // Recorder errors mid-recording, before the user taps stop.
+        instances[0].onerror({ error: new Error('device lost') });
+        expect(track.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('recordAudio releases the mic if recorder.start() throws', async () => {
+        const track = { stop: vi.fn() };
+        const stream = { getTracks: () => [track] };
+        const getUserMedia = vi.fn().mockResolvedValue(stream);
+        env = loadEnv({ mediaDevices: { getUserMedia } });
+        const instances = installMediaRecorder(env.window);
+        env.window.MediaRecorder.prototype.start = function () { throw new Error('start failed'); };
+        let caught;
+        try { await env.window.MediaCapture.recordAudio(); } catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('MediaCaptureError');
+        // The stream getUserMedia opened must be stopped, not leaked.
+        expect(track.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('recordAudio rejects with UNAVAILABLE when MediaRecorder is missing', async () => {
+        const getUserMedia = vi.fn().mockResolvedValue({ getTracks: () => [] });
+        env = loadEnv({ mediaDevices: { getUserMedia } });
+        // no MediaRecorder installed
+        let caught;
+        try { await env.window.MediaCapture.recordAudio(); } catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('MediaCaptureError');
+        expect(caught.code).toBe('UNAVAILABLE');
+    });
+
+    it('recordAudio normalizes a getUserMedia NotAllowedError to PERMISSION_DENIED', async () => {
+        const err = Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' });
+        env = loadEnv({ mediaDevices: { getUserMedia: vi.fn().mockRejectedValue(err) } });
+        installMediaRecorder(env.window);
+        let caught;
+        try { await env.window.MediaCapture.recordAudio(); } catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('MediaCaptureError');
+        expect(caught.code).toBe('PERMISSION_DENIED');
+    });
 });
 
 describe('native/capacitor/media-capture.js — Capacitor impl', () => {
@@ -352,6 +468,18 @@ describe('native/capacitor/media-capture.js — Capacitor impl', () => {
         env = loadEnv({ capacitor: { isNativePlatform: () => true, Plugins: {} } });
         let caught;
         try { await env.window.MediaCapture.takePhoto(); }
+        catch (e) { caught = e; }
+        expect(caught).toBeDefined();
+        expect(caught.name).toBe('MediaCaptureError');
+        expect(caught.code).toBe('UNAVAILABLE');
+    });
+
+    // Voice recording is web-first; the Capacitor shell has no MediaRecorder
+    // path, so the caller hides the Record button on a rejection.
+    it('recordAudio always rejects with UNAVAILABLE', async () => {
+        env = loadEnv({ capacitor: makeCapacitor({ getPhoto: vi.fn() }) });
+        let caught;
+        try { await env.window.MediaCapture.recordAudio(); }
         catch (e) { caught = e; }
         expect(caught).toBeDefined();
         expect(caught.name).toBe('MediaCaptureError');
@@ -472,7 +600,9 @@ describe('native/index.js — runtime selector after Task 3', () => {
         const cap = env.window.MediaCapture.__native.getImpl('MediaCapture', 'capacitor');
         expect(typeof web.takePhoto).toBe('function');
         expect(typeof web.pickPhoto).toBe('function');
+        expect(typeof web.recordAudio).toBe('function');
         expect(typeof cap.takePhoto).toBe('function');
         expect(typeof cap.pickPhoto).toBe('function');
+        expect(typeof cap.recordAudio).toBe('function');
     });
 });

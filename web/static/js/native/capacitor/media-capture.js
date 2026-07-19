@@ -153,10 +153,22 @@
         return Promise.reject(err);
     }
 
+    // Voice recording is a web-first feature (the cloud feedback modal). The
+    // Capacitor shell has no MediaRecorder path yet, so recordAudio rejects
+    // with UNAVAILABLE — the caller hides the Record button and keeps
+    // text+image. Kept here so the registry has parity across both impls.
+    function recordAudio() {
+        var err = new Error('recordAudio is unavailable in the Capacitor shell');
+        err.name = 'MediaCaptureError';
+        err.code = 'UNAVAILABLE';
+        return Promise.reject(err);
+    }
+
     var impl = {
         openCameraStream: openCameraStream,
         takePhoto: takePhoto,
         pickPhoto: pickPhoto,
+        recordAudio: recordAudio,
         requestPermissions: requestPermissions,
     };
 

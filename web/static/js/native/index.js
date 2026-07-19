@@ -93,7 +93,7 @@
     // here rather than piggy-backing on first-use (which on the Capacitor
     // Camera plugin opens the picker, and on Geolocation performs a real GPS
     // fix, both confusing during onboarding).
-    window.MediaCapture = makeStub('MediaCapture', ['takePhoto', 'pickPhoto', 'openCameraStream', 'requestPermissions']);
+    window.MediaCapture = makeStub('MediaCapture', ['takePhoto', 'pickPhoto', 'openCameraStream', 'recordAudio', 'requestPermissions']);
     window.Geolocation = makeStub('Geolocation', ['getCurrentPosition', 'requestPermissions']);
     window.Barcode = makeStub('Barcode', ['scan', 'hasNativeScanner', 'supportsLiveScan']);
     window.Reminders = makeStub('Reminders', ['schedule', 'cancelAll']);
