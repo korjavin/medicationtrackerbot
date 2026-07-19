@@ -1084,6 +1084,11 @@ func TestChildWebhook_CallbackQuerySealsEventToMailbox(t *testing.T) {
 	if got.Kind != inboxEventKindIntakeSlot || got.SlotUnix != 1767225600 || got.Action != tgclient.CallbackActionConfirm {
 		t.Fatalf("sealed event = %+v", got)
 	}
+	// The callback's message_id is plumbed through so the drain can edit that
+	// message to a receipt and drop its buttons (bug 1). callbackUpdate sends 9.
+	if got.MessageID != 9 {
+		t.Errorf("message_id = %d, want 9 (plumbed from cq.Message.MessageID)", got.MessageID)
+	}
 	// The SERVER stamps the tap instant — that is what backdates the intake.
 	if got.AtUnix < before || got.AtUnix > time.Now().UTC().Unix()+2 {
 		t.Errorf("at_unix = %d, want a server timestamp near now (%d)", got.AtUnix, before)
@@ -1093,6 +1098,44 @@ func TestChildWebhook_CallbackQuerySealsEventToMailbox(t *testing.T) {
 	defer tg.mu.Unlock()
 	if len(tg.mu.answered) != 1 || !strings.Contains(tg.mu.answered[0], "cbq-1") {
 		t.Fatalf("button not answered: %v", tg.mu.answered)
+	}
+}
+
+// Telegram omits the Message object on a callback_query for a message too old to
+// edit. The handler must not nil-panic on cq.Message and must seal the event with
+// message_id 0 — the confirm still records; the drain-time edit is a safe no-op.
+func TestChildWebhook_CallbackQueryWithoutMessage(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	privRaw := publishInboxKey(t, f.store, f.accountID)
+
+	// callback_query with NO "message" field (cq.Message == nil).
+	update := `{"update_id":3,"callback_query":{"id":"cbq-nomsg","data":"s:1767225600:confirm","from":{"id":6918132008}}}`
+	rec := postWebhook(t, f.top, f.childPath, f.secret, update)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("callback webhook status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	events, err := f.store.ListInboxEvents(t.Context(), f.accountID, 10)
+	if err != nil {
+		t.Fatalf("ListInboxEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("queued %d events, want 1", len(events))
+	}
+	opened, err := openInbox(privRaw, f.accountID, events[0].CT)
+	if err != nil {
+		t.Fatalf("openInbox: %v", err)
+	}
+	var got intakeSlotEvent
+	if err := json.Unmarshal(opened, &got); err != nil {
+		t.Fatalf("unmarshal sealed event: %v", err)
+	}
+	if got.MessageID != 0 {
+		t.Errorf("message_id = %d, want 0 (cq.Message absent)", got.MessageID)
+	}
+	if got.SlotUnix != 1767225600 || got.Action != tgclient.CallbackActionConfirm {
+		t.Errorf("sealed event = %+v", got)
 	}
 }
 

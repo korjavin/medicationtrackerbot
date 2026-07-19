@@ -103,6 +103,24 @@ function truncateRunes(s, n) {
 
 const INTAKE_RECORD_TYPE = 'intake';
 
+// How far a single dose's instant may drift between push (computeReminderHorizon)
+// and drain (materializeDueDoses) and still be treated as the SAME dose by a
+// Confirm/Snooze tap. Set to the deterministic dose-clustering window
+// (CLUSTER_WINDOW_MS = 10min, medintake.js): triggerNext/confirmSchedule store a
+// clustered dose's scheduled_at at clusterEarliestMs — up to 10min before its own
+// slot — which is the drift that leaves meds unconfirmed under an exact match (the
+// reported "4 meds, only 2 confirmed" bug). Deliberately NOT a wider band: the
+// callback carries only the slot (callback_data is 64-byte limited; med IDs can't
+// be embedded), so drift and a genuinely different dose are indistinguishable by
+// time alone. A different dose is ≥ the med's minDoseInterval (hours) away — far
+// outside 10min — so this band can NEVER confirm a dose the user didn't take. A
+// larger drift (a DST/tz-plan step, a big schedule edit) falls OUT of the band:
+// that dose stays PENDING and is re-reminded — a safe false-negative, chosen over
+// a false-positive (recording a med as taken when it wasn't is worse for meds).
+// Distinct instants are already separate messages (computeReminderHorizon groups
+// bySlot on exact scheduledAtMs).
+const SLOT_DRIFT_BAND_MS = 10 * 60 * 1000; // = CLUSTER_WINDOW_MS (medintake.js)
+
 // Mirrors DEFAULT_SNOOZE_MINUTES in web/domain/medintake.js (and the server's
 // own default). Not imported because that module does not export it.
 const DEFAULT_SNOOZE_MINUTES = 10;
@@ -126,7 +144,7 @@ function isAlreadyApplied(err) {
 // atUnix is the SERVER's timestamp for the tap, so a Confirm tapped at 09:00
 // records taken_at 09:00 even when the app first opens at noon — the backdating
 // rule (docs/cloud-mode.md → drain protocol, rule 4).
-export async function applyIntakeSlotAction(event, { intake, records, now = Date.now }) {
+export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply }) {
   const slotMs = event.slot_unix * 1000;
   const atMs = event.at_unix * 1000;
 
@@ -135,11 +153,17 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // exist to confirm; it is idempotent via the deterministic intake id.
   await intake.materializeDueDoses();
 
+  // The callback slot (from computeReminderHorizon at push-time) and the intake
+  // scheduled_at (from materializeDueDoses at drain-time) are two independent
+  // re-derivations that can drift for the SAME dose (schedule edit, dose cluster,
+  // tz-plan/DST step). Match every PENDING intake within a fixed drift band of the
+  // slot so a drifted med is still confirmed instead of silently left PENDING —
+  // see SLOT_DRIFT_BAND_MS for why this is a fixed band, not the per-med interval.
   const intakes = await records.list(INTAKE_RECORD_TYPE);
-  const atSlot = intakes.filter((i) => !i.deleted
-    && i.status === 'PENDING'
-    && Date.parse(i.scheduled_at) === slotMs);
+  const atSlot = intakes.filter((i) => !i.deleted && i.status === 'PENDING'
+    && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= SLOT_DRIFT_BAND_MS);
 
+  let applied = 0;
   for (const i of atSlot) {
     try {
       if (event.action === 'confirm') {
@@ -152,8 +176,41 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
         if (minutes <= 0) continue;
         await intake.snooze(i.recordId, minutes);
       }
+      applied += 1;
     } catch (e) {
       if (!isAlreadyApplied(e)) throw e;
+    }
+  }
+
+  // Edit the original reminder message to a receipt and drop its buttons (the
+  // edit sends no reply_markup — bug 1). Only when we actually applied something:
+  // an at-least-once redelivery (flush-false re-queues the event, inbox.js:174)
+  // or a double-tap re-runs this with every intake already TAKEN/snoozed
+  // (applied === 0), and editing then would clobber the good "✅ Confirmed N"
+  // receipt with "ℹ️ Nothing was due". message_id is also absent when Telegram
+  // omitted cq.Message for an old message → editReply is a safe no-op.
+  if (applied > 0) {
+    let text;
+    if (event.action === 'confirm') {
+      // Count every intake THIS tap confirmed, not just the writes from the final
+      // attempt: an at-least-once redelivery after a partial success re-runs with
+      // the earlier meds already TAKEN (filtered out of the loop), so `applied`
+      // alone would undercount the receipt ("Confirmed 1" when 2 were taken).
+      // confirm() backdates taken_at to atMs deterministically, identical across
+      // retries, so band-matched intakes taken at this instant are exactly this
+      // tap's set.
+      const atIso = new Date(atMs).toISOString();
+      const confirmed = (await records.list(INTAKE_RECORD_TYPE)).filter((i) =>
+        !i.deleted && i.status === 'TAKEN' && i.taken_at === atIso
+        && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= SLOT_DRIFT_BAND_MS).length;
+      text = confirmationText({ kind: 'intake' }, { confirmed }, verbosity);
+    } else {
+      text = verbosity === 'generic' ? '⏰ Snoozed.' : '⏰ Snoozed — will remind you again shortly.';
+    }
+    try {
+      await editReply(event.message_id, text);
+    } catch (e) {
+      console.warn('[inbox] could not update the Telegram reply', e);
     }
   }
 }
@@ -555,6 +612,10 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
       console.warn('[inbox] ignoring unknown action', event.action);
       return;
     }
-    await applyIntakeSlotAction(event, { intake, records, now });
+    const reminders = createRemindersDomain({ records, now });
+    // verbosity only affects the cosmetic receipt text — never gate the confirm
+    // data-write on this read: a rejected pref read falls back to generic.
+    const { verbosity } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic' }));
+    await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply });
   };
 }

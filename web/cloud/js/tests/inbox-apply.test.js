@@ -94,6 +94,104 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(meds.find((m) => m.recordId === 'med-b').inventory_count).toBe(19);
     });
 
+    // Two meds due at the same instant, seeded with a REAL schedule and NO
+    // intake rows: materializeDueDoses mints them at drain, then Confirm must
+    // record BOTH. (The empty-schedule seed above pre-materializes at the exact
+    // slot, which masked the drift bug — this exercises the real path.)
+    it('materializes then confirms every med when the slot had no intake rows yet', async () => {
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'Lisinopril', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'Metformin', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 20 },
+            ],
+            intake: [],
+        });
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
+
+        const atSlot = (await records.list('intake')).filter((i) => i.scheduled_at === SLOT_ISO);
+        expect(atSlot).toHaveLength(2);
+        for (const i of atSlot) expect(i.status).toBe('TAKEN');
+    });
+
+    // The data-loss regression: the callback slot and the stored intake's
+    // scheduled_at are re-derived independently and drift when a dose is clustered
+    // (triggerNext/confirmSchedule store it at clusterEarliestMs, up to the 10min
+    // CLUSTER_WINDOW). One med's intake sits 8min off the slot — inside the band.
+    // Exact-=== leaves it PENDING (silent adherence loss); the band confirms it.
+    it('confirms a drifted intake within the cluster drift band', async () => {
+        const driftedIso = new Date((SLOT_UNIX + 8 * 60) * 1000).toISOString(); // 8min: inside the 10min band
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'Lisinopril', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'Metformin', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 20 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                // med-b's dose drifted 8min past the callback slot (cluster window).
+                { recordId: `intake-med-b-drift`, deleted: false, medication_id: 'med-b', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
+
+        const intakes = await records.list('intake');
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
+        // Would be PENDING under the old exact-=== match — the whole bug.
+        expect(intakes.find((i) => i.recordId === 'intake-med-b-drift').status).toBe('TAKEN');
+    });
+
+    // The opposite failure the band must NOT cause: a different med due at a
+    // genuinely different time of day is its OWN message (grouped by exact slot),
+    // and tapping Confirm on this slot must not confirm it. A different dose is
+    // >= the med's minDoseInterval (hours) away — far outside the 10min band.
+    it('does not confirm a different med scheduled hours away from the slot', async () => {
+        const otherIso = new Date((SLOT_UNIX + 4 * 3600) * 1000).toISOString(); // 4h later, own message
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'Morning', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'Afternoon', schedule: '{"type":"daily","times":["04:00"]}', inventory_count: 20 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-b-other', deleted: false, medication_id: 'med-b', scheduled_at: otherIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
+
+        const intakes = await records.list('intake');
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
+        // The 4h-away dose belongs to its own reminder — untouched by this tap.
+        expect(intakes.find((i) => i.recordId === 'intake-med-b-other').status).toBe('PENDING');
+        expect((await records.list('medication')).find((m) => m.recordId === 'med-b').inventory_count).toBe(20);
+    });
+
+    // Medication safety, boundary: a dose drifted BEYOND the cluster band (a DST/
+    // tz-plan step or a big schedule edit — 1h here) is NOT auto-confirmed by this
+    // slot's tap. It stays PENDING and is re-reminded (a safe false-negative)
+    // rather than risking a false adherence record — the deliberate narrow-band
+    // trade-off (a false-positive is worse for meds).
+    it('leaves a dose drifted beyond the band PENDING (safe re-reminder, not a false confirm)', async () => {
+        const farIso = new Date((SLOT_UNIX + 3600) * 1000).toISOString(); // 1h: outside the 10min band
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'Lisinopril', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'Metformin', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 20 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-b-far', deleted: false, medication_id: 'med-b', scheduled_at: farIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
+
+        const intakes = await records.list('intake');
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
+        expect(intakes.find((i) => i.recordId === 'intake-med-b-far').status).toBe('PENDING');
+    });
+
     // Rule 2. The mailbox is at-least-once: a crash between the vault write and
     // the ack re-delivers this exact event. It must converge, not double-count.
     it('re-applying the same event converges instead of double-decrementing inventory', async () => {
@@ -177,6 +275,74 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         await expect(
             applyIntakeSlotAction(confirmEvent, { intake: broken, records, now }),
         ).rejects.toThrow(/vault write failed/);
+    });
+
+    // Bug 1: Confirm must edit the original reminder message to a receipt (which
+    // also drops its inline buttons, since the edit sends no reply_markup).
+    it('edits the reminder message with the count actually confirmed', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction(
+            { ...confirmEvent, message_id: 4242 },
+            { intake: domainFor(records, now), records, now, editReply },
+        );
+        expect(editReply).toHaveBeenCalledWith(4242, expect.stringMatching(/Confirmed 2 medications/));
+    });
+
+    it('edits the reminder message to a snoozed receipt', async () => {
+        const records = fakeRecords(seed());
+        const now = () => (TAP_UNIX + 60) * 1000; // window still open
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction(
+            { ...snoozeEvent, message_id: 77 },
+            { intake: domainFor(records, now), records, now, editReply },
+        );
+        expect(editReply).toHaveBeenCalledWith(77, expect.stringMatching(/Snoozed/));
+    });
+
+    // A flush-false re-queues the event (inbox.js) and a Telegram double-tap
+    // queues a second callback: both re-run this applier. The second pass finds
+    // every intake already TAKEN (applied === 0) and must NOT re-edit the message
+    // — otherwise it clobbers the good "✅ Confirmed 2" receipt with "Nothing was
+    // due".
+    it('does not clobber the confirm receipt when re-drained with nothing left pending', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => {});
+        const evt = { ...confirmEvent, message_id: 4242 };
+        await applyIntakeSlotAction(evt, { intake: domainFor(records, now), records, now, editReply });
+        await applyIntakeSlotAction(evt, { intake: domainFor(records, now), records, now, editReply });
+        expect(editReply).toHaveBeenCalledTimes(1);
+        expect(editReply).toHaveBeenCalledWith(4242, expect.stringMatching(/Confirmed 2 medications/));
+    });
+
+    it('respects generic verbosity in the confirm receipt', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction(
+            { ...confirmEvent, message_id: 1 },
+            { intake: domainFor(records, now), records, now, editReply, verbosity: 'generic' },
+        );
+        expect(editReply).toHaveBeenCalledWith(1, '✅ Recorded.');
+    });
+
+    it('a failed message edit never fails the drain (record already in the vault)', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => { throw new Error('telegram down'); });
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        await expect(
+            applyIntakeSlotAction(
+                { ...confirmEvent, message_id: 9 },
+                { intake: domainFor(records, now), records, now, editReply },
+            ),
+        ).resolves.toBeUndefined();
+        warn.mockRestore();
+        // The confirm still landed.
+        const atSlot = (await records.list('intake')).filter((i) => i.scheduled_at === SLOT_ISO);
+        for (const i of atSlot) expect(i.status).toBe('TAKEN');
     });
 
     it('confirming a slot with nothing pending is a no-op, not a throw', async () => {
