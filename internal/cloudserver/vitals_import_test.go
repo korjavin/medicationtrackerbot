@@ -379,7 +379,12 @@ func sumEventStreams(t *testing.T, events []vitalsImportEvent) eventStreamCounts
 		if err != nil {
 			t.Fatalf("marshal event: %v", err)
 		}
-		for _, banned := range []string{"latitude", "longitude", "gps", "altitude", "13.4", "52.5"} {
+		// GPS is caught by its struct field names, which cannot appear in
+		// legitimate numeric vitals data. The bare coordinate substrings ("52.5",
+		// "13.4") were removed: they coincidentally matched random HR/stress
+		// values and flaked the suite (med-bl3). A real GPS leak still serializes
+		// with these field names.
+		for _, banned := range []string{"latitude", "longitude", "gps", "altitude"} {
 			if strings.Contains(string(blob), banned) {
 				t.Errorf("sealed payload leaks GPS token %q: %s", banned, blob)
 			}
@@ -446,8 +451,10 @@ func TestChildWebhook_NXKDocumentSealsVitalsToMailbox(t *testing.T) {
 		agg.stress += len(got.Stress)
 		agg.daystats += len(got.DayStats)
 		agg.workouts += len(got.Workouts)
-		// GPS must never reach any sealed payload.
-		for _, banned := range []string{"latitude", "longitude", "gps", "13.4", "52.5"} {
+		// GPS must never reach any sealed payload. Matched by struct field names
+		// only — the bare coordinate substrings flaked on coincidental numeric
+		// data (med-bl3); a real leak still carries these field names.
+		for _, banned := range []string{"latitude", "longitude", "gps", "altitude"} {
 			if bytes.Contains(opened, []byte(banned)) {
 				t.Errorf("sealed payload leaks GPS token %q", banned)
 			}
