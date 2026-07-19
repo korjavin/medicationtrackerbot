@@ -69,22 +69,22 @@ test (which mocks the module) keep working.
 ## Implementation Steps
 
 ### Task 1: serialize bundle + age-encrypt to the recipient
-- [ ] In `web/cloud/js/feedback-submit.js` add an overridable age loader
+- [x] In `web/cloud/js/feedback-submit.js` add an overridable age loader
       (`setLoader(fn)` / default `() => import('/static/vendor/age.min.js')`), copying
       `backup-crypto.js:30`.
-- [ ] Add `serializeFeedback(bundle, meta)` → a v1 plaintext JSON document (the contract
+- [x] Add `serializeFeedback(bundle, meta)` → a v1 plaintext JSON document (the contract
       with med-dni.4's decrypt CLI): `{ v:1, created_at, text, attachments:[{ type, mime,
       data_b64 }] }` (attachment `bytes` → base64). UTF-8 encode to `Uint8Array`.
-- [ ] Add `encryptToRecipient(bytes, recipient)`: load typage, `new Encrypter()`,
+- [x] Add `encryptToRecipient(bytes, recipient)`: load typage, `new Encrypter()`,
       `addRecipient(recipient)`, `await e.encrypt(bytes)` → base64 the result. Throw a
       clear error if `recipient` is empty (feature misconfigured — UI shouldn't call it).
-- [ ] Tests (`web/cloud/js/tests/feedback-submit.test.js`, Node 20, `setLoader` Node
+- [x] Tests (`web/cloud/js/tests/feedback-submit.test.js`, Node 20, `setLoader` Node
       seam): a bundle round-trips through `serializeFeedback` (text + both attachment
       types preserved as base64); `encryptToRecipient` produces a non-empty base64 blob
       that begins with the age v1 header when decoded (or decrypts back with a test
       identity via typage `Decrypter` — assert plaintext JSON matches); empty recipient
       throws.
-- [ ] Run the test (Node 20) — must pass before Task 2.
+- [x] Run the test (Node 20) — must pass before Task 2.
 
 ### Task 2: durable IndexedDB outbox + enqueueFeedback
 - [ ] Add a small feedback outbox store. Prefer a **4th object store** in
