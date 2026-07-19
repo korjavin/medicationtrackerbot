@@ -138,13 +138,15 @@ callers). No bot-mode feature changes.
 - [x] Run the affected cloud suites (Node 20) — must pass before Task 4.
 
 ### Task 4: verify + full suite
-- [ ] Run the full frontend suite (`node node_modules/vitest/vitest.mjs run`, **Node 20**)
+- [x] Run the full frontend suite (`node node_modules/vitest/vitest.mjs run`, **Node 20**)
       incl. `architecture.native-abstractions.test.js`, `architecture.cloud-tokens.test.js`,
       `architecture.globals.test.js` — all green (no new window global, no inline styles,
-      no raw MediaRecorder outside native/).
-- [ ] Run `go build ./...` + `go build -tags mobile ./...` (no Go changes expected, but
-      confirm the tree still builds).
-- [ ] `gofmt`-equivalent: no lint regressions on changed JS.
+      no raw MediaRecorder outside native/). 319 test files, 3808 passed / 29 skipped.
+- [x] Run `go build ./...` + `go build -tags mobile ./...` (no Go changes expected, but
+      confirm the tree still builds). Both build clean.
+- [x] `gofmt`-equivalent: no lint regressions on changed JS. No eslint/prettier configured
+      in-repo; architecture guards are the lint-equivalent (pass) + `node --check` clean on
+      all changed JS.
 
 ### Task 5: Verify acceptance criteria
 - [ ] Cloud mode with a configured recipient shows a "Send feedback" launcher; the modal
