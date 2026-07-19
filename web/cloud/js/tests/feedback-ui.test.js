@@ -133,6 +133,25 @@ describe('feedback-ui', () => {
         expect(recordAudio).toHaveBeenCalledTimes(1);
     });
 
+    it('releases the mic if the modal closes while a recording is still starting', async () => {
+        let resolveRec;
+        const audioHandle = { stop: vi.fn(), cancel: vi.fn() };
+        const recordAudio = vi.fn(() => new Promise((r) => { resolveRec = () => r(audioHandle); }));
+        window.MediaCapture = { pickPhoto: vi.fn(), recordAudio };
+
+        await mountFeedbackLauncher({});
+        click(q('#feedback-launcher'));
+        click(q('[data-feedback-record]'));            // start (getUserMedia pending)
+        click(q('[data-feedback-choice="cancel"]'));   // close modal mid-start
+        expect(q('#feedback-modal')).toBeFalsy();
+        resolveRec();
+        await flush();
+        // settle() ran while audioHandle was still null, so the handler itself
+        // must cancel once recordAudio resolves — or the mic records forever.
+        expect(audioHandle.cancel).toHaveBeenCalled();
+        expect(audioHandle.stop).not.toHaveBeenCalled();
+    });
+
     it('hides the Record button when recordAudio is unavailable (graceful degradation)', async () => {
         window.MediaCapture = { pickPhoto: vi.fn() }; // no recordAudio
         await mountFeedbackLauncher({});

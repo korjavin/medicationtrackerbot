@@ -154,7 +154,16 @@ function openFeedbackModal() {
             starting = true;
             recordBtn.disabled = true;
             try {
-                audioHandle = await window.MediaCapture.recordAudio();
+                const handle = await window.MediaCapture.recordAudio();
+                // The modal may have been dismissed (cancel/escape/send) while
+                // getUserMedia was still resolving. settle() couldn't cancel a
+                // handle that didn't exist yet, so release the mic here — else
+                // it records forever behind a closed modal.
+                if (settled) {
+                    try { handle.cancel(); } catch (_) { /* ignore */ }
+                    return;
+                }
+                audioHandle = handle;
                 recordBtn.textContent = 'Stop recording';
                 recordBtn.setAttribute('data-feedback-record', 'recording');
             } catch (_) {
@@ -182,6 +191,9 @@ function openFeedbackModal() {
     }
 
     async function send() {
+        // Disable first — the arrayBuffer() awaits below yield, so a fast
+        // double-tap would otherwise enqueue the same feedback twice.
+        sendBtn.disabled = true;
         const attachments = [];
         if (imageBlob) {
             attachments.push({ type: 'image', mime: imageBlob.type || 'image/jpeg', bytes: await imageBlob.arrayBuffer() });
@@ -191,7 +203,6 @@ function openFeedbackModal() {
         }
         // Anonymous: text + attachments only, no account id / PII (decided).
         const bundle = { text: textarea.value.trim(), attachments };
-        sendBtn.disabled = true;
         try {
             await enqueueFeedback(bundle);
         } catch (_) { /* med-dni.3 owns delivery reliability; UI is optimistic */ }
