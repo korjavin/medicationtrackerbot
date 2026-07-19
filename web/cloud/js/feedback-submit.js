@@ -152,9 +152,12 @@ async function postFeedback(item) {
         app_version: item.app_version,
         ciphertext: item.ciphertext,
       }),
+      // Bound the request like apiCallDirect (api.js, 60s default): a hung
+      // connection must never wedge the single-slot drainChain forever.
+      signal: AbortSignal.timeout(60_000),
     });
   } catch {
-    return { ok: false, status: 0 }; // network error — retryable
+    return { ok: false, status: 0 }; // network error / timeout abort — retryable
   }
   return { ok: res.ok, status: res.status };
 }
@@ -195,8 +198,16 @@ async function drainOutboxUnlocked() {
     await putFeedbackItem({ ...item, attempts });
     if (attempts < MAX_ATTEMPTS) retryable = true; // else park it
   }
-  if (retryable) scheduleBackoffDrain();
-  else backoffRound = 0; // a clean pass resets the backoff floor
+  if (retryable) {
+    scheduleBackoffDrain();
+  } else {
+    // Clean pass: nothing left to retry. Cancel any stale armed timer too —
+    // leaving an old (possibly near-5min) delay armed would trip the
+    // scheduleBackoffDrain guard and block a fresh short backoff for a later
+    // failed enqueue.
+    if (backoffTimer) { clearTimeout(backoffTimer); backoffTimer = null; }
+    backoffRound = 0; // reset the backoff floor
+  }
   return items.length;
 }
 
