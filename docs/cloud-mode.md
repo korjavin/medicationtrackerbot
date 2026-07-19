@@ -315,6 +315,16 @@ The counting window is **the claim TTL, not a rolling day**: post-sweep, every s
 
 **No `update_id` dedupe** exists anywhere in this codebase, so a Telegram retry of a `"yes"` mints again. The blast radius is bounded by the two gates: a user who never claims can hold at most `managerInviteQuota` empty accounts (which then expire and sweep), and one who has claimed can mint nothing at all. `ponytail:` a dedupe table isn't worth that.
 
+### Feedback channel over the manager bot (med-dni.5)
+
+A user can send feedback (text, voice, or a screenshot) through the **manager bot** as an alternative to the in-app UI. The manager bot's greeting/help reply carries an inline **"📮 Send feedback to developer"** button (`callback_data:"fb"`); tapping it (`handleManagerCallback`) prompts "send your message, voice, or screenshot now" and sets an in-memory capture flag. The sender's next message is turned into the same **v1 plaintext feedback doc** as the web path (`{v, created_at, text, attachments[]}`), **age-encrypted server-side to `FEEDBACK_AGE_RECIPIENT`** (`encryptFeedbackDoc`), and stored via `AppendFeedback` into the same blind `feedback_queue` with `kind:"telegram"`. The dev CLI (`cmd/feedbackpull`, med-dni.4) drains web and Telegram feedback uniformly.
+
+**Server encrypts but stays blind.** This is the one place the cloud *server* encrypts to the recipient (the web path did it in the browser). The manager bot holds only the recipient **public** key, so it encrypts and cannot decrypt — the queue row is always ciphertext, nothing plaintext at rest. Telegram plaintext *in transit* is the user's own choice (they typed it into Telegram); the persisted row never is.
+
+**Attribution: claimed senders only.** `feedback_queue.account_id` is `NOT NULL FK` to `accounts(id)` and there is no tg-user→account FK — only the overloaded `created_by_account_id = "tg:<uid>"` provenance. So the button is offered **only to senders with a claimed account** (`ClaimedAccountIDForCreator` resolves `tg:<uid>` → their `claim_token_hash IS NULL` account); the feedback attributes to that account. Unlinked senders never see the button, and a stale tap is answered "finish setting up your account first." Truly-anonymous TG feedback would need a reserved system-account row (new migration) to satisfy the FK — deliberately deferred.
+
+**Disabled when unset.** The whole feature is gated on `FEEDBACK_AGE_RECIPIENT != ""` — unset means no button is ever attached and no capture happens, mirroring the web feedback API's disabled state. Capture state is an in-memory `map[chatID]expiry` with a ~5 min TTL on `TelegramAPI`; a restart drops a pending prompt (the user re-taps). `ponytail:` a one-column table only if cloud ever runs multi-replica.
+
 ## BYO provider keys
 
 All provider keys live as ordinary records inside the encrypted vault (synced across devices, invisible to the cloud). Calls go **directly from the browser** to the provider:

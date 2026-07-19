@@ -451,6 +451,32 @@ func TestUpdateDecodesCallbackQuery(t *testing.T) {
 	}
 }
 
+func TestMessageDecodesVoiceAndCaption(t *testing.T) {
+	var upd Update
+	raw := `{"update_id":6,"message":{"message_id":4,"chat":{"id":100,"type":"private"},"caption":"my screenshot","voice":{"file_id":"vf-1","mime_type":"audio/ogg","duration":7,"file_size":2048},"photo":[{"file_id":"p1","file_size":10}]}}`
+	if err := json.Unmarshal([]byte(raw), &upd); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	m := upd.Message
+	if m == nil {
+		t.Fatal("message nil")
+	}
+	if m.Caption != "my screenshot" {
+		t.Errorf("caption = %q", m.Caption)
+	}
+	if m.Voice == nil || m.Voice.FileID != "vf-1" || m.Voice.MimeType != "audio/ogg" || m.Voice.Duration != 7 || m.Voice.FileSize != 2048 {
+		t.Errorf("voice = %#v", m.Voice)
+	}
+
+	var bare Update
+	if err := json.Unmarshal([]byte(`{"update_id":7,"message":{"message_id":5,"text":"hi","chat":{"id":1,"type":"private"}}}`), &bare); err != nil {
+		t.Fatalf("unmarshal bare: %v", err)
+	}
+	if bare.Message.Voice != nil || bare.Message.Caption != "" {
+		t.Errorf("bare message = %#v", bare.Message)
+	}
+}
+
 // The invariant the two functions must jointly hold: a stem the relay accepts,
 // with an action appended, is data the webhook can parse. Guards against the two
 // drifting apart (an over-long or overflowing slot was accepted once).

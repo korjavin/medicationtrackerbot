@@ -246,7 +246,7 @@ func main() {
 	if cfg.managerBotToken == "" {
 		slog.Info("telegram disabled", "reason", "MANAGER_BOT_TOKEN unset")
 	} else {
-		tgAPI = cloudserver.NewTelegramAPI(store, cfg.sessionSecret, cfg.managerBotToken, cfg.baseDomain, cfg.tgAPIBaseURL, cfg.claimTTL)
+		tgAPI = cloudserver.NewTelegramAPI(store, cfg.sessionSecret, cfg.managerBotToken, cfg.baseDomain, cfg.tgAPIBaseURL, cfg.feedbackAgeRecipient, cfg.claimTTL)
 		if cfg.tgAPIBaseURL != "" {
 			// Proxy on: manager + logOut stay on the real cloud ("") while child bots
 			// keep the proxy, and child webhooks go to the internal origin (bd med-eas.46).

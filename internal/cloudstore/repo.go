@@ -190,6 +190,24 @@ func (r *Repo) HasClaimedAccountCreatedBy(ctx context.Context, createdBy string)
 	return exists, err
 }
 
+// ClaimedAccountIDForCreator returns the id of a claimed account minted by
+// createdBy (claim_token_hash IS NULL, see HasClaimedAccountCreatedBy), or ""
+// when none exists — the caller treats empty as "unlinked sender". If createdBy
+// minted more than one claimed account it returns the oldest, which is stable.
+func (r *Repo) ClaimedAccountIDForCreator(ctx context.Context, createdBy string) (string, error) {
+	if createdBy == "" {
+		return "", nil
+	}
+	var id string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id FROM accounts WHERE created_by_account_id = ? AND claim_token_hash IS NULL ORDER BY created_at_unix ASC LIMIT 1`,
+		createdBy).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return id, err
+}
+
 // AccountGraphNode is a plaintext operator-metadata row used to reconstruct the
 // invitation forest. CreatedBy is nil when provenance is NULL — an admin-CLI mint,
 // i.e. a forest root. Claimed mirrors AccountSummary.Claimed: claim_token_hash IS

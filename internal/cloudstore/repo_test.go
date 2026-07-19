@@ -303,6 +303,58 @@ func TestConsumeClaimToken_ExpiredAndUnknown(t *testing.T) {
 	}
 }
 
+func TestClaimedAccountIDForCreator(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	// A claimed account minted by tg:42 (claim_token_hash cleared on consume).
+	tokenHash := []byte("claim-hash-for-tg42-account-junk")
+	acc, err := r.CreateAccount(ctx, "acc-tg42", "brave-otter-mno345", tokenHash, now.Add(time.Hour), now, "", "", "tg:42")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if _, err := r.ConsumeClaimToken(ctx, acc.Subdomain, tokenHash, now); err != nil {
+		t.Fatalf("ConsumeClaimToken: %v", err)
+	}
+
+	// An unclaimed (pending) account minted by tg:99 — must not resolve.
+	if _, err := r.CreateAccount(ctx, "acc-tg99", "shy-heron-pqr678", []byte("pending-hash"), now.Add(time.Hour), now, "", "", "tg:99"); err != nil {
+		t.Fatalf("CreateAccount pending: %v", err)
+	}
+
+	got, err := r.ClaimedAccountIDForCreator(ctx, "tg:42")
+	if err != nil {
+		t.Fatalf("ClaimedAccountIDForCreator(tg:42): %v", err)
+	}
+	if got != acc.ID {
+		t.Fatalf("tg:42 = %q, want %q", got, acc.ID)
+	}
+
+	if got, err := r.ClaimedAccountIDForCreator(ctx, "tg:99"); err != nil || got != "" {
+		t.Fatalf("tg:99 (pending) = %q err %v, want empty", got, err)
+	}
+	if got, err := r.ClaimedAccountIDForCreator(ctx, "tg:404"); err != nil || got != "" {
+		t.Fatalf("tg:404 (unknown) = %q err %v, want empty", got, err)
+	}
+	if got, err := r.ClaimedAccountIDForCreator(ctx, ""); err != nil || got != "" {
+		t.Fatalf("empty creator = %q err %v, want empty", got, err)
+	}
+
+	// A second claimed account by tg:42 → still resolves (to the oldest).
+	tokenHash2 := []byte("claim-hash-for-tg42-second-junkkk")
+	acc2, err := r.CreateAccount(ctx, "acc-tg42b", "keen-vole-stu901", tokenHash2, now.Add(time.Hour), now.Add(time.Minute), "", "", "tg:42")
+	if err != nil {
+		t.Fatalf("CreateAccount second: %v", err)
+	}
+	if _, err := r.ConsumeClaimToken(ctx, acc2.Subdomain, tokenHash2, now); err != nil {
+		t.Fatalf("ConsumeClaimToken second: %v", err)
+	}
+	if got, err := r.ClaimedAccountIDForCreator(ctx, "tg:42"); err != nil || got != acc.ID {
+		t.Fatalf("tg:42 with two claimed = %q err %v, want oldest %q", got, err, acc.ID)
+	}
+}
+
 // TestDeleteCredentialWithEnvelope_NeverStrandsAccount verifies the "never
 // strand the account" invariant is enforced inside DeleteCredentialWithEnvelope
 // itself (not just the handler pre-check), so it holds under concurrent

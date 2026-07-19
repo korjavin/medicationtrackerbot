@@ -196,6 +196,18 @@ type TelegramAPI struct {
 	managerUsername     string // resolved by Bootstrap via getMe
 	claimTTL            time.Duration
 
+	// feedbackRecipient is the developer's age X25519 recipient pubkey
+	// (FEEDBACK_AGE_RECIPIENT). "" disables the Telegram feedback channel — no
+	// button offered, a stale tap does nothing. The manager bot only ever holds
+	// the public key: it encrypts feedback blindly and cannot decrypt (med-dni.5).
+	feedbackRecipient string
+	// feedbackWaiting tracks chats that tapped "Send feedback" and whose next
+	// message should be captured as feedback, with a short TTL. In-memory only.
+	// ponytail: lost on restart / not shared across replicas — a one-column table
+	// if cloud ever runs multi-replica; single-replica just re-taps.
+	feedbackWaiting map[int64]time.Time
+	feedbackMu      sync.Mutex
+
 	// mintMu serializes the count-then-insert when the managebot mints an
 	// invite; without it concurrent updates all read a sub-quota count and all
 	// insert. ponytail: one global lock — cmd/cloud is a single process and
@@ -206,16 +218,18 @@ type TelegramAPI struct {
 // NewTelegramAPI builds the Telegram surface for a manager bot token. apiBaseURL
 // overrides the Telegram API root (tests inject an httptest fake); "" uses the
 // real api.telegram.org.
-func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDomain, apiBaseURL string, claimTTL time.Duration) *TelegramAPI {
+func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDomain, apiBaseURL, feedbackRecipient string, claimTTL time.Duration) *TelegramAPI {
 	return &TelegramAPI{
-		store:           store,
-		sessionSecret:   sessionSecret,
-		baseDomain:      baseDomain,
-		apiBaseURL:      apiBaseURL,
-		cloudAPIBaseURL: apiBaseURL, // default; ConfigureProxy points the manager at the real cloud when a proxy is on
-		managerToken:    managerToken,
-		managerSecret:   deriveWebhookSecret(sessionSecret, "mt/tg-manager-webhook/v1"),
-		claimTTL:        claimTTL,
+		store:             store,
+		sessionSecret:     sessionSecret,
+		baseDomain:        baseDomain,
+		apiBaseURL:        apiBaseURL,
+		cloudAPIBaseURL:   apiBaseURL, // default; ConfigureProxy points the manager at the real cloud when a proxy is on
+		managerToken:      managerToken,
+		managerSecret:     deriveWebhookSecret(sessionSecret, "mt/tg-manager-webhook/v1"),
+		feedbackRecipient: feedbackRecipient,
+		feedbackWaiting:   make(map[int64]time.Time),
+		claimTTL:          claimTTL,
 	}
 }
 
@@ -471,9 +485,12 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	botID, botUsername, userID, ok := upd.ManagedBotCreatedInfo()
 	if !ok {
-		if upd.Message != nil {
+		switch {
+		case upd.CallbackQuery != nil:
+			t.handleManagerCallback(r.Context(), upd.CallbackQuery)
+		case upd.Message != nil:
 			t.handleManagerMessage(r.Context(), upd.Message)
-		} else {
+		default:
 			slog.Info("telegram manager webhook: update without managed_bot_created", "update_id", upd.UpdateID)
 		}
 		w.WriteHeader(http.StatusOK)
@@ -650,13 +667,23 @@ func (t *TelegramAPI) handleManagerMessage(ctx context.Context, msg *tgclient.Me
 	// ever needs provenance.
 	creator := "tg:" + strconv.FormatInt(msg.From.ID, 10)
 
+	// A prior "Send feedback" tap arms this chat: capture the next message as
+	// feedback (before the onboarding classification below — feedback text is
+	// arbitrary and could otherwise be mistaken for a greeting or a "yes").
+	if t.takeFeedbackWaiting(msg.Chat.ID) {
+		t.captureFeedback(ctx, msg, creator)
+		return
+	}
+
 	claimed, err := t.store.HasClaimedAccountCreatedBy(ctx, creator)
 	if err != nil {
 		slog.Error("telegram manager message: claimed check", "error", err)
 		return
 	}
 	if claimed {
-		t.reply(ctx, msg.Chat.ID, onboardingClaimedMessage)
+		// A linked sender is the manager bot's only feedback audience, so this
+		// reply carries the "Send feedback" button when the channel is enabled.
+		t.replyManagerClaimed(ctx, msg.Chat.ID)
 		return
 	}
 
