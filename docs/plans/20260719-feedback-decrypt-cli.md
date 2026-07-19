@@ -54,25 +54,25 @@ binary, so the dep lands in a `cmd/feedbackpull` package.
 ## Implementation Steps
 
 ### Task 1: add filippo.io/age + the decrypt-one-item core
-- [ ] `go get filippo.io/age` (adds to go.mod/go.sum). Confirm it compiles and does NOT
+- [x] `go get filippo.io/age` (adds to go.mod/go.sum). Confirm it compiles and does NOT
       get linked into `go build -tags mobile ./cmd/bot` (it's only imported by
-      `cmd/feedbackpull`, which mobile doesn't build).
-- [ ] Add `cmd/feedbackpull/main.go` with a testable core, e.g.
+      `cmd/feedbackpull`, which mobile doesn't build). — verified: `go list -tags mobile -deps ./cmd/bot` shows 0 age refs.
+- [x] Add `cmd/feedbackpull/main.go` with a testable core, e.g.
       `decodeItem(item cloudstore.FeedbackItem, ids []age.Identity) (feedbackDoc, error)`:
       `age.Decrypt(bytes.NewReader(item.Ciphertext), ids...)`, read all, `json.Unmarshal`
       into `type feedbackDoc struct { V int; CreatedAt string; Text string; Attachments []struct{ Type, Mime, DataB64 string } }`.
       Validate `V == 1`.
-- [ ] `saveAttachments(doc, item, outDir) ([]string, error)`: base64-decode each
+- [x] `saveAttachments(doc, item, outDir) ([]string, error)`: base64-decode each
       `DataB64`, write to `outDir` named `<client_id>-<i><ext>` (ext from mime:
       image/jpeg→.jpg, image/png→.png, audio/webm→.webm, fallback .bin). Return written
       paths. Create `outDir` if missing.
-- [ ] Tests `cmd/feedbackpull/main_test.go`: generate an identity via
+- [x] Tests `cmd/feedbackpull/main_test.go`: generate an identity via
       `age.GenerateX25519Identity()`, encrypt a sample v1 doc (text + one image + one
       audio attachment) with `age.Encrypt(...recipient...)`, wrap as a `FeedbackItem`,
       then `decodeItem` returns the text + attachments; `saveAttachments` writes files
       with the right extensions + bytes; a wrong-key item returns an error (not a panic);
       a `V != 1` doc errors.
-- [ ] Run `go test ./cmd/feedbackpull/...` — must pass before Task 2.
+- [x] Run `go test ./cmd/feedbackpull/...` — must pass before Task 2.
 
 ### Task 2: wire the CLI — flags, store drain, render, optional ack
 - [ ] Flags: `-db` (cloud sqlite path, required), `-identity` (age identity file;
