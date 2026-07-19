@@ -3,6 +3,7 @@ module github.com/korjavin/medicationtrackerbot
 go 1.26.5
 
 require (
+	filippo.io/age v1.3.1
 	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/VictoriaMetrics/fastcache v1.13.3
 	github.com/coder/websocket v1.8.15
@@ -23,7 +24,6 @@ require (
 
 require (
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect
-	filippo.io/age v1.3.1 // indirect
 	filippo.io/hpke v0.4.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dlclark/regexp2/v2 v2.2.1 // indirect

@@ -79,9 +79,11 @@ func mimeExt(mime string) string {
 }
 
 // saveAttachments base64-decodes each attachment and writes it to outDir named
-// "<client_id>-<index><ext>", grouping a submission's files and keeping them
-// collision-free across runs. It creates outDir if missing and returns the
-// written paths.
+// "<item_id>-<client_id>-<index><ext>". item_id (the globally-unique queue row)
+// makes names collision-free across accounts; client_id is untrusted (client-set,
+// only non-empty-checked server-side) so it's passed through filepath.Base to keep
+// it in the name for grouping without letting a "../" value escape outDir. It
+// creates outDir if missing and returns the written paths.
 func saveAttachments(doc feedbackDoc, item cloudstore.FeedbackItem, outDir string) ([]string, error) {
 	if len(doc.Attachments) == 0 {
 		return nil, nil
@@ -95,7 +97,7 @@ func saveAttachments(doc feedbackDoc, item cloudstore.FeedbackItem, outDir strin
 		if err != nil {
 			return paths, fmt.Errorf("decode attachment %d of item %d: %w", i, item.ID, err)
 		}
-		name := fmt.Sprintf("%s-%d%s", item.ClientID, i, mimeExt(att.Mime))
+		name := fmt.Sprintf("%d-%s-%d%s", item.ID, filepath.Base(item.ClientID), i, mimeExt(att.Mime))
 		path := filepath.Join(outDir, name)
 		if err := os.WriteFile(path, data, 0o644); err != nil {
 			return paths, fmt.Errorf("write attachment %q: %w", path, err)

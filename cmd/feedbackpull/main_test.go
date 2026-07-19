@@ -117,8 +117,8 @@ func TestSaveAttachments(t *testing.T) {
 		t.Fatalf("saveAttachments: %v", err)
 	}
 	want := []string{
-		filepath.Join(outDir, "cid-1-0.jpg"),
-		filepath.Join(outDir, "cid-1-1.webm"),
+		filepath.Join(outDir, "1-cid-1-0.jpg"),
+		filepath.Join(outDir, "1-cid-1-1.webm"),
 	}
 	if len(paths) != len(want) {
 		t.Fatalf("paths = %v, want %v", paths, want)
@@ -141,6 +141,20 @@ func TestSaveAttachments(t *testing.T) {
 		paths, err := saveAttachments(feedbackDoc{V: 1}, item, filepath.Join(t.TempDir(), "empty"))
 		if err != nil || paths != nil {
 			t.Fatalf("got paths=%v err=%v, want nil,nil", paths, err)
+		}
+	})
+
+	t.Run("malicious client_id cannot escape outDir", func(t *testing.T) {
+		evil := cloudstore.FeedbackItem{ID: 9, ClientID: "../../../etc/passwd"}
+		out := filepath.Join(t.TempDir(), "inbox")
+		paths, err := saveAttachments(sampleDoc(), evil, out)
+		if err != nil {
+			t.Fatalf("saveAttachments: %v", err)
+		}
+		for _, p := range paths {
+			if rel, err := filepath.Rel(out, p); err != nil || strings.HasPrefix(rel, "..") {
+				t.Errorf("attachment %q escaped outDir %q (rel=%q)", p, out, rel)
+			}
 		}
 	})
 }
@@ -181,7 +195,7 @@ func TestRun(t *testing.T) {
 		if !strings.Contains(buf.String(), "app crashes on save") {
 			t.Errorf("output missing good text: %q", buf.String())
 		}
-		if _, err := os.Stat(filepath.Join(outDir, "good-0.jpg")); err != nil {
+		if _, err := os.Stat(filepath.Join(outDir, "1-good-0.jpg")); err != nil {
 			t.Errorf("attachment not saved: %v", err)
 		}
 		remaining, err := st.ListFeedback(ctx, 100)

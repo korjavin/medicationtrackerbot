@@ -1,6 +1,7 @@
 /bot
 /mcptool
 /seeddemo
+/feedbackpull
 /vendor/
 meds.db
 *.db
