@@ -127,6 +127,30 @@ describe('feedback-ui', () => {
             .toEqual(new Uint8Array([7, 8]));
     });
 
+    it('Cancel during an in-flight send does not enqueue', async () => {
+        // stop() stays pending so send() is suspended mid-flight; Cancel fires
+        // during that await. The feedback must NOT be enqueued behind the modal.
+        let resolveStop;
+        const audioHandle = {
+            stop: vi.fn(() => new Promise((r) => { resolveStop = () => r(new Blob([new Uint8Array([1])], { type: 'audio/webm' })); })),
+            cancel: vi.fn(),
+        };
+        window.MediaCapture = { pickPhoto: vi.fn(), recordAudio: vi.fn().mockResolvedValue(audioHandle) };
+
+        await mountFeedbackLauncher({});
+        click(q('#feedback-launcher'));
+        q('.wg-feedback-modal__textarea').value = 'note';
+        click(q('[data-feedback-record]'));   // start recording
+        await flush();
+        click(q('[data-feedback-choice="send"]'));  // send() suspends on stop()
+        await flush();
+        click(q('[data-feedback-choice="cancel"]')); // cancel while send is in flight
+        resolveStop();
+        await flush();
+
+        expect(enqueueFeedback).not.toHaveBeenCalled();
+    });
+
     it('Cancel and Escape close without calling enqueue', async () => {
         await mountFeedbackLauncher({});
 

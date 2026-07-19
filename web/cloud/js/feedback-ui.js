@@ -175,6 +175,7 @@ function openFeedbackModal() {
     }
 
     let settled = false;
+    let sending = false; // re-entrancy guard for send() across its awaits
     function settle(action) {
         if (settled) return;
         settled = true;
@@ -191,8 +192,11 @@ function openFeedbackModal() {
     }
 
     async function send() {
-        // Disable first — the arrayBuffer() awaits below yield, so a fast
-        // double-tap would otherwise enqueue the same feedback twice.
+        // Re-entrancy guard: the awaits below yield, and refreshSend() (fired by
+        // textarea input) re-enables the button, so disabling it isn't enough to
+        // stop a second send() from enqueueing the same feedback twice.
+        if (sending) return;
+        sending = true;
         sendBtn.disabled = true;
         // A recording still in progress (user tapped Send before Stop) would
         // otherwise be cancelled by settle() and the voice silently dropped.
@@ -209,6 +213,9 @@ function openFeedbackModal() {
         if (audioBlob) {
             attachments.push({ type: 'audio', mime: audioBlob.type || 'audio/webm', bytes: await audioBlob.arrayBuffer() });
         }
+        // The user may have cancelled (settle) during the stop/arrayBuffer
+        // awaits — honor it and don't enqueue behind a closed modal.
+        if (settled) return;
         // Anonymous: text + attachments only, no account id / PII (decided).
         const bundle = { text: textarea.value.trim(), attachments };
         try {
