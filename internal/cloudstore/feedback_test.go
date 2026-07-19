@@ -3,6 +3,7 @@ package cloudstore
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -92,6 +93,27 @@ func TestFeedbackQueue(t *testing.T) {
 		// deleting a gone row is a no-op
 		if err := r.DeleteFeedback(ctx, 999999); err != nil {
 			t.Fatalf("DeleteFeedback missing: %v", err)
+		}
+	})
+
+	t.Run("new submissions past the per-account cap are rejected", func(t *testing.T) {
+		r := setupRepo(t)
+		for i := 0; i < feedbackPerAccountCap; i++ {
+			cid := "cap-" + string(rune('a'+i%26)) + string(rune('0'+i/26))
+			if err := r.AppendFeedback(ctx, "acc-1", cid, "", "", []byte("x"), now); err != nil {
+				t.Fatalf("AppendFeedback %d: %v", i, err)
+			}
+		}
+		if err := r.AppendFeedback(ctx, "acc-1", "one-too-many", "", "", []byte("x"), now); !errors.Is(err, ErrFeedbackQueueFull) {
+			t.Fatalf("over-cap append err = %v, want ErrFeedbackQueueFull", err)
+		}
+		// A retry of an already-queued client_id still succeeds at the cap.
+		if err := r.AppendFeedback(ctx, "acc-1", "cap-a0", "", "", []byte("x"), now); err != nil {
+			t.Fatalf("idempotent retry at cap: %v", err)
+		}
+		// The cap is per-account: a different account is unaffected.
+		if err := r.AppendFeedback(ctx, "acc-2", "fresh", "", "", []byte("x"), now); err != nil {
+			t.Fatalf("other-account append at acc-1 cap: %v", err)
 		}
 	})
 

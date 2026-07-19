@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
 
 // maxFeedbackBodyBytes caps a single feedback POST. The large case is a
@@ -80,6 +82,10 @@ func (a *FeedbackAPI) SubmitFeedback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := a.store.AppendFeedback(r.Context(), session.AccountID, req.ClientID, req.Kind, req.AppVersion, req.Ciphertext, time.Now()); err != nil {
+		if errors.Is(err, cloudstore.ErrFeedbackQueueFull) {
+			http.Error(w, "feedback queue full", http.StatusTooManyRequests)
+			return
+		}
 		slog.Error("feedback: append", "accountID", session.AccountID, "error", err)
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return

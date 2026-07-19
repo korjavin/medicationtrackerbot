@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
@@ -136,6 +138,38 @@ func TestFeedback_BadInput(t *testing.T) {
 	}
 	if items, _ := store.ListFeedback(context.Background(), 10); len(items) != 0 {
 		t.Fatalf("bad input stored %d rows", len(items))
+	}
+}
+
+// TestFeedback_QueueFullReturns429: once the account is at the per-account cap, a
+// genuinely new submission is rejected with 429 (the unbounded-write guard), while
+// a retry of an already-queued client_id still succeeds.
+func TestFeedback_QueueFullReturns429(t *testing.T) {
+	h, host, accountID, session, store := feedbackTestServer(t, testRecipient)
+
+	ctx := context.Background()
+	// Seed directly through the store until it reports the account is at the cap.
+	for i := 0; ; i++ {
+		cid := "seed-" + string(rune('a'+i%26)) + string(rune('0'+i/26))
+		err := store.AppendFeedback(ctx, accountID, cid, "", "", []byte("x"), time.Now())
+		if errors.Is(err, cloudstore.ErrFeedbackQueueFull) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("seed %d: %v", i, err)
+		}
+		if i > 10000 {
+			t.Fatal("never hit feedback cap")
+		}
+	}
+	seeded, _ := store.ListFeedback(ctx, 100000)
+
+	body, _ := json.Marshal(submitFeedbackRequest{ClientID: "over-cap", Ciphertext: []byte("blob")})
+	if rec := postFeedbackRaw(t, h, host, session, body); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("over-cap POST = %d, want 429", rec.Code)
+	}
+	if items, _ := store.ListFeedback(ctx, 100000); len(items) != len(seeded) {
+		t.Fatalf("over-cap POST stored a row: len = %d, want %d", len(items), len(seeded))
 	}
 }
 
