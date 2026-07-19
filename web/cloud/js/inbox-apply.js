@@ -145,6 +145,16 @@ function isAlreadyApplied(err) {
 // nearestPendingByMed picks a med's single PENDING intake closest to the slot
 // within `bandMs`. Nearest-wins guards the rare case where both an on-slot and a
 // drifted intake of the same med sit inside the band — we act on one, not both.
+//
+// ponytail: known false-positive ceiling. At drain time a dose is only its
+// {status, scheduled_at} — the instant the reminder named is NOT carried (the
+// callback is slot-only, and carrying it end-to-end is the fix med-eas.67
+// deliberately rejected). So if the exact on-slot dose was already handled via
+// another channel AND a *different* dose of this same multi-daily med drifted
+// into `bandMs`, we confirm that other instant. The two cases are
+// indistinguishable here, so this is accepted rather than fixed. Requires a
+// narrow conjunction (multi-daily med + drift ≥ interval−band + on-slot dose
+// handled out-of-band + a stale reminder tap); upgrade path is instant-carrying.
 function nearestPendingByMed(intakes, medId, slotMs, bandMs) {
   let best = null;
   let bestDelta = Infinity;
