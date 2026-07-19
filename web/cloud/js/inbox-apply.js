@@ -178,15 +178,21 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   }
 
   // Edit the original reminder message to a receipt and drop its buttons (the
-  // edit sends no reply_markup — bug 1). message_id is absent when Telegram
+  // edit sends no reply_markup — bug 1). Only when we actually applied something:
+  // an at-least-once redelivery (flush-false re-queues the event, inbox.js:174)
+  // or a double-tap re-runs this with every intake already TAKEN/snoozed
+  // (applied === 0), and editing then would clobber the good "✅ Confirmed N"
+  // receipt with "ℹ️ Nothing was due". message_id is also absent when Telegram
   // omitted cq.Message for an old message → editReply is a safe no-op.
-  const text = event.action === 'confirm'
-    ? confirmationText({ kind: 'intake' }, { confirmed: applied }, verbosity)
-    : (verbosity === 'generic' ? '⏰ Snoozed.' : '⏰ Snoozed — will remind you again shortly.');
-  try {
-    await editReply(event.message_id, text);
-  } catch (e) {
-    console.warn('[inbox] could not update the Telegram reply', e);
+  if (applied > 0) {
+    const text = event.action === 'confirm'
+      ? confirmationText({ kind: 'intake' }, { confirmed: applied }, verbosity)
+      : (verbosity === 'generic' ? '⏰ Snoozed.' : '⏰ Snoozed — will remind you again shortly.');
+    try {
+      await editReply(event.message_id, text);
+    } catch (e) {
+      console.warn('[inbox] could not update the Telegram reply', e);
+    }
   }
 }
 

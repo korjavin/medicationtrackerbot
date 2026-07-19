@@ -277,6 +277,22 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(editReply).toHaveBeenCalledWith(77, expect.stringMatching(/Snoozed/));
     });
 
+    // A flush-false re-queues the event (inbox.js) and a Telegram double-tap
+    // queues a second callback: both re-run this applier. The second pass finds
+    // every intake already TAKEN (applied === 0) and must NOT re-edit the message
+    // — otherwise it clobbers the good "✅ Confirmed 2" receipt with "Nothing was
+    // due".
+    it('does not clobber the confirm receipt when re-drained with nothing left pending', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => {});
+        const evt = { ...confirmEvent, message_id: 4242 };
+        await applyIntakeSlotAction(evt, { intake: domainFor(records, now), records, now, editReply });
+        await applyIntakeSlotAction(evt, { intake: domainFor(records, now), records, now, editReply });
+        expect(editReply).toHaveBeenCalledTimes(1);
+        expect(editReply).toHaveBeenCalledWith(4242, expect.stringMatching(/Confirmed 2 medications/));
+    });
+
     it('respects generic verbosity in the confirm receipt', async () => {
         const records = fakeRecords(seed());
         const now = () => DRAIN_MS;
