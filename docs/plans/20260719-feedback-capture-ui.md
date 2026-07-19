@@ -75,28 +75,28 @@ callers). No bot-mode feature changes.
 ## Implementation Steps
 
 ### Task 1: add `recordAudio` to the MediaCapture native abstraction
-- [ ] Add a `recordAudio()` (or `startAudioRecording()`) method to the MediaCapture stub
+- [x] Add a `recordAudio()` (or `startAudioRecording()`) method to the MediaCapture stub
       contract (`web/static/js/native/index.js:96`) returning a recording **handle**
       `{ stop(): Promise<Blob>, cancel(): void }` — start begins capture, `stop()`
       resolves an audio `Blob` (e.g. `audio/webm`), `cancel()` discards + releases the
       mic. Rationale: voice message = start→stop, not one-shot.
-- [ ] Web impl in `web/static/js/native/web/media-capture.js`: implement via
+- [x] Web impl in `web/static/js/native/web/media-capture.js`: implement via
       `MediaRecorder` over `getUserMedia({ audio:true })` (this file is inside `native/`,
       the sanctioned place). Collect chunks, stop→`Blob`, always stop the `MediaStream`
       tracks on stop/cancel/error. Add a `requestPermissions`/availability path if the
       existing one needs audio.
-- [ ] Capacitor impl stub in `native/capacitor/` mirroring the web signature (may throw
+- [x] Capacitor impl stub in `native/capacitor/` mirroring the web signature (may throw
       "not supported" / return null on desktop shell — the feature is web-first; keep
       parity so the registry has both).
-- [ ] Register the new method via the foundation's `registerImpl` the same way the
+- [x] Register the new method via the foundation's `registerImpl` the same way the
       existing MediaCapture methods are registered.
-- [ ] Tests: extend the MediaCapture native suite (`tests/native.media-capture.test.js`
+- [x] Tests: extend the MediaCapture native suite (`tests/native.media-capture.test.js`
       or add `tests/native.audio.test.js`): `recordAudio()` returns a handle; `stop()`
       resolves a Blob (mock `MediaRecorder`/`getUserMedia`); `cancel()` stops tracks and
       resolves nothing; tracks are released on stop. Confirm
       `architecture.native-abstractions.test.js` still passes (MediaRecorder only inside
       `native/`).
-- [ ] Run those tests (Node 20) — must pass before Task 2.
+- [x] Run those tests (Node 20) — must pass before Task 2.
 
 ### Task 2: feedback-ui.js — modal, capture, bundle assembly, enqueue seam
 - [ ] Add `web/cloud/js/feedback-submit.js`: `export async function enqueueFeedback(bundle)`

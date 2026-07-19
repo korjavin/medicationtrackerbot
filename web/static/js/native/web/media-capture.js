@@ -147,6 +147,78 @@
         });
     }
 
+    // recordAudio() begins a mic capture and returns a handle
+    // { stop(): Promise<Blob>, cancel(): void }. A voice message is start→stop
+    // (unlike one-shot takePhoto), so the caller records until the user taps
+    // stop. MediaRecorder + getUserMedia live here inside native/ — the
+    // sanctioned home (CLAUDE.md rule 10 / architecture.native-abstractions).
+    // The MediaStream tracks are always released on stop, cancel, or error.
+    function recordAudio(opts) {
+        opts = opts || {};
+        var nav = window.navigator;
+        if (!nav || !nav.mediaDevices || typeof nav.mediaDevices.getUserMedia !== 'function') {
+            var unavailable = new Error('navigator.mediaDevices.getUserMedia is unavailable');
+            unavailable.name = 'MediaCaptureError';
+            unavailable.code = 'UNAVAILABLE';
+            return Promise.reject(unavailable);
+        }
+        if (typeof window.MediaRecorder !== 'function') {
+            var noRec = new Error('MediaRecorder is unavailable');
+            noRec.name = 'MediaCaptureError';
+            noRec.code = 'UNAVAILABLE';
+            return Promise.reject(noRec);
+        }
+        return nav.mediaDevices.getUserMedia({ audio: true, video: false })
+            .then(function (stream) {
+                var mimeType = opts.mimeType || 'audio/webm';
+                var recorder;
+                try {
+                    recorder = new window.MediaRecorder(stream, { mimeType: mimeType });
+                } catch (_) {
+                    // Some browsers reject an unsupported mimeType option — fall
+                    // back to the UA default rather than failing the recording.
+                    recorder = new window.MediaRecorder(stream);
+                }
+                var chunks = [];
+                recorder.ondataavailable = function (e) {
+                    if (e && e.data && e.data.size > 0) chunks.push(e.data);
+                };
+                recorder.start();
+
+                var cancelled = false;
+                function cleanup() { stopStream(stream); }
+
+                return {
+                    stop: function () {
+                        return new Promise(function (resolve, reject) {
+                            if (cancelled) {
+                                return reject(normalizeError(new Error('recording was cancelled')));
+                            }
+                            recorder.onstop = function () {
+                                cleanup();
+                                var type = recorder.mimeType || mimeType;
+                                resolve(new window.Blob(chunks, { type: type }));
+                            };
+                            recorder.onerror = function (ev) {
+                                cleanup();
+                                reject(normalizeError((ev && ev.error) || new Error('MediaRecorder error')));
+                            };
+                            try { recorder.stop(); }
+                            catch (e) { cleanup(); reject(normalizeError(e)); }
+                        });
+                    },
+                    cancel: function () {
+                        cancelled = true;
+                        try { if (recorder.state !== 'inactive') recorder.stop(); } catch (_) { /* ignore */ }
+                        cleanup();
+                    },
+                };
+            })
+            .catch(function (e) {
+                throw (e && e.name === 'MediaCaptureError') ? e : normalizeError(e);
+            });
+    }
+
     // requestPermissions on the web has no separate prompt API — browsers
     // surface the prompt inline at first getUserMedia / file-picker
     // invocation. Resolve as a granted PermissionState so the firstrun
@@ -161,6 +233,7 @@
         openCameraStream: openCameraStream,
         takePhoto: takePhoto,
         pickPhoto: pickPhoto,
+        recordAudio: recordAudio,
         requestPermissions: requestPermissions,
     };
 
