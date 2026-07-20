@@ -20,13 +20,13 @@ const LOCAL_COMMANDS = new Set(['/start', '/help']);
 // /workout logs a completed ad-hoc workout for today through the shared workout
 // domain — the "I did a workout" log, mirroring how /bp logs a reading. It does
 // NOT reproduce bot mode's stateful button conversation (bd med-eas.29.5).
-const KNOWN = new Set(['/bp', '/weight', '/note', '/intake', '/food', '/workout']);
+const KNOWN = new Set(['/bp', '/weight', '/note', '/intake', '/food', '/workout', '/activity']);
 
 // Commands that exist in bot mode but whose cloud write path is not built yet.
 // Naming them explicitly gives the user "not yet" instead of "I don't
 // understand", which is a materially different message when they are copying a
 // command that demonstrably works in the other deployment.
-const NOT_YET = new Set(['/activity', '/week', '/log', '/next', '/stock', '/bpstats', '/bpgoal', '/goal', '/tz']);
+const NOT_YET = new Set(['/week', '/log', '/next', '/stock', '/bpstats', '/bpgoal', '/goal', '/tz']);
 
 // commandToken returns the normalized leading command of a message ("/bp"), or
 // "" when the text is not a command. Telegram appends "@botname" in groups.
@@ -101,6 +101,15 @@ function parseWorkout(text) {
   return { kind: 'workout', command: '/workout', name };
 }
 
+// parseActivity keeps the whole free-text remainder verbatim — like /food, the
+// NL parse happens later on an unlocked client via the activity-AI domain with
+// the user's own key. A bare /activity has nothing to parse, so it earns a hint.
+function parseActivity(text) {
+  const description = text.trim().slice(commandToken(text).length).trim();
+  if (!description) return { kind: 'invalid', command: '/activity', hint: 'Usage: /activity 5km morning run' };
+  return { kind: 'activity', command: '/activity', text: description };
+}
+
 function inRange(n, lo, hi) {
   return Number.isFinite(n) && n >= lo && n <= hi;
 }
@@ -122,6 +131,7 @@ export function parseCommand(text) {
     case '/note': return parseNote(text);
     case '/food': return parseFood(text);
     case '/workout': return parseWorkout(text);
+    case '/activity': return parseActivity(text);
     case '/intake': return { kind: 'intake' };
     default: return { kind: 'unknown', command };
   }

@@ -63,11 +63,11 @@ Reference shapes (mirror faithfully for parity):
 ## Implementation Steps
 
 ### Task 1: Route /activity in tgcommand.js
-- [ ] Remove `'/activity'` from the `NOT_YET` set (web/domain/tgcommand.js:29).
-- [ ] Add `parseActivity(text)` mirroring `parseFood` (lines 89-93): keep the whole free-text remainder; bare `/activity` (empty) → `{ kind:'invalid', command:'/activity', hint:'Usage: /activity 5km morning run' }`; else `{ kind:'activity', command:'/activity', text: description }`.
-- [ ] Add `case '/activity': return parseActivity(text);` to the `parseCommand` switch.
-- [ ] Extend the tgcommand parse test (if one exists) or add cases to the owning suite: `/activity 2km bicycle` → kind 'activity' with text; bare `/activity` → kind 'invalid' with hint; assert `/activity` no longer resolves to 'unsupported'.
-- [ ] Run `npx vitest run` on the tgcommand + inbox-apply suites — must pass before next task.
+- [x] Remove `'/activity'` from the `NOT_YET` set (web/domain/tgcommand.js:29). (also added to `KNOWN` so the switch reaches it)
+- [x] Add `parseActivity(text)` mirroring `parseFood` (lines 89-93): keep the whole free-text remainder; bare `/activity` (empty) → `{ kind:'invalid', command:'/activity', hint:'Usage: /activity 5km morning run' }`; else `{ kind:'activity', command:'/activity', text: description }`.
+- [x] Add `case '/activity': return parseActivity(text);` to the `parseCommand` switch.
+- [x] Extend the tgcommand parse test (if one exists) or add cases to the owning suite: `/activity 2km bicycle` → kind 'activity' with text; bare `/activity` → kind 'invalid' with hint; assert `/activity` no longer resolves to 'unsupported'.
+- [x] Run `npx vitest run` on the tgcommand + inbox-apply suites — must pass before next task.
 
 ### Task 2: New pure activityai.js domain module
 - [ ] Create `web/domain/activityai.js` modeled on `web/domain/foodai.js`. Export `ActivitySystemPrompt` (VERBATIM from internal/ai/openai.go:312-326) and `activitySchema` (VERBATIM JSON-schema shape from openai.go:285-308, JS object form).

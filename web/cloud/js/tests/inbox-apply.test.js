@@ -1232,6 +1232,12 @@ describe('tgcommand.js — parsing', () => {
         expect(parseCommand('/workout')).toMatchObject({ kind: 'workout', command: '/workout', name: '' });
     });
 
+    it('/activity keeps the free-text remainder verbatim and no longer refuses', () => {
+        expect(parseCommand('/activity 2km bicycle')).toMatchObject({ kind: 'activity', command: '/activity', text: '2km bicycle' });
+        expect(parseCommand('/activity').kind).toBe('invalid');
+        expect(parseCommand('/activity')).toMatchObject({ command: '/activity', hint: expect.stringMatching(/Usage: \/activity/) });
+    });
+
     it('marks relay-answered commands local, and free text as not a command', () => {
         expect(parseCommand('/start').kind).toBe('local');
         expect(parseCommand('/help').kind).toBe('local');
