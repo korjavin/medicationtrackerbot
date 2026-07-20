@@ -814,11 +814,11 @@ describe('inbox-apply.js — a Telegram data command', () => {
     }
     // The AI parse an /activity message runs through, stubbed at the provider
     // boundary — the real activityAI domain (validation + duration sum) still runs.
-    function stubActivityAIClient({ name = 'Bicycle ride', durationMinutes = 12 } = {}) {
+    function stubActivityAIClient({ name = 'Bicycle ride', durationMinutes = 12, distanceM = null } = {}) {
         return {
             parseActivityFromDescription: async () => ({
                 name,
-                exercises: [{ name: 'cycling', sets: null, reps: null, weight_kg: null, duration_minutes: durationMinutes, notes: '' }],
+                exercises: [{ name: 'cycling', sets: null, reps: null, weight_kg: null, duration_minutes: durationMinutes, distance_m: distanceM, notes: '' }],
             }),
         };
     }
@@ -989,6 +989,40 @@ describe('inbox-apply.js — a Telegram data command', () => {
         // duration_minutes (12) summed → seconds.
         expect(miband[0].duration_sec).toBe(720);
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Logged activity: Bicycle ride/));
+    });
+
+    it('/activity records the parsed distance (2km bicycle -> distance_m 2000) and shows it in the reply', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        const domains = domainsFor(records, now, stubAIClient(TWO_EGGS), stubActivityAIClient({ distanceM: 2000 }));
+        await applyTGCommand(commandEvent('/activity 2km bicycle'), 25, { ...domains, editReply });
+
+        const miband = await records.list('miband');
+        expect(miband[0].distance_m).toBe(2000);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Logged activity: Bicycle ride — 2\.0km/));
+    });
+
+    it('/activity with a mile distance records ~8047m', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const domains = domainsFor(records, now, stubAIClient(TWO_EGGS), stubActivityAIClient({ name: 'Run', distanceM: 8047 }));
+        await applyTGCommand(commandEvent('/activity 5 mi run'), 25, { ...domains, editReply: vi.fn() });
+
+        const miband = await records.list('miband');
+        expect(miband[0].distance_m).toBe(8047);
+    });
+
+    it('/activity with no stated distance records distance_m 0 (no regression)', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        await applyTGCommand(commandEvent('/activity bench press'), 25, { ...domainsFor(records, now), editReply });
+
+        const miband = await records.list('miband');
+        expect(miband[0].distance_m).toBe(0);
+        // reply has no distance suffix when distance is 0.
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Logged activity: Bicycle ride\./));
     });
 
     it('re-draining the same /activity event overwrites its own row instead of logging a second activity', async () => {

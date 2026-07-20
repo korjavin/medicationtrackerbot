@@ -2099,7 +2099,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // /activity messages in one wall-clock second would otherwise share a numeric
   // id and collide the per-id edit/delete path. Re-drain still converges: the
   // recordId lookup below reuses the prior row's id.
-  async function createMiBand({ recordId, activityName, durationSec } = {}) {
+  async function createMiBand({ recordId, activityName, durationSec, distanceM } = {}) {
     const startMs = now();
     const endMs = startMs + (durationSec || 0) * 1000;
     const existing = await records.list(WORKOUT_RECORD_TYPES.MIBAND);
@@ -2117,7 +2117,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       source_start_ms: startMs,
       source_end_ms: endMs,
       duration_sec: durationSec || 0,
-      distance_m: 0,
+      distance_m: distanceM || 0,
       steps: 0,
       calories: 0,
       heart_rate_avg: 0,
