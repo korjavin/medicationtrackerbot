@@ -331,12 +331,11 @@ const SNOOZE_MINUTES_BY_ACTION = { snooze1h: 60, snooze2h: 120 };
 // before the session is materialized). It reconciles local state; the relay's
 // own re-fire (server side) handles re-delivering the snoozed reminder.
 export async function applyWorkoutSessionAction(event, { workout, editReply = editTelegramReply }) {
-  const atMs = event.at_unix * 1000;
   const groupId = event.group_id;
   const date = event.date;
   let text;
   if (event.action === 'skip') {
-    await workout.skipScheduledSession({ groupId, date, atMs });
+    await workout.skipScheduledSession({ groupId, date });
     text = '⏭️ Skipped.';
   } else {
     const minutes = SNOOZE_MINUTES_BY_ACTION[event.action];
@@ -344,7 +343,7 @@ export async function applyWorkoutSessionAction(event, { workout, editReply = ed
       console.warn('[inbox] ignoring unknown workout action', event.action);
       return;
     }
-    await workout.snoozeScheduledSession({ groupId, date, minutes, atMs });
+    await workout.snoozeScheduledSession({ groupId, date, minutes });
     text = '⏰ Snoozed.';
   }
   try {

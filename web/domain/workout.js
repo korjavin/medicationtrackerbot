@@ -1254,15 +1254,16 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // must find-or-create `session-<groupId>-<date>` rather than look up a numeric
   // id. A materialized session with this recordId also suppresses future primary
   // fires via reminders.js sessionStatusByKey.
-  async function findOrCreateScheduledSession(groupId, date, atMs) {
+  async function findOrCreateScheduledSession(groupId, date) {
     const recordId = sessionRecordId(groupId, date);
     const existing = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION)).find((s) => s.recordId === recordId);
     if (existing) return existing;
+    const nowMs = now();
     return {
       recordId,
-      clientTs: atMs,
+      clientTs: nowMs,
       deleted: false,
-      id: mintNumericId(await records.list(WORKOUT_RECORD_TYPES.SESSION), atMs),
+      id: mintNumericId(await records.list(WORKOUT_RECORD_TYPES.SESSION), nowMs),
       user_id: CLOUD_USER_ID,
       group_id: groupId,
       variant_id: 0,
@@ -1280,20 +1281,22 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
   // snoozeScheduledSession / skipScheduledSession are the Telegram-drain twins of
   // snoozeSession/skipSession, resolving by (groupId, date) instead of numeric id
-  // so a tap can land before the session exists. atMs is the server tap time.
-  async function snoozeScheduledSession({ groupId, date, minutes, atMs }) {
-    const session = await findOrCreateScheduledSession(groupId, date, atMs);
+  // so a tap can land before the session exists. The caller pins now() to the
+  // server tap time (like the med path), so these read now() like their twins.
+  async function snoozeScheduledSession({ groupId, date, minutes }) {
+    const session = await findOrCreateScheduledSession(groupId, date);
+    const nowMs = now();
     await records.put(WORKOUT_RECORD_TYPES.SESSION, {
       ...session,
-      snoozed_until: new Date(atMs + Number(minutes) * 60 * 1000).toISOString(),
+      snoozed_until: new Date(nowMs + Number(minutes) * 60 * 1000).toISOString(),
       snooze_count: (session.snooze_count || 0) + 1,
-      clientTs: atMs,
+      clientTs: nowMs,
     });
   }
 
-  async function skipScheduledSession({ groupId, date, atMs }) {
-    const session = await findOrCreateScheduledSession(groupId, date, atMs);
-    await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...session, status: 'skipped', clientTs: atMs });
+  async function skipScheduledSession({ groupId, date }) {
+    const session = await findOrCreateScheduledSession(groupId, date);
+    await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...session, status: 'skipped', clientTs: now() });
     await tryAdvanceRotation(session);
   }
 

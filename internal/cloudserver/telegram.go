@@ -1727,8 +1727,9 @@ func (t *TelegramAPI) handleWorkoutCallback(w http.ResponseWriter, r *http.Reque
 	}
 
 	// The re-fire re-uses the tapped session's stem "w:<groupId>:<YYYYMMDD>" so the
-	// user can snooze again from the re-delivered message.
-	stem := tgclient.CallbackWorkoutPrefix + strconv.FormatInt(groupID, 10) + ":" + strings.ReplaceAll(date, "-", "")
+	// user can snooze again from the re-delivered message. The stem is the tapped
+	// callback minus its validated ":<action>" suffix.
+	stem := strings.TrimSuffix(cq.Data, ":"+action)
 	switch action {
 	case tgclient.CallbackActionSnooze1h, tgclient.CallbackActionSnooze2h:
 		delay := time.Hour
