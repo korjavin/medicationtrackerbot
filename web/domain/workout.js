@@ -1311,11 +1311,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   async function skipScheduledSession({ groupId, date }) {
     const session = await findOrCreateScheduledSession(groupId, date);
     // Same at-least-once re-apply guard: advanceRotation is NOT idempotent, so
-    // only advance on a real notified->skipped transition. A redelivery (or a
-    // session already skipped elsewhere) finds status 'skipped' and no-ops.
-    const alreadySkipped = session.status === 'skipped';
+    // only advance on a real transition into a terminal state. A redelivery — or
+    // a session already terminal (skipped OR completed elsewhere) — must no-op:
+    // a stale/re-delivered Skip must not overwrite a completed session to skipped
+    // nor advance rotation a second time on top of the completion.
+    if (session.status === 'skipped' || session.status === 'completed') return;
     await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...session, status: 'skipped', clientTs: now() });
-    if (!alreadySkipped) await tryAdvanceRotation(session);
+    await tryAdvanceRotation(session);
   }
 
   async function completeSession(id) {

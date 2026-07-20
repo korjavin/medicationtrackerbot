@@ -739,3 +739,37 @@ func TestCancelRelayRefire(t *testing.T) {
 		t.Fatalf("CancelRelayRefire(sent) = %d, %v; want 0, nil", n, err)
 	}
 }
+
+// TestRescheduleRelayRefire pins med-eas.70: re-snoozing the same workout session
+// supersedes the pending refire (cancel + insert in one transaction) rather than
+// stacking a second pending row — so two snooze taps leave exactly one delivery.
+func TestRescheduleRelayRefire(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	acc, err := r.CreateAccount(ctx, "acc-resched", "keen-heron-res019", []byte("hash"), now.Add(time.Hour), now, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	past := now.Add(-time.Minute)
+	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "snooze 1h", "w:6:20260720"); err != nil {
+		t.Fatalf("RescheduleRelayRefire (first): %v", err)
+	}
+	// Re-snooze the same session: the first refire is superseded, not stacked.
+	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "snooze 2h", "w:6:20260720"); err != nil {
+		t.Fatalf("RescheduleRelayRefire (second): %v", err)
+	}
+
+	due, err := r.DueScheduledPushes(ctx, now)
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("after re-snooze, due = %+v; want exactly one refire row", due)
+	}
+	if due[0].TGText != "snooze 2h" || due[0].TGCallback != "w:6:20260720" || len(due[0].CT) != 0 {
+		t.Errorf("refire not superseded correctly: %+v", due[0])
+	}
+}

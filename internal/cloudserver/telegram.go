@@ -1743,11 +1743,10 @@ func (t *TelegramAPI) handleWorkoutCallback(w http.ResponseWriter, r *http.Reque
 		// Supersede any pending re-fire for this session so a re-snooze (or an
 		// accidental double-tap — the buttons stay live) reschedules instead of
 		// stacking a second delivery. Snooze1h and Snooze2h share the same stem.
-		if _, err := t.store.CancelRelayRefire(r.Context(), ref, stem); err != nil {
-			slog.Error("telegram callback: cancel prior relay refire", "error", err, "ref", ref)
-		}
-		if err := t.store.InsertRelayRefire(r.Context(), ref, now.Add(delay), refireText, stem); err != nil {
-			slog.Error("telegram callback: insert relay refire", "error", err, "ref", ref)
+		// Cancel + insert are one transaction so two concurrent snooze taps can't
+		// both delete-then-insert and leave duplicate pending re-fires.
+		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(delay), refireText, stem); err != nil {
+			slog.Error("telegram callback: reschedule relay refire", "error", err, "ref", ref)
 		}
 		answer(callbackAckSnooze)
 	case tgclient.CallbackActionSkip:

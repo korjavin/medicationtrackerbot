@@ -1385,6 +1385,21 @@ describe('inbox-apply.js — a Telegram workout Snooze/Skip tap', () => {
         expect(s.status).toBe('skipped');
     });
 
+    // Regression (codex): a stale/re-delivered Skip that drains AFTER the session
+    // was completed in-app must no-op — not overwrite 'completed' back to 'skipped'
+    // and not advance rotation a second time on top of the completion.
+    it('skip no-ops on a session already completed elsewhere', async () => {
+        const records = fakeRecords({
+            workoutsession: [{
+                recordId: WRECORD, deleted: false, id: 42, group_id: WGROUP, variant_id: 0,
+                scheduled_date: WDATE, status: 'completed', snoozed_until: null, snooze_count: 0,
+            }],
+        });
+        await applyWorkoutSessionAction(skipEvent, { workout: workoutFor(records), editReply: vi.fn() });
+        const s = (await records.list('workoutsession')).find((r) => r.recordId === WRECORD);
+        expect(s.status).toBe('completed');
+    });
+
     it('edits the Telegram reply to a receipt via the tap message id', async () => {
         const records = fakeRecords();
         const editReply = vi.fn(async () => {});

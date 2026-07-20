@@ -237,6 +237,25 @@ func (r *Repo) InsertRelayRefire(ctx context.Context, accountID string, fireAt t
 	return err
 }
 
+// RescheduleRelayRefire atomically supersedes any pending relay re-fire for
+// (accountID, tgCallback) with a fresh one: the cancel + insert run in a single
+// transaction so two concurrent workout snooze taps for the same session can't
+// both delete-then-insert and leave duplicate pending re-fire rows (med-eas.70).
+// Copies only already-cleartext fields (empty ct), preserving zero-knowledge.
+func (r *Repo) RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback string) error {
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM scheduled_pushes WHERE account_id = ? AND origin = ? AND tg_callback = ? AND sent_at_unix IS NULL`,
+			accountID, PushOriginRelayRefire, tgCallback); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, origin) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			accountID, storedb.TimeToUnix(fireAt), []byte{}, DeliveryTelegram, tgText, tgCallback, PushOriginRelayRefire)
+		return err
+	})
+}
+
 // CancelRelayRefire drops any pending (unsent) relay re-fire for accountID whose
 // callback stem matches tgCallback — used when a workout skip tap should stop a
 // scheduled snooze re-fire. Returns rows affected.
