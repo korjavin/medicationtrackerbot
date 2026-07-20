@@ -1454,6 +1454,76 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(window.WorkoutSessionsState.data).toBeNull();
   });
 
+  it('closing while the pending flush fails keeps the modal open and preserves the edit (not dropped)', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    const closeSpy = vi.spyOn(window.ModalManager.workoutSession, 'close');
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '' }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    // Soft (offline / 5xx) failure: the log update returns null.
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) return null;
+      return [];
+    });
+
+    // Arm a debounced edit then Close before the timer elapses; the flush runs,
+    // fails, and must keep the modal open so the unsaved edit isn't torn down.
+    window.updateLocalSet(0, 0, 'weight_kg', '65');
+    await window.closeWorkoutSessionModal();
+
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(window.WorkoutSessionsState.data).not.toBeNull();
+    // Edit is still present and re-flagged dirty for a later retry.
+    expect(window.WorkoutSessionsState.logs[0].sets[0].weight_kg).toBe(65);
+    expect(window.WorkoutSessionsState.logs[0]._dirty).toBe(true);
+    expect(document.getElementById('workout-session-autosave-status').classList.contains('is-error')).toBe(true);
+  });
+
+  it('adding an exercise while the pending flush fails bails and preserves the edit (not dropped by reload)', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.safeAlert = vi.fn();
+    const reloadSpy = vi.spyOn(window, 'showWorkoutSessionModal');
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '' }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    // Soft (offline / 5xx) failure on the pending edit's save; a create would
+    // otherwise succeed (returns []), reload the session, and clobber the edit.
+    const createSpy = vi.fn(async () => ({ id: 999 }));
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) return null;
+      if (endpoint === '/api/workout/sessions/logs/create') return createSpy(endpoint);
+      return [];
+    });
+
+    // Arm a debounced edit, then try to add an exercise before it flushes.
+    window.updateLocalSet(0, 0, 'weight_kg', '65');
+    document.getElementById('session-add-exercise-name').value = 'Squat';
+    document.getElementById('session-add-exercise-id').value = '99';
+    document.getElementById('session-add-exercise-sets').value = '5';
+    document.getElementById('session-add-exercise-reps').value = '5';
+
+    await window.saveNewSessionExercise();
+
+    // Bailed: no create fired, no session reload, the edit survives + stays dirty.
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
+    expect(window.safeAlert).toHaveBeenCalled();
+    expect(window.WorkoutSessionsState.logs.length).toBe(1);
+    expect(window.WorkoutSessionsState.logs[0].sets[0].weight_kg).toBe(65);
+    expect(window.WorkoutSessionsState.logs[0]._dirty).toBe(true);
+  });
+
   // ===========================================================================
   // Per-set logging (workout Phase 1, epic med-qj4)
   //

@@ -73,14 +73,19 @@ function runAutosave() {
     return runSerializedSave({ fromAutosave: true });
 }
 
+// Returns true when it's safe to dismiss the modal (nothing pending, or the
+// pending/in-flight save succeeded) and false when a pending save FAILED — the
+// close path uses this so an offline/5xx flush keeps the modal open with the
+// inline error instead of tearing it down and dropping the unsaved edit.
 async function flushPendingAutosave() {
     const hadPending = !!_autosaveTimer;
     if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; }
     if (hadPending) {
-        try { await runAutosave(); } catch (_) { /* inline error already surfaced */ }
+        try { return await runAutosave(); } catch (_) { return false; /* inline error already surfaced */ }
     } else if (_autosaveInFlight) {
-        try { await _autosaveInFlight; } catch (_) { /* best-effort */ }
+        try { return await _autosaveInFlight; } catch (_) { return false; /* best-effort */ }
     }
+    return true; // nothing pending — safe to close
 }
 
 function cancelAutosave() {
@@ -842,10 +847,12 @@ function renderSessionDetailActions(container, opts) {
 
 async function closeWorkoutSessionModal() {
     // Flush any pending debounced edit before dismissing so a change made right
-    // before Close (or an overlay click) isn't dropped. flushPendingAutosave is a
-    // no-op when nothing is pending. Runs before state is nulled so the save can
-    // still read WorkoutSessionsState.
-    await flushPendingAutosave();
+    // before Close (or an overlay click) isn't dropped. If that flush fails
+    // (offline / 5xx) keep the modal open — settleFailure already surfaced the
+    // inline error and restored the dirty flags, so bailing here preserves the
+    // unsaved edit for a retry instead of tearing the modal down and losing it.
+    // Runs before state is nulled so the save can still read WorkoutSessionsState.
+    if (!(await flushPendingAutosave())) return;
     const overlay = document.getElementById('modal-overlay');
     overlay.onclick = null; // Remove click handler
     window.ModalManager.workoutSession.close();
@@ -863,7 +870,7 @@ async function saveWorkoutSessionDetails(opts) {
     // A timer that fired just before the modal closed would otherwise re-save a
     // torn-down session (the log loop UPDATEs every log unconditionally). Nothing
     // to autosave once state is gone. Finish guards its own state before calling.
-    if (fromAutosave && (!window.WorkoutSessionsState || !window.WorkoutSessionsState.data)) return;
+    if (fromAutosave && (!window.WorkoutSessionsState || !window.WorkoutSessionsState.data)) return true;
     // Autosave never closes the modal; the deliberate Finish path always does.
     const closeOnSuccess = !fromAutosave;
 
@@ -976,7 +983,7 @@ async function saveWorkoutSessionDetails(opts) {
         }
 
         if (skipFirst) {
-            if (!(await persistStatus())) { await settleFailure(); return; }
+            if (!(await persistStatus())) { await settleFailure(); return false; }
         }
 
         // Save each log before the terminal status flip below (completion path).
@@ -1059,7 +1066,7 @@ async function saveWorkoutSessionDetails(opts) {
                 log._dirty = true;
                 if (sentSets) log._setsDirty = true;
                 await settleFailure();
-                return;
+                return false;
             }
             if (attempted) {
                 anyMutationSucceeded = true;
@@ -1079,7 +1086,7 @@ async function saveWorkoutSessionDetails(opts) {
         if (statusChanged && sessionData && !skipFirst) {
             if (!(await persistStatus())) {
                 await settleFailure();
-                return;
+                return false;
             }
         }
 
@@ -1113,6 +1120,7 @@ async function saveWorkoutSessionDetails(opts) {
             closeWorkoutSessionModal();
             loadWorkoutHistoryTab();
         }
+        return true; // all requested mutations persisted — safe to close
     } catch (error) {
         await rollbackOptimistic();
         console.error('Error saving workout details:', error);
@@ -1121,6 +1129,7 @@ async function saveWorkoutSessionDetails(opts) {
         // edits intact; only the explicit Finish path pops a blocking alert.
         if (fromAutosave) setAutosaveStatus('error', message);
         else safeAlert('❌ ' + message);
+        return false; // save failed — close path keeps the modal open
     } finally {
         busyTargets.forEach((btn) => {
             btn.classList.remove('wg-btn-saving');
@@ -1372,8 +1381,14 @@ async function saveNewSessionExercise() {
     // the just-pushed optimistic log (id:0, _dirty) → a second logs/create for
     // the same exercise (dedup conflict). Flushing also persists that prior edit
     // before the modal reload at the end reloads clean server state (which would
-    // otherwise drop it).
-    await flushPendingAutosave();
+    // otherwise drop it). If the flush FAILS (offline/5xx), bail like
+    // closeWorkoutSessionModal does: settleFailure already restored the dirty
+    // flags + inline error, so proceeding to create + reload would drop that
+    // preserved edit. The add-exercise modal stays open with the typed values.
+    if (!(await flushPendingAutosave())) {
+        safeAlert('Could not save your previous change — fix that first, then add the exercise.');
+        return;
+    }
     if (!window.WorkoutSessionsState.data) return;
 
     const name = document.getElementById('session-add-exercise-name').value.trim();
