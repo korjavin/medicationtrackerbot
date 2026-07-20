@@ -45,6 +45,71 @@ describe('features/workout/history.js — split-file integration', () => {
     expect(container.textContent).toContain('No workout history yet');
   });
 
+  it('renders an ad-hoc session notes label as the row name (e.g. /workout walk)', async () => {
+    const { window, document } = env;
+    window.apiCall = vi.fn(async (url) => {
+      if (url.includes('/api/workout/sessions')) {
+        return [{
+          group_name: 'Ad-hoc Workout',
+          variant_name: '',
+          exercises_completed: 0,
+          exercises_count: 0,
+          session: {
+            id: 501,
+            group_id: -1,
+            status: 'completed',
+            started_at: '2026-07-20T10:00:00Z',
+            scheduled_date: '2026-07-20',
+            notes: 'walk',
+          },
+        }];
+      }
+      if (url.includes('/api/workout/miband')) return [];
+      if (url.includes('/api/settings')) return { timezone: '' };
+      return null;
+    });
+
+    await window.loadWorkoutHistoryTab();
+
+    const nameEl = document
+      .getElementById('workout-history-display')
+      .querySelector('.wg-workouts-history-row__name');
+    expect(nameEl).toBeTruthy();
+    expect(nameEl.textContent).toBe('walk');
+  });
+
+  it('falls back to the group name for a bare ad-hoc session (no notes)', async () => {
+    const { window, document } = env;
+    window.apiCall = vi.fn(async (url) => {
+      if (url.includes('/api/workout/sessions')) {
+        return [{
+          group_name: 'Ad-hoc Workout',
+          variant_name: '',
+          exercises_completed: 0,
+          exercises_count: 0,
+          session: {
+            id: 502,
+            group_id: -1,
+            status: 'completed',
+            started_at: '2026-07-20T10:00:00Z',
+            scheduled_date: '2026-07-20',
+          },
+        }];
+      }
+      if (url.includes('/api/workout/miband')) return [];
+      if (url.includes('/api/settings')) return { timezone: '' };
+      return null;
+    });
+
+    await window.loadWorkoutHistoryTab();
+
+    const nameEl = document
+      .getElementById('workout-history-display')
+      .querySelector('.wg-workouts-history-row__name');
+    expect(nameEl).toBeTruthy();
+    expect(nameEl.textContent).toBe('Ad-hoc Workout');
+  });
+
   it('deleteSession short-circuits when sessionId is falsy', async () => {
     const { window } = env;
     const apiCallSpy = vi.fn();

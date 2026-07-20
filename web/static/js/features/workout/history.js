@@ -277,7 +277,10 @@ function _buildSessionCard(s) {
 
     const name = document.createElement('span');
     name.className = 'wg-workouts-history-row__name';
-    name.textContent = s.group_name || 'Workout';
+    // Ad-hoc sessions (group_id === -1, e.g. Telegram `/workout walk`) store their
+    // free-text label in session.notes; surface it as the row name so it isn't invisible.
+    const adhocLabel = (session.group_id === -1 && session.notes) ? String(session.notes).trim() : '';
+    name.textContent = adhocLabel || s.group_name || 'Workout';
     title.appendChild(name);
 
     body.appendChild(title);
