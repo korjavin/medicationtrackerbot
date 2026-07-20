@@ -120,13 +120,13 @@ and all `relay_test.go`/`push_test.go` blind/ct-verbatim assertions.
 - [x] `go build ./...` and `go test ./internal/tgclient/...` — must pass before Task 2.
 
 ### Task 2: origin marker column + origin-aware ReplaceSchedule + relay-refile store methods (cloudstore)
-- [ ] add migration `internal/cloudstore/migrations/019_push_origin.sql`: `ALTER TABLE scheduled_pushes ADD COLUMN origin TEXT NOT NULL DEFAULT 'client';` (goose up/down; down drops the column). NEVER edit an existing migration.
-- [ ] add exported consts `PushOriginClient = "client"`, `PushOriginRelayRefire = "relay_refire"` in `push.go`.
-- [ ] change `ReplaceSchedule`'s DELETE to `... AND sent_at_unix IS NULL AND origin = 'client'` so relay re-fires survive a client re-upload; client inserts stay origin `client` (default covers it — no `ScheduledPushInput` change).
-- [ ] add `InsertRelayRefire(ctx, accountID string, fireAt time.Time, tgText, tgCallback string) error` — INSERT one row with `delivery = DeliveryTelegram`, empty `ct` (`[]byte{}`), `origin = 'relay_refire'`. It copies already-cleartext fields only; it must NEVER read/produce `ct`.
-- [ ] add `CancelRelayRefire(ctx, accountID, tgCallback string) (int64, error)` — `DELETE FROM scheduled_pushes WHERE account_id=? AND origin='relay_refire' AND tg_callback=? AND sent_at_unix IS NULL`; return rows affected.
-- [ ] write tests in `internal/cloudstore/push_test.go`: (a) `ReplaceSchedule` preserves an unsent `relay_refire` row while wiping `client` rows; (b) `InsertRelayRefire` then `DueScheduledPushes` returns it with the copied text/callback + telegram delivery + empty ct; (c) `CancelRelayRefire` deletes only matching unsent refires (not sent ones, not other callbacks). Keep existing blind/ct assertions green.
-- [ ] `go build ./...`, `go build -tags mobile ./...`, `go test ./internal/cloudstore/...` — must pass before Task 3.
+- [x] add migration `internal/cloudstore/migrations/019_push_origin.sql`: `ALTER TABLE scheduled_pushes ADD COLUMN origin TEXT NOT NULL DEFAULT 'client';` (goose up/down; down drops the column). NEVER edit an existing migration.
+- [x] add exported consts `PushOriginClient = "client"`, `PushOriginRelayRefire = "relay_refire"` in `push.go`.
+- [x] change `ReplaceSchedule`'s DELETE to `... AND sent_at_unix IS NULL AND origin = 'client'` so relay re-fires survive a client re-upload; client inserts stay origin `client` (default covers it — no `ScheduledPushInput` change).
+- [x] add `InsertRelayRefire(ctx, accountID string, fireAt time.Time, tgText, tgCallback string) error` — INSERT one row with `delivery = DeliveryTelegram`, empty `ct` (`[]byte{}`), `origin = 'relay_refire'`. It copies already-cleartext fields only; it must NEVER read/produce `ct`.
+- [x] add `CancelRelayRefire(ctx, accountID, tgCallback string) (int64, error)` — `DELETE FROM scheduled_pushes WHERE account_id=? AND origin='relay_refire' AND tg_callback=? AND sent_at_unix IS NULL`; return rows affected.
+- [x] write tests in `internal/cloudstore/push_test.go`: (a) `ReplaceSchedule` preserves an unsent `relay_refire` row while wiping `client` rows; (b) `InsertRelayRefire` then `DueScheduledPushes` returns it with the copied text/callback + telegram delivery + empty ct; (c) `CancelRelayRefire` deletes only matching unsent refires (not sent ones, not other callbacks). Keep existing blind/ct assertions green. (tests added to `repo_test.go`, the package's scheduled-push test home — there is no `push_test.go`)
+- [x] `go build ./...`, `go build -tags mobile ./...`, `go test ./internal/cloudstore/...` — must pass before Task 3.
 
 ### Task 3: buttons-by-kind + relay re-fire / cancel on tap (cloudserver telegram.go)
 - [ ] in `SendReminder`, build the button set by stem namespace: `s:` → `Confirm`/`Snooze` (unchanged); `w:` → `Snooze 1h`(`:snooze1h`) / `Snooze 2h`(`:snooze2h`) / `Skip`(`:skip`). Keep the `ValidCallbackStem` guard (drops buttons on an invalid stem).
