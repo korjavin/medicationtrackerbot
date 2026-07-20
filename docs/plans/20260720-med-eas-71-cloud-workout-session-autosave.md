@@ -52,12 +52,12 @@ Related patterns: no existing `debounce` helper in the codebase — add a small 
 ## Implementation Steps
 
 ### Task 1: Reposition + rename "Add Exercise" to top of logs section
-- [ ] In `web/static/index.html`, add a logs-section header element above `#workout-session-logs` (e.g. `<div id="workout-session-logs-header" class="wg-workouts-session-logs-header"></div>`) to host the Add Exercise button (a stable node, since `#workout-session-logs` is fully `replaceChildren`'d on every re-render).
-- [ ] In `sessions.js` `showWorkoutSessionModal`, render the "Add Exercise" button into `#workout-session-logs-header` wired to `showAddExerciseToSessionModal` (reuse the existing `onLogSet` handler); keep the `.workout-action-btn` hook so sync.js offline toggling still applies, and apply static offline-disabled state as `renderSessionDetailActions` does.
-- [ ] In `sessions.js` `renderSessionDetailActions`, remove the "Log set" button (`logSetBtn`) from the bottom actions bar so only "Finish workout" remains there; keep the `onLogSet` param wiring intact or drop it if fully unused (keep signature stable for tests — verify existing callers/tests).
-- [ ] In `web/static/css/styles.css`, add a `.wg-workouts-session-logs-header` class (layout only, tokens/`--wg-*` spacing — no hardcoded colors) positioning the button near the top of the logs section.
-- [ ] Extend the session-detail integration suite: assert an "Add Exercise" button exists near the top of the logs section (not in the bottom actions bar), and that clicking it opens the add-exercise-to-session modal.
-- [ ] Run `npx vitest run` on the workout session/detail suites (Node 20) — must pass before Task 2.
+- [x] In `web/static/index.html`, add a logs-section header element above `#workout-session-logs` (e.g. `<div id="workout-session-logs-header" class="wg-workouts-session-logs-header"></div>`) to host the Add Exercise button (a stable node, since `#workout-session-logs` is fully `replaceChildren`'d on every re-render).
+- [x] In `sessions.js` `showWorkoutSessionModal`, render the "Add Exercise" button into `#workout-session-logs-header` wired to `showAddExerciseToSessionModal` (reuse the existing `onLogSet` handler); keep the `.workout-action-btn` hook so sync.js offline toggling still applies, and apply static offline-disabled state as `renderSessionDetailActions` does. (New `renderSessionLogsHeader` helper.)
+- [x] In `sessions.js` `renderSessionDetailActions`, remove the "Log set" button (`logSetBtn`) from the bottom actions bar so only "Finish workout" remains there; dropped the now-unused `onLogSet` param.
+- [x] In `web/static/css/styles.css`, add a `.wg-workouts-session-logs-header` class (layout only, tokens/`--wg-*` spacing — no hardcoded colors) positioning the button near the top of the logs section.
+- [x] Extend the session-detail integration suite: assert an "Add Exercise" button exists near the top of the logs section (not in the bottom actions bar), and that clicking it opens the add-exercise-to-session modal.
+- [x] Run `npx vitest run` on the workout session/detail suites (Node 20) — must pass before Task 2.
 
 ### Task 2: Debounced autosave decoupled from close
 - [ ] Add a closure/module-local debounce (~800ms) in `sessions.js`: `scheduleAutosave()` (arms/re-arms a timer that calls the autosave), plus `flushPendingAutosave()` (cancels the timer and awaits an immediate save if one is pending) and a cancel used on modal close/reopen.

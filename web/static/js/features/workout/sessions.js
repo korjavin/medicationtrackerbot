@@ -559,11 +559,11 @@ async function showWorkoutSessionModal(sessionId) {
         }
 
         renderWorkoutSessionInfo(infoContainer, data.session);
+        renderSessionLogsHeader(() => showAddExerciseToSessionModal());
         renderWorkoutSessionLogs(logsContainer);
         const actionsContainer = document.getElementById('workout-session-actions');
         if (actionsContainer) {
             renderSessionDetailActions(actionsContainer, {
-                onLogSet: () => showAddExerciseToSessionModal(),
                 onFinish: () => finishWorkoutSession()
             });
         }
@@ -689,24 +689,42 @@ async function finishWorkoutSession() {
     await saveWorkoutSessionDetails();
 }
 
+// renderSessionLogsHeader mounts the "Add Exercise" button in a stable node
+// above the (fully re-rendered on every edit) logs list, so you can add an
+// exercise without scrolling past every logged set. Reuses the existing
+// showAddExerciseToSessionModal handler (onLogSet). `.workout-action-btn`
+// keeps it in sync.js's offline sweep; static offline state is applied here.
+function renderSessionLogsHeader(onLogSet) {
+    const header = document.getElementById('workout-session-logs-header');
+    if (!header) return;
+    header.classList.add('wg-workouts-session-logs-header');
+    header.replaceChildren();
+
+    const handler = (typeof onLogSet === 'function') ? onLogSet : () => {};
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.id = 'workout-session-add-exercise-btn';
+    addBtn.className = 'wg-gloss--sun wg-workouts-session-logs-header__add workout-action-btn';
+    addBtn.textContent = 'Add Exercise';
+    addBtn.addEventListener('click', () => handler());
+    header.appendChild(addBtn);
+
+    if (typeof window !== 'undefined' && window.SyncManager && window.SyncManager.isOnline === false) {
+        addBtn.classList.add('offline-disabled');
+        addBtn.setAttribute('data-offline-disabled', 'true');
+        addBtn.disabled = true;
+    }
+}
+
 function renderSessionDetailActions(container, opts) {
     container.classList.add('wg-workouts-session-actions');
     container.replaceChildren();
 
-    const onLogSet = (opts && typeof opts.onLogSet === 'function') ? opts.onLogSet : () => {};
     const onFinish = (opts && typeof opts.onFinish === 'function') ? opts.onFinish : () => {};
 
-    // `.workout-action-btn` hooks these into sync.js's offline toggling
-    // sweep so the buttons stay disabled/enabled as connectivity changes
-    // while the modal is open. Static offline state at creation time is
-    // applied below (SyncManager.isOnline === false case).
-    const logSetBtn = document.createElement('button');
-    logSetBtn.type = 'button';
-    logSetBtn.id = 'workout-session-add-exercise-btn';
-    logSetBtn.className = 'wg-gloss--sun wg-workouts-session-actions__btn wg-workouts-session-actions__log-set workout-action-btn';
-    logSetBtn.textContent = 'Log set';
-    logSetBtn.addEventListener('click', () => onLogSet());
-
+    // `.workout-action-btn` hooks this into sync.js's offline toggling sweep
+    // so the button stays disabled/enabled as connectivity changes while the
+    // modal is open. Static offline state at creation time is applied below.
     const finishBtn = document.createElement('button');
     finishBtn.type = 'button';
     finishBtn.id = 'workout-session-finish-btn';
@@ -714,15 +732,12 @@ function renderSessionDetailActions(container, opts) {
     finishBtn.textContent = 'Finish workout';
     finishBtn.addEventListener('click', () => onFinish());
 
-    container.appendChild(logSetBtn);
     container.appendChild(finishBtn);
 
     if (typeof window !== 'undefined' && window.SyncManager && window.SyncManager.isOnline === false) {
-        [logSetBtn, finishBtn].forEach((btn) => {
-            btn.classList.add('offline-disabled');
-            btn.setAttribute('data-offline-disabled', 'true');
-            btn.disabled = true;
-        });
+        finishBtn.classList.add('offline-disabled');
+        finishBtn.setAttribute('data-offline-disabled', 'true');
+        finishBtn.disabled = true;
     }
 }
 

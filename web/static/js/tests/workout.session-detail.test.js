@@ -162,43 +162,67 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         expect(entry.querySelector('.wg-workouts-session-exercise__hint')).toBeNull();
     });
 
-    it('renders Log set + Finish workout buttons in the action cluster', () => {
+    it('renders only the Finish workout button in the action cluster (Log set moved to logs header)', () => {
         const { window, document } = env;
         const actionsContainer = document.getElementById('workout-session-actions');
-        const onLogSet = vi.fn();
         const onFinish = vi.fn();
 
-        window.renderSessionDetailActions(actionsContainer, { onLogSet, onFinish });
+        window.renderSessionDetailActions(actionsContainer, { onFinish });
 
         expect(actionsContainer.classList.contains('wg-workouts-session-actions')).toBe(true);
 
+        // The "Add Exercise" (formerly "Log set") button no longer lives in the
+        // bottom actions bar — it now sits in the logs-section header.
         const logSetBtn = actionsContainer.querySelector('.wg-workouts-session-actions__log-set');
         const finishBtn = actionsContainer.querySelector('.wg-workouts-session-actions__finish');
         const deleteBtn = actionsContainer.querySelector('.wg-workouts-session-actions__delete');
-        expect(logSetBtn).not.toBeNull();
+        expect(logSetBtn).toBeNull();
         expect(finishBtn).not.toBeNull();
         expect(deleteBtn).toBeNull();
 
-        // Log set is the sun pill; Finish is a neutral gloss button.
-        expect(logSetBtn.classList.contains('wg-gloss--sun')).toBe(true);
         expect(finishBtn.classList.contains('wg-gloss')).toBe(true);
         expect(finishBtn.classList.contains('wg-gloss--sun')).toBe(false);
-
-        expect(logSetBtn.textContent).toBe('Log set');
         expect(finishBtn.textContent).toBe('Finish workout');
     });
 
-    it('dispatches Log set and Finish callbacks independently', () => {
+    it('renders the Add Exercise button in the logs-section header, not the actions bar', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture()]);
+
+        const header = document.getElementById('workout-session-logs-header');
+        const addBtn = header.querySelector('#workout-session-add-exercise-btn');
+        expect(addBtn).not.toBeNull();
+        expect(addBtn.textContent).toBe('Add Exercise');
+        // Reachable near the top — the header sits above the logs list in DOM order.
+        const logs = document.getElementById('workout-session-logs');
+        // DOCUMENT_POSITION_FOLLOWING === 4: `logs` follows `header`.
+        expect(header.compareDocumentPosition(logs) & 4).toBeTruthy();
+        // Not duplicated into the bottom actions bar.
+        const actionsContainer = document.getElementById('workout-session-actions');
+        expect(actionsContainer.querySelector('#workout-session-add-exercise-btn')).toBeNull();
+    });
+
+    it('clicking Add Exercise opens the add-exercise-to-session modal', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture()]);
+
+        const opened = vi.fn();
+        window.showAddExerciseToSessionModal = opened;
+        // Re-render the header so the button is wired to the spy.
+        window.renderSessionLogsHeader(() => window.showAddExerciseToSessionModal());
+
+        document.getElementById('workout-session-add-exercise-btn').click();
+        expect(opened).toHaveBeenCalledTimes(1);
+    });
+
+    it('dispatches the Finish callback', () => {
         const { window, document } = env;
         const actionsContainer = document.getElementById('workout-session-actions');
-        const onLogSet = vi.fn();
         const onFinish = vi.fn();
-        window.renderSessionDetailActions(actionsContainer, { onLogSet, onFinish });
+        window.renderSessionDetailActions(actionsContainer, { onFinish });
 
-        actionsContainer.querySelector('.wg-workouts-session-actions__log-set').click();
         actionsContainer.querySelector('.wg-workouts-session-actions__finish').click();
 
-        expect(onLogSet).toHaveBeenCalledTimes(1);
         expect(onFinish).toHaveBeenCalledTimes(1);
     });
 
@@ -208,7 +232,6 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         window.renderSessionDetailActions(actionsContainer, {});
 
         expect(() => {
-            actionsContainer.querySelector('.wg-workouts-session-actions__log-set').click();
             actionsContainer.querySelector('.wg-workouts-session-actions__finish').click();
         }).not.toThrow();
     });
