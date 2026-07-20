@@ -65,6 +65,15 @@ function renderWorkoutSessionInfo(infoContainer, session) {
     });
     title.textContent = `${dateStr} · ${weekday}`;
     header.appendChild(title);
+    // Ad-hoc sessions (group_id === -1, e.g. `/workout walk`) carry their free-text
+    // label in session.notes; the date-based header would otherwise hide it.
+    const adhocLabel = (session.group_id === -1 && session.notes) ? String(session.notes).trim() : '';
+    if (adhocLabel) {
+        const label = document.createElement('span');
+        label.className = 'wg-mono-display wg-workouts-session-info__title';
+        label.textContent = adhocLabel;
+        header.appendChild(label);
+    }
     root.appendChild(header);
 
     const meta = document.createElement('div');
