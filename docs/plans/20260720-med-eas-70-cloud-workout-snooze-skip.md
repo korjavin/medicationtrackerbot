@@ -112,12 +112,12 @@ and all `relay_test.go`/`push_test.go` blind/ct-verbatim assertions.
 ## Implementation Steps
 
 ### Task 1: Extend the callback protocol for workout actions (tgclient)
-- [ ] in `internal/tgclient/tgclient.go` add `CallbackWorkoutPrefix = "w:"` and actions `CallbackActionSnooze1h = "snooze1h"`, `CallbackActionSnooze2h = "snooze2h"`, `CallbackActionSkip = "skip"` (keep `confirm`/`snooze` for meds).
-- [ ] extend `ValidCallbackStem` to also accept a workout stem `w:<groupId>:<YYYYMMDD>` — `groupId` a positive int64, date exactly 8 digits; keep `s:` behavior and the len cap comfortably ≥ the workout stem (raise the 32 cap only as much as needed; `w:<int>:<8>:<action>` stays well under Telegram's 64-byte callback_data limit).
-- [ ] add `ParseWorkoutCallback(data) (groupID int64, date string, action string, ok bool)` returning `date` as `YYYY-MM-DD` (re-insert dashes) and `ok` only for `snooze1h`/`snooze2h`/`skip`; leave `ParseCallbackData` (the `s:` med parser) unchanged.
-- [ ] add a small helper `IsWorkoutCallback(data) bool` (prefix check) so the handler can route namespaces without double-parsing.
-- [ ] write table-driven tests in `internal/tgclient/tgclient_test.go`: valid/invalid workout stems, round-trip parse (`w:6:20260720:snooze1h` → group 6, date `2026-07-20`, `snooze1h`), rejects bad action / non-numeric group / wrong date length / >64-byte data, and med `s:` stems still parse.
-- [ ] `go build ./...` and `go test ./internal/tgclient/...` — must pass before Task 2.
+- [x] in `internal/tgclient/tgclient.go` add `CallbackWorkoutPrefix = "w:"` and actions `CallbackActionSnooze1h = "snooze1h"`, `CallbackActionSnooze2h = "snooze2h"`, `CallbackActionSkip = "skip"` (keep `confirm`/`snooze` for meds).
+- [x] extend `ValidCallbackStem` to also accept a workout stem `w:<groupId>:<YYYYMMDD>` — `groupId` a positive int64, date exactly 8 digits; keep `s:` behavior and the len cap comfortably ≥ the workout stem (raise the 32 cap only as much as needed; `w:<int>:<8>:<action>` stays well under Telegram's 64-byte callback_data limit).
+- [x] add `ParseWorkoutCallback(data) (groupID int64, date string, action string, ok bool)` returning `date` as `YYYY-MM-DD` (re-insert dashes) and `ok` only for `snooze1h`/`snooze2h`/`skip`; leave `ParseCallbackData` (the `s:` med parser) unchanged.
+- [x] add a small helper `IsWorkoutCallback(data) bool` (prefix check) so the handler can route namespaces without double-parsing.
+- [x] write table-driven tests in `internal/tgclient/tgclient_test.go`: valid/invalid workout stems, round-trip parse (`w:6:20260720:snooze1h` → group 6, date `2026-07-20`, `snooze1h`), rejects bad action / non-numeric group / wrong date length / >64-byte data, and med `s:` stems still parse.
+- [x] `go build ./...` and `go test ./internal/tgclient/...` — must pass before Task 2.
 
 ### Task 2: origin marker column + origin-aware ReplaceSchedule + relay-refile store methods (cloudstore)
 - [ ] add migration `internal/cloudstore/migrations/019_push_origin.sql`: `ALTER TABLE scheduled_pushes ADD COLUMN origin TEXT NOT NULL DEFAULT 'client';` (goose up/down; down drops the column). NEVER edit an existing migration.
