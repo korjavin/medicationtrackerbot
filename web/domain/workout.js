@@ -1286,9 +1286,16 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   async function snoozeScheduledSession({ groupId, date, minutes }) {
     const session = await findOrCreateScheduledSession(groupId, date);
     const nowMs = now();
+    const snoozedUntil = new Date(nowMs + Number(minutes) * 60 * 1000).toISOString();
+    // The inbox drain is at-least-once (inbox.js drain rule 2): a crash between
+    // flush and ack re-applies this event. now() is pinned to the server tap
+    // time, so a redelivery yields the identical snoozedUntil — skip it so
+    // snooze_count is not re-incremented. A genuine second tap arrives with a
+    // different at_unix (hence a different snoozedUntil) and still applies.
+    if (session.snoozed_until === snoozedUntil) return;
     await records.put(WORKOUT_RECORD_TYPES.SESSION, {
       ...session,
-      snoozed_until: new Date(nowMs + Number(minutes) * 60 * 1000).toISOString(),
+      snoozed_until: snoozedUntil,
       snooze_count: (session.snooze_count || 0) + 1,
       clientTs: nowMs,
     });
@@ -1296,8 +1303,12 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
   async function skipScheduledSession({ groupId, date }) {
     const session = await findOrCreateScheduledSession(groupId, date);
+    // Same at-least-once re-apply guard: advanceRotation is NOT idempotent, so
+    // only advance on a real notified->skipped transition. A redelivery (or a
+    // session already skipped elsewhere) finds status 'skipped' and no-ops.
+    const alreadySkipped = session.status === 'skipped';
     await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...session, status: 'skipped', clientTs: now() });
-    await tryAdvanceRotation(session);
+    if (!alreadySkipped) await tryAdvanceRotation(session);
   }
 
   async function completeSession(id) {
