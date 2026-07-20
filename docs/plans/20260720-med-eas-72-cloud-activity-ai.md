@@ -77,11 +77,11 @@ Reference shapes (mirror faithfully for parity):
 - [x] Run `npx vitest run` on activityai + domain-purity suites — must pass before next task.
 
 ### Task 3: aiclient.js parseActivityFromDescription
-- [ ] In `web/cloud/js/aiclient.js`, import `ActivitySystemPrompt, activitySchema` from `../../domain/activityai.js`.
-- [ ] Add `parseActivityFromDescription(description)` inside `createAIClient`, mirroring `parseMealFromDescription` (lines 308-339): same BYO-vs-trial credential/consent plumbing, `response_format` json_schema (`activity_data`, strict, activitySchema), and the response_format-rejection fenced-prompt fallback (fence instruction naming the activity JSON shape: `{"name": string, "exercises": [{"name": string, "sets": number|null, "reps": number|null, "weight_kg": number|null, "duration_minutes": number|null, "notes": string}]}`).
-- [ ] Add `parseActivityFromDescription` to the returned object (line ~405).
-- [ ] Verify no domain-purity impact (aiclient.js is under web/cloud, not web/domain — fetch is allowed there).
-- [ ] Run `npx vitest run` on the cloud suites — must pass before next task.
+- [x] In `web/cloud/js/aiclient.js`, import `ActivitySystemPrompt, activitySchema` from `../../domain/activityai.js`.
+- [x] Add `parseActivityFromDescription(description)` inside `createAIClient`, mirroring `parseMealFromDescription` (lines 308-339): same BYO-vs-trial credential/consent plumbing, `response_format` json_schema (`activity_data`, strict, activitySchema), and the response_format-rejection fenced-prompt fallback (fence instruction naming the activity JSON shape: `{"name": string, "exercises": [{"name": string, "sets": number|null, "reps": number|null, "weight_kg": number|null, "duration_minutes": number|null, "notes": string}]}`).
+- [x] Add `parseActivityFromDescription` to the returned object (line ~405).
+- [x] Verify no domain-purity impact (aiclient.js is under web/cloud, not web/domain — fetch is allowed there).
+- [x] Run `npx vitest run` on the cloud suites — must pass before next task.
 
 ### Task 4: workout.js createMiBand
 - [ ] Add `createMiBand({ recordId, activityName, durationSec } = {})` to `createWorkoutDomain` (near listMiBand ~2096). Mirror `internal/bot/activity_commands.go` + `vitals.js:462-482` record shape: `startMs = now()`, `endMs = startMs + (durationSec||0)*1000`; look up an existing active record by recordId to preserve its numeric `id`, else `id = startMs` (deterministic); write a full `miband` record: `activity_type:0`, `activity_name: activityName||''`, `source_start_ms:startMs`, `source_end_ms:endMs`, `duration_sec: durationSec||0`, `distance_m:0, steps:0, calories:0, heart_rate_avg:0, spo2_avg:0, pause_ms:0, tz_offset:0`, `source:'manual'`, `user_id: CLOUD_USER_ID`, `recordId: recordId || genRecordId('miband', startMs)`, `clientTs: startMs`, `deleted:false`. Return `toMiBandResponse(record)`.
