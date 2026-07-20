@@ -254,4 +254,23 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         expect(deleteBtn.querySelector('.wg-gloss')).not.toBeNull();
         expect(deleteBtn.getAttribute('aria-label')).toBe('Remove exercise');
     });
+
+    // Delete gating (med-eas.71, Task 4): the static header Delete button is
+    // hidden while a session is in_progress (deleting a live session from here
+    // makes no sense) and shown once it's completed/skipped.
+    it('hides the Delete button for an in_progress session', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture()], { status: 'in_progress' });
+
+        const deleteBtn = document.getElementById('workout-session-delete-btn');
+        expect(deleteBtn.classList.contains('hidden')).toBe(true);
+    });
+
+    it('shows the Delete button for a completed session', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture()], { status: 'completed' });
+
+        const deleteBtn = document.getElementById('workout-session-delete-btn');
+        expect(deleteBtn.classList.contains('hidden')).toBe(false);
+    });
 });

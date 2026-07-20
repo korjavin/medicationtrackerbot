@@ -624,6 +624,14 @@ async function showWorkoutSessionModal(sessionId) {
             }
         }
 
+        // In-progress sessions can't be deleted from here (only completed/skipped
+        // ones); gate the static header button via `.hidden`, no inline .style.
+        const deleteBtn = document.getElementById('workout-session-delete-btn');
+        if (deleteBtn) deleteBtn.classList.toggle('hidden', data.session.status === 'in_progress');
+
+        // Clear any stale autosave error from a previously-open session.
+        setAutosaveStatus('saved');
+
         renderWorkoutSessionInfo(infoContainer, data.session);
         renderSessionLogsHeader(() => showAddExerciseToSessionModal());
         renderWorkoutSessionLogs(logsContainer);

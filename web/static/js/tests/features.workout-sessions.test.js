@@ -1264,6 +1264,64 @@ describe('features/workout/sessions.js — split-file integration', () => {
   });
 
   // ===========================================================================
+  // Autosave failure handling (med-eas.71, Task 4)
+  //
+  // A failed autosave keeps the modal open, keeps the user's local edits in
+  // state (never dropped), and surfaces an inline error; a subsequent
+  // successful autosave clears it.
+  // ===========================================================================
+
+  it('a failed autosave keeps the modal open, preserves local edits, and shows an inline error that a later success clears', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    const closeSpy = vi.spyOn(window.ModalManager.workoutSession, 'close');
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '' }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    const status = document.getElementById('workout-session-autosave-status');
+
+    // First autosave fails (apiCall returns null → soft/network failure).
+    let failNext = true;
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) return failNext ? null : { ok: true };
+      return [];
+    });
+
+    vi.useFakeTimers();
+    try {
+      window.updateLocalSet(0, 0, 'weight_kg', '65');
+      await vi.advanceTimersByTimeAsync(800);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // Modal stays open, the edit is still in state, and the error is inline.
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(window.WorkoutSessionsState.data).not.toBeNull();
+    expect(window.WorkoutSessionsState.logs[0].sets[0].weight_kg).toBe(65);
+    expect(status.classList.contains('is-error')).toBe(true);
+    expect(status.textContent.length).toBeGreaterThan(0);
+
+    // A subsequent successful autosave clears the inline error.
+    failNext = false;
+    vi.useFakeTimers();
+    try {
+      window.updateLocalSet(0, 1, 'reps', '10');
+      await vi.advanceTimersByTimeAsync(800);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(status.classList.contains('is-error')).toBe(false);
+    expect(status.textContent).toBe('');
+  });
+
+  // ===========================================================================
   // Save button removed, Cancel relabelled Close, close flushes pending edit
   // (med-eas.71, Task 3)
   // ===========================================================================

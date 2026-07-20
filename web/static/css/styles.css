@@ -7690,6 +7690,18 @@ textarea.wg-input {
     cursor: pointer;
 }
 
+.wg-workouts-session-autosave-status {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    min-height: 1.25em;
+    margin-bottom: var(--space-xs);
+    color: var(--wg-fg-4);
+}
+
+.wg-workouts-session-autosave-status.is-error {
+    color: var(--color-danger);
+}
+
 .wg-workouts-session-logs-header {
     display: flex;
     justify-content: flex-end;
