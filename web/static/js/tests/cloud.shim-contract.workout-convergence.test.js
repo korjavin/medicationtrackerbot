@@ -40,3 +40,23 @@ describe('two-instance lazy getNext convergence', () => {
         expect([resA.session.id, resB.session.id]).toContain(sessions[0].id);
     });
 });
+
+describe('createMiBand deterministic recordId convergence', () => {
+    it('re-calling with the same recordId overwrites rather than duplicating', async () => {
+        const nowMs = Date.now();
+        const records = createInMemoryRecordsPort({});
+        const domain = createWorkoutDomain({ records, now: () => nowMs, timeZone: 'UTC' });
+
+        const first = await domain.createMiBand({ recordId: 'tg-42', activityName: 'Bicycle', durationSec: 600 });
+        const second = await domain.createMiBand({ recordId: 'tg-42', activityName: 'Bicycle', durationSec: 600 });
+
+        const rows = await records.list('miband');
+        expect(rows).toHaveLength(1);
+        // Same deterministic numeric id survives the re-drain (edits key on it).
+        expect(second.id).toBe(first.id);
+        expect(rows[0].source).toBe('manual');
+        expect(rows[0].activity_type).toBe(0);
+        expect(rows[0].duration_sec).toBe(600);
+        expect(second.activity_name).toBe('Bicycle');
+    });
+});

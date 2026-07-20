@@ -84,10 +84,10 @@ Reference shapes (mirror faithfully for parity):
 - [x] Run `npx vitest run` on the cloud suites — must pass before next task.
 
 ### Task 4: workout.js createMiBand
-- [ ] Add `createMiBand({ recordId, activityName, durationSec } = {})` to `createWorkoutDomain` (near listMiBand ~2096). Mirror `internal/bot/activity_commands.go` + `vitals.js:462-482` record shape: `startMs = now()`, `endMs = startMs + (durationSec||0)*1000`; look up an existing active record by recordId to preserve its numeric `id`, else `id = startMs` (deterministic); write a full `miband` record: `activity_type:0`, `activity_name: activityName||''`, `source_start_ms:startMs`, `source_end_ms:endMs`, `duration_sec: durationSec||0`, `distance_m:0, steps:0, calories:0, heart_rate_avg:0, spo2_avg:0, pause_ms:0, tz_offset:0`, `source:'manual'`, `user_id: CLOUD_USER_ID`, `recordId: recordId || genRecordId('miband', startMs)`, `clientTs: startMs`, `deleted:false`. Return `toMiBandResponse(record)`.
-- [ ] Export `createMiBand` in the domain's returned object (line ~2200).
-- [ ] Add integration coverage (in inbox-apply.test.js in Task 5, or a workout-domain assertion): re-calling `createMiBand` with the same recordId overwrites (one record).
-- [ ] Run `npx vitest run` on workout-related suites — must pass before next task.
+- [x] Add `createMiBand({ recordId, activityName, durationSec } = {})` to `createWorkoutDomain` (near listMiBand ~2096). Mirror `internal/bot/activity_commands.go` + `vitals.js:462-482` record shape: `startMs = now()`, `endMs = startMs + (durationSec||0)*1000`; look up an existing active record by recordId to preserve its numeric `id`, else `id = startMs` (deterministic); write a full `miband` record: `activity_type:0`, `activity_name: activityName||''`, `source_start_ms:startMs`, `source_end_ms:endMs`, `duration_sec: durationSec||0`, `distance_m:0, steps:0, calories:0, heart_rate_avg:0, spo2_avg:0, pause_ms:0, tz_offset:0`, `source:'manual'`, `user_id: CLOUD_USER_ID`, `recordId: recordId || genRecordId('miband', startMs)`, `clientTs: startMs`, `deleted:false`. Return `toMiBandResponse(record)`.
+- [x] Export `createMiBand` in the domain's returned object (line ~2200).
+- [x] Add integration coverage (workout-domain assertion in `cloud.shim-contract.workout-convergence.test.js`): re-calling `createMiBand` with the same recordId overwrites (one record).
+- [x] Run `npx vitest run` on workout-related suites — must pass before next task.
 
 ### Task 5: inbox-apply.js activity case + wiring + confirmationText
 - [ ] In `applyTGCommand` params (line 429) add `activityAI` to the destructured domain bundle.
