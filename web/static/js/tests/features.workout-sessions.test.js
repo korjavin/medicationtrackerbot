@@ -99,12 +99,12 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(window.WorkoutSessionsState.logs[0].notes).toBe('felt good');
   });
 
-  it('closeWorkoutSessionModal clears the session data state', () => {
+  it('closeWorkoutSessionModal clears the session data state', async () => {
     const { window } = env;
     window.WorkoutSessionsState.data = { id: 7, status: 'in_progress' };
     window.WorkoutSessionsState.originalStatus = 'in_progress';
 
-    window.closeWorkoutSessionModal();
+    await window.closeWorkoutSessionModal();
 
     expect(window.WorkoutSessionsState.data).toBeNull();
     expect(window.WorkoutSessionsState.originalStatus).toBeNull();
@@ -1141,6 +1141,387 @@ describe('features/workout/sessions.js — split-file integration', () => {
     // skipped session and its schedule propagation / progression no-ops — a
     // skipped session must not advance the plan (that's for completed sessions).
     expect(order).toEqual(['status', 'log']);
+  });
+
+  // ===========================================================================
+  // Debounced autosave decoupled from close (med-eas.71, Task 2)
+  //
+  // Any edit arms an ~800ms timer that persists through the existing
+  // saveWorkoutSessionDetails path WITHOUT closing the modal. Rapid edits
+  // batch into a single save; changing the status select autosaves too.
+  // ===========================================================================
+
+  it('autosaves batched set/reps edits ~800ms after the last edit without closing the modal', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    const closeSpy = vi.spyOn(window.ModalManager.workoutSession, 'close');
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '' }
+    ];
+    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
+      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
+    });
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    const updateCalls = [];
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) { updateCalls.push(payload); return { ok: true }; }
+      return [];
+    });
+
+    vi.useFakeTimers();
+    try {
+      // Two rapid edits inside the debounce window → one batched autosave.
+      window.updateLocalSet(0, 0, 'weight_kg', '65');
+      window.updateLocalSet(0, 1, 'reps', '10');
+      // Not yet fired before the debounce elapses.
+      await vi.advanceTimersByTimeAsync(400);
+      expect(updateCalls.length).toBe(0);
+      await vi.advanceTimersByTimeAsync(800);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // Exactly one save for the single edited log; the modal stays open.
+    expect(updateCalls.length).toBe(1);
+    expect(updateCalls[0].id).toBe(7);
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(window.loadWorkoutHistoryTab).not.toHaveBeenCalled();
+    expect(window.WorkoutSessionsState.data).not.toBeNull();
+  });
+
+  it('autosaves a notes edit through the existing apiCall path', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '' }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    let notesSeen = null;
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) { notesSeen = payload.notes; return { ok: true }; }
+      return [];
+    });
+
+    vi.useFakeTimers();
+    try {
+      window.updateLocalLog(0, 'notes', 'felt strong');
+      await vi.advanceTimersByTimeAsync(800);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(notesSeen).toBe('felt strong');
+  });
+
+  it('autosaves when the status select changes (no modal close)', async () => {
+    const { window, document } = env;
+    installApiCache(window, {
+      workout_next: { session: { id: 42, status: 'in_progress' } },
+      workout_history: {
+        sessions: [{ session: { id: 42, status: 'in_progress' }, group_name: 'Push' }],
+        miband: []
+      }
+    });
+    window.loadWorkoutHistoryTab = vi.fn();
+    const closeSpy = vi.spyOn(window.ModalManager.workoutSession, 'close');
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [];
+
+    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
+      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
+    });
+
+    const statusCalls = [];
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint.startsWith('/api/workout/sessions/status')) { statusCalls.push(payload); return { ok: true }; }
+      return [];
+    });
+
+    const select = document.getElementById('session-status-select');
+    select.value = 'skipped';
+
+    vi.useFakeTimers();
+    try {
+      select.dispatchEvent(new window.Event('change'));
+      await vi.advanceTimersByTimeAsync(800);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(statusCalls.length).toBe(1);
+    expect(statusCalls[0].status).toBe('skipped');
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(window.WorkoutSessionsState.data).not.toBeNull();
+  });
+
+  // Regression (med-eas.71): a planned exercise pre-fills as an id:0 log. The
+  // first autosave after editing it must CREATE it and adopt the returned id;
+  // a later autosave must then UPDATE (not re-create), or cloud createLog's
+  // dedup guard throws 'conflict' — a blocking alert that aborts the batch and
+  // bricks Finish.
+  it('reconciles a created log id so a subsequent autosave updates instead of re-creating', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    // Pre-filled planned row: id 0, real exercise_id, untouched.
+    window.WorkoutSessionsState.logs = [
+      { id: 0, exercise_id: 3, exercise_name: 'Squat', sets_completed: 3, reps_completed: 5, weight_kg: 100, notes: '', _dirty: false }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    const createCalls = [];
+    const updateCalls = [];
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint === '/api/workout/sessions/logs/create') { createCalls.push(payload); return { id: 88 }; }
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) { updateCalls.push(payload); return { ok: true }; }
+      return [];
+    });
+
+    vi.useFakeTimers();
+    try {
+      window.updateLocalSet(0, 0, 'weight_kg', '105');
+      await vi.advanceTimersByTimeAsync(800);
+      // Second edit → second autosave.
+      window.updateLocalSet(0, 1, 'reps', '6');
+      await vi.advanceTimersByTimeAsync(800);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // Exactly one create (first autosave), then an update (not a second create).
+    expect(createCalls.length).toBe(1);
+    expect(updateCalls.length).toBe(1);
+    expect(updateCalls[0].id).toBe(88);
+    // Local log adopted the server id.
+    expect(window.WorkoutSessionsState.logs[0].id).toBe(88);
+  });
+
+  it('re-sends a per-set edit made while an autosave is in flight (claim-before-await, not clobbered)', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '',
+        sets: [
+          { set_index: 0, weight_kg: 60, reps: 8, set_type: 'normal' },
+          { set_index: 1, weight_kg: 60, reps: 8, set_type: 'normal' }
+        ] }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    const updateCalls = [];
+    const firstUpdate = deferred();
+    let n = 0;
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) {
+        updateCalls.push(payload);
+        n += 1;
+        return n === 1 ? firstUpdate.promise : { ok: true };
+      }
+      return [];
+    });
+
+    vi.useFakeTimers();
+    try {
+      // Edit set 0 → autosave A fires and its update goes in flight (deferred).
+      window.updateLocalSet(0, 0, 'weight_kg', '65');
+      await vi.advanceTimersByTimeAsync(800);
+      // While A is in flight, edit set 1 — this re-marks _setsDirty. The old
+      // read-clear-after-await would have this cleared by A on resolve, dropping
+      // the edit from the next save's sets array.
+      window.updateLocalSet(0, 1, 'reps', '10');
+      // Resolve A, then let autosave B fire.
+      firstUpdate.resolve({ ok: true });
+      await vi.advanceTimersByTimeAsync(800);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(updateCalls.length).toBe(2);
+    // B must re-send the sets array carrying the mid-flight edit — not omit it.
+    expect(Array.isArray(updateCalls[1].sets)).toBe(true);
+    expect(updateCalls[1].sets[1].reps).toBe(10);
+  });
+
+  // ===========================================================================
+  // Autosave failure handling (med-eas.71, Task 4)
+  //
+  // A failed autosave keeps the modal open, keeps the user's local edits in
+  // state (never dropped), and surfaces an inline error; a subsequent
+  // successful autosave clears it.
+  // ===========================================================================
+
+  it('a failed autosave keeps the modal open, preserves local edits, and shows an inline error that a later success clears', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    const closeSpy = vi.spyOn(window.ModalManager.workoutSession, 'close');
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '' }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    const status = document.getElementById('workout-session-autosave-status');
+
+    // First autosave fails (apiCall returns null → soft/network failure).
+    let failNext = true;
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) return failNext ? null : { ok: true };
+      return [];
+    });
+
+    vi.useFakeTimers();
+    try {
+      window.updateLocalSet(0, 0, 'weight_kg', '65');
+      await vi.advanceTimersByTimeAsync(800);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // Modal stays open, the edit is still in state, and the error is inline.
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(window.WorkoutSessionsState.data).not.toBeNull();
+    expect(window.WorkoutSessionsState.logs[0].sets[0].weight_kg).toBe(65);
+    expect(status.classList.contains('is-error')).toBe(true);
+    expect(status.textContent.length).toBeGreaterThan(0);
+
+    // A subsequent successful autosave clears the inline error.
+    failNext = false;
+    vi.useFakeTimers();
+    try {
+      window.updateLocalSet(0, 1, 'reps', '10');
+      await vi.advanceTimersByTimeAsync(800);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(status.classList.contains('is-error')).toBe(false);
+    expect(status.textContent).toBe('');
+  });
+
+  // ===========================================================================
+  // Save button removed, Cancel relabelled Close, close flushes pending edit
+  // (med-eas.71, Task 3)
+  // ===========================================================================
+
+  it('has no Save button and a Close (not Cancel) header button in the session modal', () => {
+    const { document } = env;
+    expect(document.getElementById('workout-session-save-btn')).toBeNull();
+    const closeBtn = document.getElementById('workout-session-cancel-btn');
+    expect(closeBtn).not.toBeNull();
+    expect(closeBtn.textContent).toBe('Close');
+  });
+
+  it('closing with a pending debounced edit flushes it before dismissing (edit not dropped)', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '' }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    const updateCalls = [];
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) { updateCalls.push(payload); return { ok: true }; }
+      return [];
+    });
+
+    // Arm a debounced edit but close before the ~800ms timer elapses — the
+    // flush on close must still persist it.
+    window.updateLocalSet(0, 0, 'weight_kg', '65');
+    await window.closeWorkoutSessionModal();
+
+    expect(updateCalls.length).toBe(1);
+    expect(updateCalls[0].id).toBe(7);
+    expect(window.WorkoutSessionsState.data).toBeNull();
+  });
+
+  it('closing while the pending flush fails keeps the modal open and preserves the edit (not dropped)', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    const closeSpy = vi.spyOn(window.ModalManager.workoutSession, 'close');
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '' }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    // Soft (offline / 5xx) failure: the log update returns null.
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) return null;
+      return [];
+    });
+
+    // Arm a debounced edit then Close before the timer elapses; the flush runs,
+    // fails, and must keep the modal open so the unsaved edit isn't torn down.
+    window.updateLocalSet(0, 0, 'weight_kg', '65');
+    await window.closeWorkoutSessionModal();
+
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(window.WorkoutSessionsState.data).not.toBeNull();
+    // Edit is still present and re-flagged dirty for a later retry.
+    expect(window.WorkoutSessionsState.logs[0].sets[0].weight_kg).toBe(65);
+    expect(window.WorkoutSessionsState.logs[0]._dirty).toBe(true);
+    expect(document.getElementById('workout-session-autosave-status').classList.contains('is-error')).toBe(true);
+  });
+
+  it('adding an exercise while the pending flush fails bails and preserves the edit (not dropped by reload)', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.safeAlert = vi.fn();
+    const reloadSpy = vi.spyOn(window, 'showWorkoutSessionModal');
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '' }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    // Soft (offline / 5xx) failure on the pending edit's save; a create would
+    // otherwise succeed (returns []), reload the session, and clobber the edit.
+    const createSpy = vi.fn(async () => ({ id: 999 }));
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) return null;
+      if (endpoint === '/api/workout/sessions/logs/create') return createSpy(endpoint);
+      return [];
+    });
+
+    // Arm a debounced edit, then try to add an exercise before it flushes.
+    window.updateLocalSet(0, 0, 'weight_kg', '65');
+    document.getElementById('session-add-exercise-name').value = 'Squat';
+    document.getElementById('session-add-exercise-id').value = '99';
+    document.getElementById('session-add-exercise-sets').value = '5';
+    document.getElementById('session-add-exercise-reps').value = '5';
+
+    await window.saveNewSessionExercise();
+
+    // Bailed: no create fired, no session reload, the edit survives + stays dirty.
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(reloadSpy).not.toHaveBeenCalled();
+    expect(window.safeAlert).toHaveBeenCalled();
+    expect(window.WorkoutSessionsState.logs.length).toBe(1);
+    expect(window.WorkoutSessionsState.logs[0].sets[0].weight_kg).toBe(65);
+    expect(window.WorkoutSessionsState.logs[0]._dirty).toBe(true);
   });
 
   // ===========================================================================

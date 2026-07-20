@@ -1519,14 +1519,16 @@
                 <button type="button" id="workout-session-delete-btn"
                     class="wg-gloss wg-workouts-session-modal__header-btn wg-workouts-session-modal__header-btn--danger">Delete</button>
                 <button type="button" id="workout-session-cancel-btn"
-                    class="wg-gloss wg-workouts-session-modal__header-btn">Cancel</button>
-                <button type="button" id="workout-session-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-workouts-session-modal__header-btn wg-workouts-session-modal__header-btn--save">Save progress</button>
+                    class="wg-gloss wg-workouts-session-modal__header-btn">Close</button>
             </div>
         </div>
 
         <div class="wg-workouts-session-modal__body">
             <div id="workout-session-info"></div>
+            <div id="workout-session-autosave-status" class="wg-workouts-session-autosave-status" role="status" aria-live="polite"></div>
+            <div id="workout-session-logs-header" class="wg-workouts-session-logs-header">
+                <!-- Add Exercise button injected here (stable node above the re-rendered logs) -->
+            </div>
             <div id="workout-session-logs">
                 <!-- Exercise logs injected here -->
             </div>
