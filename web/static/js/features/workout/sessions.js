@@ -965,9 +965,21 @@ async function saveWorkoutSessionDetails(opts) {
         for (const log of logs) {
             let logResult;
             let attempted = false;
+            // Claim the dirty flags BEFORE the await, and snapshot the per-set
+            // array. An edit landing while this write is in flight re-marks the
+            // log (and re-arms the debounce) so the *next* autosave re-sends it.
+            // Clearing the flags only AFTER the await would clobber that fresh
+            // edit — the classic read-clear race that silently drops the
+            // just-typed per-set data. The snapshot keeps the payload consistent
+            // even if the live sets array is mutated mid-flight. On a soft failure
+            // we restore the flags so the pending edit is retried, not lost.
+            const sentSets = !!(log._setsDirty && Array.isArray(log.sets));
+            const setsPayload = sentSets ? log.sets.map((s) => ({ ...s })) : null;
             if (log.id && log.id > 0) {
                 // Existing log — always update
                 attempted = true;
+                log._dirty = false;
+                log._setsDirty = false;
                 logResult = await apiCall('/api/workout/sessions/logs/update', 'POST', {
                     id: log.id,
                     sets_completed: Math.round(log.sets_completed),
@@ -983,11 +995,13 @@ async function saveWorkoutSessionDetails(opts) {
                     // notes were touched. Absent key ⇒ cloud updateLog keeps any
                     // real stored sets (it spreads the existing record); bot
                     // ignores the key either way (Task 3).
-                    ...(log._setsDirty && Array.isArray(log.sets) ? { sets: log.sets } : {})
+                    ...(setsPayload ? { sets: setsPayload } : {})
                 });
             } else if (log._dirty) {
                 // New log that user actually edited — create it
                 attempted = true;
+                log._dirty = false;
+                log._setsDirty = false;
                 logResult = await apiCall('/api/workout/sessions/logs/create', 'POST', {
                     session_id: sessionData.id,
                     exercise_id: log.exercise_id,
@@ -997,25 +1011,26 @@ async function saveWorkoutSessionDetails(opts) {
                     target_weight_kg: parseFloat(log.weight_kg),
                     status: 'completed',
                     notes: log.notes || '',
-                    ...(log._setsDirty && Array.isArray(log.sets) ? { sets: log.sets } : {})
+                    ...(setsPayload ? { sets: setsPayload } : {})
                 });
             }
             if (attempted && logResult === null) {
+                // Restore the claimed flags so the edit is retried on the next
+                // autosave rather than silently dropped.
+                log._dirty = true;
+                if (sentSets) log._setsDirty = true;
                 await settleFailure();
                 return;
             }
             if (attempted) {
                 anyMutationSucceeded = true;
-                // Reconcile local state so a *subsequent* autosave doesn't re-POST
-                // the same log. Without this, a created placeholder keeps id===0 &&
-                // _dirty, so the next autosave hits logs/create again → createLog's
-                // dedup guard throws 'conflict' (blocking alert + aborts the batch,
-                // and later bricks Finish). Adopting the server id routes future
-                // saves through the idempotent update path; clearing _setsDirty
-                // stops re-sending the fabricated per-set array every cycle.
+                // Adopt the server id so a *subsequent* autosave routes through the
+                // idempotent update path. Without this, a created placeholder keeps
+                // id===0 && _dirty, so the next autosave hits logs/create again →
+                // createLog's dedup guard throws 'conflict' (blocking alert + aborts
+                // the batch, and later bricks Finish). Flags were already claimed
+                // above; re-clearing here would clobber a mid-flight edit.
                 if (logResult && logResult.id) log.id = logResult.id;
-                log._dirty = false;
-                log._setsDirty = false;
             }
             // Skip: id===0 && !_dirty — pre-filled but untouched, don't save
         }
@@ -1312,6 +1327,15 @@ function onSessionExerciseSelect() {
 async function saveNewSessionExercise() {
     const sessionData = window.WorkoutSessionsState.data;
     if (!sessionData) return;
+
+    // Drain any pending/in-flight autosave first. Otherwise a debounce timer
+    // armed by a prior edit can fire during the create awaits below and iterate
+    // the just-pushed optimistic log (id:0, _dirty) → a second logs/create for
+    // the same exercise (dedup conflict). Flushing also persists that prior edit
+    // before the modal reload at the end reloads clean server state (which would
+    // otherwise drop it).
+    await flushPendingAutosave();
+    if (!window.WorkoutSessionsState.data) return;
 
     const name = document.getElementById('session-add-exercise-name').value.trim();
     let exerciseId = document.getElementById('session-add-exercise-id').value;

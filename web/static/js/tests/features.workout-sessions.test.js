@@ -1307,6 +1307,55 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(window.WorkoutSessionsState.logs[0].id).toBe(88);
   });
 
+  it('re-sends a per-set edit made while an autosave is in flight (claim-before-await, not clobbered)', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '',
+        sets: [
+          { set_index: 0, weight_kg: 60, reps: 8, set_type: 'normal' },
+          { set_index: 1, weight_kg: 60, reps: 8, set_type: 'normal' }
+        ] }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    const updateCalls = [];
+    const firstUpdate = deferred();
+    let n = 0;
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) {
+        updateCalls.push(payload);
+        n += 1;
+        return n === 1 ? firstUpdate.promise : { ok: true };
+      }
+      return [];
+    });
+
+    vi.useFakeTimers();
+    try {
+      // Edit set 0 → autosave A fires and its update goes in flight (deferred).
+      window.updateLocalSet(0, 0, 'weight_kg', '65');
+      await vi.advanceTimersByTimeAsync(800);
+      // While A is in flight, edit set 1 — this re-marks _setsDirty. The old
+      // read-clear-after-await would have this cleared by A on resolve, dropping
+      // the edit from the next save's sets array.
+      window.updateLocalSet(0, 1, 'reps', '10');
+      // Resolve A, then let autosave B fire.
+      firstUpdate.resolve({ ok: true });
+      await vi.advanceTimersByTimeAsync(800);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(updateCalls.length).toBe(2);
+    // B must re-send the sets array carrying the mid-flight edit — not omit it.
+    expect(Array.isArray(updateCalls[1].sets)).toBe(true);
+    expect(updateCalls[1].sets[1].reps).toBe(10);
+  });
+
   // ===========================================================================
   // Autosave failure handling (med-eas.71, Task 4)
   //
