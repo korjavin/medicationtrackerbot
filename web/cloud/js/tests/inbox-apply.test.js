@@ -12,6 +12,7 @@ import { createWeightDomain } from '../../../domain/weight.js';
 import { createNotesDomain } from '../../../domain/notes.js';
 import { createFoodDomain } from '../../../domain/food.js';
 import { createFoodAIDomain } from '../../../domain/foodai.js';
+import { createActivityAIDomain } from '../../../domain/activityai.js';
 import { createWorkoutDomain } from '../../../domain/workout.js';
 import { createVitalsDomain } from '../../../domain/vitals.js';
 import { vaultToRecords } from '../../../domain/vault.js';
@@ -809,7 +810,17 @@ describe('inbox-apply.js — a Telegram data command', () => {
             e.code = 'no_api_key';
             throw e;
         };
-        return { parseMealFromDescription: noKey, parseMealFromImage: noKey };
+        return { parseMealFromDescription: noKey, parseMealFromImage: noKey, parseActivityFromDescription: noKey };
+    }
+    // The AI parse an /activity message runs through, stubbed at the provider
+    // boundary — the real activityAI domain (validation + duration sum) still runs.
+    function stubActivityAIClient({ name = 'Bicycle ride', durationMinutes = 12 } = {}) {
+        return {
+            parseActivityFromDescription: async () => ({
+                name,
+                exercises: [{ name: 'cycling', sets: null, reps: null, weight_kg: null, duration_minutes: durationMinutes, notes: '' }],
+            }),
+        };
     }
     // The trial gate's refusal (web/cloud/js/aiclient.js) — like no_api_key,
     // a permanent condition for the message: must be answered and acked,
@@ -821,16 +832,17 @@ describe('inbox-apply.js — a Telegram data command', () => {
             e.scope = 'ai';
             throw e;
         };
-        return { parseMealFromDescription: refuse, parseMealFromImage: refuse };
+        return { parseMealFromDescription: refuse, parseMealFromImage: refuse, parseActivityFromDescription: refuse };
     }
 
-    function domainsFor(records, now, aiClient = stubAIClient(TWO_EGGS)) {
+    function domainsFor(records, now, aiClient = stubAIClient(TWO_EGGS), activityAIClient = stubActivityAIClient()) {
         return {
             bp: createBPDomain({ records, now, timeZone: 'UTC' }),
             weight: createWeightDomain({ records, now, timeZone: 'UTC' }),
             notes: createNotesDomain({ records, now }),
             intake: domainFor(records, now),
             foodAI: createFoodAIDomain({ aiClient, foodDomain: createFoodDomain({ records, now, timeZone: 'UTC' }), now }),
+            activityAI: createActivityAIDomain({ aiClient: activityAIClient }),
             workout: createWorkoutDomain({ records, now, timeZone: 'UTC' }),
             records,
             now,
@@ -963,6 +975,53 @@ describe('inbox-apply.js — a Telegram data command', () => {
         await applyTGCommand(commandEvent('/workout legs'), 14, opts);
 
         expect(await records.list('workoutsession')).toHaveLength(1);
+    });
+
+    it('/activity parses the description client-side and logs one manual mi-band activity', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        await applyTGCommand(commandEvent('/activity 2km bicycle'), 25, { ...domainsFor(records, now), editReply });
+
+        const miband = await records.list('miband');
+        expect(miband).toHaveLength(1);
+        expect(miband[0]).toMatchObject({ activity_name: 'Bicycle ride', source: 'manual', activity_type: 0, recordId: 'tg-25' });
+        // duration_minutes (12) summed → seconds.
+        expect(miband[0].duration_sec).toBe(720);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Logged activity: Bicycle ride/));
+    });
+
+    it('re-draining the same /activity event overwrites its own row instead of logging a second activity', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const opts = { ...domainsFor(records, now), editReply: vi.fn() };
+        await applyTGCommand(commandEvent('/activity 2km bicycle'), 25, opts);
+        await applyTGCommand(commandEvent('/activity 2km bicycle'), 25, opts);
+
+        expect(await records.list('miband')).toHaveLength(1);
+    });
+
+    it('bare /activity is refused with a usage hint and logs nothing', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        await applyTGCommand(commandEvent('/activity'), 26, { ...domainsFor(records, now), editReply });
+
+        expect(await records.list('miband')).toHaveLength(0);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Usage: \/activity/));
+    });
+
+    it('/activity with no configured key tells the user to add one, acks, and logs nothing', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        // Resolves (event acked) rather than throwing — a missing key is permanent
+        // for this message, so re-queuing forever would stall the mailbox.
+        await expect(applyTGCommand(commandEvent('/activity 2km bicycle'), 27, { ...domainsFor(records, now, stubAIClient(TWO_EGGS), noKeyAIClient()), editReply }))
+            .resolves.toBeUndefined();
+
+        expect(await records.list('miband')).toHaveLength(0);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/add an OpenAI key/));
     });
 
     it('/food parses the description client-side and logs the meal, backdated to arrival', async () => {
