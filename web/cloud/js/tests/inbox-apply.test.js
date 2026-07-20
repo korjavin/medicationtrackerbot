@@ -1391,4 +1391,16 @@ describe('inbox-apply.js — a Telegram workout Snooze/Skip tap', () => {
         await applyWorkoutSessionAction(snooze1hEvent, { workout: workoutFor(records), editReply });
         expect(editReply).toHaveBeenCalledWith(900, expect.stringMatching(/Snoozed/));
     });
+
+    // Regression: the created session's scheduled_date must carry the local offset
+    // (like every other materializer) so new Date(scheduled_date) doesn't shift the
+    // day backward in negative-offset zones and break is_today / sorting.
+    it('stamps scheduled_date with the local offset, not a bare date', async () => {
+        const records = fakeRecords();
+        const workout = createWorkoutDomain({ records, now: () => WTAP_MS, timeZone: 'America/New_York' });
+        await applyWorkoutSessionAction(snooze1hEvent, { workout, editReply: vi.fn() });
+        const s = (await records.list('workoutsession')).find((r) => r.recordId === WRECORD);
+        expect(s.scheduled_date).toBe('2026-07-20T00:00:00-04:00');
+        expect(s.scheduled_date.split('T')[0]).toBe(WDATE);
+    });
 });

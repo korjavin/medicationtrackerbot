@@ -1267,7 +1267,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       user_id: CLOUD_USER_ID,
       group_id: groupId,
       variant_id: 0,
-      scheduled_date: date,
+      scheduled_date: scheduledDateRFC(date, timeZone),
       scheduled_time: '',
       status: 'notified',
       started_at: null,
