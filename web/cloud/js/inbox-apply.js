@@ -401,8 +401,11 @@ function confirmationText(intent, result, verbosity) {
     }
     case 'workout':
       return intent.name ? `✅ Logged workout: ${intent.name}.` : '✅ Workout logged.';
-    case 'activity':
-      return result && result.activity_name ? `✅ Logged activity: ${result.activity_name}.` : '✅ Activity logged.';
+    case 'activity': {
+      if (!result || !result.activity_name) return '✅ Activity logged.';
+      const dist = result.distance_m > 0 ? ` — ${(result.distance_m / 1000).toFixed(1)}km` : '';
+      return `✅ Logged activity: ${result.activity_name}${dist}.`;
+    }
     default:
       return '✅ Recorded.';
   }
@@ -489,7 +492,7 @@ export async function applyTGCommand(event, eventId, { bp, weight, notes, intake
       // re-drain overwriting the same mi-band row instead of appending.
       try {
         const parsed = await activityAI.parseActivityFromDescription(intent.text);
-        result = await workout.createMiBand({ recordId, activityName: parsed.name, durationSec: parsed.durationSec });
+        result = await workout.createMiBand({ recordId, activityName: parsed.name, durationSec: parsed.durationSec, distanceM: parsed.distanceM });
       } catch (e) {
         if (e && e.code === 'no_api_key') {
           await reply('🔑 To log an activity by message, add an OpenAI key in Settings → Integrations (or the trial AI is unavailable right now).');
