@@ -481,9 +481,13 @@ export function computeReminderHorizon({
       return vs.length > 0 ? vs[0].id : 0;
     };
 
-    const pushWorkout = (fireMs, text) => {
+    const pushWorkout = (fireMs, text, callback) => {
       if (fireMs <= now) return;
-      entries.push({ fireAtUnix: Math.floor(fireMs / 1000), kind: 'workout', text, genericText: GENERIC_WORKOUT_TEXT });
+      const entry = { fireAtUnix: Math.floor(fireMs / 1000), kind: 'workout', text, genericText: GENERIC_WORKOUT_TEXT };
+      // Only recurring group reminders carry a callback stem (`w:<groupId>:<YYYYMMDD>`);
+      // ad-hoc reminders stay button-less (non-unique (groupId,date), documented ceiling).
+      if (callback) entry.callback = callback;
+      entries.push(entry);
     };
 
     // Schedule-materialized sessions (real group_id, keyed by local day) suppress
@@ -519,7 +523,8 @@ export function computeReminderHorizon({
         const existingStatus = sessionStatusByKey.get(`${group.id}|${dateStr}`);
         if (existingStatus !== undefined && existingStatus !== 'pending') continue;
         const scheduledMs = localWallToUtcMs(Date.UTC(year, month - 1, day + d, hhmm.hour, hhmm.minute), timeZone);
-        pushWorkout(scheduledMs - advance * 60 * 1000, text);
+        const callback = `w:${group.id}:${dateStr.replaceAll('-', '')}`;
+        pushWorkout(scheduledMs - advance * 60 * 1000, text, callback);
       }
     }
 

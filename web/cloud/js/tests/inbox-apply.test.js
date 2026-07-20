@@ -5,7 +5,7 @@
 // behavior, not of this module's bookkeeping.
 import { describe, expect, it, vi } from 'vitest';
 import { createIntakeDomain } from '../../../domain/medintake.js';
-import { applyIntakeSlotAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, makeTGPrefsPort, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT, VITALS_IMPORT } from '../inbox-apply.js';
+import { applyIntakeSlotAction, applyWorkoutSessionAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, makeTGPrefsPort, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT, VITALS_IMPORT, WORKOUT_SESSION_ACTION } from '../inbox-apply.js';
 import { createTGAgent } from '../tg-agent.js';
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
@@ -1333,5 +1333,62 @@ describe('inbox-apply.js — self-refining tgprefs (med-vcv.3)', () => {
         const note = (await records.list('tgprefs')).find((r) => r.recordId === 'tgprefs' && !r.deleted).note;
         const occurrences = note.split('\n').filter((l) => l === 'my usual = 2 eggs').length;
         expect(occurrences).toBe(1);
+    });
+});
+
+// med-eas.70 — a Telegram workout Snooze/Skip tap drains onto the deterministic
+// session-<groupId>-<date> slot (find-or-create — the tap can arrive before the
+// session is materialized).
+describe('inbox-apply.js — a Telegram workout Snooze/Skip tap', () => {
+    const WGROUP = 6;
+    const WDATE = '2026-07-20';
+    const WRECORD = `session-${WGROUP}-${WDATE}`;
+    const WTAP_UNIX = 1784592000; // 2026-07-20T16:00:00Z
+    const WTAP_MS = WTAP_UNIX * 1000;
+
+    function workoutFor(records) {
+        return createWorkoutDomain({ records, now: () => WTAP_MS, timeZone: 'UTC' });
+    }
+    const snooze1hEvent = { kind: WORKOUT_SESSION_ACTION, group_id: WGROUP, date: WDATE, action: 'snooze1h', at_unix: WTAP_UNIX, message_id: 900 };
+    const skipEvent = { kind: WORKOUT_SESSION_ACTION, group_id: WGROUP, date: WDATE, action: 'skip', at_unix: WTAP_UNIX, message_id: 901 };
+
+    it('snooze1h creates the deterministic session and sets snoozed_until + snooze_count', async () => {
+        const records = fakeRecords();
+        await applyWorkoutSessionAction(snooze1hEvent, { workout: workoutFor(records), editReply: vi.fn() });
+        const s = (await records.list('workoutsession')).find((r) => r.recordId === WRECORD);
+        expect(s).toBeTruthy();
+        expect(s.group_id).toBe(WGROUP);
+        expect(s.snooze_count).toBe(1);
+        expect(Date.parse(s.snoozed_until)).toBe(WTAP_MS + 60 * 60 * 1000);
+    });
+
+    it('snooze2h fires ~2h out on an already-materialized session, bumping snooze_count', async () => {
+        const records = fakeRecords({
+            workoutsession: [{
+                recordId: WRECORD, deleted: false, id: 42, group_id: WGROUP, variant_id: 0,
+                scheduled_date: WDATE, status: 'notified', snoozed_until: null, snooze_count: 1,
+            }],
+        });
+        await applyWorkoutSessionAction(
+            { ...snooze1hEvent, action: 'snooze2h' },
+            { workout: workoutFor(records), editReply: vi.fn() },
+        );
+        const s = (await records.list('workoutsession')).find((r) => r.recordId === WRECORD);
+        expect(s.snooze_count).toBe(2);
+        expect(Date.parse(s.snoozed_until)).toBe(WTAP_MS + 120 * 60 * 1000);
+    });
+
+    it('skip marks the session skipped (creating it if absent)', async () => {
+        const records = fakeRecords();
+        await applyWorkoutSessionAction(skipEvent, { workout: workoutFor(records), editReply: vi.fn() });
+        const s = (await records.list('workoutsession')).find((r) => r.recordId === WRECORD);
+        expect(s.status).toBe('skipped');
+    });
+
+    it('edits the Telegram reply to a receipt via the tap message id', async () => {
+        const records = fakeRecords();
+        const editReply = vi.fn(async () => {});
+        await applyWorkoutSessionAction(snooze1hEvent, { workout: workoutFor(records), editReply });
+        expect(editReply).toHaveBeenCalledWith(900, expect.stringMatching(/Snoozed/));
     });
 });

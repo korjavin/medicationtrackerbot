@@ -151,6 +151,9 @@ describe('domain/reminders.js — workout reminder kind', () => {
         // genericText is name-free.
         expect(workout[0].genericText).not.toContain('Push Day');
         expect(workout[0].genericText.length).toBeGreaterThan(0);
+        // Recurring reminders carry a workout callback stem so the relay renders
+        // Snooze/Skip buttons: w:<groupId>:<YYYYMMDD> for the fired local day.
+        expect(workout[0].callback).toBe('w:1:20260707');
     });
 
     it('emits a workout entry for a planned ad-hoc session at its scheduled moment', () => {
@@ -167,6 +170,9 @@ describe('domain/reminders.js — workout reminder kind', () => {
         expect(workout.length).toBe(1);
         expect(workout[0].fireAtUnix).toBe(Date.UTC(2026, 6, 9, 19, 0, 0) / 1000);
         expect(workout[0].genericText.length).toBeGreaterThan(0);
+        // Ad-hoc reminders stay button-less: (groupId,date) is non-unique, so no
+        // callback stem is attached (documented ceiling).
+        expect(workout[0].callback).toBeUndefined();
     });
 
     // Regression: scheduled_date is an offset-carrying local-midnight instant
