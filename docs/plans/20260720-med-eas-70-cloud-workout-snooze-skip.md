@@ -153,12 +153,12 @@ and all `relay_test.go`/`push_test.go` blind/ct-verbatim assertions.
 - [x] run the touched frontend suites (Node 20) — must pass before Task 5.
 
 ### Task 5: Verify acceptance criteria
-- [ ] grep the full diff for the zero-knowledge invariant: no new `ct` read/decrypt on the relay/refire path; re-fire copies cleartext fields only.
-- [ ] confirm callback_data for every emitted workout button is ≤ 64 bytes and `ValidCallbackStem` accepts the emitted stem.
-- [ ] confirm no existing migration was edited; `019_push_origin.sql` is the only new one; migration numbers are contiguous.
-- [ ] `go build ./...` AND `go build -tags mobile ./...` — both green.
-- [ ] `go test ./internal/tgclient/... ./internal/cloudserver/... ./internal/cloudstore/...` — green (incl. untouched blind/ct-verbatim tests).
-- [ ] Node 20 vitest on the cloud reminder / inbox-apply / push / relay-related suites + architecture (domain-purity, globals) — green.
+- [x] grep the full diff for the zero-knowledge invariant: no new `ct` read/decrypt on the relay/refire path; re-fire copies cleartext fields only. (InsertRelayRefire writes empty ct `[]byte{}`; refireText = cleartext cq.Message.Text)
+- [x] confirm callback_data for every emitted workout button is ≤ 64 bytes and `ValidCallbackStem` accepts the emitted stem. (max = 39 bytes with int64-max groupId; typical 21 bytes)
+- [x] confirm no existing migration was edited; `019_push_origin.sql` is the only new one; migration numbers are contiguous. (001–019 contiguous, only 019 added)
+- [x] `go build ./...` AND `go build -tags mobile ./...` — both green.
+- [x] `go test ./internal/tgclient/... ./internal/cloudserver/... ./internal/cloudstore/...` — green (incl. untouched blind/ct-verbatim tests).
+- [x] Node 20 vitest on the cloud reminder / inbox-apply / push / relay-related suites + architecture (domain-purity, globals) — green. (144 tests passed)
 
 ## Technical Details
 
