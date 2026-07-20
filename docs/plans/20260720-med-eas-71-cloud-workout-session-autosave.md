@@ -68,12 +68,12 @@ Related patterns: no existing `debounce` helper in the codebase — add a small 
 - [x] Run `npx vitest run` on the workout suites (Node 20) — must pass before Task 3.
 
 ### Task 3: Remove Save button, relabel Cancel→Close, flush on close
-- [ ] In `web/static/index.html`, remove the `workout-session-save-btn` button; change the `workout-session-cancel-btn` label from "Cancel" to "Close".
-- [ ] In `web/static/js/features/workout/index.js`, remove the `bindClick('workout-session-save-btn', ...)` line (leave delete + cancel/close bindings).
-- [ ] Make `closeWorkoutSessionModal` (and the overlay-click + Close button paths) **flush any pending debounced autosave** before dismissing, so no edits are lost. Ensure the success path of `saveWorkoutSessionDetails` (Finish) doesn't re-enter a flush loop (no pending timer after a completed save).
-- [ ] Update any test that referenced the Save button DOM node — update those to the new close/autosave behavior within the owning suite (`WorkoutSessions.save` may stay pointing at `saveWorkoutSessionDetails`).
-- [ ] Extend the integration suite: no `workout-session-save-btn` in the DOM; the Close button reads "Close"; closing with a pending debounced edit flushes it (the save fires and the edit is persisted, not dropped).
-- [ ] Run `npx vitest run` on the workout suites (Node 20) — must pass before Task 4.
+- [x] In `web/static/index.html`, remove the `workout-session-save-btn` button; change the `workout-session-cancel-btn` label from "Cancel" to "Close".
+- [x] In `web/static/js/features/workout/index.js`, remove the `bindClick('workout-session-save-btn', ...)` line (leave delete + cancel/close bindings).
+- [x] Make `closeWorkoutSessionModal` (and the overlay-click + Close button paths) **flush any pending debounced autosave** before dismissing, so no edits are lost. Ensure the success path of `saveWorkoutSessionDetails` (Finish) doesn't re-enter a flush loop (no pending timer after a completed save). (`closeWorkoutSessionModal` is now async and awaits `flushPendingAutosave`; Finish + Delete paths `cancelAutosave()` before close.)
+- [x] Update any test that referenced the Save button DOM node — update those to the new close/autosave behavior within the owning suite (`WorkoutSessions.save` may stay pointing at `saveWorkoutSessionDetails`). (Removed `workout-session-save-btn` from `sync.js` offline list + `offline-ui.test.js`; made the close-state test await.)
+- [x] Extend the integration suite: no `workout-session-save-btn` in the DOM; the Close button reads "Close"; closing with a pending debounced edit flushes it (the save fires and the edit is persisted, not dropped).
+- [x] Run `npx vitest run` on the workout suites (Node 20) — must pass before Task 4.
 
 ### Task 4: Autosave failure handling (inline error, preserve edits) + hide Delete for in_progress
 - [ ] Add an inline error/status element in the session modal (reuse an existing `wg-*` message/error class if one exists; otherwise add a `.wg-workouts-session-autosave-status` class in styles.css — no hardcoded colors). On autosave failure, populate it and keep the modal open; clear it on the next successful autosave.

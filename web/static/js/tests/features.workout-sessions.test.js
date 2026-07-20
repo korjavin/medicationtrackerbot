@@ -99,12 +99,12 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(window.WorkoutSessionsState.logs[0].notes).toBe('felt good');
   });
 
-  it('closeWorkoutSessionModal clears the session data state', () => {
+  it('closeWorkoutSessionModal clears the session data state', async () => {
     const { window } = env;
     window.WorkoutSessionsState.data = { id: 7, status: 'in_progress' };
     window.WorkoutSessionsState.originalStatus = 'in_progress';
 
-    window.closeWorkoutSessionModal();
+    await window.closeWorkoutSessionModal();
 
     expect(window.WorkoutSessionsState.data).toBeNull();
     expect(window.WorkoutSessionsState.originalStatus).toBeNull();
@@ -1261,6 +1261,46 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(statusCalls[0].status).toBe('skipped');
     expect(closeSpy).not.toHaveBeenCalled();
     expect(window.WorkoutSessionsState.data).not.toBeNull();
+  });
+
+  // ===========================================================================
+  // Save button removed, Cancel relabelled Close, close flushes pending edit
+  // (med-eas.71, Task 3)
+  // ===========================================================================
+
+  it('has no Save button and a Close (not Cancel) header button in the session modal', () => {
+    const { document } = env;
+    expect(document.getElementById('workout-session-save-btn')).toBeNull();
+    const closeBtn = document.getElementById('workout-session-cancel-btn');
+    expect(closeBtn).not.toBeNull();
+    expect(closeBtn.textContent).toBe('Close');
+  });
+
+  it('closing with a pending debounced edit flushes it before dismissing (edit not dropped)', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '' }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    const updateCalls = [];
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) { updateCalls.push(payload); return { ok: true }; }
+      return [];
+    });
+
+    // Arm a debounced edit but close before the ~800ms timer elapses — the
+    // flush on close must still persist it.
+    window.updateLocalSet(0, 0, 'weight_kg', '65');
+    await window.closeWorkoutSessionModal();
+
+    expect(updateCalls.length).toBe(1);
+    expect(updateCalls[0].id).toBe(7);
+    expect(window.WorkoutSessionsState.data).toBeNull();
   });
 
   // ===========================================================================

@@ -741,6 +741,7 @@ async function deleteWorkoutSession() {
         if (ok) {
             const result = await apiCall(`/api/workout/sessions/delete?id=${sessionData.id}`, 'DELETE');
             if (result || result === true) {
+                cancelAutosave(); // session is gone; don't flush edits into it
                 await invalidateWorkoutCache();
                 closeWorkoutSessionModal();
                 loadWorkoutHistoryTab();
@@ -808,8 +809,12 @@ function renderSessionDetailActions(container, opts) {
     }
 }
 
-function closeWorkoutSessionModal() {
-    cancelAutosave();
+async function closeWorkoutSessionModal() {
+    // Flush any pending debounced edit before dismissing so a change made right
+    // before Close (or an overlay click) isn't dropped. flushPendingAutosave is a
+    // no-op when nothing is pending. Runs before state is nulled so the save can
+    // still read WorkoutSessionsState.
+    await flushPendingAutosave();
     const overlay = document.getElementById('modal-overlay');
     overlay.onclick = null; // Remove click handler
     window.ModalManager.workoutSession.close();
@@ -1018,6 +1023,9 @@ async function saveWorkoutSessionDetails(opts) {
         // Autosave stays put; only the deliberate Finish path closes the modal.
         if (fromAutosave) setAutosaveStatus('saved');
         if (closeOnSuccess) {
+            // This save already persisted everything; drop any pending timer so
+            // the close-triggered flush doesn't re-save the just-completed session.
+            cancelAutosave();
             closeWorkoutSessionModal();
             loadWorkoutHistoryTab();
         }
