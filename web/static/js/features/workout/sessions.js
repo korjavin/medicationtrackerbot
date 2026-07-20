@@ -63,10 +63,16 @@ function scheduleAutosave() {
 // a debounce timer firing during the Finish network window queues after it
 // instead of running concurrently.
 function runSerializedSave(opts) {
-    _autosaveInFlight = Promise.resolve(_autosaveInFlight)
+    const p = Promise.resolve(_autosaveInFlight)
         .catch(() => {})
         .then(() => saveWorkoutSessionDetails(opts));
-    return _autosaveInFlight;
+    _autosaveInFlight = p;
+    // Null out once THIS save settles so _autosaveInFlight means "a save is
+    // genuinely in flight" — not "the last save's resolved value". Otherwise a
+    // failed autosave (returns false, doesn't throw) leaves a settled false that
+    // flushPendingAutosave awaits forever, permanently blocking modal close.
+    p.finally(() => { if (_autosaveInFlight === p) _autosaveInFlight = null; });
+    return p;
 }
 
 function runAutosave() {
@@ -90,6 +96,10 @@ async function flushPendingAutosave() {
 
 function cancelAutosave() {
     if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; }
+    // Drop any prior session's in-flight/settled save promise so it can't leak
+    // into the next modal's close (flushPendingAutosave would otherwise await a
+    // save that belongs to a session the user already left).
+    _autosaveInFlight = null;
 }
 
 // setAutosaveStatus drives the inline modal status element (added in Task 4).
