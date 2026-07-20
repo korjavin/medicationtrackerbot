@@ -99,13 +99,13 @@ Reference shapes (mirror faithfully for parity):
 - [x] Run `npx vitest run` on inbox-apply + activityai + tgcommand + architecture (domain-purity, globals, cloud-tokens) — all green before next task.
 
 ### Task 6: Verify acceptance criteria
-- [ ] `/activity 2km bicycle` (drain) logs a Mi Band manual activity named per the AI parse, visible via `workout.listMiBand`, reply "✅ Logged activity: <name>".
-- [ ] Bare `/activity` gives a usage hint, NOT the 🚧 refusal.
-- [ ] No-API-key → graceful ack (no wedge).
-- [ ] Re-drain same event → no duplicate.
-- [ ] `web/domain/activityai.js` passes domain-purity; inbox-apply activity case has integration coverage.
-- [ ] Confirm NO Go change was needed (`git status`); if any Go was touched, run `go build ./...` + `go build -tags mobile ./...`.
-- [ ] Run the full relevant vitest set green (Node 20): `npx vitest run` on the cloud + domain + architecture suites.
+- [x] `/activity 2km bicycle` (drain) logs a Mi Band manual activity named per the AI parse, visible via `workout.listMiBand`, reply "✅ Logged activity: <name>". (verified by inbox-apply.test.js activity happy path)
+- [x] Bare `/activity` gives a usage hint, NOT the 🚧 refusal. (inbox-apply.test.js usage-hint case)
+- [x] No-API-key → graceful ack (no wedge). (inbox-apply.test.js no-api-key case)
+- [x] Re-drain same event → no duplicate. (inbox-apply.test.js re-drain case + workout-convergence createMiBand assertion)
+- [x] `web/domain/activityai.js` passes domain-purity; inbox-apply activity case has integration coverage. (architecture.domain-purity green; 86 inbox-apply tests pass)
+- [x] Confirm NO Go change was needed (`git status`); if any Go was touched, run `go build ./...` + `go build -tags mobile ./...`. (git status: no .go changes)
+- [x] Run the full relevant vitest set green (Node 20): `npx vitest run` on the cloud + domain + architecture suites. (activityai 8, inbox-apply 86, workout-convergence 2, domain-purity 21, globals 1, cloud-tokens 4 — all pass)
 
 ## Technical Details
 
