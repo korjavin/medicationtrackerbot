@@ -224,7 +224,7 @@ async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
             // handlers (e.g. saveExercise) rely on apiCall for feedback, so a
             // silent rethrow would leave a malformed save with no explanation.
             if (e && e.code === 'invalid_request') {
-                if (method !== 'GET' && !(e && e.demoLimit)) {
+                if (method !== 'GET' && !(e && e.demoLimit) && !opts.suppressWriteAlert) {
                     safeAlert("Error: " + e.message);
                 }
                 throw e;
@@ -234,7 +234,10 @@ async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
             // GET requests failing is expected when offline - UI will handle empty state
             // Suppress generic alert when DemoBanner has already surfaced a
             // formatted demo-restriction popup (apiCallDirect sets e.demoLimit).
-            if (method !== 'GET' && !(e && e.demoLimit)) {
+            // suppressWriteAlert lets background writers (e.g. workout autosave)
+            // surface failures inline instead of popping a blocking alert on
+            // every debounced batch while offline.
+            if (method !== 'GET' && !(e && e.demoLimit) && !opts.suppressWriteAlert) {
                 safeAlert("Error: " + e.message);
             }
             return null;
@@ -247,14 +250,14 @@ async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
     } catch (e) {
         if (e && e.aborted) throw e;
         if (e && e.code === 'invalid_request') {
-            if (method !== 'GET' && !(e && e.demoLimit)) {
+            if (method !== 'GET' && !(e && e.demoLimit) && !opts.suppressWriteAlert) {
                 safeAlert("Error: " + e.message);
             }
             throw e;
         }
         console.error(e);
         // Only show alerts for write operations that fail
-        if (method !== 'GET' && !(e && e.demoLimit)) {
+        if (method !== 'GET' && !(e && e.demoLimit) && !opts.suppressWriteAlert) {
             safeAlert("Error: " + e.message);
         }
         return null;

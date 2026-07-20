@@ -126,18 +126,18 @@ describe('workout.js session and stats flows', () => {
 
       await window.saveWorkoutSessionDetails();
 
-      expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/status?id=77', 'PUT', { status: 'completed' });
+      expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/status?id=77', 'PUT', { status: 'completed' }, { suppressWriteAlert: false });
       expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/logs/update', 'POST', expect.objectContaining({
         id: 9001,
         sets_completed: 3,
         reps_completed: 5
-      }));
+      }), { suppressWriteAlert: false });
       expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/logs/create', 'POST', expect.objectContaining({
         session_id: 77,
         exercise_id: 20,
         target_sets: 6,
         target_reps_min: 10
-      }));
+      }), { suppressWriteAlert: false });
       expect(window.loadWorkoutHistoryTab).toHaveBeenCalledTimes(1);
       expect(document.getElementById('workout-session-modal').classList.contains('hidden')).toBe(true);
     } finally {

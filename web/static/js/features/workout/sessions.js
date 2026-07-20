@@ -51,7 +51,10 @@ function scheduleAutosave() {
     if (_autosaveTimer) clearTimeout(_autosaveTimer);
     _autosaveTimer = setTimeout(() => {
         _autosaveTimer = null;
-        runAutosave();
+        // Swallow rejections: a thrown write (abort / invalid_request) already
+        // surfaces inline via saveWorkoutSessionDetails' catch — the timer has no
+        // awaiter, so an uncaught reject here would be an unhandled rejection.
+        runAutosave().catch(() => {});
     }, 800);
 }
 
@@ -188,7 +191,14 @@ function renderWorkoutSessionInfo(infoContainer, session) {
     });
 
     // A status change is a persisted edit — autosave it like set/reps/notes.
-    select.addEventListener('change', () => scheduleAutosave());
+    // Re-gate the Delete button too: the modal stays open across status changes,
+    // so switching to in_progress must hide Delete (and away from it re-show it),
+    // matching the open-time gate in showWorkoutSessionModal.
+    select.addEventListener('change', () => {
+        const deleteBtn = document.getElementById('workout-session-delete-btn');
+        if (deleteBtn) deleteBtn.classList.toggle('hidden', select.value === 'in_progress');
+        scheduleAutosave();
+    });
 
     statusRow.appendChild(label);
     statusRow.appendChild(select);
@@ -936,7 +946,7 @@ async function saveWorkoutSessionDetails(opts) {
         async function persistStatus() {
             const statusResult = await apiCall(`/api/workout/sessions/status?id=${sessionData.id}`, 'PUT', {
                 status: newStatus
-            });
+            }, { suppressWriteAlert: fromAutosave });
             if (statusResult === null) return false;
             anyMutationSucceeded = true;
             statusPersisted = true;
@@ -989,44 +999,59 @@ async function saveWorkoutSessionDetails(opts) {
             // we restore the flags so the pending edit is retried, not lost.
             const sentSets = !!(log._setsDirty && Array.isArray(log.sets));
             const setsPayload = sentSets ? log.sets.map((s) => ({ ...s })) : null;
-            if (log.id && log.id > 0) {
-                // Existing log — always update
-                attempted = true;
-                log._dirty = false;
-                log._setsDirty = false;
-                logResult = await apiCall('/api/workout/sessions/logs/update', 'POST', {
-                    id: log.id,
-                    sets_completed: Math.round(log.sets_completed),
-                    reps_completed: Math.round(log.reps_completed),
-                    weight_kg: parseFloat(log.weight_kg),
-                    notes: log.notes || '',
-                    // Per-set array rides alongside the derived flat scalars, but
-                    // only when the user actually edited the SETS (_setsDirty),
-                    // not on any edit (_dirty is also set by a notes-only edit).
-                    // Render materializes log.sets on every card (_ensureLogSets),
-                    // so gating on _dirty would persist a fabricated
-                    // N-identical-sets array whenever a legacy/flat-only log's
-                    // notes were touched. Absent key ⇒ cloud updateLog keeps any
-                    // real stored sets (it spreads the existing record); bot
-                    // ignores the key either way (Task 3).
-                    ...(setsPayload ? { sets: setsPayload } : {})
-                });
-            } else if (log._dirty) {
-                // New log that user actually edited — create it
-                attempted = true;
-                log._dirty = false;
-                log._setsDirty = false;
-                logResult = await apiCall('/api/workout/sessions/logs/create', 'POST', {
-                    session_id: sessionData.id,
-                    exercise_id: log.exercise_id,
-                    exercise_name: log.exercise_name,
-                    target_sets: Math.round(log.sets_completed),
-                    target_reps_min: Math.round(log.reps_completed),
-                    target_weight_kg: parseFloat(log.weight_kg),
-                    status: 'completed',
-                    notes: log.notes || '',
-                    ...(setsPayload ? { sets: setsPayload } : {})
-                });
+            try {
+                if (log.id && log.id > 0) {
+                    // Existing log — always update
+                    attempted = true;
+                    log._dirty = false;
+                    log._setsDirty = false;
+                    logResult = await apiCall('/api/workout/sessions/logs/update', 'POST', {
+                        id: log.id,
+                        sets_completed: Math.round(log.sets_completed),
+                        reps_completed: Math.round(log.reps_completed),
+                        weight_kg: parseFloat(log.weight_kg),
+                        notes: log.notes || '',
+                        // Per-set array rides alongside the derived flat scalars, but
+                        // only when the user actually edited the SETS (_setsDirty),
+                        // not on any edit (_dirty is also set by a notes-only edit).
+                        // Render materializes log.sets on every card (_ensureLogSets),
+                        // so gating on _dirty would persist a fabricated
+                        // N-identical-sets array whenever a legacy/flat-only log's
+                        // notes were touched. Absent key ⇒ cloud updateLog keeps any
+                        // real stored sets (it spreads the existing record); bot
+                        // ignores the key either way (Task 3).
+                        ...(setsPayload ? { sets: setsPayload } : {})
+                    }, { suppressWriteAlert: fromAutosave });
+                } else if (log._dirty) {
+                    // New log that user actually edited — create it
+                    attempted = true;
+                    log._dirty = false;
+                    log._setsDirty = false;
+                    logResult = await apiCall('/api/workout/sessions/logs/create', 'POST', {
+                        session_id: sessionData.id,
+                        exercise_id: log.exercise_id,
+                        exercise_name: log.exercise_name,
+                        target_sets: Math.round(log.sets_completed),
+                        target_reps_min: Math.round(log.reps_completed),
+                        target_weight_kg: parseFloat(log.weight_kg),
+                        status: 'completed',
+                        notes: log.notes || '',
+                        ...(setsPayload ? { sets: setsPayload } : {})
+                    }, { suppressWriteAlert: fromAutosave });
+                }
+            } catch (writeErr) {
+                // A THROWN write (AbortController timeout → e.aborted, or the cloud
+                // domain layer's invalid_request) bypasses the null-result restore
+                // below and unwinds to the outer catch, which never touches these
+                // flags. Restore the claimed dirty flags here so the pending edit
+                // is retried on the next autosave instead of being silently dropped
+                // (the next successful save would otherwise omit the un-flagged
+                // sets, or skip the un-flagged create entirely).
+                if (attempted) {
+                    log._dirty = true;
+                    if (sentSets) log._setsDirty = true;
+                }
+                throw writeErr;
             }
             if (attempted && logResult === null) {
                 // Restore the claimed flags so the edit is retried on the next
