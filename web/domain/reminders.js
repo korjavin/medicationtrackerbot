@@ -322,16 +322,20 @@ export function computeReminderHorizon({
   for (const t of targets) {
     const med = medById.get(t.medicationId);
     if (isHandled(t, med)) continue;
-    const list = bySlot.get(t.scheduledAtMs) || [];
-    list.push(med ? medDisplayName(med) : t.medName);
-    bySlot.set(t.scheduledAtMs, list);
+    const slot = bySlot.get(t.scheduledAtMs) || { names: [], medicationIds: [] };
+    slot.names.push(med ? medDisplayName(med) : t.medName);
+    // Carry the identity of every med the reminder names for this slot so
+    // Confirm can act by identity, not by re-deriving from a time band. Dedupe
+    // within a slot (a med can't be named twice for one instant).
+    if (t.medicationId != null && !slot.medicationIds.includes(t.medicationId)) slot.medicationIds.push(t.medicationId);
+    bySlot.set(t.scheduledAtMs, slot);
   }
-  for (const [slotMs, names] of bySlot) {
+  for (const [slotMs, slot] of bySlot) {
     const slotUnix = Math.floor(slotMs / 1000);
     // callback carries the SLOT, not a medication: one Telegram message covers
     // every med due at this instant, so one Confirm tap covers all of them.
     // The relay appends ":confirm"/":snooze" to build the two buttons.
-    entries.push({ fireAtUnix: slotUnix, kind: 'medication', text: doseSlotText(names), genericText: GENERIC_DOSE_TEXT, callback: `s:${slotUnix}` });
+    entries.push({ fireAtUnix: slotUnix, kind: 'medication', text: doseSlotText(slot.names), genericText: GENERIC_DOSE_TEXT, callback: `s:${slotUnix}`, medicationIds: slot.medicationIds });
   }
 
   // Ported from medication_reminder.go's Check: re-remind a still-PENDING
@@ -350,8 +354,10 @@ export function computeReminderHorizon({
     // was scheduled in — same stem as the original reminder, so confirming from
     // either message converges on the same intakes.
     const callback = `s:${Math.floor(scheduledMs / 1000)}`;
+    // A re-reminder nags about exactly one med, so its slot map is that single id.
+    const medicationIds = [intake.medication_id];
     for (let i = 0; i < MAX_REREMINDS_PER_INTAKE; i++) {
-      entries.push({ fireAtUnix: Math.floor(fireMs / 1000), kind: 'medication', text, genericText: GENERIC_REREMIND_TEXT, callback });
+      entries.push({ fireAtUnix: Math.floor(fireMs / 1000), kind: 'medication', text, genericText: GENERIC_REREMIND_TEXT, callback, medicationIds });
       fireMs += REREMIND_INTERVAL_MS;
     }
   }

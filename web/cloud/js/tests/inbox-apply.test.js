@@ -352,6 +352,202 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
             applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now }),
         ).resolves.toBeUndefined();
     });
+
+    // --- bd med-eas.67: confirm the reminder's NAMED meds by identity ---
+    // getSlotMeds injects the push-time slot→medIds map (in production it reads a
+    // device-local store; here we hand it the list the reminder named).
+    const slotMeds = (ids) => async () => ids;
+    const DAILY = '{"type":"daily","times":["00:00"]}'; // minDoseInterval = 14.4h
+
+    // The reported P1: a grouped 4-med reminder where one med's ONLY dose drifted
+    // hours off its clock slot (a tz-plan/cluster step) — beyond the ±10min band
+    // but well inside its own minDoseInterval. Under the band it stays PENDING
+    // (adherence lost, re-nagged an hour later); the identity path confirms all 4.
+    it('confirms a course med whose dose drifted beyond the band but within its interval', async () => {
+        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(); // 2h: > band, < 14.4h interval
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'B', schedule: DAILY, inventory_count: 30 },
+                { recordId: 'med-c', deleted: false, name: 'C', schedule: DAILY, inventory_count: 30 },
+                { recordId: 'med-d', deleted: false, name: 'Coclav', schedule: DAILY, inventory_count: 30 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: `intake-med-b-${SLOT_UNIX}`, deleted: false, medication_id: 'med-b', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: `intake-med-c-${SLOT_UNIX}`, deleted: false, medication_id: 'med-c', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-d-drift', deleted: false, medication_id: 'med-d', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction(
+            { ...confirmEvent, message_id: 9 },
+            { intake: domainFor(records, now), records, now, editReply, getSlotMeds: slotMeds(['med-a', 'med-b', 'med-c', 'med-d']) },
+        );
+
+        const intakes = await records.list('intake');
+        for (const id of [`intake-med-a-${SLOT_UNIX}`, `intake-med-b-${SLOT_UNIX}`, `intake-med-c-${SLOT_UNIX}`, 'intake-med-d-drift']) {
+            expect(intakes.find((i) => i.recordId === id).status).toBe('TAKEN');
+        }
+        // Receipt counts distinct named meds (4), not band-matched rows (the drifted
+        // one is >10min from the slot, so a time filter would have said 3).
+        expect(editReply).toHaveBeenCalledWith(9, expect.stringMatching(/Confirmed 4 medications/));
+    });
+
+    // A false positive is the one thing the wider interval must never cause: a
+    // PENDING dose of a med the reminder did NOT name (its own later message), and
+    // a different dose of a named med ≥ its interval away, both stay untouched.
+    it('never confirms a med the reminder did not name, nor a named med\'s far-off dose', async () => {
+        const farIso = new Date((SLOT_UNIX + 20 * 3600) * 1000).toISOString(); // 20h: > med-a's 14.4h interval
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'B', schedule: DAILY, inventory_count: 30 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                // med-b is due right at the slot but was NOT named for it.
+                { recordId: `intake-med-b-${SLOT_UNIX}`, deleted: false, medication_id: 'med-b', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                // med-a's tomorrow dose, past its own interval — a different dose.
+                { recordId: 'intake-med-a-far', deleted: false, medication_id: 'med-a', scheduled_at: farIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now, getSlotMeds: slotMeds(['med-a']) });
+
+        const intakes = await records.list('intake');
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
+        expect(intakes.find((i) => i.recordId === `intake-med-b-${SLOT_UNIX}`).status).toBe('PENDING'); // not named
+        expect(intakes.find((i) => i.recordId === 'intake-med-a-far').status).toBe('PENDING'); // far dose
+    });
+
+    // With no stored map, the identity path is skipped and the fixed ±band match
+    // runs exactly as before — the null return the fallback depends on.
+    it('falls back to the ±band match when no slot→meds map is stored', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now, getSlotMeds: async () => null });
+
+        const atSlot = (await records.list('intake')).filter((i) => i.scheduled_at === SLOT_ISO);
+        expect(atSlot).toHaveLength(2);
+        for (const i of atSlot) expect(i.status).toBe('TAKEN');
+    });
+
+    // A throwing device store (no IndexedDB, a read error) must never fail the
+    // drain — getSlotMedicationsSafe swallows it to null so the ±band fallback still
+    // confirms the on-slot intakes. This is the load-bearing medication-safety guard.
+    it('falls back to the ±band match when the slot→meds store throws', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, {
+            intake: domainFor(records, now), records, now,
+            getSlotMeds: async () => { throw new Error('no idb'); },
+        });
+
+        const atSlot = (await records.list('intake')).filter((i) => i.scheduled_at === SLOT_ISO);
+        expect(atSlot).toHaveLength(2);
+        for (const i of atSlot) expect(i.status).toBe('TAKEN');
+    });
+
+    // Nearest-wins: when a named med has BOTH an on-slot and a drifted PENDING dose
+    // inside its band, only the nearest is acted on — never both (no double-confirm).
+    it('confirms only the nearest PENDING dose of a named med, not both in-band doses', async () => {
+        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(); // 2h: in band, farther than the on-slot dose
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-a-drift', deleted: false, medication_id: 'med-a', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now, getSlotMeds: slotMeds(['med-a']) });
+
+        const intakes = await records.list('intake');
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN'); // nearest
+        expect(intakes.find((i) => i.recordId === 'intake-med-a-drift').status).toBe('PENDING'); // not double-confirmed
+    });
+
+    // Redelivery must not "walk" a named med onto its NEXT in-band dose: drain 1
+    // confirms the on-slot dose, a failed flush re-queues the event, and drain 2
+    // (same deterministic atMs) must see that med as already handled and skip it —
+    // not confirm the drifted dose the user never took.
+    it('identity path does not confirm a second drifted dose on redelivery', async () => {
+        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString(); // in band, farther than on-slot
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-a-drift', deleted: false, medication_id: 'med-a', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS;
+        const opts = { records, now, getSlotMeds: slotMeds(['med-a']) };
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), ...opts });
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), ...opts }); // redelivery
+
+        const intakes = await records.list('intake');
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
+        expect(intakes.find((i) => i.recordId === 'intake-med-a-drift').status).toBe('PENDING'); // never taken
+        expect((await records.list('medication')).find((m) => m.recordId === 'med-a').inventory_count).toBe(29); // decremented once
+    });
+
+    // Idempotency holds on the identity path too: a redelivery / double-tap re-runs
+    // with the named meds already TAKEN → nothing left to apply → the receipt is
+    // not clobbered and inventory is not double-decremented.
+    it('identity path is idempotent across redelivery (no double-confirm, no receipt clobber)', async () => {
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'B', schedule: DAILY, inventory_count: 30 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: `intake-med-b-${SLOT_UNIX}`, deleted: false, medication_id: 'med-b', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => {});
+        const opts = { records, now, editReply, getSlotMeds: slotMeds(['med-a', 'med-b']) };
+        const evt = { ...confirmEvent, message_id: 5 };
+        await applyIntakeSlotAction(evt, { intake: domainFor(records, now), ...opts });
+        await applyIntakeSlotAction(evt, { intake: domainFor(records, now), ...opts });
+
+        expect(editReply).toHaveBeenCalledTimes(1);
+        expect(editReply).toHaveBeenCalledWith(5, expect.stringMatching(/Confirmed 2 medications/));
+        const meds = await records.list('medication');
+        expect(meds.find((m) => m.recordId === 'med-a').inventory_count).toBe(29); // not 28
+        expect(meds.find((m) => m.recordId === 'med-b').inventory_count).toBe(29);
+    });
+
+    // Snooze resolves by identity too: each named med's due PENDING dose is snoozed.
+    it('snoozes the named meds by identity, including a drifted dose', async () => {
+        const driftedIso = new Date((SLOT_UNIX + 2 * 3600) * 1000).toISOString();
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'B', schedule: DAILY, inventory_count: 30 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-b-drift', deleted: false, medication_id: 'med-b', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => (TAP_UNIX + 60) * 1000; // window still open
+        await applyIntakeSlotAction(snoozeEvent, { intake: domainFor(records, now), records, now, getSlotMeds: slotMeds(['med-a', 'med-b']) });
+
+        const intakes = await records.list('intake');
+        for (const id of [`intake-med-a-${SLOT_UNIX}`, 'intake-med-b-drift']) {
+            const i = intakes.find((r) => r.recordId === id);
+            expect(i.status).toBe('PENDING');
+            expect(Date.parse(i.snoozed_until)).toBe((TAP_UNIX + 600) * 1000);
+        }
+    });
 });
 
 describe('inbox-apply.js — createInboxApplier routing', () => {
