@@ -1259,6 +1259,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const existing = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION)).find((s) => s.recordId === recordId);
     if (existing) return existing;
     const nowMs = now();
+    // Resolve the group's current variant + scheduled time exactly like getNext's
+    // PRIORITY-2 materialization: this session is the one getNext surfaces (P0
+    // while still notified today, P1 once the snooze elapses) and buildSessionResponse
+    // reads variant_id/scheduled_time straight off it, so leaving them at 0/''
+    // would render the next-workout card as "Unknown" variant, 0 exercises, no time.
+    const group = await findByNumericId(records, WORKOUT_RECORD_TYPES.GROUP, groupId);
+    const variantId = group ? await resolveVariantId(group) : 0;
     return {
       recordId,
       clientTs: nowMs,
@@ -1266,9 +1273,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       id: mintNumericId(await records.list(WORKOUT_RECORD_TYPES.SESSION), nowMs),
       user_id: CLOUD_USER_ID,
       group_id: groupId,
-      variant_id: 0,
+      variant_id: variantId || 0,
       scheduled_date: scheduledDateRFC(date, timeZone),
-      scheduled_time: '',
+      scheduled_time: group ? group.scheduled_time : '',
       status: 'notified',
       started_at: null,
       completed_at: null,

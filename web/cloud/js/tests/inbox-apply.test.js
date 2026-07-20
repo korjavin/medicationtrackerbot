@@ -1392,6 +1392,36 @@ describe('inbox-apply.js — a Telegram workout Snooze/Skip tap', () => {
         expect(editReply).toHaveBeenCalledWith(900, expect.stringMatching(/Snoozed/));
     });
 
+    // Regression: a drain-created session must resolve the group's variant +
+    // scheduled_time (not variant_id 0 / '') so getNext — which surfaces this very
+    // session (P0 while notified today, P1 after the snooze elapses) and reads
+    // variant_id/scheduled_time straight off it — renders the real workout instead
+    // of "Unknown" variant / 0 exercises / no time.
+    it('resolves the group variant so getNext shows the real workout, not "Unknown"', async () => {
+        const records = fakeRecords({
+            workoutgroup: [{ recordId: 'wg-6', deleted: false, id: WGROUP, name: 'Push Day', scheduled_time: '18:00', is_rotating: false }],
+            workoutvariant: [{ recordId: 'wv-11', deleted: false, id: 11, group_id: WGROUP, name: 'Variant A' }],
+            workoutexercise: [{ recordId: 'we-21', deleted: false, id: 21, variant_id: 11, exercise_name: 'Bench', order_index: 0, target_sets: 3, target_reps_min: 8 }],
+        });
+        // now() pinned to noon UTC on WDATE so the drain-created session is "today"
+        // and getNext surfaces it via PRIORITY 0 (still notified) → buildSessionResponse.
+        const nowMs = Date.UTC(2026, 6, 20, 12, 0, 0);
+        const workout = createWorkoutDomain({ records, now: () => nowMs, timeZone: 'UTC' });
+        await applyWorkoutSessionAction(
+            { ...snooze1hEvent, at_unix: nowMs / 1000 },
+            { workout, editReply: vi.fn() },
+        );
+
+        const s = (await records.list('workoutsession')).find((r) => r.recordId === WRECORD);
+        expect(s.variant_id).toBe(11);
+        expect(s.scheduled_time).toBe('18:00');
+
+        const next = await workout.getNext();
+        expect(next.variant_name).toBe('Variant A');
+        expect(next.exercises_count).toBe(1);
+        expect(next.session.scheduled_time).toBe('18:00');
+    });
+
     // Regression: the created session's scheduled_date must carry the local offset
     // (like every other materializer) so new Date(scheduled_date) doesn't shift the
     // day backward in negative-offset zones and break is_today / sorting.
