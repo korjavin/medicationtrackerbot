@@ -1248,6 +1248,78 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     await tryAdvanceRotation(session);
   }
 
+  // findOrCreateScheduledSession resolves the deterministic slot for a recurring
+  // group reminder. A Telegram snooze/skip tap arrives BEFORE the session is
+  // materialized (the reminder fires ahead of getNext's first run), so the drain
+  // must find-or-create `session-<groupId>-<date>` rather than look up a numeric
+  // id. A materialized session with this recordId also suppresses future primary
+  // fires via reminders.js sessionStatusByKey.
+  async function findOrCreateScheduledSession(groupId, date) {
+    const recordId = sessionRecordId(groupId, date);
+    const existing = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION)).find((s) => s.recordId === recordId);
+    if (existing) return existing;
+    const nowMs = now();
+    // Resolve the group's current variant + scheduled time exactly like getNext's
+    // PRIORITY-2 materialization: this session is the one getNext surfaces (P0
+    // while still notified today, P1 once the snooze elapses) and buildSessionResponse
+    // reads variant_id/scheduled_time straight off it, so leaving them at 0/''
+    // would render the next-workout card as "Unknown" variant, 0 exercises, no time.
+    const group = await findByNumericId(records, WORKOUT_RECORD_TYPES.GROUP, groupId);
+    const variantId = group ? await resolveVariantId(group) : 0;
+    return {
+      recordId,
+      clientTs: nowMs,
+      deleted: false,
+      id: mintNumericId(await records.list(WORKOUT_RECORD_TYPES.SESSION), nowMs),
+      user_id: CLOUD_USER_ID,
+      group_id: groupId,
+      variant_id: variantId || 0,
+      scheduled_date: scheduledDateRFC(date, timeZone),
+      scheduled_time: group ? group.scheduled_time : '',
+      status: 'notified',
+      started_at: null,
+      completed_at: null,
+      snoozed_until: null,
+      snooze_count: 0,
+      notification_message_id: null,
+      notes: '',
+    };
+  }
+
+  // snoozeScheduledSession / skipScheduledSession are the Telegram-drain twins of
+  // snoozeSession/skipSession, resolving by (groupId, date) instead of numeric id
+  // so a tap can land before the session exists. The caller pins now() to the
+  // server tap time (like the med path), so these read now() like their twins.
+  async function snoozeScheduledSession({ groupId, date, minutes }) {
+    const session = await findOrCreateScheduledSession(groupId, date);
+    const nowMs = now();
+    const snoozedUntil = new Date(nowMs + Number(minutes) * 60 * 1000).toISOString();
+    // The inbox drain is at-least-once (inbox.js drain rule 2): a crash between
+    // flush and ack re-applies this event. now() is pinned to the server tap
+    // time, so a redelivery yields the identical snoozedUntil — skip it so
+    // snooze_count is not re-incremented. A genuine second tap arrives with a
+    // different at_unix (hence a different snoozedUntil) and still applies.
+    if (session.snoozed_until === snoozedUntil) return;
+    await records.put(WORKOUT_RECORD_TYPES.SESSION, {
+      ...session,
+      snoozed_until: snoozedUntil,
+      snooze_count: (session.snooze_count || 0) + 1,
+      clientTs: nowMs,
+    });
+  }
+
+  async function skipScheduledSession({ groupId, date }) {
+    const session = await findOrCreateScheduledSession(groupId, date);
+    // Same at-least-once re-apply guard: advanceRotation is NOT idempotent, so
+    // only advance on a real transition into a terminal state. A redelivery — or
+    // a session already terminal (skipped OR completed elsewhere) — must no-op:
+    // a stale/re-delivered Skip must not overwrite a completed session to skipped
+    // nor advance rotation a second time on top of the completion.
+    if (session.status === 'skipped' || session.status === 'completed') return;
+    await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...session, status: 'skipped', clientTs: now() });
+    await tryAdvanceRotation(session);
+  }
+
   async function completeSession(id) {
     const session = await findSession(id);
     if (!session) return;
@@ -2108,6 +2180,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     startSession,
     snoozeSession,
     skipSession,
+    snoozeScheduledSession,
+    skipScheduledSession,
     preSkipSession,
     cancelPreSkipSession,
     deleteSession,

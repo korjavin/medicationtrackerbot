@@ -115,6 +115,15 @@ func ValidDelivery(s string) bool {
 	return s == DeliveryWebPush || s == DeliveryTelegram || s == DeliveryBoth
 }
 
+// Row ownership for scheduled_pushes (med-eas.70). Client-uploaded rows are
+// wiped-and-replaced by ReplaceSchedule; relay-inserted workout snooze re-fires
+// (PushOriginRelayRefire) survive that wipe so a pending snooze isn't erased by
+// the next client sync.
+const (
+	PushOriginClient      = "client"
+	PushOriginRelayRefire = "relay_refire"
+)
+
 // ScheduledPush is one row in the scheduled_pushes table — a client-scheduled
 // blind push (fire_at, ct) the relay sender fires without ever decrypting.
 // SentAt is nil until the relay has attempted delivery.
@@ -149,8 +158,11 @@ type ScheduledPushInput struct {
 // relay's send history survives a client re-schedule.
 func (r *Repo) ReplaceSchedule(ctx context.Context, accountID string, entries []ScheduledPushInput, now time.Time) error {
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		// Only wipe the account's own client rows: relay-inserted workout snooze
+		// re-fires (origin = 'relay_refire') must survive a client re-upload so a
+		// pending snooze isn't erased by the next sync.
 		if _, err := tx.ExecContext(ctx,
-			`DELETE FROM scheduled_pushes WHERE account_id = ? AND sent_at_unix IS NULL`, accountID); err != nil {
+			`DELETE FROM scheduled_pushes WHERE account_id = ? AND sent_at_unix IS NULL AND origin = ?`, accountID, PushOriginClient); err != nil {
 			return err
 		}
 		for _, e := range entries {
@@ -211,4 +223,48 @@ func (r *Repo) MarkPushSent(ctx context.Context, id int64, sentAt time.Time) err
 		`UPDATE scheduled_pushes SET sent_at_unix = ?, ct = X'', tg_text = '', tg_callback = '' WHERE id = ?`,
 		storedb.TimeToUnix(sentAt), id)
 	return err
+}
+
+// InsertRelayRefire schedules one relay-owned Telegram re-fire (med-eas.70): a
+// workout snooze tap re-delivers the reminder ~1h/2h later even if the PWA never
+// reopens. It copies ONLY already-cleartext fields the relay could see when it
+// handled the tap (tg_text/tg_callback at a new fire_at) — ct is empty and the
+// relay never reads or produces it, preserving the zero-knowledge invariant.
+func (r *Repo) InsertRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback string) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, origin) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		accountID, storedb.TimeToUnix(fireAt), []byte{}, DeliveryTelegram, tgText, tgCallback, PushOriginRelayRefire)
+	return err
+}
+
+// RescheduleRelayRefire atomically supersedes any pending relay re-fire for
+// (accountID, tgCallback) with a fresh one: the cancel + insert run in a single
+// transaction so two concurrent workout snooze taps for the same session can't
+// both delete-then-insert and leave duplicate pending re-fire rows (med-eas.70).
+// Copies only already-cleartext fields (empty ct), preserving zero-knowledge.
+func (r *Repo) RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback string) error {
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM scheduled_pushes WHERE account_id = ? AND origin = ? AND tg_callback = ? AND sent_at_unix IS NULL`,
+			accountID, PushOriginRelayRefire, tgCallback); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, origin) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			accountID, storedb.TimeToUnix(fireAt), []byte{}, DeliveryTelegram, tgText, tgCallback, PushOriginRelayRefire)
+		return err
+	})
+}
+
+// CancelRelayRefire drops any pending (unsent) relay re-fire for accountID whose
+// callback stem matches tgCallback — used when a workout skip tap should stop a
+// scheduled snooze re-fire. Returns rows affected.
+func (r *Repo) CancelRelayRefire(ctx context.Context, accountID, tgCallback string) (int64, error) {
+	res, err := r.db.ExecContext(ctx,
+		`DELETE FROM scheduled_pushes WHERE account_id = ? AND origin = ? AND tg_callback = ? AND sent_at_unix IS NULL`,
+		accountID, PushOriginRelayRefire, tgCallback)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }

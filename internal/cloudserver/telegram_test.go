@@ -961,6 +961,7 @@ type tapFixture struct {
 	top       *http.ServeMux
 	childPath string
 	secret    string
+	api       *TelegramAPI
 }
 
 // linkedBotTap builds an account whose bot is provisioned and whose chat (12345)
@@ -1016,7 +1017,7 @@ func linkedBotTap(t *testing.T, tg *recordingTG) tapFixture {
 	tg.mu.answered = nil
 	tg.mu.Unlock()
 
-	return tapFixture{store: store, accountID: account.ID, top: top, childPath: childPath, secret: bot.WebhookSecret}
+	return tapFixture{store: store, accountID: account.ID, top: top, childPath: childPath, secret: bot.WebhookSecret, api: tgAPI}
 }
 
 func callbackUpdate(data string, chatID int64) string {
@@ -1213,6 +1214,219 @@ func TestChildWebhook_CallbackQueryRedeliveryQueuesAgainAndStays200(t *testing.T
 	}
 	if n := inboxCount(t, f.store, f.accountID); n != 2 {
 		t.Fatalf("queued %d events, want 2 (at-least-once; the client converges)", n)
+	}
+}
+
+// --- med-eas.70: workout snooze/skip taps + relay re-fire -------------------
+
+// workoutCallbackUpdate builds a callback_query in the workout ("w:") namespace,
+// carrying message text so the re-fire copy path has something cleartext to copy.
+func workoutCallbackUpdate(data string, chatID int64, text string) string {
+	return `{"update_id":3,"callback_query":{"id":"cbq-w","data":"` + data +
+		`","from":{"id":6918132008},"message":{"message_id":9,"text":` + strconv.Quote(text) +
+		`,"chat":{"id":` + strconv.FormatInt(chatID, 10) + `,"type":"private"}}}}`
+}
+
+// A workout reminder renders exactly the three action buttons with their
+// namespaced callback_data — and none of the med Confirm/Snooze pair.
+func TestSendReminder_WorkoutRendersThreeButtons(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+
+	if err := f.api.SendReminder(t.Context(), f.accountID, "Leg day — time to train", "w:6:20260720"); err != nil {
+		t.Fatalf("SendReminder: %v", err)
+	}
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.sent) != 1 {
+		t.Fatalf("sent %d messages, want 1", len(tg.mu.sent))
+	}
+	body := tg.mu.sent[0]
+	for _, want := range []string{"w:6:20260720:snooze1h", "w:6:20260720:snooze2h", "w:6:20260720:skip", "Snooze 1h", "Snooze 2h", "Skip"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("workout reminder missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, ":confirm") || strings.Contains(body, "Confirm") {
+		t.Errorf("workout reminder must not carry the med Confirm button: %s", body)
+	}
+}
+
+// A Snooze 1h tap seals a workout_session_action event AND schedules a
+// relay-owned re-fire ~1h later, copying the message text and re-using the same
+// "w:" stem. The re-fire row carries no ciphertext (the relay stays blind).
+func TestChildWebhook_WorkoutSnoozeSealsEventAndSchedulesRefire(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	privRaw := publishInboxKey(t, f.store, f.accountID)
+
+	before := time.Now().UTC()
+	rec := postWebhook(t, f.top, f.childPath, f.secret, workoutCallbackUpdate("w:6:20260720:snooze1h", 12345, "Leg day — time to train"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	// Sealed session-reconciliation event.
+	events, err := f.store.ListInboxEvents(t.Context(), f.accountID, 10)
+	if err != nil {
+		t.Fatalf("ListInboxEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("queued %d events, want 1", len(events))
+	}
+	if bytes.Contains(events[0].CT, []byte("snooze1h")) || bytes.Contains(events[0].CT, []byte("workout_session_action")) {
+		t.Fatal("mailbox row contains plaintext")
+	}
+	opened, err := openInbox(privRaw, f.accountID, events[0].CT)
+	if err != nil {
+		t.Fatalf("openInbox: %v", err)
+	}
+	var got workoutSessionEvent
+	if err := json.Unmarshal(opened, &got); err != nil {
+		t.Fatalf("unmarshal sealed event: %v", err)
+	}
+	if got.Kind != inboxEventKindWorkoutSession || got.GroupID != 6 || got.Date != "2026-07-20" || got.Action != tgclient.CallbackActionSnooze1h || got.MessageID != 9 {
+		t.Fatalf("sealed event = %+v", got)
+	}
+
+	// Relay re-fire scheduled ~1h out. Look ahead 3h so the row is due.
+	due, err := f.store.DueScheduledPushes(t.Context(), before.Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("scheduled %d re-fires, want 1", len(due))
+	}
+	rf := due[0]
+	if rf.TGCallback != "w:6:20260720" {
+		t.Errorf("re-fire callback = %q, want the same workout stem", rf.TGCallback)
+	}
+	if rf.TGText != "Leg day — time to train" {
+		t.Errorf("re-fire text = %q, want the original message text copied", rf.TGText)
+	}
+	if rf.Delivery != cloudstore.DeliveryTelegram {
+		t.Errorf("re-fire delivery = %q, want telegram", rf.Delivery)
+	}
+	if len(rf.CT) != 0 {
+		t.Errorf("re-fire must carry no ciphertext (relay stays blind), got %d bytes", len(rf.CT))
+	}
+	// Fires ~1h out, not immediately and not 2h.
+	if d := rf.FireAt.Sub(before); d < 55*time.Minute || d > 65*time.Minute {
+		t.Errorf("re-fire fires in %v, want ~1h", d)
+	}
+}
+
+// A 2h snooze schedules the re-fire ~2h out.
+func TestChildWebhook_WorkoutSnooze2hSchedulesRefireTwoHoursOut(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	before := time.Now().UTC()
+	if rec := postWebhook(t, f.top, f.childPath, f.secret, workoutCallbackUpdate("w:6:20260720:snooze2h", 12345, "x")); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	due, err := f.store.DueScheduledPushes(t.Context(), before.Add(4*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("scheduled %d re-fires, want 1", len(due))
+	}
+	if d := due[0].FireAt.Sub(before); d < 115*time.Minute || d > 125*time.Minute {
+		t.Errorf("re-fire fires in %v, want ~2h", d)
+	}
+}
+
+// A Skip tap seals the session event AND cancels any pending re-fire for that
+// same session, so a snoozed workout that is later skipped stops re-arriving.
+func TestChildWebhook_WorkoutSkipSealsEventAndCancelsRefire(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	privRaw := publishInboxKey(t, f.store, f.accountID)
+
+	// Pre-seed a pending re-fire for this session, as a prior snooze would have.
+	if err := f.store.InsertRelayRefire(t.Context(), f.accountID, time.Now().Add(time.Hour), "Leg day", "w:6:20260720"); err != nil {
+		t.Fatalf("InsertRelayRefire: %v", err)
+	}
+
+	rec := postWebhook(t, f.top, f.childPath, f.secret, workoutCallbackUpdate("w:6:20260720:skip", 12345, "Leg day"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+
+	// Event sealed with the skip action.
+	events, err := f.store.ListInboxEvents(t.Context(), f.accountID, 10)
+	if err != nil {
+		t.Fatalf("ListInboxEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("queued %d events, want 1", len(events))
+	}
+	opened, err := openInbox(privRaw, f.accountID, events[0].CT)
+	if err != nil {
+		t.Fatalf("openInbox: %v", err)
+	}
+	var got workoutSessionEvent
+	if err := json.Unmarshal(opened, &got); err != nil {
+		t.Fatalf("unmarshal sealed event: %v", err)
+	}
+	if got.Action != tgclient.CallbackActionSkip || got.GroupID != 6 || got.Date != "2026-07-20" {
+		t.Fatalf("sealed event = %+v", got)
+	}
+
+	// The pending re-fire is gone.
+	due, err := f.store.DueScheduledPushes(t.Context(), time.Now().Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("skip left %d pending re-fires, want 0", len(due))
+	}
+}
+
+// Telegram omits the Message for an old reminder; a snooze tap must still
+// schedule a re-fire, falling back to the generic text (no vault read).
+func TestChildWebhook_WorkoutSnoozeWithoutMessageUsesGenericText(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	// callback_query with NO "message" field (cq.Message == nil).
+	update := `{"update_id":3,"callback_query":{"id":"cbq-w","data":"w:6:20260720:snooze1h","from":{"id":6918132008}}}`
+	if rec := postWebhook(t, f.top, f.childPath, f.secret, update); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	due, err := f.store.DueScheduledPushes(t.Context(), time.Now().Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("scheduled %d re-fires, want 1", len(due))
+	}
+	if due[0].TGText != workoutRefireText {
+		t.Errorf("re-fire text = %q, want the generic fallback %q", due[0].TGText, workoutRefireText)
+	}
+}
+
+// Without an inbox key there is no client that could ever reconcile the session,
+// so a workout tap is dropped AND schedules no re-fire.
+func TestChildWebhook_WorkoutTapWithoutInboxKeyDropsAndSchedulesNoRefire(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg) // no publishInboxKey
+
+	if rec := postWebhook(t, f.top, f.childPath, f.secret, workoutCallbackUpdate("w:6:20260720:snooze1h", 12345, "Leg day")); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if n := inboxCount(t, f.store, f.accountID); n != 0 {
+		t.Fatalf("queued %d events without an inbox key, want 0", n)
+	}
+	due, err := f.store.DueScheduledPushes(t.Context(), time.Now().Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("scheduled %d re-fires without a key, want 0", len(due))
 	}
 }
 

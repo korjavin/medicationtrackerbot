@@ -639,3 +639,137 @@ func TestEgressHostsRoundTrip(t *testing.T) {
 		t.Fatalf("EgressHosts(unknown) = %v, want sql.ErrNoRows", err)
 	}
 }
+
+// TestReplaceSchedulePreservesRelayRefire pins med-eas.70: a client re-upload
+// (ReplaceSchedule) wipes only the account's own client rows and must leave an
+// unsent relay_refire row intact, so a pending workout snooze survives the sync.
+func TestReplaceSchedulePreservesRelayRefire(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	acc, err := r.CreateAccount(ctx, "acc-refire", "keen-heron-ref019", []byte("hash"), now.Add(time.Hour), now, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	past := now.Add(-time.Minute)
+	if err := r.ReplaceSchedule(ctx, acc.ID, []ScheduledPushInput{
+		{FireAt: past, Delivery: DeliveryTelegram, TGText: "client reminder", TGCallback: "s:100"},
+	}, now); err != nil {
+		t.Fatalf("ReplaceSchedule (first): %v", err)
+	}
+	if err := r.InsertRelayRefire(ctx, acc.ID, past, "workout refire", "w:6:20260720"); err != nil {
+		t.Fatalf("InsertRelayRefire: %v", err)
+	}
+
+	// A second client upload replaces the batch: the client row is wiped, the
+	// relay_refire row survives.
+	if err := r.ReplaceSchedule(ctx, acc.ID, []ScheduledPushInput{
+		{FireAt: past, Delivery: DeliveryTelegram, TGText: "new client reminder", TGCallback: "s:200"},
+	}, now); err != nil {
+		t.Fatalf("ReplaceSchedule (second): %v", err)
+	}
+
+	due, err := r.DueScheduledPushes(ctx, now)
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	byText := map[string]ScheduledPush{}
+	for _, p := range due {
+		byText[p.TGText] = p
+	}
+	if _, ok := byText["client reminder"]; ok {
+		t.Errorf("stale client row survived ReplaceSchedule: %+v", due)
+	}
+	if _, ok := byText["new client reminder"]; !ok {
+		t.Errorf("new client row missing: %+v", due)
+	}
+	refire, ok := byText["workout refire"]
+	if !ok {
+		t.Fatalf("relay_refire row wiped by ReplaceSchedule: %+v", due)
+	}
+	if refire.Delivery != DeliveryTelegram || refire.TGCallback != "w:6:20260720" || len(refire.CT) != 0 {
+		t.Errorf("relay_refire round-tripped wrong: %+v", refire)
+	}
+}
+
+// TestCancelRelayRefire pins med-eas.70: a workout skip cancels only matching
+// unsent refires — not sent ones, not other callbacks, not other accounts.
+func TestCancelRelayRefire(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	acc, err := r.CreateAccount(ctx, "acc-cancel", "keen-heron-can019", []byte("hash"), now.Add(time.Hour), now, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	past := now.Add(-time.Minute)
+	if err := r.InsertRelayRefire(ctx, acc.ID, past, "snooze A", "w:6:20260720"); err != nil {
+		t.Fatalf("InsertRelayRefire A: %v", err)
+	}
+	if err := r.InsertRelayRefire(ctx, acc.ID, past, "snooze B", "w:7:20260720"); err != nil {
+		t.Fatalf("InsertRelayRefire B: %v", err)
+	}
+
+	// Cancelling a non-matching callback removes nothing.
+	if n, err := r.CancelRelayRefire(ctx, acc.ID, "w:999:20260720"); err != nil || n != 0 {
+		t.Fatalf("CancelRelayRefire(non-match) = %d, %v; want 0, nil", n, err)
+	}
+	// Cancelling the matching callback removes exactly one.
+	if n, err := r.CancelRelayRefire(ctx, acc.ID, "w:6:20260720"); err != nil || n != 1 {
+		t.Fatalf("CancelRelayRefire(match) = %d, %v; want 1, nil", n, err)
+	}
+
+	due, err := r.DueScheduledPushes(ctx, now)
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 1 || due[0].TGCallback != "w:7:20260720" {
+		t.Fatalf("after cancel, due = %+v; want only w:7 refire", due)
+	}
+
+	// A sent refire is never cancelled.
+	if err := r.MarkPushSent(ctx, due[0].ID, now); err != nil {
+		t.Fatalf("MarkPushSent: %v", err)
+	}
+	if n, err := r.CancelRelayRefire(ctx, acc.ID, "w:7:20260720"); err != nil || n != 0 {
+		t.Fatalf("CancelRelayRefire(sent) = %d, %v; want 0, nil", n, err)
+	}
+}
+
+// TestRescheduleRelayRefire pins med-eas.70: re-snoozing the same workout session
+// supersedes the pending refire (cancel + insert in one transaction) rather than
+// stacking a second pending row — so two snooze taps leave exactly one delivery.
+func TestRescheduleRelayRefire(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	acc, err := r.CreateAccount(ctx, "acc-resched", "keen-heron-res019", []byte("hash"), now.Add(time.Hour), now, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	past := now.Add(-time.Minute)
+	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "snooze 1h", "w:6:20260720"); err != nil {
+		t.Fatalf("RescheduleRelayRefire (first): %v", err)
+	}
+	// Re-snooze the same session: the first refire is superseded, not stacked.
+	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "snooze 2h", "w:6:20260720"); err != nil {
+		t.Fatalf("RescheduleRelayRefire (second): %v", err)
+	}
+
+	due, err := r.DueScheduledPushes(ctx, now)
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("after re-snooze, due = %+v; want exactly one refire row", due)
+	}
+	if due[0].TGText != "snooze 2h" || due[0].TGCallback != "w:6:20260720" || len(due[0].CT) != 0 {
+		t.Errorf("refire not superseded correctly: %+v", due[0])
+	}
+}

@@ -44,6 +44,7 @@ export const TG_COMMAND = 'tg_command';
 export const TG_PHOTO = 'tg_photo';
 export const TG_TEXT = 'tg_text';
 export const VITALS_IMPORT = 'vitals_import';
+export const WORKOUT_SESSION_ACTION = 'workout_session_action';
 
 // A once-marker per free-text event. Unlike /bp or /food, the agent's tool
 // writes get fresh (non-deterministic) record ids, so a re-drain — the barrier
@@ -318,6 +319,37 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
     } catch (e) {
       console.warn('[inbox] could not update the Telegram reply', e);
     }
+  }
+}
+
+// SNOOZE_MINUTES_BY_ACTION maps a workout Snooze button to its duration. Skip
+// carries no duration.
+const SNOOZE_MINUTES_BY_ACTION = { snooze1h: 60, snooze2h: 120 };
+
+// applyWorkoutSessionAction drains a Telegram workout Snooze/Skip tap onto the
+// deterministic session-<groupId>-<date> slot (find-or-create — the tap can land
+// before the session is materialized). It reconciles local state; the relay's
+// own re-fire (server side) handles re-delivering the snoozed reminder.
+export async function applyWorkoutSessionAction(event, { workout, editReply = editTelegramReply }) {
+  const groupId = event.group_id;
+  const date = event.date;
+  let text;
+  if (event.action === 'skip') {
+    await workout.skipScheduledSession({ groupId, date });
+    text = '⏭️ Skipped.';
+  } else {
+    const minutes = SNOOZE_MINUTES_BY_ACTION[event.action];
+    if (!minutes) {
+      console.warn('[inbox] ignoring unknown workout action', event.action);
+      return;
+    }
+    await workout.snoozeScheduledSession({ groupId, date, minutes });
+    text = '⏰ Snoozed.';
+  }
+  try {
+    await editReply(event.message_id, text);
+  } catch (e) {
+    console.warn('[inbox] could not update the Telegram reply', e);
   }
 }
 
@@ -708,6 +740,17 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
       const reminders = createRemindersDomain({ records, now });
       const { verbosity } = await reminders.getDeliveryPref();
       await applyTGText(event, eventId, { agent, records, verbosity, now, editReply });
+      return;
+    }
+    if (event.kind === WORKOUT_SESSION_ACTION) {
+      // The tap acts on the deterministic session-<groupId>-<date> slot; the
+      // workout domain stamps snoozed_until from the server tap time (like meds),
+      // so build it on that instant.
+      const atMs = event.at_unix * 1000;
+      await applyWorkoutSessionAction(event, {
+        workout: createWorkoutDomain({ records, now: () => atMs, timeZone }),
+        editReply,
+      });
       return;
     }
     if (event.kind !== INTAKE_SLOT_ACTION) {
