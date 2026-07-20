@@ -44,8 +44,8 @@
 // state (no window.* global). A single in-flight promise serializes saves so
 // overlapping autosaves don't interleave; flushPendingAutosave() is called on
 // modal close so a change made right before closing isn't dropped.
-let _autosaveTimer = null;
-let _autosaveInFlight = null;
+let _autosaveTimer = null; // module-state: single pending debounce timer for the open session modal
+let _autosaveInFlight = null; // module-state: serializes overlapping autosaves for the open session modal
 
 function scheduleAutosave() {
     if (_autosaveTimer) clearTimeout(_autosaveTimer);
@@ -647,7 +647,7 @@ async function showWorkoutSessionModal(sessionId) {
         // Add click handler to overlay to close modal
         overlay.onclick = function (e) {
             if (e.target === overlay) {
-                closeWorkoutSessionModal();
+                return closeWorkoutSessionModal();
             }
         };
     } catch (error) {
@@ -1254,7 +1254,7 @@ function closeAddExerciseToSessionModal() {
     const overlay = document.getElementById('modal-overlay');
     overlay.onclick = function (e) {
         if (e.target === overlay) {
-            closeWorkoutSessionModal();
+            return closeWorkoutSessionModal();
         }
     };
 }

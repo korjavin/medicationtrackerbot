@@ -83,10 +83,10 @@ Related patterns: no existing `debounce` helper in the codebase — add a small 
 - [x] Run `npx vitest run` on the workout suites (Node 20) — must pass before Task 5. (69 workout tests + tokens/globals/cloud-tokens suites green.)
 
 ### Task 5: Verify acceptance criteria
-- [ ] Verify all Overview requirements: Add Exercise renamed + repositioned to top + still opens add-exercise modal; edits autosave (debounced) without closing; no Save button; Close flushes pending autosave without losing edits; autosave failure keeps modal open + data intact + error shown; in_progress shows no Delete.
-- [ ] Confirm no new `window.*` globals introduced (`tests/architecture.globals.test.js` green).
-- [ ] Confirm no hardcoded colors / inline `.style.` (architecture design-tokens + cloud-tokens suites green).
-- [ ] Run the full frontend suite `npx vitest run` (Node 20) — all green.
+- [x] Verify all Overview requirements: Add Exercise renamed + repositioned to top + still opens add-exercise modal; edits autosave (debounced) without closing; no Save button; Close flushes pending autosave without losing edits; autosave failure keeps modal open + data intact + error shown; in_progress shows no Delete. (Covered by the workout session/detail integration suites, all green.)
+- [x] Confirm no new `window.*` globals introduced (`tests/architecture.globals.test.js` green). (Also `architecture.no-module-state`: the two autosave `let`s are annotated `// module-state:` per the escape hatch.)
+- [x] Confirm no hardcoded colors / inline `.style.` (architecture design-tokens + cloud-tokens suites green).
+- [x] Run the full frontend suite `npx vitest run` (Node 20) — all green. (321 files, 3870 passed, 29 skipped, 0 failed. Fixed two regressions the per-suite runs missed: annotated the module-level autosave state for `no-module-state`, and made the overlay-close handlers return the now-async close promise so `workout.session-and-stats` overlay-click tests await it.)
 
 ## Technical Details
 

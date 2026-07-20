@@ -69,7 +69,7 @@ describe('workout.js session and stats flows', () => {
       expect(logsMarkup).toContain('Bench Press');
       expect(logsMarkup).toContain('Not yet logged');
 
-      overlay.onclick({ target: overlay });
+      await overlay.onclick({ target: overlay });
       expect(modal.classList.contains('hidden')).toBe(true);
       expect(overlay.classList.contains('hidden')).toBe(true);
     } finally {
@@ -505,7 +505,7 @@ describe('workout.js session and stats flows', () => {
 
       window.closeAddExerciseToSessionModal();
       const overlay = document.getElementById('modal-overlay');
-      overlay.onclick({ target: overlay });
+      await overlay.onclick({ target: overlay });
       expect(closeSessionSpy).toHaveBeenCalled();
     } finally {
       cleanup();
