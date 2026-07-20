@@ -70,11 +70,11 @@ Reference shapes (mirror faithfully for parity):
 - [x] Run `npx vitest run` on the tgcommand + inbox-apply suites — must pass before next task.
 
 ### Task 2: New pure activityai.js domain module
-- [ ] Create `web/domain/activityai.js` modeled on `web/domain/foodai.js`. Export `ActivitySystemPrompt` (VERBATIM from internal/ai/openai.go:312-326) and `activitySchema` (VERBATIM JSON-schema shape from openai.go:285-308, JS object form).
-- [ ] Export `convertParsedActivity(parsed)`: throw `invalid('...','no_activity')` when parsed is nil / missing name; throw `invalid('...','no_exercises')` when `exercises` is empty (mirrors Go's `len(Exercises)==0` error); compute `durationSec = sum(exercise.duration_minutes||0)*60`; return `{ name, exercises, durationSec }`.
-- [ ] Export `createActivityAIDomain({ aiClient })` returning `parseActivityFromDescription(description)`: trim + empty guard + 4096-byte cap (mirror foodai `MAX_DESCRIPTION_BYTES`), call `aiClient.parseActivityFromDescription(trimmed)`, return `convertParsedActivity(parsed)`.
-- [ ] Add `web/domain/tests/activityai.test.js` (pure unit, mirror foodai test posture): stub aiClient; assert name+durationSec summed across cardio exercises; assert throw on empty exercises; assert throw on empty description.
-- [ ] Run `npx vitest run` on activityai + domain-purity suites — must pass before next task.
+- [x] Create `web/domain/activityai.js` modeled on `web/domain/foodai.js`. Export `ActivitySystemPrompt` (VERBATIM from internal/ai/openai.go:312-326) and `activitySchema` (VERBATIM JSON-schema shape from openai.go:285-308, JS object form).
+- [x] Export `convertParsedActivity(parsed)`: throw `invalid('...','no_activity')` when parsed is nil / missing name; throw `invalid('...','no_exercises')` when `exercises` is empty (mirrors Go's `len(Exercises)==0` error); compute `durationSec = sum(exercise.duration_minutes||0)*60`; return `{ name, exercises, durationSec }`.
+- [x] Export `createActivityAIDomain({ aiClient })` returning `parseActivityFromDescription(description)`: trim + empty guard + 4096-byte cap (mirror foodai `MAX_DESCRIPTION_BYTES`), call `aiClient.parseActivityFromDescription(trimmed)`, return `convertParsedActivity(parsed)`.
+- [x] Add test (pure unit, mirror foodai test posture): stub aiClient; assert name+durationSec summed across cardio exercises; assert throw on empty exercises; assert throw on empty description. (Placed at `web/static/js/tests/activityai.test.js` — vitest's include glob only covers `web/static/js/tests/**` + `web/cloud/js/tests/**`, so a file under `web/domain/tests/` would never run.)
+- [x] Run `npx vitest run` on activityai + domain-purity suites — must pass before next task.
 
 ### Task 3: aiclient.js parseActivityFromDescription
 - [ ] In `web/cloud/js/aiclient.js`, import `ActivitySystemPrompt, activitySchema` from `../../domain/activityai.js`.
