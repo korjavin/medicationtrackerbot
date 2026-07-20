@@ -1263,6 +1263,50 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(window.WorkoutSessionsState.data).not.toBeNull();
   });
 
+  // Regression (med-eas.71): a planned exercise pre-fills as an id:0 log. The
+  // first autosave after editing it must CREATE it and adopt the returned id;
+  // a later autosave must then UPDATE (not re-create), or cloud createLog's
+  // dedup guard throws 'conflict' — a blocking alert that aborts the batch and
+  // bricks Finish.
+  it('reconciles a created log id so a subsequent autosave updates instead of re-creating', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    // Pre-filled planned row: id 0, real exercise_id, untouched.
+    window.WorkoutSessionsState.logs = [
+      { id: 0, exercise_id: 3, exercise_name: 'Squat', sets_completed: 3, reps_completed: 5, weight_kg: 100, notes: '', _dirty: false }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    const createCalls = [];
+    const updateCalls = [];
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint === '/api/workout/sessions/logs/create') { createCalls.push(payload); return { id: 88 }; }
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) { updateCalls.push(payload); return { ok: true }; }
+      return [];
+    });
+
+    vi.useFakeTimers();
+    try {
+      window.updateLocalSet(0, 0, 'weight_kg', '105');
+      await vi.advanceTimersByTimeAsync(800);
+      // Second edit → second autosave.
+      window.updateLocalSet(0, 1, 'reps', '6');
+      await vi.advanceTimersByTimeAsync(800);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // Exactly one create (first autosave), then an update (not a second create).
+    expect(createCalls.length).toBe(1);
+    expect(updateCalls.length).toBe(1);
+    expect(updateCalls[0].id).toBe(88);
+    // Local log adopted the server id.
+    expect(window.WorkoutSessionsState.logs[0].id).toBe(88);
+  });
+
   // ===========================================================================
   // Autosave failure handling (med-eas.71, Task 4)
   //

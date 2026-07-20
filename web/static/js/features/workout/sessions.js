@@ -59,7 +59,7 @@ function runAutosave() {
     // Chain after any in-flight save so writes stay ordered / non-overlapping.
     _autosaveInFlight = Promise.resolve(_autosaveInFlight)
         .catch(() => {})
-        .then(() => saveWorkoutSessionDetails({ closeOnSuccess: false, fromAutosave: true }));
+        .then(() => saveWorkoutSessionDetails({ fromAutosave: true }));
     return _autosaveInFlight;
 }
 
@@ -633,7 +633,7 @@ async function showWorkoutSessionModal(sessionId) {
         setAutosaveStatus('saved');
 
         renderWorkoutSessionInfo(infoContainer, data.session);
-        renderSessionLogsHeader(() => showAddExerciseToSessionModal());
+        renderSessionLogsHeader();
         renderWorkoutSessionLogs(logsContainer);
         const actionsContainer = document.getElementById('workout-session-actions');
         if (actionsContainer) {
@@ -760,6 +760,10 @@ async function deleteWorkoutSession() {
 
 async function finishWorkoutSession() {
     if (!window.WorkoutSessionsState.data) return;
+    // Drain any pending/in-flight autosave first so Finish doesn't run a second
+    // save concurrently (which could re-create a not-yet-reconciled log).
+    await flushPendingAutosave();
+    if (!window.WorkoutSessionsState.data) return;
     const select = document.getElementById('session-status-select');
     if (select) select.value = 'completed';
     await saveWorkoutSessionDetails();
@@ -768,21 +772,20 @@ async function finishWorkoutSession() {
 // renderSessionLogsHeader mounts the "Add Exercise" button in a stable node
 // above the (fully re-rendered on every edit) logs list, so you can add an
 // exercise without scrolling past every logged set. Reuses the existing
-// showAddExerciseToSessionModal handler (onLogSet). `.workout-action-btn`
+// showAddExerciseToSessionModal handler. `.workout-action-btn`
 // keeps it in sync.js's offline sweep; static offline state is applied here.
-function renderSessionLogsHeader(onLogSet) {
+function renderSessionLogsHeader() {
     const header = document.getElementById('workout-session-logs-header');
     if (!header) return;
     header.classList.add('wg-workouts-session-logs-header');
     header.replaceChildren();
 
-    const handler = (typeof onLogSet === 'function') ? onLogSet : () => {};
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
     addBtn.id = 'workout-session-add-exercise-btn';
     addBtn.className = 'wg-gloss--sun wg-workouts-session-logs-header__add workout-action-btn';
     addBtn.textContent = 'Add Exercise';
-    addBtn.addEventListener('click', () => handler());
+    addBtn.addEventListener('click', () => showAddExerciseToSessionModal());
     header.appendChild(addBtn);
 
     if (typeof window !== 'undefined' && window.SyncManager && window.SyncManager.isOnline === false) {
@@ -836,8 +839,9 @@ async function saveWorkoutSessionDetails(opts) {
     //    modal on success and drives busy-state feedback on the Finish button.
     //  - Debounced autosave (fromAutosave): must NOT close the modal and must
     //    NOT hijack the Finish button — it drives the inline status element.
-    const closeOnSuccess = !opts || opts.closeOnSuccess !== false;
     const fromAutosave = !!(opts && opts.fromAutosave);
+    // Autosave never closes the modal; the deliberate Finish path always does.
+    const closeOnSuccess = !fromAutosave;
 
     const finishBtn = document.getElementById('workout-session-finish-btn');
     const busyTargets = fromAutosave ? [] : [finishBtn].filter(Boolean);
@@ -1000,7 +1004,19 @@ async function saveWorkoutSessionDetails(opts) {
                 await settleFailure();
                 return;
             }
-            if (attempted) anyMutationSucceeded = true;
+            if (attempted) {
+                anyMutationSucceeded = true;
+                // Reconcile local state so a *subsequent* autosave doesn't re-POST
+                // the same log. Without this, a created placeholder keeps id===0 &&
+                // _dirty, so the next autosave hits logs/create again → createLog's
+                // dedup guard throws 'conflict' (blocking alert + aborts the batch,
+                // and later bricks Finish). Adopting the server id routes future
+                // saves through the idempotent update path; clearing _setsDirty
+                // stops re-sending the fabricated per-set array every cycle.
+                if (logResult && logResult.id) log.id = logResult.id;
+                log._dirty = false;
+                log._setsDirty = false;
+            }
             // Skip: id===0 && !_dirty — pre-filled but untouched, don't save
         }
 
@@ -1016,6 +1032,12 @@ async function saveWorkoutSessionDetails(opts) {
         // All requested mutations succeeded — commit the optimistic state
         // (leave it in cache) then invalidate so the next read fetches
         // authoritative server data layered on top.
+        // Advance the baseline so a *subsequent* autosave doesn't see the same
+        // status as still-changed and re-PUT it (and re-apply workout_next /
+        // gamification) on every later keystroke-batch.
+        if (statusChanged && window.WorkoutSessionsState) {
+            window.WorkoutSessionsState.originalStatus = newStatus;
+        }
         for (const h of optimisticHandles) await h.commit(null);
         if (anyMutationSucceeded || optimisticHandles.length > 0) {
             await invalidateWorkoutCache();
