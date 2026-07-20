@@ -61,9 +61,9 @@ function invalid(message, code) {
 
 // convertParsedActivity mirrors internal/domain/activity_ai.go: reject a nil /
 // nameless parse, reject an empty exercises list (Go's len(Exercises)==0 error),
-// then sum duration_minutes into durationSec (activity_commands.go). The
-// per-exercise breakdown is carried through for parity but a manual miband row
-// only uses name + total duration.
+// then sum duration_minutes into durationSec (activity_commands.go). A manual
+// miband row only carries name + total duration, so the per-exercise breakdown
+// is validated (must be non-empty) but not returned.
 export function convertParsedActivity(parsed) {
   if (!parsed || !parsed.name) {
     throw invalid('AI returned no activity', 'no_activity');
@@ -75,7 +75,7 @@ export function convertParsedActivity(parsed) {
     (sum, ex) => sum + (ex.duration_minutes || 0) * 60,
     0,
   );
-  return { name: parsed.name, exercises: parsed.exercises, durationSec };
+  return { name: parsed.name, durationSec };
 }
 
 // createActivityAIDomain builds the activity-AI API over the injected aiClient:

@@ -18,7 +18,6 @@ describe('activityai — convertParsedActivity', () => {
     const out = convertParsedActivity(parsed);
     expect(out.name).toBe('Morning cardio');
     expect(out.durationSec).toBe(30 * 60);
-    expect(out.exercises).toHaveLength(2);
   });
 
   it('treats missing duration_minutes as zero (strength exercises)', () => {
@@ -55,7 +54,6 @@ describe('activityai — createActivityAIDomain', () => {
     const out = await domain.parseActivityFromDescription('2km bicycle');
     expect(out).toEqual({
       name: 'Bike ride',
-      exercises: [{ name: 'Cycling', duration_minutes: 15 }],
       durationSec: 900,
     });
   });

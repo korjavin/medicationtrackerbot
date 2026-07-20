@@ -2093,17 +2093,20 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // 'manual'), mirroring internal/bot/activity_commands.go: start = now, end =
   // start + durationSec. recordId is deterministic (tg-<eventId>) so a re-drain
   // overwrites rather than duplicates; the numeric id is preserved from a prior
-  // active record, else derived from source_start_ms so re-drain converges
-  // (same convention as vitals.js's mi-band import).
+  // active record, else minted with cross-record entropy. The mint (not a bare
+  // source_start_ms) matters here because the drain clock is second-precision
+  // and the tg-<eventId> recordId namespace gives no same-instant dedup — two
+  // /activity messages in one wall-clock second would otherwise share a numeric
+  // id and collide the per-id edit/delete path. Re-drain still converges: the
+  // recordId lookup below reuses the prior row's id.
   async function createMiBand({ recordId, activityName, durationSec } = {}) {
     const startMs = now();
     const endMs = startMs + (durationSec || 0) * 1000;
-    let id = startMs;
-    if (recordId) {
-      const prev = (await records.list(WORKOUT_RECORD_TYPES.MIBAND))
-        .find((r) => !r.deleted && r.recordId === recordId);
-      if (prev) id = prev.id;
-    }
+    const existing = await records.list(WORKOUT_RECORD_TYPES.MIBAND);
+    const prev = recordId
+      ? existing.find((r) => !r.deleted && r.recordId === recordId)
+      : null;
+    const id = prev ? prev.id : mintNumericId(existing, startMs);
     const record = {
       recordId: recordId || genRecordId('miband', startMs),
       clientTs: startMs,
