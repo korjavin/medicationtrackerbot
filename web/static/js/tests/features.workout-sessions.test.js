@@ -1144,6 +1144,126 @@ describe('features/workout/sessions.js — split-file integration', () => {
   });
 
   // ===========================================================================
+  // Debounced autosave decoupled from close (med-eas.71, Task 2)
+  //
+  // Any edit arms an ~800ms timer that persists through the existing
+  // saveWorkoutSessionDetails path WITHOUT closing the modal. Rapid edits
+  // batch into a single save; changing the status select autosaves too.
+  // ===========================================================================
+
+  it('autosaves batched set/reps edits ~800ms after the last edit without closing the modal', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    const closeSpy = vi.spyOn(window.ModalManager.workoutSession, 'close');
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '' }
+    ];
+    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
+      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
+    });
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    const updateCalls = [];
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) { updateCalls.push(payload); return { ok: true }; }
+      return [];
+    });
+
+    vi.useFakeTimers();
+    try {
+      // Two rapid edits inside the debounce window → one batched autosave.
+      window.updateLocalSet(0, 0, 'weight_kg', '65');
+      window.updateLocalSet(0, 1, 'reps', '10');
+      // Not yet fired before the debounce elapses.
+      await vi.advanceTimersByTimeAsync(400);
+      expect(updateCalls.length).toBe(0);
+      await vi.advanceTimersByTimeAsync(800);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // Exactly one save for the single edited log; the modal stays open.
+    expect(updateCalls.length).toBe(1);
+    expect(updateCalls[0].id).toBe(7);
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(window.loadWorkoutHistoryTab).not.toHaveBeenCalled();
+    expect(window.WorkoutSessionsState.data).not.toBeNull();
+  });
+
+  it('autosaves a notes edit through the existing apiCall path', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '' }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    let notesSeen = null;
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint.startsWith('/api/workout/sessions/logs/update')) { notesSeen = payload.notes; return { ok: true }; }
+      return [];
+    });
+
+    vi.useFakeTimers();
+    try {
+      window.updateLocalLog(0, 'notes', 'felt strong');
+      await vi.advanceTimersByTimeAsync(800);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(notesSeen).toBe('felt strong');
+  });
+
+  it('autosaves when the status select changes (no modal close)', async () => {
+    const { window, document } = env;
+    installApiCache(window, {
+      workout_next: { session: { id: 42, status: 'in_progress' } },
+      workout_history: {
+        sessions: [{ session: { id: 42, status: 'in_progress' }, group_name: 'Push' }],
+        miband: []
+      }
+    });
+    window.loadWorkoutHistoryTab = vi.fn();
+    const closeSpy = vi.spyOn(window.ModalManager.workoutSession, 'close');
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [];
+
+    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
+      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
+    });
+
+    const statusCalls = [];
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint.startsWith('/api/workout/sessions/status')) { statusCalls.push(payload); return { ok: true }; }
+      return [];
+    });
+
+    const select = document.getElementById('session-status-select');
+    select.value = 'skipped';
+
+    vi.useFakeTimers();
+    try {
+      select.dispatchEvent(new window.Event('change'));
+      await vi.advanceTimersByTimeAsync(800);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(statusCalls.length).toBe(1);
+    expect(statusCalls[0].status).toBe('skipped');
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(window.WorkoutSessionsState.data).not.toBeNull();
+  });
+
+  // ===========================================================================
   // Per-set logging (workout Phase 1, epic med-qj4)
   //
   // The single Sets/Reps/Weight row is replaced by repeatable per-set rows

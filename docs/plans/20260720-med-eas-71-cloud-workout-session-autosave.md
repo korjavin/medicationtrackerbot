@@ -60,12 +60,12 @@ Related patterns: no existing `debounce` helper in the codebase — add a small 
 - [x] Run `npx vitest run` on the workout session/detail suites (Node 20) — must pass before Task 2.
 
 ### Task 2: Debounced autosave decoupled from close
-- [ ] Add a closure/module-local debounce (~800ms) in `sessions.js`: `scheduleAutosave()` (arms/re-arms a timer that calls the autosave), plus `flushPendingAutosave()` (cancels the timer and awaits an immediate save if one is pending) and a cancel used on modal close/reopen.
-- [ ] Refactor `saveWorkoutSessionDetails` to accept an option (e.g. `{ closeOnSuccess = true }` or `fromAutosave` flag) so an autosave-triggered save does **NOT** call `closeWorkoutSessionModal()`; the "Finish workout" path keeps `closeOnSuccess = true`. Do not change the reused apiCall/optimistic write logic.
-- [ ] Rework the busy-state/feedback so it no longer depends on the (removed) `workout-session-save-btn`: on Finish, use the finish button for feedback as today; on autosave, do NOT hijack the Finish button text — drive a small inline autosave status/error element instead (see Task 4).
-- [ ] Call `scheduleAutosave()` from every edit trigger: `updateLocalSet`, `addLocalSet`, `removeLocalSet`, `updateLocalLog` (notes), the status `<select>` change (add a `change` listener in `renderWorkoutSessionInfo`), and after `saveNewSessionExercise` adds an exercise.
-- [ ] Extend the integration suite: editing a set/reps/weight/notes and advancing fake timers ~800ms fires exactly one autosave (batched) that persists via the existing apiCall path and does NOT close the modal; changing the status select autosaves.
-- [ ] Run `npx vitest run` on the workout suites (Node 20) — must pass before Task 3.
+- [x] Add a closure/module-local debounce (~800ms) in `sessions.js`: `scheduleAutosave()` (arms/re-arms a timer that calls the autosave), plus `flushPendingAutosave()` (cancels the timer and awaits an immediate save if one is pending) and a cancel used on modal close/reopen.
+- [x] Refactor `saveWorkoutSessionDetails` to accept an option (e.g. `{ closeOnSuccess = true }` or `fromAutosave` flag) so an autosave-triggered save does **NOT** call `closeWorkoutSessionModal()`; the "Finish workout" path keeps `closeOnSuccess = true`. Do not change the reused apiCall/optimistic write logic.
+- [x] Rework the busy-state/feedback so it no longer depends on the (removed) `workout-session-save-btn`: on Finish, use the finish button for feedback as today; on autosave, do NOT hijack the Finish button text — drive a small inline autosave status/error element instead (see Task 4).
+- [x] Call `scheduleAutosave()` from every edit trigger: `updateLocalSet`, `addLocalSet`, `removeLocalSet`, `updateLocalLog` (notes), the status `<select>` change (add a `change` listener in `renderWorkoutSessionInfo`), and after `saveNewSessionExercise` adds an exercise.
+- [x] Extend the integration suite: editing a set/reps/weight/notes and advancing fake timers ~800ms fires exactly one autosave (batched) that persists via the existing apiCall path and does NOT close the modal; changing the status select autosaves.
+- [x] Run `npx vitest run` on the workout suites (Node 20) — must pass before Task 3.
 
 ### Task 3: Remove Save button, relabel Cancel→Close, flush on close
 - [ ] In `web/static/index.html`, remove the `workout-session-save-btn` button; change the `workout-session-cancel-btn` label from "Cancel" to "Close".

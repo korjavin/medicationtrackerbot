@@ -38,6 +38,63 @@
     });
 })();
 
+// -- Debounced autosave (med-eas.71) --
+// Any edit arms an ~800ms timer that persists through the existing
+// saveWorkoutSessionDetails path WITHOUT closing the modal. Module-local
+// state (no window.* global). A single in-flight promise serializes saves so
+// overlapping autosaves don't interleave; flushPendingAutosave() is called on
+// modal close so a change made right before closing isn't dropped.
+let _autosaveTimer = null;
+let _autosaveInFlight = null;
+
+function scheduleAutosave() {
+    if (_autosaveTimer) clearTimeout(_autosaveTimer);
+    _autosaveTimer = setTimeout(() => {
+        _autosaveTimer = null;
+        runAutosave();
+    }, 800);
+}
+
+function runAutosave() {
+    // Chain after any in-flight save so writes stay ordered / non-overlapping.
+    _autosaveInFlight = Promise.resolve(_autosaveInFlight)
+        .catch(() => {})
+        .then(() => saveWorkoutSessionDetails({ closeOnSuccess: false, fromAutosave: true }));
+    return _autosaveInFlight;
+}
+
+async function flushPendingAutosave() {
+    const hadPending = !!_autosaveTimer;
+    if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; }
+    if (hadPending) {
+        try { await runAutosave(); } catch (_) { /* inline error already surfaced */ }
+    } else if (_autosaveInFlight) {
+        try { await _autosaveInFlight; } catch (_) { /* best-effort */ }
+    }
+}
+
+function cancelAutosave() {
+    if (_autosaveTimer) { clearTimeout(_autosaveTimer); _autosaveTimer = null; }
+}
+
+// setAutosaveStatus drives the inline modal status element (added in Task 4).
+// No-op when the element isn't mounted so autosave works regardless.
+function setAutosaveStatus(state, message) {
+    const el = document.getElementById('workout-session-autosave-status');
+    if (!el) return;
+    el.classList.remove('is-saving', 'is-error', 'is-saved');
+    if (state === 'saving') {
+        el.classList.add('is-saving');
+        el.textContent = 'Saving…';
+    } else if (state === 'error') {
+        el.classList.add('is-error');
+        el.textContent = message || 'Autosave failed — your changes are kept. Retrying on next edit.';
+    } else {
+        // 'saved' / cleared
+        el.textContent = '';
+    }
+}
+
 function renderWorkoutSessionInfo(infoContainer, session) {
     infoContainer.classList.add('wg-workouts-session-info');
 
@@ -122,6 +179,9 @@ function renderWorkoutSessionInfo(infoContainer, session) {
         option.selected = session.status === opt.value;
         select.appendChild(option);
     });
+
+    // A status change is a persisted edit — autosave it like set/reps/notes.
+    select.addEventListener('change', () => scheduleAutosave());
 
     statusRow.appendChild(label);
     statusRow.appendChild(select);
@@ -436,6 +496,7 @@ function updateLocalSet(logIndex, setIndex, field, value) {
     _syncLogScalarsFromSets(log);
     log._setsDirty = true;
     _markLogDirty(logIndex, log);
+    scheduleAutosave();
 }
 
 function addLocalSet(logIndex) {
@@ -459,6 +520,7 @@ function addLocalSet(logIndex) {
     log._dirty = true;
     log._setsDirty = true;
     _rerenderSessionLogs();
+    scheduleAutosave();
 }
 
 function removeLocalSet(logIndex, setIndex) {
@@ -471,9 +533,13 @@ function removeLocalSet(logIndex, setIndex) {
     log._dirty = true;
     log._setsDirty = true;
     _rerenderSessionLogs();
+    scheduleAutosave();
 }
 
 async function showWorkoutSessionModal(sessionId) {
+    // Fresh state is about to load — drop any autosave timer armed against the
+    // session being replaced so it can't fire against the new one.
+    cancelAutosave();
     const logsContainer = document.getElementById('workout-session-logs');
     const infoContainer = document.getElementById('workout-session-info');
     const overlay = document.getElementById('modal-overlay');
@@ -604,6 +670,7 @@ function updateLocalLog(index, field, value) {
         const hint = el.querySelector('.exercise-log-unsaved-hint');
         if (hint) hint.remove();
     }
+    scheduleAutosave();
 }
 
 async function deleteExerciseLog(index) {
@@ -742,6 +809,7 @@ function renderSessionDetailActions(container, opts) {
 }
 
 function closeWorkoutSessionModal() {
+    cancelAutosave();
     const overlay = document.getElementById('modal-overlay');
     overlay.onclick = null; // Remove click handler
     window.ModalManager.workoutSession.close();
@@ -749,17 +817,19 @@ function closeWorkoutSessionModal() {
     window.WorkoutSessionsState.originalStatus = null;
 }
 
-async function saveWorkoutSessionDetails() {
-    // Either the top "Save progress" button or the bottom "Finish workout"
-    // button can trigger this flow (finishWorkoutSession re-enters here
-    // after flipping the status select). Disable both so the unclicked
-    // one can't be tapped a second time while the first request is in-flight.
-    const topSaveBtn = document.getElementById('workout-session-save-btn');
+async function saveWorkoutSessionDetails(opts) {
+    // Two callers share this write path:
+    //  - "Finish workout" (finishWorkoutSession → status=completed): closes the
+    //    modal on success and drives busy-state feedback on the Finish button.
+    //  - Debounced autosave (fromAutosave): must NOT close the modal and must
+    //    NOT hijack the Finish button — it drives the inline status element.
+    const closeOnSuccess = !opts || opts.closeOnSuccess !== false;
+    const fromAutosave = !!(opts && opts.fromAutosave);
+
     const finishBtn = document.getElementById('workout-session-finish-btn');
-    const busyTargets = [topSaveBtn, finishBtn].filter(Boolean);
-    const feedbackBtn = topSaveBtn || finishBtn;
-    if (!feedbackBtn) return;
-    const originalText = feedbackBtn.textContent;
+    const busyTargets = fromAutosave ? [] : [finishBtn].filter(Boolean);
+    const feedbackBtn = fromAutosave ? null : finishBtn;
+    const originalText = feedbackBtn ? feedbackBtn.textContent : '';
 
     const optimisticHandles = [];
     async function rollbackOptimistic() {
@@ -773,7 +843,8 @@ async function saveWorkoutSessionDetails() {
             btn.disabled = true;
             btn.classList.add('wg-btn-saving');
         });
-        feedbackBtn.textContent = 'Saving...';
+        if (feedbackBtn) feedbackBtn.textContent = 'Saving...';
+        if (fromAutosave) setAutosaveStatus('saving');
 
         // Check if status has changed
         const statusSelect = document.getElementById('session-status-select');
@@ -848,6 +919,10 @@ async function saveWorkoutSessionDetails() {
         // commit it and just invalidate so the failed log write reconciles on the
         // next read (persisted writes are picked up via the tag invalidation).
         async function settleFailure() {
+            // A null apiCall result is a soft (network/5xx) failure. For autosave
+            // keep the modal open, keep local edits, and surface the inline error
+            // (Task 4) — never drop what the user typed.
+            if (fromAutosave) setAutosaveStatus('error');
             if (statusPersisted) {
                 for (const h of optimisticHandles) {
                     try { await h.commit(null); } catch (_) { /* best-effort */ }
@@ -940,13 +1015,20 @@ async function saveWorkoutSessionDetails() {
             await window.DataStore.invalidateTags(['gamification']).catch(() => {});
         }
 
-        closeWorkoutSessionModal();
-        loadWorkoutHistoryTab();
+        // Autosave stays put; only the deliberate Finish path closes the modal.
+        if (fromAutosave) setAutosaveStatus('saved');
+        if (closeOnSuccess) {
+            closeWorkoutSessionModal();
+            loadWorkoutHistoryTab();
+        }
     } catch (error) {
         await rollbackOptimistic();
         console.error('Error saving workout details:', error);
         const message = error.message || 'Error saving workout details. Please try again.';
-        safeAlert('❌ ' + message);
+        // Autosave failures surface inline (Task 4) and keep the modal + local
+        // edits intact; only the explicit Finish path pops a blocking alert.
+        if (fromAutosave) setAutosaveStatus('error', message);
+        else safeAlert('❌ ' + message);
     } finally {
         busyTargets.forEach((btn) => {
             btn.classList.remove('wg-btn-saving');
@@ -954,7 +1036,7 @@ async function saveWorkoutSessionDetails() {
                 btn.disabled = false;
             }
         });
-        feedbackBtn.textContent = originalText;
+        if (feedbackBtn) feedbackBtn.textContent = originalText;
     }
 }
 
@@ -1310,8 +1392,11 @@ async function saveNewSessionExercise() {
         await invalidateWorkoutCache();
         // Refresh session modal so the local optimistic entry is replaced
         // with the authoritative server payload (real id, server-stamped
-        // timestamps, any AI-derived fields).
-        showWorkoutSessionModal(sessionData.id);
+        // timestamps, any AI-derived fields). Reopen reloads clean state and
+        // cancels any timer; arm a fresh autosave afterwards to flush any
+        // still-pending status/other edits (harmless no-op when nothing dirty).
+        await showWorkoutSessionModal(sessionData.id);
+        scheduleAutosave();
     } catch (error) {
         restoreOptimistic();
         if (historyHandle) await historyHandle.rollback();
