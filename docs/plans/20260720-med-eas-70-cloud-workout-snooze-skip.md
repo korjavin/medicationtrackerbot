@@ -129,14 +129,20 @@ and all `relay_test.go`/`push_test.go` blind/ct-verbatim assertions.
 - [x] `go build ./...`, `go build -tags mobile ./...`, `go test ./internal/cloudstore/...` — must pass before Task 3.
 
 ### Task 3: buttons-by-kind + relay re-fire / cancel on tap (cloudserver telegram.go)
-- [ ] in `SendReminder`, build the button set by stem namespace: `s:` → `Confirm`/`Snooze` (unchanged); `w:` → `Snooze 1h`(`:snooze1h`) / `Snooze 2h`(`:snooze2h`) / `Skip`(`:skip`). Keep the `ValidCallbackStem` guard (drops buttons on an invalid stem).
-- [ ] in `handleCallbackQuery`, branch on `tgclient.IsWorkoutCallback(cq.Data)`: keep the med path as-is; for workout, `ParseWorkoutCallback` → `groupID, date, action`.
-- [ ] add a sealed event `workoutSessionEvent{Kind:"workout_session_action", GroupID int64, Date string, Action string, AtUnix int64, MessageID int64}` (const `inboxEventKindWorkoutSession = "workout_session_action"`); `SealAndQueue` it for every workout tap (session-state reconciliation), same `ErrNoInboxKey` drop rule as meds.
-- [ ] on `snooze1h`/`snooze2h`: compute `fireAt = now + 1h/2h`; call `store.InsertRelayRefire(accountID, fireAt, refireText, cq.Data-stem)` where `refireText = cq.Message.Text` (fallback to a short generic like `"Workout reminder"` when `cq.Message` is nil) and the re-fire's `tg_callback` is the SAME workout stem `w:<groupID>:<YYYYMMDD>` (so the user can snooze again). Answer `callbackAckSnooze`.
-- [ ] on `skip`: call `store.CancelRelayRefire(accountID, stem)` to drop any pending re-fire for this session; answer a skip ack (add `callbackAckSkipped = "⏭️ Skipped — it will apply when you next open the app."`).
-- [ ] add the store methods to the `relayStore`/telegram store interface(s) as needed so `TelegramAPI` can call them.
-- [ ] write tests in `internal/cloudserver/telegram_test.go` (and/or `relay_test.go`): workout reminder renders 3 buttons with correct callback_data; a `snooze1h` tap seals a `workout_session_action` event AND inserts a `relay_refire` row at ~now+1h copying the message text + same callback; a `skip` tap seals the event AND cancels pending refires; `cq.Message==nil` still schedules a refire with the generic text; blind/ct-verbatim assertions stay green.
-- [ ] `go build ./...`, `go build -tags mobile ./...`, `go test ./internal/cloudserver/...` — must pass before Task 4.
+- [x] in `SendReminder`, build the button set by stem namespace: `s:` → `Confirm`/`Snooze` (unchanged); `w:` → `Snooze 1h`(`:snooze1h`) / `Snooze 2h`(`:snooze2h`) / `Skip`(`:skip`). Keep the `ValidCallbackStem` guard (drops buttons on an invalid stem).
+- [x] in `handleCallbackQuery`, branch on `tgclient.IsWorkoutCallback(cq.Data)`: keep the med path as-is; for workout, `ParseWorkoutCallback` → `groupID, date, action` (routed to a new `handleWorkoutCallback` helper).
+- [x] add a sealed event `workoutSessionEvent{Kind:"workout_session_action", GroupID int64, Date string, Action string, AtUnix int64, MessageID int64}` (const `inboxEventKindWorkoutSession = "workout_session_action"`); `SealAndQueue` it for every workout tap (session-state reconciliation), same `ErrNoInboxKey` drop rule as meds.
+- [x] on `snooze1h`/`snooze2h`: compute `fireAt = now + 1h/2h`; call `store.InsertRelayRefire(accountID, fireAt, refireText, cq.Data-stem)` where `refireText = cq.Message.Text` (fallback to a short generic `"Workout reminder"` when `cq.Message` is nil) and the re-fire's `tg_callback` is the SAME workout stem `w:<groupID>:<YYYYMMDD>` (so the user can snooze again). Answer `callbackAckSnooze`.
+- [x] on `skip`: call `store.CancelRelayRefire(accountID, stem)` to drop any pending re-fire for this session; answer a skip ack (added `callbackAckSkipped = "⏭️ Skipped — it will apply when you next open the app."`).
+- [x] store methods called directly on the concrete `*cloudstore.Repo` (`TelegramAPI.store`) — no interface seam needed.
+- [x] write tests in `internal/cloudserver/telegram_test.go`: workout reminder renders 3 buttons with correct callback_data; a `snooze1h` tap seals a `workout_session_action` event AND inserts a `relay_refire` row at ~now+1h copying the message text + same callback; `snooze2h` fires ~2h out; a `skip` tap seals the event AND cancels pending refires; `cq.Message==nil` uses the generic text; no-inbox-key drops AND schedules no refire; blind/ct-verbatim assertions stay green.
+- [x] `go build ./...`, `go build -tags mobile ./...`, `go test ./internal/cloudserver/...` — pass.
+
+> Recovery note: Task 1's commit (63a5bd94) only checked its boxes — the tgclient
+> workout code + tests were never actually written. Added the missing
+> `CallbackWorkoutPrefix`/actions, `ValidCallbackStem` workout branch,
+> `IsWorkoutCallback`, `ParseWorkoutCallback`, and the Task 1 table-driven tests
+> in this iteration since Task 3 could not compile or pass without them.
 
 ### Task 4: emit the workout callback stem (reminders.js) + drain apply (inbox-apply.js + workout.js)
 - [ ] in `web/domain/reminders.js`, give the RECURRING workout loop a callback: pass `callback = 'w:' + group.id + ':' + dateStr.replaceAll('-', '')` into `pushWorkout`, and set `entry.callback` on the emitted entry (leave ad-hoc `pushWorkout` calls without a callback). Keep `pushWorkout`'s existing `fireMs<=now` guard.

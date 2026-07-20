@@ -438,25 +438,43 @@ func (c *Client) AnswerCallbackQuery(ctx context.Context, callbackQueryID, text 
 // tap converges instead of duplicating.
 const CallbackSlotPrefix = "s:"
 
-// Callback actions carried in the third field of callback_data.
+// CallbackWorkoutPrefix namespaces the callback_data carried by the inline
+// Snooze/Skip buttons on a cloud workout-session reminder. The full shape is
+// "w:<groupId>:<YYYYMMDD>:<action>". Group + date already identify the
+// schedule-materialized session deterministically (workout.sessionRecordId), so
+// the relay learns nothing new — the date is already this row's fire_at_unix in
+// the clear.
+const CallbackWorkoutPrefix = "w:"
+
+// Callback actions carried in the third field of callback_data. Confirm/Snooze
+// are meds (s:); Snooze1h/Snooze2h/Skip are workouts (w:).
 const (
-	CallbackActionConfirm = "confirm"
-	CallbackActionSnooze  = "snooze"
+	CallbackActionConfirm  = "confirm"
+	CallbackActionSnooze   = "snooze"
+	CallbackActionSnooze1h = "snooze1h"
+	CallbackActionSnooze2h = "snooze2h"
+	CallbackActionSkip     = "skip"
 )
 
-// ValidCallbackStem reports whether s is a well-formed "s:<slotUnix>" stem — the
-// only callback_data the client may put on a queue entry. Guards the relay
-// against a client (or a tampered row) injecting arbitrary bytes into
-// callback_data, and keeps stem+":confirm" inside Telegram's 64-byte limit.
-// A stem must accept exactly what ParseCallbackData can read back: anything
-// else would let the relay render a button whose tap it then refuses. So the
-// slot is required to parse as a positive int64, not merely to look numeric.
+// ValidCallbackStem reports whether s is a well-formed button stem — either a
+// med "s:<slotUnix>" or a workout "w:<groupId>:<YYYYMMDD>" — the only
+// callback_data the client may put on a queue entry. Guards the relay against a
+// client (or a tampered row) injecting arbitrary bytes into callback_data, and
+// keeps stem+":<action>" inside Telegram's 64-byte limit. A stem must accept
+// exactly what the matching parser can read back: anything else would let the
+// relay render a button whose tap it then refuses.
 func ValidCallbackStem(s string) bool {
 	if s == "" {
 		return true // no buttons; the common case
 	}
-	if len(s) > 32 {
+	// Cap comfortably above the longest stem — a workout stem is
+	// "w:<int64>:<8>" ≤ 30 bytes, and stem+":snooze1h" stays well under
+	// Telegram's 64-byte callback_data limit.
+	if len(s) > 40 {
 		return false
+	}
+	if rest, found := strings.CutPrefix(s, CallbackWorkoutPrefix); found {
+		return validWorkoutStemRest(rest)
 	}
 	rest, found := strings.CutPrefix(s, CallbackSlotPrefix)
 	if !found {
@@ -464,6 +482,70 @@ func ValidCallbackStem(s string) bool {
 	}
 	slot, err := strconv.ParseInt(rest, 10, 64)
 	return err == nil && slot > 0
+}
+
+// validWorkoutStemRest validates "<groupId>:<YYYYMMDD>" — a positive int64 group
+// and an exactly-8-digit date.
+func validWorkoutStemRest(rest string) bool {
+	groupStr, dateStr, found := strings.Cut(rest, ":")
+	if !found {
+		return false
+	}
+	group, err := strconv.ParseInt(groupStr, 10, 64)
+	if err != nil || group <= 0 {
+		return false
+	}
+	return validWorkoutDate(dateStr)
+}
+
+// validWorkoutDate reports whether s is exactly 8 ASCII digits (YYYYMMDD).
+func validWorkoutDate(s string) bool {
+	if len(s) != 8 {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// IsWorkoutCallback reports whether data is in the workout ("w:") namespace, so
+// the handler can route namespaces without double-parsing.
+func IsWorkoutCallback(data string) bool {
+	return strings.HasPrefix(data, CallbackWorkoutPrefix)
+}
+
+// ParseWorkoutCallback splits "w:<groupId>:<YYYYMMDD>:<action>" into its parts.
+// date is returned as "YYYY-MM-DD" (dashes re-inserted). ok is false for an
+// unknown namespace, a bad action, a non-numeric/non-positive group, or a
+// malformed date.
+func ParseWorkoutCallback(data string) (groupID int64, date string, action string, ok bool) {
+	rest, found := strings.CutPrefix(data, CallbackWorkoutPrefix)
+	if !found {
+		return 0, "", "", false
+	}
+	groupStr, rest, found := strings.Cut(rest, ":")
+	if !found {
+		return 0, "", "", false
+	}
+	dateStr, action, found := strings.Cut(rest, ":")
+	if !found {
+		return 0, "", "", false
+	}
+	if action != CallbackActionSnooze1h && action != CallbackActionSnooze2h && action != CallbackActionSkip {
+		return 0, "", "", false
+	}
+	groupID, err := strconv.ParseInt(groupStr, 10, 64)
+	if err != nil || groupID <= 0 {
+		return 0, "", "", false
+	}
+	if !validWorkoutDate(dateStr) {
+		return 0, "", "", false
+	}
+	date = dateStr[0:4] + "-" + dateStr[4:6] + "-" + dateStr[6:8]
+	return groupID, date, action, true
 }
 
 // ParseCallbackData splits "s:<slotUnix>:<action>" into its parts. ok is false

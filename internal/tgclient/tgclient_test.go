@@ -490,3 +490,84 @@ func TestEveryAcceptedStemParsesBack(t *testing.T) {
 		}
 	}
 }
+
+// TestValidCallbackStemWorkout covers the workout ("w:") namespace added for
+// med-eas.70 alongside the existing med ("s:") stems.
+func TestValidCallbackStemWorkout(t *testing.T) {
+	valid := []string{"w:6:20260720", "w:1:20000101", "w:9223372036854775807:20991231"}
+	for _, s := range valid {
+		if !ValidCallbackStem(s) {
+			t.Errorf("ValidCallbackStem(%q) = false, want true", s)
+		}
+	}
+	invalid := []string{
+		"w:", "w:6", "w:6:2026072", // date too short (7 digits)
+		"w:6:202607200",                 // date too long (9 digits)
+		"w:0:20260720", "w:-1:20260720", // non-positive group
+		"w:abc:20260720",        // non-numeric group
+		"w:6:2026072a",          // non-digit in date
+		"w:6:20260720:snooze1h", // an already-built callback_data, not a stem
+	}
+	for _, s := range invalid {
+		if ValidCallbackStem(s) {
+			t.Errorf("ValidCallbackStem(%q) = true, want false", s)
+		}
+	}
+}
+
+func TestParseWorkoutCallback(t *testing.T) {
+	cases := []struct {
+		data      string
+		wantGroup int64
+		wantDate  string
+		wantAct   string
+		wantOK    bool
+	}{
+		{"w:6:20260720:snooze1h", 6, "2026-07-20", "snooze1h", true},
+		{"w:6:20260720:snooze2h", 6, "2026-07-20", "snooze2h", true},
+		{"w:42:20991231:skip", 42, "2099-12-31", "skip", true},
+		{"w:6:20260720:confirm", 0, "", "", false}, // med action on a workout stem
+		{"w:6:20260720:snooze", 0, "", "", false},  // med action
+		{"w:0:20260720:skip", 0, "", "", false},    // non-positive group
+		{"w:abc:20260720:skip", 0, "", "", false},  // non-numeric group
+		{"w:6:2026072:skip", 0, "", "", false},     // date too short
+		{"w:6:20260720", 0, "", "", false},         // missing action (stem, not data)
+		{"s:1767225600:confirm", 0, "", "", false}, // med namespace
+		{"", 0, "", "", false},
+	}
+	for _, tc := range cases {
+		g, d, a, ok := ParseWorkoutCallback(tc.data)
+		if g != tc.wantGroup || d != tc.wantDate || a != tc.wantAct || ok != tc.wantOK {
+			t.Errorf("ParseWorkoutCallback(%q) = (%d, %q, %q, %v), want (%d, %q, %q, %v)",
+				tc.data, g, d, a, ok, tc.wantGroup, tc.wantDate, tc.wantAct, tc.wantOK)
+		}
+	}
+}
+
+func TestIsWorkoutCallback(t *testing.T) {
+	if !IsWorkoutCallback("w:6:20260720:snooze1h") {
+		t.Error("IsWorkoutCallback(w:…) = false, want true")
+	}
+	if IsWorkoutCallback("s:1767225600:confirm") {
+		t.Error("IsWorkoutCallback(s:…) = true, want false")
+	}
+}
+
+// TestWorkoutStemRoundTripsAndFitsTelegramLimit mirrors the med round-trip guard:
+// every accepted workout stem + action must parse back and stay under 64 bytes.
+func TestWorkoutStemRoundTripsAndFitsTelegramLimit(t *testing.T) {
+	stem := "w:9223372036854775807:20991231"
+	if !ValidCallbackStem(stem) {
+		t.Fatalf("stem %q rejected", stem)
+	}
+	for _, action := range []string{CallbackActionSnooze1h, CallbackActionSnooze2h, CallbackActionSkip} {
+		data := stem + ":" + action
+		if len(data) > 64 {
+			t.Errorf("callback_data %q is %d bytes, over Telegram's 64-byte limit", data, len(data))
+		}
+		g, d, got, ok := ParseWorkoutCallback(data)
+		if !ok || g != 9223372036854775807 || d != "2099-12-31" || got != action {
+			t.Errorf("round-trip %q = (%d, %q, %q, %v)", data, g, d, got, ok)
+		}
+	}
+}
