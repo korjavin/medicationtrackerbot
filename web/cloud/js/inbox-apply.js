@@ -27,6 +27,7 @@ import { createRemindersDomain } from '../../domain/reminders.js';
 import { createSettingsDomain } from '../../domain/settings.js';
 import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
+import { createActivityAIDomain } from '../../domain/activityai.js';
 import { createVitalsDomain } from '../../domain/vitals.js';
 import { createWorkoutDomain } from '../../domain/workout.js';
 import { parseCommand } from '../../domain/tgcommand.js';
@@ -400,6 +401,8 @@ function confirmationText(intent, result, verbosity) {
     }
     case 'workout':
       return intent.name ? `✅ Logged workout: ${intent.name}.` : '✅ Workout logged.';
+    case 'activity':
+      return result && result.activity_name ? `✅ Logged activity: ${result.activity_name}.` : '✅ Activity logged.';
     default:
       return '✅ Recorded.';
   }
@@ -426,7 +429,7 @@ function refusalText(intent) {
 // and ack must overwrite the same record, not append a second one — so the id
 // is derived from the mailbox event, which is stable across retries. The intake
 // path needs no id: its own PENDING check is the idempotency guard.
-export async function applyTGCommand(event, eventId, { bp, weight, notes, intake, foodAI, workout, records, verbosity = 'detailed', now = Date.now, editReply = editTelegramReply }) {
+export async function applyTGCommand(event, eventId, { bp, weight, notes, intake, foodAI, activityAI, workout, records, verbosity = 'detailed', now = Date.now, editReply = editTelegramReply }) {
   // The receipt is cosmetic; the record is not. A Telegram outage must never
   // strand an event that already reached the vault, so the edit can never
   // reject out of here — not even an injected one.
@@ -475,6 +478,25 @@ export async function applyTGCommand(event, eventId, { bp, weight, notes, intake
         }
         if (e && e.code === 'trial_consent_required') {
           await reply('🔑 To log food by message with the trial AI, allow it first in Settings → Integrations (or add your own OpenAI key).');
+          return;
+        }
+        throw e;
+      }
+      break;
+    case 'activity':
+      // Same shape as /food: the NL parse runs HERE (unlocked client, user's own
+      // key), never on the relay. createMiBand's deterministic recordId keeps a
+      // re-drain overwriting the same mi-band row instead of appending.
+      try {
+        const parsed = await activityAI.parseActivityFromDescription(intent.text);
+        result = await workout.createMiBand({ recordId, activityName: parsed.name, durationSec: parsed.durationSec });
+      } catch (e) {
+        if (e && e.code === 'no_api_key') {
+          await reply('🔑 To log an activity by message, add an OpenAI key in Settings → Integrations (or the trial AI is unavailable right now).');
+          return;
+        }
+        if (e && e.code === 'trial_consent_required') {
+          await reply('🔑 To log an activity by message with the trial AI, allow it first in Settings → Integrations (or add your own OpenAI key).');
           return;
         }
         throw e;
@@ -653,7 +675,7 @@ async function confirmDueIntakes({ intake, records, atMs, now }) {
 // decrypted event in, a domain write out. Unknown kinds are ignored rather than
 // thrown — a newer relay may queue kinds this client predates, and stalling the
 // whole drain on one of them would block the events it does understand.
-export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, foodAI: foodAIOverride, agent: agentOverride, prefs: prefsOverride } = {}) {
+export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride } = {}) {
   // A Telegram-drained /bp must repaint an open BP screen (med-d5t.10), so this
   // is explicitly external even though that is already the default. deferFlush:
   // an applied event's writes only queue to 'pending'; drainInbox pushes them
@@ -672,6 +694,14 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     const foodDb = createFoodDbClient({ settingsDomain: settings });
     const food = createFoodDomain({ records, now, timeZone, foodDb });
     return createFoodAIDomain({ aiClient: createAIClient({ settingsDomain: settings }), foodDomain: food, now });
+  })();
+
+  // The /activity chain: settings → aiClient → activityAI. The parsed activity
+  // logs a manual mi-band row via the workout domain — the same createMiBand the
+  // command bundle wires below. Tests inject activityAIOverride to stub the parse.
+  const activityAI = activityAIOverride || (() => {
+    const settings = createSettingsDomain({ records, now, timeZone });
+    return createActivityAIDomain({ aiClient: createAIClient({ settingsDomain: settings }) });
   })();
 
   // The self-refining note port: the agent reads it into its prompt each turn
@@ -722,6 +752,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
         notes: createNotesDomain({ records, now }),
         intake,
         foodAI,
+        activityAI,
         workout: createWorkoutDomain({ records, now: () => arrivalMs, timeZone }),
         records,
         verbosity,

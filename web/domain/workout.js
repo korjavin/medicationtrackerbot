@@ -2089,6 +2089,48 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     };
   }
 
+  // createMiBand logs one manual mi-band activity (activity_type 0, source
+  // 'manual'), mirroring internal/bot/activity_commands.go: start = now, end =
+  // start + durationSec. recordId is deterministic (tg-<eventId>) so a re-drain
+  // overwrites rather than duplicates; the numeric id is preserved from a prior
+  // active record, else minted with cross-record entropy. The mint (not a bare
+  // source_start_ms) matters here because the drain clock is second-precision
+  // and the tg-<eventId> recordId namespace gives no same-instant dedup — two
+  // /activity messages in one wall-clock second would otherwise share a numeric
+  // id and collide the per-id edit/delete path. Re-drain still converges: the
+  // recordId lookup below reuses the prior row's id.
+  async function createMiBand({ recordId, activityName, durationSec } = {}) {
+    const startMs = now();
+    const endMs = startMs + (durationSec || 0) * 1000;
+    const existing = await records.list(WORKOUT_RECORD_TYPES.MIBAND);
+    const prev = recordId
+      ? existing.find((r) => !r.deleted && r.recordId === recordId)
+      : null;
+    const id = prev ? prev.id : mintNumericId(existing, startMs);
+    const record = {
+      recordId: recordId || genRecordId('miband', startMs),
+      clientTs: startMs,
+      deleted: false,
+      id,
+      activity_type: 0,
+      activity_name: activityName || '',
+      source_start_ms: startMs,
+      source_end_ms: endMs,
+      duration_sec: durationSec || 0,
+      distance_m: 0,
+      steps: 0,
+      calories: 0,
+      heart_rate_avg: 0,
+      spo2_avg: 0,
+      pause_ms: 0,
+      tz_offset: 0,
+      source: 'manual',
+      user_id: CLOUD_USER_ID,
+    };
+    await records.put(WORKOUT_RECORD_TYPES.MIBAND, record);
+    return toMiBandResponse(record);
+  }
+
   // listMiBand ports ListMiBand: last-90-days cutoff, source_start_ms DESC,
   // default limit 100 (the handler's default; the store's own default of 50
   // is unreachable from HTTP since the handler always passes a positive
@@ -2195,6 +2237,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     getStats,
     progressionPreview,
     listExerciseLogsByName,
+    createMiBand,
     listMiBand,
     updateMiBand,
     deleteMiBand,

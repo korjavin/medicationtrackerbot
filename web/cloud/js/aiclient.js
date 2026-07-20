@@ -12,6 +12,7 @@
 // header, no model field (the server forces the operator's model). Vault
 // key always wins; no key and no trial flag keeps today's no_api_key error.
 import { MealSystemPrompt, MealPhotoSystemPrompt, mealSchema } from '../../domain/foodai.js';
+import { ActivitySystemPrompt, activitySchema } from '../../domain/activityai.js';
 
 const DEFAULT_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-4o-mini';
@@ -274,10 +275,17 @@ async function postTrialChatRaw(body) {
 }
 
 const RESPONSE_FORMAT = { type: 'json_schema', json_schema: { name: 'parsed_meal', strict: true, schema: mealSchema } };
+const ACTIVITY_RESPONSE_FORMAT = { type: 'json_schema', json_schema: { name: 'activity_data', strict: true, schema: activitySchema } };
 
 function fenceInstruction(systemPrompt) {
   return `${systemPrompt}
 Return only valid JSON with the shape {"items": [{"name": string, "weight_grams": number, "carbs_100g": number, "protein_100g": number, "fat_100g": number}, ...]}.
+Do not wrap the JSON in markdown fences or add explanations.`;
+}
+
+function activityFenceInstruction(systemPrompt) {
+  return `${systemPrompt}
+Return only valid JSON with the shape {"name": string, "exercises": [{"name": string, "sets": number|null, "reps": number|null, "weight_kg": number|null, "duration_minutes": number|null, "notes": string}]}.
 Do not wrap the JSON in markdown fences or add explanations.`;
 }
 
@@ -332,6 +340,39 @@ export function createAIClient({ settingsDomain }) {
         temperature: 0.1,
         messages: [
           { role: 'system', content: fenceInstruction(MealSystemPrompt) },
+          { role: 'user', content: description },
+        ],
+      });
+    }
+  }
+
+  async function parseActivityFromDescription(description) {
+    const { text } = await credentials();
+    const useTrial = !text.apiKey;
+    if (useTrial && !trialAIAvailable()) throw noKeyError();
+    if (useTrial) await ensureTrialConsent('ai');
+    const post = (body) => (useTrial
+      ? postTrialChatCompletion(false, body)
+      : postChatCompletion(`${text.url.replace(/\/$/, '')}/chat/completions`, text.apiKey, body));
+
+    const body = {
+      model: text.model,
+      temperature: 0.1,
+      messages: [
+        { role: 'system', content: ActivitySystemPrompt },
+        { role: 'user', content: description },
+      ],
+      response_format: ACTIVITY_RESPONSE_FORMAT,
+    };
+    try {
+      return await post(body);
+    } catch (err) {
+      if (!isResponseFormatRejection(err)) throw err;
+      return post({
+        model: text.model,
+        temperature: 0.1,
+        messages: [
+          { role: 'system', content: activityFenceInstruction(ActivitySystemPrompt) },
           { role: 'user', content: description },
         ],
       });
@@ -402,5 +443,5 @@ export function createAIClient({ settingsDomain }) {
       : postChatRaw(`${text.url.replace(/\/$/, '')}/chat/completions`, text.apiKey, body);
   }
 
-  return { parseMealFromDescription, parseMealFromImage, chat };
+  return { parseMealFromDescription, parseActivityFromDescription, parseMealFromImage, chat };
 }
