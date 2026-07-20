@@ -55,12 +55,19 @@ function scheduleAutosave() {
     }, 800);
 }
 
-function runAutosave() {
-    // Chain after any in-flight save so writes stay ordered / non-overlapping.
+// runSerializedSave chains every save (autosave AND Finish) through a single
+// in-flight promise so two saveWorkoutSessionDetails calls never overlap — e.g.
+// a debounce timer firing during the Finish network window queues after it
+// instead of running concurrently.
+function runSerializedSave(opts) {
     _autosaveInFlight = Promise.resolve(_autosaveInFlight)
         .catch(() => {})
-        .then(() => saveWorkoutSessionDetails({ fromAutosave: true }));
+        .then(() => saveWorkoutSessionDetails(opts));
     return _autosaveInFlight;
+}
+
+function runAutosave() {
+    return runSerializedSave({ fromAutosave: true });
 }
 
 async function flushPendingAutosave() {
@@ -766,7 +773,10 @@ async function finishWorkoutSession() {
     if (!window.WorkoutSessionsState.data) return;
     const select = document.getElementById('session-status-select');
     if (select) select.value = 'completed';
-    await saveWorkoutSessionDetails();
+    // Serialize through the same in-flight chain as autosave so a debounce timer
+    // that fires during this network round-trip queues after Finish instead of
+    // running a second, overlapping save.
+    await runSerializedSave();
 }
 
 // renderSessionLogsHeader mounts the "Add Exercise" button in a stable node
@@ -840,6 +850,10 @@ async function saveWorkoutSessionDetails(opts) {
     //  - Debounced autosave (fromAutosave): must NOT close the modal and must
     //    NOT hijack the Finish button — it drives the inline status element.
     const fromAutosave = !!(opts && opts.fromAutosave);
+    // A timer that fired just before the modal closed would otherwise re-save a
+    // torn-down session (the log loop UPDATEs every log unconditionally). Nothing
+    // to autosave once state is gone. Finish guards its own state before calling.
+    if (fromAutosave && (!window.WorkoutSessionsState || !window.WorkoutSessionsState.data)) return;
     // Autosave never closes the modal; the deliberate Finish path always does.
     const closeOnSuccess = !fromAutosave;
 
@@ -1455,10 +1469,9 @@ async function saveNewSessionExercise() {
         // Refresh session modal so the local optimistic entry is replaced
         // with the authoritative server payload (real id, server-stamped
         // timestamps, any AI-derived fields). Reopen reloads clean state and
-        // cancels any timer; arm a fresh autosave afterwards to flush any
-        // still-pending status/other edits (harmless no-op when nothing dirty).
+        // cancels any pending timer — the exercise is already persisted above,
+        // so there is nothing left to autosave here.
         await showWorkoutSessionModal(sessionData.id);
-        scheduleAutosave();
     } catch (error) {
         restoreOptimistic();
         if (historyHandle) await historyHandle.rollback();
