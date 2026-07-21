@@ -24,6 +24,26 @@ func setupRepo(t *testing.T) *Repo {
 	return r
 }
 
+func TestSubdomainByAccount(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	if _, err := r.CreateAccount(ctx, "acc-sub", "brave-otter-xyz789", []byte("h"), now.Add(time.Hour), now, "", "", ""); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	got, err := r.SubdomainByAccount(ctx, "acc-sub")
+	if err != nil {
+		t.Fatalf("SubdomainByAccount: %v", err)
+	}
+	if got != "brave-otter-xyz789" {
+		t.Fatalf("subdomain = %q, want brave-otter-xyz789", got)
+	}
+	if _, err := r.SubdomainByAccount(ctx, "nope"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("unknown account err = %v, want sql.ErrNoRows", err)
+	}
+}
+
 func TestAccountCredentialEnvelopeRoundtrip(t *testing.T) {
 	r := setupRepo(t)
 	ctx := context.Background()

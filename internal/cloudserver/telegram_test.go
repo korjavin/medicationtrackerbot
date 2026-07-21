@@ -1619,6 +1619,221 @@ func TestChildWebhook_WorkoutTapWithoutInboxKeyDropsAndSchedulesNoRefire(t *test
 	}
 }
 
+// A workout Snooze tap now rewrites the message into static text and drops its
+// buttons (med-eas.75), in addition to the toast + re-fire it already did.
+func TestChildWebhook_WorkoutSnoozeRewritesMessage(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	if rec := postWebhook(t, f.top, f.childPath, f.secret, workoutCallbackUpdate("w:6:20260720:snooze1h", 12345, "Leg day")); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.edits) != 1 {
+		t.Fatalf("editMessageText calls = %d, want 1: %v", len(tg.mu.edits), tg.mu.edits)
+	}
+	if !strings.Contains(tg.mu.edits[0], workoutSnoozeEditText) {
+		t.Errorf("edit body %q, want snoozed text %q", tg.mu.edits[0], workoutSnoozeEditText)
+	}
+}
+
+// A workout Skip tap rewrites the message with the shared skip text.
+func TestChildWebhook_WorkoutSkipRewritesMessage(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	if rec := postWebhook(t, f.top, f.childPath, f.secret, workoutCallbackUpdate("w:6:20260720:skip", 12345, "Leg day")); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.edits) != 1 || !strings.Contains(tg.mu.edits[0], reminderSkipEditText) {
+		t.Fatalf("edits = %v, want one containing %q", tg.mu.edits, reminderSkipEditText)
+	}
+}
+
+// measureCallbackUpdate builds a callback_query in the BP/weight ("bp:"/"wt:")
+// namespace, carrying message text for the re-fire copy path.
+func measureCallbackUpdate(data string, chatID int64, text string) string {
+	return `{"update_id":3,"callback_query":{"id":"cbq-m","data":"` + data +
+		`","from":{"id":6918132008},"message":{"message_id":9,"text":` + strconv.Quote(text) +
+		`,"chat":{"id":` + strconv.FormatInt(chatID, 10) + `,"type":"private"}}}}`
+}
+
+// A BP Snooze 1h tap seals a measure_reminder_action event AND schedules a
+// relay-owned re-fire ~1h out that carries no ciphertext (relay stays blind),
+// and rewrites the message.
+func TestChildWebhook_MeasureSnoozeSealsEventAndSchedulesRefire(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	privRaw := publishInboxKey(t, f.store, f.accountID)
+
+	before := time.Now().UTC()
+	rec := postWebhook(t, f.top, f.childPath, f.secret, measureCallbackUpdate("bp:1721550000:snooze1h", 12345, "Time to check your BP"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	events, err := f.store.ListInboxEvents(t.Context(), f.accountID, 10)
+	if err != nil {
+		t.Fatalf("ListInboxEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("queued %d events, want 1", len(events))
+	}
+	if bytes.Contains(events[0].CT, []byte("snooze")) || bytes.Contains(events[0].CT, []byte("measure_reminder_action")) {
+		t.Fatal("mailbox row contains plaintext")
+	}
+	opened, err := openInbox(privRaw, f.accountID, events[0].CT)
+	if err != nil {
+		t.Fatalf("openInbox: %v", err)
+	}
+	var got measureReminderEvent
+	if err := json.Unmarshal(opened, &got); err != nil {
+		t.Fatalf("unmarshal sealed event: %v", err)
+	}
+	if got.Kind != inboxEventKindMeasureReminder || got.Measure != "bp" || got.Action != "snooze" || got.MessageID != 9 {
+		t.Fatalf("sealed event = %+v", got)
+	}
+
+	due, err := f.store.DueScheduledPushes(t.Context(), before.Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("scheduled %d re-fires, want 1", len(due))
+	}
+	rf := due[0]
+	if rf.TGCallback != "bp:1721550000" {
+		t.Errorf("re-fire callback = %q, want the same measure stem", rf.TGCallback)
+	}
+	if len(rf.CT) != 0 {
+		t.Errorf("re-fire must carry no ciphertext (relay stays blind), got %d bytes", len(rf.CT))
+	}
+	if d := rf.FireAt.Sub(before); d < 55*time.Minute || d > 65*time.Minute {
+		t.Errorf("re-fire fires in %v, want ~1h", d)
+	}
+
+	tg.mu.Lock()
+	edits := append([]string(nil), tg.mu.edits...)
+	tg.mu.Unlock()
+	if len(edits) != 1 || !strings.Contains(edits[0], measureSnoozeEditText) {
+		t.Fatalf("edits = %v, want one containing %q", edits, measureSnoozeEditText)
+	}
+}
+
+// A weight Skip tap seals the event AND cancels any pending re-fire for the same
+// stem, then rewrites the message.
+func TestChildWebhook_MeasureSkipCancelsRefire(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	privRaw := publishInboxKey(t, f.store, f.accountID)
+
+	if err := f.store.InsertRelayRefire(t.Context(), f.accountID, time.Now().Add(time.Hour), "Weigh in", "wt:1721550000"); err != nil {
+		t.Fatalf("InsertRelayRefire: %v", err)
+	}
+
+	rec := postWebhook(t, f.top, f.childPath, f.secret, measureCallbackUpdate("wt:1721550000:skip", 12345, "Weigh in"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+
+	events, err := f.store.ListInboxEvents(t.Context(), f.accountID, 10)
+	if err != nil {
+		t.Fatalf("ListInboxEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("queued %d events, want 1", len(events))
+	}
+	opened, err := openInbox(privRaw, f.accountID, events[0].CT)
+	if err != nil {
+		t.Fatalf("openInbox: %v", err)
+	}
+	var got measureReminderEvent
+	if err := json.Unmarshal(opened, &got); err != nil {
+		t.Fatalf("unmarshal sealed event: %v", err)
+	}
+	if got.Measure != "weight" || got.Action != "skip" {
+		t.Fatalf("sealed event = %+v", got)
+	}
+
+	due, err := f.store.DueScheduledPushes(t.Context(), time.Now().Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("skip left %d pending re-fires, want 0", len(due))
+	}
+
+	tg.mu.Lock()
+	edits := append([]string(nil), tg.mu.edits...)
+	tg.mu.Unlock()
+	if len(edits) != 1 || !strings.Contains(edits[0], reminderSkipEditText) {
+		t.Fatalf("edits = %v, want one containing %q", edits, reminderSkipEditText)
+	}
+}
+
+// A BP reminder renders 🌐 Open (deep link to ?tab=bp) + Snooze 1h + Skip, and
+// none of the med Confirm pair. The Open button carries a url (not
+// callback_data) pointing at the account's own subdomain.
+func TestSendReminder_MeasureRendersOpenURLAndButtons(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+
+	sub, err := f.store.SubdomainByAccount(t.Context(), f.accountID)
+	if err != nil {
+		t.Fatalf("SubdomainByAccount: %v", err)
+	}
+	if err := f.api.SendReminder(t.Context(), f.accountID, "Time to check your BP", "bp:1721550000"); err != nil {
+		t.Fatalf("SendReminder: %v", err)
+	}
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.sent) != 1 {
+		t.Fatalf("sent %d messages, want 1", len(tg.mu.sent))
+	}
+	body := tg.mu.sent[0]
+	wantURL := "https://" + sub + ".localhost/?tab=bp"
+	for _, want := range []string{wantURL, "bp:1721550000:snooze1h", "bp:1721550000:skip", "Snooze 1h", "Skip", "Open"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("BP reminder missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, ":confirm") || strings.Contains(body, "Confirm") {
+		t.Errorf("BP reminder must not carry the med Confirm button: %s", body)
+	}
+	// weight stem routes to ?tab=weight.
+	if !strings.Contains(f.api.reminderDeepLink(t.Context(), f.accountID, "weight"), "?tab=weight") {
+		t.Error("weight deep link should target ?tab=weight")
+	}
+}
+
+// A workout reminder now prepends a ▶️ Start deep-link (url) button to ?tab=workouts.
+func TestSendReminder_WorkoutIncludesStartURL(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+
+	sub, err := f.store.SubdomainByAccount(t.Context(), f.accountID)
+	if err != nil {
+		t.Fatalf("SubdomainByAccount: %v", err)
+	}
+	if err := f.api.SendReminder(t.Context(), f.accountID, "Leg day", "w:6:20260720"); err != nil {
+		t.Fatalf("SendReminder: %v", err)
+	}
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	body := tg.mu.sent[0]
+	if !strings.Contains(body, "https://"+sub+".localhost/?tab=workouts") {
+		t.Errorf("workout reminder missing Start deep-link: %s", body)
+	}
+	if !strings.Contains(body, "Start") {
+		t.Errorf("workout reminder missing Start label: %s", body)
+	}
+}
+
 // TestChildWebhook_HelpAndUnknownCommands (bd med-26y): before this, the child
 // webhook answered only /start and CallbackQuery — every other message hit a
 // silent 200. /help therefore did nothing, and the autocomplete menu stayed

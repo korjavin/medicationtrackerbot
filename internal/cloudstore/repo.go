@@ -349,6 +349,18 @@ func scanAccount(scan func(dest ...any) error) (*Account, error) {
 
 const accountColumns = `id, subdomain, created_at_unix, claim_token_hash, claim_expires_unix, loss_ack_unix, vapid_public_key, vapid_private_key, tg_skipped_unix`
 
+// SubdomainByAccount returns accountID's subdomain label — the thin lookup the
+// Telegram relay needs to compose a deep-link URL (https://<subdomain>.<base>/…)
+// without loading the whole account row.
+func (r *Repo) SubdomainByAccount(ctx context.Context, accountID string) (string, error) {
+	var subdomain string
+	err := r.db.QueryRowContext(ctx, `SELECT subdomain FROM accounts WHERE id = ?`, accountID).Scan(&subdomain)
+	if err != nil {
+		return "", err
+	}
+	return subdomain, nil
+}
+
 // AccountBySubdomain looks up an account by its subdomain label.
 func (r *Repo) AccountBySubdomain(ctx context.Context, subdomain string) (*Account, error) {
 	row := r.db.QueryRowContext(ctx, `SELECT `+accountColumns+` FROM accounts WHERE subdomain = ?`, subdomain)

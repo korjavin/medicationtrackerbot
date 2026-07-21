@@ -1604,6 +1604,21 @@ type workoutSessionEvent struct {
 	MessageID int64  `json:"message_id"`
 }
 
+// inboxEventKindMeasureReminder is the sealed-event kind a BP/weight reminder
+// Snooze/Skip tap produces (med-eas.76). BP and weight share ONE event kind; the
+// client's drain routes on the event's Kind ("bp"|"weight") to the matching
+// reminders-domain setter. Like the other tap events, AtUnix is the SERVER's tap
+// timestamp so the mute window is pinned to when the button was pressed.
+const inboxEventKindMeasureReminder = "measure_reminder_action"
+
+type measureReminderEvent struct {
+	Kind      string `json:"kind"`    // event kind, always inboxEventKindMeasureReminder
+	Measure   string `json:"measure"` // "bp" | "weight"
+	Action    string `json:"action"`  // "snooze" | "skip"
+	AtUnix    int64  `json:"at_unix"`
+	MessageID int64  `json:"message_id"`
+}
+
 // Replies to a button tap. Telegram spins the button until answerCallbackQuery
 // lands, so every path answers — including the ones that discard the tap.
 const (
@@ -1662,7 +1677,15 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 	// snooze/skip + relay re-fire path (med-eas.70). Route them before the med
 	// (s:) parser so the two namespaces never cross-parse.
 	if tgclient.IsWorkoutCallback(cq.Data) {
-		t.handleWorkoutCallback(w, r, ref, cq, messageID, answer)
+		t.handleWorkoutCallback(w, r, ref, bot, cq, messageID, answer)
+		return
+	}
+
+	// BP/weight taps live in the "bp:"/"wt:" namespaces (med-eas.76) and drive the
+	// same snooze/skip + relay re-fire path. Route them before the med (s:) parser
+	// so the namespaces never cross-parse.
+	if tgclient.IsMeasureCallback(cq.Data) {
+		t.handleMeasureCallback(w, r, ref, bot, cq, messageID, answer)
 		return
 	}
 
@@ -1714,7 +1737,7 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem); err != nil {
 			slog.Error("telegram callback: reschedule med relay refire", "error", err, "ref", ref)
 		}
-		t.editMedCallbackMessage(r.Context(), bot, ref, messageID, medSnoozeEditText)
+		t.editCallbackMessage(r.Context(), bot, ref, messageID, medSnoozeEditText)
 		answer(callbackAckSnooze)
 	default:
 		// A Confirm stops the relay-owned re-fire chain for this slot (mirrors the
@@ -1724,19 +1747,20 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 		if _, err := t.store.CancelRelayRefire(r.Context(), ref, stem); err != nil {
 			slog.Error("telegram callback: cancel med relay refire", "error", err, "ref", ref)
 		}
-		t.editMedCallbackMessage(r.Context(), bot, ref, messageID, medConfirmEditText)
+		t.editCallbackMessage(r.Context(), bot, ref, messageID, medConfirmEditText)
 		answer(callbackAckConfirm)
 	}
 	w.WriteHeader(http.StatusOK)
 }
 
-// editMedCallbackMessage rewrites a tapped med reminder into static text and
-// drops its buttons the instant the tap lands, so the user can't re-tap while
+// editCallbackMessage rewrites a tapped reminder (med, workout, or measure) into
+// static text and drops its buttons the instant the tap lands, so the user can't
+// re-tap while
 // the client's drain-time EditReply is still pending. Best-effort: a 0
 // messageID (Telegram omitted an old cq.Message) or a failed edit only logs; the
 // seal + toast already acked the tap and the client drain still finalizes the
 // real receipt. ZERO-KNOWLEDGE: text is a caller-supplied static const only.
-func (t *TelegramAPI) editMedCallbackMessage(ctx context.Context, bot *cloudstore.TGBot, ref string, messageID int64, text string) {
+func (t *TelegramAPI) editCallbackMessage(ctx context.Context, bot *cloudstore.TGBot, ref string, messageID int64, text string) {
 	if messageID == 0 || bot.ChatID == nil {
 		return
 	}
@@ -1768,6 +1792,14 @@ const medRefireText = "Medication reminder"
 const (
 	medConfirmEditText = "✅ Confirmed — waiting for your device to come online to record it."
 	medSnoozeEditText  = "⏰ Snoozed 1h — I'll remind you again."
+
+	// Static edit-text for workout + measure (BP/weight) taps. Same ZK contract:
+	// server-composed templates only, never a vault value. Workout snooze omits
+	// the duration (1h vs 2h) so one const covers both; measure snooze is always
+	// 1h. The skip text is shared by workout and measure.
+	workoutSnoozeEditText = "⏰ Snoozed — I'll remind you again."
+	measureSnoozeEditText = "⏰ Snoozed 1h — I'll remind you again."
+	reminderSkipEditText  = "⏭️ Skipped — waiting for your device to record it."
 )
 
 // handleWorkoutCallback applies a workout Snooze/Skip tap ("w:" namespace,
@@ -1778,7 +1810,7 @@ const (
 // cancels any pending re-fire. The re-fire only COPIES already-cleartext fields
 // (message text + the same "w:" stem at a new fire_at); it never reads `ct`, so
 // the zero-knowledge posture is unchanged. Always answers 200.
-func (t *TelegramAPI) handleWorkoutCallback(w http.ResponseWriter, r *http.Request, ref string, cq *tgclient.CallbackQuery, messageID int64, answer func(string)) {
+func (t *TelegramAPI) handleWorkoutCallback(w http.ResponseWriter, r *http.Request, ref string, bot *cloudstore.TGBot, cq *tgclient.CallbackQuery, messageID int64, answer func(string)) {
 	groupID, date, action, ok := tgclient.ParseWorkoutCallback(cq.Data)
 	if !ok {
 		slog.Warn("telegram callback: unparseable workout callback_data", "ref", ref)
@@ -1841,11 +1873,96 @@ func (t *TelegramAPI) handleWorkoutCallback(w http.ResponseWriter, r *http.Reque
 		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(delay), refireText, stem); err != nil {
 			slog.Error("telegram callback: reschedule relay refire", "error", err, "ref", ref)
 		}
+		t.editCallbackMessage(r.Context(), bot, ref, messageID, workoutSnoozeEditText)
 		answer(callbackAckSnooze)
 	case tgclient.CallbackActionSkip:
 		if _, err := t.store.CancelRelayRefire(r.Context(), ref, stem); err != nil {
 			slog.Error("telegram callback: cancel relay refire", "error", err, "ref", ref)
 		}
+		t.editCallbackMessage(r.Context(), bot, ref, messageID, reminderSkipEditText)
+		answer(callbackAckSkipped)
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// measureRefireText is the generic re-fire body used when Telegram omits the
+// original message (too old to edit), so the relay never reads vault data to
+// reconstruct a BP/weight reminder body.
+const measureRefireText = "Measurement reminder"
+
+// handleMeasureCallback applies a BP/weight reminder Snooze/Skip tap
+// ("bp:"/"wt:" namespaces, med-eas.76). It mirrors handleWorkoutCallback: seal a
+// measure-reconciliation event to the account's inbox key (the relay can't write
+// vault ciphertext), then on Snooze schedule a relay-owned Telegram re-fire ~1h
+// out and on Skip cancel any pending re-fire. The re-fire only COPIES
+// already-cleartext fields (message text + the same stem at a new fire_at); it
+// never reads `ct`, so the zero-knowledge posture is unchanged. Always answers
+// 200.
+func (t *TelegramAPI) handleMeasureCallback(w http.ResponseWriter, r *http.Request, ref string, bot *cloudstore.TGBot, cq *tgclient.CallbackQuery, messageID int64, answer func(string)) {
+	kind, _, action, ok := tgclient.ParseMeasureCallback(cq.Data)
+	if !ok {
+		slog.Warn("telegram callback: unparseable measure callback_data", "ref", ref)
+		answer(callbackAckUnknown)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// The callback action is snooze1h/skip; the sealed event carries the coarse
+	// snooze/skip the client's drain switches on.
+	eventAction := "snooze"
+	if action == tgclient.CallbackActionSkip {
+		eventAction = "skip"
+	}
+
+	now := time.Now().UTC()
+	plaintext, err := json.Marshal(measureReminderEvent{
+		Kind:      inboxEventKindMeasureReminder,
+		Measure:   kind,
+		Action:    eventAction,
+		AtUnix:    now.Unix(),
+		MessageID: messageID,
+	})
+	if err != nil {
+		slog.Error("telegram callback: marshal measure event", "error", err, "ref", ref)
+		answer(callbackAckUnknown)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// ref IS the account id (see BotByWebhookRef).
+	switch err := SealAndQueue(r.Context(), t.store, ref, plaintext, now); {
+	case errors.Is(err, ErrNoInboxKey):
+		slog.Warn("telegram callback: no inbox key, dropping measure tap", "ref", ref)
+		answer(callbackAckDropped)
+		w.WriteHeader(http.StatusOK)
+		return
+	case err != nil:
+		slog.Error("telegram callback: seal and queue measure", "error", err, "ref", ref)
+		answer(callbackAckUnknown)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// The re-fire re-uses the tapped stem "<bp:|wt:><slotUnix>" so the user can
+	// snooze again from the re-delivered message; it's the tapped callback minus
+	// its validated ":<action>" suffix.
+	stem := strings.TrimSuffix(cq.Data, ":"+action)
+	switch action {
+	case tgclient.CallbackActionSnooze1h:
+		refireText := measureRefireText
+		if cq.Message != nil && cq.Message.Text != "" {
+			refireText = cq.Message.Text
+		}
+		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem); err != nil {
+			slog.Error("telegram callback: reschedule measure relay refire", "error", err, "ref", ref)
+		}
+		t.editCallbackMessage(r.Context(), bot, ref, messageID, measureSnoozeEditText)
+		answer(callbackAckSnooze)
+	case tgclient.CallbackActionSkip:
+		if _, err := t.store.CancelRelayRefire(r.Context(), ref, stem); err != nil {
+			slog.Error("telegram callback: cancel measure relay refire", "error", err, "ref", ref)
+		}
+		t.editCallbackMessage(r.Context(), bot, ref, messageID, reminderSkipEditText)
 		answer(callbackAckSkipped)
 	}
 	w.WriteHeader(http.StatusOK)
@@ -1855,6 +1972,35 @@ func (t *TelegramAPI) handleWorkoutCallback(w http.ResponseWriter, r *http.Reque
 // /start, so there is no chat to deliver to. The relay treats this as terminal
 // for that entry rather than retrying it forever.
 var ErrNoLinkedChat = errors.New("telegram: bot has no linked chat")
+
+// reminderDeepLink composes the account's deep-link URL for a bottom-nav section
+// (workouts/bp/weight): https://<subdomain>.<baseDomain>/?tab=<section>. The
+// only account-specific part is the subdomain (a public routing label, not vault
+// data), so this leaks nothing the relay doesn't already route by. Returns "" if
+// the subdomain can't be resolved; the caller drops the empty-URL button.
+func (t *TelegramAPI) reminderDeepLink(ctx context.Context, accountID, section string) string {
+	subdomain, err := t.store.SubdomainByAccount(ctx, accountID)
+	if err != nil || subdomain == "" {
+		slog.Warn("telegram send reminder: subdomain lookup failed, dropping deep-link button", "error", err, "accountID", accountID)
+		return ""
+	}
+	return "https://" + subdomain + "." + t.baseDomain + "/?tab=" + section
+}
+
+// dropEmptyURLButtons removes any URL button whose URL failed to resolve — an
+// empty url is rejected by Telegram, so we degrade to a smaller keyboard rather
+// than a rejected send. Callback buttons (empty URL, populated CallbackData) are
+// kept.
+func dropEmptyURLButtons(buttons []tgclient.InlineKeyboardButton) []tgclient.InlineKeyboardButton {
+	out := buttons[:0]
+	for _, b := range buttons {
+		if b.CallbackData == "" && b.URL == "" {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
+}
 
 // SendReminder forwards a client-composed reminder to the account's linked bot
 // (the relay's TelegramSender). text arrives as plaintext because the relay
@@ -1891,21 +2037,38 @@ func (t *TelegramAPI) SendReminder(ctx context.Context, accountID, text, callbac
 		return client.SendMessage(ctx, *bot.ChatID, text)
 	}
 	// The button set is chosen by the stem's namespace: workout ("w:") reminders
-	// get Snooze 1h / Snooze 2h / Skip; medication ("s:") reminders keep the
-	// original Confirm / Snooze pair (med-eas.70).
+	// get ▶️ Start (deep link) + Snooze 1h / Snooze 2h / Skip; measure ("bp:"/"wt:")
+	// reminders get 🌐 Open (deep link) + Snooze 1h / Skip; medication ("s:")
+	// reminders keep the original Confirm / Snooze pair (med-eas.70/.75/.76).
 	var buttons []tgclient.InlineKeyboardButton
-	if tgclient.IsWorkoutCallback(callbackStem) {
+	switch {
+	case tgclient.IsWorkoutCallback(callbackStem):
 		buttons = []tgclient.InlineKeyboardButton{
+			{Text: "▶️ Start", URL: t.reminderDeepLink(ctx, accountID, "workouts")},
 			{Text: "⏰ Snooze 1h", CallbackData: callbackStem + ":" + tgclient.CallbackActionSnooze1h},
 			{Text: "⏰ Snooze 2h", CallbackData: callbackStem + ":" + tgclient.CallbackActionSnooze2h},
 			{Text: "⏭️ Skip", CallbackData: callbackStem + ":" + tgclient.CallbackActionSkip},
 		}
-	} else {
+	case tgclient.IsMeasureCallback(callbackStem):
+		section := "bp"
+		if strings.HasPrefix(callbackStem, tgclient.CallbackWeightPrefix) {
+			section = "weight"
+		}
+		buttons = []tgclient.InlineKeyboardButton{
+			{Text: "🌐 Open", URL: t.reminderDeepLink(ctx, accountID, section)},
+			{Text: "⏰ Snooze 1h", CallbackData: callbackStem + ":" + tgclient.CallbackActionSnooze1h},
+			{Text: "⏭️ Skip", CallbackData: callbackStem + ":" + tgclient.CallbackActionSkip},
+		}
+	default:
 		buttons = []tgclient.InlineKeyboardButton{
 			{Text: "✅ Confirm", CallbackData: callbackStem + ":" + tgclient.CallbackActionConfirm},
 			{Text: "⏰ Snooze", CallbackData: callbackStem + ":" + tgclient.CallbackActionSnooze},
 		}
 	}
+	// Drop any button whose deep link could not be resolved (empty URL is invalid
+	// to Telegram) so a subdomain-lookup miss degrades to a smaller keyboard
+	// rather than a rejected send.
+	buttons = dropEmptyURLButtons(buttons)
 	return client.SendMessageWithButtons(ctx, *bot.ChatID, text, buttons)
 }
 

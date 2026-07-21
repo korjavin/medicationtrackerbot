@@ -137,16 +137,16 @@ Files/components involved (with the exact seams):
 - [x] run `go test ./internal/tgclient/...` — must pass before Task 2
 
 ### Task 2: telegram.go — one measure handler + button sets + workout message-rewrite
-- [ ] rename `editMedCallbackMessage` → `editCallbackMessage` (`:1739-1751`) and update its 2 med call sites; it stays static-text generic (ZK)
-- [ ] add static edit-text consts: measure snooze `"⏰ Snoozed 1h — I'll remind you again."`, measure/workout skip `"⏭️ Skipped — waiting for your device to record it."`, workout snooze `"⏰ Snoozed — I'll remind you again."`
-- [ ] `handleWorkoutCallback` (`:1781-1852`): on Snooze and Skip, after the existing SealAndQueue + RescheduleRelayRefire/CancelRelayRefire, call `editCallbackMessage(...)` to rewrite the message + drop buttons (reuse `EditMessageTextClearMarkup`); keep the toast answer
-- [ ] add `handleMeasureCallback(ctx, cq, ...)`: `ParseMeasureCallback` → kind+slot+action; seal a `measureReminderEvent{Kind:'bp'|'weight', Action:'snooze'|'skip', AtUnix, MessageID}` via SealAndQueue (new event, mirror `workoutSessionEvent` `:1791-1820`); Snooze → `RescheduleRelayRefire(now+1h, refireText, stem)`; Skip → `CancelRelayRefire(stem)`; both call `editCallbackMessage`; answer toast
-- [ ] dispatch in `handleCallbackQuery` (`:1664`): add `if tgclient.IsMeasureCallback(cq.Data) { t.handleMeasureCallback(...); return }` before the med `ParseCallbackData` branch
-- [ ] resolve account subdomain server-side for URL: add a thin cloudstore lookup by accountID if none exists (else reuse existing); build `https://<subdomain>.<baseDomain>/?tab=<section>`
-- [ ] `SendReminder` (`:1869-1910`) button switch: workout arm — prepend `{Text:"▶️ Start", URL: startURL}`; add measure arm `else if IsMeasureCallback(stem)` → `[{Text:"🌐 Open", URL: openURL}, {Snooze 1h}, {Skip}]`. Section = workouts/bp/weight derived from stem
-- [ ] write tests in `internal/cloudserver/telegram_test.go`: measure Snooze RescheduleRelayRefire carries `len(rf.CT)==0` (relay blind); measure Skip CancelRelayRefire; measure + workout tap rewrites message (EditMessageTextClearMarkup) with the static const; URL button present with correct `?tab=` host
-- [ ] write/extend cloudstore test if an AccountByID/subdomain lookup was added
-- [ ] run `go test ./internal/cloudserver/... ./internal/cloudstore/...` — must pass before Task 3
+- [x] rename `editMedCallbackMessage` → `editCallbackMessage` (`:1739-1751`) and update its 2 med call sites; it stays static-text generic (ZK)
+- [x] add static edit-text consts: measure snooze `"⏰ Snoozed 1h — I'll remind you again."`, measure/workout skip `"⏭️ Skipped — waiting for your device to record it."`, workout snooze `"⏰ Snoozed — I'll remind you again."`
+- [x] `handleWorkoutCallback` (`:1781-1852`): on Snooze and Skip, after the existing SealAndQueue + RescheduleRelayRefire/CancelRelayRefire, call `editCallbackMessage(...)` to rewrite the message + drop buttons (reuse `EditMessageTextClearMarkup`); keep the toast answer
+- [x] add `handleMeasureCallback(ctx, cq, ...)`: `ParseMeasureCallback` → kind+slot+action; seal a `measureReminderEvent{Kind:inboxEventKindMeasureReminder, Measure:'bp'|'weight', Action:'snooze'|'skip', AtUnix, MessageID}` via SealAndQueue (new event, mirror `workoutSessionEvent`; Kind is the event discriminator per codebase convention, Measure carries bp/weight); Snooze → `RescheduleRelayRefire(now+1h, refireText, stem)`; Skip → `CancelRelayRefire(stem)`; both call `editCallbackMessage`; answer toast
+- [x] dispatch in `handleCallbackQuery` (`:1664`): add `if tgclient.IsMeasureCallback(cq.Data) { t.handleMeasureCallback(...); return }` before the med `ParseCallbackData` branch
+- [x] resolve account subdomain server-side for URL: added thin `cloudstore.SubdomainByAccount`; build `https://<subdomain>.<baseDomain>/?tab=<section>` in `reminderDeepLink`; empty-URL buttons dropped via `dropEmptyURLButtons`
+- [x] `SendReminder` (`:1869-1910`) button switch: workout arm — prepend `{Text:"▶️ Start", URL: startURL}`; add measure arm `case IsMeasureCallback(stem)` → `[{Text:"🌐 Open", URL: openURL}, {Snooze 1h}, {Skip}]`. Section = workouts/bp/weight derived from stem
+- [x] write tests in `internal/cloudserver/telegram_test.go`: measure Snooze RescheduleRelayRefire carries `len(rf.CT)==0` (relay blind); measure Skip CancelRelayRefire; measure + workout tap rewrites message (EditMessageTextClearMarkup) with the static const; URL button present with correct `?tab=` host
+- [x] write/extend cloudstore test if an AccountByID/subdomain lookup was added (`TestSubdomainByAccount`)
+- [x] run `go test ./internal/cloudserver/... ./internal/cloudstore/...` — must pass before Task 3
 
 ### Task 3: reminders.js — emit bp/wt callback stems (PURE, no URLs)
 - [ ] BP push (`web/domain/reminders.js:359`): add `callback: \`bp:${fireAtUnix}\``
