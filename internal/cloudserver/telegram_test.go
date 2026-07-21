@@ -1138,6 +1138,67 @@ func TestChildWebhook_CallbackQueryWithoutMessage(t *testing.T) {
 	if got.SlotUnix != 1767225600 || got.Action != tgclient.CallbackActionConfirm {
 		t.Errorf("sealed event = %+v", got)
 	}
+	// messageID 0 → no immediate message edit (there is no message to rewrite),
+	// but the event is still sealed and the tap answered.
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.edits) != 0 {
+		t.Errorf("editMessageText calls = %d, want 0 when cq.Message absent: %v", len(tg.mu.edits), tg.mu.edits)
+	}
+	if len(tg.mu.answered) != 1 {
+		t.Errorf("answered %d taps, want 1 (toast-only fallback)", len(tg.mu.answered))
+	}
+}
+
+// A med Confirm tap must IMMEDIATELY rewrite the message into static server text
+// and drop its buttons, so the user can't re-tap while the client's drain-time
+// EditReply is still pending. Zero-knowledge: the new text is a fixed const, not
+// a medication name.
+func TestChildWebhook_MedConfirmEditsMessageAndClearsButtons(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:confirm", 12345))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.edits) != 1 {
+		t.Fatalf("editMessageText calls = %d, want 1: %v", len(tg.mu.edits), tg.mu.edits)
+	}
+	edit := tg.mu.edits[0]
+	if !strings.Contains(edit, medConfirmEditText) {
+		t.Errorf("edit body %q, want confirmed text %q", edit, medConfirmEditText)
+	}
+	// Buttons are dropped via an empty inline_keyboard.
+	if !strings.Contains(edit, `"inline_keyboard":[]`) {
+		t.Errorf("edit body %q, want empty inline_keyboard to drop buttons", edit)
+	}
+}
+
+// A med Snooze tap rewrites the message into the snoozed text (and drops
+// buttons) — same immediate-rewrite guarantee as Confirm.
+func TestChildWebhook_MedSnoozeEditsMessageWithSnoozedText(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:snooze", 12345))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.edits) != 1 {
+		t.Fatalf("editMessageText calls = %d, want 1: %v", len(tg.mu.edits), tg.mu.edits)
+	}
+	if !strings.Contains(tg.mu.edits[0], medSnoozeEditText) {
+		t.Errorf("edit body %q, want snoozed text %q", tg.mu.edits[0], medSnoozeEditText)
+	}
 }
 
 // The zero-knowledge invariant. An account that never unlocked a client has no

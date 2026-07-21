@@ -1665,17 +1665,49 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 		slog.Error("telegram callback: seal and queue", "error", err, "ref", ref)
 		answer(callbackAckUnknown)
 	case action == tgclient.CallbackActionSnooze:
+		t.editMedCallbackMessage(r.Context(), bot, ref, messageID, medSnoozeEditText)
 		answer(callbackAckSnooze)
 	default:
+		t.editMedCallbackMessage(r.Context(), bot, ref, messageID, medConfirmEditText)
 		answer(callbackAckConfirm)
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// editMedCallbackMessage rewrites a tapped med reminder into static text and
+// drops its buttons the instant the tap lands, so the user can't re-tap while
+// the client's drain-time EditReply is still pending. Best-effort: a 0
+// messageID (Telegram omitted an old cq.Message) or a failed edit only logs; the
+// seal + toast already acked the tap and the client drain still finalizes the
+// real receipt. ZERO-KNOWLEDGE: text is a caller-supplied static const only.
+func (t *TelegramAPI) editMedCallbackMessage(ctx context.Context, bot *cloudstore.TGBot, ref string, messageID int64, text string) {
+	if messageID == 0 || bot.ChatID == nil {
+		return
+	}
+	client, err := t.botClient(bot)
+	if err != nil {
+		slog.Error("telegram callback: open token for edit", "error", err, "ref", ref)
+		return
+	}
+	if err := client.EditMessageTextClearMarkup(ctx, *bot.ChatID, messageID, text); err != nil && !tgclient.IsMessageNotModified(err) {
+		slog.Warn("telegram callback: edit message failed", "error", err, "ref", ref)
+	}
 }
 
 // workoutRefireText is the generic re-fire body used when Telegram omits the
 // original message (too old to edit), so the copy path never has to read vault
 // data to reconstruct it.
 const workoutRefireText = "Workout reminder"
+
+// Static, server-composed message bodies written the instant a med Confirm/
+// Snooze button is tapped. They replace the original message text and clear its
+// buttons so the user can't re-tap while the client's drain-time EditReply is
+// still pending. ZERO-KNOWLEDGE: templated only — never a medication name or any
+// vault value.
+const (
+	medConfirmEditText = "✅ Confirmed — waiting for your device to come online to record it."
+	medSnoozeEditText  = "⏰ Snoozed 1h — I'll remind you again."
+)
 
 // handleWorkoutCallback applies a workout Snooze/Skip tap ("w:" namespace,
 // med-eas.70). Like the med path it seals a session-reconciliation event to the
