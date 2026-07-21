@@ -169,12 +169,12 @@ Files/components involved (with the exact seams):
 - [x] run the cloud `inbox-apply` vitest suite (Node 20) — must pass before Task 6
 
 ### Task 6: Verify acceptance criteria
-- [ ] `go build ./...` AND `go build -tags mobile ./...` both succeed
-- [ ] `go test ./internal/cloudserver/... ./internal/cloudstore/... ./internal/tgclient/...` green
-- [ ] Vitest (Node 20, `export PATH="/tmp/node-v20.18.1-linux-x64/bin:$PATH"`): `reminders.domain`, cloud `inbox-apply`, `push`, `relay` suites, and architecture suites (`domain-purity`, `cloud-tokens`, `globals`) green
-- [ ] grep the diff for zero-knowledge: no ct/vault read in relay; re-fires copy only cleartext text+stem; edits use static consts; URLs carry only host + `?tab=`; `callback_data` ≤ 64B
-- [ ] confirm reminders.js added no non-pure references (domain-purity test green)
-- [ ] confirm no new `window.*` globals (globals test green)
+- [x] `go build ./...` AND `go build -tags mobile ./...` both succeed
+- [x] `go test ./internal/cloudserver/... ./internal/cloudstore/... ./internal/tgclient/...` green
+- [x] Vitest (Node 20, `export PATH="/tmp/node-v20.18.1-linux-x64/bin:$PATH"`): `reminders.domain`, cloud `inbox-apply`, `push`, `relay` suites, and architecture suites (`domain-purity`, `cloud-tokens`, `globals`) green (242 tests, 14 files — run vitest directly; `pnpm test -- <pattern>` hangs)
+- [x] grep the diff for zero-knowledge: no ct/vault read in relay (`.CT` refs are test asserts only); re-fires copy only cleartext text+stem (`measureRefireText` static const or existing `cq.Message.Text`); edits use static consts; URLs carry only host + `?tab=<section>`; `callback_data` (`bp:<unix>:snooze1h`) well under 64B
+- [x] confirm reminders.js added no non-pure references (domain-purity test green)
+- [x] confirm no new `window.*` globals (globals test green)
 
 ## Technical Details
 
