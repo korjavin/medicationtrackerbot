@@ -162,11 +162,11 @@ Files/components involved (with the exact seams):
 - [x] run the relevant vitest suite (Node 20) — must pass before Task 5
 
 ### Task 5: inbox-apply.js — drain measureReminderEvent
-- [ ] add event-kind const `MEASURE_REMINDER_ACTION` (`web/cloud/js/inbox-apply.js:43-48`)
-- [ ] add `applyMeasureReminderAction(event, {reminders, editReply})`: build reminders domain with `now: () => event.at_unix*1000`; Snooze → `snoozeBPReminder`/`snoozeWeightReminder` by kind; Skip → `dontBugBPReminder`/`dontBugWeightReminder`; then `editReply(message_id, staticText)`
-- [ ] wire it into the `apply` dispatcher (`:726-803`) alongside the workout arm; unknown kinds still ignored
-- [ ] write tests in the cloud inbox-apply suite: bp snooze sets snoozed_until, weight skip sets dont_remind_until, idempotent on redelivery (pinned now), editReply called
-- [ ] run the cloud `inbox-apply` vitest suite (Node 20) — must pass before Task 6
+- [x] add event-kind const `MEASURE_REMINDER_ACTION` (`web/cloud/js/inbox-apply.js:43-48`)
+- [x] add `applyMeasureReminderAction(event, {reminders, editReply})`: build reminders domain with `now: () => event.at_unix*1000`; Snooze → `snoozeBPReminder`/`snoozeWeightReminder` by kind; Skip → `dontBugBPReminder`/`dontBugWeightReminder`; then `editReply(message_id, staticText)`
+- [x] wire it into the `apply` dispatcher (`:726-803`) alongside the workout arm; unknown kinds still ignored
+- [x] write tests in the cloud inbox-apply suite: bp snooze sets snoozed_until, weight skip sets dont_remind_until, idempotent on redelivery (pinned now), editReply called
+- [x] run the cloud `inbox-apply` vitest suite (Node 20) — must pass before Task 6
 
 ### Task 6: Verify acceptance criteria
 - [ ] `go build ./...` AND `go build -tags mobile ./...` both succeed

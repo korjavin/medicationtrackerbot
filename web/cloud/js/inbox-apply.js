@@ -46,6 +46,7 @@ export const TG_PHOTO = 'tg_photo';
 export const TG_TEXT = 'tg_text';
 export const VITALS_IMPORT = 'vitals_import';
 export const WORKOUT_SESSION_ACTION = 'workout_session_action';
+export const MEASURE_REMINDER_ACTION = 'measure_reminder_action';
 
 // A once-marker per free-text event. Unlike /bp or /food, the agent's tool
 // writes get fresh (non-deterministic) record ids, so a re-drain — the barrier
@@ -346,6 +347,34 @@ export async function applyWorkoutSessionAction(event, { workout, editReply = ed
     }
     await workout.snoozeScheduledSession({ groupId, date, minutes });
     text = '⏰ Snoozed.';
+  }
+  try {
+    await editReply(event.message_id, text);
+  } catch (e) {
+    console.warn('[inbox] could not update the Telegram reply', e);
+  }
+}
+
+// applyMeasureReminderAction drains a Telegram BP/weight reminder Snooze/Skip
+// tap onto the SAME reminder-pref mute the app's own Snooze/Mute buttons write —
+// there is one implementation of "muted until". BP and weight share this one
+// handler; event.measure picks the setter. The reminders domain is built on the
+// tap time (now pinned to at_unix), so the mute instant is deterministic across
+// an at-least-once redelivery. Snooze → snoozed_until (+1h); Skip →
+// dont_remind_until (end-of-day mute). The relay's own re-fire/cancel (server
+// side) keeps its horizon in step; this just reconciles local pref state.
+export async function applyMeasureReminderAction(event, { reminders, editReply = editTelegramReply }) {
+  const bp = event.measure === 'bp';
+  let text;
+  if (event.action === 'skip') {
+    await (bp ? reminders.dontBugBPReminder() : reminders.dontBugWeightReminder());
+    text = '⏭️ Skipped.';
+  } else if (event.action === 'snooze') {
+    await (bp ? reminders.snoozeBPReminder() : reminders.snoozeWeightReminder());
+    text = '⏰ Snoozed.';
+  } else {
+    console.warn('[inbox] ignoring unknown measure action', event.action);
+    return;
   }
   try {
     await editReply(event.message_id, text);
@@ -783,6 +812,17 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
       const atMs = event.at_unix * 1000;
       await applyWorkoutSessionAction(event, {
         workout: createWorkoutDomain({ records, now: () => atMs, timeZone }),
+        editReply,
+      });
+      return;
+    }
+    if (event.kind === MEASURE_REMINDER_ACTION) {
+      // The tap mutes the shared BP/weight reminder pref; the reminders domain
+      // stamps snoozed_until/dont_remind_until from the server tap time (like
+      // meds), so build it on that instant.
+      const atMs = event.at_unix * 1000;
+      await applyMeasureReminderAction(event, {
+        reminders: createRemindersDomain({ records, now: () => atMs }),
         editReply,
       });
       return;

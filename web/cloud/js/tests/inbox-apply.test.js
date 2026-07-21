@@ -5,7 +5,8 @@
 // behavior, not of this module's bookkeeping.
 import { describe, expect, it, vi } from 'vitest';
 import { createIntakeDomain } from '../../../domain/medintake.js';
-import { applyIntakeSlotAction, applyWorkoutSessionAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, makeTGPrefsPort, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT, VITALS_IMPORT, WORKOUT_SESSION_ACTION } from '../inbox-apply.js';
+import { applyIntakeSlotAction, applyWorkoutSessionAction, applyMeasureReminderAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, makeTGPrefsPort, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT, VITALS_IMPORT, WORKOUT_SESSION_ACTION, MEASURE_REMINDER_ACTION } from '../inbox-apply.js';
+import { createRemindersDomain, SNOOZE_MS, DONT_BUG_MS } from '../../../domain/reminders.js';
 import { createTGAgent } from '../tg-agent.js';
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
@@ -1546,5 +1547,57 @@ describe('inbox-apply.js — a Telegram workout Snooze/Skip tap', () => {
         const s = (await records.list('workoutsession')).find((r) => r.recordId === WRECORD);
         expect(s.scheduled_date).toBe('2026-07-20T00:00:00-04:00');
         expect(s.scheduled_date.split('T')[0]).toBe(WDATE);
+    });
+});
+
+describe('inbox-apply.js — a Telegram BP/weight reminder Snooze/Skip tap', () => {
+    const MTAP_UNIX = 1784592000; // 2026-07-20T16:00:00Z
+    const MTAP_MS = MTAP_UNIX * 1000;
+
+    function remindersFor(records) {
+        return createRemindersDomain({ records, now: () => MTAP_MS });
+    }
+
+    it('bp snooze sets snoozed_until pinned to the tap time', async () => {
+        const records = fakeRecords();
+        const event = { kind: MEASURE_REMINDER_ACTION, measure: 'bp', action: 'snooze', at_unix: MTAP_UNIX, message_id: 700 };
+        await applyMeasureReminderAction(event, { reminders: remindersFor(records), editReply: vi.fn() });
+        const status = await remindersFor(records).getBPStatus();
+        expect(status.snoozed_until).toBe(MTAP_MS + SNOOZE_MS);
+        expect(status.dont_remind_until).toBe(0);
+    });
+
+    it('weight skip sets dont_remind_until (end-of-day mute)', async () => {
+        const records = fakeRecords();
+        const event = { kind: MEASURE_REMINDER_ACTION, measure: 'weight', action: 'skip', at_unix: MTAP_UNIX, message_id: 701 };
+        await applyMeasureReminderAction(event, { reminders: remindersFor(records), editReply: vi.fn() });
+        const status = await remindersFor(records).getWeightStatus();
+        expect(status.dont_remind_until).toBe(MTAP_MS + DONT_BUG_MS);
+        expect(status.snoozed_until).toBe(0);
+    });
+
+    it('is idempotent on redelivery — the pinned tap time yields the same mute instant', async () => {
+        const records = fakeRecords();
+        const event = { kind: MEASURE_REMINDER_ACTION, measure: 'bp', action: 'snooze', at_unix: MTAP_UNIX, message_id: 702 };
+        await applyMeasureReminderAction(event, { reminders: remindersFor(records), editReply: vi.fn() });
+        await applyMeasureReminderAction(event, { reminders: remindersFor(records), editReply: vi.fn() });
+        const status = await remindersFor(records).getBPStatus();
+        expect(status.snoozed_until).toBe(MTAP_MS + SNOOZE_MS);
+    });
+
+    it('edits the Telegram reply via the tap message id', async () => {
+        const records = fakeRecords();
+        const editReply = vi.fn(async () => {});
+        const event = { kind: MEASURE_REMINDER_ACTION, measure: 'bp', action: 'snooze', at_unix: MTAP_UNIX, message_id: 700 };
+        await applyMeasureReminderAction(event, { reminders: remindersFor(records), editReply });
+        expect(editReply).toHaveBeenCalledWith(700, expect.stringMatching(/Snoozed/));
+    });
+
+    it('routes through createInboxApplier by event kind', async () => {
+        const records = fakeRecords();
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => MTAP_MS, editReply: vi.fn() });
+        await apply({ kind: MEASURE_REMINDER_ACTION, measure: 'weight', action: 'snooze', at_unix: MTAP_UNIX, message_id: 703 });
+        const status = await remindersFor(records).getWeightStatus();
+        expect(status.snoozed_until).toBe(MTAP_MS + SNOOZE_MS);
     });
 });
