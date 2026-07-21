@@ -330,10 +330,14 @@ export function computeReminderHorizon({
     entries.push({ fireAtUnix: slotUnix, kind: 'medication', text: doseSlotText(slot.names), genericText: GENERIC_DOSE_TEXT, callback: `s:${slotUnix}`, medicationIds: slot.medicationIds });
   }
 
-  // Re-reminders for still-PENDING doses are no longer client-pre-computed: the
-  // relay owns them server-side (med-eas.74) so an unconfirmed dose re-fires
-  // hourly even when the PWA never reopens, and a Confirm/Snooze tap supersedes
-  // the chain. The primary per-slot fire above is all the client emits.
+  // Re-reminders for still-PENDING doses are no longer client-pre-computed. For
+  // Telegram delivery the relay owns them server-side (med-eas.74): a med send
+  // schedules the next hourly re-fire until ~6h past the slot, so an unconfirmed
+  // dose keeps nagging even when the PWA never reopens, and a Confirm/Snooze tap
+  // supersedes the chain. Web-push-only delivery has no server-side re-fire —
+  // it gets the primary per-slot fire only (the old client loop, which the app
+  // rarely rebuilt in practice, is gone). The primary per-slot fire above is all
+  // the client emits.
 
   // BP reminders logic
   const bpMutedUntil = mutedUntil(bpStatus);
