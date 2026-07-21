@@ -116,6 +116,43 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         }
     });
 
+    it('confirm-schedule of a SUBSET of a shared slot leaves the re-fire alive for the still-pending med (med-eas.74)', async () => {
+        // Two meds due at the same instant; the user confirms only one. The
+        // relay re-fire is keyed slot-wide ("s:<slotUnix>"), so cancelling it
+        // would silence the reminder for the med still PENDING at that slot.
+        const slotIso = new Date(Date.UTC(2026, 6, 7, 8, 0, 0)).toISOString();
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [
+                    seedMedication({ recordId: 1, inventory_count: 5 }),
+                    seedMedication({ recordId: 2, name: 'Aspirin', inventory_count: 5 })
+                ],
+                intake: [
+                    seedIntake({ recordId: 'intake-1', medication_id: 1, scheduled_at: slotIso }),
+                    seedIntake({ recordId: 'intake-2', medication_id: 2, scheduled_at: slotIso })
+                ]
+            }
+        });
+        const { window } = env;
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+        globalThis.fetch = fetchMock;
+        try {
+            await window.apiCall('/api/medications/confirm-schedule', 'POST', { scheduled_at: slotIso, medication_ids: [1] });
+            expect(fetchMock).not.toHaveBeenCalledWith('/api/telegram/cancel-refire', expect.anything());
+
+            // Confirming BOTH meds for the slot leaves nothing PENDING, so the
+            // slot re-fire is cancelled.
+            await window.apiCall('/api/medications/confirm-schedule', 'POST', { scheduled_at: slotIso, medication_ids: [1, 2] });
+            const slotUnix = Math.floor(Date.parse(slotIso) / 1000);
+            expect(fetchMock).toHaveBeenCalledWith('/api/telegram/cancel-refire', expect.objectContaining({
+                method: 'POST',
+                body: JSON.stringify({ callback: `s:${slotUnix}` })
+            }));
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
     it('confirm-schedule by intake_id only (no scheduled_at) sends no cancel-refire POST', async () => {
         env = loadCloudShimFrontendEnv({
             seedRecords: {
