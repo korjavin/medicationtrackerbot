@@ -1175,7 +1175,16 @@ export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTER
     await putRecord(stamped);
     await markPending(record.recordId, recordType);
   });
-  if (flush) await flushPending(ctx);
+  // Local-first (med-eas.77): the write is already durable in 'pending'
+  // (markPending, above) and apiCall returns the LOCAL stamped record, never a
+  // server ack — so the eager oplog push must NOT be awaited or the confirm
+  // flow perceives the /api/sync/ops round-trip as latency. Fire it in the
+  // background: flushPending keeps the pending row on any transient failure and
+  // it is retried on the next pullOnOpen/write, so nothing is lost. The .catch
+  // only guards an unhandled rejection if flushPendingUnlocked *throws*
+  // (crypto/IndexedDB) — a thrown flush also leaves 'pending' intact — mirroring
+  // the flushChain swallow inside flushPending itself.
+  if (flush) flushPending(ctx).catch(() => {});
   notifyRecordsChanged([recordType], origin);
   return stamped;
 }

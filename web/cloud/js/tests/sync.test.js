@@ -544,6 +544,7 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     opsStatus = 413;
 
     await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx); // med-eas.77: the eager push is now background — await it to observe its result
 
     const status = await getSyncStatus(ctx);
     expect(status.writeError).toMatchObject({ status: 413 });
@@ -560,6 +561,7 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     opsStatus = 413;
 
     await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx); // med-eas.77: the eager push is now background — await it to observe its result
 
     expect((await getSyncStatus(ctx)).pendingCount).toBe(1);
     // And it is readable locally — the user's data is on their device.
@@ -571,11 +573,13 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
     opsStatus = 413;
     await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx); // med-eas.77: the eager push is now background — await it to observe its result
     expect(await readMetaKey('writeError')).toMatchObject({ status: 413 });
 
     // Quota raised, or space freed.
     opsStatus = 200;
     await writeRecord(ctx, 'note', { recordId: 'note-2', text: 'world' });
+    await flushConfirmed(ctx); // med-eas.77: await the now-background push
 
     expect(await readMetaKey('writeError')).toBeNull();
     expect(await describeSyncStatus(ctx)).not.toContain('Vault is full');
@@ -586,6 +590,7 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     opsStatus = 503;
 
     await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx); // med-eas.77: the eager push is now background — await it to observe its result
 
     const status = await getSyncStatus(ctx);
     expect(status.offline).toBe(true);
@@ -601,6 +606,7 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     }));
 
     await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx); // med-eas.77: the eager push is now background — await it to observe its result
 
     const status = await getSyncStatus(ctx);
     expect(status.offline).toBe(true);
@@ -613,6 +619,7 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
       opsStatus = transient; // a reverse proxy can return these even though cmd/cloud did not
 
       await writeRecord(ctx, 'note', { recordId: `note-${transient}`, text: 'hello' });
+      await flushConfirmed(ctx); // med-eas.77: await the now-background push
 
       const status = await getSyncStatus(ctx);
       expect(status.offline).toBe(true);
@@ -628,6 +635,7 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     opsStatus = 401;
 
     await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx); // med-eas.77: the eager push is now background — await it to observe its result
 
     const status = await getSyncStatus(ctx);
     expect(status.authExpired).toBe(true);
@@ -644,6 +652,7 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     opsStatus = 401;
 
     await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx); // med-eas.77: the eager push is now background — await it to observe its result
 
     const line = await describeSyncStatus(ctx);
     expect(line).toContain('Session expired — re-authenticate');
@@ -652,6 +661,7 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     // A successful batch (session re-minted) clears the state again.
     opsStatus = 200;
     await writeRecord(ctx, 'note', { recordId: 'note-2', text: 'world' });
+    await flushConfirmed(ctx); // med-eas.77: await the now-background push
     const status = await getSyncStatus(ctx);
     expect(status.authExpired).toBe(false);
     expect(await describeSyncStatus(ctx)).not.toContain('Session expired');
@@ -661,6 +671,7 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
     opsStatus = 401;
     await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx); // med-eas.77: the eager push is now background — await it to observe its result
     expect(await getSyncStatus(ctx)).toMatchObject({ authExpired: true, pendingCount: 1 });
 
     // The ceremony re-mints the session cookie server-side; the server accepts
@@ -689,10 +700,127 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     opsStatus = 400;
 
     await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx); // med-eas.77: the eager push is now background — await it to observe its result
 
     const line = await describeSyncStatus(ctx);
     expect(line).toContain('refused');
     expect(line).not.toContain('Vault is full');
+  });
+});
+
+// med-eas.77 — local-first write: writeRecord's eager oplog push is now
+// fire-and-forget. The write must resolve as soon as the local IndexedDB put +
+// markPending complete (apiCall returns the LOCAL stamped record, never a server
+// ack), while the /api/sync/ops push runs in the background — durably retried
+// from 'pending', and never surfacing an unhandled rejection to the caller.
+describe('writeRecord does not await the background oplog push (med-eas.77)', () => {
+  let ctx;
+
+  const seedMeta = async (meta) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('sync_meta', 'readwrite');
+        const store = tx.objectStore('sync_meta');
+        for (const [k, v] of Object.entries(meta)) store.put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, dek: await generateDEK() };
+  });
+
+  it('resolves the write before the /api/sync/ops push settles', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    let releasePush;
+    const pushGate = new Promise((r) => { releasePush = r; });
+    const order = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') {
+        order.push('push-start');
+        await pushGate; // hold the push open so a synchronous await would deadlock the test
+        order.push('push-done');
+        const { ops } = JSON.parse(init.body);
+        return new Response(JSON.stringify({ assigned: ops.map((_, i) => i + 1) }), { status: 200 });
+      }
+      if (String(url).startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+
+    const stamped = await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    order.push('write-resolved');
+
+    // The write resolved while the push was still gated — it never awaited it.
+    expect(order).not.toContain('push-done');
+    expect(stamped.recordId).toBe('note-1');
+    // Durable locally and still queued (the push is in flight, not lost).
+    expect((await listRecords(ctx, 'note')).map((n) => n.recordId)).toContain('note-1');
+    expect((await getSyncStatus(ctx)).pendingCount).toBe(1);
+
+    // Release the gate and drain so the module-global flushChain settles (else a
+    // pending flush would leak into the next test).
+    releasePush();
+    await flushConfirmed(ctx);
+    expect((await getSyncStatus(ctx)).pendingCount).toBe(0);
+  });
+
+  it('pushes the pending row via the background flush once the network settles', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    let posts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') {
+        posts++;
+        const { ops } = JSON.parse(init.body);
+        return new Response(JSON.stringify({ assigned: ops.map((_, i) => i + 1) }), { status: 200 });
+      }
+      if (String(url).startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx); // await the background push's settle point
+
+    expect(posts).toBeGreaterThanOrEqual(1);
+    expect((await getSyncStatus(ctx)).pendingCount).toBe(0); // reached the cloud & cleared
+  });
+
+  it('keeps the pending row and never rejects to the caller when the background push fails', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    const rejections = [];
+    const onRej = (e) => rejections.push(e);
+    process.on('unhandledRejection', onRej);
+    try {
+      vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+        if (String(url) === '/api/sync/ops' && init?.method === 'POST') throw new TypeError('network down');
+        if (String(url).startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+        if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+        throw new Error(`unexpected fetch: ${url}`);
+      }));
+
+      // The write resolves normally even though its background push will fail.
+      await expect(writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' }))
+        .resolves.toMatchObject({ recordId: 'note-1' });
+      await flushConfirmed(ctx); // let the failing flush settle
+      await new Promise((r) => setTimeout(r, 0)); // flush the microtask/task queue for any stray rejection
+
+      // Retained for retry, and no unhandled rejection escaped the fire-and-forget catch.
+      expect((await getSyncStatus(ctx)).pendingCount).toBe(1);
+      expect(rejections).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onRej);
+    }
   });
 });
 
