@@ -149,11 +149,11 @@ Files/components involved (with the exact seams):
 - [x] run `go test ./internal/cloudserver/... ./internal/cloudstore/...` — must pass before Task 3
 
 ### Task 3: reminders.js — emit bp/wt callback stems (PURE, no URLs)
-- [ ] BP push (`web/domain/reminders.js:359`): add `callback: \`bp:${fireAtUnix}\``
-- [ ] weight push (`:381`): add `callback: \`wt:${fireAtUnix}\``
-- [ ] confirm no URL/host logic added here (purity preserved)
-- [ ] extend the reminders.domain test suite: bp/weight entries now carry the expected callback stem; workout/med unchanged
-- [ ] run the `reminders.domain` vitest suite (Node 20) — must pass before Task 4
+- [x] BP push (`web/domain/reminders.js:359`): add `callback: \`bp:${fireAtUnix}\``
+- [x] weight push (`:381`): add `callback: \`wt:${fireAtUnix}\``
+- [x] confirm no URL/host logic added here (purity preserved — domain-purity suite green)
+- [x] extend the reminders.domain test suite: bp/weight entries now carry the expected callback stem; workout/med unchanged
+- [x] run the `reminders.domain` vitest suite (Node 20) — must pass before Task 4
 
 ### Task 4: deeplink-router.js — bare ?tab=<section> switch
 - [ ] add a branch so `?tab=workouts|bp|weight` (no `action`) calls `switchTab(tab)` (`web/static/js/features/deeplink-router.js:47-79`), whitelisting allowed section ids; keep existing `action=add` behavior

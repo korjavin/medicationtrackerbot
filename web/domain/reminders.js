@@ -356,7 +356,8 @@ export function computeReminderHorizon({
       // Fire if no reading within 12h before target, and the target lands
       // outside any active snooze / don't-bug window.
       if (targetMs > now && targetMs > bpMutedUntil && targetMs - lastBPMs > 12 * 60 * 60 * 1000) {
-        entries.push({ fireAtUnix: Math.floor(targetMs / 1000), kind: 'bp', text: "📊 **Time to measure your blood pressure**\n\nPlease take a moment to measure and record your BP.", genericText: GENERIC_BP_TEXT });
+        const fireAtUnix = Math.floor(targetMs / 1000);
+        entries.push({ fireAtUnix, kind: 'bp', text: "📊 **Time to measure your blood pressure**\n\nPlease take a moment to measure and record your BP.", genericText: GENERIC_BP_TEXT, callback: `bp:${fireAtUnix}` });
       }
     }
   }
@@ -378,7 +379,8 @@ export function computeReminderHorizon({
       // Fire if no reading within 7 days before target
       // Same mute gate as BP: skip targets inside an active snooze / don't-bug window.
       if (targetMs > now && targetMs > weightMutedUntil && targetMs - lastWeightMs > 7 * 24 * 60 * 60 * 1000) {
-        entries.push({ fireAtUnix: Math.floor(targetMs / 1000), kind: 'weight', text: "⚖️ **Time to track your weight**\n\nIt's been about a week since your last measurement. Regular tracking helps you stay on top of your goals!", genericText: GENERIC_WEIGHT_TEXT });
+        const fireAtUnix = Math.floor(targetMs / 1000);
+        entries.push({ fireAtUnix, kind: 'weight', text: "⚖️ **Time to track your weight**\n\nIt's been about a week since your last measurement. Regular tracking helps you stay on top of your goals!", genericText: GENERIC_WEIGHT_TEXT, callback: `wt:${fireAtUnix}` });
       }
     }
   }
