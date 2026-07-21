@@ -584,8 +584,8 @@ export function createRemindersDomain({ records, now }) {
   // Mirrors bp.SnoozeReminder / bp.DontBugMeReminder: mute until an instant,
   // leaving `enabled` alone. computeReminderHorizon then drops every target
   // inside the window, and the caller re-uploads the shortened horizon.
-  async function snoozeBPReminder() {
-    return putBPPref({ snoozed_until: now() + SNOOZE_MS });
+  async function snoozeBPReminder(durationMs = SNOOZE_MS) {
+    return putBPPref({ snoozed_until: now() + durationMs });
   }
 
   async function dontBugBPReminder() {
@@ -617,8 +617,8 @@ export function createRemindersDomain({ records, now }) {
     return putWeightPref(patch);
   }
 
-  async function snoozeWeightReminder() {
-    return putWeightPref({ snoozed_until: now() + SNOOZE_MS });
+  async function snoozeWeightReminder(durationMs = SNOOZE_MS) {
+    return putWeightPref({ snoozed_until: now() + durationMs });
   }
 
   async function dontBugWeightReminder() {

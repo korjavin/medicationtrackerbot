@@ -360,9 +360,12 @@ export async function applyWorkoutSessionAction(event, { workout, editReply = ed
 // there is one implementation of "muted until". BP and weight share this one
 // handler; event.measure picks the setter. The reminders domain is built on the
 // tap time (now pinned to at_unix), so the mute instant is deterministic across
-// an at-least-once redelivery. Snooze → snoozed_until (+1h); Skip →
-// dont_remind_until (end-of-day mute). The relay's own re-fire/cancel (server
-// side) keeps its horizon in step; this just reconciles local pref state.
+// an at-least-once redelivery. Snooze → snoozed_until (+1h, matching the
+// "Snooze 1h" button label and the server relay re-fire — NOT the in-app
+// button's default 2h); Skip → dont_remind_until (+24h). The relay's own
+// re-fire/cancel (server side) keeps its horizon in step; this just reconciles
+// local pref state.
+const MEASURE_SNOOZE_MS = 60 * 60 * 1000; // "Snooze 1h" button
 export async function applyMeasureReminderAction(event, { reminders, editReply = editTelegramReply }) {
   const bp = event.measure === 'bp';
   let text;
@@ -370,7 +373,7 @@ export async function applyMeasureReminderAction(event, { reminders, editReply =
     await (bp ? reminders.dontBugBPReminder() : reminders.dontBugWeightReminder());
     text = '⏭️ Skipped.';
   } else if (event.action === 'snooze') {
-    await (bp ? reminders.snoozeBPReminder() : reminders.snoozeWeightReminder());
+    await (bp ? reminders.snoozeBPReminder(MEASURE_SNOOZE_MS) : reminders.snoozeWeightReminder(MEASURE_SNOOZE_MS));
     text = '⏰ Snoozed.';
   } else {
     console.warn('[inbox] ignoring unknown measure action', event.action);
