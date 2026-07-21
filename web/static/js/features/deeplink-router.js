@@ -49,7 +49,21 @@ function handleDeepLinks() {
     const action = urlParams.get('action');
     const tab = urlParams.get('tab');
 
-    if (action === 'add') {
+    if (!action && tab) {
+        // Bare ?tab=<section> (no action): plain section deep-link, e.g. the
+        // Telegram reminder "Open" URL button (?tab=workouts|bp|weight). Only
+        // switch to a whitelisted, stable bottom-nav id; ignore unknown tabs so
+        // activateTabGroup can't blank the page.
+        const allowedTabs = ['workouts', 'bp', 'weight'];
+        if (allowedTabs.includes(tab)) {
+            if (!isDeepLinkFeatureEnabled(tab)) {
+                switchTab('today');
+            } else {
+                switchTab(tab);
+            }
+        }
+        window.history.replaceState({}, '', '/');
+    } else if (action === 'add') {
         // Handle ?tab=bp&action=add and ?tab=weight&action=add
         const tabAddModals = {
             'bp': showBPRecordModal,

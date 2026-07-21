@@ -18,6 +18,8 @@ describe('domain/reminders.js — horizon scheduling', () => {
         const bpEntries = entries.filter(e => e.text.includes('blood pressure'));
         const expectedNextBpTargetMs = Date.UTC(2026, 6, 8, 11, 0, 0);
         expect(bpEntries[0].fireAtUnix).toBe(expectedNextBpTargetMs / 1000);
+        // BP carries a bp:<fireAtUnix> callback stem so the relay renders Snooze/Skip.
+        expect(bpEntries[0].callback).toBe(`bp:${expectedNextBpTargetMs / 1000}`);
 
         // Weight preferred hour is 09:00 JST.
         // Today's 09:00 JST is July 7, 00:00 UTC. Past.
@@ -25,6 +27,8 @@ describe('domain/reminders.js — horizon scheduling', () => {
         const weightEntries = entries.filter(e => e.text.includes('weight'));
         const expectedNextWeightTargetMs = Date.UTC(2026, 6, 8, 0, 0, 0);
         expect(weightEntries[0].fireAtUnix).toBe(expectedNextWeightTargetMs / 1000);
+        // Weight carries a wt:<fireAtUnix> callback stem.
+        expect(weightEntries[0].callback).toBe(`wt:${expectedNextWeightTargetMs / 1000}`);
     });
 
     it('computes correctly for negative-offset zones where UTC date differs from local date', () => {

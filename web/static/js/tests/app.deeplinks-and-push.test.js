@@ -215,6 +215,69 @@ describe('handleDeepLinks – query-param deep links (?tab=…&action=add)', () 
   });
 });
 
+describe('handleDeepLinks – bare ?tab=<section> (Telegram reminder Open button)', () => {
+  it('?tab=workouts switches to workouts tab and cleans the URL', () => {
+    const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/?tab=workouts' });
+    try {
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+
+      window.handleDeepLinks();
+
+      expect(switchTabSpy).toHaveBeenCalledWith('workouts');
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('?tab=bp switches to bp tab (no modal, no action)', () => {
+    const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/?tab=bp' });
+    try {
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      const showBPSpy = vi.spyOn(window, 'showBPRecordModal').mockImplementation(() => {});
+
+      window.handleDeepLinks();
+
+      expect(switchTabSpy).toHaveBeenCalledWith('bp');
+      expect(showBPSpy).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('?tab=bp with BP feature disabled redirects to Today', () => {
+    const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/?tab=bp' });
+    try {
+      window.featureSettingsLoaded = true;
+      window.featureSettings = { bp: false };
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+
+      window.handleDeepLinks();
+
+      expect(switchTabSpy).toHaveBeenCalledWith('today');
+      expect(switchTabSpy).not.toHaveBeenCalledWith('bp');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('?tab=unknown does NOT call switchTab but still cleans the URL', () => {
+    const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/?tab=unknown' });
+    try {
+      const switchTabSpy = vi.spyOn(window, 'switchTab');
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+
+      window.handleDeepLinks();
+
+      expect(switchTabSpy).not.toHaveBeenCalled();
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/');
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('handleDeepLinks – feature flag visibility in production', () => {
   // app.js owns featureSettings/featureSettingsLoaded and must mirror them
   // onto window so deeplink-router's isDeepLinkFeatureEnabled() can read them.
