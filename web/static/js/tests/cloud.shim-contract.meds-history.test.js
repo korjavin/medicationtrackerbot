@@ -90,6 +90,87 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         expect(meds[0].inventory_count).toBe(4);
     });
 
+    it('confirm-schedule with scheduled_at tells the relay to cancel that slot re-fire (med-eas.74)', async () => {
+        // A dose confirmed in the app never taps Telegram, so the shim best-effort
+        // POSTs /api/telegram/cancel-refire so the relay's server-owned nag chain
+        // stops for the slot. Fire-and-forget on the global fetch.
+        const slotIso = new Date(Date.UTC(2026, 6, 7, 8, 0, 0)).toISOString();
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [seedMedication({ recordId: 1, inventory_count: 5 })],
+                intake: [seedIntake({ recordId: 'intake-1', medication_id: 1, scheduled_at: slotIso })]
+            }
+        });
+        const { window } = env;
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+        globalThis.fetch = fetchMock;
+        try {
+            await window.apiCall('/api/medications/confirm-schedule', 'POST', { scheduled_at: slotIso, medication_ids: [1] });
+            const slotUnix = Math.floor(Date.parse(slotIso) / 1000);
+            expect(fetchMock).toHaveBeenCalledWith('/api/telegram/cancel-refire', expect.objectContaining({
+                method: 'POST',
+                body: JSON.stringify({ callback: `s:${slotUnix}` })
+            }));
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
+    it('confirm-schedule of a SUBSET of a shared slot leaves the re-fire alive for the still-pending med (med-eas.74)', async () => {
+        // Two meds due at the same instant; the user confirms only one. The
+        // relay re-fire is keyed slot-wide ("s:<slotUnix>"), so cancelling it
+        // would silence the reminder for the med still PENDING at that slot.
+        const slotIso = new Date(Date.UTC(2026, 6, 7, 8, 0, 0)).toISOString();
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [
+                    seedMedication({ recordId: 1, inventory_count: 5 }),
+                    seedMedication({ recordId: 2, name: 'Aspirin', inventory_count: 5 })
+                ],
+                intake: [
+                    seedIntake({ recordId: 'intake-1', medication_id: 1, scheduled_at: slotIso }),
+                    seedIntake({ recordId: 'intake-2', medication_id: 2, scheduled_at: slotIso })
+                ]
+            }
+        });
+        const { window } = env;
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+        globalThis.fetch = fetchMock;
+        try {
+            await window.apiCall('/api/medications/confirm-schedule', 'POST', { scheduled_at: slotIso, medication_ids: [1] });
+            expect(fetchMock).not.toHaveBeenCalledWith('/api/telegram/cancel-refire', expect.anything());
+
+            // Confirming BOTH meds for the slot leaves nothing PENDING, so the
+            // slot re-fire is cancelled.
+            await window.apiCall('/api/medications/confirm-schedule', 'POST', { scheduled_at: slotIso, medication_ids: [1, 2] });
+            const slotUnix = Math.floor(Date.parse(slotIso) / 1000);
+            expect(fetchMock).toHaveBeenCalledWith('/api/telegram/cancel-refire', expect.objectContaining({
+                method: 'POST',
+                body: JSON.stringify({ callback: `s:${slotUnix}` })
+            }));
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
+    it('confirm-schedule by intake_id only (no scheduled_at) sends no cancel-refire POST', async () => {
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [seedMedication({ recordId: 1, inventory_count: 5 })],
+                intake: [seedIntake({ recordId: 'intake-1', medication_id: 1 })]
+            }
+        });
+        const { window } = env;
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+        globalThis.fetch = fetchMock;
+        try {
+            await window.apiCall('/api/medications/confirm-schedule', 'POST', { intake_ids: ['intake-1'] });
+            expect(fetchMock).not.toHaveBeenCalledWith('/api/telegram/cancel-refire', expect.anything());
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
     it('skip flips PENDING to SKIPPED without touching inventory', async () => {
         env = loadCloudShimFrontendEnv({
             seedRecords: {
@@ -241,10 +322,13 @@ describe('cloud shim contract — reminder horizon recompute-and-upload (web/dom
         expect(pushSchedule).not.toHaveBeenCalled();
     });
 
-    it('confirming the only pending intake shrinks the uploaded schedule on the next debounced push', async () => {
+    it('a mutating med route re-emits a debounced push carrying only the forward slot fire, never a client re-reminder (med-eas.74)', async () => {
+        // Re-reminders moved server-side to the relay, so the client-uploaded
+        // schedule for a still-PENDING dose 2h ago must contain the forward
+        // primary slot fire but NO hourly "REMINDER" nag entries.
         env = loadCloudShimFrontendEnv({
             seedRecords: {
-                medication: [seedMedication({ inventory_count: 5 })],
+                medication: [seedMedication({ recordId: 1, schedule: '08:00', inventory_count: 5 })],
                 intake: [seedIntake({
                     recordId: 'intake-1', medication_id: 1, scheduled_at: new Date(Date.now() - 2 * HOUR_MS).toISOString()
                 })]
@@ -258,14 +342,14 @@ describe('cloud shim contract — reminder horizon recompute-and-upload (web/dom
         await window.apiCall('/api/medication/reminder/toggle', 'POST', { enabled: true });
         await vi.advanceTimersByTimeAsync(2100);
         expect(pushSchedule).toHaveBeenCalledTimes(1);
-        const beforeEntries = pushSchedule.mock.calls[0][1];
-        expect(beforeEntries.length).toBeGreaterThan(0);
+        const entries = pushSchedule.mock.calls[0][1];
+        expect(entries.some((e) => e.kind === 'medication')).toBe(true);
+        expect(entries.filter((e) => e.text.includes('REMINDER'))).toHaveLength(0);
 
+        // Confirming still re-runs the debounced push (mutations recompute).
         await window.apiCall('/api/medications/confirm-schedule', 'POST', { intake_ids: ['intake-1'] });
         await vi.advanceTimersByTimeAsync(2100);
         expect(pushSchedule).toHaveBeenCalledTimes(2);
-        const afterEntries = pushSchedule.mock.calls[1][1];
-
-        expect(afterEntries.length).toBeLessThan(beforeEntries.length);
+        expect(pushSchedule.mock.calls[1][1].filter((e) => e.text.includes('REMINDER'))).toHaveLength(0);
     });
 });

@@ -319,6 +319,7 @@ func (t *TelegramAPI) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/telegram/reset", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Reset)))
 	mux.Handle("POST /api/telegram/test", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Test)))
 	mux.Handle("POST /api/telegram/reply-edit", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.EditReply)))
+	mux.Handle("POST /api/telegram/cancel-refire", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.CancelRefire)))
 	mux.Handle("GET /api/telegram/photo", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.GetPhoto)))
 	mux.Handle("DELETE /api/telegram", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Delete)))
 }
@@ -1307,6 +1308,40 @@ func (t *TelegramAPI) EditReply(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// cancelRefireRequest is the app-confirm cancel body: a med slot stem
+// "s:<slotUnix>". The client sends it when a dose is confirmed/snoozed in the
+// PWA (no Telegram tap), so the relay-owned re-fire chain stops for that slot.
+type cancelRefireRequest struct {
+	Callback string `json:"callback"`
+}
+
+// CancelRefire drops the relay-owned re-fire chain for a med slot the client
+// confirmed/snoozed in the app. The prefix guard means a session can only cancel
+// its own med "s:<slot>" re-fires, never an arbitrary callback. Best-effort from
+// the client's side; here it validates, cancels, and returns 204.
+func (t *TelegramAPI) CancelRefire(w http.ResponseWriter, r *http.Request) {
+	sess, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req cancelRefireRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<12)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	if !strings.HasPrefix(req.Callback, tgclient.CallbackSlotPrefix) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_callback"})
+		return
+	}
+	if _, err := t.store.CancelRelayRefire(r.Context(), sess.AccountID, req.Callback); err != nil {
+		slog.Error("telegram cancel refire", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // maxPhotoProxyBytes caps what the photo proxy streams, matching the client's
 // 8 MB image ceiling (web/cloud/js/aiclient.js). Telegram photos are far smaller;
 // this only bounds a misbehaving upstream.
@@ -1665,17 +1700,75 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 		slog.Error("telegram callback: seal and queue", "error", err, "ref", ref)
 		answer(callbackAckUnknown)
 	case action == tgclient.CallbackActionSnooze:
+		// Schedule a relay-owned Telegram re-fire ~1h out so the reminder re-arrives
+		// even if the PWA never reopens (mirrors the workout snooze path). The stem
+		// "s:<slotUnix>" is the tapped callback minus its ":<action>" suffix; the
+		// re-fire only COPIES already-cleartext fields, never reading `ct`. Cancel +
+		// insert supersede any pending re-fire so a re-snooze reschedules instead of
+		// stacking. Log-and-swallow: a failed reschedule never fails the 200.
+		stem := strings.TrimSuffix(cq.Data, ":"+action)
+		refireText := medRefireText
+		if cq.Message != nil && cq.Message.Text != "" {
+			refireText = cq.Message.Text
+		}
+		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem); err != nil {
+			slog.Error("telegram callback: reschedule med relay refire", "error", err, "ref", ref)
+		}
+		t.editMedCallbackMessage(r.Context(), bot, ref, messageID, medSnoozeEditText)
 		answer(callbackAckSnooze)
 	default:
+		// A Confirm stops the relay-owned re-fire chain for this slot (mirrors the
+		// workout Skip path). The stem "s:<slotUnix>" is the tapped callback minus
+		// its ":confirm" suffix. Log-and-swallow: a failed cancel never fails the 200.
+		stem := strings.TrimSuffix(cq.Data, ":"+action)
+		if _, err := t.store.CancelRelayRefire(r.Context(), ref, stem); err != nil {
+			slog.Error("telegram callback: cancel med relay refire", "error", err, "ref", ref)
+		}
+		t.editMedCallbackMessage(r.Context(), bot, ref, messageID, medConfirmEditText)
 		answer(callbackAckConfirm)
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// editMedCallbackMessage rewrites a tapped med reminder into static text and
+// drops its buttons the instant the tap lands, so the user can't re-tap while
+// the client's drain-time EditReply is still pending. Best-effort: a 0
+// messageID (Telegram omitted an old cq.Message) or a failed edit only logs; the
+// seal + toast already acked the tap and the client drain still finalizes the
+// real receipt. ZERO-KNOWLEDGE: text is a caller-supplied static const only.
+func (t *TelegramAPI) editMedCallbackMessage(ctx context.Context, bot *cloudstore.TGBot, ref string, messageID int64, text string) {
+	if messageID == 0 || bot.ChatID == nil {
+		return
+	}
+	client, err := t.botClient(bot)
+	if err != nil {
+		slog.Error("telegram callback: open token for edit", "error", err, "ref", ref)
+		return
+	}
+	if err := client.EditMessageTextClearMarkup(ctx, *bot.ChatID, messageID, text); err != nil && !tgclient.IsMessageNotModified(err) {
+		slog.Warn("telegram callback: edit message failed", "error", err, "ref", ref)
+	}
 }
 
 // workoutRefireText is the generic re-fire body used when Telegram omits the
 // original message (too old to edit), so the copy path never has to read vault
 // data to reconstruct it.
 const workoutRefireText = "Workout reminder"
+
+// medRefireText is the generic re-fire body used when Telegram omits the
+// original message (too old to edit/copy), so the relay never reads vault data
+// to reconstruct a med reminder body.
+const medRefireText = "Medication reminder"
+
+// Static, server-composed message bodies written the instant a med Confirm/
+// Snooze button is tapped. They replace the original message text and clear its
+// buttons so the user can't re-tap while the client's drain-time EditReply is
+// still pending. ZERO-KNOWLEDGE: templated only — never a medication name or any
+// vault value.
+const (
+	medConfirmEditText = "✅ Confirmed — waiting for your device to come online to record it."
+	medSnoozeEditText  = "⏰ Snoozed 1h — I'll remind you again."
+)
 
 // handleWorkoutCallback applies a workout Snooze/Skip tap ("w:" namespace,
 // med-eas.70). Like the med path it seals a session-reconciliation event to the

@@ -5,16 +5,23 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/SherClockHolmes/webpush-go"
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
+	"github.com/korjavin/medicationtrackerbot/internal/tgclient"
 )
 
 // relaySendTimeout bounds a single subscription's push-service round trip so
 // one slow endpoint can't stall an entire tick.
 const relaySendTimeout = 10 * time.Second
+
+// maxMedRefireWindow caps how long past a dose slot the relay keeps re-firing an
+// unconfirmed med reminder. Derived from the slot instant carried in the "s:"
+// callback (no counter): once now - slot exceeds this, the relay stops chaining.
+const maxMedRefireWindow = 6 * time.Hour
 
 // Task 7's stale-sync sweep cadence and thresholds. The warning fires at most
 // once a day per account (warnCooldown) once the account's scheduled-push
@@ -112,6 +119,7 @@ type relayStore interface {
 	AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, staleAfter, warnCooldown time.Duration) ([]string, error)
 	MarkStaleSyncWarned(ctx context.Context, accountID string, now time.Time) error
 	AccountVAPIDKeysByID(ctx context.Context, accountID string) (cloudstore.AccountVAPIDKeys, error)
+	RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback string) error
 }
 
 // Relay is the blind push-firing loop: it never decrypts or composes a
@@ -244,6 +252,33 @@ func (rl *Relay) sendTelegram(ctx context.Context, p cloudstore.ScheduledPush) {
 	}
 	if err := rl.tg.SendReminder(ctx, p.AccountID, p.TGText, p.TGCallback); err != nil {
 		slog.Error("push relay: telegram send", "accountID", p.AccountID, "error", err)
+		return
+	}
+	rl.scheduleMedRefire(ctx, p)
+}
+
+// scheduleMedRefire chains the next re-fire of an unconfirmed med reminder. When
+// a med send ("s:<slotUnix>" callback, not a workout "w:" one) succeeds and the
+// dose slot is still within maxMedRefireWindow, it schedules the next re-fire at
+// now+1h; a Confirm/Snooze tap (which cancels/reschedules the same callback key)
+// or crossing the window ends the chain. Both the primary send and each
+// relay_refire flow through here, so the hourly nag perpetuates without a
+// counter. Zero-knowledge: it copies only the already-cleartext tg_text/callback.
+func (rl *Relay) scheduleMedRefire(ctx context.Context, p cloudstore.ScheduledPush) {
+	rest, ok := strings.CutPrefix(p.TGCallback, tgclient.CallbackSlotPrefix)
+	if !ok {
+		return // not a med dose reminder (e.g. a workout re-fire owns its own chain)
+	}
+	slotUnix, err := strconv.ParseInt(rest, 10, 64)
+	if err != nil {
+		return // malformed stem — never render a nag we can't reason about
+	}
+	now := time.Now().UTC()
+	if now.Sub(time.Unix(slotUnix, 0).UTC()) > maxMedRefireWindow {
+		return // past the cap: stop nagging
+	}
+	if err := rl.store.RescheduleRelayRefire(ctx, p.AccountID, now.Add(time.Hour), p.TGText, p.TGCallback); err != nil {
+		slog.Error("push relay: schedule med refire", "accountID", p.AccountID, "error", err)
 	}
 }
 

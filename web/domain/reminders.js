@@ -32,13 +32,6 @@ export const VERBOSITIES = ['detailed', 'generic'];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FORECAST_DAYS = 7;
-const REREMIND_GRACE_MS = 60 * 60 * 1000; // first re-remind fires 1h past schedule
-const REREMIND_INTERVAL_MS = 60 * 60 * 1000; // then hourly, matching medication_reminder.go
-// ponytail: bounded per-intake re-remind chain (24h @ hourly) instead of an
-// indefinite one — an open device re-runs this on every mutation anyway, and
-// a closed device "self-heals" the rest of the chain on its next unlock (see
-// the plan's Technical Details, "Reminder fidelity limits").
-const MAX_REREMINDS_PER_INTAKE = 24;
 // ponytail: hard cap far under the relay's 2000-entry/4KB limit; unrealistic
 // to hit with real schedules, guards a pathological edge case only.
 const MAX_HORIZON_ENTRIES = 500;
@@ -86,7 +79,6 @@ function mutedUntil(status) {
 // medication names leaving the vault picks `generic` verbosity and we send
 // these instead (see docs/cloud-mode.md, bd med-76c.1).
 const GENERIC_DOSE_TEXT = '\u{1F48A} Medication time';
-const GENERIC_REREMIND_TEXT = '\u{1F514} You have an unconfirmed medication';
 const GENERIC_BP_TEXT = '\u{1F4CA} Time for a scheduled measurement';
 const GENERIC_WEIGHT_TEXT = '\u{2696}\u{FE0F} Time for a scheduled measurement';
 const GENERIC_LOW_STOCK_TEXT = '\u{26A0}\u{FE0F} Some medications are running low';
@@ -338,29 +330,14 @@ export function computeReminderHorizon({
     entries.push({ fireAtUnix: slotUnix, kind: 'medication', text: doseSlotText(slot.names), genericText: GENERIC_DOSE_TEXT, callback: `s:${slotUnix}`, medicationIds: slot.medicationIds });
   }
 
-  // Ported from medication_reminder.go's Check: re-remind a still-PENDING
-  // intake starting 1h past schedule (or at snooze expiry if later), then
-  // hourly, up to MAX_REREMINDS_PER_INTAKE.
-  for (const intake of intakes) {
-    if (intake.deleted || intake.status !== 'PENDING') continue;
-    const med = medById.get(intake.medication_id);
-    if (!med) continue;
-    const scheduledMs = Date.parse(intake.scheduled_at);
-    const snoozedUntilMs = intake.snoozed_until ? Date.parse(intake.snoozed_until) : null;
-    let fireMs = snoozedUntilMs !== null ? snoozedUntilMs : scheduledMs + REREMIND_GRACE_MS;
-    if (fireMs < now) fireMs = now;
-    const text = `\u{1F514} REMINDER: You haven't confirmed taking ${medDisplayName(med)} yet on ${formatHHMM(scheduledMs, timeZone)}!`;
-    // A re-reminder nags about one med, but its buttons act on the dose slot it
-    // was scheduled in — same stem as the original reminder, so confirming from
-    // either message converges on the same intakes.
-    const callback = `s:${Math.floor(scheduledMs / 1000)}`;
-    // A re-reminder nags about exactly one med, so its slot map is that single id.
-    const medicationIds = [intake.medication_id];
-    for (let i = 0; i < MAX_REREMINDS_PER_INTAKE; i++) {
-      entries.push({ fireAtUnix: Math.floor(fireMs / 1000), kind: 'medication', text, genericText: GENERIC_REREMIND_TEXT, callback, medicationIds });
-      fireMs += REREMIND_INTERVAL_MS;
-    }
-  }
+  // Re-reminders for still-PENDING doses are no longer client-pre-computed. For
+  // Telegram delivery the relay owns them server-side (med-eas.74): a med send
+  // schedules the next hourly re-fire until ~6h past the slot, so an unconfirmed
+  // dose keeps nagging even when the PWA never reopens, and a Confirm/Snooze tap
+  // supersedes the chain. Web-push-only delivery has no server-side re-fire —
+  // it gets the primary per-slot fire only (the old client loop, which the app
+  // rarely rebuilt in practice, is gone). The primary per-slot fire above is all
+  // the client emits.
 
   // BP reminders logic
   const bpMutedUntil = mutedUntil(bpStatus);

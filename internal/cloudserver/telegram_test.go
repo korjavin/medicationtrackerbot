@@ -1138,6 +1138,195 @@ func TestChildWebhook_CallbackQueryWithoutMessage(t *testing.T) {
 	if got.SlotUnix != 1767225600 || got.Action != tgclient.CallbackActionConfirm {
 		t.Errorf("sealed event = %+v", got)
 	}
+	// messageID 0 → no immediate message edit (there is no message to rewrite),
+	// but the event is still sealed and the tap answered.
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.edits) != 0 {
+		t.Errorf("editMessageText calls = %d, want 0 when cq.Message absent: %v", len(tg.mu.edits), tg.mu.edits)
+	}
+	if len(tg.mu.answered) != 1 {
+		t.Errorf("answered %d taps, want 1 (toast-only fallback)", len(tg.mu.answered))
+	}
+}
+
+// A med Confirm tap must IMMEDIATELY rewrite the message into static server text
+// and drop its buttons, so the user can't re-tap while the client's drain-time
+// EditReply is still pending. Zero-knowledge: the new text is a fixed const, not
+// a medication name.
+func TestChildWebhook_MedConfirmEditsMessageAndClearsButtons(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:confirm", 12345))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.edits) != 1 {
+		t.Fatalf("editMessageText calls = %d, want 1: %v", len(tg.mu.edits), tg.mu.edits)
+	}
+	edit := tg.mu.edits[0]
+	if !strings.Contains(edit, medConfirmEditText) {
+		t.Errorf("edit body %q, want confirmed text %q", edit, medConfirmEditText)
+	}
+	// Buttons are dropped via an empty inline_keyboard.
+	if !strings.Contains(edit, `"inline_keyboard":[]`) {
+		t.Errorf("edit body %q, want empty inline_keyboard to drop buttons", edit)
+	}
+}
+
+// A med Snooze tap rewrites the message into the snoozed text (and drops
+// buttons) — same immediate-rewrite guarantee as Confirm.
+func TestChildWebhook_MedSnoozeEditsMessageWithSnoozedText(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:snooze", 12345))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.edits) != 1 {
+		t.Fatalf("editMessageText calls = %d, want 1: %v", len(tg.mu.edits), tg.mu.edits)
+	}
+	if !strings.Contains(tg.mu.edits[0], medSnoozeEditText) {
+		t.Errorf("edit body %q, want snoozed text %q", tg.mu.edits[0], medSnoozeEditText)
+	}
+}
+
+// A med Snooze tap schedules a relay-owned re-fire ~1h out for the tapped slot,
+// re-using the same "s:<slot>" stem, so the reminder re-arrives even if the PWA
+// never reopens. A re-snooze reschedules (cancel+insert) rather than stacking a
+// second row. The re-fire carries no ciphertext (the relay stays blind).
+func TestChildWebhook_MedSnoozeSchedulesRelayRefire(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	before := time.Now().UTC()
+	rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:snooze", 12345))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	// Look ahead 3h so the ~1h re-fire is due.
+	due, err := f.store.DueScheduledPushes(t.Context(), before.Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("scheduled %d re-fires, want 1", len(due))
+	}
+	rf := due[0]
+	if rf.TGCallback != "s:1767225600" {
+		t.Errorf("re-fire callback = %q, want the med slot stem", rf.TGCallback)
+	}
+	if rf.TGText != medRefireText {
+		t.Errorf("re-fire text = %q, want the generic fallback %q (no message text present)", rf.TGText, medRefireText)
+	}
+	if rf.Delivery != cloudstore.DeliveryTelegram {
+		t.Errorf("re-fire delivery = %q, want telegram", rf.Delivery)
+	}
+	if len(rf.CT) != 0 {
+		t.Errorf("re-fire must carry no ciphertext (relay stays blind), got %d bytes", len(rf.CT))
+	}
+	if d := rf.FireAt.Sub(before); d < 55*time.Minute || d > 65*time.Minute {
+		t.Errorf("re-fire fires in %v, want ~1h", d)
+	}
+
+	// A second snooze reschedules the same stem instead of stacking a duplicate.
+	if rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:snooze", 12345)); rec.Code != http.StatusOK {
+		t.Fatalf("re-snooze status = %d", rec.Code)
+	}
+	due, err = f.store.DueScheduledPushes(t.Context(), before.Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes after re-snooze: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("after re-snooze scheduled %d re-fires, want 1 (reschedule, not stack)", len(due))
+	}
+}
+
+// med-eas.74: a med Confirm tap stops the relay-owned re-fire chain for the slot
+// (mirrors the workout Skip path), so an unconfirmed-then-confirmed dose is not
+// nagged again.
+func TestChildWebhook_MedConfirmCancelsRelayRefire(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	// A prior snooze/primary send left a pending re-fire for this slot.
+	if err := f.store.InsertRelayRefire(t.Context(), f.accountID, time.Now().Add(time.Hour), "Medication reminder", "s:1767225600"); err != nil {
+		t.Fatalf("InsertRelayRefire: %v", err)
+	}
+
+	rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:confirm", 12345))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	due, err := f.store.DueScheduledPushes(t.Context(), time.Now().Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("confirm left %d pending re-fires, want 0", len(due))
+	}
+}
+
+// The cancel-refire endpoint lets an app-confirmed dose (no Telegram tap) drop
+// the relay's re-fire chain. It accepts only med "s:<slot>" callbacks so a client
+// can never cancel an arbitrary re-fire, and is session-authed.
+func TestCancelRefire(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", "", "", 14*24*time.Hour)
+	apiMux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(apiMux)
+	tgAPI.RegisterAPIRoutes(apiMux)
+	router := New("localhost", store, testFS(), testAppFS(), testDomainFS(), apiMux, "", false, false)
+
+	session := registerAndGetSession(t, router, host, claimToken)
+
+	if err := store.InsertRelayRefire(t.Context(), account.ID, time.Now().Add(time.Hour), "Medication reminder", "s:1767225600"); err != nil {
+		t.Fatalf("InsertRelayRefire: %v", err)
+	}
+
+	// A valid "s:" cancel returns 204 and drops the pending re-fire.
+	rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/cancel-refire", host, session, []byte(`{"callback":"s:1767225600"}`))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("cancel status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	due, err := store.DueScheduledPushes(t.Context(), time.Now().Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("cancel left %d pending re-fires, want 0", len(due))
+	}
+
+	// A non-"s:" callback (e.g. a workout stem) or malformed body is rejected.
+	for _, bad := range []string{`{"callback":"w:6:20260720"}`, `{"callback":"nonsense"}`, `{"callback":""}`, `not json`} {
+		r := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/cancel-refire", host, session, []byte(bad))
+		if r.Code != http.StatusBadRequest {
+			t.Errorf("cancel %q = %d, want 400", bad, r.Code)
+		}
+	}
+
+	// Unauthenticated.
+	if r := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/cancel-refire", host, nil, []byte(`{"callback":"s:1"}`)); r.Code != http.StatusUnauthorized {
+		t.Errorf("unauthenticated cancel = %d, want 401", r.Code)
+	}
 }
 
 // The zero-knowledge invariant. An account that never unlocked a client has no

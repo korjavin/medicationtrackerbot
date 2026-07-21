@@ -140,6 +140,26 @@ export function scheduleReminderRecompute(ctx, opts = {}, debounceMs = DEBOUNCE_
   timers.set(key, timer);
 }
 
+// cancelMedRefire tells the relay to drop its server-owned re-fire chain for a
+// med dose slot the user just confirmed IN THE APP. A PWA confirm produces no
+// Telegram tap, so the relay would otherwise keep nagging hourly (med-eas.74).
+// Fire-and-forget: the vault write is already durable and a missed cancel only
+// costs one stray Telegram nag; a deployment without Telegram just 404s here,
+// harmlessly. slotMs is the dose slot instant (scheduled_at) in ms; the relay
+// keys re-fires by the "s:<slotUnix>" callback stem.
+// ponytail: only the app Confirm path cancels — an in-app snooze leaves the
+// chain alive (one extra hourly nag until the next slot), not worth resolving
+// the snoozed intake's slot for.
+export function cancelMedRefire(slotMs, { fetchImpl = fetch } = {}) {
+  const slotUnix = Math.floor(slotMs / 1000);
+  if (!Number.isFinite(slotUnix) || slotUnix <= 0) return;
+  fetchImpl('/api/telegram/cancel-refire', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ callback: `s:${slotUnix}` }),
+  }).catch((e) => console.warn('[reminders] cancel med refire failed', e));
+}
+
 // Drops a pending debounced recompute for `ctx` without running it. A live page
 // never needs this — the timer is short and a reload kills it — but anything
 // that tears an account context down while a write is still settling does: the

@@ -421,6 +421,33 @@ func TestSendMessageWithButtonsOmitsMarkupWhenEmpty(t *testing.T) {
 	}
 }
 
+// EditMessageTextClearMarkup must send an EMPTY inline_keyboard so Telegram
+// drops the message's buttons (unlike EditMessageText, which omits reply_markup
+// and so leaves existing buttons live).
+func TestEditMessageTextClearMarkupDropsButtons(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+
+	c := New("123:ABC", srv.URL)
+	if err := c.EditMessageTextClearMarkup(context.Background(), 42, 9, "✅ Confirmed"); err != nil {
+		t.Fatalf("EditMessageTextClearMarkup: %v", err)
+	}
+	if f.lastMethod != "editMessageText" {
+		t.Fatalf("called %q, want editMessageText", f.lastMethod)
+	}
+	if f.lastBody["text"] != "✅ Confirmed" {
+		t.Errorf("text = %#v, want the static receipt", f.lastBody["text"])
+	}
+	markup, ok := f.lastBody["reply_markup"].(map[string]any)
+	if !ok {
+		t.Fatalf("reply_markup missing: %#v", f.lastBody)
+	}
+	rows, ok := markup["inline_keyboard"].([]any)
+	if !ok || len(rows) != 0 {
+		t.Errorf("inline_keyboard = %#v, want an empty array to drop buttons", markup["inline_keyboard"])
+	}
+}
+
 func TestAnswerCallbackQueryPayloadShape(t *testing.T) {
 	f, srv := newFake(t)
 	defer srv.Close()

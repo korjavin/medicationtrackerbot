@@ -363,6 +363,21 @@ func (c *Client) EditMessageText(ctx context.Context, chatID, messageID int64, t
 	}, nil)
 }
 
+// EditMessageTextClearMarkup rewrites a message's text AND drops its inline
+// keyboard in one editMessageText call (an empty inline_keyboard removes the
+// buttons). Used the instant a Confirm/Snooze button is tapped so the message
+// can't be re-tapped before the client's drain-time EditReply finalizes it.
+// Separate from EditMessageText, which omits reply_markup and so LEAVES existing
+// buttons in place (EditReply relies on that).
+func (c *Client) EditMessageTextClearMarkup(ctx context.Context, chatID, messageID int64, text string) error {
+	return c.call(ctx, "editMessageText", map[string]any{
+		"chat_id":      chatID,
+		"message_id":   messageID,
+		"text":         text,
+		"reply_markup": map[string]any{"inline_keyboard": [][]InlineKeyboardButton{}},
+	}, nil)
+}
+
 // IsMessageNotModified reports whether err is Telegram's benign "you asked me
 // to edit a message into exactly what it already says" response.
 func IsMessageNotModified(err error) bool {

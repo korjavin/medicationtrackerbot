@@ -18,7 +18,7 @@ import { createGamificationDomain } from '../../domain/gamification.js';
 import { createAnalysis } from '../../domain/analysis.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
 import { recordsPort, ORIGIN_UI, ORIGIN_EXTERNAL } from './sync.js';
-import { scheduleReminderRecompute, sendTestPush } from './reminders.js';
+import { scheduleReminderRecompute, sendTestPush, cancelMedRefire } from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
@@ -452,6 +452,20 @@ export function createApiRouter(ctx, {
       const action = intakeActions[path];
       if (action) {
         const res = await action();
+        // A dose confirmed in the app never taps Telegram, so tell the relay to
+        // stop its server-owned re-fire chain for that slot (med-eas.74). Only
+        // cancel once NOTHING is left due for the slot — a partial confirm (a
+        // subset of the meds sharing a slot) must not silence the slot-wide
+        // re-fire for meds still PENDING at the same instant.
+        if (path === '/api/medications/confirm-schedule' && body && body.scheduled_at) {
+          const slotMs = Date.parse(body.scheduled_at);
+          const slotRows = Number.isFinite(slotMs)
+            ? await intake.listWindow({ fromMs: slotMs, toMs: slotMs })
+            : [];
+          if (!slotRows.some((row) => row.status === 'PENDING')) {
+            cancelMedRefire(slotMs);
+          }
+        }
         scheduleReminderRecompute(ctx, { records, timeZone });
         return res;
       }
