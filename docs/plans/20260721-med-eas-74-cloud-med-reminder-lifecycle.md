@@ -49,10 +49,10 @@ Three problems fixed:
 - [x] Run `go test ./internal/cloudserver/... ./internal/tgclient/...` — must pass before Task 2.
 
 ### Task 2: Server-side snooze re-fire for med reminders (.2)
-- [ ] In the med **Snooze** branch of `handleCallbackQuery`, mirror the workout snooze (~1748): `refireText := medRefireText` (new generic fallback const near `workoutRefireText`), override with `cq.Message.Text` when present; then `t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem)` where `stem == "s:<slotUnix>"`. Log-and-swallow errors (never fail the 200).
-- [ ] Confirm this survives `ReplaceSchedule` (origin=relay_refire) and is zero-knowledge (copies cleartext push fields only).
-- [ ] Add a test: med Snooze tap inserts exactly one pending `relay_refire` row for the `"s:<slot>"` stem at ~now+1h; a re-snooze reschedules (cancel+insert, no stacking).
-- [ ] Run `go test ./internal/cloudserver/...` — must pass before Task 3.
+- [x] In the med **Snooze** branch of `handleCallbackQuery`, mirror the workout snooze (~1748): `refireText := medRefireText` (new generic fallback const near `workoutRefireText`), override with `cq.Message.Text` when present; then `t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem)` where `stem == "s:<slotUnix>"`. Log-and-swallow errors (never fail the 200).
+- [x] Confirm this survives `ReplaceSchedule` (origin=relay_refire) and is zero-knowledge (copies cleartext push fields only).
+- [x] Add a test: med Snooze tap inserts exactly one pending `relay_refire` row for the `"s:<slot>"` stem at ~now+1h; a re-snooze reschedules (cancel+insert, no stacking).
+- [x] Run `go test ./internal/cloudserver/...` — must pass before Task 3.
 
 ### Task 3: Relay owns re-reminders; cancel on Confirm (TG + app); retire client loop (.3)
 - [ ] **3a** `internal/cloudserver/relay.go` `sendTelegram`: after a successful med send, when `strings.HasPrefix(p.TGCallback, tgclient.CallbackSlotPrefix)` (`"s:"`) and it is NOT a workout callback, parse `slotUnix` by trimming the `"s:"` prefix (NOT `ParseCallbackData` — the stem has no `:action`; guard a parse error). If `now.Unix() - slotUnix <= maxRemindWindowSeconds` (~6h const) schedule the next re-fire at `now+1h` via `rl.store.RescheduleRelayRefire(ctx, p.AccountID, now.Add(time.Hour), p.TGText, p.TGCallback)`, else stop (no counter — derived from the slot instant in the callback). Each fired send (primary OR relay_refire) perpetuates the chain until the cap.

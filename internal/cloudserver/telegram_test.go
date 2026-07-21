@@ -1201,6 +1201,59 @@ func TestChildWebhook_MedSnoozeEditsMessageWithSnoozedText(t *testing.T) {
 	}
 }
 
+// A med Snooze tap schedules a relay-owned re-fire ~1h out for the tapped slot,
+// re-using the same "s:<slot>" stem, so the reminder re-arrives even if the PWA
+// never reopens. A re-snooze reschedules (cancel+insert) rather than stacking a
+// second row. The re-fire carries no ciphertext (the relay stays blind).
+func TestChildWebhook_MedSnoozeSchedulesRelayRefire(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	before := time.Now().UTC()
+	rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:snooze", 12345))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	// Look ahead 3h so the ~1h re-fire is due.
+	due, err := f.store.DueScheduledPushes(t.Context(), before.Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("scheduled %d re-fires, want 1", len(due))
+	}
+	rf := due[0]
+	if rf.TGCallback != "s:1767225600" {
+		t.Errorf("re-fire callback = %q, want the med slot stem", rf.TGCallback)
+	}
+	if rf.TGText != medRefireText {
+		t.Errorf("re-fire text = %q, want the generic fallback %q (no message text present)", rf.TGText, medRefireText)
+	}
+	if rf.Delivery != cloudstore.DeliveryTelegram {
+		t.Errorf("re-fire delivery = %q, want telegram", rf.Delivery)
+	}
+	if len(rf.CT) != 0 {
+		t.Errorf("re-fire must carry no ciphertext (relay stays blind), got %d bytes", len(rf.CT))
+	}
+	if d := rf.FireAt.Sub(before); d < 55*time.Minute || d > 65*time.Minute {
+		t.Errorf("re-fire fires in %v, want ~1h", d)
+	}
+
+	// A second snooze reschedules the same stem instead of stacking a duplicate.
+	if rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:snooze", 12345)); rec.Code != http.StatusOK {
+		t.Fatalf("re-snooze status = %d", rec.Code)
+	}
+	due, err = f.store.DueScheduledPushes(t.Context(), before.Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes after re-snooze: %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("after re-snooze scheduled %d re-fires, want 1 (reschedule, not stack)", len(due))
+	}
+}
+
 // The zero-knowledge invariant. An account that never unlocked a client has no
 // inbox key, so there is nothing to seal to. The tap is DROPPED — never written
 // readable — and the user is told to open the app.

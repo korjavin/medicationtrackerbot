@@ -1665,6 +1665,20 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 		slog.Error("telegram callback: seal and queue", "error", err, "ref", ref)
 		answer(callbackAckUnknown)
 	case action == tgclient.CallbackActionSnooze:
+		// Schedule a relay-owned Telegram re-fire ~1h out so the reminder re-arrives
+		// even if the PWA never reopens (mirrors the workout snooze path). The stem
+		// "s:<slotUnix>" is the tapped callback minus its ":<action>" suffix; the
+		// re-fire only COPIES already-cleartext fields, never reading `ct`. Cancel +
+		// insert supersede any pending re-fire so a re-snooze reschedules instead of
+		// stacking. Log-and-swallow: a failed reschedule never fails the 200.
+		stem := strings.TrimSuffix(cq.Data, ":"+action)
+		refireText := medRefireText
+		if cq.Message != nil && cq.Message.Text != "" {
+			refireText = cq.Message.Text
+		}
+		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem); err != nil {
+			slog.Error("telegram callback: reschedule med relay refire", "error", err, "ref", ref)
+		}
 		t.editMedCallbackMessage(r.Context(), bot, ref, messageID, medSnoozeEditText)
 		answer(callbackAckSnooze)
 	default:
@@ -1698,6 +1712,11 @@ func (t *TelegramAPI) editMedCallbackMessage(ctx context.Context, bot *cloudstor
 // original message (too old to edit), so the copy path never has to read vault
 // data to reconstruct it.
 const workoutRefireText = "Workout reminder"
+
+// medRefireText is the generic re-fire body used when Telegram omits the
+// original message (too old to edit/copy), so the relay never reads vault data
+// to reconstruct a med reminder body.
+const medRefireText = "Medication reminder"
 
 // Static, server-composed message bodies written the instant a med Confirm/
 // Snooze button is tapped. They replace the original message text and clear its
