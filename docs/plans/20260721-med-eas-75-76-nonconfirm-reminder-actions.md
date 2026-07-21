@@ -129,12 +129,12 @@ Files/components involved (with the exact seams):
 ## Implementation Steps
 
 ### Task 1: tgclient — URL button field + bp/wt callback namespace
-- [ ] add `URL string \`json:"url,omitempty"\`` to `InlineKeyboardButton` (`tgclient.go:412-415`); a button is EXACTLY one of url / callback_data
-- [ ] add measure callback prefixes `CallbackBPPrefix="bp:"` and `CallbackWeightPrefix="wt:"` (near `:454/:462`); reuse existing actions `snooze1h`, `skip`
-- [ ] add `IsMeasureCallback(data)` (HasPrefix bp:/wt:) and `ParseMeasureCallback(data) (kind, slotUnix, action, ok)` mirroring `ParseCallbackData` (`:568-585`); whitelist actions snooze1h/skip; do NOT cross-parse s:/w:
-- [ ] extend `ValidCallbackStem` (`:481-500`) to accept bp:/wt: stems (respect 40-byte cap) so `SendReminder` does not strip the buttons
-- [ ] write tests in `internal/tgclient/tgclient_test.go`: URL button JSON marshals `url` (and omits `callback_data`); `ParseMeasureCallback` success + reject (bad action, w:/s: not cross-parsed); `ValidCallbackStem` accepts bp:/wt:, rejects oversize
-- [ ] run `go test ./internal/tgclient/...` — must pass before Task 2
+- [x] add `URL string \`json:"url,omitempty"\`` to `InlineKeyboardButton` (`tgclient.go:412-415`); a button is EXACTLY one of url / callback_data
+- [x] add measure callback prefixes `CallbackBPPrefix="bp:"` and `CallbackWeightPrefix="wt:"` (near `:454/:462`); reuse existing actions `snooze1h`, `skip`
+- [x] add `IsMeasureCallback(data)` (HasPrefix bp:/wt:) and `ParseMeasureCallback(data) (kind, slotUnix, action, ok)` mirroring `ParseCallbackData` (`:568-585`); whitelist actions snooze1h/skip; do NOT cross-parse s:/w:
+- [x] extend `ValidCallbackStem` (`:481-500`) to accept bp:/wt: stems (respect 40-byte cap) so `SendReminder` does not strip the buttons
+- [x] write tests in `internal/tgclient/tgclient_test.go`: URL button JSON marshals `url` (and omits `callback_data`); `ParseMeasureCallback` success + reject (bad action, w:/s: not cross-parsed); `ValidCallbackStem` accepts bp:/wt:, rejects oversize
+- [x] run `go test ./internal/tgclient/...` — must pass before Task 2
 
 ### Task 2: telegram.go — one measure handler + button sets + workout message-rewrite
 - [ ] rename `editMedCallbackMessage` → `editCallbackMessage` (`:1739-1751`) and update its 2 med call sites; it stays static-text generic (ZK)

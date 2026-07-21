@@ -407,11 +407,14 @@ func IsInvalidFileID(err error) bool {
 	return errors.As(err, &apiErr) && strings.Contains(strings.ToLower(apiErr.Description), "invalid file_id")
 }
 
-// InlineKeyboardButton is one tappable button. Only callback buttons are used —
-// a tap posts CallbackData back to the bot's webhook.
+// InlineKeyboardButton is one tappable button. A button is EXACTLY one of a
+// callback button (tap posts CallbackData back to the webhook) or a URL button
+// (tap opens URL) — Telegram rejects a button that sets both, hence omitempty on
+// each so only the populated field serializes.
 type InlineKeyboardButton struct {
 	Text         string `json:"text"`
-	CallbackData string `json:"callback_data"`
+	CallbackData string `json:"callback_data,omitempty"`
+	URL          string `json:"url,omitempty"`
 }
 
 // SendMessageWithButtons sends text plus a single row of inline buttons.
@@ -461,8 +464,20 @@ const CallbackSlotPrefix = "s:"
 // the clear.
 const CallbackWorkoutPrefix = "w:"
 
+// CallbackBPPrefix / CallbackWeightPrefix namespace the Snooze/Skip buttons on a
+// cloud BP or weight reminder. The full shape is "<bp:|wt:><slotUnix>:<action>",
+// where slotUnix is the reminder's fire instant — already this row's
+// fire_at_unix in the clear, so the relay learns nothing new. Unlike meds and
+// workouts these reminders have no per-instance id (BP/weight are ad-hoc
+// measurements), so the slot instant alone keys the deterministic action.
+const (
+	CallbackBPPrefix     = "bp:"
+	CallbackWeightPrefix = "wt:"
+)
+
 // Callback actions carried in the third field of callback_data. Confirm/Snooze
-// are meds (s:); Snooze1h/Snooze2h/Skip are workouts (w:).
+// are meds (s:); Snooze1h/Snooze2h/Skip are workouts (w:); Snooze1h/Skip are
+// measures (bp:/wt:).
 const (
 	CallbackActionConfirm  = "confirm"
 	CallbackActionSnooze   = "snooze"
@@ -491,10 +506,22 @@ func ValidCallbackStem(s string) bool {
 	if rest, found := strings.CutPrefix(s, CallbackWorkoutPrefix); found {
 		return validWorkoutStemRest(rest)
 	}
+	if rest, found := strings.CutPrefix(s, CallbackBPPrefix); found {
+		return validSlotRest(rest)
+	}
+	if rest, found := strings.CutPrefix(s, CallbackWeightPrefix); found {
+		return validSlotRest(rest)
+	}
 	rest, found := strings.CutPrefix(s, CallbackSlotPrefix)
 	if !found {
 		return false
 	}
+	return validSlotRest(rest)
+}
+
+// validSlotRest reports whether rest is a positive int64 slot instant — the
+// stem body shared by med (s:) and measure (bp:/wt:) callbacks.
+func validSlotRest(rest string) bool {
 	slot, err := strconv.ParseInt(rest, 10, 64)
 	return err == nil && slot > 0
 }
@@ -582,6 +609,41 @@ func ParseCallbackData(data string) (slotUnix int64, action string, ok bool) {
 		return 0, "", false
 	}
 	return slotUnix, action, true
+}
+
+// IsMeasureCallback reports whether data is in the BP ("bp:") or weight ("wt:")
+// namespace, so the handler can route it without cross-parsing s:/w:.
+func IsMeasureCallback(data string) bool {
+	return strings.HasPrefix(data, CallbackBPPrefix) || strings.HasPrefix(data, CallbackWeightPrefix)
+}
+
+// ParseMeasureCallback splits "<bp:|wt:><slotUnix>:<action>" into its parts.
+// kind is "bp" or "weight". ok is false for anything else — an unknown or
+// cross namespace (s:/w:), a bad action (only snooze1h/skip), a
+// non-numeric/non-positive slot. Does NOT read the s:/w: namespaces.
+func ParseMeasureCallback(data string) (kind string, slotUnix int64, action string, ok bool) {
+	var prefix string
+	switch {
+	case strings.HasPrefix(data, CallbackBPPrefix):
+		kind, prefix = "bp", CallbackBPPrefix
+	case strings.HasPrefix(data, CallbackWeightPrefix):
+		kind, prefix = "weight", CallbackWeightPrefix
+	default:
+		return "", 0, "", false
+	}
+	rest := strings.TrimPrefix(data, prefix)
+	slotStr, action, found := strings.Cut(rest, ":")
+	if !found {
+		return "", 0, "", false
+	}
+	if action != CallbackActionSnooze1h && action != CallbackActionSkip {
+		return "", 0, "", false
+	}
+	slotUnix, err := strconv.ParseInt(slotStr, 10, 64)
+	if err != nil || slotUnix <= 0 {
+		return "", 0, "", false
+	}
+	return kind, slotUnix, action, true
 }
 
 // CallbackQuery is an inline-button tap. Message is optional — Telegram omits it

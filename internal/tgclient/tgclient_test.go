@@ -598,3 +598,118 @@ func TestWorkoutStemRoundTripsAndFitsTelegramLimit(t *testing.T) {
 		}
 	}
 }
+
+// A URL button must serialize `url` and omit `callback_data` entirely — a
+// button carrying both is rejected by Telegram.
+func TestURLButtonMarshalsURLOnly(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+
+	c := New("123:ABC", srv.URL)
+	err := c.SendMessageWithButtons(context.Background(), 42, "BP reminder", []InlineKeyboardButton{
+		{Text: "🌐 Open", URL: "https://acme.example.com/?tab=bp"},
+		{Text: "⏰ Snooze 1h", CallbackData: "bp:1767225600:snooze1h"},
+	})
+	if err != nil {
+		t.Fatalf("SendMessageWithButtons: %v", err)
+	}
+	markup, _ := f.lastBody["reply_markup"].(map[string]any)
+	rows, _ := markup["inline_keyboard"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("inline_keyboard = %#v, want one row", markup["inline_keyboard"])
+	}
+	buttons, _ := rows[0].([]any)
+	if len(buttons) != 2 {
+		t.Fatalf("want 2 buttons, got %d", len(buttons))
+	}
+	urlBtn, _ := buttons[0].(map[string]any)
+	if urlBtn["url"] != "https://acme.example.com/?tab=bp" {
+		t.Errorf("url button = %#v", urlBtn)
+	}
+	if _, present := urlBtn["callback_data"]; present {
+		t.Errorf("url button leaked callback_data: %#v", urlBtn)
+	}
+	cbBtn, _ := buttons[1].(map[string]any)
+	if _, present := cbBtn["url"]; present {
+		t.Errorf("callback button leaked url: %#v", cbBtn)
+	}
+}
+
+func TestParseMeasureCallback(t *testing.T) {
+	for _, tc := range []struct {
+		data     string
+		wantKind string
+		wantSlot int64
+		wantAct  string
+		wantOK   bool
+	}{
+		{data: "bp:1767225600:snooze1h", wantKind: "bp", wantSlot: 1767225600, wantAct: "snooze1h", wantOK: true},
+		{data: "bp:1767225600:skip", wantKind: "bp", wantSlot: 1767225600, wantAct: "skip", wantOK: true},
+		{data: "wt:1767225600:snooze1h", wantKind: "weight", wantSlot: 1767225600, wantAct: "snooze1h", wantOK: true},
+		{data: "wt:1767225600:skip", wantKind: "weight", wantSlot: 1767225600, wantAct: "skip", wantOK: true},
+		{data: "bp:1767225600:confirm"},  // action not whitelisted for measures
+		{data: "bp:1767225600:snooze2h"}, // workout-only action
+		{data: "s:1767225600:confirm"},   // med namespace not cross-parsed
+		{data: "w:6:20260720:snooze1h"},  // workout namespace not cross-parsed
+		{data: "bp::skip"},               // empty slot
+		{data: "bp:abc:skip"},            // non-numeric slot
+		{data: "bp:-5:skip"},             // non-positive slot
+		{data: "bp:1767225600"},          // no action
+		{data: ""},                       // empty
+	} {
+		kind, slot, action, ok := ParseMeasureCallback(tc.data)
+		if ok != tc.wantOK {
+			t.Errorf("ParseMeasureCallback(%q) ok = %v, want %v", tc.data, ok, tc.wantOK)
+			continue
+		}
+		if ok && (kind != tc.wantKind || slot != tc.wantSlot || action != tc.wantAct) {
+			t.Errorf("ParseMeasureCallback(%q) = (%q, %d, %q), want (%q, %d, %q)",
+				tc.data, kind, slot, action, tc.wantKind, tc.wantSlot, tc.wantAct)
+		}
+	}
+}
+
+func TestIsMeasureCallback(t *testing.T) {
+	for _, s := range []string{"bp:1767225600:skip", "wt:1767225600:snooze1h"} {
+		if !IsMeasureCallback(s) {
+			t.Errorf("IsMeasureCallback(%q) = false, want true", s)
+		}
+	}
+	for _, s := range []string{"s:1767225600:confirm", "w:6:20260720:skip", ""} {
+		if IsMeasureCallback(s) {
+			t.Errorf("IsMeasureCallback(%q) = true, want false", s)
+		}
+	}
+}
+
+// ValidCallbackStem must accept the bp:/wt: stems so SendReminder keeps the
+// buttons, round-trip to a parseable callback_data, and reject oversize.
+func TestValidCallbackStemMeasure(t *testing.T) {
+	valid := []string{"bp:1", "bp:1767225600", "wt:1767225600"}
+	for _, s := range valid {
+		if !ValidCallbackStem(s) {
+			t.Errorf("ValidCallbackStem(%q) = false, want true", s)
+		}
+	}
+	invalid := []string{
+		"bp:", "bp:abc", "wt:-5",
+		"bp:1767225600:skip",            // an already-built callback_data, not a stem
+		"bp:99999999999999999999999999", // over the length cap
+	}
+	for _, s := range invalid {
+		if ValidCallbackStem(s) {
+			t.Errorf("ValidCallbackStem(%q) = true, want false", s)
+		}
+	}
+	for _, stem := range valid {
+		for _, action := range []string{CallbackActionSnooze1h, CallbackActionSkip} {
+			data := stem + ":" + action
+			if len(data) > 64 {
+				t.Errorf("callback_data %q is %d bytes, over Telegram's 64-byte limit", data, len(data))
+			}
+			if _, _, _, ok := ParseMeasureCallback(data); !ok {
+				t.Errorf("accepted stem %q does not round-trip with action %q", stem, action)
+			}
+		}
+	}
+}
