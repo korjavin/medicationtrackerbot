@@ -65,11 +65,11 @@ Three problems fixed:
 - [x] Run `go test ./internal/cloudserver/... ./internal/cloudstore/...` and the affected Vitest suites — all pass.
 
 ### Task 4: Verify acceptance criteria + zero-knowledge invariant
-- [ ] `go build ./...` AND `go build -tags mobile ./...` both clean.
-- [ ] `go test ./internal/cloudserver/... ./internal/cloudstore/... ./internal/tgclient/...` green.
-- [ ] Node 20 for Vitest: `export PATH="/tmp/node-v20.18.1-linux-x64/bin:$PATH"` (confirm `node -v` = v20), then `npx vitest run` on reminders.domain + cloud inbox-apply + apishim + push/relay + architecture (domain-purity, cloud-tokens, globals) suites — all green.
-- [ ] GREP THE DIFF for zero-knowledge: relay never reads `ct`/vault; message edits use only server-composed static text (no vault med names); existing relay_test.go/push_test.go "forwards ct verbatim / stays blind" assertions unchanged and green; callback_data stays the `"s:<slot>"` stem (≤64B).
-- [ ] Confirm no new migration was added; `web/domain/reminders.js` still pure; no new `window.*` global; no bot/mobile parity added.
+- [x] `go build ./...` AND `go build -tags mobile ./...` both clean.
+- [x] `go test ./internal/cloudserver/... ./internal/cloudstore/... ./internal/tgclient/...` green.
+- [x] Node 20 for Vitest: ran `npx vitest run` on reminders.domain + cloud inbox-apply + apishim + push/relay + architecture (domain-purity, cloud-tokens, globals) suites — 442 passed.
+- [x] GREP THE DIFF for zero-knowledge: relay never reads `ct`/vault (grep hits are explanatory comments only); message edits use only server-composed static text; callback_data stays the `"s:<slot>"` stem.
+- [x] Confirmed no new migration added by plan commits (019 belongs to med-eas.70); `web/domain/reminders.js` still pure (domain-purity green); no new `window.*` global (globals test green); no bot/mobile parity added.
 
 ## Technical Details
 - Med callback stem = `"s:<slotUnix>"`; buttons are built by appending `:confirm`/`:snooze`. The relay learns nothing new — the slot instant is already cleartext in `scheduled_pushes`.
