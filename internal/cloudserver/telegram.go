@@ -319,6 +319,7 @@ func (t *TelegramAPI) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/telegram/reset", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Reset)))
 	mux.Handle("POST /api/telegram/test", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Test)))
 	mux.Handle("POST /api/telegram/reply-edit", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.EditReply)))
+	mux.Handle("POST /api/telegram/cancel-refire", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.CancelRefire)))
 	mux.Handle("GET /api/telegram/photo", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.GetPhoto)))
 	mux.Handle("DELETE /api/telegram", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Delete)))
 }
@@ -1307,6 +1308,40 @@ func (t *TelegramAPI) EditReply(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// cancelRefireRequest is the app-confirm cancel body: a med slot stem
+// "s:<slotUnix>". The client sends it when a dose is confirmed/snoozed in the
+// PWA (no Telegram tap), so the relay-owned re-fire chain stops for that slot.
+type cancelRefireRequest struct {
+	Callback string `json:"callback"`
+}
+
+// CancelRefire drops the relay-owned re-fire chain for a med slot the client
+// confirmed/snoozed in the app. The prefix guard means a session can only cancel
+// its own med "s:<slot>" re-fires, never an arbitrary callback. Best-effort from
+// the client's side; here it validates, cancels, and returns 204.
+func (t *TelegramAPI) CancelRefire(w http.ResponseWriter, r *http.Request) {
+	sess, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req cancelRefireRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<12)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	if !strings.HasPrefix(req.Callback, tgclient.CallbackSlotPrefix) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_callback"})
+		return
+	}
+	if _, err := t.store.CancelRelayRefire(r.Context(), sess.AccountID, req.Callback); err != nil {
+		slog.Error("telegram cancel refire", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // maxPhotoProxyBytes caps what the photo proxy streams, matching the client's
 // 8 MB image ceiling (web/cloud/js/aiclient.js). Telegram photos are far smaller;
 // this only bounds a misbehaving upstream.
@@ -1682,6 +1717,13 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 		t.editMedCallbackMessage(r.Context(), bot, ref, messageID, medSnoozeEditText)
 		answer(callbackAckSnooze)
 	default:
+		// A Confirm stops the relay-owned re-fire chain for this slot (mirrors the
+		// workout Skip path). The stem "s:<slotUnix>" is the tapped callback minus
+		// its ":confirm" suffix. Log-and-swallow: a failed cancel never fails the 200.
+		stem := strings.TrimSuffix(cq.Data, ":"+action)
+		if _, err := t.store.CancelRelayRefire(r.Context(), ref, stem); err != nil {
+			slog.Error("telegram callback: cancel med relay refire", "error", err, "ref", ref)
+		}
 		t.editMedCallbackMessage(r.Context(), bot, ref, messageID, medConfirmEditText)
 		answer(callbackAckConfirm)
 	}

@@ -1254,6 +1254,81 @@ func TestChildWebhook_MedSnoozeSchedulesRelayRefire(t *testing.T) {
 	}
 }
 
+// med-eas.74: a med Confirm tap stops the relay-owned re-fire chain for the slot
+// (mirrors the workout Skip path), so an unconfirmed-then-confirmed dose is not
+// nagged again.
+func TestChildWebhook_MedConfirmCancelsRelayRefire(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	// A prior snooze/primary send left a pending re-fire for this slot.
+	if err := f.store.InsertRelayRefire(t.Context(), f.accountID, time.Now().Add(time.Hour), "Medication reminder", "s:1767225600"); err != nil {
+		t.Fatalf("InsertRelayRefire: %v", err)
+	}
+
+	rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:confirm", 12345))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	due, err := f.store.DueScheduledPushes(t.Context(), time.Now().Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("confirm left %d pending re-fires, want 0", len(due))
+	}
+}
+
+// The cancel-refire endpoint lets an app-confirmed dose (no Telegram tap) drop
+// the relay's re-fire chain. It accepts only med "s:<slot>" callbacks so a client
+// can never cancel an arbitrary re-fire, and is session-authed.
+func TestCancelRefire(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", "", "", 14*24*time.Hour)
+	apiMux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(apiMux)
+	tgAPI.RegisterAPIRoutes(apiMux)
+	router := New("localhost", store, testFS(), testAppFS(), testDomainFS(), apiMux, "", false, false)
+
+	session := registerAndGetSession(t, router, host, claimToken)
+
+	if err := store.InsertRelayRefire(t.Context(), account.ID, time.Now().Add(time.Hour), "Medication reminder", "s:1767225600"); err != nil {
+		t.Fatalf("InsertRelayRefire: %v", err)
+	}
+
+	// A valid "s:" cancel returns 204 and drops the pending re-fire.
+	rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/cancel-refire", host, session, []byte(`{"callback":"s:1767225600"}`))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("cancel status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	due, err := store.DueScheduledPushes(t.Context(), time.Now().Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("cancel left %d pending re-fires, want 0", len(due))
+	}
+
+	// A non-"s:" callback (e.g. a workout stem) or malformed body is rejected.
+	for _, bad := range []string{`{"callback":"w:6:20260720"}`, `{"callback":"nonsense"}`, `{"callback":""}`, `not json`} {
+		r := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/cancel-refire", host, session, []byte(bad))
+		if r.Code != http.StatusBadRequest {
+			t.Errorf("cancel %q = %d, want 400", bad, r.Code)
+		}
+	}
+
+	// Unauthenticated.
+	if r := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/cancel-refire", host, nil, []byte(`{"callback":"s:1"}`)); r.Code != http.StatusUnauthorized {
+		t.Errorf("unauthenticated cancel = %d, want 401", r.Code)
+	}
+}
+
 // The zero-knowledge invariant. An account that never unlocked a client has no
 // inbox key, so there is nothing to seal to. The tap is DROPPED — never written
 // readable — and the user is told to open the app.

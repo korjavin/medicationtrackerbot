@@ -104,7 +104,9 @@ describe('domain/reminders.js — per-slot medicationIds', () => {
         expect([...dose.medicationIds].sort()).toEqual(['m1', 'm2', 'm3']);
     });
 
-    it('a re-remind entry carries its one med id keyed to the intake-instant slot', () => {
+    it('emits NO client re-reminders for a still-PENDING dose (relay owns them now)', () => {
+        // med-eas.74: re-reminders moved server-side into the relay, so the client
+        // emits only the primary per-slot fire — never the old hourly nag chain.
         const scheduledMs = Date.UTC(2026, 6, 7, 4, 0, 0); // 2h ago, still PENDING
         const entries = computeReminderHorizon({
             medications: [{ id: 'm1', name: 'Coclav', schedule: '08:00', inventory_count: 30 }],
@@ -114,10 +116,10 @@ describe('domain/reminders.js — per-slot medicationIds', () => {
             }],
             bps: [], weights: [], timeZone: 'UTC', now: nowMs,
         });
-        const reremind = entries.filter((e) => e.text.includes('REMINDER'));
-        expect(reremind.length).toBeGreaterThan(0);
-        expect(reremind[0].callback).toBe(`s:${scheduledMs / 1000}`);
-        expect(reremind[0].medicationIds).toEqual(['m1']);
+        expect(entries.filter((e) => e.text.includes('REMINDER'))).toHaveLength(0);
+        // The forward primary slot fire for the med still stands.
+        const slotUnix = Date.UTC(2026, 6, 7, 8, 0, 0) / 1000;
+        expect(entries.some((e) => e.kind === 'medication' && e.callback === `s:${slotUnix}`)).toBe(true);
     });
 });
 

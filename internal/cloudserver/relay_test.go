@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -483,6 +484,75 @@ func TestPutSchedule_RejectsMalformedCallbackStem(t *testing.T) {
 		rec := doReq(t, h, http.MethodPut, "http://"+host+"/api/push/schedule", host, session, body)
 		if rec.Code != http.StatusNoContent {
 			t.Errorf("stem %q rejected (status %d)", stem, rec.Code)
+		}
+	}
+}
+
+// med-eas.74: sending a med reminder whose dose slot is still within the ~6h cap
+// schedules the next hourly re-fire (server-owned, so an unopened PWA keeps being
+// nagged); a slot past the cap stops the chain.
+func TestRelay_MedRefireChain(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+	session := registerAndGetSession(t, h, host, claimToken)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	// A med reminder whose dose slot is 30m old — comfortably inside the 6h cap.
+	freshSlot := now.Add(-30 * time.Minute).Unix()
+	freshStem := fmt.Sprintf("s:%d", freshSlot)
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{
+		{FireAtUnix: now.Add(-time.Minute).Unix(), Delivery: "telegram", TGText: "Time to take: X", TGCallback: freshStem},
+	}})
+
+	tg := &fakeTGSender{}
+	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, tg, 0).Tick(ctx)
+	if len(tg.sent) != 1 {
+		t.Fatalf("expected the med reminder to send once, got %v", tg.sent)
+	}
+
+	// The re-fire is queued at ~now+1h, so it is due only in the future and it
+	// re-uses the same "s:<slot>" stem so a re-delivered Confirm still converges.
+	future, err := store.DueScheduledPushes(ctx, now.Add(90*time.Minute))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(future) != 1 || future[0].TGCallback != freshStem {
+		t.Fatalf("expected one queued re-fire for %q, got %+v", freshStem, future)
+	}
+	if delta := future[0].FireAt.Sub(now); delta < 55*time.Minute || delta > 65*time.Minute {
+		t.Fatalf("re-fire scheduled at now+%v, want ~1h", delta)
+	}
+	// Nothing is due right now (the just-sent primary is marked sent, the re-fire
+	// is an hour out).
+	if dueNow, _ := store.DueScheduledPushes(ctx, now); len(dueNow) != 0 {
+		t.Fatalf("re-fire fired immediately: %+v", dueNow)
+	}
+
+	// A second account whose slot is 7h old — past the cap — must NOT re-fire.
+	account2, claim2 := setupInvite(t, store)
+	host2 := account2.Subdomain + ".localhost"
+	session2 := registerAndGetSession(t, h, host2, claim2)
+	staleStem := fmt.Sprintf("s:%d", now.Add(-7*time.Hour).Unix())
+	putSchedule(t, h, host2, session2, putScheduleRequest{Entries: []scheduleEntryWire{
+		{FireAtUnix: now.Add(-time.Minute).Unix(), Delivery: "telegram", TGText: "Time to take: Y", TGCallback: staleStem},
+	}})
+	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, &fakeTGSender{}, 0).Tick(ctx)
+	future2, err := store.DueScheduledPushes(ctx, now.Add(90*time.Minute))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	for _, p := range future2 {
+		if p.TGCallback == staleStem {
+			t.Fatalf("stale-slot med re-fired past the cap: %+v", p)
 		}
 	}
 }
