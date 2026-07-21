@@ -434,9 +434,9 @@ function confirmationText(intent, result, verbosity) {
     case 'workout':
       return intent.name ? `✅ Logged workout: ${intent.name}.` : '✅ Workout logged.';
     case 'activity': {
-      if (!result || !result.activity_name) return '✅ Activity logged.';
+      if (!result || !result.activity_name) return '✅ Cardio logged.';
       const dist = result.distance_m > 0 ? ` — ${(result.distance_m / 1000).toFixed(1)}km` : '';
-      return `✅ Logged activity: ${result.activity_name}${dist}.`;
+      return `✅ Logged cardio: ${result.activity_name}${dist}.`;
     }
     default:
       return '✅ Recorded.';
@@ -527,11 +527,11 @@ export async function applyTGCommand(event, eventId, { bp, weight, notes, intake
         result = await workout.createMiBand({ recordId, activityName: parsed.name, durationSec: parsed.durationSec, distanceM: parsed.distanceM });
       } catch (e) {
         if (e && e.code === 'no_api_key') {
-          await reply('🔑 To log an activity by message, add an OpenAI key in Settings → Integrations (or the trial AI is unavailable right now).');
+          await reply('🔑 To log cardio by message, add an OpenAI key in Settings → Integrations (or the trial AI is unavailable right now).');
           return;
         }
         if (e && e.code === 'trial_consent_required') {
-          await reply('🔑 To log an activity by message with the trial AI, allow it first in Settings → Integrations (or add your own OpenAI key).');
+          await reply('🔑 To log cardio by message with the trial AI, allow it first in Settings → Integrations (or add your own OpenAI key).');
           return;
         }
         throw e;

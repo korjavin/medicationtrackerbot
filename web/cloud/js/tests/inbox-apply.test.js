@@ -989,7 +989,7 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(miband[0]).toMatchObject({ activity_name: 'Bicycle ride', source: 'manual', activity_type: 0, recordId: 'tg-25' });
         // duration_minutes (12) summed → seconds.
         expect(miband[0].duration_sec).toBe(720);
-        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Logged activity: Bicycle ride/));
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Logged cardio: Bicycle ride/));
     });
 
     it('/activity records the parsed distance (2km bicycle -> distance_m 2000) and shows it in the reply', async () => {
@@ -1001,7 +1001,7 @@ describe('inbox-apply.js — a Telegram data command', () => {
 
         const miband = await records.list('miband');
         expect(miband[0].distance_m).toBe(2000);
-        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Logged activity: Bicycle ride — 2\.0km/));
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Logged cardio: Bicycle ride — 2\.0km/));
     });
 
     it('/activity with a mile distance records ~8047m', async () => {
@@ -1023,7 +1023,7 @@ describe('inbox-apply.js — a Telegram data command', () => {
         const miband = await records.list('miband');
         expect(miband[0].distance_m).toBe(0);
         // reply has no distance suffix when distance is 0.
-        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Logged activity: Bicycle ride\./));
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Logged cardio: Bicycle ride\./));
     });
 
     it('re-draining the same /activity event overwrites its own row instead of logging a second activity', async () => {
