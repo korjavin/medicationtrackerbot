@@ -156,10 +156,10 @@ Files/components involved (with the exact seams):
 - [x] run the `reminders.domain` vitest suite (Node 20) — must pass before Task 4
 
 ### Task 4: deeplink-router.js — bare ?tab=<section> switch
-- [ ] add a branch so `?tab=workouts|bp|weight` (no `action`) calls `switchTab(tab)` (`web/static/js/features/deeplink-router.js:47-79`), whitelisting allowed section ids; keep existing `action=add` behavior
-- [ ] clean the URL via replaceState after switching (match existing pattern)
-- [ ] write/extend the deeplink-router test: bare `?tab=workouts` switches section; unknown tab ignored
-- [ ] run the relevant vitest suite (Node 20) — must pass before Task 5
+- [x] add a branch so `?tab=workouts|bp|weight` (no `action`) calls `switchTab(tab)` (`web/static/js/features/deeplink-router.js:47-79`), whitelisting allowed section ids; keep existing `action=add` behavior
+- [x] clean the URL via replaceState after switching (match existing pattern)
+- [x] write/extend the deeplink-router test: bare `?tab=workouts` switches section; unknown tab ignored
+- [x] run the relevant vitest suite (Node 20) — must pass before Task 5
 
 ### Task 5: inbox-apply.js — drain measureReminderEvent
 - [ ] add event-kind const `MEASURE_REMINDER_ACTION` (`web/cloud/js/inbox-apply.js:43-48`)
