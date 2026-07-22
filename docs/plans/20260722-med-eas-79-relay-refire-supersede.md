@@ -91,12 +91,12 @@ Dependencies identified: goose migrations auto-embed via glob (no manual registr
 - [x] run `go test ./internal/cloudserver/... -run 'SendReminder|DeleteReminder'` — must pass before Task 3.
 
 ### Task 3: migration 020 + cloudstore supersedes plumbing
-- [ ] add `internal/cloudstore/migrations/020_push_supersedes.sql`: Up `ALTER TABLE scheduled_pushes ADD COLUMN supersedes_message_id INTEGER NOT NULL DEFAULT 0;`, Down `ALTER TABLE scheduled_pushes DROP COLUMN supersedes_message_id;` (goose Up/Down StatementBegin/End blocks, with a comment noting it holds the TG message_id the send should delete — a TG artifact, not vault data). NEVER edit an existing migration.
-- [ ] add `SupersedesMessageID int64` to the `ScheduledPush` struct in `push.go`.
-- [ ] `DueScheduledPushes`: add `supersedes_message_id` to the SELECT column list and `rows.Scan` into `p.SupersedesMessageID` (append to the existing scan args).
-- [ ] `RescheduleRelayRefire`: add a `supersedesMessageID int64` param; include `supersedes_message_id` in the INSERT column list + value. The DELETE-then-INSERT transaction and zero-knowledge (empty `ct`) stay unchanged. Leave `ReplaceSchedule` and `InsertRelayRefire` INSERTs untouched (DEFAULT 0 covers their rows).
-- [ ] write test: extend `TestRescheduleRelayRefire` (or a sibling) to pass a non-zero `supersedesMessageID` and assert `DueScheduledPushes` surfaces it on the new row; assert a client `ReplaceSchedule` row reports `SupersedesMessageID == 0`.
-- [ ] run `go test ./internal/cloudstore/...` — must pass before Task 4.
+- [x] add `internal/cloudstore/migrations/020_push_supersedes.sql`: Up `ALTER TABLE scheduled_pushes ADD COLUMN supersedes_message_id INTEGER NOT NULL DEFAULT 0;`, Down `ALTER TABLE scheduled_pushes DROP COLUMN supersedes_message_id;` (goose Up/Down StatementBegin/End blocks, with a comment noting it holds the TG message_id the send should delete — a TG artifact, not vault data). NEVER edit an existing migration.
+- [x] add `SupersedesMessageID int64` to the `ScheduledPush` struct in `push.go`.
+- [x] `DueScheduledPushes`: add `supersedes_message_id` to the SELECT column list and `rows.Scan` into `p.SupersedesMessageID` (append to the existing scan args).
+- [x] `RescheduleRelayRefire`: add a `supersedesMessageID int64` param; include `supersedes_message_id` in the INSERT column list + value. The DELETE-then-INSERT transaction and zero-knowledge (empty `ct`) stay unchanged. Leave `ReplaceSchedule` and `InsertRelayRefire` INSERTs untouched (DEFAULT 0 covers their rows).
+- [x] write test: extend `TestRescheduleRelayRefire` (or a sibling) to pass a non-zero `supersedesMessageID` and assert `DueScheduledPushes` surfaces it on the new row; assert a client `ReplaceSchedule` row reports `SupersedesMessageID == 0`.
+- [x] run `go test ./internal/cloudstore/...` — must pass before Task 4.
 
 ### Task 4: relay.go — capture id, delete prior, chain supersedes
 - [ ] update `TelegramSender` interface: `SendReminder(...) (int64, error)` and add `DeleteReminder(ctx context.Context, accountID string, messageID int64) error`.

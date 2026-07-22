@@ -774,11 +774,11 @@ func TestRescheduleRelayRefire(t *testing.T) {
 	}
 
 	past := now.Add(-time.Minute)
-	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "snooze 1h", "w:6:20260720"); err != nil {
+	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "snooze 1h", "w:6:20260720", 111); err != nil {
 		t.Fatalf("RescheduleRelayRefire (first): %v", err)
 	}
 	// Re-snooze the same session: the first refire is superseded, not stacked.
-	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "snooze 2h", "w:6:20260720"); err != nil {
+	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "snooze 2h", "w:6:20260720", 222); err != nil {
 		t.Fatalf("RescheduleRelayRefire (second): %v", err)
 	}
 
@@ -791,5 +791,25 @@ func TestRescheduleRelayRefire(t *testing.T) {
 	}
 	if due[0].TGText != "snooze 2h" || due[0].TGCallback != "w:6:20260720" || len(due[0].CT) != 0 {
 		t.Errorf("refire not superseded correctly: %+v", due[0])
+	}
+	// med-eas.79: supersedes_message_id threads out via DueScheduledPushes.
+	if due[0].SupersedesMessageID != 222 {
+		t.Errorf("SupersedesMessageID = %d; want 222 (prior TG message to delete)", due[0].SupersedesMessageID)
+	}
+
+	// A client-uploaded (ReplaceSchedule) row carries the DEFAULT 0 — nothing to delete.
+	if err := r.ReplaceSchedule(ctx, acc.ID, []ScheduledPushInput{
+		{FireAt: past, Delivery: DeliveryTelegram, TGText: "orig", TGCallback: "s:9:20260720"},
+	}, now); err != nil {
+		t.Fatalf("ReplaceSchedule: %v", err)
+	}
+	due, err = r.DueScheduledPushes(ctx, now)
+	if err != nil {
+		t.Fatalf("DueScheduledPushes (after ReplaceSchedule): %v", err)
+	}
+	for _, p := range due {
+		if p.TGCallback == "s:9:20260720" && p.SupersedesMessageID != 0 {
+			t.Errorf("client row SupersedesMessageID = %d; want 0 (DEFAULT)", p.SupersedesMessageID)
+		}
 	}
 }

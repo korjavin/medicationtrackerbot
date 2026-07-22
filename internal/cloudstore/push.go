@@ -140,6 +140,9 @@ type ScheduledPush struct {
 	Delivery   string
 	TGText     string
 	TGCallback string
+	// SupersedesMessageID is the prior Telegram message_id this send should delete
+	// (0 = nothing to delete). A TG artifact, never vault/ct data (med-eas.79).
+	SupersedesMessageID int64
 }
 
 // ScheduledPushInput is one entry of a PUT /api/push/schedule replace-all
@@ -190,7 +193,7 @@ func (r *Repo) ReplaceSchedule(ctx context.Context, accountID string, entries []
 // fire_at has passed — the relay sender's per-tick query.
 func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]ScheduledPush, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, account_id, fire_at_unix, ct, delivery, tg_text, tg_callback FROM scheduled_pushes WHERE sent_at_unix IS NULL AND fire_at_unix <= ? ORDER BY fire_at_unix`,
+		`SELECT id, account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, supersedes_message_id FROM scheduled_pushes WHERE sent_at_unix IS NULL AND fire_at_unix <= ? ORDER BY fire_at_unix`,
 		storedb.TimeToUnix(now))
 	if err != nil {
 		return nil, err
@@ -203,7 +206,7 @@ func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]Schedul
 			p        ScheduledPush
 			fireUnix int64
 		)
-		if err := rows.Scan(&p.ID, &p.AccountID, &fireUnix, &p.CT, &p.Delivery, &p.TGText, &p.TGCallback); err != nil {
+		if err := rows.Scan(&p.ID, &p.AccountID, &fireUnix, &p.CT, &p.Delivery, &p.TGText, &p.TGCallback, &p.SupersedesMessageID); err != nil {
 			return nil, err
 		}
 		p.FireAt = storedb.UnixToTime(fireUnix)
@@ -242,7 +245,9 @@ func (r *Repo) InsertRelayRefire(ctx context.Context, accountID string, fireAt t
 // transaction so two concurrent workout snooze taps for the same session can't
 // both delete-then-insert and leave duplicate pending re-fire rows (med-eas.70).
 // Copies only already-cleartext fields (empty ct), preserving zero-knowledge.
-func (r *Repo) RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback string) error {
+// supersedesMessageID is the prior TG message_id this re-fire should delete when it
+// sends (0 = none) — a TG artifact, not vault data (med-eas.79).
+func (r *Repo) RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback string, supersedesMessageID int64) error {
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
 		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM scheduled_pushes WHERE account_id = ? AND origin = ? AND tg_callback = ? AND sent_at_unix IS NULL`,
@@ -250,8 +255,8 @@ func (r *Repo) RescheduleRelayRefire(ctx context.Context, accountID string, fire
 			return err
 		}
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, origin) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			accountID, storedb.TimeToUnix(fireAt), []byte{}, DeliveryTelegram, tgText, tgCallback, PushOriginRelayRefire)
+			`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, origin, supersedes_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			accountID, storedb.TimeToUnix(fireAt), []byte{}, DeliveryTelegram, tgText, tgCallback, PushOriginRelayRefire, supersedesMessageID)
 		return err
 	})
 }
