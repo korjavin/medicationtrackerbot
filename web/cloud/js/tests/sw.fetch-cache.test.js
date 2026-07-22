@@ -1,10 +1,12 @@
-// med-deq.1 — the cloud SW's offline app shell: network-first fetch handler
-// backed by the versioned SHELL_CACHE. Online navigation always returns the
-// network response (fresh per-account CSP) and refreshes the cache; offline
-// (fetch rejection or proxy 5xx — docs/technical-decisions.md treats them the
-// same) the cached copy renders; the '/' shell fallback applies to navigations
-// only and never to ceremony pages (signup.html is a different document);
-// /api/* and non-GET are never intercepted.
+// med-deq.1 / med-gvk.5 — the cloud SW's offline app shell: CACHE-FIRST fetch
+// handler backed by the versioned SHELL_CACHE. A cached static asset is served
+// immediately with no network wait (the sub-second local-first guarantee); the
+// navigation document is stale-while-revalidate (cached now, background
+// fetch('/') refreshes for next open). A cache MISS goes to the network,
+// caches an ok response, and — on rejection or proxy 5xx (docs/technical-
+// decisions.md treats them the same) — the cached copy renders; the '/' shell
+// fallback applies to navigations only and never to ceremony pages (signup.html
+// is a different document); /api/* and non-GET are never intercepted.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -235,6 +237,55 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
     it('cross-origin requests pass through untouched', async () => {
         const { evt } = await fireFetch(listeners, req('/anything', { origin: 'https://api.elevenlabs.io' }));
         expect(evt.respondWith).not.toHaveBeenCalled();
+    });
+
+    // med-gvk.5 — cache-first shell. The headline: a cached asset is served with
+    // ZERO network wait, so a slow (not failed) network can no longer stall the
+    // cold open.
+    it('cache-first: a cached static asset is served WITHOUT awaiting the network', async () => {
+        const cachedAsset = { ok: true, body: 'cached app.js' };
+        caches.seed(SHELL_CACHE, '/static/js/app.js?v=1', cachedAsset);
+        // A network-first handler would await this forever; cache-first never asks.
+        fetchMock.mockReturnValue(new Promise(() => {}));
+
+        const { response } = await fireFetch(listeners, req('/static/js/app.js?v=1'));
+        expect(response).toBe(cachedAsset);
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('cache-first miss: an uncached asset is fetched, returned, and cached', async () => {
+        const fresh = networkResponse();
+        fetchMock.mockResolvedValue(fresh);
+
+        const { response } = await fireFetch(listeners, req('/static/js/new.js?v=2'));
+        expect(response).toBe(fresh);
+        expect(caches.store.get(SHELL_CACHE).get('/static/js/new.js?v=2')).toBe(fresh.__clone);
+    });
+
+    it('stale-while-revalidate: the cached / shell is served immediately AND a background revalidate refreshes it', async () => {
+        const cachedShell = { ok: true, body: 'cached shell' };
+        caches.seed(SHELL_CACHE, '/', cachedShell);
+        const fresh = networkResponse();
+        fetchMock.mockResolvedValue(fresh);
+
+        const { response } = await fireFetch(listeners, navigate('/'));
+        // Served from cache — NOT the fresh network response.
+        expect(response).toBe(cachedShell);
+        // A background fetch('/') was issued and it refreshed the cache for next open.
+        expect(fetchMock).toHaveBeenCalledWith('/');
+        expect(caches.store.get(SHELL_CACHE).get('/')).toBe(fresh);
+    });
+
+    it('stale-while-revalidate: a failing background revalidate does not reject the served cached shell', async () => {
+        const cachedShell = { ok: true, body: 'cached shell' };
+        caches.seed(SHELL_CACHE, '/', cachedShell);
+        fetchMock.mockRejectedValue(new TypeError('network down'));
+
+        // fireFetch also drains waitUntil (where the revalidate runs) — a leaked
+        // rejection there would surface here.
+        const { response } = await fireFetch(listeners, navigate('/'));
+        expect(response).toBe(cachedShell);
+        expect(fetchMock).toHaveBeenCalledWith('/');
     });
 
     // A body-carrying response for the install warm: clone() and text() are
