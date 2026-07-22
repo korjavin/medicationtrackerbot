@@ -283,12 +283,25 @@ type fakeTGSender struct {
 	sent      []string
 	callbacks []string
 	err       error
+
+	nextID    int64   // id handed to the next successful send (auto-increments from 1)
+	deleted   []int64 // message ids passed to DeleteReminder
+	deleteErr error   // force a best-effort delete failure
 }
 
-func (f *fakeTGSender) SendReminder(ctx context.Context, accountID, text, callbackStem string) error {
+func (f *fakeTGSender) SendReminder(ctx context.Context, accountID, text, callbackStem string) (int64, error) {
 	f.sent = append(f.sent, text)
 	f.callbacks = append(f.callbacks, callbackStem)
-	return f.err
+	if f.err != nil {
+		return 0, f.err
+	}
+	f.nextID++
+	return f.nextID, nil
+}
+
+func (f *fakeTGSender) DeleteReminder(ctx context.Context, accountID string, messageID int64) error {
+	f.deleted = append(f.deleted, messageID)
+	return f.deleteErr
 }
 
 // TestRelay_DeliveryChannelRouting guards the C3b outbound contract: each due

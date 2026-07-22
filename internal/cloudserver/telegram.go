@@ -1734,7 +1734,7 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 		if cq.Message != nil && cq.Message.Text != "" {
 			refireText = cq.Message.Text
 		}
-		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem, 0); err != nil {
+		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem, messageID); err != nil {
 			slog.Error("telegram callback: reschedule med relay refire", "error", err, "ref", ref)
 		}
 		t.editCallbackMessage(r.Context(), bot, ref, messageID, medSnoozeEditText)
@@ -1870,7 +1870,7 @@ func (t *TelegramAPI) handleWorkoutCallback(w http.ResponseWriter, r *http.Reque
 		// stacking a second delivery. Snooze1h and Snooze2h share the same stem.
 		// Cancel + insert are one transaction so two concurrent snooze taps can't
 		// both delete-then-insert and leave duplicate pending re-fires.
-		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(delay), refireText, stem, 0); err != nil {
+		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(delay), refireText, stem, messageID); err != nil {
 			slog.Error("telegram callback: reschedule relay refire", "error", err, "ref", ref)
 		}
 		t.editCallbackMessage(r.Context(), bot, ref, messageID, workoutSnoozeEditText)
@@ -1953,7 +1953,7 @@ func (t *TelegramAPI) handleMeasureCallback(w http.ResponseWriter, r *http.Reque
 		if cq.Message != nil && cq.Message.Text != "" {
 			refireText = cq.Message.Text
 		}
-		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem, 0); err != nil {
+		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem, messageID); err != nil {
 			slog.Error("telegram callback: reschedule measure relay refire", "error", err, "ref", ref)
 		}
 		t.editCallbackMessage(r.Context(), bot, ref, messageID, measureSnoozeEditText)

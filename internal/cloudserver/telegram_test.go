@@ -1252,6 +1252,11 @@ func TestChildWebhook_MedSnoozeSchedulesRelayRefire(t *testing.T) {
 	if len(rf.CT) != 0 {
 		t.Errorf("re-fire must carry no ciphertext (relay stays blind), got %d bytes", len(rf.CT))
 	}
+	// The snooze re-fire supersedes the tapped (now snoozed-receipt) message so the
+	// re-fire deletes it — one live message per chain. callbackUpdate hardcodes 9.
+	if rf.SupersedesMessageID != 9 {
+		t.Errorf("re-fire supersedes = %d, want the tapped message id 9", rf.SupersedesMessageID)
+	}
 	if d := rf.FireAt.Sub(before); d < 55*time.Minute || d > 65*time.Minute {
 		t.Errorf("re-fire fires in %v, want ~1h", d)
 	}

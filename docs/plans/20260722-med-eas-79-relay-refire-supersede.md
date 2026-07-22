@@ -107,9 +107,9 @@ Dependencies identified: goose migrations auto-embed via glob (no manual registr
 - [x] run `go build ./...` — must pass before Task 5.
 
 ### Task 5: snooze re-fire — thread the tapped message_id
-- [ ] in `handleCallbackQuery` (telegram.go), pass the already-captured `messageID` (the tapped `cq.Message.MessageID`) as `supersedesMessageID` to all THREE `RescheduleRelayRefire` calls: med `s:` (~1737), workout `w:` (~1873), measure `bp:`/`wt:` (~1956). So when the snooze re-fire fires, it deletes the prior (snoozed-receipt) message — one live message per chain.
-- [ ] write/extend a test asserting the snooze tap schedules a relay-refire whose `SupersedesMessageID` equals the tapped message id (at least the med path; workout/measure share the seam).
-- [ ] run `go test ./internal/cloudserver/...` — must pass before Task 6.
+- [x] in `handleCallbackQuery` (telegram.go), pass the already-captured `messageID` (the tapped `cq.Message.MessageID`) as `supersedesMessageID` to all THREE `RescheduleRelayRefire` calls: med `s:` (~1737), workout `w:` (~1873), measure `bp:`/`wt:` (~1956). So when the snooze re-fire fires, it deletes the prior (snoozed-receipt) message — one live message per chain.
+- [x] write/extend a test asserting the snooze tap schedules a relay-refire whose `SupersedesMessageID` equals the tapped message id (at least the med path; workout/measure share the seam).
+- [x] run `go test ./internal/cloudserver/...` — must pass before Task 6.
 
 ### Task 6: fakes + behavior tests + zero-knowledge guard
 - [ ] update `fakeTGSender` in `relay_test.go`: `SendReminder` returns `(int64, error)` with an incrementing/settable id; add `DeleteReminder` recording deleted message ids and an optional `deleteErr` to force a failure. Update the fake `relayStore.RescheduleRelayRefire` signature (capture `supersedesMessageID`).
