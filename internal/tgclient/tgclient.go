@@ -378,6 +378,16 @@ func (c *Client) EditMessageTextClearMarkup(ctx context.Context, chatID, message
 	}, nil)
 }
 
+// DeleteMessage removes a message this bot previously sent. Telegram lets a bot
+// delete its own messages only within 48h; older ones (and already-deleted ones)
+// return a 4xx that the caller (DeleteReminder) swallows best-effort.
+func (c *Client) DeleteMessage(ctx context.Context, chatID, messageID int64) error {
+	return c.call(ctx, "deleteMessage", map[string]any{
+		"chat_id":    chatID,
+		"message_id": messageID,
+	}, nil)
+}
+
 // IsMessageNotModified reports whether err is Telegram's benign "you asked me
 // to edit a message into exactly what it already says" response.
 func IsMessageNotModified(err error) bool {
@@ -421,14 +431,28 @@ type InlineKeyboardButton struct {
 // Separate from SendMessage because the vast majority of what this bot sends
 // (welcome, test, BP/weight reminders) has nothing to answer.
 func (c *Client) SendMessageWithButtons(ctx context.Context, chatID int64, text string, buttons []InlineKeyboardButton) error {
+	_, err := c.SendMessageWithButtonsReturningID(ctx, chatID, text, buttons)
+	return err
+}
+
+// SendMessageWithButtonsReturningID mirrors SendMessageWithButtons but returns
+// the sent message's id, so the relay can later delete it when re-firing a
+// repeated reminder (med-eas.79). No buttons → delegates to
+// SendMessageReturningID, exactly as SendMessageWithButtons delegates to
+// SendMessage.
+func (c *Client) SendMessageWithButtonsReturningID(ctx context.Context, chatID int64, text string, buttons []InlineKeyboardButton) (int64, error) {
 	if len(buttons) == 0 {
-		return c.SendMessage(ctx, chatID, text)
+		return c.SendMessageReturningID(ctx, chatID, text)
 	}
-	return c.call(ctx, "sendMessage", map[string]any{
+	var sent Message
+	if err := c.call(ctx, "sendMessage", map[string]any{
 		"chat_id":      chatID,
 		"text":         text,
 		"reply_markup": map[string]any{"inline_keyboard": [][]InlineKeyboardButton{buttons}},
-	}, nil)
+	}, &sent); err != nil {
+		return 0, err
+	}
+	return sent.MessageID, nil
 }
 
 // AnswerCallbackQuery acknowledges a button tap. Telegram spins the button's

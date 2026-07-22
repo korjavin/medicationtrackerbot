@@ -119,7 +119,11 @@ func (r *Repo) UpsertBot(ctx context.Context, b TGBot) error {
 		   webhook_secret = excluded.webhook_secret, created_at_unix = excluded.created_at_unix,
 		   chat_id = NULL, linked_at_unix = NULL`,
 		b.AccountID, b.BotID, b.BotUsername, b.TokenCT, b.TokenNonce, b.Kind, b.WebhookSecret, storedb.TimeToUnix(b.CreatedAt))
-	return err
+	if err != nil {
+		return err
+	}
+	// The old chat is gone; any pending re-fire's supersedes id belongs to it.
+	return r.ClearRelayRefires(ctx, b.AccountID)
 }
 
 // UpsertManagedBotIfPending is the manager-webhook variant of UpsertBot that
@@ -248,7 +252,9 @@ func (r *Repo) LinkChat(ctx context.Context, accountID string, chatID int64, lin
 	if n == 0 {
 		return sql.ErrNoRows
 	}
-	return nil
+	// A new chat may have a lower message-id space; drop pending re-fires whose
+	// supersedes ids reference whatever chat was linked before this /start.
+	return r.ClearRelayRefires(ctx, accountID)
 }
 
 // DeleteBot removes an account's linked bot row (the DELETE /api/telegram

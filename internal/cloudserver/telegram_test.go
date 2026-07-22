@@ -287,6 +287,10 @@ type recordMu struct {
 	answered []string
 	commands []string
 	edits    []string
+	deletes  []string
+	// deleteFails makes deleteMessage return Telegram's 400 (message can't be
+	// deleted — already gone or >48h old), standing in for the best-effort path.
+	deleteFails bool
 	// fileBody overrides what the /file download endpoint streams; nil serves
 	// fakePhotoBytes. The NXK document test points this at real .nxk bytes.
 	fileBody []byte
@@ -350,6 +354,17 @@ func newRecordingTG(t *testing.T) *recordingTG {
 			rec.mu.edits = append(rec.mu.edits, string(b))
 			rec.mu.Unlock()
 			io.WriteString(w, `{"ok":true,"result":{}}`)
+		case "deleteMessage":
+			b, _ := io.ReadAll(r.Body)
+			rec.mu.Lock()
+			rec.mu.deletes = append(rec.mu.deletes, string(b))
+			fails := rec.mu.deleteFails
+			rec.mu.Unlock()
+			if fails {
+				io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: message can't be deleted"}`)
+				return
+			}
+			io.WriteString(w, `{"ok":true,"result":true}`)
 		case "setMyCommands":
 			b, _ := io.ReadAll(r.Body)
 			rec.mu.Lock()
@@ -1237,6 +1252,11 @@ func TestChildWebhook_MedSnoozeSchedulesRelayRefire(t *testing.T) {
 	if len(rf.CT) != 0 {
 		t.Errorf("re-fire must carry no ciphertext (relay stays blind), got %d bytes", len(rf.CT))
 	}
+	// The snooze re-fire supersedes the tapped (now snoozed-receipt) message so the
+	// re-fire deletes it — one live message per chain. callbackUpdate hardcodes 9.
+	if rf.SupersedesMessageID != 9 {
+		t.Errorf("re-fire supersedes = %d, want the tapped message id 9", rf.SupersedesMessageID)
+	}
 	if d := rf.FireAt.Sub(before); d < 55*time.Minute || d > 65*time.Minute {
 		t.Errorf("re-fire fires in %v, want ~1h", d)
 	}
@@ -1422,7 +1442,7 @@ func TestSendReminder_WorkoutRendersThreeButtons(t *testing.T) {
 	tg := newRecordingTG(t)
 	f := linkedBotTap(t, tg)
 
-	if err := f.api.SendReminder(t.Context(), f.accountID, "Leg day — time to train", "w:6:20260720"); err != nil {
+	if _, err := f.api.SendReminder(t.Context(), f.accountID, "Leg day — time to train", "w:6:20260720"); err != nil {
 		t.Fatalf("SendReminder: %v", err)
 	}
 	tg.mu.Lock()
@@ -1787,7 +1807,7 @@ func TestSendReminder_MeasureRendersOpenURLAndButtons(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SubdomainByAccount: %v", err)
 	}
-	if err := f.api.SendReminder(t.Context(), f.accountID, "Time to check your BP", "bp:1721550000"); err != nil {
+	if _, err := f.api.SendReminder(t.Context(), f.accountID, "Time to check your BP", "bp:1721550000"); err != nil {
 		t.Fatalf("SendReminder: %v", err)
 	}
 	tg.mu.Lock()
@@ -1820,7 +1840,7 @@ func TestSendReminder_WorkoutIncludesStartURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SubdomainByAccount: %v", err)
 	}
-	if err := f.api.SendReminder(t.Context(), f.accountID, "Leg day", "w:6:20260720"); err != nil {
+	if _, err := f.api.SendReminder(t.Context(), f.accountID, "Leg day", "w:6:20260720"); err != nil {
 		t.Fatalf("SendReminder: %v", err)
 	}
 	tg.mu.Lock()
@@ -1977,6 +1997,13 @@ func TestBotCommand(t *testing.T) {
 // somewhere to put events. Returns the child webhook path and the X25519
 // private key the "client" uses to open what the relay sealed.
 func tgCommandFixture(t *testing.T) (http.Handler, *recordingTG, string, string, *http.Cookie, string, *ecdh.PrivateKey) {
+	top, tg, host, childPath, session, accountID, priv, _ := tgCommandFixtureAPI(t)
+	return top, tg, host, childPath, session, accountID, priv
+}
+
+// tgCommandFixtureAPI is tgCommandFixture plus the *TelegramAPI itself, for
+// tests that call reminder-send/delete methods directly (DeleteReminder).
+func tgCommandFixtureAPI(t *testing.T) (http.Handler, *recordingTG, string, string, *http.Cookie, string, *ecdh.PrivateKey, *TelegramAPI) {
 	t.Helper()
 	store := setupStore(t)
 	account, claimToken := setupInvite(t, store)
@@ -2032,7 +2059,7 @@ func tgCommandFixture(t *testing.T) (http.Handler, *recordingTG, string, string,
 		t.Fatalf("PUT /api/inbox/key = %d", code)
 	}
 	childPath := "/tg/bot/" + account.ID + "/" + bot.WebhookSecret
-	return top, tg, host, childPath, session, account.ID, priv
+	return top, tg, host, childPath, session, account.ID, priv, tgAPI
 }
 
 // TestChildWebhook_SealsCommandVerbatim (bd med-eas.29.2) pins the core
@@ -2344,6 +2371,41 @@ func TestEditReply(t *testing.T) {
 	r := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/reply-edit", host, nil, body)
 	if r.Code != http.StatusUnauthorized {
 		t.Errorf("unauthenticated edit = %d, want 401", r.Code)
+	}
+}
+
+// TestDeleteReminder_BestEffort (bd med-eas.79 Task 2) pins that DeleteReminder
+// is account-scoped and never lets a Telegram error abort the caller: a 400 is
+// swallowed (returns nil) and messageID <= 0 is a no-op that touches nothing.
+func TestDeleteReminder_BestEffort(t *testing.T) {
+	_, tg, _, _, _, accountID, _, tgAPI := tgCommandFixtureAPI(t)
+
+	// messageID <= 0 is a no-op: no deleteMessage call reaches Telegram.
+	if err := tgAPI.DeleteReminder(t.Context(), accountID, 0); err != nil {
+		t.Fatalf("DeleteReminder(0) = %v, want nil no-op", err)
+	}
+	tg.mu.Lock()
+	if len(tg.mu.deletes) != 0 {
+		t.Fatalf("messageID 0 issued deletes: %v", tg.mu.deletes)
+	}
+	tg.mu.Unlock()
+
+	// Telegram returns 400 (can't delete) — DeleteReminder swallows it, returns nil.
+	tg.mu.Lock()
+	tg.mu.deleteFails = true
+	tg.mu.Unlock()
+	if err := tgAPI.DeleteReminder(t.Context(), accountID, 777); err != nil {
+		t.Fatalf("DeleteReminder swallowed error should return nil, got %v", err)
+	}
+	tg.mu.Lock()
+	deletes := append([]string(nil), tg.mu.deletes...)
+	tg.mu.Unlock()
+	if len(deletes) != 1 {
+		t.Fatalf("deleteMessage calls = %d, want 1: %v", len(deletes), deletes)
+	}
+	// chat_id comes from the linked bot row (/start linked chat 12345), not the caller.
+	if !strings.Contains(deletes[0], "12345") || !strings.Contains(deletes[0], "777") {
+		t.Errorf("delete did not target linked chat 12345 / message 777: %s", deletes[0])
 	}
 }
 

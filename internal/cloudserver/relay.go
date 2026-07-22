@@ -66,7 +66,11 @@ type PushSender interface {
 // and learns nothing else about the account. Nil when the deployment has no
 // manager bot configured, in which case telegram entries are dropped.
 type TelegramSender interface {
-	SendReminder(ctx context.Context, accountID, text, callbackStem string) error
+	SendReminder(ctx context.Context, accountID, text, callbackStem string) (int64, error)
+	// DeleteReminder best-effort deletes a previously-sent reminder message so a
+	// re-fire leaves one live message per chain. Account-scoped: it resolves the
+	// chat internally, so the relay never touches a chat_id.
+	DeleteReminder(ctx context.Context, accountID string, messageID int64) error
 }
 
 // WebPushSender is the production PushSender. ct is already NK-encrypted
@@ -119,7 +123,7 @@ type relayStore interface {
 	AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, staleAfter, warnCooldown time.Duration) ([]string, error)
 	MarkStaleSyncWarned(ctx context.Context, accountID string, now time.Time) error
 	AccountVAPIDKeysByID(ctx context.Context, accountID string) (cloudstore.AccountVAPIDKeys, error)
-	RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback string) error
+	RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback string, supersedesMessageID int64) error
 }
 
 // Relay is the blind push-firing loop: it never decrypts or composes a
@@ -250,11 +254,19 @@ func (rl *Relay) sendTelegram(ctx context.Context, p cloudstore.ScheduledPush) {
 		slog.Warn("push relay: telegram entry but no telegram sender configured", "accountID", p.AccountID)
 		return
 	}
-	if err := rl.tg.SendReminder(ctx, p.AccountID, p.TGText, p.TGCallback); err != nil {
+	newID, err := rl.tg.SendReminder(ctx, p.AccountID, p.TGText, p.TGCallback)
+	if err != nil {
 		slog.Error("push relay: telegram send", "accountID", p.AccountID, "error", err)
 		return
 	}
-	rl.scheduleMedRefire(ctx, p)
+	// Best-effort: delete the prior message in this chain so exactly one live
+	// reminder remains. A failed delete (already gone / >48h old) never aborts.
+	if p.SupersedesMessageID != 0 {
+		if err := rl.tg.DeleteReminder(ctx, p.AccountID, p.SupersedesMessageID); err != nil {
+			slog.Warn("push relay: delete superseded reminder", "accountID", p.AccountID, "error", err)
+		}
+	}
+	rl.scheduleMedRefire(ctx, p, newID)
 }
 
 // scheduleMedRefire chains the next re-fire of an unconfirmed med reminder. When
@@ -264,7 +276,7 @@ func (rl *Relay) sendTelegram(ctx context.Context, p cloudstore.ScheduledPush) {
 // or crossing the window ends the chain. Both the primary send and each
 // relay_refire flow through here, so the hourly nag perpetuates without a
 // counter. Zero-knowledge: it copies only the already-cleartext tg_text/callback.
-func (rl *Relay) scheduleMedRefire(ctx context.Context, p cloudstore.ScheduledPush) {
+func (rl *Relay) scheduleMedRefire(ctx context.Context, p cloudstore.ScheduledPush, supersedesMessageID int64) {
 	rest, ok := strings.CutPrefix(p.TGCallback, tgclient.CallbackSlotPrefix)
 	if !ok {
 		return // not a med dose reminder (e.g. a workout re-fire owns its own chain)
@@ -277,7 +289,7 @@ func (rl *Relay) scheduleMedRefire(ctx context.Context, p cloudstore.ScheduledPu
 	if now.Sub(time.Unix(slotUnix, 0).UTC()) > maxMedRefireWindow {
 		return // past the cap: stop nagging
 	}
-	if err := rl.store.RescheduleRelayRefire(ctx, p.AccountID, now.Add(time.Hour), p.TGText, p.TGCallback); err != nil {
+	if err := rl.store.RescheduleRelayRefire(ctx, p.AccountID, now.Add(time.Hour), p.TGText, p.TGCallback, supersedesMessageID); err != nil {
 		slog.Error("push relay: schedule med refire", "accountID", p.AccountID, "error", err)
 	}
 }

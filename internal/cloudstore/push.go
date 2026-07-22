@@ -140,6 +140,9 @@ type ScheduledPush struct {
 	Delivery   string
 	TGText     string
 	TGCallback string
+	// SupersedesMessageID is the prior Telegram message_id this send should delete
+	// (0 = nothing to delete). A TG artifact, never vault/ct data (med-eas.79).
+	SupersedesMessageID int64
 }
 
 // ScheduledPushInput is one entry of a PUT /api/push/schedule replace-all
@@ -190,7 +193,7 @@ func (r *Repo) ReplaceSchedule(ctx context.Context, accountID string, entries []
 // fire_at has passed — the relay sender's per-tick query.
 func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]ScheduledPush, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, account_id, fire_at_unix, ct, delivery, tg_text, tg_callback FROM scheduled_pushes WHERE sent_at_unix IS NULL AND fire_at_unix <= ? ORDER BY fire_at_unix`,
+		`SELECT id, account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, supersedes_message_id FROM scheduled_pushes WHERE sent_at_unix IS NULL AND fire_at_unix <= ? ORDER BY fire_at_unix`,
 		storedb.TimeToUnix(now))
 	if err != nil {
 		return nil, err
@@ -203,7 +206,7 @@ func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]Schedul
 			p        ScheduledPush
 			fireUnix int64
 		)
-		if err := rows.Scan(&p.ID, &p.AccountID, &fireUnix, &p.CT, &p.Delivery, &p.TGText, &p.TGCallback); err != nil {
+		if err := rows.Scan(&p.ID, &p.AccountID, &fireUnix, &p.CT, &p.Delivery, &p.TGText, &p.TGCallback, &p.SupersedesMessageID); err != nil {
 			return nil, err
 		}
 		p.FireAt = storedb.UnixToTime(fireUnix)
@@ -242,18 +245,54 @@ func (r *Repo) InsertRelayRefire(ctx context.Context, accountID string, fireAt t
 // transaction so two concurrent workout snooze taps for the same session can't
 // both delete-then-insert and leave duplicate pending re-fire rows (med-eas.70).
 // Copies only already-cleartext fields (empty ct), preserving zero-knowledge.
-func (r *Repo) RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback string) error {
+// supersedesMessageID is the prior TG message_id this re-fire should delete when it
+// sends (0 = none) — a TG artifact, not vault data (med-eas.79).
+//
+// The supersedes id never regresses: a delayed snooze tap from an older message
+// (its callback processed after the relay already queued a newer re-fire) must
+// not overwrite a higher pending supersedes id with a lower one, which would
+// delete an already-gone message and leave the newer reminder live (violating
+// one-live-reminder-per-chain). TG message ids are monotonic per chat, so we
+// keep max(existing pending, new) inside the transaction. This compare is only
+// sound because pending re-fires never outlive their chat: ClearRelayRefires
+// wipes them on every bot relink / new /start, so both ids here always come from
+// the same chat's id-space (med-eas.79).
+func (r *Repo) RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback string, supersedesMessageID int64) error {
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		var pending sql.NullInt64
+		if err := tx.QueryRowContext(ctx,
+			`SELECT MAX(supersedes_message_id) FROM scheduled_pushes WHERE account_id = ? AND origin = ? AND tg_callback = ? AND sent_at_unix IS NULL`,
+			accountID, PushOriginRelayRefire, tgCallback).Scan(&pending); err != nil {
+			return err
+		}
+		if pending.Valid && pending.Int64 > supersedesMessageID {
+			supersedesMessageID = pending.Int64
+		}
 		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM scheduled_pushes WHERE account_id = ? AND origin = ? AND tg_callback = ? AND sent_at_unix IS NULL`,
 			accountID, PushOriginRelayRefire, tgCallback); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, origin) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			accountID, storedb.TimeToUnix(fireAt), []byte{}, DeliveryTelegram, tgText, tgCallback, PushOriginRelayRefire)
+			`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, origin, supersedes_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			accountID, storedb.TimeToUnix(fireAt), []byte{}, DeliveryTelegram, tgText, tgCallback, PushOriginRelayRefire, supersedesMessageID)
 		return err
 	})
+}
+
+// ClearRelayRefires drops ALL pending (unsent) relay re-fires for accountID.
+// Called when the account's chat linkage changes (bot relink / new /start): a
+// pending re-fire's supersedes_message_id and tg_text belong to the OLD chat's
+// message id-space, which is meaningless in a new chat. Clearing them keeps the
+// max-preserve compare in RescheduleRelayRefire strictly same-chat (Telegram
+// message ids are only monotonic per chat), so a stale high id can never win the
+// max() against a fresh low id and make the delete target the wrong message
+// (med-eas.79).
+func (r *Repo) ClearRelayRefires(ctx context.Context, accountID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`DELETE FROM scheduled_pushes WHERE account_id = ? AND origin = ? AND sent_at_unix IS NULL`,
+		accountID, PushOriginRelayRefire)
+	return err
 }
 
 // CancelRelayRefire drops any pending (unsent) relay re-fire for accountID whose
