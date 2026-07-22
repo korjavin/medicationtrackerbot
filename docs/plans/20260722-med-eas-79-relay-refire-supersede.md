@@ -99,12 +99,12 @@ Dependencies identified: goose migrations auto-embed via glob (no manual registr
 - [x] run `go test ./internal/cloudstore/...` — must pass before Task 4.
 
 ### Task 4: relay.go — capture id, delete prior, chain supersedes
-- [ ] update `TelegramSender` interface: `SendReminder(...) (int64, error)` and add `DeleteReminder(ctx context.Context, accountID string, messageID int64) error`.
-- [ ] update `relayStore` interface: `RescheduleRelayRefire(ctx, accountID, fireAt, tgText, tgCallback string, supersedesMessageID int64) error`.
-- [ ] `sendTelegram`: `newID, err := rl.tg.SendReminder(...)`; on error log + return (unchanged swallow semantics). After a successful send, if `p.SupersedesMessageID != 0` call `rl.tg.DeleteReminder(ctx, p.AccountID, p.SupersedesMessageID)` and only log its error (never abort). Then `rl.scheduleMedRefire(ctx, p, newID)`.
-- [ ] `scheduleMedRefire`: add `supersedesMessageID int64` param and pass it through to `store.RescheduleRelayRefire(...)`. (Chain semantics: the next re-fire's supersedes = this send's `newID`, so re-fire N deletes send N-1; the first re-fire supersedes the original reminder.)
-- [ ] write/extend tests for the interface-signature change (fakes updated in Task 6). Compile-check with `go build ./...`.
-- [ ] run `go build ./...` — must pass before Task 5.
+- [x] update `TelegramSender` interface: `SendReminder(...) (int64, error)` and add `DeleteReminder(ctx context.Context, accountID string, messageID int64) error`.
+- [x] update `relayStore` interface: `RescheduleRelayRefire(ctx, accountID, fireAt, tgText, tgCallback string, supersedesMessageID int64) error`.
+- [x] `sendTelegram`: `newID, err := rl.tg.SendReminder(...)`; on error log + return (unchanged swallow semantics). After a successful send, if `p.SupersedesMessageID != 0` call `rl.tg.DeleteReminder(ctx, p.AccountID, p.SupersedesMessageID)` and only log its error (never abort). Then `rl.scheduleMedRefire(ctx, p, newID)`.
+- [x] `scheduleMedRefire`: add `supersedesMessageID int64` param and pass it through to `store.RescheduleRelayRefire(...)`. (Chain semantics: the next re-fire's supersedes = this send's `newID`, so re-fire N deletes send N-1; the first re-fire supersedes the original reminder.)
+- [x] write/extend tests for the interface-signature change (fakes updated in Task 6). Compile-check with `go build ./...`. (Fakes/tests deferred to Task 6 per plan; the three telegram.go RescheduleRelayRefire call sites temporarily pass `0`, replaced with the tapped messageID in Task 5.)
+- [x] run `go build ./...` — must pass before Task 5.
 
 ### Task 5: snooze re-fire — thread the tapped message_id
 - [ ] in `handleCallbackQuery` (telegram.go), pass the already-captured `messageID` (the tapped `cq.Message.MessageID`) as `supersedesMessageID` to all THREE `RescheduleRelayRefire` calls: med `s:` (~1737), workout `w:` (~1873), measure `bp:`/`wt:` (~1956). So when the snooze re-fire fires, it deletes the prior (snoozed-receipt) message — one live message per chain.
