@@ -83,12 +83,12 @@ Dependencies identified: goose migrations auto-embed via glob (no manual registr
 - [x] run `go test ./internal/tgclient/...` — must pass before Task 2.
 
 ### Task 2: telegram.go — SendReminder returns message_id + DeleteReminder
-- [ ] change `SendReminder` signature to `(ctx context.Context, accountID, text, callbackStem string) (int64, error)`; every early error/`ErrNoLinkedChat` return becomes `return 0, err`.
-- [ ] plain path: `return client.SendMessageReturningID(ctx, *bot.ChatID, text)`; buttoned path: `return client.SendMessageWithButtonsReturningID(ctx, *bot.ChatID, text, buttons)`.
-- [ ] add `func (t *TelegramAPI) DeleteReminder(ctx context.Context, accountID string, messageID int64) error`: no-op when `messageID <= 0`; resolve the bot chat by account exactly like `SendReminder` (`BotByAccount` → `botClient`), then call `client.DeleteMessage` **best-effort** — on ANY error `slog.Warn` and return `nil` (a not-found / >48h-old / revoked-token delete must never propagate). No-op / warn on `ErrNoLinkedChat` or nil `ChatID`.
-- [ ] update `TestSendReminder_*` in `telegram_test.go` for the new two-value return (discard the id where the test only asserts buttons/text).
-- [ ] write test: `DeleteReminder` swallows a Telegram error (fake bot API returns 400) and returns nil; and is a no-op for `messageID <= 0`.
-- [ ] run `go test ./internal/cloudserver/... -run 'SendReminder|DeleteReminder'` — must pass before Task 3.
+- [x] change `SendReminder` signature to `(ctx context.Context, accountID, text, callbackStem string) (int64, error)`; every early error/`ErrNoLinkedChat` return becomes `return 0, err`.
+- [x] plain path: `return client.SendMessageReturningID(ctx, *bot.ChatID, text)`; buttoned path: `return client.SendMessageWithButtonsReturningID(ctx, *bot.ChatID, text, buttons)`.
+- [x] add `func (t *TelegramAPI) DeleteReminder(ctx context.Context, accountID string, messageID int64) error`: no-op when `messageID <= 0`; resolve the bot chat by account exactly like `SendReminder` (`BotByAccount` → `botClient`), then call `client.DeleteMessage` **best-effort** — on ANY error `slog.Warn` and return `nil` (a not-found / >48h-old / revoked-token delete must never propagate). No-op / warn on `ErrNoLinkedChat` or nil `ChatID`.
+- [x] update `TestSendReminder_*` in `telegram_test.go` for the new two-value return (discard the id where the test only asserts buttons/text).
+- [x] write test: `DeleteReminder` swallows a Telegram error (fake bot API returns 400) and returns nil; and is a no-op for `messageID <= 0`.
+- [x] run `go test ./internal/cloudserver/... -run 'SendReminder|DeleteReminder'` — must pass before Task 3.
 
 ### Task 3: migration 020 + cloudstore supersedes plumbing
 - [ ] add `internal/cloudstore/migrations/020_push_supersedes.sql`: Up `ALTER TABLE scheduled_pushes ADD COLUMN supersedes_message_id INTEGER NOT NULL DEFAULT 0;`, Down `ALTER TABLE scheduled_pushes DROP COLUMN supersedes_message_id;` (goose Up/Down StatementBegin/End blocks, with a comment noting it holds the TG message_id the send should delete — a TG artifact, not vault data). NEVER edit an existing migration.

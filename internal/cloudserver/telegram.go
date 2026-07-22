@@ -2012,20 +2012,20 @@ func dropEmptyURLButtons(buttons []tgclient.InlineKeyboardButton) []tgclient.Inl
 // everything else. When set, Confirm/Snooze buttons ride along; a tap comes back
 // to ChildWebhook, is sealed to the account's inbox key, and is applied by an
 // unlocked client at drain time.
-func (t *TelegramAPI) SendReminder(ctx context.Context, accountID, text, callbackStem string) error {
+func (t *TelegramAPI) SendReminder(ctx context.Context, accountID, text, callbackStem string) (int64, error) {
 	bot, err := t.store.BotByAccount(ctx, accountID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNoLinkedChat
+		return 0, ErrNoLinkedChat
 	}
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if bot.ChatID == nil {
-		return ErrNoLinkedChat
+		return 0, ErrNoLinkedChat
 	}
 	client, err := t.botClient(bot)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	// A stem the client never should have sent (or a tampered row) would become
 	// callback_data we cannot parse back. Drop the buttons, keep the reminder.
@@ -2034,7 +2034,7 @@ func (t *TelegramAPI) SendReminder(ctx context.Context, accountID, text, callbac
 		callbackStem = ""
 	}
 	if callbackStem == "" {
-		return client.SendMessage(ctx, *bot.ChatID, text)
+		return client.SendMessageReturningID(ctx, *bot.ChatID, text)
 	}
 	// The button set is chosen by the stem's namespace: workout ("w:") reminders
 	// get ▶️ Start (deep link) + Snooze 1h / Snooze 2h / Skip; measure ("bp:"/"wt:")
@@ -2069,7 +2069,37 @@ func (t *TelegramAPI) SendReminder(ctx context.Context, accountID, text, callbac
 	// to Telegram) so a subdomain-lookup miss degrades to a smaller keyboard
 	// rather than a rejected send.
 	buttons = dropEmptyURLButtons(buttons)
-	return client.SendMessageWithButtons(ctx, *bot.ChatID, text, buttons)
+	return client.SendMessageWithButtonsReturningID(ctx, *bot.ChatID, text, buttons)
+}
+
+// DeleteReminder removes a previously-sent reminder message from the account's
+// linked bot chat. It is account-scoped and best-effort: it resolves the chat by
+// account internally (so the relay never touches a chat_id) and swallows every
+// Telegram error — a message the user already deleted, one older than Telegram's
+// 48h bot-delete limit, or a revoked token must never abort the re-fire chain.
+// messageID <= 0 means "nothing to delete" and is a no-op. The messageID is a TG
+// artifact the relay already holds; no vault data is read here.
+func (t *TelegramAPI) DeleteReminder(ctx context.Context, accountID string, messageID int64) error {
+	if messageID <= 0 {
+		return nil
+	}
+	bot, err := t.store.BotByAccount(ctx, accountID)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && bot.ChatID == nil) {
+		return nil
+	}
+	if err != nil {
+		slog.Warn("telegram delete reminder: load bot", "error", err, "account", accountID)
+		return nil
+	}
+	client, err := t.botClient(bot)
+	if err != nil {
+		slog.Warn("telegram delete reminder: bot client", "error", err, "account", accountID)
+		return nil
+	}
+	if derr := client.DeleteMessage(ctx, *bot.ChatID, messageID); derr != nil {
+		slog.Warn("telegram delete reminder: best-effort delete failed", "error", derr, "account", accountID, "messageID", messageID)
+	}
+	return nil
 }
 
 // Delete unlinks the account's bot: it deletes the Telegram webhook (best
