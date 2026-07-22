@@ -218,6 +218,19 @@ window.MedTrackerCloudReady = (async function boot() {
                 ? shimCall(endpoint, method, body, opts)
                 : realApiCallDirect(endpoint, method, body, opts)
         );
+        // med-gvk.2: local state is READY here — the vault is unlocked and the
+        // API shim now serves every /api/* read from the local mirror, so app.js
+        // (which awaits MedTrackerCloudReady) can mount the UI immediately.
+        // Everything below is NETWORK sync (pullOnOpen, tag invalidation, warm
+        // reads, reminder/push/mcp/inbox/feedback) and must NOT gate the mount:
+        // on a DEGRADED network (captive portal / hung TCP) an awaited bare-fetch
+        // pullOnOpen used to hang here forever, so MedTrackerCloudReady never
+        // resolved and the app painted cache but NEVER mounted. Detaching this
+        // block (plus the SYNC_FETCH_TIMEOUT_MS on sync.js's fetches) lets boot
+        // resolve now and sync catch up in the background. Failures here degrade
+        // in place and are logged — they must NOT redirect to /unlock (the vault
+        // is already unlocked). The IIFE closes just before the outer catch.
+        void (async () => {
         await pullOnOpen(ctx);
         // med-deq.2: the sync-status re-auth affordance lives in the unlock
         // shell, but a device with a warm LDK cache never sees that shell
@@ -266,9 +279,9 @@ window.MedTrackerCloudReady = (async function boot() {
             // remote change from another device renders stale until some other
             // refresh path repaints. 'medications'/'history' cover the meds
             // list, Today next-dose tile (next_intake) and per-med history.
-            // Awaited so MedTrackerCloudReady (which checkAuth blocks on before
-            // applyBootstrapPayload) doesn't resolve until the Dexie evictions
-            // finish — otherwise the app could read stale cache mid-clear.
+            // Runs in the background block (med-gvk.2): the UI already mounted
+            // from local, so evicting here simply repaints those tags once the
+            // background pull lands — no longer gating MedTrackerCloudReady.
             await window.DataStore.invalidateTags(['bp', 'weight', 'medications', 'history', 'workout']);
         }
         // med-prk.2: one-time backfill linking pre-migration plan exercises to
@@ -394,9 +407,13 @@ window.MedTrackerCloudReady = (async function boot() {
                 drainFeedbackOutbox().catch(() => {});
             })
             .catch((e) => console.error('[cloud-boot] feedback launcher mount failed', e));
+        })().catch((e) => console.error('[cloud-boot] background sync failed', e));
     } catch (e) {
         // Boot the app degraded rather than redirecting — the vault is already
         // unlocked, so /unlock would just bounce straight back to / (med-eas.16).
+        // Only the SYNCHRONOUS shim install can reach here now (e.g. the
+        // apiCallDirect redefine hazard above); background-sync failures land in
+        // the IIFE's own .catch and likewise never redirect.
         console.error('[cloud-boot] post-unlock boot failed', e);
     }
 })();

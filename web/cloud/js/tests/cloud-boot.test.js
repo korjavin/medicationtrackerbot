@@ -65,6 +65,27 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     expect(location.href).toBe('');
   });
 
+  it('resolves MedTrackerCloudReady and mounts even when a sync fetch NEVER resolves (med-gvk.2)', async () => {
+    // The headline: on a degraded network (captive portal / hung TCP) pullOnOpen's
+    // bare fetch used to hang forever, so — because it was awaited on the boot
+    // critical path — MedTrackerCloudReady never resolved and app.js painted cache
+    // but never mounted. The pull is now detached: boot resolves once the LOCAL
+    // state (unlock + API shim) is ready. runBoot awaits MedTrackerCloudReady, so
+    // if this regressed the test would hang and time out.
+    let shimInstalled = false;
+    const { location } = await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'apishim.js': { installApiShim: () => { shimInstalled = true; return () => Promise.resolve(null); } },
+        // A half-open sync: pullOnOpen never settles. Nothing after it in the
+        // background block runs, so no other module import is needed.
+        'sync.js': { pullOnOpen: () => new Promise(() => {}) },
+      },
+    });
+    expect(shimInstalled).toBe(true); // local state was installed → the UI can mount
+    expect(location.href).toBe('');   // and boot did NOT bounce to /unlock
+  });
+
   it('installs the apiCallDirect shim wrapper when window.apiCallDirect is NON-configurable (med-1iv)', async () => {
     // core/api.js declares `apiCallDirect` as a top-level function, so
     // window.apiCallDirect is a non-configurable (but writable) global. The old
