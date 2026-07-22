@@ -44,7 +44,7 @@ describe('write origin decides the repaint (med-dvr)', () => {
     let assignNext = 1;
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
       const u = String(url);
-      if (u === '/api/sync/snapshot' && !init) return new Response(null, { status: 204 });
+      if (u === '/api/sync/snapshot' && !init?.method) return new Response(null, { status: 204 });
       if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
       if (u === '/api/sync/ops' && init?.method === 'POST') {
         const { ops } = JSON.parse(init.body);

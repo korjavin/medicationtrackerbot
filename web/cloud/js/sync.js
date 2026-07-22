@@ -29,6 +29,21 @@ const SNAPSHOT_THRESHOLD = 500;
 const MAX_OPS_PER_BATCH = 500; // == sync.go maxOpsPerBatch
 const FLUSH_MAX_BODY_BYTES = 900 * 1024; // stay under the server's 1 MiB body cap
 
+// A bare fetch() has no timeout, so a half-open connection (captive portal,
+// degraded network — NOT clean airplane mode, which rejects fast) hangs the
+// awaited fetch forever. Every /api/sync/* call below therefore goes through
+// timedFetch, which aborts after SYNC_FETCH_TIMEOUT_MS and rejects like any
+// other network failure — landing in each call site's existing `catch { offline
+// = true; ... }` degrade path, so pending rows/markers stay put and the next
+// pullOnOpen retries. This is what keeps a stalled boot from wedging the mount
+// (med-gvk.2). 10s mirrors rxnorm.js / aiclient.js's FETCH_TIMEOUT_MS.
+const SYNC_FETCH_TIMEOUT_MS = 10000;
+function timedFetch(url, opts) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SYNC_FETCH_TIMEOUT_MS);
+  return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 // Consecutive permanent-error flush opens before syncing pauses (med-0ol.7).
 // #613 stopped the tight loop but a doomed batch still re-POSTs once per open,
 // forever. After this many permanent 4xx failures, flushPending gives up and
@@ -440,7 +455,7 @@ async function bootstrap(ctx) {
   const kData = await getKData(ctx);
   let snapRes;
   try {
-    snapRes = await fetch('/api/sync/snapshot');
+    snapRes = await timedFetch('/api/sync/snapshot');
   } catch {
     offline = true;
     return false; // leave localLastSeq null so bootstrapIfNeeded retries next open
@@ -506,7 +521,7 @@ async function pullTail(ctx) {
     if (meta.localLastSeq === null) return;
     let res;
     try {
-      res = await fetch(`/api/sync/ops?since=${meta.localLastSeq}&limit=${OPS_PAGE_LIMIT}`);
+      res = await timedFetch(`/api/sync/ops?since=${meta.localLastSeq}&limit=${OPS_PAGE_LIMIT}`);
     } catch {
       offline = true;
       return;
@@ -582,7 +597,7 @@ async function snapshotAt(ctx, snapshotSeq) {
   const { nonce, ct } = await encryptSnapshot({ kData, accountId: ctx.accountId, snapshotSeq, plaintext });
   let res;
   try {
-    res = await fetch('/api/sync/snapshot', {
+    res = await timedFetch('/api/sync/snapshot', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ snapshot_seq: snapshotSeq, nonce: toBase64(nonce), ct: toBase64(ct) }),
@@ -741,7 +756,7 @@ async function tryForceSnapshot(ctx) {
   });
   let res;
   try {
-    res = await fetch('/api/sync/ops', {
+    res = await timedFetch('/api/sync/ops', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ops: [{ record_type_tag: makeTag('importbump', IMPORT_BUMP_RECORD_ID), nonce: toBase64(nonce), ct: toBase64(ct) }] }),
@@ -936,7 +951,7 @@ async function flushPendingUnlocked(ctx) {
     }
     let res;
     try {
-      res = await fetch('/api/sync/ops', {
+      res = await timedFetch('/api/sync/ops', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ops }),

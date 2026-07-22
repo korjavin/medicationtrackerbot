@@ -337,7 +337,7 @@ describe('non-UI writes repaint the open tab (med-d5t.10)', () => {
     let assignNext = 1;
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
       const u = String(url);
-      if (u === '/api/sync/snapshot' && !init) return new Response(null, { status: 204 });
+      if (u === '/api/sync/snapshot' && !init?.method) return new Response(null, { status: 204 });
       if (u.startsWith('/api/sync/ops?')) {
         const ops = pulledOps.splice(0, pulledOps.length);
         return new Response(JSON.stringify({ ops, next: false }), { status: 200 });
@@ -818,6 +818,114 @@ describe('writeRecord does not await the background oplog push (med-eas.77)', ()
       // Retained for retry, and no unhandled rejection escaped the fire-and-forget catch.
       expect((await getSyncStatus(ctx)).pendingCount).toBe(1);
       expect(rejections).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onRej);
+    }
+  });
+});
+
+// med-gvk.2 — a half-open connection (captive portal / hung TCP) leaves a bare
+// fetch pending forever, which is what hung the boot's awaited pullOnOpen. Every
+// /api/sync/* fetch now goes through timedFetch, aborting after
+// SYNC_FETCH_TIMEOUT_MS (10s) and landing in the same `catch { offline = true }`
+// degrade path as any network failure — so the pull resolves, pending data is
+// kept, and the account is not permanently wedged (retried next open).
+describe('sync fetches abort on a half-open connection (med-gvk.2)', () => {
+  let ctx;
+
+  const seedMeta = async (meta) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('sync_meta', 'readwrite');
+        const store = tx.objectStore('sync_meta');
+        for (const [k, v] of Object.entries(meta)) store.put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  // Seed a durable record + its 'pending' row directly, so pullOnOpen's flush
+  // leg has something to (fail to) push without going through writeRecord's own
+  // background flush.
+  const seedPending = async (record) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'pending'], 'readwrite');
+        tx.objectStore('records').put(record);
+        tx.objectStore('pending').put({ recordId: record.recordId, recordType: record.recordType });
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, dek: await generateDEK() };
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // Wiring guard: a bare fetch() carries no signal and can never be aborted, so
+  // asserting every /api/sync/* fetch is passed an AbortSignal is what proves the
+  // half-open stall is now bounded. (The 10s countdown itself is a plain
+  // AbortController + setTimeout; the fired-abort behaviour is exercised below.)
+  it('passes an AbortSignal into every /api/sync fetch (bare fetch could never time out)', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    await seedPending({ recordId: 'note-1', recordType: 'note', clientTs: Date.now(), text: 'hi' });
+
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url) === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        return new Response(JSON.stringify({ assigned: ops.map((_, i) => i + 1) }), { status: 200 });
+      }
+      if (String(url).startsWith('/api/sync/ops')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+
+    await pullOnOpen(ctx);
+
+    expect(globalThis.fetch).toHaveBeenCalled();
+    expect(globalThis.fetch.mock.calls.every(([, init]) => init && init.signal instanceof AbortSignal)).toBe(true);
+  });
+
+  it('degrades like offline when the timeout fires (AbortError): keeps pending, does not wedge, no unhandled rejection', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    await seedPending({ recordId: 'note-1', recordType: 'note', clientTs: Date.now(), text: 'hi' });
+
+    // Exactly what timedFetch's AbortController produces when the 10s elapses —
+    // fetch rejects with an AbortError. No fake timers / no 10s wait needed to
+    // exercise the degrade path the timeout lands in.
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
+    }));
+
+    const rejections = [];
+    const onRej = (e) => rejections.push(e);
+    process.on('unhandledRejection', onRej);
+    try {
+      await pullOnOpen(ctx); // resolves — a bare fetch on a half-open socket would hang here forever
+      await new Promise((r) => setTimeout(r, 0)); // flush any stray microtask/rejection
+
+      const status = await getSyncStatus(ctx);
+      expect(status.offline).toBe(true);   // degraded like offline
+      expect(status.pendingCount).toBe(1); // no data lost — retried next open
+      expect(status.wedged).toBe(false);   // transient, not permanently wedged
+      expect(rejections).toEqual([]);      // aborts caught, nothing escaped
     } finally {
       process.off('unhandledRejection', onRej);
     }
@@ -1475,7 +1583,7 @@ describe('write-error retry budget wedges a doomed batch, resetLocalSync un-wedg
 
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
       const u = String(url);
-      if (u === '/api/sync/snapshot' && !init) return new Response(snapshotBody, { status: 200 });
+      if (u === '/api/sync/snapshot' && !init?.method) return new Response(snapshotBody, { status: 200 });
       if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
       if (u === '/api/sync/snapshot' && init?.method === 'POST') return new Response('{}', { status: 200 });
       throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
