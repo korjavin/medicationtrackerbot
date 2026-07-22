@@ -401,3 +401,47 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     expect(sync.calls.order).toEqual(['mark', 'drop', 'replace']);
   });
 });
+
+describe('cloud-boot early service worker registration (med-gvk.1)', () => {
+  // The SW warms + serves the offline app shell with zero network on the
+  // critical path. Registering it at module top — before the unlock/sync gates
+  // and OUTSIDE med-gvk.2's detached background sync — establishes the cache on
+  // first paint, not only after a fully successful boot. It must never gate the
+  // mount (MedTrackerCloudReady).
+  let priorNavigator;
+  afterEach(() => { globalThis.navigator = priorNavigator; });
+
+  it('registers /sw.js before the unlock gate and does not block MedTrackerCloudReady', async () => {
+    priorNavigator = globalThis.navigator;
+    const order = [];
+    const register = (url) => {
+      order.push('register:' + url);
+      // A promise that NEVER resolves: if boot awaited it, MedTrackerCloudReady
+      // would hang and this test would time out. It resolving here proves the
+      // registration is off the critical path.
+      return new Promise(() => {});
+    };
+    globalThis.navigator = { serviceWorker: { register } };
+
+    const { location } = await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => { order.push('warmUnlock'); return null; } },
+      },
+    });
+
+    // Fired at module eval, BEFORE the warm-unlock gate ran.
+    expect(order[0]).toBe('register:/sw.js');
+    expect(order.indexOf('register:/sw.js')).toBeLessThan(order.indexOf('warmUnlock'));
+    // Boot completed (redirect resolved) even though register() never settled.
+    expect(location.href).toBe('/unlock');
+  });
+
+  it('skips registration when serviceWorker is unavailable, and boot still proceeds', async () => {
+    priorNavigator = globalThis.navigator;
+    globalThis.navigator = {}; // no serviceWorker
+    const { location } = await runBoot({
+      modules: { 'unlock.js': { warmUnlock: async () => null } },
+    });
+    expect(location.href).toBe('/unlock');
+  });
+});

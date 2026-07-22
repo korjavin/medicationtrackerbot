@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SW_ORIGIN as ORIGIN, loadCloudSw } from './helpers/sw-loader.js';
+import { allowConsoleNoise } from '../../../static/js/tests/helpers/setup.js';
 
 // SW_VERSION is CACHE_VERSION_PLACEHOLDER at rest (rewritten per deploy).
 const SHELL_CACHE = 'medtracker-cloud-shell-CACHE_VERSION_PLACEHOLDER';
@@ -283,6 +284,52 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         const cached = caches.store.get(SHELL_CACHE);
         for (const key of Object.keys(files)) expect(cached.has(key), key).toBe(true);
         expect(cached.size).toBe(Object.keys(files).length);
+    });
+
+    it('install stays usable when an OPTIONAL module-graph asset fails: caches the rest, skips the flaky one (med-gvk.1)', async () => {
+        // The headline: pre-med-gvk.1 a single flaky subresource rejected the
+        // whole install so NOTHING cached. Now a failure in the transitively-
+        // crawled ES-module graph (OPTIONAL — the running JS re-fetches it, and
+        // the fetch handler backfills it) is logged + skipped; the core shell
+        // and every sibling that succeeded are still cached and install resolves.
+        allowConsoleNoise(); // the skipped-optional-asset warning logs by design
+        const files = {
+            '/': '<script src="/js/boot.js"></script><link rel="stylesheet" href="/static/s.css?v=1">',
+            '/static/s.css?v=1': 'body{}',
+            // boot.js imports two modules: one resolves, one 404s.
+            '/js/boot.js': "import('/js/good.js'); import('/js/flaky.js');",
+            '/js/good.js': 'export const ok = 1;',
+            // '/js/flaky.js' is absent → 404 → OPTIONAL reject → skipped, not fatal.
+        };
+        fetchMock.mockImplementation(async (url) => {
+            const u = new URL(url, ORIGIN);
+            const body = files[u.pathname + u.search];
+            return body === undefined ? bodyResponse('', 404) : bodyResponse(body);
+        });
+
+        await fireInstall(); // must NOT throw
+
+        const cached = caches.store.get(SHELL_CACHE);
+        for (const key of ['/', '/static/s.css?v=1', '/js/boot.js', '/js/good.js']) {
+            expect(cached.has(key), key).toBe(true);
+        }
+        // The flaky optional asset was skipped, not cached, and did not poison
+        // the precache.
+        expect(cached.has('/js/flaky.js')).toBe(false);
+        expect(self.skipWaiting).toHaveBeenCalled();
+    });
+
+    it('install still REJECTS when a CORE asset (a direct HTML subresource) fails — a later visit retries (med-gvk.1)', async () => {
+        // The other half of the core-vs-optional split: a directly-referenced
+        // <script src>/<link href> the browser fetches to paint has no runtime
+        // backfill before the JS runs, so a miss = a broken offline shell.
+        // Rejecting keeps the old SW + complete cache live for the retry.
+        fetchMock.mockImplementation(async (url) =>
+            new URL(url, ORIGIN).pathname === '/'
+                ? bodyResponse('<link rel="stylesheet" href="/static/core.css?v=1">')
+                : bodyResponse('', 404)
+        );
+        await expect(fireInstall()).rejects.toThrow('/static/core.css');
     });
 
     it('install REJECTS on a failed warm-up, so activate never prunes the old complete cache', async () => {
