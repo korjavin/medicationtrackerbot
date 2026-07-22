@@ -112,12 +112,12 @@ Dependencies identified: goose migrations auto-embed via glob (no manual registr
 - [x] run `go test ./internal/cloudserver/...` — must pass before Task 6.
 
 ### Task 6: fakes + behavior tests + zero-knowledge guard
-- [ ] update `fakeTGSender` in `relay_test.go`: `SendReminder` returns `(int64, error)` with an incrementing/settable id; add `DeleteReminder` recording deleted message ids and an optional `deleteErr` to force a failure. Update the fake `relayStore.RescheduleRelayRefire` signature (capture `supersedesMessageID`).
-- [ ] test: a re-fire DELETES the prior send's message id — drive two relay ticks over a med `s:` chain (`fakeTGSender` returns id N, N+1…); assert `DeleteReminder` was called with the prior send's id (send N deletes send N-1; first re-fire supersedes the original).
-- [ ] test: best-effort delete failure (`fakeTGSender.deleteErr` set) does NOT abort the send or the chain — the next re-fire is still scheduled and the next send still happens.
-- [ ] test: cloudstore/relay round-trip — `supersedes_message_id` threads from `scheduleMedRefire`/snooze into the re-fire row and back out via `DueScheduledPushes`.
-- [ ] confirm the existing zero-knowledge relay/push tests (relay never decrypts, forwards `ct` verbatim, refire copies only cleartext fields) remain UNCHANGED and green.
-- [ ] run `go test ./internal/cloudserver/... ./internal/cloudstore/... ./internal/tgclient/...` — must pass before Task 7.
+- [x] update `fakeTGSender` in `relay_test.go`: `SendReminder` returns `(int64, error)` with an incrementing/settable id; add `DeleteReminder` recording deleted message ids and an optional `deleteErr` to force a failure. Update the fake `relayStore.RescheduleRelayRefire` signature (capture `supersedesMessageID`). (fakeTGSender already updated; relay tests use the real store, not a fake relayStore.)
+- [x] test: a re-fire DELETES the prior send's message id — drive two relay ticks over a med `s:` chain (`fakeTGSender` returns id N, N+1…); assert `DeleteReminder` was called with the prior send's id (send N deletes send N-1; first re-fire supersedes the original). (`TestRelay_RefireDeletesPriorMessage`)
+- [x] test: best-effort delete failure (`fakeTGSender.deleteErr` set) does NOT abort the send or the chain — the next re-fire is still scheduled and the next send still happens. (`TestRelay_RefireDeleteFailureDoesNotAbortChain`)
+- [x] test: cloudstore/relay round-trip — `supersedes_message_id` threads from `scheduleMedRefire`/snooze into the re-fire row and back out via `DueScheduledPushes`. (relay side asserted in `TestRelay_RefireDeletesPriorMessage`; store side in `TestRescheduleRelayRefire`; snooze side in `telegram_test.go`.)
+- [x] confirm the existing zero-knowledge relay/push tests (relay never decrypts, forwards `ct` verbatim, refire copies only cleartext fields) remain UNCHANGED and green. (unchanged; full package green.)
+- [x] run `go test ./internal/cloudserver/... ./internal/cloudstore/... ./internal/tgclient/...` — must pass before Task 7.
 
 ### Task 7: Verify acceptance criteria
 - [ ] `go build ./...` AND `go build -tags mobile ./...` both green.

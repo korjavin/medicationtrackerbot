@@ -569,3 +569,99 @@ func TestRelay_MedRefireChain(t *testing.T) {
 		}
 	}
 }
+
+// medRefireChainSetup wires an account + linked host + session and returns the
+// store/handler/session (plus account id) for a med-refire chain test.
+func medRefireChainSetup(t *testing.T) (*cloudstore.Repo, http.Handler, string, *http.Cookie, string) {
+	t.Helper()
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+	session := registerAndGetSession(t, h, host, claimToken)
+	return store, h, host, session, account.ID
+}
+
+// TestRelay_RefireDeletesPriorMessage (med-eas.79 Task 6) pins the core behavior:
+// the primary send deletes nothing and threads its own message id as the next
+// re-fire's supersedes; when that re-fire fires it DELETES the prior send's
+// message so exactly one live reminder remains per chain.
+func TestRelay_RefireDeletesPriorMessage(t *testing.T) {
+	store, h, host, session, _ := medRefireChainSetup(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	freshStem := fmt.Sprintf("s:%d", now.Add(-30*time.Minute).Unix())
+	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{
+		{FireAtUnix: now.Add(-time.Minute).Unix(), Delivery: "telegram", TGText: "Time to take: X", TGCallback: freshStem},
+	}})
+
+	tg := &fakeTGSender{}
+	relay := NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, tg, 0)
+
+	// Tick 1: the primary send (message id 1) supersedes nothing.
+	relay.Tick(ctx)
+	if len(tg.deleted) != 0 {
+		t.Fatalf("primary send deleted a message %v; it supersedes nothing", tg.deleted)
+	}
+	// The chain threads the just-sent id: the queued re-fire supersedes send #1.
+	future, err := store.DueScheduledPushes(ctx, now.Add(90*time.Minute))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(future) != 1 || future[0].SupersedesMessageID != 1 {
+		t.Fatalf("re-fire must supersede the primary send id 1, got %+v", future)
+	}
+
+	// Make that queued re-fire due now (same DELETE-then-INSERT the chain uses,
+	// backdated so a second tick fires it without a 1h wait).
+	if err := store.RescheduleRelayRefire(ctx, future[0].AccountID, now.Add(-time.Second), future[0].TGText, freshStem, future[0].SupersedesMessageID); err != nil {
+		t.Fatalf("RescheduleRelayRefire (seed due): %v", err)
+	}
+
+	// Tick 2: the re-fire (message id 2) deletes the prior send #1.
+	relay.Tick(ctx)
+	if len(tg.deleted) != 1 || tg.deleted[0] != 1 {
+		t.Fatalf("re-fire must delete the prior send id 1, got deleted=%v", tg.deleted)
+	}
+}
+
+// TestRelay_RefireDeleteFailureDoesNotAbortChain (med-eas.79 Task 6) pins the
+// best-effort contract: a delete that fails (prior message already gone / >48h
+// old) must not abort the send or stop the chain — the new reminder still sends
+// and the next re-fire is still queued.
+func TestRelay_RefireDeleteFailureDoesNotAbortChain(t *testing.T) {
+	store, _, _, _, accountID := medRefireChainSetup(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	freshStem := fmt.Sprintf("s:%d", now.Add(-30*time.Minute).Unix())
+	// Seed a due re-fire that supersedes a (doomed) prior message id 5.
+	if err := store.RescheduleRelayRefire(ctx, accountID, now.Add(-time.Second), "Time to take: X", freshStem, 5); err != nil {
+		t.Fatalf("RescheduleRelayRefire (seed due): %v", err)
+	}
+
+	tg := &fakeTGSender{deleteErr: fmt.Errorf("message can't be deleted")}
+	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, tg, 0).Tick(ctx)
+
+	if len(tg.sent) != 1 {
+		t.Fatalf("failed delete must not abort the send, got sent=%v", tg.sent)
+	}
+	if len(tg.deleted) != 1 || tg.deleted[0] != 5 {
+		t.Fatalf("delete of prior message should have been attempted, got deleted=%v", tg.deleted)
+	}
+	// The chain continues: the next re-fire is queued, superseding this send (id 1).
+	future, err := store.DueScheduledPushes(ctx, now.Add(90*time.Minute))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(future) != 1 || future[0].SupersedesMessageID != 1 {
+		t.Fatalf("chain must continue despite the failed delete, got %+v", future)
+	}
+}
