@@ -11,6 +11,25 @@
 // for the Telegram SDK upgrade.
 window.__MEDTRACKER_CLOUD__ = true;
 
+// Register the service worker on FIRST PAINT (med-gvk.1), before the
+// unlock/sync gates in boot() below and OUTSIDE the detached background sync
+// IIFE where push.js's ensurePushSubscription otherwise registers it. The SW
+// warms the offline app shell into cache and serves it on later cold starts
+// with ZERO network on the critical path — the whole point of "open in one
+// blink" offline. Registering it here means the cache establishes on the very
+// first visit's paint, not only after a fully successful boot + background
+// sync. Fire-and-forget and non-blocking: MedTrackerCloudReady (which app.js
+// awaits before mounting) does NOT await this, so a slow/failed registration
+// never gates the mount. Idempotent — register() on an already-controlled page
+// returns the existing registration, so push.js's belt-and-suspenders call is
+// a harmless no-op. Cloud-only (this file is served solely by cmd/cloud, never
+// in the Capacitor shell), so no isNativePlatform guard is needed.
+if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    navigator.serviceWorker
+        .register('/sw.js')
+        .catch((e) => console.error('[cloud-boot] service worker registration failed', e));
+}
+
 // Routes the service worker considers safe to replay from a notification tap.
 // Kept as an allowlist so a compromised/stale SW message can't drive arbitrary
 // shim writes (the SW is same-origin, but the page is the only holder of the DEK

@@ -50,21 +50,44 @@ function moduleDeps(url, source) {
   return deps;
 }
 
-// Warm the COMPLETE app shell: the '/' document, every subresource it
-// references (the fingerprinted /static/* URLs it will request offline), and
-// the transitive ES-module graph reachable from them (/js/cloud-boot.js →
-// unlock/apishim/sync → /domain/*), which never appears in the HTML because
-// it's loaded via import(). cache.add('/') alone is not enough — offline, the
-// cached HTML's subresource fetches reject (a subresource deliberately never
-// gets the HTML shell below) and the app boots blank.
+// Fetch one asset, cache it, and return its module deps (empty for non-JS or
+// vendor). Throws on a non-ok status so the caller can decide core-vs-optional.
+async function cacheAndCrawl(cache, url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('shell warm: ' + url + ' => ' + res.status);
+  const deps = CRAWLABLE_RE.test(new URL(url).pathname) ? moduleDeps(url, await res.clone().text()) : [];
+  await cache.put(url, res);
+  return deps;
+}
+
+// Warm the app shell: the '/' document, every subresource it references (the
+// fingerprinted /static/* URLs it will request offline), and the transitive
+// ES-module graph reachable from them (/js/cloud-boot.js → unlock/apishim/sync
+// → /domain/*), which never appears in the HTML because it's loaded via
+// import(). cache.add('/') alone is not enough — offline, the cached HTML's
+// subresource fetches reject (a subresource deliberately never gets the HTML
+// shell below) and the app boots blank.
 //
-// Any failure REJECTS, failing install. That is deliberate, not flaky-fetch
-// paranoia to swallow: activate prunes the previous version's complete cache,
-// so activating behind a partial warm trades a working offline shell for a
-// broken one. A failed install keeps the old SW + old cache live and the
-// browser retries the update on the next navigation/update check. The
-// disk-backed install test in sw.fetch-cache.test.js pins every crawled URL to
-// a real repo file so a bad ref can't permanently wedge updates (med-jb7.2).
+// CORE-vs-OPTIONAL split (med-gvk.1): the pre-med-gvk.1 warm was ALL-OR-NOTHING
+// — one flaky subresource on the first online visit rejected the whole install,
+// so NOTHING cached and the app stayed broken offline until a later navigation
+// happened to fetch every asset cleanly. Now:
+//   - CORE = the '/' document + its direct <script src>/<link href> tags (the
+//     app's styles, vendor bundles, cloud-boot.js + the core/* entry scripts
+//     the BROWSER fetches to parse and paint). These have no runtime backfill
+//     before the JS even runs, so a CORE miss = a broken/unstyled offline shell.
+//     A CORE failure still REJECTS the install: activate prunes the previous
+//     version's cache, so we keep the old SW + cache live and let the browser
+//     retry the update on the next navigation rather than activate a broken
+//     shell. (The disk-backed test in sw.fetch-cache.test.js pins every CORE ref
+//     to a real repo file so a bad ref can't permanently wedge updates.)
+//   - OPTIONAL = the transitively-crawled ES-module graph (unlock/apishim/sync/
+//     domain + lazy feature modules). These are fetched by the RUNNING JS via
+//     import(), so the fetch handler below backfills any skipped here on the
+//     first online use — and the modules the page actually loads this session
+//     are runtime-cached anyway. So one flaky module must NOT poison the whole
+//     precache: allSettled over each wave, log+skip failures, keep crawling the
+//     successes.
 async function warmShell() {
   const cache = await caches.open(SHELL_CACHE);
   const doc = await fetch('/');
@@ -72,25 +95,28 @@ async function warmShell() {
   const html = await doc.clone().text();
   await cache.put('/', doc);
   const seen = new Set();
-  let wave = [];
+  const core = [];
   for (const m of html.matchAll(SHELL_REF_RE)) {
     const href = new URL(m[1], self.location.origin).href;
     if (!seen.has(href)) {
       seen.add(href);
-      wave.push(href);
+      core.push(href);
     }
   }
+  // CORE wave: Promise.all — any failure rejects install (see above). The
+  // module deps these yield become the OPTIONAL frontier.
+  const coreDeps = await Promise.all(core.map((url) => cacheAndCrawl(cache, url)));
+  let wave = coreDeps.flat().filter((u) => !seen.has(u) && (seen.add(u), true));
+  // OPTIONAL waves: allSettled — cache what succeeds, log+skip what fails, and
+  // keep crawling only the successes' deps.
   while (wave.length) {
-    const found = await Promise.all(
-      wave.map(async (url) => {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error('shell warm: ' + url + ' => ' + res.status);
-        const deps = CRAWLABLE_RE.test(new URL(url).pathname) ? moduleDeps(url, await res.clone().text()) : [];
-        await cache.put(url, res);
-        return deps;
-      })
-    );
-    wave = found.flat().filter((u) => !seen.has(u) && (seen.add(u), true));
+    const results = await Promise.allSettled(wave.map((url) => cacheAndCrawl(cache, url)));
+    const nextDeps = [];
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') nextDeps.push(...r.value);
+      else console.warn('[sw] shell warm: skipped optional asset ' + wave[i], r.reason);
+    });
+    wave = nextDeps.filter((u) => !seen.has(u) && (seen.add(u), true));
   }
 }
 
