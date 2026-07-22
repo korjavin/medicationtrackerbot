@@ -647,7 +647,9 @@ func TestRelay_RefireDeleteFailureDoesNotAbortChain(t *testing.T) {
 		t.Fatalf("RescheduleRelayRefire (seed due): %v", err)
 	}
 
-	tg := &fakeTGSender{deleteErr: fmt.Errorf("message can't be deleted")}
+	// nextID starts at 5 so the send returns 6 — TG message ids are monotonic, so a
+	// re-fire superseding message 5 always sends a higher id than the one it deletes.
+	tg := &fakeTGSender{deleteErr: fmt.Errorf("message can't be deleted"), nextID: 5}
 	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, tg, 0).Tick(ctx)
 
 	if len(tg.sent) != 1 {
@@ -656,12 +658,12 @@ func TestRelay_RefireDeleteFailureDoesNotAbortChain(t *testing.T) {
 	if len(tg.deleted) != 1 || tg.deleted[0] != 5 {
 		t.Fatalf("delete of prior message should have been attempted, got deleted=%v", tg.deleted)
 	}
-	// The chain continues: the next re-fire is queued, superseding this send (id 1).
+	// The chain continues: the next re-fire is queued, superseding this send (id 6).
 	future, err := store.DueScheduledPushes(ctx, now.Add(90*time.Minute))
 	if err != nil {
 		t.Fatalf("DueScheduledPushes: %v", err)
 	}
-	if len(future) != 1 || future[0].SupersedesMessageID != 1 {
+	if len(future) != 1 || future[0].SupersedesMessageID != 6 {
 		t.Fatalf("chain must continue despite the failed delete, got %+v", future)
 	}
 }

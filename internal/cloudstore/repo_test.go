@@ -797,6 +797,20 @@ func TestRescheduleRelayRefire(t *testing.T) {
 		t.Errorf("SupersedesMessageID = %d; want 222 (prior TG message to delete)", due[0].SupersedesMessageID)
 	}
 
+	// med-eas.79: a delayed tap from an OLDER message (lower id) must not regress
+	// the pending supersedes below the newer one already queued — else the next
+	// re-fire would delete an already-gone message and orphan the live one.
+	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "late tap", "w:6:20260720", 100); err != nil {
+		t.Fatalf("RescheduleRelayRefire (regress): %v", err)
+	}
+	due, err = r.DueScheduledPushes(ctx, now)
+	if err != nil {
+		t.Fatalf("DueScheduledPushes (after regress): %v", err)
+	}
+	if len(due) != 1 || due[0].SupersedesMessageID != 222 {
+		t.Fatalf("after older-tap reschedule, supersedes must stay 222, got %+v", due)
+	}
+
 	// A client-uploaded (ReplaceSchedule) row carries the DEFAULT 0 — nothing to delete.
 	if err := r.ReplaceSchedule(ctx, acc.ID, []ScheduledPushInput{
 		{FireAt: past, Delivery: DeliveryTelegram, TGText: "orig", TGCallback: "s:9:20260720"},
@@ -811,5 +825,65 @@ func TestRescheduleRelayRefire(t *testing.T) {
 		if p.TGCallback == "s:9:20260720" && p.SupersedesMessageID != 0 {
 			t.Errorf("client row SupersedesMessageID = %d; want 0 (DEFAULT)", p.SupersedesMessageID)
 		}
+	}
+}
+
+// med-eas.79: a pending relay re-fire's supersedes id belongs to the chat that
+// was linked when it was scheduled. On a bot relink (UpsertBot) or new /start
+// (LinkChat) the chat id-space changes, so the pending re-fire must be cleared —
+// otherwise the max-preserve compare in RescheduleRelayRefire could mix ids from
+// two chats and delete the wrong message.
+func TestRelayRefiresClearedOnChatRelink(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	acc, err := r.CreateAccount(ctx, "acc-relink", "keen-heron-rel019", []byte("hash"), now.Add(time.Hour), now, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	scheduleRefire := func() {
+		t.Helper()
+		if err := r.RescheduleRelayRefire(ctx, acc.ID, now.Add(-time.Minute), "snooze", "s:9:20260720", 5000); err != nil {
+			t.Fatalf("RescheduleRelayRefire: %v", err)
+		}
+	}
+	pendingRefires := func() int {
+		t.Helper()
+		due, err := r.DueScheduledPushes(ctx, now)
+		if err != nil {
+			t.Fatalf("DueScheduledPushes: %v", err)
+		}
+		return len(due)
+	}
+
+	bot := TGBot{AccountID: acc.ID, BotID: 1, BotUsername: "b", TokenCT: []byte("x"), TokenNonce: []byte("y"), Kind: "byo", WebhookSecret: "s", CreatedAt: now}
+	if err := r.UpsertBot(ctx, bot); err != nil {
+		t.Fatalf("UpsertBot: %v", err)
+	}
+
+	// LinkChat clears the pending re-fire from the prior chat.
+	scheduleRefire()
+	if got := pendingRefires(); got != 1 {
+		t.Fatalf("before LinkChat, pending re-fires = %d; want 1", got)
+	}
+	if err := r.LinkChat(ctx, acc.ID, 42, now); err != nil {
+		t.Fatalf("LinkChat: %v", err)
+	}
+	if got := pendingRefires(); got != 0 {
+		t.Fatalf("LinkChat did not clear pending re-fires: got %d, want 0", got)
+	}
+
+	// UpsertBot (relink) clears too.
+	scheduleRefire()
+	if got := pendingRefires(); got != 1 {
+		t.Fatalf("before relink UpsertBot, pending re-fires = %d; want 1", got)
+	}
+	if err := r.UpsertBot(ctx, bot); err != nil {
+		t.Fatalf("UpsertBot (relink): %v", err)
+	}
+	if got := pendingRefires(); got != 0 {
+		t.Fatalf("UpsertBot relink did not clear pending re-fires: got %d, want 0", got)
 	}
 }
