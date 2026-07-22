@@ -138,22 +138,36 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Offline app shell: network-first with cache fallback for every same-origin
-// GET except /api/* and /mcp/* (dynamic, never cached, never served from
-// cache; non-GET and cross-origin pass through untouched).
+// Offline app shell (med-gvk.5): CACHE-FIRST for the versioned shell, not
+// network-first. The pre-med-gvk.5 handler did fetch(request) FIRST and only
+// fell back to cache on a rejection/5xx — so on a SLOW (not failed) network it
+// WAITED on the network for the document and every asset before painting, even
+// though a cached copy existed. That defeated local-first entirely. Freshness
+// is already handled by the versioned SHELL_CACHE (SW_VERSION bumps every
+// deploy → new cache → warmShell re-fetches → activate prunes old), so the
+// per-request network round-trip bought nothing but latency. Now:
+//   - Static/fingerprinted assets (everything that is NOT the navigation
+//     document): CACHE-FIRST. A cached copy is served IMMEDIATELY with zero
+//     network wait — the sub-second local-first guarantee. Only a cache MISS
+//     goes to the network (fetchAndCache), which caches an ok response and
+//     keeps the 5xx-as-offline + offlineFallback behavior.
+//   - The navigation document (request.mode === 'navigate', i.e. '/'):
+//     STALE-WHILE-REVALIDATE. Serve the cached document IMMEDIATELY (sub-
+//     second) and fire a background fetch('/') that refreshes the cache for
+//     the NEXT open — the '/' document carries a per-account CSP computed from
+//     stored egress hosts and can change without a deploy (user adds a provider
+//     key), so it must stay eventually-fresh while still opening instantly. On
+//     a cache MISS: network then offlineFallback (unchanged).
 //
-// CSP-snapshot-freeze rationale: the `/` document carries a per-account CSP
-// computed from stored egress hosts, so a cached copy replayed offline freezes
-// that CSP snapshot. Acceptable: offline there is no egress anyway, and the
-// next successful online navigation (network-first) overwrites the cached
-// copy. A cached document is NEVER served when the network responded.
-// Offline path shared by fetch rejection and proxy 5xx: the exact cached
-// copy, else — for navigations only — the cached '/' app shell (ignoreSearch,
-// so a '/?reminder_action=…' cold start from notificationclick still hits a
-// document cached under '/', and vice versa). A subresource must NOT get the
-// HTML shell: nosniff would block it and a 200 HTML body masks the failure.
-// When nothing is cached, `surface` yields the network outcome (returns the
-// 5xx response / re-throws the rejection).
+// /api/* and /mcp/* are dynamic — never cached, never served from cache; non-
+// GET and cross-origin pass through untouched.
+//
+// Offline path shared by fetch rejection and proxy 5xx: the exact cached copy,
+// else — for navigations only — the cached '/' app shell (ignoreSearch, so a
+// '/?reminder_action=…' cold start from notificationclick still hits a document
+// cached under '/', and vice versa). A subresource must NOT get the HTML shell:
+// nosniff would block it and a 200 HTML body masks the failure. When nothing is
+// cached, `surface` yields the network outcome (returns the 5xx / re-throws).
 //
 // Ceremony pages (served by signup.html in router.go, a DIFFERENT document
 // from '/') must never receive the '/' app shell: the app document's
@@ -162,13 +176,57 @@ self.addEventListener('activate', (event) => {
 // guarantee). An exact cached copy from a prior online visit still wins above.
 const CEREMONY_PATHS = new Set(['/unlock', '/claim', '/recover', '/devices', '/connectors']);
 
-function offlineFallback(request, surface) {
+// The cached document to serve for a navigation, or undefined when nothing is
+// servable: an exact cached copy wins; otherwise a non-ceremony navigation may
+// fall back to the cached '/' app shell (ignoreSearch), but a ceremony page
+// never gets the '/' shell (anti-ping-pong, above).
+function cachedNavigationDoc(request) {
   return caches.match(request).then((cached) => {
     if (cached) return cached;
-    if (request.mode !== 'navigate') return surface();
-    if (CEREMONY_PATHS.has(new URL(request.url).pathname)) return surface();
-    return caches.match('/', { ignoreSearch: true }).then((shell) => shell || surface());
+    if (CEREMONY_PATHS.has(new URL(request.url).pathname)) return undefined;
+    return caches.match('/', { ignoreSearch: true });
   });
+}
+
+function offlineFallback(request, surface) {
+  if (request.mode !== 'navigate') {
+    return caches.match(request).then((cached) => cached || surface());
+  }
+  return cachedNavigationDoc(request).then((doc) => doc || surface());
+}
+
+// Network path for a cache MISS: fetch, cache an ok response, and keep the
+// 5xx-as-offline + offlineFallback behavior. A proxy 5xx (cloud binary
+// restarting behind Traefik) is functionally offline — docs/technical-
+// decisions.md "5xx-as-offline", same as web/static/sw.js: serve the cached
+// copy, the raw 5xx only when nothing is cached.
+function fetchAndCache(event, request) {
+  return fetch(request).then(
+    (response) => {
+      if (response.ok) {
+        const clone = response.clone();
+        event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.put(request, clone)));
+        return response;
+      }
+      if (response.status >= 500) return offlineFallback(request, () => response);
+      return response;
+    },
+    (err) =>
+      offlineFallback(request, () => {
+        throw err;
+      })
+  );
+}
+
+// Background refresh of the '/' app document for stale-while-revalidate. Its
+// failure must NEVER reject the already-served cached response, so it swallows
+// everything — the next open simply serves whatever last succeeded.
+function revalidateShell() {
+  return fetch('/')
+    .then((response) => {
+      if (response.ok) return caches.open(SHELL_CACHE).then((cache) => cache.put('/', response));
+    })
+    .catch(() => {});
 }
 
 self.addEventListener('fetch', (event) => {
@@ -177,26 +235,24 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/mcp/')) return;
-  event.respondWith(
-    fetch(request).then(
-      (response) => {
-        if (response.ok) {
-          const clone = response.clone();
-          event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.put(request, clone)));
-          return response;
+
+  if (request.mode === 'navigate') {
+    // Stale-while-revalidate: cached document now, refresh '/' in the background.
+    event.respondWith(
+      cachedNavigationDoc(request).then((doc) => {
+        if (doc) {
+          event.waitUntil(revalidateShell());
+          return doc;
         }
-        // A proxy 5xx (cloud binary restarting behind Traefik) is functionally
-        // offline — docs/technical-decisions.md "5xx-as-offline", same as
-        // web/static/sw.js. Serve the cached copy; the raw 5xx only when
-        // nothing is cached.
-        if (response.status >= 500) return offlineFallback(request, () => response);
-        return response;
-      },
-      (err) =>
-        offlineFallback(request, () => {
-          throw err;
-        })
-    )
+        return fetchAndCache(event, request);
+      })
+    );
+    return;
+  }
+
+  // Static assets: cache-first — a hit serves with zero network wait.
+  event.respondWith(
+    caches.match(request).then((cached) => cached || fetchAndCache(event, request))
   );
 });
 
