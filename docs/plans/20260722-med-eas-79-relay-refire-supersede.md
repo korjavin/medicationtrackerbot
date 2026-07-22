@@ -120,11 +120,11 @@ Dependencies identified: goose migrations auto-embed via glob (no manual registr
 - [x] run `go test ./internal/cloudserver/... ./internal/cloudstore/... ./internal/tgclient/...` — must pass before Task 7.
 
 ### Task 7: Verify acceptance criteria
-- [ ] `go build ./...` AND `go build -tags mobile ./...` both green.
-- [ ] `go test ./internal/cloudserver/... ./internal/cloudstore/... ./internal/tgclient/...` green.
-- [ ] grep the diff for the zero-knowledge invariant: relay reads no `ct`/vault; `DeleteReminder` uses only `accountID` + `messageID`; `supersedes_message_id` carries only a TG id. No new `window.*` global; no new HTTP route.
-- [ ] confirm migration numbering is contiguous (020 follows 019) and no existing migration was edited.
-- [ ] re-read the bead ACCEPTANCE list and confirm each bullet is satisfied (med hourly chain leaves one live message; snooze re-fire deletes the prior snoozed message; meds `s:` + workout `w:` + bp/wt covered; delete best-effort; ZK green).
+- [x] `go build ./...` AND `go build -tags mobile ./...` both green.
+- [x] `go test ./internal/cloudserver/... ./internal/cloudstore/... ./internal/tgclient/...` green.
+- [x] grep the diff for the zero-knowledge invariant: relay reads no `ct`/vault; `DeleteReminder` uses only `accountID` + `messageID`; `supersedes_message_id` carries only a TG id. No new `window.*` global; no new HTTP route. (verified: DeleteReminder signature is `(accountID, messageID)`; refire INSERT still passes empty `[]byte{}` ct; supersedes column comment marks it a TG artifact.)
+- [x] confirm migration numbering is contiguous (020 follows 019) and no existing migration was edited.
+- [x] re-read the bead ACCEPTANCE list and confirm each bullet is satisfied (med hourly chain leaves one live message; snooze re-fire deletes the prior snoozed message; meds `s:` + workout `w:` + bp/wt covered; delete best-effort; ZK green).
 
 ## Technical Details
 - New column: `scheduled_pushes.supersedes_message_id INTEGER NOT NULL DEFAULT 0` — the
