@@ -406,6 +406,65 @@ func TestSendMessageWithButtonsPayloadShape(t *testing.T) {
 	}
 }
 
+func TestDeleteMessagePayloadShape(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+
+	c := New("123:ABC", srv.URL)
+	if err := c.DeleteMessage(context.Background(), 42, 555); err != nil {
+		t.Fatalf("DeleteMessage: %v", err)
+	}
+	if f.lastMethod != "deleteMessage" {
+		t.Fatalf("called %q, want deleteMessage", f.lastMethod)
+	}
+	if f.lastBody["chat_id"] != float64(42) {
+		t.Errorf("chat_id = %#v, want 42", f.lastBody["chat_id"])
+	}
+	if f.lastBody["message_id"] != float64(555) {
+		t.Errorf("message_id = %#v, want 555", f.lastBody["message_id"])
+	}
+}
+
+func TestSendMessageWithButtonsReturningIDReturnsID(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+	f.responses["sendMessage"] = `{"ok":true,"result":{"message_id":9001}}`
+
+	c := New("123:ABC", srv.URL)
+	id, err := c.SendMessageWithButtonsReturningID(context.Background(), 42, "Time to take: Lisinopril", []InlineKeyboardButton{
+		{Text: "✅ Confirm", CallbackData: "s:1767225600:confirm"},
+	})
+	if err != nil {
+		t.Fatalf("SendMessageWithButtonsReturningID: %v", err)
+	}
+	if id != 9001 {
+		t.Errorf("id = %d, want 9001", id)
+	}
+	if _, present := f.lastBody["reply_markup"]; !present {
+		t.Errorf("reply_markup missing for a buttoned message: %#v", f.lastBody)
+	}
+}
+
+// The no-buttons branch must still send a plain message (no reply_markup) and
+// surface its id.
+func TestSendMessageWithButtonsReturningIDNoButtonsSendsPlain(t *testing.T) {
+	f, srv := newFake(t)
+	defer srv.Close()
+	f.responses["sendMessage"] = `{"ok":true,"result":{"message_id":7}}`
+
+	c := New("123:ABC", srv.URL)
+	id, err := c.SendMessageWithButtonsReturningID(context.Background(), 42, "BP reminder", nil)
+	if err != nil {
+		t.Fatalf("SendMessageWithButtonsReturningID: %v", err)
+	}
+	if id != 7 {
+		t.Errorf("id = %d, want 7", id)
+	}
+	if _, present := f.lastBody["reply_markup"]; present {
+		t.Errorf("reply_markup present for a button-less message: %#v", f.lastBody)
+	}
+}
+
 // No buttons must mean no reply_markup at all — Telegram renders an empty
 // keyboard object as a stuck, tappable-but-dead row.
 func TestSendMessageWithButtonsOmitsMarkupWhenEmpty(t *testing.T) {

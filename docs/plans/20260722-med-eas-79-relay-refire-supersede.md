@@ -75,12 +75,12 @@ Dependencies identified: goose migrations auto-embed via glob (no manual registr
 ## Implementation Steps
 
 ### Task 1: tgclient — DeleteMessage + buttons-returning-id send
-- [ ] add `func (c *Client) DeleteMessage(ctx context.Context, chatID, messageID int64) error` in `internal/tgclient/tgclient.go`, calling the Telegram `deleteMessage` method with `chat_id` + `message_id` (returns the raw error; best-effort swallowing is the caller's job in Task 2's `DeleteReminder`).
-- [ ] add `func (c *Client) SendMessageWithButtonsReturningID(ctx context.Context, chatID int64, text string, buttons []InlineKeyboardButton) (int64, error)` mirroring `SendMessageWithButtons`: when `len(buttons)==0` delegate to `SendMessageReturningID`; otherwise call `sendMessage` with the inline keyboard and return `sent.MessageID`.
-- [ ] refactor existing `SendMessageWithButtons` to delegate to the new ReturningID variant, discarding the id (mirror how `SendMessage` wraps `SendMessageReturningID`) — keep its exact current external behavior.
-- [ ] write test: `DeleteMessage` posts `deleteMessage` with the right `chat_id`/`message_id` payload shape (extend the existing httptest-server pattern in `tgclient_test.go`).
-- [ ] write test: `SendMessageWithButtonsReturningID` returns the server's `message_id`, and the no-buttons branch still sends a plain message. Keep existing `TestSendMessageWithButtons*` green.
-- [ ] run `go test ./internal/tgclient/...` — must pass before Task 2.
+- [x] add `func (c *Client) DeleteMessage(ctx context.Context, chatID, messageID int64) error` in `internal/tgclient/tgclient.go`, calling the Telegram `deleteMessage` method with `chat_id` + `message_id` (returns the raw error; best-effort swallowing is the caller's job in Task 2's `DeleteReminder`).
+- [x] add `func (c *Client) SendMessageWithButtonsReturningID(ctx context.Context, chatID int64, text string, buttons []InlineKeyboardButton) (int64, error)` mirroring `SendMessageWithButtons`: when `len(buttons)==0` delegate to `SendMessageReturningID`; otherwise call `sendMessage` with the inline keyboard and return `sent.MessageID`.
+- [x] refactor existing `SendMessageWithButtons` to delegate to the new ReturningID variant, discarding the id (mirror how `SendMessage` wraps `SendMessageReturningID`) — keep its exact current external behavior.
+- [x] write test: `DeleteMessage` posts `deleteMessage` with the right `chat_id`/`message_id` payload shape (extend the existing httptest-server pattern in `tgclient_test.go`).
+- [x] write test: `SendMessageWithButtonsReturningID` returns the server's `message_id`, and the no-buttons branch still sends a plain message. Keep existing `TestSendMessageWithButtons*` green.
+- [x] run `go test ./internal/tgclient/...` — must pass before Task 2.
 
 ### Task 2: telegram.go — SendReminder returns message_id + DeleteReminder
 - [ ] change `SendReminder` signature to `(ctx context.Context, accountID, text, callbackStem string) (int64, error)`; every early error/`ErrNoLinkedChat` return becomes `return 0, err`.
