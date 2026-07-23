@@ -26,3 +26,7 @@
 **Vulnerability:** Trivy reported multiple High/Critical vulnerabilities in the Go standard library (net/mail, net/http, net, crypto/x509, crypto/tls) (CVEs).
 **Learning:** Container images and dependency trees that rely on an outdated minor or patch version of the Go toolchain retain the compiled vulnerable standard library functions. Regular security audits (like `trivy-container-scan`) require both the `go.mod` directive and the CI/Dockerfile environments to use the patched version.
 **Prevention:** Monitor Trivy scan results regularly and upgrade the Go toolchain to the latest secure patch release across `go.mod`, GitHub Actions, and Docker base images whenever standard library vulnerabilities are reported.
+## 2026-07-07 - Missing HTTP Request Body Size Limits
+**Vulnerability:** Denial of Service (DoS) via unbounded HTTP request body sizes (Memory Exhaustion).
+**Learning:** Many POST handlers read from `r.Body` via `json.NewDecoder` without wrapping the reader in an `http.MaxBytesReader`. An attacker can send a massively oversized JSON payload, forcing the server to buffer it in memory, leading to out-of-memory crashes.
+**Prevention:** Always wrap `r.Body` with `http.MaxBytesReader(w, r.Body, maxBytes)` at the beginning of a handler that accepts request bodies to enforce a hard upper bound on memory consumption per request.

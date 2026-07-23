@@ -1379,6 +1379,7 @@ func (t *TelegramAPI) BYO(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Token string `json:"token"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<14)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Token) == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
