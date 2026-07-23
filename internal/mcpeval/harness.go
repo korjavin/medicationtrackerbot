@@ -311,7 +311,8 @@ func (h *Harness) BridgeCall(ctx context.Context, opID string, params, pathParam
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Signature", sig)
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, nil, err
 	}
