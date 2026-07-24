@@ -232,37 +232,6 @@ func TestHandleImportBloodPressure(t *testing.T) {
 	}
 }
 
-func TestHandleExportBloodPressure(t *testing.T) {
-	srv, db := createBPTestServer(t)
-	defer db.Close()
-
-	// Setup
-	ctx := ctxWithUser(123456)
-	db.BP.CreateReading(ctx, &store.BloodPressure{
-		UserID:     123456,
-		MeasuredAt: time.Now(),
-		Systolic:   120, Diastolic: 80,
-	})
-
-	req := httptest.NewRequest("GET", "/api/bp/export", nil)
-	req = withUser(req, 123456)
-	w := httptest.NewRecorder()
-
-	srv.handleExportBloodPressure(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
-	}
-
-	if w.Header().Get("Content-Type") != "text/csv" {
-		t.Errorf("Expected Content-Type text/csv, got %s", w.Header().Get("Content-Type"))
-	}
-
-	if !strings.Contains(w.Body.String(), "120") {
-		t.Errorf("Expected body to contain '120', got %s", w.Body.String())
-	}
-}
-
 // BP Reminder Handler Tests
 
 func TestHandleGetBPReminderStatus(t *testing.T) {

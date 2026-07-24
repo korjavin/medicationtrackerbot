@@ -2,14 +2,11 @@ package server
 
 import (
 	"database/sql"
-	"encoding/csv"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/store"
@@ -140,76 +137,6 @@ func (s *Server) handleDeleteWeight(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-}
-
-func (s *Server) handleExportWeight(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
-
-	// Parse query params
-	var since time.Time
-	if dStr := r.URL.Query().Get("days"); dStr != "" {
-		if days, err := strconv.Atoi(dStr); err == nil && days > 0 {
-			since = time.Now().AddDate(0, 0, -days)
-		}
-	}
-
-	logs, err := s.weight.ListLogs(r.Context(), userID, since)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/csv")
-	w.Header().Set("Content-Disposition", "attachment; filename=weight_export.csv")
-
-	wr := csv.NewWriter(w)
-	defer wr.Flush()
-
-	// Write CSV header in Libra format
-	_ = wr.Write([]string{"#Version: 6"})
-	_ = wr.Write([]string{"#Units: kg"})
-	_ = wr.Write([]string{""})
-	_ = wr.Write([]string{"#date;weight;weight trend;body fat;body fat trend;muscle mass;muscle mass trend;log"})
-
-	// Write data rows
-	for _, wLog := range logs {
-		weight := fmt.Sprintf("%.1f", wLog.Weight)
-		weightTrend := ""
-		if wLog.WeightTrend != nil {
-			weightTrend = fmt.Sprintf("%.1f", *wLog.WeightTrend)
-		}
-
-		bodyFat := ""
-		if wLog.BodyFat != nil {
-			bodyFat = fmt.Sprintf("%.1f", *wLog.BodyFat)
-		}
-
-		bodyFatTrend := ""
-		if wLog.BodyFatTrend != nil {
-			bodyFatTrend = fmt.Sprintf("%.1f", *wLog.BodyFatTrend)
-		}
-
-		muscleMass := ""
-		if wLog.MuscleMass != nil {
-			muscleMass = fmt.Sprintf("%.1f", *wLog.MuscleMass)
-		}
-
-		muscleMassTrend := ""
-		if wLog.MuscleMassTrend != nil {
-			muscleMassTrend = fmt.Sprintf("%.1f", *wLog.MuscleMassTrend)
-		}
-
-		notes := strings.ReplaceAll(wLog.Notes, "\n", " ")
-		notes = strings.ReplaceAll(notes, "\r", "")
-
-		row := []string{
-			wLog.MeasuredAt.Format("2006-01-02T15:04:05.000Z") + ";" + weight + ";" + weightTrend + ";" + bodyFat + ";" + bodyFatTrend + ";" + muscleMass + ";" + muscleMassTrend + ";" + notes,
-		}
-		if err := wr.Write(row); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	}
 }
 
 func (s *Server) handleSetWeightGoal(w http.ResponseWriter, r *http.Request) {

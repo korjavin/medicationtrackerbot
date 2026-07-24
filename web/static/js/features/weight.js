@@ -1288,32 +1288,3 @@ async function _deleteWeightApi(id) {
     }
     loadWeightLogs();
 }
-
-// Export weight data to CSV.
-//
-// Online-only (bot mode): the CSV is built server-side. Cloud mode has no
-// /api/weight/export route and no shim handler, and no export button is wired
-// in the cloud UI — so this stays a raw network fetch, deliberately NOT routed
-// through apiCall/the offline queue (routing it there would 404 against the
-// shim and fake-queue a write the server can't fulfil). If cloud ever surfaces
-// a CSV-export button, generate the file from local vault data
-// (web/domain/weight.js list()) rather than adding a shim route. (med-gvk.4)
-async function exportWeightCSV() {
-    try {
-        const response = await fetch('/api/weight/export', {
-            method: 'GET',
-            headers: window.makeAuthHeaders()
-        });
-
-        if (!response.ok) {
-            safeAlert('Failed to generate export');
-            return;
-        }
-
-        const blob = await response.blob();
-        downloadBlobAsFile(blob, 'weight_export.csv');
-    } catch (err) {
-        console.error('Export error:', err);
-        safeAlert('Failed to export data');
-    }
-}

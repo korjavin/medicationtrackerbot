@@ -2,13 +2,11 @@ package server
 
 import (
 	"database/sql"
-	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	gamificationsvc "github.com/korjavin/medicationtrackerbot/internal/domain/gamification"
@@ -180,64 +178,6 @@ func (s *Server) handleImportBloodPressure(w http.ResponseWriter, r *http.Reques
 		"status":   "success",
 	}); err != nil {
 		slog.Error("encode response", "error", err)
-	}
-}
-
-func (s *Server) handleExportBloodPressure(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(UserCtxKey).(*TelegramUser).ID
-
-	// Parse query params
-	var since time.Time
-	if dStr := r.URL.Query().Get("days"); dStr != "" {
-		if days, err := strconv.Atoi(dStr); err == nil && days > 0 {
-			since = time.Now().AddDate(0, 0, -days)
-		}
-	}
-
-	readings, err := s.bp.ListReadings(r.Context(), userID, since)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/csv")
-	w.Header().Set("Content-Disposition", "attachment; filename=blood_pressure_export.csv")
-
-	wr := csv.NewWriter(w)
-	defer wr.Flush()
-
-	// Write CSV header
-	header := []string{"Date", "Systolic", "Diastolic", "Pulse", "Site", "Position", "Category", "Notes", "Tag"}
-	if err := wr.Write(header); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Write data rows
-	for _, bp := range readings {
-		pulse := ""
-		if bp.Pulse != nil {
-			pulse = strconv.Itoa(*bp.Pulse)
-		}
-
-		notes := strings.ReplaceAll(bp.Notes, "\n", " ")
-		notes = strings.ReplaceAll(notes, "\r", "")
-
-		row := []string{
-			bp.MeasuredAt.Format(time.RFC3339),
-			strconv.Itoa(bp.Systolic),
-			strconv.Itoa(bp.Diastolic),
-			pulse,
-			bp.Site,
-			bp.Position,
-			bp.Category,
-			notes,
-			bp.Tag,
-		}
-		if err := wr.Write(row); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
 	}
 }
 

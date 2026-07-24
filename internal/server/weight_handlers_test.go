@@ -206,37 +206,6 @@ func TestHandleDeleteWeight(t *testing.T) {
 	}
 }
 
-func TestHandleExportWeight(t *testing.T) {
-	srv, db := createWeightTestServer(t)
-	defer db.Close()
-
-	ctx := weightCtxWithUser(123456)
-	db.Weight.CreateLog(ctx, &store.WeightLog{
-		UserID:     123456,
-		MeasuredAt: time.Now(),
-		Weight:     80.0,
-		Notes:      "Test Note",
-	})
-
-	req := httptest.NewRequest("GET", "/api/weight/export", nil)
-	req = weightReqWithUser(req, 123456)
-	w := httptest.NewRecorder()
-
-	srv.handleExportWeight(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
-	}
-
-	if w.Header().Get("Content-Type") != "text/csv" {
-		t.Errorf("Expected Content-Type text/csv, got %s", w.Header().Get("Content-Type"))
-	}
-
-	if !strings.Contains(w.Body.String(), "80.0") {
-		t.Errorf("Expected body to contain '80.0', got %s", w.Body.String())
-	}
-}
-
 func TestHandleGetWeightGoal(t *testing.T) {
 	srv, db := createWeightTestServer(t)
 	defer db.Close()
