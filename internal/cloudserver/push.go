@@ -62,19 +62,25 @@ type PushAPI struct {
 	store         pushStore
 	sender        PushSender
 	sessionSecret string
+	limiter       *rateLimiter
 }
 
 // NewPushAPI builds the push handlers. sender delivers the immediate
 // this-device test push (Task 1); it is the same PushSender the relay uses.
 func NewPushAPI(store pushStore, sender PushSender, sessionSecret string) *PushAPI {
-	return &PushAPI{store: store, sender: sender, sessionSecret: sessionSecret}
+	return &PushAPI{
+		store:         store,
+		sender:        sender,
+		sessionSecret: sessionSecret,
+		limiter:       newRateLimiter(ceremonyRateLimitMax, ceremonyRateLimitWindow),
+	}
 }
 
 // RegisterRoutes adds the push routes to mux.
 func (a *PushAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/push/subscriptions", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PostSubscription)))
 	mux.Handle("DELETE /api/push/subscriptions", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.DeleteSubscription)))
-	mux.HandleFunc("GET /api/push/vapid-public-key", a.GetVapidPublicKey)
+	mux.HandleFunc("GET /api/push/vapid-public-key", limitByIP(a.limiter, a.GetVapidPublicKey))
 	mux.Handle("PUT /api/push/schedule", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PutSchedule)))
 	mux.Handle("POST /api/push/test", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PostTestPush)))
 }

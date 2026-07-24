@@ -26,3 +26,8 @@
 **Vulnerability:** Trivy reported multiple High/Critical vulnerabilities in the Go standard library (net/mail, net/http, net, crypto/x509, crypto/tls) (CVEs).
 **Learning:** Container images and dependency trees that rely on an outdated minor or patch version of the Go toolchain retain the compiled vulnerable standard library functions. Regular security audits (like `trivy-container-scan`) require both the `go.mod` directive and the CI/Dockerfile environments to use the patched version.
 **Prevention:** Monitor Trivy scan results regularly and upgrade the Go toolchain to the latest secure patch release across `go.mod`, GitHub Actions, and Docker base images whenever standard library vulnerabilities are reported.
+
+## 2024-05-24 - Rate limit unauthenticated endpoints
+**Vulnerability:** Several unauthenticated endpoints (`GET /api/push/vapid-public-key`, `POST /api/transfer/{slot_id}/claim`, `POST /tg/manager/{secret}`, `POST /tg/bot/{ref}/{secret}`) were not rate-limited, exposing them to brute-force and resource exhaustion (DoS) attacks.
+**Learning:** Endpoints that are intentionally unauthenticated (e.g., because they are part of a provisioning flow or are webhooks) still need rate limiting to prevent abuse.
+**Prevention:** Always wrap unauthenticated endpoints with the `limitByIP` middleware and a struct-level `rateLimiter` initialized with `ceremonyRateLimitMax` and `ceremonyRateLimitWindow`.
