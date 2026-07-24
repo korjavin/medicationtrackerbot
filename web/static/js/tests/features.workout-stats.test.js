@@ -238,6 +238,27 @@ describe('features/workout/stats.js — split-file integration', () => {
       expect(window.WorkoutExerciseCatalog.resolveBodyPart('raise')).toBeNull();
     });
 
+    it('resolveBodyPart: a clear plurality wins even after an interim tie', async () => {
+      const { window } = env;
+      // "barbell" is a subset of all six entries. Tally in first-seen (Map) order is
+      // chest=2, back=2, upper legs=3 — the max loop must flag the chest/back tie and
+      // then reset it when upper legs (the true plurality, >=2 votes) is reached.
+      window.fetch = vi.fn(async () => ({
+        ok: true, status: 200,
+        json: async () => ({ exercises: [
+          { name: 'Barbell Bench Press', body_part: 'chest' },
+          { name: 'Barbell Bent Row', body_part: 'back' },
+          { name: 'Barbell Squat', body_part: 'upper legs' },
+          { name: 'Barbell Incline Press', body_part: 'chest' },
+          { name: 'Barbell Pendlay Row', body_part: 'back' },
+          { name: 'Barbell Deadlift', body_part: 'upper legs' },
+          { name: 'Barbell Lunge', body_part: 'upper legs' },
+        ] }),
+      }));
+      await window.WorkoutExerciseCatalog.load();
+      expect(window.WorkoutExerciseCatalog.resolveBodyPart('barbell')).toBe('upper legs');
+    });
+
     it('fetches the catalog at most once across repeated getBodyPart/load calls', async () => {
       const { window } = env;
       window.fetch = vi.fn(async () => ({
