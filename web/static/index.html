@@ -176,13 +176,14 @@
         </div>
 
         <div id="workouts-view" class="view wg-screen-stage">
-            <!-- Workout Tabs + inline +Start (Phase 7 / Phase 5 Task 5 rework;
-                 Round-2 Task 10 (#13b): Start button migrated to the shared
-                 `.wg-toolbar-btn .wg-toolbar-btn--primary` class so its height
-                 aligns with the adjacent subtab pills — matches BP +Log, Food
-                 Add, and Meds Add). Outer `.wg-workouts-subtabs-row` flex
-                 container wraps the inset 4-pill track and the trailing
-                 `#start-adhoc-workout-btn` ad-hoc CTA. -->
+            <!-- Workout Tabs (Phase 7 / Phase 5 Task 5 rework). The
+                 `.wg-workouts-subtabs-row` wraps only the inset 4-pill track
+                 (History / Plans / Exercises / Stats). The ad-hoc Start CTA
+                 (`#start-adhoc-workout-btn`) used to trail the pills here, but
+                 med-3dk moved it into the History pane header
+                 (`.wg-workouts-history-header`, mirroring the Exercises
+                 `+ Add`) so it's sized like the other buttons and scoped to
+                 the tab it acts on instead of floating on every sub-tab. -->
             <div class="wg-workouts-subtabs-row" id="workouts-subtabs">
                 <div class="wg-gloss--inset wg-workouts-subtabs workout-tabs">
                     <button class="wg-gloss wg-workouts-subtabs__btn wg-gloss--sun wg-workouts-subtabs__btn--active workout-tab active" data-tab="history" aria-pressed="true">History</button>
@@ -190,13 +191,20 @@
                     <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="exercises" aria-pressed="false">Exercises</button>
                     <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="stats" aria-pressed="false">Stats</button>
                 </div>
-                <button id="start-adhoc-workout-btn" type="button" class="wg-toolbar-btn wg-toolbar-btn--primary" aria-label="Start ad-hoc workout">
-                    <span class="wg-toolbar-btn__label">Start</span>
-                </button>
             </div>
 
             <!-- History View -->
             <div id="workout-history-tab" class="workout-tab-content active">
+                <!-- Ad-hoc Start CTA (med-3dk): top-right of the History pane,
+                     mirroring the Exercises `+ Add` header. Same id as before
+                     so index.js bindClick + sync.js offline sweep are unchanged. -->
+                <div class="wg-workouts-history-header">
+                    <button id="start-adhoc-workout-btn" type="button"
+                        class="wg-gloss wg-gloss--sun wg-workouts-history-header__add"
+                        aria-label="Start ad-hoc workout">
+                        <span class="wg-workouts-history-header__add-label">Start</span>
+                    </button>
+                </div>
                 <!-- Stale-data chip (Task 6 of local-first read resilience).
                      Mounted by loadNextWorkout() from the api_cache
                      'workout_next' timestamp; hidden until populated. -->

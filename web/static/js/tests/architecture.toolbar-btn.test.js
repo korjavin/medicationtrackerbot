@@ -49,9 +49,12 @@ const CSS = fs.readFileSync(CSS_PATH, 'utf8');
 // of the subtab row and is now scoped to the Schedule subtab via
 // `.wg-meds-schedule-header`. DOM adoption pinned in
 // `meds.schedule-add.test.js` and reasserted below.
-// Round-2 Task 10 (defect #13b): `#start-adhoc-workout-btn` — ADOPTED;
-// DOM adoption pinned in `workout.design-parity.test.js` and reasserted
-// below (source-level guard on index.html).
+// Round-2 Task 10 (defect #13b): `#start-adhoc-workout-btn` — ADOPTED, then
+// REVERTED by med-3dk: the toolbar-btn sizing read as oversized in the
+// subtabs row, so the button moved into the History pane header and adopted
+// the sun-gloss `.wg-workouts-history-header__add` pill instead. Placement
+// pinned in `workout.design-parity.test.js`; the guard below now asserts it
+// no longer carries toolbar-btn classes (source-level guard on index.html).
 // Round-2 Task 12 (defect #15): `#add-weight-btn` — ADOPTED; the button
 // moved out of the (deleted) `.wg-weight-header-row` into the
 // range-selector row via `buildWeightInlineAddButton`. DOM adoption
@@ -206,22 +209,23 @@ describe('Round-2 Task 2 — shared .wg-toolbar-btn class', () => {
         expect(CSS).not.toMatch(/\.wg-meds-subtabs-row__add-label\s*\{/);
     });
 
-    // Round-2 Task 10 (defect #13b): Workouts #start-adhoc-workout-btn
-    // adopted the shared class. Source-level guard on index.html — a
-    // DOM-level adoption test lives in `workout.design-parity.test.js`.
-    it('Workouts #start-adhoc-workout-btn uses .wg-toolbar-btn + .wg-toolbar-btn--primary (not the old one-off)', () => {
+    // med-3dk: Workouts #start-adhoc-workout-btn left the toolbar-btn family.
+    // It moved out of the oversized subtabs-row CTA into the History pane
+    // header, adopting the sun-gloss `.wg-workouts-history-header__add` sizing
+    // shared with the Exercises `+ Add` pill. Source-level guard on
+    // index.html — DOM-level placement test lives in workout.design-parity.
+    it('Workouts #start-adhoc-workout-btn no longer uses .wg-toolbar-btn — now the sun-gloss history-header add pill', () => {
         const INDEX_HTML_PATH = path.join(REPO_ROOT, 'web/static/index.html');
         const src = fs.readFileSync(INDEX_HTML_PATH, 'utf8');
         const match = src.match(/<button\s+id="start-adhoc-workout-btn"[^>]*class="([^"]+)"/);
         expect(match).not.toBeNull();
         const classAttr = match[1];
-        expect(classAttr).toMatch(/\bwg-toolbar-btn\b/);
-        expect(classAttr).toMatch(/\bwg-toolbar-btn--primary\b/);
-        // The per-section one-off and the now-unused sun-gloss base must
-        // not coexist with the shared class (the shared --primary variant
-        // already carries the yellow fill).
+        expect(classAttr).not.toMatch(/\bwg-toolbar-btn\b/);
+        expect(classAttr).not.toMatch(/\bwg-toolbar-btn--primary\b/);
         expect(classAttr).not.toMatch(/\bwg-workouts-subtabs-row__add\b/);
-        expect(classAttr).not.toMatch(/\bwg-gloss--sun\b/);
+        expect(classAttr).toMatch(/\bwg-gloss\b/);
+        expect(classAttr).toMatch(/\bwg-gloss--sun\b/);
+        expect(classAttr).toMatch(/\bwg-workouts-history-header__add\b/);
     });
 
     it('CSS no longer defines the dead .wg-workouts-subtabs-row__add rule', () => {

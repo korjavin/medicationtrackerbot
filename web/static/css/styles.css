@@ -7266,26 +7266,15 @@ textarea.wg-input {
    `.wg-gloss--inset` container wraps four `.wg-gloss`-capable pills — History /
    Groups / Exercises / Stats — the active pill carries `.wg-gloss--sun` (plus
    `.wg-workouts-subtabs__btn--active` for tests). The strip is wrapped by a
-   `.wg-workouts-subtabs-row` flex container that also holds the inline
-   `#start-adhoc-workout-btn` ad-hoc CTA on the right. Round-2 Task 10
-   (defect 13b) migrated the Start button from its per-section
-   `.wg-workouts-subtabs-row__add` one-off onto the shared
-   `.wg-toolbar-btn .wg-toolbar-btn--primary` class so its height aligns
-   with the sibling subtab pills. */
+   `.wg-workouts-subtabs-row` flex container. med-3dk removed the trailing
+   `#start-adhoc-workout-btn` ad-hoc CTA from this row (it now lives in the
+   History pane header, `.wg-workouts-history-header`), so the row holds only
+   the pill track. */
 .wg-workouts-subtabs-row {
     display: flex;
     gap: var(--space-xs);
     align-items: stretch;
     margin-bottom: var(--space-md);
-}
-
-/* The Start button sits beside the inset subtab track, not inside it, so the
-   row's align-items:stretch is the only thing that can match their heights —
-   and .wg-toolbar-btn's own align-self:center cancels it, leaving Start short
-   and floating mid-row against the taller padded track (med-xqt). Overridden
-   here rather than on .wg-toolbar-btn, which 12 other toolbars rely on. */
-.wg-workouts-subtabs-row .wg-toolbar-btn {
-    align-self: stretch;
 }
 
 .wg-workouts-subtabs {
@@ -8459,13 +8448,24 @@ textarea.wg-input {
     margin-bottom: var(--space-sm);
 }
 
+/* History pane header (med-3dk). Mirrors the Exercises `+ Add` header, but
+   carries no left label, so the Start CTA right-aligns above the History
+   list — same button sizing as `.wg-workouts-exercises-header__add` below. */
+.wg-workouts-history-header {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin-bottom: var(--space-sm);
+}
+
 .wg-workouts-exercises-header__label {
     padding: 0;
     flex: 1;
     min-width: 0;
 }
 
-.wg-workouts-exercises-header__add {
+.wg-workouts-exercises-header__add,
+.wg-workouts-history-header__add {
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
@@ -8480,7 +8480,8 @@ textarea.wg-input {
     cursor: pointer;
 }
 
-.wg-workouts-exercises-header__add-label {
+.wg-workouts-exercises-header__add-label,
+.wg-workouts-history-header__add-label {
     letter-spacing: 0.02em;
 }
 
