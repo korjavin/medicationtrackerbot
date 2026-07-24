@@ -6,7 +6,7 @@
 // clientTs; recordsPort() below exposes the generic list/put/del trio that
 // web/domain/'s domain modules are built on.
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
-import { openDb } from './localdb.js';
+import { cachedDb, dropCachedDb } from './localdb.js';
 
 // Task 6: the NK (push notification key) is itself a vault record so every
 // enrolled device converges on the same one via the ordinary oplog, exactly
@@ -97,20 +97,32 @@ async function getKData(ctx) {
 
 // --- local IDB mirror ---------------------------------------------------
 
-async function withStore(storeName, mode, fn) {
-  const db = await openDb();
+// Run fn against the shared cached connection. If the handle was closed out from
+// under us (versionchange, external close), db.transaction() throws
+// InvalidStateError — drop the cache, reopen once, and retry.
+async function withDb(fn) {
+  let db = await cachedDb();
   try {
-    return await new Promise((resolve, reject) => {
-      const tx = db.transaction(storeName, mode);
-      const store = tx.objectStore(storeName);
-      const result = fn(store);
-      tx.oncomplete = () => resolve(result);
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
-    });
-  } finally {
-    db.close();
+    return await fn(db);
+  } catch (err) {
+    if (err && err.name === 'InvalidStateError') {
+      dropCachedDb();
+      db = await cachedDb();
+      return await fn(db);
+    }
+    throw err;
   }
+}
+
+async function withStore(storeName, mode, fn) {
+  return withDb((db) => new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, mode);
+    const store = tx.objectStore(storeName);
+    const result = fn(store);
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  }));
 }
 
 function reqToPromise(req) {
@@ -121,8 +133,7 @@ function reqToPromise(req) {
 }
 
 async function readMeta() {
-  const db = await openDb();
-  try {
+  return withDb(async (db) => {
     const tx = db.transaction('sync_meta', 'readonly');
     const store = tx.objectStore('sync_meta');
     const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs, writeErrorStreak, syncWedged] = await Promise.all([
@@ -151,9 +162,7 @@ async function readMeta() {
       writeErrorStreak: writeErrorStreak ?? 0,
       syncWedged: syncWedged ?? false,
     };
-  } finally {
-    db.close();
-  }
+  });
 }
 
 async function writeMeta(patch) {
@@ -226,20 +235,15 @@ export async function dropPendingForTypes(types) {
 // heals is the worst case. pullOnOpen then re-bootstraps from the server.
 export async function resetLocalSync(ctx) {
   await withRecordsLock(async () => {
-    const db = await openDb();
-    try {
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction(['records', 'pending', 'sync_meta'], 'readwrite');
-        tx.objectStore('records').clear();
-        tx.objectStore('pending').clear();
-        tx.objectStore('sync_meta').clear();
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(tx.error);
-      });
-    } finally {
-      db.close();
-    }
+    await withDb((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(['records', 'pending', 'sync_meta'], 'readwrite');
+      tx.objectStore('records').clear();
+      tx.objectStore('pending').clear();
+      tx.objectStore('sync_meta').clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    }));
   });
   offline = false;
   authExpired = false;

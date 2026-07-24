@@ -1741,3 +1741,45 @@ describe('cachedDb shared handle + drop-listener (med-90w.1)', () => {
     unsub();
   });
 });
+
+// med-90w.1 Task 2 — sync.js routes every DB access through withDb, which reuses
+// the cached handle and reopens once on InvalidStateError. A read must survive
+// the handle being closed out from under it.
+describe('withDb reopens the cached handle after an external close (med-90w.1)', () => {
+  const seed = async (records, meta = { localLastSeq: 5 }) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'sync_meta'], 'readwrite');
+        const store = tx.objectStore('records');
+        for (const r of records) store.put(r);
+        const metaStore = tx.objectStore('sync_meta');
+        for (const [k, v] of Object.entries(meta)) metaStore.put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+  });
+
+  it('listRecords still succeeds after the cached handle is externally closed', async () => {
+    await seed([{ recordId: 'bp-1', recordType: 'bp', clientTs: 100, deleted: false, systolic: 120 }]);
+    // First read opens and caches the shared handle.
+    expect((await listRecords({}, 'bp')).map((r) => r.recordId)).toEqual(['bp-1']);
+    // Close it out from under sync.js without going through dropCachedDb — the
+    // cache still points at a now-dead connection, so the next transaction()
+    // throws InvalidStateError and withDb must transparently reopen.
+    (await cachedDb()).close();
+    expect((await listRecords({}, 'bp')).map((r) => r.recordId)).toEqual(['bp-1']);
+  });
+});

@@ -105,20 +105,21 @@ NOT touched.
 - [x] run `npx vitest run web/cloud/js/tests/sync.test.js` (Node 20) — must pass before Task 2.
 
 ### Task 2: Route sync.js DB access through a guarded `withDb`; keep handle open
-- [ ] In `web/cloud/js/sync.js`, import `cachedDb, dropCachedDb, onCachedDbDropped`
+- [x] In `web/cloud/js/sync.js`, import `cachedDb, dropCachedDb, onCachedDbDropped`
       from `./localdb.js` (keep `openDb` import only if still needed; it is not —
-      remove if unused).
-- [ ] Add `async function withDb(fn)`: `let db = await cachedDb(); try { return await fn(db); } catch (err) { if (err && err.name === 'InvalidStateError') { dropCachedDb(); db = await cachedDb(); return await fn(db); } throw err; }`.
-- [ ] Rewrite `withStore` to use `withDb` (build the transaction inside `fn(db)`),
+      remove if unused). (imported `cachedDb, dropCachedDb`; `openDb` removed as
+      unused; `onCachedDbDropped` deferred to Task 3 where it is first used.)
+- [x] Add `async function withDb(fn)`: `let db = await cachedDb(); try { return await fn(db); } catch (err) { if (err && err.name === 'InvalidStateError') { dropCachedDb(); db = await cachedDb(); return await fn(db); } throw err; }`.
+- [x] Rewrite `withStore` to use `withDb` (build the transaction inside `fn(db)`),
       REMOVING the `db.close()` finally.
-- [ ] Rewrite `readMeta` to use `withDb` (single `sync_meta` readonly tx +
+- [x] Rewrite `readMeta` to use `withDb` (single `sync_meta` readonly tx +
       `Promise.all` of the 11 gets), REMOVING its `db.close()`.
-- [ ] Rewrite `resetLocalSync`'s raw open/close block to use `withDb` for the
+- [x] Rewrite `resetLocalSync`'s raw open/close block to use `withDb` for the
       multi-store clear tx, REMOVING its `db.close()`.
-- [ ] write test: a `withStore`-backed read (e.g. `listRecords`) still succeeds
+- [x] write test: a `withStore`-backed read (e.g. `listRecords`) still succeeds
       after the cached handle is externally `close()`d (guard reopens transparently,
       no throw).
-- [ ] run `npx vitest run web/cloud/js/tests/sync.test.js` (Node 20) — must pass before Task 3.
+- [x] run `npx vitest run web/cloud/js/tests/sync.test.js` (Node 20) — must pass before Task 3.
 
 ### Task 3: Plaintext records memo + bootstrap flag + invalidation wiring
 - [ ] In sync.js add module state: `const recordsMemo = new Map();`,
