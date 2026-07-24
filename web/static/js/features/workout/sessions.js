@@ -434,6 +434,9 @@ async function _maybeAttachPRBadge(headerRow, log) {
     // baseline is a fresh PR held by this session.
     const sessionId = window.WorkoutSessionsState.data && window.WorkoutSessionsState.data.id;
     const prior = logs.filter((l) => l.session_id !== sessionId);
+    // No prior history for this exercise = no record to beat. Don't badge the
+    // first-ever log (an all-zero baseline that anything positive "beats").
+    if (prior.length === 0) return;
     const priorPRs = WA.exercisePRs(prior);
     if (!detail.isPRLog(log, priorPRs, WA)) return;
 
