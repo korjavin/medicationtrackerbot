@@ -7702,21 +7702,6 @@ textarea.wg-input {
     color: var(--color-danger);
 }
 
-.wg-workouts-session-logs-header {
-    display: flex;
-    justify-content: flex-end;
-    margin-bottom: var(--space-sm);
-}
-
-.wg-workouts-session-logs-header__add {
-    min-height: 44px;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    padding: var(--space-sm) var(--space-md);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
 .wg-workouts-session-logs {
     display: flex;
     flex-direction: column;

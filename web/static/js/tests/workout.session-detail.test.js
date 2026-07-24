@@ -200,34 +200,14 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         expect(opened).toHaveBeenCalledTimes(1);
     });
 
-    it('renders the Add Exercise button in the logs-section header, not the actions bar', async () => {
-        const { window, document } = env;
-        await openSession(window, [logFixture()]);
+    it('has no separate Add Exercise button above the logs list', async () => {
+        const { document } = env;
+        await openSession(env.window, [logFixture()]);
 
-        const header = document.getElementById('workout-session-logs-header');
-        const addBtn = header.querySelector('#workout-session-add-exercise-btn');
-        expect(addBtn).not.toBeNull();
-        expect(addBtn.textContent).toBe('Add Exercise');
-        // Reachable near the top — the header sits above the logs list in DOM order.
-        const logs = document.getElementById('workout-session-logs');
-        // DOCUMENT_POSITION_FOLLOWING === 4: `logs` follows `header`.
-        expect(header.compareDocumentPosition(logs) & 4).toBeTruthy();
-        // Not duplicated into the bottom actions bar.
-        const actionsContainer = document.getElementById('workout-session-actions');
-        expect(actionsContainer.querySelector('#workout-session-add-exercise-btn')).toBeNull();
-    });
-
-    it('clicking Add Exercise opens the add-exercise-to-session modal', async () => {
-        const { window, document } = env;
-        await openSession(window, [logFixture()]);
-
-        const opened = vi.fn();
-        window.showAddExerciseToSessionModal = opened;
-        // Re-render the header so the button is wired to the spy.
-        window.renderSessionLogsHeader(() => window.showAddExerciseToSessionModal());
-
-        document.getElementById('workout-session-add-exercise-btn').click();
-        expect(opened).toHaveBeenCalledTimes(1);
+        // The Add Exercise button now lives only in the bottom actions row next
+        // to Finish workout — the old logs-header entry point is gone entirely.
+        expect(document.getElementById('workout-session-logs-header')).toBeNull();
+        expect(document.getElementById('workout-session-add-exercise-btn')).toBeNull();
     });
 
     it('dispatches the Finish callback', () => {

@@ -665,7 +665,6 @@ async function showWorkoutSessionModal(sessionId) {
         setAutosaveStatus('saved');
 
         renderWorkoutSessionInfo(infoContainer, data.session);
-        renderSessionLogsHeader();
         renderWorkoutSessionLogs(logsContainer);
         const actionsContainer = document.getElementById('workout-session-actions');
         if (actionsContainer) {
@@ -802,32 +801,6 @@ async function finishWorkoutSession() {
     // that fires during this network round-trip queues after Finish instead of
     // running a second, overlapping save.
     await runSerializedSave();
-}
-
-// renderSessionLogsHeader mounts the "Add Exercise" button in a stable node
-// above the (fully re-rendered on every edit) logs list, so you can add an
-// exercise without scrolling past every logged set. Reuses the existing
-// showAddExerciseToSessionModal handler. `.workout-action-btn`
-// keeps it in sync.js's offline sweep; static offline state is applied here.
-function renderSessionLogsHeader() {
-    const header = document.getElementById('workout-session-logs-header');
-    if (!header) return;
-    header.classList.add('wg-workouts-session-logs-header');
-    header.replaceChildren();
-
-    const addBtn = document.createElement('button');
-    addBtn.type = 'button';
-    addBtn.id = 'workout-session-add-exercise-btn';
-    addBtn.className = 'wg-gloss--sun wg-workouts-session-logs-header__add workout-action-btn';
-    addBtn.textContent = 'Add Exercise';
-    addBtn.addEventListener('click', () => showAddExerciseToSessionModal());
-    header.appendChild(addBtn);
-
-    if (typeof window !== 'undefined' && window.SyncManager && window.SyncManager.isOnline === false) {
-        addBtn.classList.add('offline-disabled');
-        addBtn.setAttribute('data-offline-disabled', 'true');
-        addBtn.disabled = true;
-    }
 }
 
 function renderSessionDetailActions(container, opts) {
