@@ -173,9 +173,9 @@ NOT touched.
 - [x] Run `go build ./...` (no-op for this JS-only change; must still pass). (OK.)
 
 ### Task 5: [Final] Docs
-- [ ] No doc changes required (internal read-side cache, no API/behavior change).
-      If any behavior note is warranted, add a one-line comment at the memo
-      definition in sync.js; do not touch docs/ otherwise.
+- [x] No doc changes required (internal read-side cache, no API/behavior change).
+      Memo definition already carries a one-line comment at sync.js:185 noting
+      the getRecordsChangeCount() signal for med-90w.2; docs/ untouched.
 
 ## Technical Details
 
