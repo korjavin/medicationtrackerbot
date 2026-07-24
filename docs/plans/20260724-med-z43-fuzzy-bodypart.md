@@ -47,17 +47,17 @@ ONCE at catalog load. `friendlyBodyPart` labels and the catalog JSON stay unchan
 ## Implementation Steps
 
 ### Task 1: Add token-index fuzzy resolver to exercise-catalog.js
-- [ ] add `_tokens(name)` helper: lowercase, split on non-alphanumeric, keep tokens
+- [x] add `_tokens(name)` helper: lowercase, split on non-alphanumeric, keep tokens
       length >= 3 (drops noise like "up"/"ab"/"of" that would dominate plurality)
-- [ ] in `load()`, alongside the exact `Map`, build `_tokenIndex`
+- [x] in `load()`, alongside the exact `Map`, build `_tokenIndex`
       (`Map<token, Map<body_part, entryCount>>`), one vote per distinct token per
       entry so overlap weights naturally; store resolved exact map + index in module
       scope; reset both to null in the `.catch` so a retry rebuilds them
-- [ ] add `resolveBodyPart(name)`: exact-map hit wins; else tally votes across the
+- [x] add `resolveBodyPart(name)`: exact-map hit wins; else tally votes across the
       query's tokens and return the plurality body_part; strict tie or zero → null
-- [ ] make `getBodyPart` async-wrap `await load()` then `resolveBodyPart(name)`
-- [ ] export `resolveBodyPart` on `window.WorkoutExerciseCatalog`
-- [ ] run vitest features.workout-stats.test.js — existing catalog tests must pass
+- [x] make `getBodyPart` async-wrap `await load()` then `resolveBodyPart(name)`
+- [x] export `resolveBodyPart` on `window.WorkoutExerciseCatalog`
+- [x] run vitest features.workout-stats.test.js — existing catalog tests must pass
 
 ### Task 2: Route stats.js body-part split through the resolver
 - [ ] change `_computeBodyPartSplit(topExercises, resolveFn)` to call
