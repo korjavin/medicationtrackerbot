@@ -223,6 +223,21 @@ describe('features/workout/stats.js — split-file integration', () => {
       expect(resolve('bench press')).toBe('chest');
     });
 
+    it('resolveBodyPart: a strict cross-body-part vote tie resolves to null', async () => {
+      const { window } = env;
+      // "raise" is a subset of both entries, one vote each across different body
+      // parts -> plurality tie -> uncategorized, not an arbitrary pick.
+      window.fetch = vi.fn(async () => ({
+        ok: true, status: 200,
+        json: async () => ({ exercises: [
+          { name: 'Lateral Raise', body_part: 'shoulders' },
+          { name: 'Calf Raise', body_part: 'lower legs' },
+        ] }),
+      }));
+      await window.WorkoutExerciseCatalog.load();
+      expect(window.WorkoutExerciseCatalog.resolveBodyPart('raise')).toBeNull();
+    });
+
     it('fetches the catalog at most once across repeated getBodyPart/load calls', async () => {
       const { window } = env;
       window.fetch = vi.fn(async () => ({
