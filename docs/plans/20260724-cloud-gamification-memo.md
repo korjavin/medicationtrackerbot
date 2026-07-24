@@ -185,4 +185,4 @@ Update the progress block below as each task completes.
 - [x] Task 2: bounded HR listRange read
 - [x] Task 3: wire getRecordsChangeCount in apishim (cloud only)
 - [x] Task 4: memo + HR-bound tests in gamification.substrate.test.js
-- [ ] Task 5: verify (vitest full + go build)
+- [x] Task 5: verify (vitest full + go build) — 321 files / 3940 tests passed, 29 skipped; go build clean
