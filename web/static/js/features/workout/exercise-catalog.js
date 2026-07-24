@@ -12,7 +12,7 @@
 (function () {
     let _mapPromise = null; // single-flight cache for the catalog name->body_part map
     let _exactMap = null;   // Map<normalized name, body_part>
-    let _tokenIndex = null; // Map<token, Map<body_part, entryCount>> — inverted index for fuzzy fallback
+    let _entries = null;    // [[Set<token>, body_part]] for subset-match fuzzy fallback
 
     function _norm(name) {
         return String(name || '').toLowerCase().trim();
@@ -32,49 +32,47 @@
                 .then((r) => (r.ok ? r.json() : Promise.reject(new Error('catalog ' + r.status))))
                 .then((cat) => {
                     const map = new Map();
-                    const index = new Map();
+                    const entries = [];
                     for (const e of (cat.exercises || [])) {
                         const key = _norm(e.name);
                         if (!key || !e.body_part) continue;
                         map.set(key, e.body_part);
-                        // One vote per distinct token per entry so multi-token
-                        // overlap weights naturally.
-                        for (const tok of _tokens(e.name)) {
-                            let byPart = index.get(tok);
-                            if (!byPart) { byPart = new Map(); index.set(tok, byPart); }
-                            byPart.set(e.body_part, (byPart.get(e.body_part) || 0) + 1);
-                        }
+                        entries.push([new Set(_tokens(e.name)), e.body_part]);
                     }
                     _exactMap = map;
-                    _tokenIndex = index;
+                    _entries = entries;
                     return map;
                 })
                 .catch((err) => {
                     console.error('Error loading exercise catalog:', err);
                     _mapPromise = null; // allow a later retry
                     _exactMap = null;
-                    _tokenIndex = null;
+                    _entries = null;
                     return new Map();
                 });
         }
         return _mapPromise;
     }
 
-    // Exact match wins; else tally body_part votes across the query's tokens and
-    // return the plurality. Strict tie or zero votes → null. Assumes load() has
-    // resolved (getBodyPart awaits it; stats.js awaits load() before calling).
+    // Exact match wins; else a bare logged name ("bench press") is a token-subset
+    // of its verbose catalog form ("barbell bench press"), so tally body_part
+    // across every entry the query is a subset of and return the plurality. Strict
+    // tie or no match → null. Subset (not raw token frequency) is what avoids a
+    // popular head-noun like "press"/"curl" outvoting the identifying token, e.g.
+    // "leg press" → upper legs, not chest. Assumes load() has resolved (getBodyPart
+    // awaits it; stats.js awaits load() before calling).
     function resolveBodyPart(name) {
         if (_exactMap) {
             const hit = _exactMap.get(_norm(name));
             if (hit) return hit;
         }
-        if (!_tokenIndex) return null;
+        if (!_entries) return null;
+        const q = _tokens(name);
+        if (!q.length) return null;
         const tally = new Map();
-        for (const tok of _tokens(name)) {
-            const byPart = _tokenIndex.get(tok);
-            if (!byPart) continue;
-            for (const [part, count] of byPart) {
-                tally.set(part, (tally.get(part) || 0) + count);
+        for (const [toks, part] of _entries) {
+            if (q.every((t) => toks.has(t))) {
+                tally.set(part, (tally.get(part) || 0) + 1);
             }
         }
         let best = null, bestVotes = 0, tie = false;

@@ -205,6 +205,24 @@ describe('features/workout/stats.js — split-file integration', () => {
       expect(resolve('Mystery Move')).toBeNull(); // real tokens, none in catalog
     });
 
+    it('resolveBodyPart: a popular shared token does not outvote the identifying one', async () => {
+      const { window } = env;
+      // "press" is the head noun in many chest entries; "leg press" must still land
+      // on the leg entry via subset match, not get pulled to chest by token frequency.
+      window.fetch = vi.fn(async () => ({
+        ok: true, status: 200,
+        json: async () => ({ exercises: [
+          { name: 'Barbell Bench Press', body_part: 'chest' },
+          { name: 'Dumbbell Chest Press', body_part: 'chest' },
+          { name: 'Machine Leg Press', body_part: 'upper legs' },
+        ] }),
+      }));
+      await window.WorkoutExerciseCatalog.load();
+      const resolve = window.WorkoutExerciseCatalog.resolveBodyPart;
+      expect(resolve('leg press')).toBe('upper legs');
+      expect(resolve('bench press')).toBe('chest');
+    });
+
     it('fetches the catalog at most once across repeated getBodyPart/load calls', async () => {
       const { window } = env;
       window.fetch = vi.fn(async () => ({
