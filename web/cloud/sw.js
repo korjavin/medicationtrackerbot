@@ -20,13 +20,12 @@ const CACHE_PREFIX = 'medtracker-cloud';
 // each deploy gets a fresh cache and activate prunes the old ones below.
 const SHELL_CACHE = `${CACHE_PREFIX}-shell-${SW_VERSION}`;
 
-// Same-origin subresource refs in the served '/' document: <script src> and
+// Same-origin subresource refs in a served document: <script src> and
 // <link href> tags only — all root-relative in web/static/index.html plus the
 // tags router.go injects. Anchor hrefs (<a href="/devices">) are navigation
-// targets, not shell assets: warming one would cache the ceremony document
-// (signup.html) WITHOUT its own css/js — offlineFallback would then serve
-// that exact cached doc with rejecting subresources, a blank ceremony page.
-// Ceremony pages offline are only served from a prior full online visit.
+// targets, not shell assets, and are deliberately excluded: the ceremony
+// document is precached separately (with its own css/js module graph) by
+// warmCeremony below, not by following a stray <a> from the app shell.
 // Cross-origin URLs don't start with '/' and never match.
 const SHELL_REF_RE = /<(?:script|link)\b[^>]*?(?:src|href)="(\/[^"]*)"/g;
 
@@ -94,10 +93,11 @@ async function cacheAndCrawl(cache, url) {
 // wave is Promise.all — a miss rejects (CORE, see above). When not strict (the
 // best-effort ceremony shell) the direct refs fold into the allSettled loop so
 // nothing rejects. Module-graph waves are always allSettled (log+skip).
-async function warmDocGraph(cache, docUrl, html, seen, strict) {
+async function warmDocGraph(cache, html, seen, strict) {
   const direct = [];
   for (const m of html.matchAll(SHELL_REF_RE)) {
-    const href = new URL(m[1], docUrl).href;
+    // SHELL_REF_RE only captures root-relative refs, so origin is the only base.
+    const href = new URL(m[1], self.location.origin).href;
     if (!seen.has(href)) {
       seen.add(href);
       direct.push(href);
@@ -134,7 +134,7 @@ async function warmShell() {
   const origin = self.location.origin;
   const seen = new Set([new URL('/', origin).href]);
   // CORE-strict: the '/' shell must fully cache or the install rejects.
-  await warmDocGraph(cache, origin, html, seen, true);
+  await warmDocGraph(cache, html, seen, true);
   // Best-effort: warm the ceremony document (signup.html) + its module graph so
   // Settings sub-pages (/devices, /connectors, …) open offline. Its failure
   // must NEVER reject the primary-shell install (med-gvk.3, mirrors med-gvk.1's
@@ -156,7 +156,7 @@ async function warmCeremony(cache, seen) {
   for (const path of CEREMONY_PATHS) {
     await cache.put(path, res.clone());
   }
-  await warmDocGraph(cache, new URL('/unlock', self.location.origin).href, html, seen, false);
+  await warmDocGraph(cache, html, seen, false);
 }
 
 self.addEventListener('install', (event) => {
