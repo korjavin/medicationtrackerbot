@@ -213,8 +213,6 @@ type TelegramAPI struct {
 	// insert. ponytail: one global lock — cmd/cloud is a single process and
 	// minting is rare. Same rationale as InviteAPI.mintMu.
 	mintMu sync.Mutex
-
-	limiter *rateLimiter
 }
 
 // NewTelegramAPI builds the Telegram surface for a manager bot token. apiBaseURL
@@ -232,7 +230,6 @@ func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDom
 		feedbackRecipient: feedbackRecipient,
 		feedbackWaiting:   make(map[int64]time.Time),
 		claimTTL:          claimTTL,
-		limiter:           newRateLimiter(ceremonyRateLimitMax, ceremonyRateLimitWindow),
 	}
 }
 
@@ -331,8 +328,8 @@ func (t *TelegramAPI) RegisterAPIRoutes(mux *http.ServeMux) {
 // onto the top-level mux (coexists with the "/" landing-page catch-all —
 // ServeMux prefers the more specific pattern). Only called when enabled.
 func (t *TelegramAPI) RegisterWebhookRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /tg/manager/{secret}", limitByIP(t.limiter, t.ManagerWebhook))
-	mux.HandleFunc("POST /tg/bot/{ref}/{secret}", limitByIP(t.limiter, t.ChildWebhook))
+	mux.HandleFunc("POST /tg/manager/{secret}", t.ManagerWebhook)
+	mux.HandleFunc("POST /tg/bot/{ref}/{secret}", t.ChildWebhook)
 }
 
 // Provision starts a managed-bot creation flow: it mints a random suggested

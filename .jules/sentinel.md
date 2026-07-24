@@ -31,3 +31,8 @@
 **Vulnerability:** Several unauthenticated endpoints (`GET /api/push/vapid-public-key`, `POST /api/transfer/{slot_id}/claim`, `POST /tg/manager/{secret}`, `POST /tg/bot/{ref}/{secret}`) were not rate-limited, exposing them to brute-force and resource exhaustion (DoS) attacks.
 **Learning:** Endpoints that are intentionally unauthenticated (e.g., because they are part of a provisioning flow or are webhooks) still need rate limiting to prevent abuse.
 **Prevention:** Always wrap unauthenticated endpoints with the `limitByIP` middleware and a struct-level `rateLimiter` initialized with `ceremonyRateLimitMax` and `ceremonyRateLimitWindow`.
+
+## 2024-05-24 - Rate limit unauthenticated endpoints
+**Vulnerability:** Unauthenticated endpoints (`GET /api/push/vapid-public-key` and `POST /api/transfer/{slot_id}/claim`) were not rate-limited, exposing them to brute-force and resource exhaustion (DoS) attacks.
+**Learning:** Endpoints that are intentionally unauthenticated still need rate limiting to prevent abuse, except for incoming webhooks which are authenticated via a secret and might experience fan-in from a few shared IPs (where rate limiting by IP would drop legitimate traffic).
+**Prevention:** Wrap unauthenticated user-facing endpoints with the `limitByIP` middleware and a struct-level `rateLimiter` initialized with `ceremonyRateLimitMax` and `ceremonyRateLimitWindow`, while leaving verified webhooks unthrottled.
