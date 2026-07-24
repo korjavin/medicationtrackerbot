@@ -24,33 +24,6 @@ function setActiveWorkoutsStatsRange(range) {
     try { window.localStorage.setItem(WORKOUTS_STATS_RANGE_KEY, range); } catch (_) { /* ignore */ }
 }
 
-// Body-part split (med-s5m.3). Match logged exercise names against the vendored
-// static catalog (med-s5m.1) to derive a body_part label at read time — no
-// migration, no stored column. Matching is client-side, so in cloud mode the
-// decrypted names never leave the browser. The 913 KB asset is fetched once,
-// lazily; a failed fetch is silent (no split shown) and retried next render.
-let _exerciseBodyPartMapPromise = null; // module-state: single-flight cache for the catalog name->body_part map (med-s5m.3)
-function _loadExerciseBodyPartMap() {
-    if (!_exerciseBodyPartMapPromise) {
-        _exerciseBodyPartMapPromise = fetch('/static/data/exercises-catalog.json')
-            .then((r) => (r.ok ? r.json() : Promise.reject(new Error('catalog ' + r.status))))
-            .then((cat) => {
-                const map = new Map();
-                for (const e of (cat.exercises || [])) {
-                    const key = String(e.name || '').toLowerCase().trim();
-                    if (key && e.body_part) map.set(key, e.body_part);
-                }
-                return map;
-            })
-            .catch((err) => {
-                console.error('Error loading exercise catalog:', err);
-                _exerciseBodyPartMapPromise = null; // allow a later retry
-                return new Map();
-            });
-    }
-    return _exerciseBodyPartMapPromise;
-}
-
 // Aggregate a top-exercises list into a body-part distribution by session_count
 // (training frequency reads better than tonnage, and stays non-zero for
 // bodyweight moves). Unmatched names bucket as 'uncategorized'.
@@ -74,20 +47,11 @@ function _computeBodyPartSplit(topExercises, bodyPartMap) {
         .sort((a, b) => b.count - a.count);
 }
 
-const _BODY_PART_LABELS = {
-    'upper legs': 'Upper legs', 'lower legs': 'Lower legs', 'upper arms': 'Upper arms',
-    'lower arms': 'Lower arms', 'back': 'Back', 'chest': 'Chest', 'shoulders': 'Shoulders',
-    'waist': 'Waist', 'neck': 'Neck', 'cardio': 'Cardio', 'uncategorized': 'Uncategorized'
-};
-function _bodyPartLabel(bp) {
-    return _BODY_PART_LABELS[bp] || (bp.charAt(0).toUpperCase() + bp.slice(1));
-}
-
 // Append the body-part split section to an already-built stats root. Async
 // because it awaits the catalog; fire-and-forget from _renderWorkoutStats.
 async function _renderBodyPartSplit(root, topExercises) {
     if (!topExercises || topExercises.length === 0) return;
-    const map = await _loadExerciseBodyPartMap();
+    const map = await window.WorkoutExerciseCatalog.load();
     if (map.size === 0) return; // catalog unavailable — skip rather than show an all-uncategorized split
     const split = _computeBodyPartSplit(topExercises, map);
     if (split.length === 0) return;
@@ -111,7 +75,8 @@ async function _renderBodyPartSplit(root, topExercises) {
 
         const name = document.createElement('span');
         name.className = 'wg-workouts-stats__top-row-name';
-        name.textContent = _bodyPartLabel(body_part);
+        name.textContent = window.WorkoutExerciseCatalog.friendlyBodyPart(body_part)
+            || (body_part.charAt(0).toUpperCase() + body_part.slice(1));
 
         const value = document.createElement('span');
         value.className = 'wg-workouts-stats__top-row-volume';

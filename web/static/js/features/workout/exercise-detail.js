@@ -37,9 +37,8 @@
     // isPRLog: does `log` set a new record against `priorPRs` (the folded PRs of
     // that exercise's history EXCLUDING this log's session)? Folds this log's own
     // sets via exercisePRs (so warm-up exclusion + every PR type stay in one place)
-    // and returns true when any record — heaviest weight, best est-1RM, best set
-    // volume, best session volume, most reps, or a per-rep-count set-record —
-    // beats the prior baseline.
+    // and returns true only when a new heaviest weight or best est-1RM beats the
+    // prior baseline (see the trigger-narrowing rationale below).
     function isPRLog(log, priorPRs, WA) {
         if (!log || !priorPRs || !WA || typeof WA.exercisePRs !== 'function') return false;
         const cur = WA.exercisePRs([log]);

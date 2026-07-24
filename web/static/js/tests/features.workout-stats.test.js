@@ -88,7 +88,7 @@ describe('features/workout/stats.js — split-file integration', () => {
       const labels = Array.from(
         container.querySelectorAll('.wg-workouts-stats__body-split .wg-workouts-stats__top-row-name')
       ).map((n) => n.textContent);
-      expect(labels).toEqual(['Upper legs', 'Chest', 'Uncategorized']); // sorted by session_count desc
+      expect(labels).toEqual(['Legs', 'Chest', 'Uncategorized']); // friendly labels, sorted by session_count desc
     });
 
     it('renders no split section when there are no top_exercises (and does not fetch the catalog)', async () => {
@@ -117,6 +117,50 @@ describe('features/workout/stats.js — split-file integration', () => {
       await new Promise((r) => setTimeout(r, 0));
       expect(container.querySelector('.wg-workouts-stats')).toBeTruthy(); // base stats rendered
       expect(container.querySelector('.wg-workouts-stats__body-split')).toBeNull();
+    });
+  });
+
+  // med-mj4 — shared catalog helper: single-flight fetch + medical→friendly
+  // body-part translation reused by the Stats split and the session-card chip.
+  describe('WorkoutExerciseCatalog', () => {
+    it('friendlyBodyPart maps every medical value to its friendly name, null otherwise', () => {
+      const { window } = env;
+      const f = window.WorkoutExerciseCatalog.friendlyBodyPart;
+      expect(f('upper legs')).toBe('Legs');
+      expect(f('lower legs')).toBe('Calves');
+      expect(f('waist')).toBe('Core');
+      expect(f('upper arms')).toBe('Arms');
+      expect(f('lower arms')).toBe('Forearms');
+      expect(f('chest')).toBe('Chest');
+      expect(f('back')).toBe('Back');
+      expect(f('shoulders')).toBe('Shoulders');
+      expect(f('neck')).toBe('Neck');
+      expect(f('cardio')).toBe('Cardio');
+      expect(f('uncategorized')).toBeNull();
+      expect(f('nonsense')).toBeNull();
+    });
+
+    it('getBodyPart is case-insensitive and null for names absent from the catalog', async () => {
+      const { window } = env;
+      window.fetch = vi.fn(async () => ({
+        ok: true, status: 200,
+        json: async () => ({ exercises: [{ name: 'Barbell Squat', body_part: 'upper legs' }] }),
+      }));
+      expect(await window.WorkoutExerciseCatalog.getBodyPart('BARBELL squat')).toBe('upper legs');
+      expect(await window.WorkoutExerciseCatalog.getBodyPart('Unknown Move')).toBeNull();
+    });
+
+    it('fetches the catalog at most once across repeated getBodyPart/load calls', async () => {
+      const { window } = env;
+      window.fetch = vi.fn(async () => ({
+        ok: true, status: 200,
+        json: async () => ({ exercises: [{ name: 'Bench Press', body_part: 'chest' }] }),
+      }));
+      await window.WorkoutExerciseCatalog.load();
+      await window.WorkoutExerciseCatalog.getBodyPart('bench press');
+      await window.WorkoutExerciseCatalog.getBodyPart('missing');
+      const catalogFetches = window.fetch.mock.calls.filter((c) => String(c[0]).includes('exercises-catalog.json'));
+      expect(catalogFetches).toHaveLength(1);
     });
   });
 
