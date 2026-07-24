@@ -3352,6 +3352,7 @@ input:checked+.toggle-slider:before {
 }
 
 .exercise-log-delete-btn {
+    margin-left: auto;
     background: none;
     border: none;
     cursor: pointer;
@@ -7744,10 +7745,9 @@ textarea.wg-input {
 }
 
 /* PR cue badge on a session log card that holds a personal record
-   (Phase 3, epic med-qj4). Gold "achievement" tag tokens; margin-right:auto
-   keeps it left next to the name with the delete button anchored right. */
+   (Phase 3, epic med-qj4). Gold "achievement" tag tokens; the delete button's
+   margin-left:auto anchors it right so this and the chip hug the name. */
 .wg-workouts-session-exercise__pr-badge {
-    margin-right: auto;
     padding: 2px var(--space-xs);
     border-radius: var(--radius-sm);
     font-family: var(--wg-font-mono);
@@ -7761,9 +7761,8 @@ textarea.wg-input {
 
 /* Friendly body-part chip on a session log card (med-mj4). Same shape as the
    PR badge but the normal/green tag tone to distinguish it from the amber PR
-   badge; margin-right:auto keeps it hugging the name, delete anchored right. */
+   badge; both hug the name while the delete button anchors right. */
 .wg-workouts-session-exercise__bodypart-chip {
-    margin-right: auto;
     padding: 2px var(--space-xs);
     border-radius: var(--radius-sm);
     font-family: var(--wg-font-mono);
