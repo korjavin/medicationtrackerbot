@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
 import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
-import { openDb } from '../localdb.js';
+import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
 
 // reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
 // module drives navigator.credentials, which doesn't exist in jsdom.
@@ -1684,5 +1684,60 @@ describe('openDb auto-closes on versionchange (med-yor.3)', () => {
       req.onerror = () => reject(req.error);
     });
     expect(blocked).toBe(false);
+  });
+});
+
+// med-90w.1 Task 1 — sync.js reuses one shared IndexedDB connection via
+// cachedDb() instead of open/close per call; a dropped connection resets the
+// cache and fires listeners.
+describe('cachedDb shared handle + drop-listener (med-90w.1)', () => {
+  beforeEach(async () => {
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+  });
+
+  it('returns the same handle identity across calls', async () => {
+    const a = await cachedDb();
+    const b = await cachedDb();
+    expect(a).toBe(b);
+  });
+
+  it('returns a NEW handle after dropCachedDb()', async () => {
+    const a = await cachedDb();
+    dropCachedDb();
+    const b = await cachedDb();
+    expect(b).not.toBe(a);
+  });
+
+  it('fires onCachedDbDropped listeners on drop, and unsubscribe stops them', async () => {
+    let fired = 0;
+    const unsub = onCachedDbDropped(() => { fired += 1; });
+    await cachedDb();
+    dropCachedDb();
+    expect(fired).toBe(1);
+    unsub();
+    await cachedDb();
+    dropCachedDb();
+    expect(fired).toBe(1);
+  });
+
+  it('drops the cache on versionchange so deleteDatabase is not blocked', async () => {
+    let fired = 0;
+    const unsub = onCachedDbDropped(() => { fired += 1; });
+    await cachedDb();
+    let blocked = false;
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onblocked = () => { blocked = true; };
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    expect(blocked).toBe(false);
+    expect(fired).toBe(1);
+    unsub();
   });
 });

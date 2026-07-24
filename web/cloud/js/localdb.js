@@ -10,21 +10,25 @@ const DB_NAME = 'medtracker-cloud';
 // keyed by client_id. Independent of the sync oplog stores.
 const DB_VERSION = 4;
 
+// Shared store/index creation, used by both openDb (fresh handle) and cachedDb
+// (shared handle). Keep this the single source of truth for the schema.
+function applyUpgrade(req) {
+  const db = req.result;
+  if (!db.objectStoreNames.contains('device')) db.createObjectStore('device');
+  if (!db.objectStoreNames.contains('records')) db.createObjectStore('records', { keyPath: 'recordId' });
+  if (!db.objectStoreNames.contains('pending')) db.createObjectStore('pending', { keyPath: 'recordId' });
+  if (!db.objectStoreNames.contains('sync_meta')) db.createObjectStore('sync_meta');
+  if (!db.objectStoreNames.contains('feedback_outbox')) db.createObjectStore('feedback_outbox', { keyPath: 'client_id' });
+  // Existing v2 rows already carry recordType (putRecord always writes it),
+  // so createIndex backfills the index from them — no data migration.
+  const records = req.transaction.objectStore('records');
+  if (!records.indexNames.contains('recordType')) records.createIndex('recordType', 'recordType');
+}
+
 export function openDb() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains('device')) db.createObjectStore('device');
-      if (!db.objectStoreNames.contains('records')) db.createObjectStore('records', { keyPath: 'recordId' });
-      if (!db.objectStoreNames.contains('pending')) db.createObjectStore('pending', { keyPath: 'recordId' });
-      if (!db.objectStoreNames.contains('sync_meta')) db.createObjectStore('sync_meta');
-      if (!db.objectStoreNames.contains('feedback_outbox')) db.createObjectStore('feedback_outbox', { keyPath: 'client_id' });
-      // Existing v2 rows already carry recordType (putRecord always writes it),
-      // so createIndex backfills the index from them — no data migration.
-      const records = req.transaction.objectStore('records');
-      if (!records.indexNames.contains('recordType')) records.createIndex('recordType', 'recordType');
-    };
+    req.onupgradeneeded = () => applyUpgrade(req);
     req.onsuccess = () => {
       // Auto-close on versionchange so a live handle never blocks
       // account-delete's deleteDatabase() (or a future version upgrade).
@@ -33,4 +37,49 @@ export function openDb() {
     };
     req.onerror = () => reject(req.error);
   });
+}
+
+// --- Cached connection (sync.js only) -------------------------------------
+// sync.js opens/closes this DB many times per section-open. openDb stays
+// fresh-handle-per-call for push/feedback/mcp-responder/unlock; sync.js reuses
+// one shared connection via cachedDb() to skip the open/close churn. Two
+// concurrent connections at the same DB_VERSION are safe; the only hazard is a
+// version upgrade, handled by onversionchange dropping the cache.
+let dbPromise = null;
+const dropListeners = new Set();
+
+function dropCache() {
+  dbPromise = null;
+  for (const cb of dropListeners) {
+    try { cb(); } catch { /* one bad listener can't break the rest */ }
+  }
+}
+
+// Register a callback fired whenever the cached connection is dropped
+// (versionchange, onclose, or explicit dropCachedDb). Returns an unsubscribe.
+export function onCachedDbDropped(cb) {
+  dropListeners.add(cb);
+  return () => dropListeners.delete(cb);
+}
+
+// Shared connection accessor: opens one if none is cached, otherwise reuses.
+export function cachedDb() {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => applyUpgrade(req);
+    req.onsuccess = () => {
+      const db = req.result;
+      db.onversionchange = () => { db.close(); dropCache(); };
+      db.onclose = () => dropCache();
+      resolve(db);
+    };
+    req.onerror = () => { dbPromise = null; reject(req.error); };
+  });
+  return dbPromise;
+}
+
+// Force the next cachedDb() to reopen (sync.js's InvalidStateError reopen guard).
+export function dropCachedDb() {
+  dropCache();
 }

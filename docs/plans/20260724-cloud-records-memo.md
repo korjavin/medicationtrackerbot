@@ -86,23 +86,23 @@ NOT touched.
 ## Implementation Steps
 
 ### Task 1: Cached DB handle + drop-listener in localdb.js
-- [ ] In `web/cloud/js/localdb.js`, extract the `onupgradeneeded` store/index
+- [x] In `web/cloud/js/localdb.js`, extract the `onupgradeneeded` store/index
       creation into a shared `applyUpgrade(req)` helper (device, records+recordType
       index, pending, sync_meta, feedback_outbox — identical to today). Keep
       `openDb()` behaviorally UNCHANGED (fresh connection, `onversionchange` closes
       itself, caller closes) so push/feedback/mcp-responder/unlock are unaffected.
-- [ ] Add `let dbPromise = null;` and a `Set` of drop-listeners with
+- [x] Add `let dbPromise = null;` and a `Set` of drop-listeners with
       `export function onCachedDbDropped(cb)` (returns an unsubscribe) and an
       internal `dropCache()` that nulls `dbPromise` and fires all listeners
       (each in try/catch so one throw can't break the rest).
-- [ ] Add `export function cachedDb()`: returns the shared `dbPromise`, opening
+- [x] Add `export function cachedDb()`: returns the shared `dbPromise`, opening
       one if null via `applyUpgrade`; on `onsuccess` wire `db.onversionchange = () => { db.close(); dropCache(); }` and `db.onclose = () => dropCache()`; on open error null `dbPromise` and reject.
-- [ ] Add `export function dropCachedDb()` calling `dropCache()` (for sync.js's
+- [x] Add `export function dropCachedDb()` calling `dropCache()` (for sync.js's
       reopen guard).
-- [ ] write test: `cachedDb()` twice returns the SAME handle identity; after
+- [x] write test: `cachedDb()` twice returns the SAME handle identity; after
       `dropCachedDb()` (or a versionchange) the next `cachedDb()` returns a NEW
       handle; `onCachedDbDropped` callback fires on drop.
-- [ ] run `npx vitest run web/cloud/js/tests/sync.test.js` (Node 20) — must pass before Task 2.
+- [x] run `npx vitest run web/cloud/js/tests/sync.test.js` (Node 20) — must pass before Task 2.
 
 ### Task 2: Route sync.js DB access through a guarded `withDb`; keep handle open
 - [ ] In `web/cloud/js/sync.js`, import `cachedDb, dropCachedDb, onCachedDbDropped`
