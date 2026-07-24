@@ -131,3 +131,47 @@ func TestWebAuthnRoutes_PerIPRateLimited(t *testing.T) {
 		t.Fatalf("IP-B = 429, want independent bucket")
 	}
 }
+
+// The two genuinely-unauthenticated, browser-hit endpoints are per-IP
+// rate-limited (med-15w). NOT the Telegram webhooks — those share Telegram's
+// source IPs, so a per-IP cap would throttle all fan-in (see sentinel.md).
+func TestPushVapidAndTransferClaim_PerIPRateLimited(t *testing.T) {
+	store := setupStore(t)
+	mux := http.NewServeMux()
+	NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long").RegisterRoutes(mux)
+	NewTransferAPI(store, "test-session-secret-at-least-32-bytes-long").RegisterRoutes(mux)
+
+	cases := []struct {
+		name, method, path string
+	}{
+		{"vapid-public-key", http.MethodGet, "/api/push/vapid-public-key"},
+		{"transfer-claim", http.MethodPost, "/api/transfer/slot-does-not-exist/claim"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Each API owns a separate limiter, so a fixed IP is an independent
+			// bucket per subtest. limitByIP short-circuits to 429 before the
+			// handler, so the handler's own status (404/500 for missing data)
+			// only matters for the pre-limit "not yet 429" assertion.
+			do := func(ip string) int {
+				r := httptest.NewRequest(tc.method, tc.path, strings.NewReader("{}"))
+				r.Host = "acct.localhost"
+				r.Header.Set("X-Forwarded-For", ip)
+				rec := httptest.NewRecorder()
+				mux.ServeHTTP(rec, r)
+				return rec.Code
+			}
+			for i := 0; i < ceremonyRateLimitMax; i++ {
+				if code := do("198.51.100.20"); code == http.StatusTooManyRequests {
+					t.Fatalf("hit %d was 429 before limit reached", i+1)
+				}
+			}
+			if code := do("198.51.100.20"); code != http.StatusTooManyRequests {
+				t.Fatalf("over limit = %d, want 429", code)
+			}
+			if code := do("198.51.100.21"); code == http.StatusTooManyRequests {
+				t.Fatalf("IP-B = 429, want independent bucket")
+			}
+		})
+	}
+}
