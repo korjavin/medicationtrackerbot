@@ -192,16 +192,21 @@ describe('features/workout/stats.js — split-file integration', () => {
       expect(window.WorkoutExerciseDetail.isPRLog(ties, priorPRs, WorkoutAnalysis)).toBe(false);
     });
 
-    it('isPRLog fires on set-volume / most-reps / rep-max records, not just heaviest+1RM', () => {
+    it('isPRLog ignores set-volume / most-reps / rep-max records — only heaviest + est-1RM count', () => {
       const { window } = env;
       // Prior best: a heavy low-rep set (100 kg × 5). New: lighter but higher-rep
-      // (80 kg × 12) — not heavier and lower est-1RM (112 < 116.67), but a new best
-      // set volume (960 > 500), most reps (12 > 5), and a fresh 12-rep record.
+      // (80 kg × 12) — a new best set volume (960 > 500), most reps (12 > 5), and a
+      // fresh 12-rep record, but NOT heavier (80 < 100) and lower est-1RM
+      // (112 < 116.67). These no longer earn a PR badge; they were the noise that
+      // made the badge appear on almost every set.
       const priorPRs = WorkoutAnalysis.exercisePRs([
         { sets: [{ weight_kg: 100, reps: 5, set_type: 'normal' }] },
       ]);
-      const volumePR = { sets: [{ weight_kg: 80, reps: 12, set_type: 'normal' }] };
-      expect(window.WorkoutExerciseDetail.isPRLog(volumePR, priorPRs, WorkoutAnalysis)).toBe(true);
+      const volumeOnly = { sets: [{ weight_kg: 80, reps: 12, set_type: 'normal' }] };
+      expect(window.WorkoutExerciseDetail.isPRLog(volumeOnly, priorPRs, WorkoutAnalysis)).toBe(false);
+      // A genuinely stronger higher-rep set (85 kg × 12 → est-1RM 119 > 116.67) does.
+      const est1rmPR = { sets: [{ weight_kg: 85, reps: 12, set_type: 'normal' }] };
+      expect(window.WorkoutExerciseDetail.isPRLog(est1rmPR, priorPRs, WorkoutAnalysis)).toBe(true);
     });
 
     it('renderDetail surfaces per-rep-count set-records', () => {
@@ -274,6 +279,36 @@ describe('features/workout/stats.js — split-file integration', () => {
           return [
             { date: '2026-01-01', session_id: 1, sets: [{ weight_kg: 90, reps: 5, set_type: 'normal' }] },
             { date: '2026-01-08', session_id: 2, sets: [{ weight_kg: 90, reps: 5, set_type: 'normal' }] },
+          ];
+        }
+        return null;
+      });
+
+      const container = document.getElementById('workout-session-logs');
+      window.WorkoutSessions.renderLogs(container);
+
+      await new Promise((r) => setTimeout(r, 10));
+      expect(container.querySelector('.wg-workouts-session-exercise__pr-badge')).toBeNull();
+    });
+
+    it('does not badge the first-ever log of an exercise (no prior history)', async () => {
+      const { window, document } = env;
+      window.WorkoutAnalysis = WorkoutAnalysis;
+      window.WorkoutSessionsState.data = { id: 2 };
+      window.WorkoutSessionsState.logs = [{
+        id: 44,
+        exercise_name: 'Overhead Press',
+        sets_completed: 1,
+        reps_completed: 5,
+        weight_kg: 50,
+        sets: [{ set_index: 0, weight_kg: 50, reps: 5, set_type: 'normal' }],
+      }];
+      // History contains only this in-progress session's own log — no prior
+      // session to set a record against, so the first-ever log must not badge.
+      window.apiCall = vi.fn(async (url) => {
+        if (String(url).includes('/api/workout/exercises/history')) {
+          return [
+            { date: '2026-01-08', session_id: 2, sets: [{ weight_kg: 50, reps: 5, set_type: 'normal' }] },
           ];
         }
         return null;

@@ -43,15 +43,16 @@
     function isPRLog(log, priorPRs, WA) {
         if (!log || !priorPRs || !WA || typeof WA.exercisePRs !== 'function') return false;
         const cur = WA.exercisePRs([log]);
+        // Only a genuinely stronger lift earns the badge: a new heaviest weight or
+        // a new best estimated 1RM. The other record types (best set/session
+        // volume, most reps, per-rep-count set_records) fired on ordinary
+        // set-to-set variation — any novel rep count beats an undefined→0 bucket —
+        // so the badge showed on nearly every log. exercisePRs still computes them
+        // for the exercise-detail Records view; only this trigger narrows.
+        // ponytail: bodyweight-only exercises (weight 0) can no longer earn a PR
+        // badge — acceptable, the badge targets weighted lifts.
         if (cur.heaviest_weight > (priorPRs.heaviest_weight || 0)) return true;
         if (cur.best_est_1rm > (priorPRs.best_est_1rm || 0)) return true;
-        if (cur.best_set_volume > (priorPRs.best_set_volume || 0)) return true;
-        if (cur.best_session_volume > (priorPRs.best_session_volume || 0)) return true;
-        if (cur.most_reps > (priorPRs.most_reps || 0)) return true;
-        const priorSet = priorPRs.set_records || {};
-        for (const [reps, w] of Object.entries(cur.set_records || {})) {
-            if (w > (priorSet[reps] || 0)) return true;
-        }
         return false;
     }
 
