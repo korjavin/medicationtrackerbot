@@ -159,13 +159,18 @@ NOT touched.
 - [x] run `npx vitest run web/cloud/js/tests/sync.test.js` (Node 20) — must pass before Task 4.
 
 ### Task 4: Verify acceptance criteria
-- [ ] Re-read the memo invalidation points against every `records`-store mutator
+- [x] Re-read the memo invalidation points against every `records`-store mutator
       (`putRecord` ← `writeRecord`+`applyIncoming`, `replaceAllRecords`,
-      `resetLocalSync`) — confirm none is missed.
-- [ ] Confirm the v3 `recordType` index read and `listRecordsInRange` bounded
+      `resetLocalSync`) — confirm none is missed. (grep of all `records`-store
+      writes confirms only putRecord/replaceAllRecords/resetLocalSync mutate it;
+      each invalidates.)
+- [x] Confirm the v3 `recordType` index read and `listRecordsInRange` bounded
       reads are NOT regressed (existing "never full-scans" / range tests green).
-- [ ] Run full frontend suite: `npx vitest run` (Node 20) — all green.
-- [ ] Run `go build ./...` (no-op for this JS-only change; must still pass).
+      (listRecords still reads via `index('recordType').getAll`; listRecordsInRange
+      unchanged bounded primary-key range; sync.test.js 76/76 green.)
+- [x] Run full frontend suite: `npx vitest run` (Node 20) — all green.
+      (321 files, 3934 passed / 29 skipped.)
+- [x] Run `go build ./...` (no-op for this JS-only change; must still pass). (OK.)
 
 ### Task 5: [Final] Docs
 - [ ] No doc changes required (internal read-side cache, no API/behavior change).
