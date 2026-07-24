@@ -344,6 +344,11 @@ async function mintInvite() {
     const btn = document.getElementById('settings-invite-btn');
     if (btn) btn.disabled = true;
     try {
+        // Online-only: minting an invite is server-side account provisioning
+        // with no local vault semantics, so this stays a raw fetch (not apiCall —
+        // cloud's shim has no /api/invite route). Offline the fetch throws and is
+        // caught below → inviteToast, which is the correct degraded UX; there is
+        // nothing meaningful to queue optimistically. (med-gvk.4)
         const res = await fetch('/api/invite', { method: 'POST' });
         if (res.status === 429) {
             inviteToast('Monthly invite limit reached — try again later.');

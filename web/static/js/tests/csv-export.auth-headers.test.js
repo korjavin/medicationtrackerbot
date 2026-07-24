@@ -107,4 +107,29 @@ describe('CSV-export call sites route through makeAuthHeaders()', () => {
         expect('X-Telegram-Init-Data' in init.headers).toBe(false);
         expect('Authorization' in init.headers).toBe(false);
     });
+
+    // med-gvk.4: CSV export is deliberately online-only (bot mode). The CSV is
+    // built server-side; cloud mode has no /api/{bp,weight}/export route and no
+    // apishim handler, so these MUST stay a direct network fetch and MUST NOT be
+    // rerouted through apiCall/the offline shim (which would 404 in cloud and
+    // fake-queue a write the server can't fulfil). Pin that the transport is
+    // window.fetch and apiCall is never touched, so a well-meaning "make it
+    // offline" refactor trips here.
+    it('exportBPCSV/exportWeightCSV stay online-only: raw fetch, never apiCall (med-gvk.4)', async () => {
+        const { window } = env;
+        window.apiCall = vi.fn();
+        window.fetch = vi.fn(async () => ({
+            ok: true,
+            status: 200,
+            async blob() { return new window.Blob(['']); }
+        }));
+
+        await window.exportBPCSV();
+        await window.exportWeightCSV();
+
+        expect(window.apiCall).not.toHaveBeenCalled();
+        expect(window.fetch).toHaveBeenCalledTimes(2);
+        expect(window.fetch.mock.calls[0][0]).toBe('/api/bp/export');
+        expect(window.fetch.mock.calls[1][0]).toBe('/api/weight/export');
+    });
 });
