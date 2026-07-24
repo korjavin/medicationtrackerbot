@@ -456,8 +456,9 @@ describe('read-path memoization (med-90w.2)', () => {
     expect(listSpy.mock.calls.some((c) => c[0] === 'hrsample')).toBe(false);
     const hrCall = rangeSpy.mock.calls.find((c) => c[0] === 'hrsample');
     expect(hrCall).toBeDefined();
-    // Bounds mirror web/domain/vitals.js: SCORING_WINDOW_DAYS(365)+1 back, +1 fwd.
-    expect(hrCall[1]).toBe(`hrsample-${utcDay(RM_NOW - 366 * DAY_MS)}`);
+    // Lower bound reaches below the oldest scoring day by the resting-HR gauge baseline
+    // window: SCORING_WINDOW_DAYS(365) + gaugeRestingHRBaselineWindowDays(60) + 1 = 426 back, +1 fwd.
+    expect(hrCall[1]).toBe(`hrsample-${utcDay(RM_NOW - 426 * DAY_MS)}`);
     expect(hrCall[2]).toBe(`hrsample-${utcDay(RM_NOW + DAY_MS)}`);
   });
 });

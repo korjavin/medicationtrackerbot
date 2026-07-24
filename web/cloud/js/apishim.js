@@ -108,17 +108,14 @@ function debugOnce(key, ...args) {
 // opts.now/opts.timeZone override the clock the domain instances read, which is
 // what lets a test drive the router across a date boundary deterministically.
 export function createApiRouter(ctx, {
-  records: recordsOverride, getRecordsChangeCount: changeCountOverride,
-  win, now: nowOverride, timeZone: timeZoneOverride, origin,
+  records: recordsOverride, win, now: nowOverride, timeZone: timeZoneOverride, origin,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || recordsPort(ctx, origin);
   // Gamification read-path memo signal (med-90w.2). Only valid when the real
   // sync-backed port is in use — a test recordsOverride is a fake NOT tracked by
-  // getRecordsChangeCount, so pass null there to keep those reads always-fresh
-  // (a test can still opt in via changeCountOverride).
-  const recordsChangeCount = changeCountOverride
-    || (recordsOverride ? null : getRecordsChangeCount);
+  // getRecordsChangeCount, so pass null there to keep those reads always-fresh.
+  const recordsChangeCount = recordsOverride ? null : getRecordsChangeCount;
   const now = nowOverride || (() => Date.now());
   const timeZone = timeZoneOverride
     || (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';

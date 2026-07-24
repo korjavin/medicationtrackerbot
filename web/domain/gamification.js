@@ -1891,10 +1891,14 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   async function buildContext(cfg) {
     const nowMs = now();
     // HR is the one dense stream (~96 samples per day-batch, all of time), so bound it to the
-    // scoring window with ±1 UTC-day pad instead of scanning every batch ever written. Mirrors
-    // web/domain/vitals.js readSamples. '#'-suffixed overflow sub-records (hrsample-<day>#k) fall
-    // inside the range for free ('#' sorts below any digit, toDay > any real sample day).
-    const hrFromKey = `${HR_RECORD_TYPE}-${msToUTCDay(nowMs - (SCORING_WINDOW_DAYS + 1) * DAY_MS)}`;
+    // scoring window instead of scanning every batch ever written. '#'-suffixed overflow
+    // sub-records (hrsample-<day>#k) fall inside the range for free ('#' sorts below any digit,
+    // toDay > any real sample day). Lower bound reaches below the oldest scoring day
+    // (today−(SCORING_WINDOW_DAYS−1)) by the resting-HR gauge baseline window
+    // (computeRestingHRGaugeAt reads hrDailyMin back gaugeRestingHRBaselineWindowDays per scored
+    // day), so historical week-gauge awards are byte-identical to the old unbounded list() read.
+    const hrPadDays = SCORING_WINDOW_DAYS + cfg.gaugeRestingHRBaselineWindowDays + 1;
+    const hrFromKey = `${HR_RECORD_TYPE}-${msToUTCDay(nowMs - hrPadDays * DAY_MS)}`;
     const hrToKey = `${HR_RECORD_TYPE}-${msToUTCDay(nowMs + DAY_MS)}`;
     const [bpAll, weightAll, weightGoalAll, sleepAll, dayStatsAll, hrAll, foodAll, foodTargetsAll, intakeAll, noteAll, workoutAll] = await Promise.all([
       records.list(BP_RECORD_TYPE), records.list(WEIGHT_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
