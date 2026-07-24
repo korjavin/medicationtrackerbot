@@ -162,7 +162,7 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         expect(entry.querySelector('.wg-workouts-session-exercise__hint')).toBeNull();
     });
 
-    it('renders only the Finish workout button in the action cluster (Log set moved to logs header)', () => {
+    it('renders Add Exercise + Finish workout in the action cluster (no legacy Log set / Delete)', () => {
         const { window, document } = env;
         const actionsContainer = document.getElementById('workout-session-actions');
         const onFinish = vi.fn();
@@ -171,18 +171,33 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
 
         expect(actionsContainer.classList.contains('wg-workouts-session-actions')).toBe(true);
 
-        // The "Add Exercise" (formerly "Log set") button no longer lives in the
-        // bottom actions bar — it now sits in the logs-section header.
         const logSetBtn = actionsContainer.querySelector('.wg-workouts-session-actions__log-set');
+        const addBtn = actionsContainer.querySelector('.wg-workouts-session-actions__add');
         const finishBtn = actionsContainer.querySelector('.wg-workouts-session-actions__finish');
         const deleteBtn = actionsContainer.querySelector('.wg-workouts-session-actions__delete');
         expect(logSetBtn).toBeNull();
-        expect(finishBtn).not.toBeNull();
         expect(deleteBtn).toBeNull();
+        // Add Exercise now has a second entry point here (next to Finish) so you
+        // don't have to scroll back up to the logs header to add another exercise.
+        expect(addBtn).not.toBeNull();
+        expect(addBtn.textContent).toBe('Add Exercise');
+        expect(finishBtn).not.toBeNull();
 
         expect(finishBtn.classList.contains('wg-gloss')).toBe(true);
         expect(finishBtn.classList.contains('wg-gloss--sun')).toBe(false);
         expect(finishBtn.textContent).toBe('Finish workout');
+    });
+
+    it('clicking the bottom-row Add Exercise opens the add-exercise-to-session modal', () => {
+        const { window, document } = env;
+        const actionsContainer = document.getElementById('workout-session-actions');
+        const opened = vi.fn();
+        window.showAddExerciseToSessionModal = opened;
+
+        window.renderSessionDetailActions(actionsContainer, { onFinish: vi.fn() });
+        actionsContainer.querySelector('.wg-workouts-session-actions__add').click();
+
+        expect(opened).toHaveBeenCalledTimes(1);
     });
 
     it('renders the Add Exercise button in the logs-section header, not the actions bar', async () => {
