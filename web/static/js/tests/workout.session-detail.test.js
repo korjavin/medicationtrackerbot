@@ -268,4 +268,43 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         const deleteBtn = document.getElementById('workout-session-delete-btn');
         expect(deleteBtn.classList.contains('hidden')).toBe(false);
     });
+
+    // Friendly body-part chip (med-mj4): a card whose exercise resolves to a
+    // catalog body_part with a friendly translation gets a chip next to the name;
+    // an unmatched exercise gets none. The chip attaches fire-and-forget, so flush
+    // microtasks (as the PR-badge flow does) before asserting.
+    describe('friendly body-part chip', () => {
+        function stubCatalog(window) {
+            window.fetch = vi.fn(async (url) => {
+                if (String(url).includes('/static/data/exercises-catalog.json')) {
+                    return { ok: true, status: 200, json: async () => ({ exercises: [{ name: 'Bench', body_part: 'chest' }] }) };
+                }
+                return { ok: true, status: 200, json: async () => ({}) };
+            });
+        }
+
+        it('shows a chip with the friendly label for a catalog-matched exercise', async () => {
+            const { window, document } = env;
+            stubCatalog(window);
+            await openSession(window, [logFixture({ exercise_name: 'Bench' })]);
+            await new Promise((r) => setTimeout(r, 0));
+
+            const card = document.getElementById('workout-session-logs')
+                .querySelector('.wg-workouts-session-exercise');
+            const chip = card.querySelector('.wg-workouts-session-exercise__bodypart-chip');
+            expect(chip).not.toBeNull();
+            expect(chip.textContent).toBe('Chest');
+        });
+
+        it('renders no chip for an exercise absent from the catalog', async () => {
+            const { window, document } = env;
+            stubCatalog(window);
+            await openSession(window, [logFixture({ exercise_name: 'Mystery Move' })]);
+            await new Promise((r) => setTimeout(r, 0));
+
+            const card = document.getElementById('workout-session-logs')
+                .querySelector('.wg-workouts-session-exercise');
+            expect(card.querySelector('.wg-workouts-session-exercise__bodypart-chip')).toBeNull();
+        });
+    });
 });

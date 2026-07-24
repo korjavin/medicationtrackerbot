@@ -130,7 +130,7 @@ helper and applies it to session cards too, so both surfaces agree.
       `npx vitest run web/static/js/tests/features.workout-stats.test.js`.
 
 ### Task 3: Friendly body-part chip on active-session exercise cards
-- [ ] In `web/static/js/features/workout/sessions.js` add `_maybeAttachBodyPartChip(headerRow, log)`
+- [x] In `web/static/js/features/workout/sessions.js` add `_maybeAttachBodyPartChip(headerRow, log)`
       mirroring `_maybeAttachPRBadge`: `const bp = await window.WorkoutExerciseCatalog.getBodyPart(log.exercise_name);`
       then `const friendly = window.WorkoutExerciseCatalog.friendlyBodyPart(bp);` — return early
       when `!friendly`. Guard `if (!headerRow.isConnected) return;` and
@@ -139,19 +139,19 @@ helper and applies it to session cards too, so both surfaces agree.
       `window.WorkoutExerciseCatalog` presence). Insert the chip left of the delete button:
       `headerRow.insertBefore(chip, headerRow.querySelector('.exercise-log-delete-btn') || null)`
       (or `headerRow.children[1]`), so it coexists with the PR badge.
-- [ ] Call `_maybeAttachBodyPartChip(headerRow, log)` fire-and-forget in
+- [x] Call `_maybeAttachBodyPartChip(headerRow, log)` fire-and-forget in
       `_buildSessionExerciseCard`, next to the existing `_maybeAttachPRBadge(headerRow, log)` (~L286).
-- [ ] Add `.wg-workouts-session-exercise__bodypart-chip` to `web/static/css/styles.css`
+- [x] Add `.wg-workouts-session-exercise__bodypart-chip` to `web/static/css/styles.css`
       near the pr-badge block (~L7749), styled ONLY with `--wg-*` tokens (use
       `--wg-tag-normal-{bg,fg,border}`, `--radius-sm`, `--space-xs`, `--font-size-xs`,
       `--wg-font-mono` — mirror pr-badge but the normal/green tone to distinguish from the
       amber PR badge). NO hardcoded colors, NO inline `.style.` in JS.
-- [ ] Extend `workout.session-detail.test.js`: stub `window.fetch` so the catalog resolves
+- [x] Extend `workout.session-detail.test.js`: stub `window.fetch` so the catalog resolves
       with a small fixture (e.g. `{name:'Bench', body_part:'chest'}`), open a session with a
       matched-name log, assert a `.wg-workouts-session-exercise__bodypart-chip` with textContent
       'Chest' appears; open with an unmatched name and assert no chip. (Await a
       microtask/flush so the fire-and-forget async attach completes, as the PR-badge cases do.)
-- [ ] Run both suites — must pass:
+- [x] Run both suites — must pass:
       `npx vitest run web/static/js/tests/features.workout-stats.test.js web/static/js/tests/workout.session-detail.test.js web/static/js/tests/architecture`.
 
 ### Task 4: Verify acceptance criteria

@@ -7759,6 +7759,22 @@ textarea.wg-input {
     border: 1px solid var(--wg-tag-high-border);
 }
 
+/* Friendly body-part chip on a session log card (med-mj4). Same shape as the
+   PR badge but the normal/green tag tone to distinguish it from the amber PR
+   badge; margin-right:auto keeps it hugging the name, delete anchored right. */
+.wg-workouts-session-exercise__bodypart-chip {
+    margin-right: auto;
+    padding: 2px var(--space-xs);
+    border-radius: var(--radius-sm);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    background: var(--wg-tag-normal-bg);
+    color: var(--wg-tag-normal-fg);
+    border: 1px solid var(--wg-tag-normal-border);
+}
+
 /* Top Exercises rows open the per-exercise detail view on tap. */
 .wg-workouts-stats__top-row--tappable {
     cursor: pointer;

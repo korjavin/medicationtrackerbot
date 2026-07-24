@@ -285,6 +285,12 @@ function _buildSessionExerciseCard(log, index) {
     // when analysis is unavailable (bot mode) so no history fetch spam there.
     _maybeAttachPRBadge(headerRow, log);
 
+    // Friendly body-part chip (med-mj4): translate the catalog's medical body_part
+    // for this exercise into a lifter-friendly label (Legs / Core / Forearms …).
+    // Fire-and-forget, same async-attach flow as the PR badge; silent no-op when
+    // the catalog is unavailable or the exercise isn't in it.
+    _maybeAttachBodyPartChip(headerRow, log);
+
     const monoRow = document.createElement('div');
     monoRow.className = 'wg-workouts-session-exercise__mono';
     monoRow.textContent = _formatLogMono(log);
@@ -451,6 +457,31 @@ async function _maybeAttachPRBadge(headerRow, log) {
     badge.title = 'New personal record';
     // Sit next to the name (before the delete button anchored right).
     headerRow.insertBefore(badge, headerRow.children[1] || null);
+}
+
+// _maybeAttachBodyPartChip appends a friendly body-part chip (Legs / Core /
+// Forearms …) to a card header when the exercise resolves to a catalog body_part
+// with a friendly translation (med-mj4). Mirrors _maybeAttachPRBadge: async,
+// guards mount + double-append, sits left of the delete button so it coexists
+// with the PR badge. Silent no-op when the shared catalog helper is absent.
+async function _maybeAttachBodyPartChip(headerRow, log) {
+    if (!log || !window.WorkoutExerciseCatalog) return;
+
+    const bp = await window.WorkoutExerciseCatalog.getBodyPart(log.exercise_name);
+    const friendly = window.WorkoutExerciseCatalog.friendlyBodyPart(bp);
+    if (!friendly) return;
+
+    // The card may have been re-rendered while we awaited — only decorate the
+    // still-mounted header, and don't double-chip.
+    if (!headerRow.isConnected) return;
+    if (headerRow.querySelector('.wg-workouts-session-exercise__bodypart-chip')) return;
+
+    const chip = document.createElement('span');
+    chip.className = 'wg-workouts-session-exercise__bodypart-chip';
+    chip.textContent = friendly;
+    chip.title = 'Body part';
+    // Left of the delete button (anchored right), alongside the PR badge.
+    headerRow.insertBefore(chip, headerRow.querySelector('.exercise-log-delete-btn') || null);
 }
 
 // -- Per-set editing (Phase 1, epic med-qj4) --
