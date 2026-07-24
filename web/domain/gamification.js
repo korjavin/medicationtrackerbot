@@ -902,7 +902,9 @@ function evaluateExperimentWindow(template, days, startDay, endDay) {
 //   records  — { list(type), put(type, record), del(type, id) }
 //   now()    — current time in ms epoch
 //   timeZone — IANA zone string for local-day bucketing
-export function createGamificationDomain({ records, now, timeZone }) {
+//   getRecordsChangeCount — optional records-change signal (sync.js in cloud mode);
+//     when absent (bot mode / direct test harnesses) the read path always recomputes.
+export function createGamificationDomain({ records, now, timeZone, getRecordsChangeCount }) {
   // buildDays materializes the trailing-window per-day signal map from the vault.
   // One pass per record type; every signal buckets on the same local-day string,
   // so a probe's arm/gauge just reads fields off a day object. Recompute-on-read:
@@ -1811,6 +1813,9 @@ export function createGamificationDomain({ records, now, timeZone }) {
 
   // buildAdherenceByDay ports loadAdherenceRange: tz_step dedupe, PENDING-past-due
   // miss inference (at most one per overdue slot), bucketed by scheduled UTC day.
+  // Also returns nextPendingDueMs — the earliest not-yet-due PENDING dose instant —
+  // so the read-path memo can invalidate the moment that clock-driven PENDING→missed
+  // transition would fire (it moves no change-count, so the memo key can't see it).
   function buildAdherenceByDay(intakes, nowMs) {
     const slotOf = (i) => `${i.medication_id}|${Math.floor(Date.parse(i.scheduled_at) / 1000)}`;
     const shadowed = new Set();
@@ -1821,6 +1826,7 @@ export function createGamificationDomain({ records, now, timeZone }) {
     const resolved = new Set();
     for (const i of deduped) if (isResolved(i.status)) resolved.add(slotOf(i));
     const missedSlots = new Set();
+    let nextPendingDueMs = Infinity;
     const byDay = new Map();
     const push = (schedMs, dose) => {
       const day = msToUTCDay(schedMs);
@@ -1845,10 +1851,12 @@ export function createGamificationDomain({ records, now, timeZone }) {
         if (schedMs < nowMs && !resolved.has(slot) && !missedSlots.has(slot)) {
           missedSlots.add(slot);
           push(schedMs, { status: 'missed' });
+        } else if (schedMs >= nowMs && !resolved.has(slot) && schedMs < nextPendingDueMs) {
+          nextPendingDueMs = schedMs; // clock crossing this flips the dose to missed
         }
       }
     }
-    return byDay;
+    return { byDay, nextPendingDueMs };
   }
   // takenExpected (wellbeing.go): a taken dose counts toward both; missed toward
   // expected only; a skip toward neither.
@@ -1888,9 +1896,19 @@ export function createGamificationDomain({ records, now, timeZone }) {
   // per-day maps + raw arrays the scorers and gauges consume.
   async function buildContext(cfg) {
     const nowMs = now();
+    // HR is the one dense stream (~96 samples per day-batch, all of time), so bound it to the
+    // scoring window instead of scanning every batch ever written. '#'-suffixed overflow
+    // sub-records (hrsample-<day>#k) fall inside the range for free ('#' sorts below any digit,
+    // toDay > any real sample day). Lower bound reaches below the oldest scoring day
+    // (today−(SCORING_WINDOW_DAYS−1)) by the resting-HR gauge baseline window
+    // (computeRestingHRGaugeAt reads hrDailyMin back gaugeRestingHRBaselineWindowDays per scored
+    // day), so historical week-gauge awards are byte-identical to the old unbounded list() read.
+    const hrPadDays = SCORING_WINDOW_DAYS + cfg.gaugeRestingHRBaselineWindowDays + 1;
+    const hrFromKey = `${HR_RECORD_TYPE}-${msToUTCDay(nowMs - hrPadDays * DAY_MS)}`;
+    const hrToKey = `${HR_RECORD_TYPE}-${msToUTCDay(nowMs + DAY_MS)}`;
     const [bpAll, weightAll, weightGoalAll, sleepAll, dayStatsAll, hrAll, foodAll, foodTargetsAll, intakeAll, noteAll, workoutAll] = await Promise.all([
       records.list(BP_RECORD_TYPE), records.list(WEIGHT_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
-      records.list(SLEEP_RECORD_TYPE), records.list(DAYSTATS_RECORD_TYPE), records.list(HR_RECORD_TYPE),
+      records.list(SLEEP_RECORD_TYPE), records.list(DAYSTATS_RECORD_TYPE), records.listRange(HR_RECORD_TYPE, hrFromKey, hrToKey),
       records.list(FOOD_LOG_RECORD_TYPE), records.list(FOODTARGETS_RECORD_TYPE),
       records.list(INTAKE_RECORD_TYPE), records.list(NOTE_RECORD_TYPE), records.list(WORKOUT_SESSION_RECORD_TYPE),
     ]);
@@ -1981,14 +1999,14 @@ export function createGamificationDomain({ records, now, timeZone }) {
       diaryByDay.set(day, (diaryByDay.get(day) || 0) + 1);
     }
 
-    const adherenceByDay = buildAdherenceByDay(intakeAll.filter((r) => !r.deleted), nowMs);
+    const { byDay: adherenceByDay, nextPendingDueMs } = buildAdherenceByDay(intakeAll.filter((r) => !r.deleted), nowMs);
     const hrDailyMin = buildHRDailyMin(hrAll.filter((r) => !r.deleted));
 
     return {
       nowMs, bpDays, weightDays, weightLogsDesc, goalWeight,
       sleepByDay, onsetByDay, stepsByDay, workoutDays, sessions,
       foodByDay, foodTargets, diaryByDay, adherenceByDay, hrDailyMin,
-      _bpReadings: bpReadings,
+      _bpReadings: bpReadings, _nextPendingDueMs: nextPendingDueMs,
     };
   }
 
@@ -2326,7 +2344,14 @@ export function createGamificationDomain({ records, now, timeZone }) {
 
   // scoreWindow folds the trailing window into per-day awards + weekly HP sums.
   // Returns { byDay: Map<dayStr, awards[]>, lifetimeHP, weekHP: Map<week,hp> }.
+  // Memoized on ctx identity: loadForRead returns the same ctx object on a memo hit,
+  // so the 365-day fold is cached. Bot mode / no-memo gets a fresh ctx each read →
+  // WeakMap miss → recompute (unchanged). cfg is always the sibling of ctx, so ctx
+  // identity alone is a sufficient key.
+  const scoreWindowMemo = new WeakMap();
   function scoreWindow(ctx, cfg) {
+    const cached = scoreWindowMemo.get(ctx);
+    if (cached) return cached;
     const todayStr = msToUTCDay(ctx.nowMs);
     const startStr = addDays(todayStr, -(SCORING_WINDOW_DAYS - 1));
     // Include the current week's end day so an in-progress week's gauge award is
@@ -2351,7 +2376,9 @@ export function createGamificationDomain({ records, now, timeZone }) {
       }
       d = addDays(d, 1);
     }
-    return { byDay, lifetimeHP, weekHP, todayStr, startStr };
+    const result = { byDay, lifetimeHP, weekHP, todayStr, startStr };
+    scoreWindowMemo.set(ctx, result);
+    return result;
   }
 
   // deriveStreak (streak.go): fold NextStreak oldest-first over completed weeks.
@@ -2368,7 +2395,25 @@ export function createGamificationDomain({ records, now, timeZone }) {
     return { streak: st.currentStreak, freezes: st.freezes, longest };
   }
 
+  let readMemo = null; // { key, cfg, ctx, nextPendingDueMs } — cleared implicitly by key mismatch
   async function loadForRead() {
+    // Memo only when the records-change signal is injected (cloud mode). The day
+    // suffix is a correctness guard: the change-count does not move at midnight, so
+    // a stale ctx would score the wrong "today"; keying on it means a same-day repeat
+    // open with no intervening write hits, but the first read after midnight recomputes.
+    // nextPendingDueMs is the second clock-driven guard: a PENDING dose flips to
+    // missed once now() passes its scheduled instant, and that transition writes
+    // nothing (no change-count bump), so the memo must expire at that instant too.
+    if (typeof getRecordsChangeCount === 'function') {
+      const key = `${getRecordsChangeCount()}:${msToUTCDay(now())}`;
+      if (readMemo && readMemo.key === key && now() < readMemo.nextPendingDueMs) {
+        return { cfg: readMemo.cfg, ctx: readMemo.ctx };
+      }
+      const cfg = await effectiveConfig();
+      const ctx = await buildContext(cfg);
+      readMemo = { key, cfg, ctx, nextPendingDueMs: ctx._nextPendingDueMs };
+      return { cfg, ctx };
+    }
     const cfg = await effectiveConfig();
     const ctx = await buildContext(cfg); // ctx._bpReadings stashed inside for gauges/health-score
     return { cfg, ctx };

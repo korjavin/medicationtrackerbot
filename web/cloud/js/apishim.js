@@ -17,7 +17,7 @@ import { createWorkoutDomain } from '../../domain/workout.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
 import { createAnalysis } from '../../domain/analysis.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
-import { recordsPort, ORIGIN_UI, ORIGIN_EXTERNAL } from './sync.js';
+import { recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from './sync.js';
 import { scheduleReminderRecompute, sendTestPush, cancelMedRefire } from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
@@ -112,6 +112,10 @@ export function createApiRouter(ctx, {
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || recordsPort(ctx, origin);
+  // Gamification read-path memo signal (med-90w.2). Only valid when the real
+  // sync-backed port is in use — a test recordsOverride is a fake NOT tracked by
+  // getRecordsChangeCount, so pass null there to keep those reads always-fresh.
+  const recordsChangeCount = recordsOverride ? null : getRecordsChangeCount;
   const now = nowOverride || (() => Date.now());
   const timeZone = timeZoneOverride
     || (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
@@ -136,7 +140,9 @@ export function createApiRouter(ctx, {
   const aiClient = createAIClient({ settingsDomain: settings });
   const foodAI = createFoodAIDomain({ aiClient, foodDomain: food, now });
   const workout = createWorkoutDomain({ records, now, timeZone });
-  const gamification = createGamificationDomain({ records, now, timeZone });
+  const gamification = createGamificationDomain({
+    records, now, timeZone, getRecordsChangeCount: recordsChangeCount,
+  });
   // Phase 6 AI narration layer — prose OVER the deterministic engine. Gets the
   // computed stats-JSON only (assembled below from the domain read-models) and
   // returns prose; any no-key/error path returns { text: null } so every
