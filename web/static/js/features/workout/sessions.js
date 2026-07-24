@@ -836,6 +836,23 @@ function renderSessionDetailActions(container, opts) {
 
     const onFinish = (opts && typeof opts.onFinish === 'function') ? opts.onFinish : () => {};
 
+    const offline = typeof window !== 'undefined' && window.SyncManager && window.SyncManager.isOnline === false;
+
+    // A second "Add Exercise" entry point in the bottom row (mirrors the one in
+    // the logs header) so you can add another exercise without scrolling back up
+    // past every logged set. Reuses the same handler + offline-disable pattern.
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'wg-gloss--sun wg-workouts-session-actions__btn wg-workouts-session-actions__add workout-action-btn';
+    addBtn.textContent = 'Add Exercise';
+    addBtn.addEventListener('click', () => showAddExerciseToSessionModal());
+    container.appendChild(addBtn);
+    if (offline) {
+        addBtn.classList.add('offline-disabled');
+        addBtn.setAttribute('data-offline-disabled', 'true');
+        addBtn.disabled = true;
+    }
+
     // `.workout-action-btn` hooks this into sync.js's offline toggling sweep
     // so the button stays disabled/enabled as connectivity changes while the
     // modal is open. Static offline state at creation time is applied below.
@@ -848,7 +865,7 @@ function renderSessionDetailActions(container, opts) {
 
     container.appendChild(finishBtn);
 
-    if (typeof window !== 'undefined' && window.SyncManager && window.SyncManager.isOnline === false) {
+    if (offline) {
         finishBtn.classList.add('offline-disabled');
         finishBtn.setAttribute('data-offline-disabled', 'true');
         finishBtn.disabled = true;
