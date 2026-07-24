@@ -6,7 +6,7 @@
 // file is the acceptance bar for med-eyb: a JS scorer that drifts from the Go
 // number is a bug. When the Go engine's constants or math change, these vectors
 // must change with them (they mirror scoring_test.go one-for-one).
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { scoring, DEFAULT_CONFIG as cfg } from '../../../../web/domain/gamification.js';
 
 function findAward(awards, ring, source, kind) {
@@ -372,5 +372,92 @@ describe('substrate read models — end-to-end HP over a synthetic vault', () =>
     // reset (all-null) drops the override.
     const reset = await gam.putTargets({ targets: [{ metric_key: 'bp_systolic' }] });
     expect(reset.targets.find((m) => m.metric_key === 'bp_systolic').is_recommended).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Read-path memoization (med-90w.2): the cloud read path memoizes loadForRead
+// (11 record reads + effectiveConfig) and the 365-day scoreWindow fold, keyed on
+// an injected records-change signal. A memo hit must return byte-identical scoring
+// output; with no signal (bot mode / direct harnesses) every read recomputes.
+const DAY_MS = 86400000;
+const utcDay = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+function seedRecords() {
+  return createInMemoryRecordsPort({
+    foodtargets: [{ recordId: 'foodtargets', deleted: false, calories: 2000, protein: 100 }],
+    foodlog: [{ recordId: 'f1', deleted: false, eaten_at: isoAtMs(RM_NOW), calories: 2000, protein: 100 }],
+    workoutsession: [{ recordId: 'w1', deleted: false, status: 'completed', started_at: isoAtMs(RM_NOW - 60 * 60000), completed_at: isoAtMs(RM_NOW) }],
+    daystats: [{ recordId: 'ds1', deleted: false, day: RM_TODAY, steps: 8000 }],
+    sleep: [{ recordId: 's1', deleted: false, day: RM_TODAY, start_time: isoAtMs(RM_NOW - 8 * 3600000), total_minutes: 480, timezone_offset: 0 }],
+    bp: [{ recordId: 'bp1', deleted: false, measured_at: isoAtMs(RM_NOW), systolic: 115, diastolic: 75, ignore_calc: false }],
+    weight: [{ recordId: 'wt1', deleted: false, measured_at: isoAtMs(RM_NOW), weight: 80 }],
+    note: [{ recordId: 'n1', deleted: false, created_at: isoAtMs(RM_NOW), content: 'hi' }],
+    // HR day-batch records (recordId hrsample-<day>, .samples arrays): one inside
+    // the scoring window, one 400 days back that a bounded read must exclude.
+    hrsample: [
+      { recordId: `hrsample-${RM_TODAY}`, deleted: false, samples: [{ t: isoAtMs(RM_NOW), bpm: 60 }] },
+      { recordId: `hrsample-${utcDay(RM_NOW - 400 * DAY_MS)}`, deleted: false, samples: [{ t: isoAtMs(RM_NOW - 400 * DAY_MS), bpm: 90 }] },
+    ],
+  });
+}
+
+describe('read-path memoization (med-90w.2)', () => {
+  it('memo hit when port present and no write; invalidates on change-count bump', async () => {
+    const records = seedRecords();
+    let changeCount = 7;
+    const gam = createGamificationDomain({ records, now: () => RM_NOW, timeZone: 'UTC', getRecordsChangeCount: () => changeCount });
+    const listSpy = vi.spyOn(records, 'list');
+    const rangeSpy = vi.spyOn(records, 'listRange');
+
+    await gam.getSummary();
+    const readsAfterFirst = listSpy.mock.calls.length + rangeSpy.mock.calls.length;
+    expect(readsAfterFirst).toBeGreaterThan(0);
+
+    // 2nd call, same change-count, no write → memo hit, no new record reads.
+    await gam.getSummary();
+    expect(listSpy.mock.calls.length + rangeSpy.mock.calls.length).toBe(readsAfterFirst);
+
+    // Bump the signal (a write happened) → reads fire again.
+    changeCount = 8;
+    await gam.getSummary();
+    expect(listSpy.mock.calls.length + rangeSpy.mock.calls.length).toBeGreaterThan(readsAfterFirst);
+  });
+
+  it('no memo when the change-count port is absent (bot behavior unchanged)', async () => {
+    const records = seedRecords();
+    const gam = createGamificationDomain({ records, now: () => RM_NOW, timeZone: 'UTC' });
+    const listSpy = vi.spyOn(records, 'list');
+    const rangeSpy = vi.spyOn(records, 'listRange');
+
+    await gam.getSummary();
+    const readsAfterFirst = listSpy.mock.calls.length + rangeSpy.mock.calls.length;
+    await gam.getSummary();
+    expect(listSpy.mock.calls.length + rangeSpy.mock.calls.length).toBeGreaterThan(readsAfterFirst);
+  });
+
+  it('scoring output identical with vs without the memo', async () => {
+    const withMemo = createGamificationDomain({ records: seedRecords(), now: () => RM_NOW, timeZone: 'UTC', getRecordsChangeCount: () => 1 });
+    const noMemo = createGamificationDomain({ records: seedRecords(), now: () => RM_NOW, timeZone: 'UTC' });
+    expect(await withMemo.getSummary()).toEqual(await noMemo.getSummary());
+    expect(await withMemo.getRings()).toEqual(await noMemo.getRings());
+    expect(await withMemo.getGauges()).toEqual(await noMemo.getGauges());
+  });
+
+  it('HR is read via bounded listRange within the scoring window, never list()', async () => {
+    const records = seedRecords();
+    const gam = createGamificationDomain({ records, now: () => RM_NOW, timeZone: 'UTC' });
+    const listSpy = vi.spyOn(records, 'list');
+    const rangeSpy = vi.spyOn(records, 'listRange');
+
+    await gam.getSummary();
+
+    // HR never scanned via the unbounded list().
+    expect(listSpy.mock.calls.some((c) => c[0] === 'hrsample')).toBe(false);
+    const hrCall = rangeSpy.mock.calls.find((c) => c[0] === 'hrsample');
+    expect(hrCall).toBeDefined();
+    // Bounds mirror web/domain/vitals.js: SCORING_WINDOW_DAYS(365)+1 back, +1 fwd.
+    expect(hrCall[1]).toBe(`hrsample-${utcDay(RM_NOW - 366 * DAY_MS)}`);
+    expect(hrCall[2]).toBe(`hrsample-${utcDay(RM_NOW + DAY_MS)}`);
   });
 });

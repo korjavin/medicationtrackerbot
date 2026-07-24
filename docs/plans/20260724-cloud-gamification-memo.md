@@ -184,5 +184,5 @@ Update the progress block below as each task completes.
 - [x] Task 1: port + loadForRead memo + fold WeakMap memo
 - [x] Task 2: bounded HR listRange read
 - [x] Task 3: wire getRecordsChangeCount in apishim (cloud only)
-- [ ] Task 4: memo + HR-bound tests in gamification.substrate.test.js
+- [x] Task 4: memo + HR-bound tests in gamification.substrate.test.js
 - [ ] Task 5: verify (vitest full + go build)
