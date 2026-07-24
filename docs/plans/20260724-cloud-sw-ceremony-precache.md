@@ -111,27 +111,27 @@ intact for the still-uncached case. The fetch handler already has a test proving
       signup.html and asserts the new caching).
 
 ### Task 2: Update + extend the cloud SW tests
-- [ ] Update the disk-backed real-repo install test (~L408): route the 5
+- [x] Update the disk-backed real-repo install test (~L408): route the 5
       ceremony paths to `web/cloud/signup.html` in the fetch mock (mirroring
       router.go's rewrite), so `warmCeremony` resolves against real files.
-- [ ] In that test, replace the "ceremony paths NOT cached" assertion with:
+- [x] In that test, replace the "ceremony paths NOT cached" assertion with:
       each of the 5 ceremony paths IS now cached, AND signup's boot-critical
       module graph is warmed (`/js/app.js`, `/js/unlock.js`, `/js/devices.js`,
       `/js/connectors.js`, `/js/claim.js`, `/js/recover.js`, `/js/signup.js`).
-- [ ] Verify the two synthetic install tests (complete-shell ~L307, flaky
+- [x] Verify the two synthetic install tests (complete-shell ~L307, flaky
       ~L340) stay green — their mocks 404 `/unlock`, ceremony warm skips
       silently, `cached.size` assertions unaffected. Adjust only if the
       best-effort ceremony catch emits console noise (prefer making the catch
       quiet over sprinkling `allowConsoleNoise`).
-- [ ] Add a focused synthetic `it()` in the same describe: install warms the
+- [x] Add a focused synthetic `it()` in the same describe: install warms the
       ceremony shell under EVERY ceremony path plus its css/module graph, when
       the mock serves signup content for a ceremony path. Assert all 5 paths +
       `/css/cloud.css` + `/js/app.js` + a dynamically-imported ceremony module
       are cached, and that the primary `/` shell is still cached.
-- [ ] Add an `it()`: a ceremony-warm failure (ceremony doc fetch rejects/404s)
+- [x] Add an `it()`: a ceremony-warm failure (ceremony doc fetch rejects/404s)
       does NOT reject install and the primary `/` shell + its assets are still
       cached — pins the best-effort guarantee.
-- [ ] Run `npx vitest run web/cloud/js/tests/sw.fetch-cache.test.js` — all green.
+- [x] Run `npx vitest run web/cloud/js/tests/sw.fetch-cache.test.js` — all green.
 
 ### Task 3: Verify acceptance criteria
 - [ ] Re-read med-gvk.3: warm precache now includes the ceremony document(s) +
