@@ -223,8 +223,7 @@ func (p *Proxy) Call(ctx context.Context, cfg RunConfig, operationID string, par
 	}
 	defer resp.Body.Close()
 
-	// Sentinel: Cap response read to prevent memory exhaustion (DoS) from unbounded bridge response
-	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	respBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read bridge response: %w", err)
 	}

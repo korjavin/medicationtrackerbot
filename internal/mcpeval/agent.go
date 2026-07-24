@@ -239,8 +239,7 @@ func (c *Client) chat(ctx context.Context, req chatRequest) (*chatResponse, erro
 		if err != nil {
 			return nil, fmt.Errorf("request failed: %w", err)
 		}
-		// Sentinel: Cap response read to prevent memory exhaustion (DoS) from unbounded AI provider response
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		raw, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 
 		if resp.StatusCode == http.StatusTooManyRequests && attempt < maxRateLimitRetries && isRetryableQuota(raw) {
