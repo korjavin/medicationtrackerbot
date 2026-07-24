@@ -424,6 +424,33 @@ describe('read-path memoization (med-90w.2)', () => {
     expect(listSpy.mock.calls.length + rangeSpy.mock.calls.length).toBeGreaterThan(readsAfterFirst);
   });
 
+  it('memo invalidates when a PENDING dose crosses its due time (no write, same day)', async () => {
+    // A pending dose flips to missed purely by clock (schedMs < now), moving no
+    // change-count — the day-suffix key can't see it since the crossing is intraday.
+    const dueMs = RM_NOW + 2 * 3600000; // due 14:00 UTC, still RM_TODAY
+    const records = createInMemoryRecordsPort({
+      intake: [{ recordId: 'i1', deleted: false, medication_id: 'm1', scheduled_at: isoAtMs(dueMs), status: 'PENDING' }],
+    });
+    let clock = RM_NOW;
+    const gam = createGamificationDomain({ records, now: () => clock, timeZone: 'UTC', getRecordsChangeCount: () => 1 });
+    const listSpy = vi.spyOn(records, 'list');
+    const rangeSpy = vi.spyOn(records, 'listRange');
+    const reads = () => listSpy.mock.calls.length + rangeSpy.mock.calls.length;
+
+    await gam.getSummary();
+    const afterFirst = reads();
+
+    // Still before due, same change-count, same day → memo hit.
+    clock = dueMs - 1;
+    await gam.getSummary();
+    expect(reads()).toBe(afterFirst);
+
+    // Clock passes the scheduled instant → PENDING→missed → memo must recompute.
+    clock = dueMs + 1;
+    await gam.getSummary();
+    expect(reads()).toBeGreaterThan(afterFirst);
+  });
+
   it('no memo when the change-count port is absent (bot behavior unchanged)', async () => {
     const records = seedRecords();
     const gam = createGamificationDomain({ records, now: () => RM_NOW, timeZone: 'UTC' });

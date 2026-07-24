@@ -1813,6 +1813,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
 
   // buildAdherenceByDay ports loadAdherenceRange: tz_step dedupe, PENDING-past-due
   // miss inference (at most one per overdue slot), bucketed by scheduled UTC day.
+  // Also returns nextPendingDueMs — the earliest not-yet-due PENDING dose instant —
+  // so the read-path memo can invalidate the moment that clock-driven PENDING→missed
+  // transition would fire (it moves no change-count, so the memo key can't see it).
   function buildAdherenceByDay(intakes, nowMs) {
     const slotOf = (i) => `${i.medication_id}|${Math.floor(Date.parse(i.scheduled_at) / 1000)}`;
     const shadowed = new Set();
@@ -1823,6 +1826,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const resolved = new Set();
     for (const i of deduped) if (isResolved(i.status)) resolved.add(slotOf(i));
     const missedSlots = new Set();
+    let nextPendingDueMs = Infinity;
     const byDay = new Map();
     const push = (schedMs, dose) => {
       const day = msToUTCDay(schedMs);
@@ -1847,10 +1851,12 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
         if (schedMs < nowMs && !resolved.has(slot) && !missedSlots.has(slot)) {
           missedSlots.add(slot);
           push(schedMs, { status: 'missed' });
+        } else if (schedMs >= nowMs && !resolved.has(slot) && schedMs < nextPendingDueMs) {
+          nextPendingDueMs = schedMs; // clock crossing this flips the dose to missed
         }
       }
     }
-    return byDay;
+    return { byDay, nextPendingDueMs };
   }
   // takenExpected (wellbeing.go): a taken dose counts toward both; missed toward
   // expected only; a skip toward neither.
@@ -1993,14 +1999,14 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       diaryByDay.set(day, (diaryByDay.get(day) || 0) + 1);
     }
 
-    const adherenceByDay = buildAdherenceByDay(intakeAll.filter((r) => !r.deleted), nowMs);
+    const { byDay: adherenceByDay, nextPendingDueMs } = buildAdherenceByDay(intakeAll.filter((r) => !r.deleted), nowMs);
     const hrDailyMin = buildHRDailyMin(hrAll.filter((r) => !r.deleted));
 
     return {
       nowMs, bpDays, weightDays, weightLogsDesc, goalWeight,
       sleepByDay, onsetByDay, stepsByDay, workoutDays, sessions,
       foodByDay, foodTargets, diaryByDay, adherenceByDay, hrDailyMin,
-      _bpReadings: bpReadings,
+      _bpReadings: bpReadings, _nextPendingDueMs: nextPendingDueMs,
     };
   }
 
@@ -2389,18 +2395,23 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return { streak: st.currentStreak, freezes: st.freezes, longest };
   }
 
-  let readMemo = null; // { key, cfg, ctx } — cleared implicitly by key mismatch
+  let readMemo = null; // { key, cfg, ctx, nextPendingDueMs } — cleared implicitly by key mismatch
   async function loadForRead() {
     // Memo only when the records-change signal is injected (cloud mode). The day
     // suffix is a correctness guard: the change-count does not move at midnight, so
     // a stale ctx would score the wrong "today"; keying on it means a same-day repeat
     // open with no intervening write hits, but the first read after midnight recomputes.
+    // nextPendingDueMs is the second clock-driven guard: a PENDING dose flips to
+    // missed once now() passes its scheduled instant, and that transition writes
+    // nothing (no change-count bump), so the memo must expire at that instant too.
     if (typeof getRecordsChangeCount === 'function') {
       const key = `${getRecordsChangeCount()}:${msToUTCDay(now())}`;
-      if (readMemo && readMemo.key === key) return { cfg: readMemo.cfg, ctx: readMemo.ctx };
+      if (readMemo && readMemo.key === key && now() < readMemo.nextPendingDueMs) {
+        return { cfg: readMemo.cfg, ctx: readMemo.ctx };
+      }
       const cfg = await effectiveConfig();
       const ctx = await buildContext(cfg);
-      readMemo = { key, cfg, ctx };
+      readMemo = { key, cfg, ctx, nextPendingDueMs: ctx._nextPendingDueMs };
       return { cfg, ctx };
     }
     const cfg = await effectiveConfig();
