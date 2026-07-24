@@ -155,13 +155,15 @@ helper and applies it to session cards too, so both surfaces agree.
       `npx vitest run web/static/js/tests/features.workout-stats.test.js web/static/js/tests/workout.session-detail.test.js web/static/js/tests/architecture`.
 
 ### Task 4: Verify acceptance criteria
-- [ ] `git diff --stat` confirms `web/static/data/exercises-catalog.json` is UNCHANGED.
-- [ ] One shared translation layer maps medical→friendly and is used by BOTH the Stats split
-      and the new chip (no duplicated dict/fetch remains in stats.js).
-- [ ] Chip appears on session cards only for catalog-matched exercises; absent otherwise.
-- [ ] Globals allowlist updated with justification; inline-styles/design-token tests green.
-- [ ] Run the FULL frontend suite: `npx vitest run` (Node 20 on PATH).
-- [ ] Sanity: `go build ./...` still succeeds (frontend-only change → no-op).
+- [x] `git diff --stat` confirms `web/static/data/exercises-catalog.json` is UNCHANGED.
+- [x] One shared translation layer maps medical→friendly and is used by BOTH the Stats split
+      and the new chip (no duplicated dict/fetch remains in stats.js). Verified: grep for
+      `_loadExerciseBodyPartMap`/`_BODY_PART_LABELS`/`_bodyPartLabel` in stats.js is clean.
+- [x] Chip appears on session cards only for catalog-matched exercises; absent otherwise.
+      Verified by `workout.session-detail.test.js` matched/unmatched cases.
+- [x] Globals allowlist updated with justification; inline-styles/design-token tests green.
+- [x] Run the FULL frontend suite: `npx vitest run` (Node 20 on PATH). 322 files, 3926 passed.
+- [x] Sanity: `go build ./...` still succeeds (frontend-only change → no-op).
 
 ## Technical Details
 - `getBodyPart` is async (awaits the single-flight map); `friendlyBodyPart` is sync (pure dict).
