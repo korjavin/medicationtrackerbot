@@ -68,17 +68,17 @@ ONCE at catalog load. `friendlyBodyPart` labels and the catalog JSON stay unchan
 - [x] run vitest features.workout-stats.test.js — existing split tests must pass
 
 ### Task 3: Extend tests for fuzzy resolution
-- [ ] in the med-s5m.3 describe: add a case with a verbose-form stub catalog
+- [x] in the med-s5m.3 describe: add a case with a verbose-form stub catalog
       (e.g. "Barbell Bench Press"→chest, "Barbell Squat"→upper legs, "Barbell
       Deadlift"→upper legs, "Front Plank"→waist) where logged bare names
       "bench press"/"squat"/"deadlift"/"plank" bucket to Chest/Legs/Legs/Core, and
       "Mystery Move" still → Uncategorized
-- [ ] in the med-mj4 WorkoutExerciseCatalog describe: add a `resolveBodyPart`/
+- [x] in the med-mj4 WorkoutExerciseCatalog describe: add a `resolveBodyPart`/
       `getBodyPart` case proving a bare name resolves via a verbose-form catalog and
       a truly-unknown name → null; assert "up"/2-char-token noise does not spuriously
       match
-- [ ] keep exact-match, empty-catalog-skip, failed-fetch-silent, fetch-once green
-- [ ] run vitest features.workout-stats.test.js
+- [x] keep exact-match, empty-catalog-skip, failed-fetch-silent, fetch-once green
+- [x] run vitest features.workout-stats.test.js
 
 ### Task 4: Verify acceptance criteria
 - [ ] `npx vitest run web/static/js/tests/features.workout-stats.test.js web/static/js/tests/architecture` (Node 20) green
