@@ -33,17 +33,25 @@ type transferStore interface {
 type TransferAPI struct {
 	store         transferStore
 	sessionSecret string
+	limiter       *rateLimiter
 }
 
 // NewTransferAPI builds the transfer-slot handlers.
 func NewTransferAPI(store transferStore, sessionSecret string) *TransferAPI {
-	return &TransferAPI{store: store, sessionSecret: sessionSecret}
+	return &TransferAPI{
+		store:         store,
+		sessionSecret: sessionSecret,
+		limiter:       newRateLimiter(ceremonyRateLimitMax, ceremonyRateLimitWindow),
+	}
 }
 
 // RegisterRoutes adds the transfer-slot routes to mux.
 func (a *TransferAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/transfer", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.CreateTransfer)))
-	mux.HandleFunc("POST /api/transfer/{slot_id}/claim", a.ClaimTransfer)
+	// Unauthenticated + brute-forceable (whoever holds the QR can attempt a
+	// claim): per-IP rate-limit. Callers are real client browsers with distinct
+	// IPs, so this is the right primitive (unlike webhooks — see sentinel.md).
+	mux.HandleFunc("POST /api/transfer/{slot_id}/claim", limitByIP(a.limiter, a.ClaimTransfer))
 	// Session-authed, unlike the claim: these two answer only to the device that
 	// opened the slot. Whoever merely holds the QR code learns nothing.
 	mux.Handle("GET /api/transfer/{slot_id}", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.GetTransfer)))
