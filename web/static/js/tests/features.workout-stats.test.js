@@ -88,7 +88,7 @@ describe('features/workout/stats.js — split-file integration', () => {
       const labels = Array.from(
         container.querySelectorAll('.wg-workouts-stats__body-split .wg-workouts-stats__top-row-name')
       ).map((n) => n.textContent);
-      expect(labels).toEqual(['Upper legs', 'Chest', 'Uncategorized']); // sorted by session_count desc
+      expect(labels).toEqual(['Legs', 'Chest', 'Uncategorized']); // friendly labels, sorted by session_count desc
     });
 
     it('renders no split section when there are no top_exercises (and does not fetch the catalog)', async () => {

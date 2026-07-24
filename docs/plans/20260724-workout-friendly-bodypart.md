@@ -113,19 +113,20 @@ helper and applies it to session cards too, so both surfaces agree.
       silent no-op offline — not a section-landing read).
 
 ### Task 2: Route stats.js through the shared helper (delete its duplicates)
-- [ ] In `web/static/js/features/workout/stats.js` delete `_exerciseBodyPartMapPromise`,
+- [x] In `web/static/js/features/workout/stats.js` delete `_exerciseBodyPartMapPromise`,
       `_loadExerciseBodyPartMap()`, `_BODY_PART_LABELS`, and `_bodyPartLabel()`.
-- [ ] In `_renderBodyPartSplit`: replace `await _loadExerciseBodyPartMap()` with
+- [x] In `_renderBodyPartSplit`: replace `await _loadExerciseBodyPartMap()` with
       `await window.WorkoutExerciseCatalog.load()` (keep the `if (map.size === 0) return;`
       guard so an unavailable catalog still skips the split).
-- [ ] Replace label rendering: `name.textContent = window.WorkoutExerciseCatalog.friendlyBodyPart(body_part)
+- [x] Replace label rendering: `name.textContent = window.WorkoutExerciseCatalog.friendlyBodyPart(body_part)
       || (body_part.charAt(0).toUpperCase() + body_part.slice(1))` — preserving the current
       'Uncategorized' fallback for the uncategorized bucket.
-- [ ] Keep `_computeBodyPartSplit(topExercises, map)` unchanged (it already takes the Map).
-- [ ] Confirm the existing body-part-split cases in `features.workout-stats.test.js` still
+- [x] Keep `_computeBodyPartSplit(topExercises, map)` unchanged (it already takes the Map).
+- [x] Confirm the existing body-part-split cases in `features.workout-stats.test.js` still
       pass unchanged (case-insensitive bucketing, no-top_exercises → no fetch, failed
-      catalog → silent no split). Adjust only if a test referenced a now-deleted private.
-- [ ] Run the suite — must pass before Task 3:
+      catalog → silent no split). Adjusted the one label assertion (now friendly 'Legs' vs
+      medical 'Upper legs') — expected given the intended medical→friendly switch.
+- [x] Run the suite — must pass before Task 3:
       `npx vitest run web/static/js/tests/features.workout-stats.test.js`.
 
 ### Task 3: Friendly body-part chip on active-session exercise cards
