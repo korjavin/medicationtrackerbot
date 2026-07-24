@@ -393,11 +393,13 @@ function seedRecords() {
     bp: [{ recordId: 'bp1', deleted: false, measured_at: isoAtMs(RM_NOW), systolic: 115, diastolic: 75, ignore_calc: false }],
     weight: [{ recordId: 'wt1', deleted: false, measured_at: isoAtMs(RM_NOW), weight: 80 }],
     note: [{ recordId: 'n1', deleted: false, created_at: isoAtMs(RM_NOW), content: 'hi' }],
-    // HR day-batch records (recordId hrsample-<day>, .samples arrays): one inside
-    // the scoring window, one 400 days back that a bounded read must exclude.
+    // HR day-batch records (recordId hrsample-<day>, .samples arrays, sample shape
+    // { date_time, value } per buildHRDailyMin): one inside the scoring window, one
+    // 500 days back — beyond the 426-day (SCORING_WINDOW_DAYS + baseline + 1) lower
+    // bound — that a bounded read must exclude.
     hrsample: [
-      { recordId: `hrsample-${RM_TODAY}`, deleted: false, samples: [{ t: isoAtMs(RM_NOW), bpm: 60 }] },
-      { recordId: `hrsample-${utcDay(RM_NOW - 400 * DAY_MS)}`, deleted: false, samples: [{ t: isoAtMs(RM_NOW - 400 * DAY_MS), bpm: 90 }] },
+      { recordId: `hrsample-${RM_TODAY}`, deleted: false, samples: [{ date_time: isoAtMs(RM_NOW), value: 60 }] },
+      { recordId: `hrsample-${utcDay(RM_NOW - 500 * DAY_MS)}`, deleted: false, samples: [{ date_time: isoAtMs(RM_NOW - 500 * DAY_MS), value: 90 }] },
     ],
   });
 }
