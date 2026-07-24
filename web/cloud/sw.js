@@ -88,25 +88,30 @@ async function cacheAndCrawl(cache, url) {
 //     are runtime-cached anyway. So one flaky module must NOT poison the whole
 //     precache: allSettled over each wave, log+skip failures, keep crawling the
 //     successes.
-async function warmShell() {
-  const cache = await caches.open(SHELL_CACHE);
-  const doc = await fetch('/');
-  if (!doc.ok) throw new Error('shell warm: / => ' + doc.status);
-  const html = await doc.clone().text();
-  await cache.put('/', doc);
-  const seen = new Set();
-  const core = [];
+// Crawl one document's subresource + ES-module graph into `cache`, sharing the
+// `seen` set across documents so an asset already cached by an earlier call is
+// not re-fetched. When `strict` (the '/' app shell), the DIRECT subresource
+// wave is Promise.all — a miss rejects (CORE, see above). When not strict (the
+// best-effort ceremony shell) the direct refs fold into the allSettled loop so
+// nothing rejects. Module-graph waves are always allSettled (log+skip).
+async function warmDocGraph(cache, docUrl, html, seen, strict) {
+  const direct = [];
   for (const m of html.matchAll(SHELL_REF_RE)) {
-    const href = new URL(m[1], self.location.origin).href;
+    const href = new URL(m[1], docUrl).href;
     if (!seen.has(href)) {
       seen.add(href);
-      core.push(href);
+      direct.push(href);
     }
   }
-  // CORE wave: Promise.all — any failure rejects install (see above). The
-  // module deps these yield become the OPTIONAL frontier.
-  const coreDeps = await Promise.all(core.map((url) => cacheAndCrawl(cache, url)));
-  let wave = coreDeps.flat().filter((u) => !seen.has(u) && (seen.add(u), true));
+  let wave;
+  if (strict) {
+    // CORE wave: Promise.all — any failure rejects install. The module deps
+    // these yield become the OPTIONAL frontier.
+    const coreDeps = await Promise.all(direct.map((url) => cacheAndCrawl(cache, url)));
+    wave = coreDeps.flat().filter((u) => !seen.has(u) && (seen.add(u), true));
+  } else {
+    wave = direct;
+  }
   // OPTIONAL waves: allSettled — cache what succeeds, log+skip what fails, and
   // keep crawling only the successes' deps.
   while (wave.length) {
@@ -118,6 +123,40 @@ async function warmShell() {
     });
     wave = nextDeps.filter((u) => !seen.has(u) && (seen.add(u), true));
   }
+}
+
+async function warmShell() {
+  const cache = await caches.open(SHELL_CACHE);
+  const doc = await fetch('/');
+  if (!doc.ok) throw new Error('shell warm: / => ' + doc.status);
+  const html = await doc.clone().text();
+  await cache.put('/', doc);
+  const origin = self.location.origin;
+  const seen = new Set([new URL('/', origin).href]);
+  // CORE-strict: the '/' shell must fully cache or the install rejects.
+  await warmDocGraph(cache, origin, html, seen, true);
+  // Best-effort: warm the ceremony document (signup.html) + its module graph so
+  // Settings sub-pages (/devices, /connectors, …) open offline. Its failure
+  // must NEVER reject the primary-shell install (med-gvk.3, mirrors med-gvk.1's
+  // core-vs-optional split at the document level).
+  await warmCeremony(cache, seen).catch((e) => console.warn('[sw] ceremony warm failed', e));
+}
+
+// Best-effort ceremony precache: the router serves signup.html for all five
+// CEREMONY_PATHS, so fetch one ('/unlock'), cache that same document body under
+// EVERY ceremony path (a fresh clone per put) so an offline navigation to any
+// of them is an exact cache hit in cachedNavigationDoc, then crawl its module
+// graph (/css/cloud.css + /js/app.js + app.js's dynamic-import ceremony graph).
+// A miss returns quietly (no top-level warn) so synthetic install tests whose
+// mocks 404 /unlock stay green — only the per-asset skip warnings remain.
+async function warmCeremony(cache, seen) {
+  const res = await fetch('/unlock');
+  if (!res.ok) return;
+  const html = await res.clone().text();
+  for (const path of CEREMONY_PATHS) {
+    await cache.put(path, res.clone());
+  }
+  await warmDocGraph(cache, new URL('/unlock', self.location.origin).href, html, seen, false);
 }
 
 self.addEventListener('install', (event) => {

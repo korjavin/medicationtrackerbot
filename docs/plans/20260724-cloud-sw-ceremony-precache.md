@@ -80,31 +80,35 @@ intact for the still-uncached case. The fetch handler already has a test proving
 ## Implementation Steps
 
 ### Task 1: Warm the ceremony document + module graph in sw.js
-- [ ] In `web/cloud/sw.js`, refactor the subresource+module-graph crawl out of
+- [x] In `web/cloud/sw.js`, refactor the subresource+module-graph crawl out of
       `warmShell()` into a reusable helper `warmDocGraph(cache, docUrl, html,
       seen, strict)`: when `strict` (the `/` app shell) the DIRECT-subresource
       wave uses `Promise.all` (reject on miss = CORE, unchanged behavior); when
       not strict the direct refs fold into the `Promise.allSettled` best-effort
       loop. Module-graph waves stay `allSettled` in both. `seen` is shared
       across calls so an asset cached by an earlier document is not re-fetched.
-- [ ] Have `warmShell()` build the shared `seen` set, warm `/` CORE-strict via
+      (`docUrl` is the absolute base for resolving refs — `new URL('/x','/')`
+      throws, so warmShell passes `self.location.origin`.)
+- [x] Have `warmShell()` build the shared `seen` set, warm `/` CORE-strict via
       the helper (identical semantics to today), then call a new best-effort
       `warmCeremony(cache, seen)` guarded so its failure NEVER rejects the
       primary-shell install (`.catch(log)`), and does not emit an
       always-on `console.warn` at the top level (keep the existing per-asset
       skip warnings only; a ceremony-doc miss returns quietly) so the two
       synthetic install tests without a ceremony route stay green.
-- [ ] Implement `warmCeremony(cache, seen)`: fetch one ceremony path
+- [x] Implement `warmCeremony(cache, seen)`: fetch one ceremony path
       (`/unlock`; the router serves signup.html for all five). If not ok,
       return (skip). Otherwise cache the response under EVERY path in
       `CEREMONY_PATHS` (a fresh `.clone()` per `cache.put`), then
       `warmDocGraph(cache, '/unlock', html, seen, false)` to crawl
       `/css/cloud.css` + `/js/app.js` and app.js's dynamic-import ceremony graph.
-- [ ] Confirm no fetch-handler / CSP / document-header change is needed
+- [x] Confirm no fetch-handler / CSP / document-header change is needed
       (exact-match in `cachedNavigationDoc` already serves the cached ceremony
       docs; anti-ping-pong fallback unchanged).
-- [ ] `export PATH` Node 20; run `npx vitest run web/cloud/js/tests/sw.fetch-cache.test.js`
-      — expect the two ceremony-affected tests (below) to fail until Task 2.
+- [x] `export PATH` Node 20; run `npx vitest run web/cloud/js/tests/sw.fetch-cache.test.js`
+      — all 25 green (the disk-backed + synthetic tests 404 `/unlock`, so the
+      best-effort ceremony warm skips silently; Task 2 routes ceremony to
+      signup.html and asserts the new caching).
 
 ### Task 2: Update + extend the cloud SW tests
 - [ ] Update the disk-backed real-repo install test (~L408): route the 5
