@@ -138,6 +138,7 @@ const STATIC_ASSETS = [
     '/static/js/features/workout/library.js',
     '/static/js/features/workout/history.js',
     '/static/js/features/workout/miband.js',
+    '/static/js/features/workout/exercise-catalog.js',
     '/static/js/features/workout/sessions.js',
     '/static/js/features/workout/exercise-detail.js',
     '/static/js/features/workout/stats.js',

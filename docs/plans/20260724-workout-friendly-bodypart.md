@@ -76,38 +76,41 @@ helper and applies it to session cards too, so both surfaces agree.
 ## Implementation Steps
 
 ### Task 1: Create shared WorkoutExerciseCatalog helper
-- [ ] Create `web/static/js/features/workout/exercise-catalog.js` — an IIFE that owns a
+- [x] Create `web/static/js/features/workout/exercise-catalog.js` — an IIFE that owns a
       module-private single-flight promise for `fetch('/static/data/exercises-catalog.json')`,
       building a `Map<lowercased-trimmed name, body_part>` (mirror the exact normalization
       and failure handling of stats.js `_loadExerciseBodyPartMap`: on error `console.error`,
       null the promise for retry, resolve an empty Map).
-- [ ] Expose `window.WorkoutExerciseCatalog` with:
+- [x] Expose `window.WorkoutExerciseCatalog` with:
       `load()` → `Promise<Map>` (the single-flight name→body_part map),
       `getBodyPart(exerciseName)` → `Promise<string|null>` (`(await load()).get(norm(name)) || null`),
       `friendlyBodyPart(bodyPart)` → `string|null` (pure dict lookup, no fetch).
-- [ ] Translation dict (medical DB value = key → friendly display):
+- [x] Translation dict (medical DB value = key → friendly display):
       `upper legs→Legs, lower legs→Calves, waist→Core, upper arms→Arms, lower arms→Forearms,
       chest→Chest, back→Back, shoulders→Shoulders, neck→Neck, cardio→Cardio`.
       Any unmatched/unknown/uncategorized key → return `null`.
-- [ ] Add `window.WorkoutExerciseCatalog` to the allowlist in
+- [x] Add `window.WorkoutExerciseCatalog` to the allowlist in
       `web/static/js/tests/architecture.globals.test.js` with a justification comment
       (single-flight catalog fetch + medical→friendly body-part translation shared by
       stats split and session-card chip; med-mj4).
-- [ ] Add `<script src="/static/js/features/workout/exercise-catalog.js?v=TIMESTAMP_PLACEHOLDER"></script>`
+- [x] Add `<script src="/static/js/features/workout/exercise-catalog.js?v=TIMESTAMP_PLACEHOLDER"></script>`
       to `web/static/index.html` in the workout block BEFORE `sessions.js` and `stats.js`
       (e.g. right after `miband.js`, before `sessions.js`).
-- [ ] Register the new file in `web/static/js/tests/helpers/frontend-harness.js`
+- [x] Register the new file in `web/static/js/tests/helpers/frontend-harness.js`
       (`WORKOUT_EXERCISE_CATALOG_JS` const + `evalFileCached(window, WORKOUT_EXERCISE_CATALOG_JS)`
       in the `withWorkout` block, BEFORE `WORKOUT_SESSIONS_JS` and `WORKOUT_STATS_JS`).
-- [ ] Extend `features.workout-stats.test.js` with a `describe('WorkoutExerciseCatalog')`
+- [x] Extend `features.workout-stats.test.js` with a `describe('WorkoutExerciseCatalog')`
       block: assert `friendlyBodyPart` maps every medical value to its friendly name
       (spot-check upper legs→Legs, waist→Core, lower arms→Forearms, cardio→Cardio) and
       returns `null` for unknown/'uncategorized'; assert `getBodyPart` is case-insensitive
       and returns `null` for a name absent from the catalog; assert the catalog is fetched
       at most ONCE across repeated `getBodyPart`/`load` calls (single-flight).
-- [ ] Run the two suites — must pass before Task 2:
+- [x] Run the two suites — must pass before Task 2:
       `export PATH="$(ls -d /tmp/node-v20*/bin | head -1):$PATH"` then
       `npx vitest run web/static/js/tests/features.workout-stats.test.js web/static/js/tests/architecture`.
+      ➕ Also added the new JS file to `web/static/sw.js` STATIC_ASSETS (sw-precache guard)
+      and an ALLOWLIST entry in `architecture.offline-coverage.test.js` (static-asset fetch,
+      silent no-op offline — not a section-landing read).
 
 ### Task 2: Route stats.js through the shared helper (delete its duplicates)
 - [ ] In `web/static/js/features/workout/stats.js` delete `_exerciseBodyPartMapPromise`,
