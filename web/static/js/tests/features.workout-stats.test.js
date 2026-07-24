@@ -104,6 +104,42 @@ describe('features/workout/stats.js — split-file integration', () => {
       expect(catalogFetches).toHaveLength(0);
     });
 
+    it('buckets bare logged names via fuzzy token-overlap against verbose catalog entries', async () => {
+      const { window, document } = env;
+      // Only verbose forms exist as exact keys — bare logged names miss exact and
+      // must resolve by whole-word token overlap (plurality body_part).
+      const VERBOSE = {
+        exercises: [
+          { name: 'Barbell Bench Press', body_part: 'chest' },
+          { name: 'Barbell Squat', body_part: 'upper legs' },
+          { name: 'Barbell Deadlift', body_part: 'upper legs' },
+          { name: 'Front Plank', body_part: 'waist' },
+        ],
+      };
+      stubCatalog(window, { ok: true, status: 200, json: async () => VERBOSE });
+
+      const container = document.getElementById('workout-stats-display');
+      window._renderWorkoutStats(container, {
+        total_sessions: 5,
+        top_exercises: [
+          { exercise_name: 'bench press', session_count: 4, total_volume_kg: 900 }, // fuzzy -> chest
+          { exercise_name: 'squat', session_count: 3, total_volume_kg: 800 },        // fuzzy -> upper legs
+          { exercise_name: 'deadlift', session_count: 2, total_volume_kg: 700 },     // fuzzy -> upper legs
+          { exercise_name: 'plank', session_count: 1, total_volume_kg: 10 },         // fuzzy -> waist
+          { exercise_name: 'Mystery Move', session_count: 1, total_volume_kg: 5 },   // no overlap -> uncategorized
+        ],
+      });
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.wg-workouts-stats__body-split')).toBeTruthy();
+      });
+      const labels = Array.from(
+        container.querySelectorAll('.wg-workouts-stats__body-split .wg-workouts-stats__top-row-name')
+      ).map((n) => n.textContent);
+      // squat + deadlift collapse into one Legs bucket (5 sessions); chest 4; core 1; unknown 1.
+      expect(labels).toEqual(['Legs', 'Chest', 'Core', 'Uncategorized']);
+    });
+
     it('a failed catalog fetch is silent — stats still render, no split section', async () => {
       const { window, document } = env;
       stubCatalog(window, { ok: false, status: 500, json: async () => ({}) });
@@ -148,6 +184,79 @@ describe('features/workout/stats.js — split-file integration', () => {
       }));
       expect(await window.WorkoutExerciseCatalog.getBodyPart('BARBELL squat')).toBe('upper legs');
       expect(await window.WorkoutExerciseCatalog.getBodyPart('Unknown Move')).toBeNull();
+    });
+
+    it('resolveBodyPart matches bare names via token overlap and returns null for noise/unknown', async () => {
+      const { window } = env;
+      window.fetch = vi.fn(async () => ({
+        ok: true, status: 200,
+        json: async () => ({ exercises: [
+          { name: 'Barbell Bench Press', body_part: 'chest' },
+          { name: 'Front Plank', body_part: 'waist' },
+        ] }),
+      }));
+      await window.WorkoutExerciseCatalog.load();
+      const resolve = window.WorkoutExerciseCatalog.resolveBodyPart;
+      // Bare logged name resolves via the verbose catalog entry's shared tokens.
+      expect(resolve('bench press')).toBe('chest');
+      expect(await window.WorkoutExerciseCatalog.getBodyPart('plank')).toBe('waist');
+      // Only-short-token / no-overlap queries do not spuriously match.
+      expect(resolve('up ab')).toBeNull();      // 2-char tokens dropped -> no votes
+      expect(resolve('Mystery Move')).toBeNull(); // real tokens, none in catalog
+    });
+
+    it('resolveBodyPart: a popular shared token does not outvote the identifying one', async () => {
+      const { window } = env;
+      // "press" is the head noun in many chest entries; "leg press" must still land
+      // on the leg entry via subset match, not get pulled to chest by token frequency.
+      window.fetch = vi.fn(async () => ({
+        ok: true, status: 200,
+        json: async () => ({ exercises: [
+          { name: 'Barbell Bench Press', body_part: 'chest' },
+          { name: 'Dumbbell Chest Press', body_part: 'chest' },
+          { name: 'Machine Leg Press', body_part: 'upper legs' },
+        ] }),
+      }));
+      await window.WorkoutExerciseCatalog.load();
+      const resolve = window.WorkoutExerciseCatalog.resolveBodyPart;
+      expect(resolve('leg press')).toBe('upper legs');
+      expect(resolve('bench press')).toBe('chest');
+    });
+
+    it('resolveBodyPart: a strict cross-body-part vote tie resolves to null', async () => {
+      const { window } = env;
+      // "raise" is a subset of both entries, one vote each across different body
+      // parts -> plurality tie -> uncategorized, not an arbitrary pick.
+      window.fetch = vi.fn(async () => ({
+        ok: true, status: 200,
+        json: async () => ({ exercises: [
+          { name: 'Lateral Raise', body_part: 'shoulders' },
+          { name: 'Calf Raise', body_part: 'lower legs' },
+        ] }),
+      }));
+      await window.WorkoutExerciseCatalog.load();
+      expect(window.WorkoutExerciseCatalog.resolveBodyPart('raise')).toBeNull();
+    });
+
+    it('resolveBodyPart: a clear plurality wins even after an interim tie', async () => {
+      const { window } = env;
+      // "barbell" is a subset of all six entries. Tally in first-seen (Map) order is
+      // chest=2, back=2, upper legs=3 — the max loop must flag the chest/back tie and
+      // then reset it when upper legs (the true plurality, >=2 votes) is reached.
+      window.fetch = vi.fn(async () => ({
+        ok: true, status: 200,
+        json: async () => ({ exercises: [
+          { name: 'Barbell Bench Press', body_part: 'chest' },
+          { name: 'Barbell Bent Row', body_part: 'back' },
+          { name: 'Barbell Squat', body_part: 'upper legs' },
+          { name: 'Barbell Incline Press', body_part: 'chest' },
+          { name: 'Barbell Pendlay Row', body_part: 'back' },
+          { name: 'Barbell Deadlift', body_part: 'upper legs' },
+          { name: 'Barbell Lunge', body_part: 'upper legs' },
+        ] }),
+      }));
+      await window.WorkoutExerciseCatalog.load();
+      expect(window.WorkoutExerciseCatalog.resolveBodyPart('barbell')).toBe('upper legs');
     });
 
     it('fetches the catalog at most once across repeated getBodyPart/load calls', async () => {

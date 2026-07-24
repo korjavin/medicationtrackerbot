@@ -11,9 +11,19 @@
 // and retried on the next call.
 (function () {
     let _mapPromise = null; // single-flight cache for the catalog name->body_part map
+    let _exactMap = null;   // Map<normalized name, body_part>
+    let _entries = null;    // [[Set<token>, body_part]] for subset-match fuzzy fallback
 
     function _norm(name) {
         return String(name || '').toLowerCase().trim();
+    }
+
+    // Split into whole-word tokens, dropping short noise ("up"/"ab"/"of") that
+    // would otherwise dominate the plurality vote. Distinct tokens only.
+    function _tokens(name) {
+        return [...new Set(
+            _norm(name).split(/[^a-z0-9]+/).filter((t) => t.length >= 3)
+        )];
     }
 
     function load() {
@@ -22,23 +32,60 @@
                 .then((r) => (r.ok ? r.json() : Promise.reject(new Error('catalog ' + r.status))))
                 .then((cat) => {
                     const map = new Map();
+                    const entries = [];
                     for (const e of (cat.exercises || [])) {
                         const key = _norm(e.name);
-                        if (key && e.body_part) map.set(key, e.body_part);
+                        if (!key || !e.body_part) continue;
+                        map.set(key, e.body_part);
+                        entries.push([new Set(_tokens(e.name)), e.body_part]);
                     }
+                    _exactMap = map;
+                    _entries = entries;
                     return map;
                 })
                 .catch((err) => {
                     console.error('Error loading exercise catalog:', err);
                     _mapPromise = null; // allow a later retry
+                    _exactMap = null;
+                    _entries = null;
                     return new Map();
                 });
         }
         return _mapPromise;
     }
 
+    // Exact match wins; else a bare logged name ("bench press") is a token-subset
+    // of its verbose catalog form ("barbell bench press"), so tally body_part
+    // across every entry the query is a subset of and return the plurality. Strict
+    // tie or no match → null. Subset (not raw token frequency) is what avoids a
+    // popular head-noun like "press"/"curl" outvoting the identifying token, e.g.
+    // "leg press" → upper legs, not chest. Assumes load() has resolved (getBodyPart
+    // awaits it; stats.js awaits load() before calling).
+    function resolveBodyPart(name) {
+        if (_exactMap) {
+            const hit = _exactMap.get(_norm(name));
+            if (hit) return hit;
+        }
+        if (!_entries) return null;
+        const q = _tokens(name);
+        if (!q.length) return null;
+        const tally = new Map();
+        for (const [toks, part] of _entries) {
+            if (q.every((t) => toks.has(t))) {
+                tally.set(part, (tally.get(part) || 0) + 1);
+            }
+        }
+        let best = null, bestVotes = 0, tie = false;
+        for (const [part, votes] of tally) {
+            if (votes > bestVotes) { best = part; bestVotes = votes; tie = false; }
+            else if (votes === bestVotes) { tie = true; }
+        }
+        return tie ? null : best;
+    }
+
     async function getBodyPart(exerciseName) {
-        return (await load()).get(_norm(exerciseName)) || null;
+        await load();
+        return resolveBodyPart(exerciseName);
     }
 
     // Medical DB body_part value → lifter-friendly display name. Any unmatched
@@ -52,5 +99,5 @@
         return FRIENDLY[_norm(bodyPart)] || null;
     }
 
-    window.WorkoutExerciseCatalog = { load, getBodyPart, friendlyBodyPart };
+    window.WorkoutExerciseCatalog = { load, getBodyPart, resolveBodyPart, friendlyBodyPart };
 })();
