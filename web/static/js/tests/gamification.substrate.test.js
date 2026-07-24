@@ -453,6 +453,31 @@ describe('read-path memoization (med-90w.2)', () => {
     expect(reads()).toBeGreaterThan(afterFirst);
   });
 
+  it('memo invalidates at UTC-day rollover (no write, no pending dose)', async () => {
+    // seedRecords has no PENDING intake → nextPendingDueMs === Infinity, so the
+    // ONLY guard forcing a post-midnight recompute is the :msToUTCDay(now()) key
+    // suffix. Without it a stale ctx would score yesterday's nowMs as "today".
+    const records = seedRecords();
+    let clock = RM_NOW; // noon Jun 15 UTC
+    const gam = createGamificationDomain({ records, now: () => clock, timeZone: 'UTC', getRecordsChangeCount: () => 1 });
+    const listSpy = vi.spyOn(records, 'list');
+    const rangeSpy = vi.spyOn(records, 'listRange');
+    const reads = () => listSpy.mock.calls.length + rangeSpy.mock.calls.length;
+
+    await gam.getSummary();
+    const afterFirst = reads();
+
+    // Later same day, fixed change-count → memo hit.
+    clock = Date.UTC(2026, 5, 15, 23, 59, 0);
+    await gam.getSummary();
+    expect(reads()).toBe(afterFirst);
+
+    // Past 00:00 UTC into Jun 16, same change-count, no write → day key changes → recompute.
+    clock = Date.UTC(2026, 5, 16, 0, 1, 0);
+    await gam.getSummary();
+    expect(reads()).toBeGreaterThan(afterFirst);
+  });
+
   it('no memo when the change-count port is absent (bot behavior unchanged)', async () => {
     const records = seedRecords();
     const gam = createGamificationDomain({ records, now: () => RM_NOW, timeZone: 'UTC' });
