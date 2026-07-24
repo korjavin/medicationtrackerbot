@@ -28,9 +28,9 @@ All core CRUD + domain reads/writes route in cloud: meds & intake (`server.go:81
 
 | capability | bot | cloud | status |
 |---|---|---|---|
-| BP CSV export | `GET /api/bp/export` `server.go:831` | raw `fetch` at `bp.js:743`; 404 in cloud | intentional divergence — full-vault export (`CloudVault`) covers data extraction; per-metric CSV not wanted in cloud. Hide the button in cloud when convenient. |
-| Weight CSV export | `GET /api/weight/export` `server.go:850` | raw `fetch` at `weight.js:1293`; 404 in cloud | intentional divergence — as above. |
 | Mi-band GPS detail | `GET /api/workout/miband/{id}/gps` `server.go:908` | cloud miband regex end-anchored (`apishim.js:665`) → 404 | intentional divergence — GPS is never sealed into the cloud vault (`vitals_import_api.go`), so a cloud GPS detail view has no data to show. Not wanted. |
+
+> BP/weight per-metric CSV export was removed entirely (bot + cloud) on 2026-07-24 — dead code (no button wired), superseded by the full-vault `CloudVault` / `GET /api/export`. No longer a parity gap.
 
 ### Route-surface intentional divergences
 

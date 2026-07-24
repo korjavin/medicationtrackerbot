@@ -828,7 +828,6 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("GET /api/bp", s.handleListBloodPressure)
 	apiMux.HandleFunc("DELETE /api/bp/{id}", s.handleDeleteBloodPressure)
 	apiMux.HandleFunc("POST /api/bp/import", s.handleImportBloodPressure)
-	apiMux.HandleFunc("GET /api/bp/export", s.handleExportBloodPressure)
 	apiMux.HandleFunc("GET /api/bp/goal", s.handleGetBPGoal)
 	apiMux.HandleFunc("GET /api/bp/stats", s.handleGetBPStats)
 
@@ -847,7 +846,6 @@ func (s *Server) Routes() http.Handler {
 	apiMux.HandleFunc("POST /api/weight", s.handleCreateWeight)
 	apiMux.HandleFunc("GET /api/weight", s.handleListWeight)
 	apiMux.HandleFunc("DELETE /api/weight/{id}", s.handleDeleteWeight)
-	apiMux.HandleFunc("GET /api/weight/export", s.handleExportWeight)
 	apiMux.HandleFunc("GET /api/weight/goal", s.handleGetWeightGoal)
 	apiMux.HandleFunc("POST /api/weight/goal", s.handleSetWeightGoal)
 	apiMux.HandleFunc("GET /api/weight/goals/history", s.handleListWeightGoals)
