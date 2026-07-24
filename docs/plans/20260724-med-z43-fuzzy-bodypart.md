@@ -60,12 +60,12 @@ ONCE at catalog load. `friendlyBodyPart` labels and the catalog JSON stay unchan
 - [x] run vitest features.workout-stats.test.js — existing catalog tests must pass
 
 ### Task 2: Route stats.js body-part split through the resolver
-- [ ] change `_computeBodyPartSplit(topExercises, resolveFn)` to call
+- [x] change `_computeBodyPartSplit(topExercises, resolveFn)` to call
       `resolveFn(ex.exercise_name) || 'uncategorized'` instead of `bodyPartMap.get`
-- [ ] in `_renderBodyPartSplit`, keep the `await load()` + `map.size === 0` skip
+- [x] in `_renderBodyPartSplit`, keep the `await load()` + `map.size === 0` skip
       guard, then pass `window.WorkoutExerciseCatalog.resolveBodyPart` into
       `_computeBodyPartSplit`
-- [ ] run vitest features.workout-stats.test.js — existing split tests must pass
+- [x] run vitest features.workout-stats.test.js — existing split tests must pass
 
 ### Task 3: Extend tests for fuzzy resolution
 - [ ] in the med-s5m.3 describe: add a case with a verbose-form stub catalog

@@ -33,11 +33,10 @@ function setActiveWorkoutsStatsRange(range) {
 // getStats). Bodyweight-heavy training is under-counted here. Upgrade path when
 // it matters: aggregate over ALL logged exercises for the period instead of the
 // top-8 volume slice. Matches the CEILING in bead med-s5m.3.
-function _computeBodyPartSplit(topExercises, bodyPartMap) {
+function _computeBodyPartSplit(topExercises, resolveFn) {
     const totals = new Map();
     for (const ex of (topExercises || [])) {
-        const key = String(ex.exercise_name || '').toLowerCase().trim();
-        const bp = bodyPartMap.get(key) || 'uncategorized';
+        const bp = resolveFn(ex.exercise_name) || 'uncategorized';
         const count = ex.session_count || 0;
         totals.set(bp, (totals.get(bp) || 0) + count);
     }
@@ -53,7 +52,7 @@ async function _renderBodyPartSplit(root, topExercises) {
     if (!topExercises || topExercises.length === 0) return;
     const map = await window.WorkoutExerciseCatalog.load();
     if (map.size === 0) return; // catalog unavailable — skip rather than show an all-uncategorized split
-    const split = _computeBodyPartSplit(topExercises, map);
+    const split = _computeBodyPartSplit(topExercises, window.WorkoutExerciseCatalog.resolveBodyPart);
     if (split.length === 0) return;
 
     const heading = document.createElement('div');
