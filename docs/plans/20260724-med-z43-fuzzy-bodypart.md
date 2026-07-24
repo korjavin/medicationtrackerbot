@@ -81,9 +81,9 @@ ONCE at catalog load. `friendlyBodyPart` labels and the catalog JSON stay unchan
 - [x] run vitest features.workout-stats.test.js
 
 ### Task 4: Verify acceptance criteria
-- [ ] `npx vitest run web/static/js/tests/features.workout-stats.test.js web/static/js/tests/architecture` (Node 20) green
-- [ ] `npx vitest run` full frontend green
-- [ ] `go build ./...` (no-op, sanity)
+- [x] `npx vitest run web/static/js/tests/features.workout-stats.test.js web/static/js/tests/architecture` (Node 20) green
+- [x] `npx vitest run` full frontend green (321 files, 3938 passed, 29 skipped)
+- [x] `go build ./...` (no-op, sanity)
 
 ## Technical Details
 - Token index: `Map<token, Map<body_part, count>>`. count = number of catalog
