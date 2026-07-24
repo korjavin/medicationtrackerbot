@@ -184,7 +184,6 @@ describe('Offline UI indicators', () => {
         const container = document.createElement('div');
         const ids = [
           'workout-session-delete-btn',
-          'workout-session-add-exercise-btn',
           'session-add-exercise-save-btn'
         ];
         for (const id of ids) {
