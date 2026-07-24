@@ -902,7 +902,9 @@ function evaluateExperimentWindow(template, days, startDay, endDay) {
 //   records  — { list(type), put(type, record), del(type, id) }
 //   now()    — current time in ms epoch
 //   timeZone — IANA zone string for local-day bucketing
-export function createGamificationDomain({ records, now, timeZone }) {
+//   getRecordsChangeCount — optional records-change signal (sync.js in cloud mode);
+//     when absent (bot mode / direct test harnesses) the read path always recomputes.
+export function createGamificationDomain({ records, now, timeZone, getRecordsChangeCount }) {
   // buildDays materializes the trailing-window per-day signal map from the vault.
   // One pass per record type; every signal buckets on the same local-day string,
   // so a probe's arm/gauge just reads fields off a day object. Recompute-on-read:
@@ -2326,7 +2328,14 @@ export function createGamificationDomain({ records, now, timeZone }) {
 
   // scoreWindow folds the trailing window into per-day awards + weekly HP sums.
   // Returns { byDay: Map<dayStr, awards[]>, lifetimeHP, weekHP: Map<week,hp> }.
+  // Memoized on ctx identity: loadForRead returns the same ctx object on a memo hit,
+  // so the 365-day fold is cached. Bot mode / no-memo gets a fresh ctx each read →
+  // WeakMap miss → recompute (unchanged). cfg is always the sibling of ctx, so ctx
+  // identity alone is a sufficient key.
+  const scoreWindowMemo = new WeakMap();
   function scoreWindow(ctx, cfg) {
+    const cached = scoreWindowMemo.get(ctx);
+    if (cached) return cached;
     const todayStr = msToUTCDay(ctx.nowMs);
     const startStr = addDays(todayStr, -(SCORING_WINDOW_DAYS - 1));
     // Include the current week's end day so an in-progress week's gauge award is
@@ -2351,7 +2360,9 @@ export function createGamificationDomain({ records, now, timeZone }) {
       }
       d = addDays(d, 1);
     }
-    return { byDay, lifetimeHP, weekHP, todayStr, startStr };
+    const result = { byDay, lifetimeHP, weekHP, todayStr, startStr };
+    scoreWindowMemo.set(ctx, result);
+    return result;
   }
 
   // deriveStreak (streak.go): fold NextStreak oldest-first over completed weeks.
@@ -2368,7 +2379,20 @@ export function createGamificationDomain({ records, now, timeZone }) {
     return { streak: st.currentStreak, freezes: st.freezes, longest };
   }
 
+  let readMemo = null; // { key, cfg, ctx } — cleared implicitly by key mismatch
   async function loadForRead() {
+    // Memo only when the records-change signal is injected (cloud mode). The day
+    // suffix is a correctness guard: the change-count does not move at midnight, so
+    // a stale ctx would score the wrong "today"; keying on it means a same-day repeat
+    // open with no intervening write hits, but the first read after midnight recomputes.
+    if (typeof getRecordsChangeCount === 'function') {
+      const key = `${getRecordsChangeCount()}:${msToUTCDay(now())}`;
+      if (readMemo && readMemo.key === key) return { cfg: readMemo.cfg, ctx: readMemo.ctx };
+      const cfg = await effectiveConfig();
+      const ctx = await buildContext(cfg);
+      readMemo = { key, cfg, ctx };
+      return { cfg, ctx };
+    }
     const cfg = await effectiveConfig();
     const ctx = await buildContext(cfg); // ctx._bpReadings stashed inside for gauges/health-score
     return { cfg, ctx };
