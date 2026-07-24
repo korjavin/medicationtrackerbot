@@ -6,7 +6,7 @@
 // clientTs; recordsPort() below exposes the generic list/put/del trio that
 // web/domain/'s domain modules are built on.
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
-import { cachedDb, dropCachedDb } from './localdb.js';
+import { cachedDb, dropCachedDb, onCachedDbDropped } from './localdb.js';
 
 // Task 6: the NK (push notification key) is itself a vault record so every
 // enrolled device converges on the same one via the ordinary oplog, exactly
@@ -175,8 +175,42 @@ async function getRecord(recordId) {
   return withStore('records', 'readonly', (store) => reqToPromise(store.get(recordId))).then((r) => r ?? null);
 }
 
+// --- plaintext records memo (med-90w.1) ----------------------------------
+// listRecords is fired ~8+ times per section-open and each call re-opened IDB,
+// getAll'd + structured-cloned + filtered + sorted a type's whole history. This
+// module-level cache holds the canonical filtered+sorted array per type,
+// invalidated PRECISELY at every physical write funnel (putRecord ←
+// writeRecord+applyIncoming, replaceAllRecords, resetLocalSync). recordsChangeCount
+// is a monotonic generation counter: it doubles as the race guard for uncached
+// reads and as the getRecordsChangeCount() signal the gamification bead (med-90w.2)
+// polls. A stale memo shows wrong health data — invalidation must be exhaustive.
+const recordsMemo = new Map();
+let recordsChangeCount = 0;
+let bootstrapped = false;
+
+export function getRecordsChangeCount() {
+  return recordsChangeCount;
+}
+
+function invalidateRecords(type) {
+  if (type) recordsMemo.delete(type);
+  else recordsMemo.clear();
+  recordsChangeCount++;
+}
+
+// A dropped cached connection (versionchange / deleteDatabase / account-delete)
+// means the underlying store may have changed identity out from under the memo,
+// so reset every derived cache. Also the reset hook that clears module state
+// between tests (fake-indexeddb's deleteDatabase fires onversionchange).
+onCachedDbDropped(() => {
+  recordsMemo.clear();
+  recordsChangeCount++;
+  bootstrapped = false;
+});
+
 async function putRecord(record) {
   await withStore('records', 'readwrite', (store) => store.put(record));
+  invalidateRecords(record && record.recordType);
 }
 
 async function readAllRecords() {
@@ -203,6 +237,7 @@ export async function replaceAllRecords(records) {
       for (const record of overlay) store.put(record);
     });
   });
+  invalidateRecords();
 }
 
 // Drop not-yet-flushed writes for the given record types. A destructive
@@ -245,6 +280,8 @@ export async function resetLocalSync(ctx) {
       tx.onabort = () => reject(tx.error);
     }));
   });
+  invalidateRecords();
+  bootstrapped = false;
   offline = false;
   authExpired = false;
   await pullOnOpen(ctx);
@@ -511,8 +548,13 @@ async function bootstrap(ctx) {
 }
 
 async function bootstrapIfNeeded(ctx) {
+  // Once we know our cursor, skip the 11-key sync_meta read on every list call.
+  // A dropped connection / resetLocalSync clears this flag so a re-bootstrap
+  // still runs.
+  if (bootstrapped) return;
   const meta = await readMeta();
-  if (meta.localLastSeq === null) await bootstrap(ctx);
+  if (meta.localLastSeq !== null) { bootstrapped = true; return; }
+  if (await bootstrap(ctx)) bootstrapped = true;
 }
 
 async function pullTail(ctx) {
@@ -1126,15 +1168,24 @@ export function startReconnectAutoDrain(ctx, { onAuthExpired } = {}) {
 // (web/domain/'s storage port).
 export async function listRecords(ctx, recordType) {
   await bootstrapIfNeeded(ctx);
-  // Via the 'recordType' index, not getAll()+filter: a full-store scan
-  // structured-clones every record of every domain (a real vault is hundreds of
-  // MiB of vitals samples), so the clone cost dwarfed the read itself.
+  const cached = recordsMemo.get(recordType);
+  // Callers always get a .slice() (shallow copy): the domain layer sorts/reverses
+  // its input in place, which would otherwise corrupt the cached array.
+  if (cached) return cached.slice();
+  // Miss: read the type via the 'recordType' index, not getAll()+filter — a
+  // full-store scan structured-clones every record of every domain (a real vault
+  // is hundreds of MiB of vitals samples), so the clone cost dwarfed the read.
+  // Capture the generation BEFORE the async read: a write that invalidated this
+  // type mid-read must not let us cache the now-stale result.
+  const gen = recordsChangeCount;
   const records = await withStore('records', 'readonly', (store) => (
     reqToPromise(store.index('recordType').getAll(recordType))
   ));
-  return records
+  const result = records
     .filter((r) => !r.deleted)
     .sort((a, b) => b.clientTs - a.clientTs);
+  if (recordsChangeCount === gen) recordsMemo.set(recordType, result);
+  return result.slice();
 }
 
 // Bounded record-store read over the PRIMARY key, for types whose recordId

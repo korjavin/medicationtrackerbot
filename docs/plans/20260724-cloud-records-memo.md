@@ -122,41 +122,41 @@ NOT touched.
 - [x] run `npx vitest run web/cloud/js/tests/sync.test.js` (Node 20) — must pass before Task 3.
 
 ### Task 3: Plaintext records memo + bootstrap flag + invalidation wiring
-- [ ] In sync.js add module state: `const recordsMemo = new Map();`,
+- [x] In sync.js add module state: `const recordsMemo = new Map();`,
       `let recordsChangeCount = 0;`, `export function getRecordsChangeCount() { return recordsChangeCount; }`,
       and `function invalidateRecords(type) { if (type) recordsMemo.delete(type); else recordsMemo.clear(); recordsChangeCount++; }`.
-- [ ] Add `let bootstrapped = false;` and register
+- [x] Add `let bootstrapped = false;` and register
       `onCachedDbDropped(() => { recordsMemo.clear(); recordsChangeCount++; bootstrapped = false; });`
       so a dropped connection (versionchange / `deleteDatabase` / account-delete)
       resets all derived caches — this also cleans module state between tests.
-- [ ] Invalidate at the physical funnel: in `putRecord`, after the awaited
+- [x] Invalidate at the physical funnel: in `putRecord`, after the awaited
       `withStore` write, call `invalidateRecords(record && record.recordType)`
       (undefined recordType defensively clears all). In `replaceAllRecords`, after
       the clear/relay tx call `invalidateRecords()` (all). In `resetLocalSync`,
       after the clear call `invalidateRecords()` and set `bootstrapped = false`.
-- [ ] Short-circuit `bootstrapIfNeeded`: `if (bootstrapped) return; const meta = await readMeta(); if (meta.localLastSeq !== null) { bootstrapped = true; return; } if (await bootstrap(ctx)) bootstrapped = true;`.
-- [ ] Rewrite `listRecords` to serve from memo: after `bootstrapIfNeeded`, return
+- [x] Short-circuit `bootstrapIfNeeded`: `if (bootstrapped) return; const meta = await readMeta(); if (meta.localLastSeq !== null) { bootstrapped = true; return; } if (await bootstrap(ctx)) bootstrapped = true;`.
+- [x] Rewrite `listRecords` to serve from memo: after `bootstrapIfNeeded`, return
       `cached.slice()` on hit; on miss capture `const gen = recordsChangeCount;` BEFORE
       the index `getAll`, build the filtered+sorted `result`, and ONLY
       `recordsMemo.set(recordType, result)` when `recordsChangeCount === gen` (a
       write that raced the async read must not cache stale); always return
       `result.slice()`. Keep `listRecordsInRange` UNCACHED and unchanged.
-- [ ] write test (memoization): repeated `listRecords({}, 'bp')` calls the index
+- [x] write test (memoization): repeated `listRecords({}, 'bp')` calls the index
       `getAll` exactly ONCE (spy on `IDBIndex.prototype.getAll`); result identical.
-- [ ] write test (a) same-type write: after `writeRecord`/`recordsPort().put` of a
+- [x] write test (a) same-type write: after `writeRecord`/`recordsPort().put` of a
       `bp` record, `listRecords('bp')` returns the new record (memo invalidated).
-- [ ] write test (b) inbound sync apply: after a `pullOnOpen` that applies an
+- [x] write test (b) inbound sync apply: after a `pullOnOpen` that applies an
       incoming record of a type previously listed, `listRecords(type)` reflects it.
-- [ ] write test (c) `replaceAllRecords` import: after `replaceAllRecords`,
+- [x] write test (c) `replaceAllRecords` import: after `replaceAllRecords`,
       `listRecords(type)` reflects the imported set, not the pre-import memo.
-- [ ] write test (d) cross-type isolation: listing `bp` then writing `weight` must
+- [x] write test (d) cross-type isolation: listing `bp` then writing `weight` must
       NOT invalidate `bp`'s memo (second `bp` list still one getAll), and listing
       `weight` returns the new weight (write X does not serve stale Y, nor evict X).
-- [ ] write test (e) `resetLocalSync` clears all: after reset+re-bootstrap,
+- [x] write test (e) `resetLocalSync` clears all: after reset+re-bootstrap,
       `listRecords(type)` reflects the server snapshot, memo empty for every type.
-- [ ] write test: `getRecordsChangeCount()` is monotonic and increases on each
+- [x] write test: `getRecordsChangeCount()` is monotonic and increases on each
       write path (put, replaceAll, reset), unchanged by a pure read.
-- [ ] run `npx vitest run web/cloud/js/tests/sync.test.js` (Node 20) — must pass before Task 4.
+- [x] run `npx vitest run web/cloud/js/tests/sync.test.js` (Node 20) — must pass before Task 4.
 
 ### Task 4: Verify acceptance criteria
 - [ ] Re-read the memo invalidation points against every `records`-store mutator
