@@ -1,8 +1,8 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
-import { openDb } from '../localdb.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
+import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
 
 // reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
 // module drives navigator.credentials, which doesn't exist in jsdom.
@@ -1684,5 +1684,288 @@ describe('openDb auto-closes on versionchange (med-yor.3)', () => {
       req.onerror = () => reject(req.error);
     });
     expect(blocked).toBe(false);
+  });
+});
+
+// med-90w.1 Task 1 — sync.js reuses one shared IndexedDB connection via
+// cachedDb() instead of open/close per call; a dropped connection resets the
+// cache and fires listeners.
+describe('cachedDb shared handle + drop-listener (med-90w.1)', () => {
+  beforeEach(async () => {
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+  });
+
+  it('returns the same handle identity across calls', async () => {
+    const a = await cachedDb();
+    const b = await cachedDb();
+    expect(a).toBe(b);
+  });
+
+  it('returns a NEW handle after dropCachedDb()', async () => {
+    const a = await cachedDb();
+    dropCachedDb();
+    const b = await cachedDb();
+    expect(b).not.toBe(a);
+  });
+
+  it('fires onCachedDbDropped listeners on drop, and unsubscribe stops them', async () => {
+    let fired = 0;
+    const unsub = onCachedDbDropped(() => { fired += 1; });
+    await cachedDb();
+    dropCachedDb();
+    expect(fired).toBe(1);
+    unsub();
+    await cachedDb();
+    dropCachedDb();
+    expect(fired).toBe(1);
+  });
+
+  it('drops the cache on versionchange so deleteDatabase is not blocked', async () => {
+    let fired = 0;
+    const unsub = onCachedDbDropped(() => { fired += 1; });
+    await cachedDb();
+    let blocked = false;
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onblocked = () => { blocked = true; };
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    expect(blocked).toBe(false);
+    expect(fired).toBe(1);
+    unsub();
+  });
+});
+
+// med-90w.1 Task 2 — sync.js routes every DB access through withDb, which reuses
+// the cached handle and reopens once on InvalidStateError. A read must survive
+// the handle being closed out from under it.
+describe('withDb reopens the cached handle after an external close (med-90w.1)', () => {
+  const seed = async (records, meta = { localLastSeq: 5 }) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'sync_meta'], 'readwrite');
+        const store = tx.objectStore('records');
+        for (const r of records) store.put(r);
+        const metaStore = tx.objectStore('sync_meta');
+        for (const [k, v] of Object.entries(meta)) metaStore.put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+  });
+
+  it('listRecords still succeeds after the cached handle is externally closed', async () => {
+    await seed([
+      { recordId: 'bp-1', recordType: 'bp', clientTs: 100, deleted: false, systolic: 120 },
+      { recordId: 'w-1', recordType: 'weight', clientTs: 100, deleted: false, kg: 70 },
+    ]);
+    // First read opens and caches the shared handle (and memoizes 'bp').
+    expect((await listRecords({}, 'bp')).map((r) => r.recordId)).toEqual(['bp-1']);
+    // Close it out from under sync.js without going through dropCachedDb — the
+    // cache still points at a now-dead connection, so the next transaction()
+    // throws InvalidStateError and withDb must transparently reopen.
+    (await cachedDb()).close();
+    // Read a type that was NEVER listed, so this is a memo MISS that actually
+    // reaches withDb and drives the closed handle into the reopen guard — a
+    // 'bp' re-read would be served from the memo and never touch the DB.
+    expect((await listRecords({}, 'weight')).map((r) => r.recordId)).toEqual(['w-1']);
+  });
+});
+
+// med-90w.1 Task 3 — the plaintext records memo. listRecords fires ~8+ times per
+// section-open; each used to re-open IDB and getAll+clone+filter+sort a type's
+// whole history. A module-level Map serves repeat reads from memory, invalidated
+// PRECISELY at every physical write funnel. A stale memo shows wrong health data,
+// so invalidation completeness is the whole ballgame.
+describe('plaintext records memo (med-90w.1)', () => {
+  const accountId = 'acct-memo';
+
+  const seed = async (records, meta = { localLastSeq: 5 }) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'sync_meta'], 'readwrite');
+        const store = tx.objectStore('records');
+        for (const r of records) store.put(r);
+        const metaStore = tx.objectStore('sync_meta');
+        for (const [k, v] of Object.entries(meta)) metaStore.put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  // Bootstrapped device: an empty snapshot GET is never reached (cursor already
+  // known); the tail GET replays `pulledOps`, and any flush POST assigns seqs.
+  const stubSync = (pulledOps = []) => {
+    let assignNext = 100;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && !init?.method) return new Response(null, { status: 204 });
+      if (u.startsWith('/api/sync/ops?')) {
+        const ops = pulledOps.splice(0, pulledOps.length);
+        return new Response(JSON.stringify({ ops, next: false }), { status: 200 });
+      }
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        return new Response(JSON.stringify({ assigned: ops.map(() => assignNext++) }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+  };
+
+  let ctx;
+  beforeEach(async () => {
+    // dropCachedDb() fires onCachedDbDropped → clears the module-level memo +
+    // bootstrapped flag, so no state leaks between tests.
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, dek: await generateDEK() };
+  });
+
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('repeat list(type) hits memory: only ONE index getAll, identical result', async () => {
+    stubSync();
+    await seed([
+      { recordId: 'bp-1', recordType: 'bp', clientTs: 100, deleted: false, systolic: 120 },
+      { recordId: 'bp-2', recordType: 'bp', clientTs: 300, deleted: false, systolic: 130 },
+    ]);
+    const indexGetAll = vi.spyOn(IDBIndex.prototype, 'getAll');
+
+    const first = await listRecords(ctx, 'bp');
+    const second = await listRecords(ctx, 'bp');
+    const third = await listRecords(ctx, 'bp');
+
+    expect(indexGetAll).toHaveBeenCalledTimes(1);
+    expect(first.map((r) => r.recordId)).toEqual(['bp-2', 'bp-1']);
+    expect(second.map((r) => r.recordId)).toEqual(['bp-2', 'bp-1']);
+    expect(third.map((r) => r.recordId)).toEqual(['bp-2', 'bp-1']);
+    // Each caller gets its own array — mutating one must not corrupt the cache.
+    expect(second).not.toBe(first);
+  });
+
+  it('(a) a same-type write invalidates the memo', async () => {
+    stubSync();
+    await seed([{ recordId: 'bp-1', recordType: 'bp', clientTs: 100, deleted: false, systolic: 120 }]);
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-1']);
+
+    await writeRecord(ctx, 'bp', { recordId: 'bp-2', clientTs: 200, deleted: false, systolic: 130 });
+
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-2', 'bp-1']);
+  });
+
+  it('(b) an inbound sync apply of a previously-listed type is reflected', async () => {
+    await seed([{ recordId: 'bp-1', recordType: 'bp', clientTs: 100, deleted: false, systolic: 120 }]);
+    // List first so 'bp' is memoized before the inbound op lands.
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-1']);
+
+    const kData = await deriveKData(ctx.dek);
+    const seal = async (recordType, recordId, seq, record) => {
+      const { nonce, ct } = await encryptRecord({
+        kData, accountId, recordType, recordId, seq,
+        plaintext: new TextEncoder().encode(JSON.stringify(record)),
+      });
+      return { seq, record_type_tag: `${recordType}:${recordId}`, nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) };
+    };
+    stubSync([await seal('bp', 'bp-2', 6, { recordId: 'bp-2', clientTs: 200, deleted: false, systolic: 140 })]);
+
+    await pullOnOpen(ctx);
+
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-2', 'bp-1']);
+  });
+
+  it('(c) replaceAllRecords import supersedes the pre-import memo', async () => {
+    stubSync();
+    await seed([{ recordId: 'note-1', recordType: 'note', clientTs: 100, deleted: false, text: 'old' }]);
+    expect((await listRecords(ctx, 'note')).map((r) => r.text)).toEqual(['old']);
+
+    await replaceAllRecords([{ recordId: 'note-9', recordType: 'note', clientTs: 500, deleted: false, text: 'imported' }]);
+
+    expect((await listRecords(ctx, 'note')).map((r) => r.text)).toEqual(['imported']);
+  });
+
+  it('(d) cross-type isolation: writing weight neither serves stale bp nor evicts bp', async () => {
+    stubSync();
+    await seed([
+      { recordId: 'bp-1', recordType: 'bp', clientTs: 100, deleted: false, systolic: 120 },
+      { recordId: 'w-1', recordType: 'weight', clientTs: 100, deleted: false, weight: 80 },
+    ]);
+    await listRecords(ctx, 'bp'); // memoize bp
+    const indexGetAll = vi.spyOn(IDBIndex.prototype, 'getAll');
+
+    await writeRecord(ctx, 'weight', { recordId: 'w-2', clientTs: 200, deleted: false, weight: 81 });
+
+    // bp memo untouched by the weight write — second bp list is a pure hit.
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-1']);
+    expect(indexGetAll).not.toHaveBeenCalled();
+    // weight reflects the new row (its own memo was invalidated).
+    expect((await listRecords(ctx, 'weight')).map((r) => r.recordId)).toEqual(['w-2', 'w-1']);
+  });
+
+  it('(e) resetLocalSync clears every type; re-bootstrap reflects the server snapshot', async () => {
+    await seed([{ recordId: 'bp-1', recordType: 'bp', clientTs: 100, deleted: false, systolic: 120 }]);
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-1']);
+
+    // Reset wipes local + re-bootstraps from a snapshot carrying a different row.
+    const kData = await deriveKData(ctx.dek);
+    const snapRecords = [{ recordId: 'bp-server', recordType: 'bp', clientTs: 900, deleted: false, systolic: 111 }];
+    const { nonce, ct } = await encryptSnapshot({
+      kData, accountId, snapshotSeq: 10,
+      plaintext: new TextEncoder().encode(JSON.stringify(snapRecords)),
+    });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && !init?.method) {
+        return new Response(JSON.stringify({ snapshot_seq: 10, nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)) }), { status: 200 });
+      }
+      if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+
+    await resetLocalSync(ctx);
+
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-server']);
+  });
+
+  it('getRecordsChangeCount is monotonic: bumps on each write path, unchanged by a pure read', async () => {
+    stubSync();
+    await seed([{ recordId: 'bp-1', recordType: 'bp', clientTs: 100, deleted: false, systolic: 120 }]);
+
+    await listRecords(ctx, 'bp'); // pure read
+    const afterRead = getRecordsChangeCount();
+    await listRecords(ctx, 'bp'); // pure read (memo hit)
+    expect(getRecordsChangeCount()).toBe(afterRead);
+
+    await writeRecord(ctx, 'bp', { recordId: 'bp-2', clientTs: 200, deleted: false, systolic: 130 });
+    const afterPut = getRecordsChangeCount();
+    expect(afterPut).toBeGreaterThan(afterRead);
+
+    await replaceAllRecords([{ recordId: 'bp-3', recordType: 'bp', clientTs: 300, deleted: false, systolic: 140 }]);
+    expect(getRecordsChangeCount()).toBeGreaterThan(afterPut);
   });
 });
