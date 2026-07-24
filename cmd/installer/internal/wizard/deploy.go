@@ -527,7 +527,8 @@ func waitForHTTP(ctx context.Context, url string, timeout time.Duration) error {
 				continue
 			}
 
-			resp, err := http.DefaultClient.Do(req)
+			client := &http.Client{Timeout: 10 * time.Second}
+			resp, err := client.Do(req)
 			checkCancel()
 
 			if err == nil {
