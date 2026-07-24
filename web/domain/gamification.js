@@ -1075,7 +1075,11 @@ export function createGamificationDomain({ records, now, timeZone }) {
 
   async function readSeen() {
     const rec = await readJournal();
-    return Array.isArray(rec && rec.seen_discoveries) ? rec.seen_discoveries : [];
+    // .slice(): the listed record is a shared reference under the records-port
+    // read-only contract (cloud-mode memoizes and hands out live instances), so
+    // markDiscoverySeen must push into a copy, not mutate the cached array in
+    // place. Mirrors appendKeystone's keystones.slice() below.
+    return Array.isArray(rec && rec.seen_discoveries) ? rec.seen_discoveries.slice() : [];
   }
 
   // getAtlas evaluates the whole catalog and stamps reveal-once seen flags on
