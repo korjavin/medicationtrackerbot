@@ -1273,7 +1273,8 @@ func (t *TelegramAPI) EditReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req editReplyRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<14)).Decode(&req); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<14)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
@@ -1326,7 +1327,8 @@ func (t *TelegramAPI) CancelRefire(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req cancelRefireRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<12)).Decode(&req); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<12)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
@@ -1441,6 +1443,7 @@ func (t *TelegramAPI) BYO(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Token string `json:"token"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<14)
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Token) == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
