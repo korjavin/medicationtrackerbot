@@ -60,33 +60,35 @@ describe('Workouts round-2 design parity', () => {
     });
 
     describe('Start button placement', () => {
-        // Round-2 Task 10 (defect #13b): Start button migrated from the
-        // per-section `.wg-gloss .wg-gloss--sun .wg-workouts-subtabs-row__add`
-        // stack to the shared `.wg-toolbar-btn .wg-toolbar-btn--primary`
-        // — consolidates sizing with BP / Food / Meds primary actions.
-        it('Start button uses the shared .wg-toolbar-btn + .wg-toolbar-btn--primary classes inside the subtabs row — not inside a .wg-title-hero', () => {
+        // med-3dk: the ad-hoc Start CTA moved out of the global subtabs row
+        // (where it was oversized via `.wg-toolbar-btn--primary` and shown on
+        // every sub-tab) into the History pane header — mirroring the
+        // Exercises `+ Add` pill (`.wg-workouts-*-header__add`). It now shares
+        // the sun-gloss sizing of the `+ Add` button and is scoped to History.
+        it('Start button uses the sun-gloss header-add classes inside the History pane header — not the toolbar-btn sizing, not the subtabs row', () => {
             const { document } = env;
             const startBtn = document.getElementById('start-adhoc-workout-btn');
             expect(startBtn).not.toBeNull();
-            expect(startBtn.classList.contains('wg-toolbar-btn')).toBe(true);
-            expect(startBtn.classList.contains('wg-toolbar-btn--primary')).toBe(true);
 
-            // The per-section one-off and the now-unused sun-gloss base
-            // must NOT coexist with the shared class.
+            // Adopts the shared sun-gloss header-add sizing (matches + Add).
+            expect(startBtn.classList.contains('wg-gloss')).toBe(true);
+            expect(startBtn.classList.contains('wg-gloss--sun')).toBe(true);
+            expect(startBtn.classList.contains('wg-workouts-history-header__add')).toBe(true);
+
+            // The oversized toolbar-btn sizing and the old one-off are gone.
+            expect(startBtn.classList.contains('wg-toolbar-btn')).toBe(false);
+            expect(startBtn.classList.contains('wg-toolbar-btn--primary')).toBe(false);
             expect(startBtn.classList.contains('wg-workouts-subtabs-row__add')).toBe(false);
-            expect(startBtn.classList.contains('wg-gloss')).toBe(false);
-            expect(startBtn.classList.contains('wg-gloss--sun')).toBe(false);
 
-            // Label is wrapped in the shared `.wg-toolbar-btn__label` span.
-            const label = startBtn.querySelector('.wg-toolbar-btn__label');
-            expect(label).not.toBeNull();
-            expect(label.textContent).toBe('Start');
+            // Label text preserved.
+            expect(startBtn.textContent.trim()).toBe('Start');
 
-            // Lives inside the subtabs flex row, next to the Tab strip.
-            const row = document.getElementById('workouts-subtabs');
-            expect(row).not.toBeNull();
-            expect(row.contains(startBtn)).toBe(true);
-            expect(row.classList.contains('wg-workouts-subtabs-row')).toBe(true);
+            // Lives in the History pane header, NOT the global subtabs row.
+            const header = startBtn.closest('.wg-workouts-history-header');
+            expect(header).not.toBeNull();
+            expect(header.parentElement.id).toBe('workout-history-tab');
+            const subtabsRow = document.getElementById('workouts-subtabs');
+            expect(subtabsRow.contains(startBtn)).toBe(false);
 
             // Must NOT live inside any `.wg-title-hero` / hero block.
             expect(startBtn.closest('.wg-title-hero')).toBeNull();
