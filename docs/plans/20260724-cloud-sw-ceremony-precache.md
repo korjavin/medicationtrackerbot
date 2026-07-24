@@ -134,13 +134,14 @@ intact for the still-uncached case. The fetch handler already has a test proving
 - [x] Run `npx vitest run web/cloud/js/tests/sw.fetch-cache.test.js` — all green.
 
 ### Task 3: Verify acceptance criteria
-- [ ] Re-read med-gvk.3: warm precache now includes the ceremony document(s) +
+- [x] Re-read med-gvk.3: warm precache now includes the ceremony document(s) +
       module graph so Settings sub-pages (`/devices`, `/connectors`) open
-      offline; sw tests extended. Confirm.
-- [ ] Node 20 on PATH: `npx vitest run` (full frontend suite) — green.
-- [ ] `go build ./...` — green (no Go changed, sanity).
-- [ ] `go test ./internal/cloudserver/...` — green (router/CSP tests undisturbed).
-- [ ] Confirm the diff touches ONLY `web/cloud/sw.js` and
+      offline; sw tests extended. Confirmed.
+- [x] Node 20 on PATH: `npx vitest run` (full frontend suite) — green (322 files,
+      3928 passed / 29 skipped).
+- [x] `go build ./...` — green (no Go changed, sanity).
+- [x] `go test ./internal/cloudserver/...` — green (router/CSP tests undisturbed).
+- [x] Confirm the diff touches ONLY `web/cloud/sw.js` and
       `web/cloud/js/tests/sw.fetch-cache.test.js` (+ this plan) — no apishim.js,
       no web/static/js/features/*.
 
