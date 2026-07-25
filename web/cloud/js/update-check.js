@@ -73,16 +73,48 @@ export function renderUpdateBanner(doc, onReload, onDismiss) {
 // Activate the waiting SW and reload. Mirrors app-shell.js's showUpdateToast:
 // a waiting SW gets SKIP_WAITING and the real reload comes from
 // controllerchange (cloud-boot.js), with a 2s fallback in case it doesn't
-// fire. With no waiting SW (build-ID poll path, where the "update" is a
-// resumed-stale PWA and no new worker is installed) there is nothing to
-// activate, so reload straight away.
-function activateAndReload(registration, win) {
-    if (registration && registration.waiting) {
-        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
-        win.setTimeout(() => win.location.reload(), 2000);
+// fire.
+//
+// The subtlety is the build-ID poll path: it kicks registration.update() and
+// shows the banner immediately, but the new worker only reaches `waiting` once
+// its install (warmShell precache) finishes — seconds later. If the user clicks
+// Reload during that install window, `waiting` is still null; a plain reload
+// then hits the still-controlling OLD SW, which serves '/' stale-first (the
+// two-reload path this bead removes). So on a click with no waiting worker we
+// re-run update() and wait for the installing worker to finish before running
+// the dance. Only when update() finds NO new worker (the SW is already current,
+// only the page JS is stale) is a plain reload correct.
+async function activateAndReload(registration, win) {
+    if (!registration) {
+        win.location.reload();
         return;
     }
-    win.location.reload();
+    const dance = (worker) => {
+        worker.postMessage({ type: 'SKIP_WAITING' });
+        win.setTimeout(() => win.location.reload(), 2000);
+    };
+    if (registration.waiting) {
+        dance(registration.waiting);
+        return;
+    }
+    try {
+        await registration.update?.();
+    } catch {
+        // Offline / deploy mid-flight — fall through and re-check below.
+    }
+    if (registration.waiting) {
+        dance(registration.waiting);
+        return;
+    }
+    const installing = registration.installing;
+    if (!installing?.addEventListener) {
+        win.location.reload();
+        return;
+    }
+    installing.addEventListener('statechange', () => {
+        if (installing.state === 'installed') dance(registration.waiting ?? installing);
+        else if (installing.state === 'redundant') win.location.reload();
+    });
 }
 
 // Single entry point for both update triggers (SW-waiting and the build-ID
@@ -106,10 +138,11 @@ export function startUpdateCheck({ doc, win, fetchImpl, showBanner } = {}) {
     // landing on an open tab is invisible to cloud-boot.js's SW-waiting path —
     // but this poll saw it. So kick registration.update() (installs the new,
     // non-skipWaiting SW → it WAITS) and hand the LIVE registration to the
-    // banner. By the time the user clicks Reload the new SW is waiting, so
-    // activateAndReload posts SKIP_WAITING → controllerchange reloads once —
-    // instead of a plain reload the old still-controlling SW would serve stale
-    // (stale-while-revalidate '/'), which took two clicks.
+    // banner. On Reload, activateAndReload posts SKIP_WAITING → controllerchange
+    // reloads once — and if the click lands before the new SW has finished
+    // installing, activateAndReload waits for it rather than plain-reloading the
+    // old still-controlling SW into the stale '/' (stale-while-revalidate),
+    // which took two clicks.
     showBanner ??= () => {
         const swc = win.navigator?.serviceWorker;
         if (!swc?.getRegistration) { showUpdateBanner({ doc, win }); return; }

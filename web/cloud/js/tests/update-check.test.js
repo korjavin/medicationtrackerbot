@@ -34,6 +34,18 @@ const serving = (build_id, ok = true) => vi.fn().mockResolvedValue({ ok, json: a
 // Lets the promise chain inside startUpdateCheck's fire-and-forget check() settle.
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+// A minimal ServiceWorker stand-in: postMessage + an addEventListener/fire pair
+// so a test can drive its 'statechange' just like the browser would.
+function makeWorker() {
+    const listeners = {};
+    return {
+        state: 'installing',
+        postMessage: vi.fn(),
+        addEventListener: (ev, cb) => ((listeners[ev] ??= []).push(cb)),
+        fire: (ev) => (listeners[ev] || []).forEach((cb) => cb()),
+    };
+}
+
 describe('bootBuildID', () => {
     it('reads the meta tag injectCloudBoot writes', () => {
         const { doc } = setup({ booted: '20260710-1432' });
@@ -221,6 +233,39 @@ describe('showUpdateBanner', () => {
         showUpdateBanner({ doc, win });
 
         doc.getElementById('cloud-update-reload').click();
+        expect(win.location.reload).toHaveBeenCalledOnce();
+    });
+
+    // med-7gw: the build-ID poll shows the banner while registration.update() is
+    // still INSTALLING the new SW, so `waiting` is null when a fast Reload lands.
+    // A plain reload then would serve the stale old shell (two-reload path) — so
+    // the click waits for the installing worker to finish, then runs the dance.
+    it('waits for an installing SW before deciding, never plain-reloads early', async () => {
+        const { doc, win } = setup();
+        const installing = makeWorker();
+        const registration = { waiting: null, installing, update: vi.fn().mockResolvedValue() };
+        showUpdateBanner({ doc, win, registration });
+
+        doc.getElementById('cloud-update-reload').click();
+        await flush();
+        // Still installing → do nothing yet (a reload now would be stale).
+        expect(win.location.reload).not.toHaveBeenCalled();
+        expect(installing.postMessage).not.toHaveBeenCalled();
+
+        installing.state = 'installed';
+        registration.waiting = installing;
+        installing.fire('statechange');
+        expect(installing.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+        expect(win.location.reload).not.toHaveBeenCalled(); // reload comes from controllerchange
+    });
+
+    it('plain-reloads when update() finds no new SW (page stale but SW already current)', async () => {
+        const { doc, win } = setup();
+        const registration = { waiting: null, installing: null, update: vi.fn().mockResolvedValue() };
+        showUpdateBanner({ doc, win, registration });
+
+        doc.getElementById('cloud-update-reload').click();
+        await flush();
         expect(win.location.reload).toHaveBeenCalledOnce();
     });
 
