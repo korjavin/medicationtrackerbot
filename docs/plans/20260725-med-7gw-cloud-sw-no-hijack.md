@@ -93,30 +93,30 @@ are future deploys clean.
 ## Implementation Steps
 
 ### Task 1: sw.js — stop hijacking on install, add SKIP_WAITING handler
-- [ ] In `web/cloud/sw.js` `install` handler (line 162-165), REMOVE the
+- [x] In `web/cloud/sw.js` `install` handler (line 162-165), REMOVE the
       `self.skipWaiting();` call. Keep `event.waitUntil(warmShell());`. Add a
       short comment: on an UPDATE the new SW now WAITS (no hijack); the client
       posts SKIP_WAITING when the user accepts the banner; a FIRST install still
       controls via `clients.claim()` in activate (nothing to wait behind).
-- [ ] Add a top-level `message` listener (place it right after the `install`
+- [x] Add a top-level `message` listener (place it right after the `install`
       handler): `self.addEventListener('message', (event) => { if (event.data
       && event.data.type === 'SKIP_WAITING') self.skipWaiting(); });`
-- [ ] Leave the `activate` handler (prune old prefixed caches +
+- [x] Leave the `activate` handler (prune old prefixed caches +
       `self.clients.claim()`) UNCHANGED. Do NOT touch the fetch/push/
       notificationclick handlers.
-- [ ] In `sw.fetch-cache.test.js`, flip the three install assertions at lines
+- [x] In `sw.fetch-cache.test.js`, flip the three install assertions at lines
       ~334, ~370, ~528 from `expect(self.skipWaiting).toHaveBeenCalled()` to
       `expect(self.skipWaiting).not.toHaveBeenCalled()` (install must NOT skip
       anymore); keep the rest of each test (cache contents) intact.
-- [ ] Add a new test in the same `describe`: fire the `message` listener with
+- [x] Add a new test in the same `describe`: fire the `message` listener with
       `{ data: { type: 'SKIP_WAITING' } }` and assert `self.skipWaiting` WAS
       called; fire it with an unrelated message (e.g. `{ data: { type: 'x' } }`)
       and assert it was NOT called. Use `listeners.get('message')[0]` (mirror how
       `activate` is fired at line 536).
-- [ ] Confirm the existing activate test (line 531-544) still asserts
+- [x] Confirm the existing activate test (line 531-544) still asserts
       `caches.delete` on the old prefixed cache + `self.clients.claim` called —
       no change needed, just verify it passes.
-- [ ] Run `npx vitest run web/cloud/js/tests/sw.fetch-cache.test.js` (Node 20) —
+- [x] Run `npx vitest run web/cloud/js/tests/sw.fetch-cache.test.js` (Node 20) —
       must pass before Task 2.
 
 ### Task 2: update-check.js — unified showUpdateBanner with the SKIP_WAITING dance
