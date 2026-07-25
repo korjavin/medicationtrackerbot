@@ -275,4 +275,18 @@ describe('showUpdateBanner', () => {
         showUpdateBanner({ doc, win });
         expect(doc.querySelectorAll('#cloud-update-toast')).toHaveLength(1);
     });
+
+    // med-7gw: after the user taps "Later", a re-fire from the other trigger
+    // (poll shows it, then cloud-boot's onupdatefound lands seconds later) must
+    // NOT re-nag. The dismiss latches on the document; a fresh doc re-prompts.
+    it('does not re-show after the user dismissed it (cross-trigger re-nag latch)', () => {
+        const { doc, win } = setup();
+        showUpdateBanner({ doc, win });
+        doc.getElementById('cloud-update-dismiss').click();
+        expect(doc.getElementById('cloud-update-toast')).toBeNull();
+
+        // A later trigger (e.g. cloud-boot onupdatefound after the poll) re-fires.
+        showUpdateBanner({ doc, win, registration: { waiting: { postMessage: vi.fn() } } });
+        expect(doc.getElementById('cloud-update-toast')).toBeNull();
+    });
 });

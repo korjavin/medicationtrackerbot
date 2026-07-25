@@ -117,15 +117,31 @@ async function activateAndReload(registration, win) {
     });
 }
 
+// Latched when the user taps "Later" so a banner they dismissed does not
+// re-appear seconds later. The two triggers race: the build-ID poll shows the
+// banner immediately and kicks registration.update(), and when that install
+// reaches 'installed' cloud-boot.js's onupdatefound fires showUpdateBanner
+// again — so a dismiss inside that install window would otherwise re-nag. The
+// latch is a data attribute on the document (both triggers render into the same
+// real document, so it's shared across paths) rather than module state — same
+// DOM-dedup shape as the cloud-update-toast id, per-tab, and it resets on the
+// next cold load, which is when re-prompting is fair. No window.* global
+// (rule 4), no inline style (rule 3).
+const DISMISSED_ATTR = 'data-cloud-update-dismissed';
+
 // Single entry point for both update triggers (SW-waiting and the build-ID
-// poll below). The DOM id cloud-update-toast is the cross-path dedupe: if a
-// banner is already up, do not add a second one (no shared module state / new
-// global — CLAUDE.md rule 4).
+// poll below). Two dedupes: the DOM id cloud-update-toast (a banner is already
+// up) and the dismissed latch (the user said "Later" this session).
 export function showUpdateBanner({ doc, win, registration } = {}) {
     doc ??= document;
     win ??= window;
+    if (doc.documentElement.hasAttribute(DISMISSED_ATTR)) return;
     if (doc.getElementById('cloud-update-toast')) return;
-    renderUpdateBanner(doc, () => activateAndReload(registration, win));
+    renderUpdateBanner(
+        doc,
+        () => activateAndReload(registration, win),
+        () => doc.documentElement.setAttribute(DISMISSED_ATTR, '1'),
+    );
 }
 
 // Returns a stop() so tests (and any future teardown) can clear the interval.
