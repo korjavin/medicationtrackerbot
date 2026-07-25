@@ -199,10 +199,12 @@ are future deploys clean.
 - [x] Run `go build ./...` — must be a no-op (no Go changed) and succeed. (exit 0.)
 
 ### Task 5: [Final] Documentation touch
-- [ ] If `docs/cloud-mode.md` documents the cloud SW update behavior, add a short
+- [x] If `docs/cloud-mode.md` documents the cloud SW update behavior, add a short
       note that cloud now uses the wait→prompt→SKIP_WAITING→controllerchange
       pattern (matching bot mode). If no such section exists, skip — do not invent
-      a new doc section.
+      a new doc section. Skipped: `docs/cloud-mode.md` has no cloud-SW
+      update/deploy-lifecycle section (SW mentions cover push, deletion wipes, and
+      precache only); per the instruction, no new section was invented.
 
 ## Technical Details
 - `SKIP_WAITING` message contract: client posts `{ type: 'SKIP_WAITING' }` to
