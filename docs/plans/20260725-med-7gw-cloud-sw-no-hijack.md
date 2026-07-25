@@ -179,19 +179,24 @@ are future deploys clean.
       existing tests must still pass (the SW block is skipped in that harness).
 
 ### Task 4: Verify acceptance criteria
-- [ ] Re-read the bead correctness list: (1) first-ever install controls the page
+- [x] Re-read the bead correctness list: (1) first-ever install controls the page
       with NO reload and no stuck-waiting; (2) an UPDATE waits (no auto-activate/
       claim) until the banner's Reload triggers SKIP_WAITING→controllerchange→
       reload; (3) no double banner (build-ID poll vs SW-waiting unified via the
-      toast id).
-- [ ] Confirm NO change to bot mode (`web/static/sw.js`, `web/static/js/
+      toast id). Verified in code: sw.js install drops skipWaiting (waits);
+      cloud-boot.js guards controllerchange reload on `hadController` (first
+      install = no reload) and shows banner only for an update; showUpdateBanner
+      dedupes on `cloud-update-toast`.
+- [x] Confirm NO change to bot mode (`web/static/sw.js`, `web/static/js/
       app-shell.js`) and no change to the cache-first fetch handler / precache
-      logic in `web/cloud/sw.js`.
-- [ ] Run `npx vitest run web/cloud/js/tests/ web/static/js/tests/architecture`
+      logic in `web/cloud/sw.js`. Verified: `git diff master...HEAD` touches only
+      cloud files (sw.js message/install edit only) + the plan.
+- [x] Run `npx vitest run web/cloud/js/tests/ web/static/js/tests/architecture`
       (Node 20) — cloud SW/boot/update tests + architecture (design-token /
-      globals) guards green.
-- [ ] Run `npx vitest run` (full frontend suite, Node 20) — green.
-- [ ] Run `go build ./...` — must be a no-op (no Go changed) and succeed.
+      globals) guards green. (53 files / 752 tests passed.)
+- [x] Run `npx vitest run` (full frontend suite, Node 20) — green. (321 files /
+      3952 passed, 29 skipped.)
+- [x] Run `go build ./...` — must be a no-op (no Go changed) and succeed. (exit 0.)
 
 ### Task 5: [Final] Documentation touch
 - [ ] If `docs/cloud-mode.md` documents the cloud SW update behavior, add a short
