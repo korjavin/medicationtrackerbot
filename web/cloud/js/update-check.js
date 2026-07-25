@@ -101,7 +101,25 @@ export function startUpdateCheck({ doc, win, fetchImpl, showBanner } = {}) {
     doc ??= document;
     win ??= window;
     fetchImpl ??= (...a) => win.fetch(...a);
-    showBanner ??= () => showUpdateBanner({ doc, win });
+    // The build-ID poll is the only reliable deploy-detector for an idle OPEN
+    // tab: the browser re-checks /sw.js only on navigation or ~24h, so a deploy
+    // landing on an open tab is invisible to cloud-boot.js's SW-waiting path —
+    // but this poll saw it. So kick registration.update() (installs the new,
+    // non-skipWaiting SW → it WAITS) and hand the LIVE registration to the
+    // banner. By the time the user clicks Reload the new SW is waiting, so
+    // activateAndReload posts SKIP_WAITING → controllerchange reloads once —
+    // instead of a plain reload the old still-controlling SW would serve stale
+    // (stale-while-revalidate '/'), which took two clicks.
+    showBanner ??= () => {
+        const swc = win.navigator?.serviceWorker;
+        if (!swc?.getRegistration) { showUpdateBanner({ doc, win }); return; }
+        swc.getRegistration()
+            .then((reg) => {
+                reg?.update?.().catch(() => {});
+                showUpdateBanner({ doc, win, registration: reg });
+            })
+            .catch(() => showUpdateBanner({ doc, win }));
+    };
 
     const booted = bootBuildID(doc);
     if (!booted || booted === DEV_BUILD_ID) return () => {};

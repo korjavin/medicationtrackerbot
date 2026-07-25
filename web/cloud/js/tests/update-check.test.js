@@ -136,6 +136,32 @@ describe('startUpdateCheck', () => {
         expect(showBanner).toHaveBeenCalledOnce();
     });
 
+    it('default banner drives the SKIP_WAITING dance for an open tab (med-7gw)', async () => {
+        // No injected showBanner → exercises the real default: it must kick
+        // registration.update() (the browser will not re-check /sw.js on an idle
+        // tab) and hand the live registration to the banner so Reload activates
+        // the waiting SW instead of a plain reload the old SW serves stale.
+        const { doc, win } = setup({ booted: '20260710-1000' });
+        const waiting = { postMessage: vi.fn() };
+        const registration = { waiting, update: vi.fn().mockResolvedValue() };
+        win.navigator = { serviceWorker: { getRegistration: vi.fn().mockResolvedValue(registration) } };
+        startUpdateCheck({ doc, win, fetchImpl: serving('20260710-1500') });
+        await flush();
+        expect(registration.update).toHaveBeenCalled();
+        doc.getElementById('cloud-update-reload').click();
+        expect(waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+        expect(win.location.reload).not.toHaveBeenCalled(); // reload comes from controllerchange
+    });
+
+    it('default banner still reloads directly when no SW registration exists', async () => {
+        const { doc, win } = setup({ booted: '20260710-1000' });
+        win.navigator = {}; // no serviceWorker (e.g. unsupported / disabled)
+        startUpdateCheck({ doc, win, fetchImpl: serving('20260710-1500') });
+        await flush();
+        doc.getElementById('cloud-update-reload').click();
+        expect(win.location.reload).toHaveBeenCalledOnce();
+    });
+
     it('stop() clears the poll timer', () => {
         const { doc, win } = setup();
         startUpdateCheck({ doc, win, fetchImpl: serving('20260710-1000'), showBanner })();
