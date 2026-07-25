@@ -120,24 +120,24 @@ are future deploys clean.
       must pass before Task 2.
 
 ### Task 2: update-check.js — unified showUpdateBanner with the SKIP_WAITING dance
-- [ ] In `web/cloud/js/update-check.js`, add and export
+- [x] In `web/cloud/js/update-check.js`, add and export
       `showUpdateBanner({ doc, win, registration } = {})` (default `doc` /`win`
       to `document`/`window`): if `doc.getElementById('cloud-update-toast')`
       already exists, return without adding a second banner (single-banner
       dedupe across the SW-waiting and build-ID paths). Otherwise call
       `renderUpdateBanner(doc, onReload)` where `onReload` = `activateAndReload`.
-- [ ] Add an internal `activateAndReload(registration, win)`: if
+- [x] Add an internal `activateAndReload(registration, win)`: if
       `registration && registration.waiting`, `registration.waiting.postMessage(
       { type: 'SKIP_WAITING' })` then `win.setTimeout(() => win.location.reload(),
       2000)` (the real reload comes from `controllerchange`; 2s is the fallback,
       mirroring app-shell.js). Else `win.location.reload()` (build-ID fallback
       path where no SW is waiting).
-- [ ] Change the DEFAULT `showBanner` inside `startUpdateCheck` from
+- [x] Change the DEFAULT `showBanner` inside `startUpdateCheck` from
       `() => renderUpdateBanner(doc, () => win.location.reload())` to
       `() => showUpdateBanner({ doc, win })` (build-ID poll → no registration →
       plain reload, and now deduped against the SW path via the toast id). Keep
       `showBanner` an injectable param so existing tests still pass.
-- [ ] Add tests in `update-check.test.js`: (a) `showUpdateBanner` with a fake
+- [x] Add tests in `update-check.test.js`: (a) `showUpdateBanner` with a fake
       `registration.waiting` (a `{ postMessage: vi.fn() }`) — clicking the
       `cloud-update-reload` button posts `{type:'SKIP_WAITING'}` and does NOT
       call `win.location.reload()` synchronously (the 2s fallback is scheduled,
@@ -145,7 +145,7 @@ are future deploys clean.
       (b) `showUpdateBanner` with NO registration → clicking reload calls
       `win.location.reload()`; (c) calling `showUpdateBanner` twice adds only ONE
       `#cloud-update-toast` (dedupe).
-- [ ] Run `npx vitest run web/cloud/js/tests/update-check.test.js` (Node 20) —
+- [x] Run `npx vitest run web/cloud/js/tests/update-check.test.js` (Node 20) —
       must pass before Task 3.
 
 ### Task 3: cloud-boot.js — detect waiting SW, show banner, guarded controllerchange reload
