@@ -421,7 +421,7 @@ describe('cloud-boot early service worker registration (med-gvk.1)', () => {
       // registration is off the critical path.
       return new Promise(() => {});
     };
-    globalThis.navigator = { serviceWorker: { register } };
+    globalThis.navigator = { serviceWorker: { register, controller: null, addEventListener() {} } };
 
     const { location } = await runBoot({
       modules: {
@@ -434,6 +434,42 @@ describe('cloud-boot early service worker registration (med-gvk.1)', () => {
     expect(order.indexOf('register:/sw.js')).toBeLessThan(order.indexOf('warmUnlock'));
     // Boot completed (redirect resolved) even though register() never settled.
     expect(location.href).toBe('/unlock');
+  });
+
+  it('reloads on controllerchange only when an existing controller was replaced (med-7gw)', async () => {
+    // First install: no prior controller. activate's clients.claim() fires
+    // controllerchange, but the page must NOT reload (it is already showing the
+    // fresh version).
+    priorNavigator = globalThis.navigator;
+    let firstHandler;
+    globalThis.navigator = {
+      serviceWorker: {
+        controller: null, // first-ever install
+        register: () => Promise.resolve({ waiting: null }),
+        addEventListener: (type, fn) => { if (type === 'controllerchange') firstHandler = fn; },
+      },
+    };
+    const first = await runBoot({ modules: { 'unlock.js': { warmUnlock: async () => null } } });
+    first.location.reload = () => { first.location.href = 'RELOADED'; };
+    firstHandler();
+    expect(first.location.href).toBe('/unlock'); // no reload on first install
+
+    // Update: a controller already ran this page. controllerchange (post
+    // SKIP_WAITING) reloads exactly once, even if it fires twice.
+    let updateHandler;
+    globalThis.navigator = {
+      serviceWorker: {
+        controller: {}, // an existing SW controls the page
+        register: () => Promise.resolve({ waiting: null }),
+        addEventListener: (type, fn) => { if (type === 'controllerchange') updateHandler = fn; },
+      },
+    };
+    const upd = await runBoot({ modules: { 'unlock.js': { warmUnlock: async () => null } } });
+    let reloads = 0;
+    upd.location.reload = () => { reloads++; };
+    updateHandler();
+    updateHandler();
+    expect(reloads).toBe(1); // guarded against a double reload
   });
 
   it('skips registration when serviceWorker is unavailable, and boot still proceeds', async () => {

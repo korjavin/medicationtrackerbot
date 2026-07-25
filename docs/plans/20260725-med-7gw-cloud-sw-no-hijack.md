@@ -149,11 +149,11 @@ are future deploys clean.
       must pass before Task 3.
 
 ### Task 3: cloud-boot.js — detect waiting SW, show banner, guarded controllerchange reload
-- [ ] In `web/cloud/js/cloud-boot.js` SW-registration block (line 27-31), capture
+- [x] In `web/cloud/js/cloud-boot.js` SW-registration block (line 27-31), capture
       `hadController = !!navigator.serviceWorker.controller` BEFORE registering
       (records whether an existing SW controls this page — the FIRST-install case
       has no controller).
-- [ ] Change the registration to await/`.then` the registration object and wire
+- [x] Change the registration to await/`.then` the registration object and wire
       update detection (keep it fire-and-forget / non-blocking so a slow/failed
       registration never gates the mount, per med-gvk.1): if `registration.waiting
       && navigator.serviceWorker.controller` → a SW is already waiting for this
@@ -164,7 +164,7 @@ are future deploys clean.
       `import('/js/update-check.js').then((m) => m.showUpdateBanner({
       registration }))` (dynamic import matches the existing cloud-boot pattern;
       keep the `.catch` logging).
-- [ ] Add a single `navigator.serviceWorker.addEventListener('controllerchange',
+- [x] Add a single `navigator.serviceWorker.addEventListener('controllerchange',
       …)` listener that reloads ONLY when `hadController` is true (an update
       replaced an existing controller). On a FIRST install `hadController` is
       false → the `clients.claim()` controllerchange must NOT reload (bead
@@ -172,10 +172,10 @@ are future deploys clean.
       against a double reload with a module-local `let reloading = false;`.
       Call `window.sendSwAuthToken?.()` before reload if that helper exists in
       cloud context (mirror app-shell), otherwise just reload.
-- [ ] Keep the whole block inside the existing `if (typeof navigator !==
+- [x] Keep the whole block inside the existing `if (typeof navigator !==
       'undefined' && 'serviceWorker' in navigator)` guard so `cloud-boot.test.js`
       (no `navigator.serviceWorker`) still skips it and existing tests pass.
-- [ ] Run `npx vitest run web/cloud/js/tests/cloud-boot.test.js` (Node 20) —
+- [x] Run `npx vitest run web/cloud/js/tests/cloud-boot.test.js` (Node 20) —
       existing tests must still pass (the SW block is skipped in that harness).
 
 ### Task 4: Verify acceptance criteria

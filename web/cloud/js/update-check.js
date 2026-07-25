@@ -70,12 +70,38 @@ export function renderUpdateBanner(doc, onReload, onDismiss) {
     return toast;
 }
 
+// Activate the waiting SW and reload. Mirrors app-shell.js's showUpdateToast:
+// a waiting SW gets SKIP_WAITING and the real reload comes from
+// controllerchange (cloud-boot.js), with a 2s fallback in case it doesn't
+// fire. With no waiting SW (build-ID poll path, where the "update" is a
+// resumed-stale PWA and no new worker is installed) there is nothing to
+// activate, so reload straight away.
+function activateAndReload(registration, win) {
+    if (registration && registration.waiting) {
+        registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+        win.setTimeout(() => win.location.reload(), 2000);
+        return;
+    }
+    win.location.reload();
+}
+
+// Single entry point for both update triggers (SW-waiting and the build-ID
+// poll below). The DOM id cloud-update-toast is the cross-path dedupe: if a
+// banner is already up, do not add a second one (no shared module state / new
+// global — CLAUDE.md rule 4).
+export function showUpdateBanner({ doc, win, registration } = {}) {
+    doc ??= document;
+    win ??= window;
+    if (doc.getElementById('cloud-update-toast')) return;
+    renderUpdateBanner(doc, () => activateAndReload(registration, win));
+}
+
 // Returns a stop() so tests (and any future teardown) can clear the interval.
 export function startUpdateCheck({ doc, win, fetchImpl, showBanner } = {}) {
     doc ??= document;
     win ??= window;
     fetchImpl ??= (...a) => win.fetch(...a);
-    showBanner ??= () => renderUpdateBanner(doc, () => win.location.reload());
+    showBanner ??= () => showUpdateBanner({ doc, win });
 
     const booted = bootBuildID(doc);
     if (!booted || booted === DEV_BUILD_ID) return () => {};

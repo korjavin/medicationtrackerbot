@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 
-import { bootBuildID, fetchServerBuildID, renderUpdateBanner, startUpdateCheck } from '../update-check.js';
+import { bootBuildID, fetchServerBuildID, renderUpdateBanner, showUpdateBanner, startUpdateCheck } from '../update-check.js';
 
 function setup({ booted = '20260710-1000' } = {}) {
     const meta = booted ? `<meta name="medtracker-build-id" content="${booted}">` : '';
@@ -22,6 +22,7 @@ function setup({ booted = '20260710-1000' } = {}) {
         addEventListener: vi.fn(),
         setInterval: vi.fn(() => 42),
         clearInterval: vi.fn(),
+        setTimeout: vi.fn(),
         location: { reload: vi.fn() },
     };
     const foreground = () => doc.dispatchEvent(new dom.window.Event('visibilitychange'));
@@ -173,5 +174,34 @@ describe('renderUpdateBanner', () => {
         const { doc } = setup();
         renderUpdateBanner(doc, () => {});
         expect(doc.getElementById('cloud-update-toast').getAttribute('style')).toBeNull();
+    });
+});
+
+describe('showUpdateBanner', () => {
+    it('a waiting SW gets SKIP_WAITING on Reload, no synchronous reload', () => {
+        const { doc, win } = setup();
+        const registration = { waiting: { postMessage: vi.fn() } };
+        showUpdateBanner({ doc, win, registration });
+
+        doc.getElementById('cloud-update-reload').click();
+        expect(registration.waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+        // The real reload comes from controllerchange; only the 2s fallback is
+        // scheduled here, never called synchronously.
+        expect(win.location.reload).not.toHaveBeenCalled();
+    });
+
+    it('with no waiting SW, Reload reloads directly (build-ID fallback path)', () => {
+        const { doc, win } = setup();
+        showUpdateBanner({ doc, win });
+
+        doc.getElementById('cloud-update-reload').click();
+        expect(win.location.reload).toHaveBeenCalledOnce();
+    });
+
+    it('adds only one banner however many times it is called (dedupe)', () => {
+        const { doc, win } = setup();
+        showUpdateBanner({ doc, win });
+        showUpdateBanner({ doc, win });
+        expect(doc.querySelectorAll('#cloud-update-toast')).toHaveLength(1);
     });
 });
