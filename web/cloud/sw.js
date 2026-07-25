@@ -160,8 +160,15 @@ async function warmCeremony(cache, seen) {
 }
 
 self.addEventListener('install', (event) => {
+  // No skipWaiting: on an UPDATE the new SW WAITS instead of hijacking already-
+  // open tabs. The client posts SKIP_WAITING when the user accepts the update
+  // banner. A FIRST install (no prior controller) still takes control via
+  // clients.claim() in activate — nothing to wait behind, so no hijack.
   event.waitUntil(warmShell());
-  self.skipWaiting();
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {

@@ -331,7 +331,7 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
 
         await fireInstall();
 
-        expect(self.skipWaiting).toHaveBeenCalled();
+        expect(self.skipWaiting).not.toHaveBeenCalled();
         const cached = caches.store.get(SHELL_CACHE);
         for (const key of Object.keys(files)) expect(cached.has(key), key).toBe(true);
         expect(cached.size).toBe(Object.keys(files).length);
@@ -367,7 +367,7 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         // The flaky optional asset was skipped, not cached, and did not poison
         // the precache.
         expect(cached.has('/js/flaky.js')).toBe(false);
-        expect(self.skipWaiting).toHaveBeenCalled();
+        expect(self.skipWaiting).not.toHaveBeenCalled();
     });
 
     it('install still REJECTS when a CORE asset (a direct HTML subresource) fails — a later visit retries (med-gvk.1)', async () => {
@@ -525,6 +525,16 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         expect(cached.has('/')).toBe(true);
         expect(cached.has('/static/a.js?v=1')).toBe(true);
         expect(cached.has('/unlock')).toBe(false);
+        expect(self.skipWaiting).not.toHaveBeenCalled();
+    });
+
+    it('SKIP_WAITING message calls skipWaiting; unrelated messages do not (no-hijack update dance)', () => {
+        const handler = listeners.get('message')[0];
+
+        handler({ data: { type: 'x' } });
+        expect(self.skipWaiting).not.toHaveBeenCalled();
+
+        handler({ data: { type: 'SKIP_WAITING' } });
         expect(self.skipWaiting).toHaveBeenCalled();
     });
 

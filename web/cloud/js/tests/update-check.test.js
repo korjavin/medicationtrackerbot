@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 
-import { bootBuildID, fetchServerBuildID, renderUpdateBanner, startUpdateCheck } from '../update-check.js';
+import { bootBuildID, fetchServerBuildID, renderUpdateBanner, showUpdateBanner, startUpdateCheck } from '../update-check.js';
 
 function setup({ booted = '20260710-1000' } = {}) {
     const meta = booted ? `<meta name="medtracker-build-id" content="${booted}">` : '';
@@ -22,6 +22,7 @@ function setup({ booted = '20260710-1000' } = {}) {
         addEventListener: vi.fn(),
         setInterval: vi.fn(() => 42),
         clearInterval: vi.fn(),
+        setTimeout: vi.fn(),
         location: { reload: vi.fn() },
     };
     const foreground = () => doc.dispatchEvent(new dom.window.Event('visibilitychange'));
@@ -32,6 +33,18 @@ const serving = (build_id, ok = true) => vi.fn().mockResolvedValue({ ok, json: a
 
 // Lets the promise chain inside startUpdateCheck's fire-and-forget check() settle.
 const flush = () => new Promise((r) => setTimeout(r, 0));
+
+// A minimal ServiceWorker stand-in: postMessage + an addEventListener/fire pair
+// so a test can drive its 'statechange' just like the browser would.
+function makeWorker() {
+    const listeners = {};
+    return {
+        state: 'installing',
+        postMessage: vi.fn(),
+        addEventListener: (ev, cb) => ((listeners[ev] ??= []).push(cb)),
+        fire: (ev) => (listeners[ev] || []).forEach((cb) => cb()),
+    };
+}
 
 describe('bootBuildID', () => {
     it('reads the meta tag injectCloudBoot writes', () => {
@@ -135,6 +148,32 @@ describe('startUpdateCheck', () => {
         expect(showBanner).toHaveBeenCalledOnce();
     });
 
+    it('default banner drives the SKIP_WAITING dance for an open tab (med-7gw)', async () => {
+        // No injected showBanner → exercises the real default: it must kick
+        // registration.update() (the browser will not re-check /sw.js on an idle
+        // tab) and hand the live registration to the banner so Reload activates
+        // the waiting SW instead of a plain reload the old SW serves stale.
+        const { doc, win } = setup({ booted: '20260710-1000' });
+        const waiting = { postMessage: vi.fn() };
+        const registration = { waiting, update: vi.fn().mockResolvedValue() };
+        win.navigator = { serviceWorker: { getRegistration: vi.fn().mockResolvedValue(registration) } };
+        startUpdateCheck({ doc, win, fetchImpl: serving('20260710-1500') });
+        await flush();
+        expect(registration.update).toHaveBeenCalled();
+        doc.getElementById('cloud-update-reload').click();
+        expect(waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+        expect(win.location.reload).not.toHaveBeenCalled(); // reload comes from controllerchange
+    });
+
+    it('default banner still reloads directly when no SW registration exists', async () => {
+        const { doc, win } = setup({ booted: '20260710-1000' });
+        win.navigator = {}; // no serviceWorker (e.g. unsupported / disabled)
+        startUpdateCheck({ doc, win, fetchImpl: serving('20260710-1500') });
+        await flush();
+        doc.getElementById('cloud-update-reload').click();
+        expect(win.location.reload).toHaveBeenCalledOnce();
+    });
+
     it('stop() clears the poll timer', () => {
         const { doc, win } = setup();
         startUpdateCheck({ doc, win, fetchImpl: serving('20260710-1000'), showBanner })();
@@ -173,5 +212,81 @@ describe('renderUpdateBanner', () => {
         const { doc } = setup();
         renderUpdateBanner(doc, () => {});
         expect(doc.getElementById('cloud-update-toast').getAttribute('style')).toBeNull();
+    });
+});
+
+describe('showUpdateBanner', () => {
+    it('a waiting SW gets SKIP_WAITING on Reload, no synchronous reload', () => {
+        const { doc, win } = setup();
+        const registration = { waiting: { postMessage: vi.fn() } };
+        showUpdateBanner({ doc, win, registration });
+
+        doc.getElementById('cloud-update-reload').click();
+        expect(registration.waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+        // The real reload comes from controllerchange; only the 2s fallback is
+        // scheduled here, never called synchronously.
+        expect(win.location.reload).not.toHaveBeenCalled();
+    });
+
+    it('with no waiting SW, Reload reloads directly (build-ID fallback path)', () => {
+        const { doc, win } = setup();
+        showUpdateBanner({ doc, win });
+
+        doc.getElementById('cloud-update-reload').click();
+        expect(win.location.reload).toHaveBeenCalledOnce();
+    });
+
+    // med-7gw: the build-ID poll shows the banner while registration.update() is
+    // still INSTALLING the new SW, so `waiting` is null when a fast Reload lands.
+    // A plain reload then would serve the stale old shell (two-reload path) — so
+    // the click waits for the installing worker to finish, then runs the dance.
+    it('waits for an installing SW before deciding, never plain-reloads early', async () => {
+        const { doc, win } = setup();
+        const installing = makeWorker();
+        const registration = { waiting: null, installing, update: vi.fn().mockResolvedValue() };
+        showUpdateBanner({ doc, win, registration });
+
+        doc.getElementById('cloud-update-reload').click();
+        await flush();
+        // Still installing → do nothing yet (a reload now would be stale).
+        expect(win.location.reload).not.toHaveBeenCalled();
+        expect(installing.postMessage).not.toHaveBeenCalled();
+
+        installing.state = 'installed';
+        registration.waiting = installing;
+        installing.fire('statechange');
+        expect(installing.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+        expect(win.location.reload).not.toHaveBeenCalled(); // reload comes from controllerchange
+    });
+
+    it('plain-reloads when update() finds no new SW (page stale but SW already current)', async () => {
+        const { doc, win } = setup();
+        const registration = { waiting: null, installing: null, update: vi.fn().mockResolvedValue() };
+        showUpdateBanner({ doc, win, registration });
+
+        doc.getElementById('cloud-update-reload').click();
+        await flush();
+        expect(win.location.reload).toHaveBeenCalledOnce();
+    });
+
+    it('adds only one banner however many times it is called (dedupe)', () => {
+        const { doc, win } = setup();
+        showUpdateBanner({ doc, win });
+        showUpdateBanner({ doc, win });
+        expect(doc.querySelectorAll('#cloud-update-toast')).toHaveLength(1);
+    });
+
+    // med-7gw: after the user taps "Later", a re-fire from the other trigger
+    // (poll shows it, then cloud-boot's onupdatefound lands seconds later) must
+    // NOT re-nag. The dismiss latches on the document; a fresh doc re-prompts.
+    it('does not re-show after the user dismissed it (cross-trigger re-nag latch)', () => {
+        const { doc, win } = setup();
+        showUpdateBanner({ doc, win });
+        doc.getElementById('cloud-update-dismiss').click();
+        expect(doc.getElementById('cloud-update-toast')).toBeNull();
+
+        // A later trigger (e.g. cloud-boot onupdatefound after the poll) re-fires.
+        showUpdateBanner({ doc, win, registration: { waiting: { postMessage: vi.fn() } } });
+        expect(doc.getElementById('cloud-update-toast')).toBeNull();
     });
 });

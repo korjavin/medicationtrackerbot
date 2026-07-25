@@ -25,9 +25,44 @@ window.__MEDTRACKER_CLOUD__ = true;
 // a harmless no-op. Cloud-only (this file is served solely by cmd/cloud, never
 // in the Capacitor shell), so no isNativePlatform guard is needed.
 if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    // First-install vs update is decided entirely by whether a SW already
+    // controls this page: absent = first-ever install (activate's
+    // clients.claim() controls with NO banner and NO reload), present = update
+    // (the new SW WAITS — sw.js no longer skipWaiting()s — and we prompt).
+    const hadController = !!navigator.serviceWorker.controller;
+    // Guarded so a SKIP_WAITING that fires controllerchange reloads exactly once.
+    let reloading = false;
+
+    const showBanner = (registration) =>
+        import('/js/update-check.js')
+            .then((m) => m.showUpdateBanner({ registration }))
+            .catch((e) => console.error('[cloud-boot] update banner failed', e));
+
     navigator.serviceWorker
         .register('/sw.js')
+        .then((registration) => {
+            // A SW is already waiting for this already-controlled page (e.g. it
+            // installed on a previous visit) — prompt now.
+            if (registration.waiting && navigator.serviceWorker.controller) showBanner(registration);
+            registration.onupdatefound = () => {
+                const nw = registration.installing;
+                if (!nw) return;
+                nw.onstatechange = () => {
+                    if (nw.state === 'installed' && navigator.serviceWorker.controller) showBanner(registration);
+                };
+            };
+        })
         .catch((e) => console.error('[cloud-boot] service worker registration failed', e));
+
+    // Reload only when an update replaced an EXISTING controller. On a first
+    // install hadController is false, so activate's clients.claim() fires
+    // controllerchange without a reload (bead: first install controls silently).
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!hadController || reloading) return;
+        reloading = true;
+        window.sendSwAuthToken?.();
+        location.reload();
+    });
 }
 
 // Routes the service worker considers safe to replay from a notification tap.
