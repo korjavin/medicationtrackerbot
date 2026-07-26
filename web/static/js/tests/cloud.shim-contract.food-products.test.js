@@ -209,6 +209,66 @@ describe('cloud shim contract — food products flows (features/food/{products,d
         expect(results).toEqual([expect.objectContaining({ name: 'Barcode Product', barcode: '12345678' })]);
     });
 
+    it('med-e0r: a barcode the user already has locally resolves from the local DB without any remote fetch', async () => {
+        const { window } = env;
+        env.window.__MEDTRACKER_CLOUD__ = true;
+        vi.stubGlobal('document', window.document);
+
+        // Logging with a barcode upserts a local product carrying that code —
+        // this is how a user's own scanned product gets into the vault.
+        await window.apiCall('/api/food/log', 'POST', {
+            eaten_at: new Date().toISOString(), weight: 100, carbs: 5, protein: 20, fat: 4,
+            calories: 140, name: 'My Own Skyr', barcode: '87654321', per_100g: false
+        });
+
+        await window.apiCall('/api/settings/integrations', 'PATCH', {
+            food: { url: 'https://fooddb.example.test', api_key: 'test-key' }
+        });
+
+        const fetchSpy = vi.fn().mockResolvedValue({
+            ok: true,
+            async json() { return { name: 'Remote Skyr', barcode: '87654321', carbs: 9, protein: 9, fat: 9, kcal100g: 9 }; }
+        });
+        vi.stubGlobal('fetch', fetchSpy);
+
+        const results = await window.CloudFoodSearch.search('87654321', { remote: true });
+
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(results).toEqual([expect.objectContaining({ name: 'My Own Skyr', barcode: '87654321' })]);
+    });
+
+    it('med-e0r: a text query equal to a product\'s free-form barcode field still searches remote', async () => {
+        const { window } = env;
+        env.window.__MEDTRACKER_CLOUD__ = true;
+        vi.stubGlobal('document', window.document);
+
+        // `barcode` is user-editable free text, so it can hold a non-numeric
+        // value. The local-first skip must stay gated on the 8+ digit barcode
+        // heuristic — otherwise this plain text search would be suppressed.
+        await window.apiCall('/api/food/log', 'POST', {
+            eaten_at: new Date().toISOString(), weight: 100, carbs: 5, protein: 20, fat: 4,
+            calories: 140, name: 'Hand-entered Skyr', barcode: 'skyrcode', per_100g: false
+        });
+
+        await window.apiCall('/api/settings/integrations', 'PATCH', {
+            food: { url: 'https://fooddb.example.test', api_key: 'test-key' }
+        });
+
+        const fetchSpy = vi.fn().mockResolvedValue({
+            ok: true,
+            async json() {
+                return { results: [{ name: 'Remote Skyrcode', barcode: '', carbs: 9, protein: 9, fat: 9, kcal100g: 9 }] };
+            }
+        });
+        vi.stubGlobal('fetch', fetchSpy);
+
+        const results = await window.CloudFoodSearch.search('skyrcode', { remote: true });
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(fetchSpy.mock.calls[0][0]).toBe('https://fooddb.example.test/api/v1/food/search?q=skyrcode&limit=20');
+        expect(results.map((p) => p.name).sort()).toEqual(['Hand-entered Skyr', 'Remote Skyrcode']);
+    });
+
     // med-1j1: a fresh cloud account has no BYO food URL, and if the operator
     // never set CLOUD_FOOD_DB_URL there is no remote DB at all. fooddb.js's
     // search() then returns [] and the old UI rendered that as "no results",

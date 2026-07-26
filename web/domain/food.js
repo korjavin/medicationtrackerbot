@@ -206,6 +206,16 @@ function toProductResponse(record) {
   };
 }
 
+// Same heuristic as web/cloud/js/fooddb.js isBarcode() and Go's
+// openfoodfacts_api.go: only an 8+ digit all-numeric query counts as a barcode
+// lookup. `barcode` is a free-form user-editable field (products.js:948 stores
+// whatever was typed), so a plain text search that happened to equal some
+// product's barcode value must NOT be treated as a code hit — that would
+// suppress the remote text search.
+function isBarcodeQuery(query) {
+  return query.length >= 8 && /^[0-9]+$/.test(query);
+}
+
 function foodProductUniqueKey(p) {
   const barcode = (p.barcode || '').trim().toLowerCase();
   if (barcode) return `barcode:${barcode}`;
@@ -627,6 +637,13 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
       .map(toProductResponse);
 
     if (!remote || !foodDb) return local;
+
+    // Local-first barcode (med-e0r): an exact code match is the user's own
+    // product — already the authoritative answer, and mergeProducts would
+    // dedup the remote hit away anyway. Skip the round-trip so a scanned code
+    // resolves instantly and offline instead of waiting out a 10s fetch
+    // timeout.
+    if (isBarcodeQuery(query) && local.some((p) => (p.barcode || '').trim() === query)) return local;
 
     let apiProducts = [];
     try {
