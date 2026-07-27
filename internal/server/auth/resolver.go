@@ -1,7 +1,7 @@
 // Package auth contains the UserResolver abstraction for HTTP request
 // authentication. The interface decouples "who is the current user?" from the
-// middleware that enforces it, so different builds (server vs. mobile) can plug
-// in different resolvers (Telegram WebApp + OIDC, or a single local user).
+// middleware that enforces it, so different deployments can plug in different
+// resolvers (Telegram WebApp + OIDC, or the demo-mode fixed user).
 //
 // Current "who is the current user?" call sites in the codebase:
 //   - internal/server/auth.go:AuthMiddleware — wraps every /api/* request,
@@ -13,8 +13,7 @@
 //     r.Context().Value(server.UserCtxKey).(*server.TelegramUser).
 //
 // TelegramOIDCResolver, defined alongside this interface, implements the
-// existing server-mode behaviour exactly. Task 6 will pair it with a
-// LocalUserResolver behind a //go:build mobile tag.
+// server-mode behaviour; DemoUserResolver is its DEMO_MODE counterpart.
 package auth
 
 import (

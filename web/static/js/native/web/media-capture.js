@@ -1,12 +1,11 @@
-// Web impl of the MediaCapture abstraction (mobile Phase 2b, Task 3).
+// Web impl of the MediaCapture abstraction.
 //
 // takePhoto() opens a live MediaDevices stream (rear camera by preference),
 // grabs one frame via a hidden <canvas>, and resolves with a JPEG Blob. The
 // stream tracks are stopped as soon as the snapshot is captured. The
 // implementation is lifted from the pattern in features/food/scanner.js:136
 // (getUserMedia { facingMode: environment }) — no behavior change, just
-// relocated behind the abstraction so feature code can call the same
-// MediaCapture.takePhoto() on both web and Capacitor builds.
+// relocated behind the abstraction.
 //
 // pickPhoto() drives a hidden <input type=file accept=image/* capture=...>,
 // matching the existing photo-picker fallback in
@@ -230,22 +229,11 @@
             });
     }
 
-    // requestPermissions on the web has no separate prompt API — browsers
-    // surface the prompt inline at first getUserMedia / file-picker
-    // invocation. Resolve as a granted PermissionState so the firstrun
-    // helper's web fallback path treats web builds as "no prompt needed";
-    // the screen auto-advances on isNativePlatform()==false anyway, so this
-    // is primarily defensive for direct callers.
-    function requestPermissions() {
-        return Promise.resolve({ camera: 'granted', photos: 'granted' });
-    }
-
     var impl = {
         openCameraStream: openCameraStream,
         takePhoto: takePhoto,
         pickPhoto: pickPhoto,
         recordAudio: recordAudio,
-        requestPermissions: requestPermissions,
     };
 
     if (window.MediaCapture && window.MediaCapture.__native && typeof window.MediaCapture.__native.registerImpl === 'function') {

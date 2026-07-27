@@ -40,10 +40,6 @@ const ALLOWLIST = [
         reason: 'auth-cache localStorage helpers only — no API reads',
     },
     {
-        file: 'backend-logs.js',
-        reason: 'Capacitor-shell-only Settings → About → "Backend logs" debug screen; reads stdout/stderr text from the synchronous window.MedtrackerNative.getBackendLogs() JavascriptInterface (Phase 2a, Task 5) — no HTTP traffic, so offline-aware primitives do not apply',
-    },
-    {
         file: 'back-button.js',
         reason: 'wires Telegram WebApp BackButton to section navigation — no API reads',
     },

@@ -22,8 +22,8 @@ window.__MEDTRACKER_CLOUD__ = true;
 // awaits before mounting) does NOT await this, so a slow/failed registration
 // never gates the mount. Idempotent — register() on an already-controlled page
 // returns the existing registration, so push.js's belt-and-suspenders call is
-// a harmless no-op. Cloud-only (this file is served solely by cmd/cloud, never
-// in the Capacitor shell), so no isNativePlatform guard is needed.
+// a harmless no-op. Cloud-only: this file is served solely by cmd/cloud, so no
+// platform guard is needed.
 if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     // First-install vs update is decided entirely by whether a SW already
     // controls this page: absent = first-ever install (activate's

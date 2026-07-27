@@ -5,7 +5,7 @@ import "net/http"
 // DemoUserResolver is the runtime-flag counterpart to LocalUserResolver. The
 // server build wires it in when DEMO_MODE=1 so a publicly browseable demo
 // deployment can serve every visitor as a single fixed user without auth.
-// Unlike LocalUserResolver (which is gated behind //go:build mobile), this
+// Unlike TelegramOIDCResolver, this
 // resolver is tag-free so the same binary that ships to real deployments can
 // flip into demo mode at boot.
 type DemoUserResolver struct {

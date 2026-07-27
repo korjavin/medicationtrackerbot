@@ -1,24 +1,20 @@
-// Native platform abstraction layer foundation (mobile Phase 2b, Task 1).
+// Device-capability abstraction layer.
 //
-// Exposes four window globals — MediaCapture, Geolocation, Barcode, Reminders —
-// as the seam between feature code (web/static/js/features/*) and platform
-// APIs. Each global is initially populated with stubs that throw
-// NotImplementedError so any premature caller is loud rather than silently
-// no-op; subsequent tasks (2–5) replace the stubs with web/* and capacitor/*
-// impls and the runtime picks one via isNativePlatform().
+// Exposes two window globals — MediaCapture and Barcode — as the seam between
+// feature code (web/static/js/features/*) and browser device APIs. Each global
+// is initially populated with stubs that throw NotImplementedError so a caller
+// that loads before the impls is loud rather than silently no-op; the web/*
+// sibling files replace them via registerImpl().
 //
-// Load order: this file MUST run before features/* scripts because Task 7's
-// refactored callers (food/scanner.js, food/photo.js) read these globals at
-// module-evaluate time. The script tag sits in index.html between
-// cached-fetch.js and features/tab-controller.js.
+// Load order: this file MUST run before features/* scripts because
+// food/scanner.js and food/photo.js read these globals at module-evaluate
+// time. The script tag sits in index.html between cached-fetch.js and
+// features/tab-controller.js.
 (function () {
     'use strict';
 
     function NotImplementedError(capability, method) {
-        var err = new Error(
-            'window.' + capability + '.' + method + ' is not implemented yet ' +
-            '(Phase 2b foundation stub — Tasks 2–5 install the real impls).'
-        );
+        var err = new Error('window.' + capability + '.' + method + ' has no registered implementation.');
         err.name = 'NotImplementedError';
         err.capability = capability;
         err.method = method;
@@ -37,42 +33,20 @@
         return stub;
     }
 
-    // Runtime platform detection. Returns true when running inside the
-    // Capacitor Android shell (Phase 2a embedded-Go build); false in the
-    // browser PWA and the server-mode build. Safe when window.Capacitor is
-    // undefined because the optional-chain short-circuits to undefined and
-    // the nullish-coalesce returns false.
-    function isNativePlatform() {
-        try {
-            var cap = window.Capacitor;
-            if (!cap) return false;
-            if (typeof cap.isNativePlatform === 'function') {
-                return Boolean(cap.isNativePlatform());
-            }
-            return false;
-        } catch (_) {
-            return false;
-        }
-    }
-
-    // Per-capability impl registry. Populated by the web/* and capacitor/*
-    // sibling files via registerImpl(); the foundation picks one based on
-    // isNativePlatform() and assigns it to window[capability]. Splitting the
-    // wiring step from the file load lets the impl files run in any order
-    // after index.js, and lets tests reach the non-selected impl by name.
+    // Per-capability impl registry. Populated by the web/* sibling files via
+    // registerImpl(). Splitting the wiring step from the file load lets the
+    // impl files run in any order after index.js, and lets tests reach an
+    // impl by name.
     var impls = {};
 
     function registerImpl(capability, platform, impl) {
-        if (platform !== 'web' && platform !== 'capacitor') {
-            throw new Error('registerImpl: platform must be "web" or "capacitor", got ' + platform);
+        if (platform !== 'web') {
+            throw new Error('registerImpl: platform must be "web", got ' + platform);
         }
         if (!impls[capability]) impls[capability] = {};
         impls[capability][platform] = impl;
-        var matched = isNativePlatform() ? 'capacitor' : 'web';
-        if (platform === matched) {
-            window[capability] = impl;
-            window[capability].__native = foundation;
-        }
+        window[capability] = impl;
+        window[capability].__native = foundation;
     }
 
     function getImpl(capability, platform) {
@@ -80,30 +54,16 @@
     }
 
     var foundation = {
-        isNativePlatform: isNativePlatform,
         NotImplementedError: NotImplementedError,
         registerImpl: registerImpl,
         getImpl: getImpl,
     };
 
-    // Stub surface area — kept in sync with the abstractions defined by the
-    // Phase 2b plan. Each global lists the methods Tasks 2–5 will fill in.
-    // requestPermissions on MediaCapture/Geolocation/Reminders is a Phase 2c
-    // addition — the firstrun overlay surfaces explicit OS permission prompts
-    // here rather than piggy-backing on first-use (which on the Capacitor
-    // Camera plugin opens the picker, and on Geolocation performs a real GPS
-    // fix, both confusing during onboarding).
-    window.MediaCapture = makeStub('MediaCapture', ['takePhoto', 'pickPhoto', 'openCameraStream', 'recordAudio', 'requestPermissions']);
-    window.Geolocation = makeStub('Geolocation', ['getCurrentPosition', 'requestPermissions']);
-    window.Barcode = makeStub('Barcode', ['scan', 'hasNativeScanner', 'supportsLiveScan']);
-    window.Reminders = makeStub('Reminders', ['schedule', 'cancelAll']);
+    window.MediaCapture = makeStub('MediaCapture', ['takePhoto', 'pickPhoto', 'openCameraStream', 'recordAudio']);
+    window.Barcode = makeStub('Barcode', ['scan', 'supportsLiveScan']);
 
     // Stash the foundation helpers under a namespaced property on each global
-    // so tests (and future capacitor/* impls) can call isNativePlatform()
-    // without poking at window. Keeping it under a chained property avoids
-    // adding a fifth window global behind the allowlist.
+    // so tests and impls can reach registerImpl without a third window global.
     window.MediaCapture.__native = foundation;
-    window.Geolocation.__native = foundation;
     window.Barcode.__native = foundation;
-    window.Reminders.__native = foundation;
 })();

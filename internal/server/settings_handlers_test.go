@@ -131,7 +131,7 @@ func TestHandleBootstrap(t *testing.T) {
 	}
 }
 
-// TestBootstrap_NeedsFirstRunFlag is the round-trip guard for the mobile
+// TestBootstrap_NeedsFirstRunFlag is the round-trip guard for the
 // first-run overlay (Phase 2c): /api/bootstrap must surface
 // needs_first_run=true when settings.first_run_complete=0, and flip to false
 // once POST /api/firstrun/complete has been called. Server installs are
@@ -255,7 +255,7 @@ func TestBootstrap_WeightGoalSnapshotFields(t *testing.T) {
 }
 
 // TestBootstrap_NeedsFirstRunTrue_OnFreshDB covers the bootstrap-handler side
-// of the fix from Task 2 of the mobile onboarding plan: on a brand-new DB
+// of the fix from Task 2 of the onboarding plan: on a brand-new DB
 // (migration 071 leaves first_run_complete=0 because no user data exists),
 // /api/bootstrap must surface needs_first_run=true without any explicit
 // SetFirstRunComplete seed. Previously TestBootstrap_NeedsFirstRunFlag covered
@@ -289,7 +289,7 @@ func TestBootstrap_NeedsFirstRunTrue_OnFreshDB(t *testing.T) {
 
 // TestBootstrap_SettingsRowMissing_LazyInsertsAndReturns200 guards the ordering
 // invariant in handleBootstrap: GetFirstRunComplete must run before
-// getFeatureMap so the lazy-insert defense added in Task 2 of the mobile
+// getFeatureMap so the lazy-insert defense added in Task 2 of the
 // onboarding plan is actually reachable from /api/bootstrap. If the singleton
 // settings row is missing (corner case: bootstrap migrations ran but the seed
 // row was rolled back), the handler must NOT 500 — it must lazy-insert the row

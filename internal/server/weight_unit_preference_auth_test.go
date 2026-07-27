@@ -1,8 +1,4 @@
-//go:build !mobile
-
-// Tests that depend on the server-build auth boundary (401 for unauthenticated
-// requests). The mobile build wires a LocalUserResolver that resolves every
-// request to the local user — there is no 401 path to assert.
+// Tests that depend on the auth boundary (401 for unauthenticated requests).
 
 package server
 

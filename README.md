@@ -2,7 +2,7 @@
 
 **Private health tracking that doesn't ask you to give up sync, reminders, chat, or AI to get it.**
 
-Most privacy-first apps make you pay for privacy in convenience: no cross-device sync, notifications that don't really work, no assistant, a clunky shell. This one is built the other way around. Your health data is end-to-end encrypted and the keys live on *your* devices — and *because* of that, everything still works: real-time sync, reminders that actually fire, an optional Telegram chat, a native mobile app, and your own AI pointed at your own data.
+Most privacy-first apps make you pay for privacy in convenience: no cross-device sync, notifications that don't really work, no assistant, a clunky shell. This one is built the other way around. Your health data is end-to-end encrypted and the keys live on *your* devices — and *because* of that, everything still works: real-time sync, reminders that actually fire, an optional Telegram chat, an installable PWA, and your own AI pointed at your own data.
 
 You track medications, blood pressure, weight, workouts, meals, sleep, and notes in one place. The server running it can't read any of it.
 
@@ -12,7 +12,7 @@ You track medications, blood pressure, weight, workouts, meals, sleep, and notes
 
 There are two kinds of place your data can live, and this app is careful about which is which.
 
-- **Your devices** hold the keys and the plaintext. Encryption and decryption happen in your browser (or in the native app). A passkey — Face ID / fingerprint — unwraps a random data key that never leaves the device.
+- **Your devices** hold the keys and the plaintext. Encryption and decryption happen in your browser. A passkey — Face ID / fingerprint — unwraps a random data key that never leaves the device.
 - **The server** holds only a sealed, encrypted blob. It's a *blind* sync-and-backup hub: it stores ciphertext, relays it between your devices, and rings your reminders on schedule — without ever holding the key to open any of it. A full breach, a subpoena, or a curious operator yields ciphertext and timing metadata, not your health.
 
 This is what makes the convenience possible. Because your own devices can decrypt, you don't lose anything to the encryption:
@@ -21,12 +21,12 @@ This is what makes the convenience possible. Because your own devices can decryp
 - **It works offline.** Log a BP reading on the subway; it syncs when you're back.
 - **Nothing is trapped.** Export the whole vault whenever you want and take it home.
 
-## Reminders, Telegram, and the mobile app — preserved, not sacrificed
+## Reminders and Telegram — preserved, not sacrificed
 
-The hard part of "the server can't read your data" is usually the stuff that *needs* to reach you: notifications, chat, native app features. Here's how each survives the encryption boundary intact.
+The hard part of "the server can't read your data" is usually the stuff that *needs* to reach you: notifications and chat. Here's how each survives the encryption boundary intact.
 
 - **Reminders via a blind push relay.** The server delivers your medication and workout reminders on schedule — but the reminder *content* is encrypted client-side before it's ever uploaded. The relay knows *when* to ring the alarm, not *what it's for*. It rings; your device decrypts and shows the real text.
-- **The native mobile app schedules on-device.** The Capacitor Android build runs the same health logic locally and fires **local notifications** straight from your phone — no server round-trip, no relay, works with the network off.
+- **Install it like an app.** The PWA installs to your home screen on iOS and Android, works offline, and receives web push — no app store, no separate build.
 - **Optional Telegram chat.** Bring your own bot token and answer a reminder, log a reading, or ask what's due next in the chat you already have open. Inbound messages land in a sealed mailbox. It's off by default, and — unlike the vault — Telegram text crosses the relay in plaintext by design, so it's a clearly labeled opt-in, not the default path.
 
 > Your vault and synced health records are end-to-end encrypted. Optional integrations you choose to turn on — Telegram, AI, food lookup — reach outside the vault and have separately disclosed boundaries in Settings.

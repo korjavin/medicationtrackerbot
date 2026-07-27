@@ -1,5 +1,3 @@
-//go:build !mobile
-
 package scheduler
 
 import (
@@ -365,7 +363,7 @@ func TestWebPushSink_NotifySyncToUser(t *testing.T) {
 
 // fakeSink is a minimal ReminderSink used by scheduler tests that need to
 // observe sink calls without dragging a full notifier-slice wiring through
-// the test setup. Mirrors the contract the mobile-build sink will satisfy.
+// the test setup.
 type fakeSink struct {
 	mu                  sync.Mutex
 	notifyCalls         []notifier.Notification

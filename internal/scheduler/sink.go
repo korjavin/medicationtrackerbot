@@ -8,12 +8,9 @@ import (
 
 // ReminderSink is the scheduler's delivery boundary for reminder notifications.
 //
-// Server builds use WebPushSink, which fans out across the configured
-// notifier.Notifier set (Telegram + Web Push). The mobile build (added in
-// Task 6 of the local-only-mode plan) substitutes a different implementation
-// that queues reminders for retrieval over an HTTP endpoint, so the Capacitor
-// app can hand them to @capacitor/local-notifications. Checkers depend only
-// on this interface — they don't know or care which sink is wired in.
+// WebPushSink fans out across the configured notifier.Notifier set (Telegram
+// + Web Push). Checkers depend only on this interface — they don't know or
+// care which sink is wired in, which is also what lets tests inject a fake.
 type ReminderSink interface {
 	// Notify dispatches a notification asynchronously to the sink's default
 	// user. storeMsgID receives the first non-zero message ID returned by an

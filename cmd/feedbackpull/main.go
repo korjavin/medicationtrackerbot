@@ -7,7 +7,7 @@
 //
 // This is the only place the age private key exists and plaintext is recovered
 // — never on the server. It is dev/ops tooling, not part of the shipped server
-// or mobile binary; filippo.io/age is imported only here.
+// binary; filippo.io/age is imported only here.
 package main
 
 import (

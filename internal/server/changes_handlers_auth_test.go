@@ -1,8 +1,4 @@
-//go:build !mobile
-
-// Server-only tests of the auth middleware's 401 rejection. The mobile build
-// wires a LocalUserResolver that always resolves to the local user, so there
-// is no 401 path for these tests to assert against.
+// Tests of the auth middleware's 401 rejection on unauthenticated requests.
 
 package server
 

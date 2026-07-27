@@ -129,7 +129,7 @@ Session-authed endpoints served on the account subdomain by `cmd/cloud` (see [cl
 
 ## Cloud Trial Proxy (cloud-only, `cmd/cloud`)
 
-Served only by the cloud service on the account subdomain; not present in the bot/server or mobile builds. Both routes require an authenticated account session and share one per-account rate limit (`TRIAL_RATE_PER_MIN`, default 10/min) — on limit: `429 {"error":"trial_rate_limit","retry_after_seconds":60}` + `Retry-After`. When the corresponding `TRIAL_*` envs are unset: `503 {"error":"trial_not_configured"}` and the client degrades to pure BYO. See [cloud-mode.md → Trial provider keys](cloud-mode.md#trial-provider-keys-pooled-metered).
+Served only by the cloud service on the account subdomain; not present in the bot/server build. Both routes require an authenticated account session and share one per-account rate limit (`TRIAL_RATE_PER_MIN`, default 10/min) — on limit: `429 {"error":"trial_rate_limit","retry_after_seconds":60}` + `Retry-After`. When the corresponding `TRIAL_*` envs are unset: `503 {"error":"trial_not_configured"}` and the client degrades to pure BYO. See [cloud-mode.md → Trial provider keys](cloud-mode.md#trial-provider-keys-pooled-metered).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

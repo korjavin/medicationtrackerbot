@@ -10,10 +10,8 @@ import (
 )
 
 // upcomingReminder is the JSON shape returned by /api/reminders/upcoming.
-// The Capacitor JS bridge hands each entry to @capacitor/local-notifications
-// so iOS/Android can fire the reminder natively even when the webview is
-// suspended. The shape is intentionally small — the bridge only needs the
-// scheduled time, an opaque identifier for de-duplication, and a label.
+// The shape is intentionally small — a client only needs the scheduled time,
+// an opaque identifier for de-duplication, and a label.
 type upcomingReminder struct {
 	IntakeID       int64     `json:"intake_id"`
 	MedicationID   int64     `json:"medication_id"`
@@ -22,10 +20,8 @@ type upcomingReminder struct {
 }
 
 // handleGetUpcomingReminders returns medication reminders scheduled within the
-// next N hours (default 24, max 168). The mobile-build Capacitor app polls
-// this endpoint and hands each entry to the native local-notifications plugin.
-// In server mode the endpoint is still useful for diagnostics and for any
-// alternative client that wants to schedule its own notifications.
+// next N hours (default 24, max 168). Useful for diagnostics and for any
+// client that wants to schedule its own notifications.
 func (s *Server) handleGetUpcomingReminders(w http.ResponseWriter, r *http.Request) {
 	userID, err := getUserID(r)
 	if err != nil {
@@ -58,7 +54,7 @@ func (s *Server) handleGetUpcomingReminders(w http.ResponseWriter, r *http.Reque
 	out := make([]upcomingReminder, 0, len(intakes))
 	for _, in := range intakes {
 		// Defense in depth: the auth boundary already restricts the request to
-		// allowedUserID in server mode and the single local user on mobile,
+		// allowedUserID in server mode,
 		// but we still filter here so the endpoint never returns intakes
 		// belonging to a different user even if the store contract changes.
 		if in.UserID != userID {

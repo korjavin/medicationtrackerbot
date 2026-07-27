@@ -1,11 +1,9 @@
 /**
  * native.media-capture.test.js
  *
- * Pins the Phase 2b Task 3 MediaCapture abstraction contract: a web impl
- * wrapping getUserMedia + canvas snapshot + hidden file input, a Capacitor
- * impl wrapping window.Capacitor.Plugins.Camera, both returning Blobs (or
- * null on cancel) and normalizing errors to { name, code, message }. The
- * runtime selector in native/index.js picks one based on isNativePlatform().
+ * Pins the MediaCapture abstraction contract: a web impl wrapping
+ * getUserMedia + canvas snapshot + hidden file input, returning Blobs (or
+ * null on cancel) and normalizing errors to { name, code, message }.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
@@ -18,16 +16,14 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const NATIVE_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/native/index.js');
 const WEB_MC_JS = path.join(REPO_ROOT, 'web/static/js/native/web/media-capture.js');
-const CAP_MC_JS = path.join(REPO_ROOT, 'web/static/js/native/capacitor/media-capture.js');
 
-function loadEnv({ capacitor, mediaDevices } = {}) {
+function loadEnv({ mediaDevices } = {}) {
     const dom = new JSDOM('<!doctype html><html><body></body></html>', {
         url: 'http://app.example.test/',
         runScripts: 'outside-only',
         pretendToBeVisual: true,
     });
     const { window } = dom;
-    if (capacitor !== undefined) window.Capacitor = capacitor;
     if (mediaDevices !== undefined) {
         try {
             Object.defineProperty(window.navigator, 'mediaDevices', {
@@ -44,7 +40,6 @@ function loadEnv({ capacitor, mediaDevices } = {}) {
     };
     evalFile(NATIVE_INDEX_JS);
     evalFile(WEB_MC_JS);
-    evalFile(CAP_MC_JS);
     return { window, cleanup: () => dom.window.close() };
 }
 
@@ -94,7 +89,7 @@ describe('native/web/media-capture.js — web impl', () => {
     let env;
     afterEach(() => { if (env) env.cleanup(); env = null; });
 
-    it('is selected as window.MediaCapture when Capacitor is absent', () => {
+    it('is registered as window.MediaCapture', () => {
         env = loadEnv();
         const webImpl = env.window.MediaCapture.__native.getImpl('MediaCapture', 'web');
         expect(env.window.MediaCapture).toBe(webImpl);
@@ -375,234 +370,5 @@ describe('native/web/media-capture.js — web impl', () => {
         expect(caught).toBeDefined();
         expect(caught.name).toBe('MediaCaptureError');
         expect(caught.code).toBe('PERMISSION_DENIED');
-    });
-});
-
-describe('native/capacitor/media-capture.js — Capacitor impl', () => {
-    let env;
-    afterEach(() => { if (env) env.cleanup(); env = null; });
-
-    function makeCapacitor({ getPhoto }) {
-        return {
-            isNativePlatform: () => true,
-            Plugins: {
-                Camera: { getPhoto },
-            },
-        };
-    }
-
-    it('is selected as window.MediaCapture when isNativePlatform() is true', () => {
-        env = loadEnv({
-            capacitor: makeCapacitor({ getPhoto: vi.fn() }),
-        });
-        const capImpl = env.window.MediaCapture.__native.getImpl('MediaCapture', 'capacitor');
-        expect(env.window.MediaCapture).toBe(capImpl);
-    });
-
-    it('takePhoto calls Camera.getPhoto with source CAMERA and returns a Blob', async () => {
-        // base64('hello') = 'aGVsbG8='
-        const getPhoto = vi.fn().mockResolvedValue({
-            base64String: 'aGVsbG8=',
-            format: 'jpeg',
-        });
-        env = loadEnv({ capacitor: makeCapacitor({ getPhoto }) });
-        const blob = await env.window.MediaCapture.takePhoto();
-        expect(getPhoto).toHaveBeenCalledWith(expect.objectContaining({
-            source: 'CAMERA',
-            resultType: 'base64',
-        }));
-        expect(blob).toBeInstanceOf(env.window.Blob);
-        expect(blob.type).toBe('image/jpeg');
-        expect(blob.size).toBe(5); // 'hello' is 5 bytes
-    });
-
-    it('pickPhoto() with no opts forces CAMERA (matches web impl default where input.capture=environment)', async () => {
-        const getPhoto = vi.fn().mockResolvedValue({
-            base64String: 'aGVsbG8=', format: 'png',
-        });
-        env = loadEnv({ capacitor: makeCapacitor({ getPhoto }) });
-        const blob = await env.window.MediaCapture.pickPhoto();
-        expect(getPhoto).toHaveBeenCalledWith(expect.objectContaining({
-            source: 'CAMERA',
-            resultType: 'base64',
-        }));
-        expect(blob.type).toBe('image/png');
-    });
-
-    it('pickPhoto({ capture: false }) omits source so the plugin shows the gallery+camera chooser', async () => {
-        const getPhoto = vi.fn().mockResolvedValue({
-            base64String: 'aGVsbG8=', format: 'png',
-        });
-        env = loadEnv({ capacitor: makeCapacitor({ getPhoto }) });
-        await env.window.MediaCapture.pickPhoto({ capture: false });
-        const opts = getPhoto.mock.calls[0][0];
-        expect(opts.source).toBeUndefined();
-    });
-
-    it('resolves to null when the plugin throws a "User cancelled" error', async () => {
-        const getPhoto = vi.fn().mockRejectedValue(new Error('User cancelled photos app'));
-        env = loadEnv({ capacitor: makeCapacitor({ getPhoto }) });
-        const result = await env.window.MediaCapture.takePhoto();
-        expect(result).toBeNull();
-    });
-
-    it('resolves to null on iOS-style "User denied photos app cancelled"', async () => {
-        const getPhoto = vi.fn().mockRejectedValue(new Error('User cancelled photos'));
-        env = loadEnv({ capacitor: makeCapacitor({ getPhoto }) });
-        const result = await env.window.MediaCapture.pickPhoto();
-        expect(result).toBeNull();
-    });
-
-    it('normalizes permission-denied errors to PERMISSION_DENIED', async () => {
-        const getPhoto = vi.fn().mockRejectedValue(new Error('Camera permission was denied'));
-        env = loadEnv({ capacitor: makeCapacitor({ getPhoto }) });
-        let caught;
-        try { await env.window.MediaCapture.takePhoto(); }
-        catch (e) { caught = e; }
-        expect(caught).toBeDefined();
-        expect(caught.name).toBe('MediaCaptureError');
-        expect(caught.code).toBe('PERMISSION_DENIED');
-    });
-
-    it('rejects with UNAVAILABLE when Capacitor.Plugins.Camera is missing', async () => {
-        env = loadEnv({ capacitor: { isNativePlatform: () => true, Plugins: {} } });
-        let caught;
-        try { await env.window.MediaCapture.takePhoto(); }
-        catch (e) { caught = e; }
-        expect(caught).toBeDefined();
-        expect(caught.name).toBe('MediaCaptureError');
-        expect(caught.code).toBe('UNAVAILABLE');
-    });
-
-    // Voice recording is web-first; the Capacitor shell has no MediaRecorder
-    // path, so the caller hides the Record button on a rejection.
-    it('recordAudio always rejects with UNAVAILABLE', async () => {
-        env = loadEnv({ capacitor: makeCapacitor({ getPhoto: vi.fn() }) });
-        let caught;
-        try { await env.window.MediaCapture.recordAudio(); }
-        catch (e) { caught = e; }
-        expect(caught).toBeDefined();
-        expect(caught.name).toBe('MediaCaptureError');
-        expect(caught.code).toBe('UNAVAILABLE');
-    });
-
-    // The shell has no in-app video modal — MLKit owns the scanner UI — so a
-    // raw MediaStream is never obtainable here.
-    it('openCameraStream always rejects with UNAVAILABLE', async () => {
-        env = loadEnv({ capacitor: makeCapacitor({ getPhoto: vi.fn() }) });
-        let caught;
-        try { await env.window.MediaCapture.openCameraStream({ facingMode: 'environment' }); }
-        catch (e) { caught = e; }
-        expect(caught).toBeDefined();
-        expect(caught.name).toBe('MediaCaptureError');
-        expect(caught.code).toBe('UNAVAILABLE');
-    });
-
-    it('falls back to fetching webPath when base64String is absent', async () => {
-        const getPhoto = vi.fn().mockResolvedValue({
-            webPath: 'blob:http://app/abc',
-            format: 'jpeg',
-        });
-        env = loadEnv({ capacitor: makeCapacitor({ getPhoto }) });
-        const fetchBlob = new env.window.Blob(['xyz'], { type: 'image/jpeg' });
-        env.window.fetch = vi.fn().mockResolvedValue({
-            blob: () => Promise.resolve(fetchBlob),
-        });
-        const blob = await env.window.MediaCapture.takePhoto();
-        expect(env.window.fetch).toHaveBeenCalledWith('blob:http://app/abc');
-        expect(blob).toBe(fetchBlob);
-    });
-
-    // requestPermissions seam — Phase 2c addition for the firstrun overlay.
-    // The earlier path of calling pickPhoto({capture:false}) to surface the
-    // OS prompt also opens the photo picker, which is the wrong UX shape for
-    // first-run. requestPermissions wraps Camera.requestPermissions and
-    // returns the plugin's { camera, photos } PermissionState shape unchanged
-    // so callers can branch on partial grants.
-    it('requestPermissions calls Camera.requestPermissions with camera + photos and returns the result', async () => {
-        const requestPermissionsFn = vi.fn().mockResolvedValue({ camera: 'granted', photos: 'granted' });
-        env = loadEnv({
-            capacitor: {
-                isNativePlatform: () => true,
-                Plugins: { Camera: { requestPermissions: requestPermissionsFn, getPhoto: vi.fn() } },
-            },
-        });
-        const result = await env.window.MediaCapture.requestPermissions();
-        expect(requestPermissionsFn).toHaveBeenCalledWith({ permissions: ['camera', 'photos'] });
-        expect(result).toEqual({ camera: 'granted', photos: 'granted' });
-    });
-
-    it('requestPermissions throws MediaCaptureError UNAVAILABLE when the plugin does not expose requestPermissions', async () => {
-        env = loadEnv({
-            capacitor: {
-                isNativePlatform: () => true,
-                Plugins: { Camera: { getPhoto: vi.fn() } }, // no requestPermissions
-            },
-        });
-        let caught;
-        try { await env.window.MediaCapture.requestPermissions(); }
-        catch (e) { caught = e; }
-        expect(caught).toBeDefined();
-        expect(caught.name).toBe('MediaCaptureError');
-        expect(caught.code).toBe('UNAVAILABLE');
-    });
-
-    it('requestPermissions normalizes plugin rejection to MediaCaptureError', async () => {
-        const requestPermissionsFn = vi.fn().mockRejectedValue(new Error('Permission denied by user'));
-        env = loadEnv({
-            capacitor: {
-                isNativePlatform: () => true,
-                Plugins: { Camera: { requestPermissions: requestPermissionsFn, getPhoto: vi.fn() } },
-            },
-        });
-        let caught;
-        try { await env.window.MediaCapture.requestPermissions(); }
-        catch (e) { caught = e; }
-        expect(caught).toBeDefined();
-        expect(caught.name).toBe('MediaCaptureError');
-        expect(caught.code).toBe('PERMISSION_DENIED');
-    });
-});
-
-describe('native/web/media-capture.js — requestPermissions stub', () => {
-    let env;
-    afterEach(() => { if (env) env.cleanup(); env = null; });
-
-    it('resolves as a granted PermissionState (browsers surface prompts inline at first use)', async () => {
-        env = loadEnv();
-        const result = await env.window.MediaCapture.requestPermissions();
-        expect(result.camera).toBe('granted');
-        expect(result.photos).toBe('granted');
-    });
-});
-
-describe('native/index.js — runtime selector after Task 3', () => {
-    let env;
-    afterEach(() => { if (env) env.cleanup(); env = null; });
-
-    it('selects the web MediaCapture impl when Capacitor.isNativePlatform() is false', () => {
-        env = loadEnv({ capacitor: { isNativePlatform: () => false } });
-        const web = env.window.MediaCapture.__native.getImpl('MediaCapture', 'web');
-        expect(env.window.MediaCapture).toBe(web);
-    });
-
-    it('selects the Capacitor MediaCapture impl when Capacitor.isNativePlatform() is true', () => {
-        env = loadEnv({
-            capacitor: { isNativePlatform: () => true, Plugins: { Camera: {} } },
-        });
-        const cap = env.window.MediaCapture.__native.getImpl('MediaCapture', 'capacitor');
-        expect(env.window.MediaCapture).toBe(cap);
-    });
-
-    it('registers both web and capacitor impls regardless of selection', () => {
-        env = loadEnv();
-        const web = env.window.MediaCapture.__native.getImpl('MediaCapture', 'web');
-        const cap = env.window.MediaCapture.__native.getImpl('MediaCapture', 'capacitor');
-        expect(typeof web.takePhoto).toBe('function');
-        expect(typeof web.pickPhoto).toBe('function');
-        expect(typeof web.recordAudio).toBe('function');
-        expect(typeof cap.takePhoto).toBe('function');
-        expect(typeof cap.pickPhoto).toBe('function');
-        expect(typeof cap.recordAudio).toBe('function');
     });
 });

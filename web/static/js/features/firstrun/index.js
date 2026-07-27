@@ -1,5 +1,5 @@
 // features/firstrun/index.js — orchestrator for the post-install
-// guided setup overlay (mobile Phase 2c).
+// guided setup overlay.
 //
 // Lifecycle:
 //   1. Server's /api/bootstrap returns a top-level `needs_first_run: bool`
@@ -15,7 +15,7 @@
 //      complete succeeds, and by "Skip all" on the welcome screen via
 //      the complete() helper.
 //
-// Screen registry: each step ("welcome" | "permissions" | "features" |
+// Screen registry: each step ("welcome" | "features" |
 // "integrations" | "done") owns a module under features/firstrun/screens/<step>.js that
 // attaches `{ title, render(body, helpers) }` to
 // window.WGFirstRun.screens[step]. The orchestrator looks the screen up

@@ -9,15 +9,14 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const STATE_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/state.js');
 const WELCOME_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/welcome.js');
-const PERMISSIONS_HELPER_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/permissions.js');
-const PERMISSIONS_SCREEN_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/permissions.js');
+const FEATURES_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/features.js');
 const INTEGRATIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/integrations.js');
 const DONE_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/done.js');
 const INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/index.js');
 
 // Task 7 — resume safety. The orchestrator should re-enter the flow at
 // the last-persisted sessionStorage step when needs_first_run is still
-// true (mid-flow process kill, WebView config change). When the bootstrap
+// true (mid-flow reload). When the bootstrap
 // reports needs_first_run=false the orchestrator must defensively clear
 // any stale step entry so a ghost step doesn't surface on the next
 // install. Power-cycle (sessionStorage wiped) intentionally restarts
@@ -28,7 +27,6 @@ const SHELL_HTML = `<!doctype html><html><body></body></html>`;
 function loadFlow({
     bootstrap = null,
     storedStep = null,
-    isNative = false,
 } = {}) {
     const dom = new JSDOM(SHELL_HTML, {
         url: 'https://example.test/',
@@ -38,9 +36,6 @@ function loadFlow({
     const { window } = dom;
     if (bootstrap) window.__MEDTRACKER_BOOTSTRAP__ = bootstrap;
     if (storedStep) window.sessionStorage.setItem('wg-firstrun-step', storedStep);
-    if (isNative) {
-        window.Capacitor = { isNativePlatform: () => true };
-    }
 
     // Load every screen so the orchestrator can render whichever step
     // sessionStorage points at — Task 7's whole point is "no fixed
@@ -48,8 +43,7 @@ function loadFlow({
     for (const file of [
         STATE_JS,
         WELCOME_JS,
-        PERMISSIONS_HELPER_JS,
-        PERMISSIONS_SCREEN_JS,
+        FEATURES_JS,
         INTEGRATIONS_JS,
         DONE_JS,
         INDEX_JS,
@@ -85,19 +79,17 @@ describe('firstrun resume safety', () => {
         } finally { cleanup(); }
     });
 
-    it('resumes at the persisted step (permissions) on native', () => {
+    it('resumes at the persisted step (features)', () => {
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
-            storedStep: 'permissions',
-            isNative: true,
+            storedStep: 'features',
         });
         try {
             window.WGFirstRun.mount();
 
-            // Permissions screen renders only on native (web auto-advances
-            // to integrations). We expect at least one permission row
-            // and no welcome / integrations form fields.
-            expect(document.querySelector('[data-firstrun-permission="camera"]')).not.toBeNull();
+            // The feature picker renders its rows; no welcome CTA and no
+            // integrations form fields.
+            expect(document.querySelector('[data-firstrun-feature]')).not.toBeNull();
             expect(document.querySelector('[data-firstrun-action="advance"]')).toBeNull();
             expect(document.getElementById('wg-firstrun-openai-api-key')).toBeNull();
         } finally { cleanup(); }
@@ -179,16 +171,14 @@ describe('firstrun resume safety', () => {
         try {
             window.WGFirstRun.mount();
             // Walk forward two steps the way the screen handlers do.
-            window.WGFirstRun.state.setStep('permissions');
+            window.WGFirstRun.state.setStep('features');
             window.WGFirstRun.state.setStep('integrations');
             expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('integrations');
 
             // Simulate process kill: tear down the overlay element + the
             // mount latch without going through dismiss() (which would
-            // clear sessionStorage). The Capacitor lifecycle does the
-            // same when the WebView is destroyed: DOM is gone, JS state
-            // re-initialises from the inline scripts, sessionStorage
-            // persists.
+            // clear sessionStorage): DOM is gone, JS state re-initialises
+            // from the scripts, sessionStorage persists.
             const overlay = document.getElementById('wg-firstrun-overlay');
             overlay.parentNode.removeChild(overlay);
             // Re-run the module init by reloading the orchestrator

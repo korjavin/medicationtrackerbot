@@ -156,7 +156,7 @@ type ScheduledPushInput struct {
 }
 
 // ReplaceSchedule replaces accountID's unsent schedule with entries in one
-// transaction (delete-then-insert), mirroring the Capacitor Reminders loop's
+// transaction (delete-then-insert), matching the client scheduler's
 // replace-all semantics. Already-sent entries are left untouched so the
 // relay's send history survives a client re-schedule.
 func (r *Repo) ReplaceSchedule(ctx context.Context, accountID string, entries []ScheduledPushInput, now time.Time) error {

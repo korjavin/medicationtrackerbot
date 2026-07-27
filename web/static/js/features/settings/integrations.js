@@ -277,13 +277,10 @@
     // The "Changes take effect after the server restarts." copy is only true for
     // the server build, which caches the AI/food/ElevenLabs clients at boot and
     // registers no hot-reload. Cloud mode reads the key from the vault per call
-    // in the browser, and the mobile build registers an integrations reloader —
-    // both apply changes live. Hide the note (and drop the restart wording in the
-    // save toast) in those modes so the UI stops lying. (med-eas.6)
+    // in the browser, so changes apply live. Hide the note (and drop the restart
+    // wording in the save toast) there so the UI stops lying. (med-eas.6)
     function appliesLive() {
-        if (window.__MEDTRACKER_CLOUD__) return true;
-        const cap = window.Capacitor;
-        return !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
+        return !!window.__MEDTRACKER_CLOUD__;
     }
 
     function applyRestartNoteVisibility() {

@@ -1,4 +1,4 @@
-// Web impl of the Barcode abstraction (mobile Phase 2b, Task 4).
+// Web impl of the Barcode abstraction.
 //
 // scan({ source, formats }) decodes a single barcode/QR from the given source
 // — an HTMLVideoElement (live frame), HTMLImageElement / HTMLCanvasElement
@@ -12,8 +12,7 @@
 //
 // Lifted from features/food/scanner.js:40-64 (BarcodeDetector creation),
 // :102 (detect call in the live loop), :193-204 (ZXing fallback) — no
-// behavior change, just relocated behind the abstraction so feature code can
-// call the same Barcode.scan() on both web and Capacitor builds.
+// behavior change, just relocated behind the abstraction.
 //
 // Load order: must be after web/static/js/native/index.js so the foundation's
 // registerImpl helper is available.
@@ -212,10 +211,6 @@
 
     // The browser has no full-screen scanner UI of its own — feature code owns
     // the in-app video modal and drives scan({ source: video }) itself.
-    function hasNativeScanner() {
-        return false;
-    }
-
     // Probed at call time, not module load: BarcodeDetector is installed late
     // by both test harnesses and some browsers (origin trials, polyfills).
     function supportsLiveScan() {
@@ -224,7 +219,6 @@
 
     var impl = {
         scan: scan,
-        hasNativeScanner: hasNativeScanner,
         supportsLiveScan: supportsLiveScan,
     };
 

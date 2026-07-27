@@ -3,9 +3,7 @@
 // ====================================
 //
 // Owns the "+ Photo" flow on the Food screen:
-//   - window.MediaCapture.pickPhoto() opens the native picker (Phase 2b
-//     Task 7 — the abstraction picks <input type=file> on web or
-//     @capacitor/camera under the Android shell)
+//   - window.MediaCapture.pickPhoto() opens the device photo picker
 //   - EXIF + lastModified parsing to pick the right eaten_at timestamp
 //   - POST /api/food/log/from-photo upload + cache invalidation
 //   - the friendly summary card handoff (food-photo-summary.js owns the

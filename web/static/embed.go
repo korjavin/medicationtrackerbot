@@ -1,8 +1,6 @@
 // Package webstatic embeds web/static for cmd/cloud so account subdomains
-// can serve the real app frontend. This is separate from
-// web/embed_mobile.go's embed (which is mobile-build-tagged and rooted one
-// directory up) because cmd/cloud has no build-tag split and needs the FS
-// unconditionally.
+// can serve the real app frontend. Separate from web/cloud/embed.go, which
+// embeds the cloud shell rooted one directory up.
 package webstatic
 
 import "embed"

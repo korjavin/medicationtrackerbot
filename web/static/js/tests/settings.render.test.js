@@ -46,7 +46,7 @@ const GROUPS = [
     ['Integrations', ['#settings-integrations']],
     ['Devices & connections', ['.wg-settings-cloud-devices', '.wg-settings-cloud-invite', '#oidc-setup-container']],
     ['Backup & data', ['#settings-importexport']],
-    ['Account & privacy', ['.wg-settings-privacy', '.wg-settings-danger', '#settings-about']],
+    ['Account & privacy', ['.wg-settings-privacy', '.wg-settings-danger']],
 ];
 
 describe('Settings view collapsible groups (index.html)', () => {

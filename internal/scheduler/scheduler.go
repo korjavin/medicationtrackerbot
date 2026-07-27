@@ -46,8 +46,7 @@ type Scheduler struct {
 
 // New constructs a Scheduler wired against the supplied ReminderSink. The
 // server build constructs a WebPushSink (notifier.Notifier fan-out); the
-// mobile build (Task 6 of the local-only-mode plan) substitutes a queue-based
-// sink that retains reminders for the Capacitor app to retrieve.
+// sink is the delivery boundary; checkers depend only on the interface.
 func New(s *store.Repos, allowedUserID int64, sink ReminderSink) *Scheduler {
 	a := newStoreAdapter(s)
 
@@ -92,16 +91,9 @@ func New(s *store.Repos, allowedUserID int64, sink ReminderSink) *Scheduler {
 }
 
 // NewWithNotifiers is a convenience wrapper for callers that have a notifier
-// slice handy. The actual sink it constructs depends on the build:
-//   - server builds (default): WebPushSink, which fans the notifiers out;
-//   - mobile builds (//go:build mobile): LocalNotificationSink, which ignores
-//     the notifiers (mobile delivery happens via the @capacitor/local-notifications
-//     JS bridge pulling reminders from /api/reminders/upcoming).
-//
-// defaultSink is the tag-aware selector — see sink_webpush.go (!mobile) and
-// sink_localnotifications.go (mobile).
+// slice handy; it wires a WebPushSink that fans the notifiers out.
 func NewWithNotifiers(s *store.Repos, allowedUserID int64, notifiers []notifier.Notifier) *Scheduler {
-	return New(s, allowedUserID, defaultSink(notifiers, allowedUserID))
+	return New(s, allowedUserID, NewWebPushSink(notifiers, allowedUserID))
 }
 
 // AddEntry registers an additional checker to run on its own ticker. Used by

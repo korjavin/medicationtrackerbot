@@ -107,41 +107,7 @@ function barcodeCan(method, fallback) {
     } catch (_) { return fallback; }
 }
 
-// On the Capacitor shell the Barcode abstraction's capacitor impl drives the
-// full-screen MLKit scanner UI itself — no in-app modal, no live video frame
-// loop. Route straight through window.Barcode.scan() and hand the decoded
-// value to the existing handleDecodedValue() path so the food modal stays
-// closed and the barcode lands in #food-barcode the same way it would have
-// from the web flow.
-//
-// Always close the in-app food-scanner modal on completion: ModalManager
-// opened it as part of the standard open() flow, but the MLKit overlay owns
-// the actual scanner UI on Capacitor. Leaving the empty in-app modal visible
-// on cancel/error strands the user staring at an empty surface they can't
-// dismiss visually. handleDecodedValue() also closes the modal on success,
-// but calling closeFoodScannerModal() unconditionally here covers all three
-// exit paths (cancel/null, error, success).
-async function scanWithNativeBarcode() {
-    try {
-        const result = await window.Barcode.scan({ formats: FOOD_BARCODE_FORMATS });
-        const decoded = result && result.rawValue ? result.rawValue : '';
-        if (decoded) {
-            handleDecodedValue(decoded);
-        }
-    } catch (e) {
-        console.error('Native barcode scan failed:', e);
-        safeAlert('Barcode scanning failed: ' + (e && e.message ? e.message : 'unknown error'));
-    } finally {
-        try { closeFoodScannerModal(); } catch (_) { /* ignore */ }
-    }
-}
-
 async function startFoodScanner() {
-    if (barcodeCan('hasNativeScanner', false)) {
-        await scanWithNativeBarcode();
-        return;
-    }
-
     const modal = document.getElementById('food-scanner-modal');
     if (!modal) return;
 

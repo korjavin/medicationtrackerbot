@@ -13,7 +13,7 @@ import (
 // flag: migration 071 adds settings.first_run_complete with DEFAULT 0 and then
 // backfills the singleton row to 1 when any user data already exists. The
 // presence check covers every primary user-data path (see migration 071) so
-// existing installs (server or already-onboarded mobile) keep flag=1 and never
+// existing installs keep flag=1 and never
 // see the overlay; truly fresh installs keep flag=0 and surface the onboarding
 // flow.
 func TestMigration071_BackfillsExistingSettingsRow(t *testing.T) {
@@ -70,7 +70,7 @@ func TestMigration071_BackfillsExistingSettingsRow(t *testing.T) {
 // TestMigration071_FreshInstallKeepsFlagZero confirms the inverse: when no
 // medications exist at migration time, the singleton row stays at the
 // DEFAULT 0 value so the bootstrap fires needs_first_run=true on the very
-// first launch of a fresh mobile install.
+// first launch of a fresh install.
 func TestMigration071_FreshInstallKeepsFlagZero(t *testing.T) {
 	t.Setenv("ALLOWED_USER_ID", "42")
 

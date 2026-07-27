@@ -1,5 +1,3 @@
-//go:build !mobile
-
 package server
 
 import (
@@ -9,11 +7,7 @@ import (
 	"testing"
 )
 
-// These tests cover the server-build /auth/status contract: the cookie/demo
-// path. The mobile build short-circuits before the cookie/demo logic via
-// tryMobileAuthOverride in auth_mobile.go; that path has its own test in
-// auth_mobile_test.go. Keeping these gated to !mobile avoids running them in
-// a configuration where the mobile hook deliberately overrides the response.
+// These tests cover the /auth/status contract: the cookie/demo path.
 
 func TestHandleAuthStatus_DemoModeReportsAuthenticated(t *testing.T) {
 	// With DEMO_MODE on, /auth/status must report authenticated=true even with

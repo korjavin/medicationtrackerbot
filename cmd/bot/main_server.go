@@ -1,5 +1,3 @@
-//go:build !mobile
-
 package main
 
 import (
@@ -335,7 +333,7 @@ func main() {
 
 	// Inject ElevenLabs creds so the Voice Agent handlers stop calling
 	// os.Getenv at request time — they now read the same struct that the
-	// mobile build will populate from the settings table.
+	// settings table populates this when the env var is unset.
 	srv.SetElevenLabsConfig(server.ElevenLabsConfig{
 		APIKey:  cfg.ElevenLabs.APIKey,
 		AgentID: cfg.ElevenLabs.AgentID,

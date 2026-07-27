@@ -1325,6 +1325,5 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	}
 }
 
-// TestAuthStatus has moved to auth_server_test.go (gated with //go:build !mobile)
-// because the mobile build's tryMobileAuthOverride intentionally bypasses the
+// TestAuthStatus has moved to auth_server_test.go, alongside the rest of the
 // cookie/demo path that this test exercises.

@@ -1,6 +1,6 @@
 // features/firstrun/screens/welcome.js — Task 4 of the mobile Phase 2c
 // plan. First screen in the first-run overlay: short product pitch +
-// "Get started" (advances to the permissions step) and "Skip all"
+// "Get started" (advances to the features step) and "Skip all"
 // (calls POST /api/firstrun/complete and dismisses without touching
 // any further screens). The flow is fully skippable per the plan.
 //
@@ -28,7 +28,7 @@
         primary.textContent = 'Get started';
         primary.setAttribute('data-firstrun-action', 'advance');
         primary.addEventListener('click', function () {
-            helpers.advance('permissions');
+            helpers.advance('features');
         });
 
         const secondary = document.createElement('button');

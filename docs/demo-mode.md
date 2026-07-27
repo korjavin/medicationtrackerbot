@@ -14,7 +14,7 @@ When `DEMO_MODE=1` and the binary starts:
 4. Five AI / cost-sensitive routes get per-IP rate limiters with restrictive defaults. A 429 from these routes returns a structured JSON body (`{"error":"demo_rate_limit","limit":"…","retry_after_seconds":…}` + `Retry-After` header) so the frontend can show a clear demo-restriction popup instead of a generic "Too Many Requests".
 5. `/api/bootstrap` carries a `demo` object so the frontend can mount a dismissible banner and format accurate restriction messages.
 
-Demo mode is a runtime flag, not a build tag — single binary supports both production and demo deployments. The mobile build (`//go:build mobile`) is untouched and unaware of demo mode.
+Demo mode is a runtime flag, not a build tag — one binary supports both production and demo deployments.
 
 ## Environment variables
 
@@ -91,7 +91,7 @@ When `DEMO_MODE=1` and `ALLOWED_USER_ID` is non-zero, the server build launches 
 
 Lifecycle:
 
-- The loop is wired in `cmd/bot/main_server.go` (server build only — mobile build is unaffected).
+- The loop is wired in `cmd/bot/main_server.go`.
 - The first tick fires immediately on startup so a freshly-deployed demo has fresh data before the first interval elapses.
 - Subsequent ticks fire every `DEMO_TOPUP_INTERVAL` (default `1h`).
 - The loop binds to the same root context as the HTTP server, so SIGINT/SIGTERM cancels it alongside graceful shutdown.
@@ -182,7 +182,7 @@ No new build tags. The demo wiring lives in:
 - `internal/mcp/mcp.go` — `Config.DemoMode`, conditional `OAuthHandler` construction, `buildPublicMux` skips OAuth when `s.oauth == nil`.
 - `cmd/bot/main_server.go` — `srv.SetDemoMode(cfg.DemoMode)` + `srv.SetDemoConfig(...)` + startup warn + `go demotopup.Run(ctx, …)` when `DemoMode` is on.
 - `cmd/mcptool/main.go` — no code change; `LoadConfigFromEnv` reads `DEMO_MODE` and the rest threads through.
-- `internal/demotopup/runner.go` — `Run(ctx, Config)` background top-up loop. Tag-free; only the server build wires it (mobile build's `cmd/bot/main_mobile.go` doesn't reference it).
+- `internal/demotopup/runner.go` — `Run(ctx, Config)` background top-up loop; wired from `cmd/bot/main_server.go`.
 - `web/static/js/core/demo-banner.js` + `web/static/js/core/api.js` (429 branch) + `web/static/index.html` (banner div + script tag) + `web/static/css/styles.css` (`.wg-demo-banner`).
 
 The MCP coverage guard (`internal/server/mcp_coverage_exempt.go`) is unaffected — rate-limited routes are already in the registry; wrapping them in middleware doesn't change registration.

@@ -1,14 +1,12 @@
-//go:build !mobile
-
 package scheduler
 
 // weekly_digest.go is the opt-in Sunday-evening bot digest (gamification-12
 // Task 5): the same GetWeeklyReview read model the on-demand /week command
 // formats (bot.FormatWeeklyReview), delivered unprompted once a week. It is
-// server-build only — the mobile build has no bot package to format through
-// and no Telegram channel to deliver to (CLAUDE.md build-mode split), so this
-// file carries the !mobile tag rather than being wired into New()'s tag-free
-// entries list. See docs/plans/2026-07-03-gamification-12-weekly-review.md.
+// bot-mode only — it needs the bot package to format through and a Telegram
+// channel to deliver to, so it is registered via AddEntry by cmd/bot rather
+// than wired into New()'s entries list.
+// See docs/plans/2026-07-03-gamification-12-weekly-review.md.
 
 import (
 	"context"
@@ -53,7 +51,7 @@ type WeeklyDigestChecker struct {
 
 // NewWeeklyDigestChecker builds the checker from the composition root's
 // *store.Repos and shared gamification service. Constructed outside New()
-// (see AddEntry) because this file's !mobile tag means New() itself can't
+// (see AddEntry) because New() itself can't
 // reference it.
 func NewWeeklyDigestChecker(s *store.Repos, sink ReminderSink, allowedUserID int64, gam gamificationsvc.GamificationService) *WeeklyDigestChecker {
 	return &WeeklyDigestChecker{store: newStoreAdapter(s), sink: sink, allowedUserID: allowedUserID, gam: gam}

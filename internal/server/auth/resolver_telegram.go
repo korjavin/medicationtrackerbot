@@ -1,5 +1,3 @@
-//go:build !mobile
-
 package auth
 
 import (
@@ -21,7 +19,7 @@ type VerifySessionFunc func(token, secret string) (string, bool)
 // exactly so server deployments see no functional change.
 //
 // Validation logic is injected via function values rather than imported so this
-// package stays free of the server package and the mobile build can omit it
+// package stays free of the server package and cmd/cloud can omit it
 // entirely (see Task 6).
 type TelegramOIDCResolver struct {
 	botToken         string

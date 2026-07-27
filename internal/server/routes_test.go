@@ -1,8 +1,5 @@
-//go:build !mobile
-
-// TestRoutesRegistration asserts the server-build auth boundary (401 for
-// unauthenticated /api/ requests). The mobile build wires a LocalUserResolver
-// that has no auth boundary by design, so this test is server-only.
+// TestRoutesRegistration asserts the auth boundary (401 for unauthenticated
+// /api/ requests).
 
 package server
 

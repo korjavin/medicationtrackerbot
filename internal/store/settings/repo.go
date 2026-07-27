@@ -213,12 +213,12 @@ func (r *Repo) SetWeeklyDigestLastSentAt(ctx context.Context, sentAt time.Time) 
 	return err
 }
 
-// GetFirstRunComplete reports whether the mobile first-run flow has been
+// GetFirstRunComplete reports whether the first-run flow has been
 // dismissed. Server installs are backfilled to true by migration 071 so the
-// flow only fires for fresh mobile databases.
+// flow only fires for fresh databases.
 //
 // If the singleton settings row is missing (a corner case on truly fresh
-// mobile installs where the bootstrap migrations have run but the seed row
+// installs where the bootstrap migrations have run but the seed row
 // was somehow rolled back), this method lazily inserts the row with
 // first_run_complete=0 and returns (false, nil) so the firstrun overlay
 // surfaces on first launch instead of being suppressed by the bootstrap

@@ -93,15 +93,12 @@ const TRIAL_CONSENT_JS = path.join(REPO_ROOT, 'web/static/js/features/trial-cons
 const SETTINGS_IMPORTEXPORT_JS = path.join(REPO_ROOT, 'web/static/js/features/settings/importexport.js');
 const WORKOUT_MODALS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/modals.js');
 
-// Native platform abstraction layer (Phase 2b). Must load before feature
-// modules that call window.Barcode / window.MediaCapture / window.Geolocation
-// / window.Reminders — food/scanner.js + food/photo.js (Task 7) depend on
-// these globals being present at module-eval time.
+// Device-capability abstraction layer. Must load before feature modules that
+// call window.Barcode / window.MediaCapture — food/scanner.js + food/photo.js
+// depend on these globals being present at module-eval time.
 const NATIVE_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/native/index.js');
-const NATIVE_WEB_GEOLOCATION_JS = path.join(REPO_ROOT, 'web/static/js/native/web/geolocation.js');
 const NATIVE_WEB_MEDIA_CAPTURE_JS = path.join(REPO_ROOT, 'web/static/js/native/web/media-capture.js');
 const NATIVE_WEB_BARCODE_JS = path.join(REPO_ROOT, 'web/static/js/native/web/barcode.js');
-const NATIVE_WEB_REMINDERS_JS = path.join(REPO_ROOT, 'web/static/js/native/web/reminders.js');
 
 const _sourceCache = new Map();
 function readCached(filePath) {
@@ -170,7 +167,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   const { window } = dom;
 
-  // jsdom ships no Streams/Fetch primitives, but every browser (and Capacitor
+  // jsdom ships no Streams/Fetch primitives, but every browser (and the
   // WebView) has them; core/backup-crypto.js gzips through Response +
   // Compression/DecompressionStream. Borrow Node's rather than reshaping the
   // module around a test-env gap.
@@ -280,16 +277,13 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // .med-tabs groups, and bindOnce for the three *Controls scopes.
   evalFileCached(window, TAB_CONTROLLER_JS);
 
-  // Native abstraction layer (Phase 2b). Loaded before feature modules so
-  // window.Barcode / window.MediaCapture / window.Geolocation / window.Reminders
-  // are present when food/scanner.js + food/photo.js (Task 7 refactored
-  // callers) evaluate. Production index.html loads these between
+  // Device-capability abstraction. Loaded before feature modules so
+  // window.Barcode / window.MediaCapture are present when food/scanner.js +
+  // food/photo.js evaluate. Production index.html loads these between
   // cached-fetch.js and features/tab-controller.js.
   evalFileCached(window, NATIVE_INDEX_JS);
-  evalFileCached(window, NATIVE_WEB_GEOLOCATION_JS);
   evalFileCached(window, NATIVE_WEB_MEDIA_CAPTURE_JS);
   evalFileCached(window, NATIVE_WEB_BARCODE_JS);
-  evalFileCached(window, NATIVE_WEB_REMINDERS_JS);
 
   const appSource = disableAutoBootstrap(readCached(APP_JS));
   evalWithSourceURL(window, appSource, APP_JS);

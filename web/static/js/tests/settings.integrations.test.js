@@ -86,7 +86,7 @@ describe('Settings → Integrations section', () => {
 
     it('server mode shows the "restart" note and restart wording in the save toast (med-eas.6)', async () => {
         const { window, document } = env;
-        // Default harness env is server mode (no __MEDTRACKER_CLOUD__, no Capacitor).
+        // Default harness env is server mode (no __MEDTRACKER_CLOUD__).
         const note = document.getElementById('integrations-restart-note');
         expect(note).not.toBeNull();
         expect(note.hidden).toBe(false);

@@ -7,9 +7,8 @@
 //
 //   1. window.FoodActions.triggerPhotoPicker is a function after the
 //      frontend boots — it's not lazily attached on food-section mount.
-//   2. Calling it invokes window.MediaCapture.pickPhoto (Phase 2b
-//      abstraction seam) — on web that opens a hidden <input type=file>;
-//      under the Capacitor Android shell it opens @capacitor/camera.
+//   2. Calling it invokes window.MediaCapture.pickPhoto (the abstraction
+//      seam), which opens a hidden <input type=file>;
 //   3. The change handler that routes the static #food-photo-input's
 //      file into uploadFoodPhoto remains wired at app startup
 //      (DOMContentLoaded), preserving the legacy fallback surface — the

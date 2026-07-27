@@ -307,36 +307,17 @@
     })();
 
     // loadTelegramSdk — dynamically injects telegram.org/js/telegram-web-app.js
-    // when running in a real browser without the SDK already present. The
-    // static <script> tag was removed from index.html so the Capacitor mobile
-    // APK never makes a network call to telegram.org; this helper now owns
-    // that load for the web build. Returns a Promise that resolves on the
-    // script's load/error events (or immediately when injection is skipped).
+    // when running in a real browser without the SDK already present. There is
+    // no static <script> tag in index.html, so cloud mode never phones
+    // telegram.org; this helper owns the load for the bot-mode web build.
+    // Returns a Promise that resolves on the script's load/error events (or
+    // immediately when injection is skipped).
     //
-    //   native Capacitor          → no injection, resolves immediately
+    //   cloud mode                → no injection, resolves immediately
     //   window.Telegram.WebApp    → no injection, resolves immediately
     //   prior injection in DOM    → no duplicate, awaits the existing tag
     //   otherwise                 → injects + resolves on load/error
     function loadTelegramSdk() {
-        try {
-            const cap = (typeof window !== 'undefined') ? window.Capacitor : null;
-            if (cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform()) {
-                return Promise.resolve();
-            }
-        } catch (e) { /* fall through */ }
-
-        // Embedded-shell signal: once MainActivity redirects the WebView to
-        // http://127.0.0.1:<port>, window.Capacitor is gone (plain HTTP origin,
-        // not the capacitor:// scheme) but the JavaScriptInterface binding
-        // persists across navigations and window.__MEDTRACKER_BOOTSTRAP__ is
-        // re-set by native-bootstrap.js. Either marker means "embedded mobile
-        // shell — never reach out to telegram.org."
-        try {
-            if (typeof window !== 'undefined' && (window.MedtrackerNative || window.__MEDTRACKER_BOOTSTRAP__)) {
-                return Promise.resolve();
-            }
-        } catch (e) { /* fall through */ }
-
         // Cloud-mode signal (web/cloud/js/cloud-boot.js sets this before any
         // other script runs): the E2EE origin's CSP (default-src 'self') would
         // block telegram.org outright, and there is no Telegram identity here
@@ -389,8 +370,8 @@
     // Async upgrade: once the dynamic SDK load completes on the web build,
     // re-pick the adapter so Telegram Mini App users still get the
     // TelegramAdapter even though the static <script> tag in index.html is
-    // gone. On native Capacitor / when Telegram is already present, this
-    // resolves immediately and the re-pick is a no-op. Re-fires init() on
+    // gone. When Telegram is already present this resolves immediately and
+    // the re-pick is a no-op. Re-fires init() on
     // the upgraded adapter so ready()/expand() actually run for late
     // Telegram arrivals, and refreshes window.userInitData so
     // makeAuthHeaders() sees the Telegram initData on subsequent requests
