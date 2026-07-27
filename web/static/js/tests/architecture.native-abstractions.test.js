@@ -10,9 +10,9 @@
  *     `BarcodeDetector`) may only appear inside `native/`. No allowlist —
  *     `native/` owns the platform impls, feature code asks the abstraction.
  *
- *  2. `Capacitor.isNativePlatform` is allowlisted to the files that use it as a
- *     *shell-presence UI gate* (show/hide a screen or a row). Using it to route
- *     a device capability is the bug this guard exists to prevent.
+ *  2. No frontend file reads `window.Capacitor` / `isNativePlatform`. The
+ *     Capacitor shell was removed; a reappearing reference means someone is
+ *     branching on a runtime that no longer ships.
  *
  * Tests are excluded: they legitimately stub both seams.
  */
@@ -30,25 +30,8 @@ const NATIVE_DIR = 'web/static/js/native';
 /** Device-capability globals `native/` owns. */
 const CAPABILITY_RE = /navigator\.mediaDevices|getUserMedia|BarcodeDetector/;
 
-/**
- * Files permitted to read `Capacitor.isNativePlatform`, each because it gates
- * UI on shell presence — not because it routes a device capability.
- *
- * `features/food/scanner.js` is deliberately absent: it asks
- * `window.Barcode.hasNativeScanner()` instead (med-9lq).
- */
-const IS_NATIVE_PLATFORM_ALLOWLIST = new Map([
-    ['web/static/js/core/native-bootstrap.js',
-        'bootstrap — probes the shell to pick web vs capacitor impls; this is the abstraction'],
-    ['web/static/js/core/messenger-adapter.js',
-        'decides whether to load the Telegram SDK at all (CLAUDE.md rule 11)'],
-    ['web/static/js/features/firstrun/permissions.js',
-        'shell-presence UI gate — shows the native-only permission screen'],
-    ['web/static/js/features/firstrun/screens/permissions.js',
-        'shell-presence UI gate — same screen, render side'],
-    ['web/static/js/features/settings/integrations.js',
-        'shell-presence UI gate — shows a native-only settings row'],
-]);
+/** The removed Capacitor shell. */
+const CAPACITOR_RE = /isNativePlatform|window\.Capacitor/;
 
 /** Recursively collect *.js files, skipping tests/ and *.min.js. */
 function collectJsFiles(dir, results = []) {
@@ -65,11 +48,11 @@ function collectJsFiles(dir, results = []) {
     return results;
 }
 
+const allFiles = () => collectJsFiles(JS_ROOT).map(f => path.relative(REPO_ROOT, f));
+
 /** Non-test JS outside native/, as repo-relative paths. */
 function nonNativeFiles() {
-    return collectJsFiles(JS_ROOT)
-        .map(f => path.relative(REPO_ROOT, f))
-        .filter(rel => !rel.startsWith(NATIVE_DIR + path.sep));
+    return allFiles().filter(rel => !rel.startsWith(NATIVE_DIR + path.sep));
 }
 
 const read = rel => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
@@ -88,30 +71,26 @@ describe('Architecture – native platform abstractions guard', () => {
         }
     });
 
-    it('no file outside native/ reads Capacitor.isNativePlatform unless allowlisted', () => {
-        const violations = nonNativeFiles()
-            .filter(rel => !IS_NATIVE_PLATFORM_ALLOWLIST.has(rel))
-            .filter(rel => read(rel).includes('isNativePlatform'));
+    it('no frontend file references the removed Capacitor shell', () => {
+        const violations = allFiles().filter(rel => CAPACITOR_RE.test(read(rel)));
 
         if (violations.length > 0) {
             throw new Error(
-                'Capacitor.isNativePlatform is a shell-presence check, not a device-capability router.\n' +
-                'If this file routes a capability, ask the abstraction instead. If it gates UI, add it to ' +
-                'IS_NATIVE_PLATFORM_ALLOWLIST in architecture.native-abstractions.test.js with a justification:\n\n' +
+                'The Capacitor / Android shell was removed — window.Capacitor and isNativePlatform ' +
+                'no longer exist at runtime, so branching on them is dead code:\n\n' +
                 violations.map(v => `  • ${v}`).join('\n')
             );
         }
     });
 
-    it('the isNativePlatform allowlist has no stale entries', () => {
-        for (const [rel, reason] of IS_NATIVE_PLATFORM_ALLOWLIST) {
-            expect(reason.length, `${rel} needs a justification`).toBeGreaterThan(10);
-            expect(fs.existsSync(path.join(REPO_ROOT, rel)), `${rel} no longer exists`).toBe(true);
-            expect(read(rel).includes('isNativePlatform'), `${rel} no longer uses isNativePlatform — drop it`).toBe(true);
+    it('every capability the foundation stubs has a registered web impl', () => {
+        const foundation = read(path.join(NATIVE_DIR, 'index.js'));
+        for (const capability of ['MediaCapture', 'Barcode']) {
+            expect(foundation).toContain(`window.${capability} = makeStub('${capability}'`);
+            const impls = collectJsFiles(path.join(REPO_ROOT, NATIVE_DIR, 'web'))
+                .map(f => fs.readFileSync(f, 'utf8'))
+                .filter(src => src.includes(`registerImpl('${capability}', 'web'`));
+            expect(impls.length, `${capability} has no web impl`).toBe(1);
         }
-    });
-
-    it('the food scanner is not on the allowlist', () => {
-        expect(IS_NATIVE_PLATFORM_ALLOWLIST.has('web/static/js/features/food/scanner.js')).toBe(false);
     });
 });

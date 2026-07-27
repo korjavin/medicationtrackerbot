@@ -1,16 +1,12 @@
 // messenger-adapter.telegram-load.test.js
 //
-// Covers the dynamic-load shim added to core/messenger-adapter.js (plan
-// 2026-05-23-fix-apk-spawn-and-strip-telegram, Task 4). Removing the static
-// <script src="https://telegram.org/js/telegram-web-app.js"> tag from
-// index.html means the mobile Capacitor APK no longer pulls telegram.org,
-// while the web build keeps Telegram Mini App support by injecting the SDK
-// from the adapter at runtime — but only when not running under Capacitor and
-// not already present.
+// Covers the dynamic-load shim in core/messenger-adapter.js. There is no
+// static <script src="https://telegram.org/js/telegram-web-app.js"> tag in
+// index.html, so cloud mode never pulls telegram.org; bot mode keeps Telegram
+// Mini App support by injecting the SDK from the adapter at runtime.
 //
 // Three cases:
-//   1. window.Capacitor.isNativePlatform() → true: no script tag injected;
-//      BrowserAdapter selected.
+//   1. cloud mode: no script tag injected; BrowserAdapter selected.
 //   2. browser, no Telegram in window: telegram-web-app.js script tag is
 //      injected into document.head with the expected attributes.
 //   3. browser, window.Telegram.WebApp already present: no duplicate
@@ -49,24 +45,11 @@ function findTelegramScripts(window) {
 }
 
 describe('MessengerAdapter — dynamic Telegram SDK load', () => {
-    it('skips injection and selects BrowserAdapter when running under Capacitor', () => {
-        const dom = makeDom();
-        const { window } = dom;
-        try {
-            window.Capacitor = { isNativePlatform: () => true };
-            evalAdapter(window);
-            expect(findTelegramScripts(window)).toHaveLength(0);
-            expect(window.MessengerAdapter.isPresent()).toBe(false);
-            expect(window.MessengerAdapter.authHeaderName()).toBe(null);
-        } finally { dom.window.close(); }
-    });
-
     it('injects telegram-web-app.js into document.head when running in a plain browser without Telegram', () => {
         const dom = makeDom();
         const { window } = dom;
         try {
             expect(window.Telegram).toBeUndefined();
-            expect(window.Capacitor).toBeUndefined();
             evalAdapter(window);
             const scripts = findTelegramScripts(window);
             expect(scripts).toHaveLength(1);
@@ -88,27 +71,11 @@ describe('MessengerAdapter — dynamic Telegram SDK load', () => {
         } finally { dom.window.close(); }
     });
 
-    it('skips injection when the embedded mobile shell exposes window.MedtrackerNative (post-redirect to http://127.0.0.1)', () => {
+    it('skips injection in cloud mode (window.__MEDTRACKER_CLOUD__)', () => {
         const dom = makeDom();
         const { window } = dom;
         try {
-            // Once MainActivity redirects the WebView to the Go server,
-            // window.Capacitor is gone (different origin) but the
-            // addJavascriptInterface binding persists. The adapter must
-            // treat MedtrackerNative as an equally authoritative
-            // "embedded shell" signal and skip the Telegram CDN fetch.
-            window.MedtrackerNative = { apiBase: () => 'http://127.0.0.1:44665' };
-            evalAdapter(window);
-            expect(findTelegramScripts(window)).toHaveLength(0);
-            expect(window.MessengerAdapter.isPresent()).toBe(false);
-        } finally { dom.window.close(); }
-    });
-
-    it('skips injection when window.__MEDTRACKER_BOOTSTRAP__ is set by native-bootstrap.js', () => {
-        const dom = makeDom();
-        const { window } = dom;
-        try {
-            window.__MEDTRACKER_BOOTSTRAP__ = { apiBase: 'http://127.0.0.1:44665' };
+            window.__MEDTRACKER_CLOUD__ = {};
             evalAdapter(window);
             expect(findTelegramScripts(window)).toHaveLength(0);
             expect(window.MessengerAdapter.isPresent()).toBe(false);

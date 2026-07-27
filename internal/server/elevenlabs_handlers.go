@@ -16,7 +16,7 @@ import (
 // ElevenLabsConfig is the per-Server view of ElevenLabs Voice Agent
 // credentials. cmd/bot/main.go assembles it from internal/config and injects
 // it via SetElevenLabsConfig so the handlers stop reading os.Getenv at
-// request time — that read pattern made local-only / mobile builds (which
+// request time — that read pattern made settings-driven deployments (which
 // have no environment to read from) impossible without this hook.
 type ElevenLabsConfig struct {
 	APIKey  string
@@ -24,7 +24,7 @@ type ElevenLabsConfig struct {
 }
 
 // SetElevenLabsConfig is the wiring point for the Voice Agent proxy. Safe
-// to call at any time — the mobile build invokes it from the integrations
+// to call at any time — cmd/bot invokes it from the integrations
 // hot-reload path while handlers concurrently read the snapshot via
 // elevenLabsConfig().
 func (s *Server) SetElevenLabsConfig(cfg ElevenLabsConfig) {

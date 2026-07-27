@@ -254,10 +254,10 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	userID := tgUser.ID
 	bootstrapCursor := s.currentChangeCursor()
 
-	// needs_first_run drives the mobile first-run overlay (Phase 2c). The
+	// needs_first_run drives the first-run overlay. The
 	// flag defaults to 0 on a brand-new DB and is backfilled to 1 by
 	// migration 071 only when medications already exist — so server installs
-	// and already-onboarded mobile installs never see the overlay while a
+	// and already-onboarded installs never see the overlay while a
 	// truly fresh install surfaces needs_first_run=true. A read error
 	// degrades to true=complete (i.e. needs_first_run=false) so a transient
 	// settings hiccup does not punt every authenticated user into the
@@ -268,7 +268,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	// INSERT OR IGNORE so every subsequent settings read (getFeatureMap,
 	// GetTabOrder, GetDismissedTZSuggestion) sees the column defaults
 	// instead of sql.ErrNoRows. Without this ordering the lazy-insert
-	// defense added in Task 2 of the mobile onboarding plan would be
+	// defense added in Task 2 of the onboarding plan would be
 	// unreachable from /api/bootstrap because getFeatureMap's GetBool
 	// calls would 500 first.
 	firstRunComplete, err := s.settings.GetFirstRunComplete(ctx)

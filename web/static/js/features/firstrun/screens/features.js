@@ -1,5 +1,5 @@
 // features/firstrun/screens/features.js — feature picker step (med-4pz.2).
-// Sits between "permissions" and "integrations": the user chooses which
+// Sits between "welcome" and "integrations": the user chooses which
 // tracking sections they want *before* the BYO-keys screen, because the
 // keys only matter for features they kept (the food-DB key is pointless
 // with food off).

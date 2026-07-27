@@ -7,7 +7,7 @@ import (
 )
 
 // handleFirstRunComplete handles POST /api/firstrun/complete. It is the
-// dismissal hook for the mobile first-run overlay (Phase 2c): a fresh DB
+// dismissal hook for the first-run overlay: a fresh DB
 // surfaces needs_first_run=true on /api/bootstrap, the user walks (or skips)
 // the welcome/permissions/integrations/done screens, and the final step posts
 // here to flip first_run_complete to 1 so the overlay never re-mounts.

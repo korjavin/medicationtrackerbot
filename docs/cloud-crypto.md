@@ -164,9 +164,9 @@ Push arrives at the service worker in the background: **no user gesture, no WebA
 
 ## Local at-rest posture
 
-Same stance as the Capacitor build's Phase 2c decision: **the E2EE boundary is the cloud; the local boundary is the OS.**
+**The E2EE boundary is the cloud; the local boundary is the OS.**
 
-- Local plaintext cache (Dexie/IndexedDB) and NK are protected by device unlock + OS full-disk encryption, exactly like the APK's SQLite file.
+- Local plaintext cache (Dexie/IndexedDB) and NK are protected by device unlock + OS full-disk encryption, the same posture any locally-stored database gets.
 - The LDK is a **non-extractable** WebCrypto key structured-cloned into IndexedDB. That is a *script-level* guarantee: on-origin JS (e.g. an XSS payload) can *use* it but can never export raw bits. It is **not** disk-forensics protection — the browser profile on disk is the OS's problem. Stating this precisely matters; non-extractable keys are commonly oversold.
 - **Strict mode** (later, optional): no LDK cache — a passkey ceremony on every launch, DEK memory-only. One biometric tap per open; offered, not default.
 

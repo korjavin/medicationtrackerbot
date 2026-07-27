@@ -41,9 +41,9 @@ describe('WGFirstRun.state — step tracker', () => {
     it('setStep persists a valid step to sessionStorage under wg-firstrun-step', () => {
         const { window, cleanup } = loadState();
         try {
-            window.WGFirstRun.state.setStep('permissions');
-            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('permissions');
-            expect(window.WGFirstRun.state.getStep()).toBe('permissions');
+            window.WGFirstRun.state.setStep('features');
+            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('features');
+            expect(window.WGFirstRun.state.getStep()).toBe('features');
         } finally { cleanup(); }
     });
 
@@ -83,7 +83,7 @@ describe('WGFirstRun.state — step tracker', () => {
         const { window, cleanup } = loadState();
         try {
             expect(Array.from(window.WGFirstRun.state.VALID_STEPS)).toEqual([
-                'welcome', 'permissions', 'features', 'integrations', 'done',
+                'welcome', 'features', 'integrations', 'done',
             ]);
         } finally { cleanup(); }
     });

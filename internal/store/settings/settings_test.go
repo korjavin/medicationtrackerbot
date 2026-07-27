@@ -123,14 +123,14 @@ func TestFirstRunComplete(t *testing.T) {
 // the singleton settings row is missing at the moment GetFirstRunComplete is
 // called. The accessor must lazy-insert the row (so the bootstrap handler does
 // not fall back to err→firstRunComplete=true and suppress the firstrun overlay
-// on a truly fresh mobile install) and report needs_first_run=true (i.e.
+// on a truly fresh install) and report needs_first_run=true (i.e.
 // first_run_complete=false).
 func TestGetFirstRunComplete_LazyInsertsRowOnFreshDB(t *testing.T) {
 	r := setupSettingsRepo(t)
 	ctx := context.Background()
 
 	// Migration 006 seeds the singleton row by default; delete it here to
-	// simulate the "row went missing" corner case that Task 2 of the mobile
+	// simulate the "row went missing" corner case that Task 2 of the
 	// onboarding plan needs to recover from.
 	if _, err := r.db.ExecContext(ctx, "DELETE FROM settings WHERE id = 1"); err != nil {
 		t.Fatalf("delete seed settings row: %v", err)

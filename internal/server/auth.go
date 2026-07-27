@@ -216,15 +216,6 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 
-	// On the mobile build, the request was already resolved to the local
-	// user by LocalUserResolver — there is no cookie, no Telegram, no OIDC.
-	// The build-tagged hook below writes authenticated:true and returns true
-	// so app.js skips the login screen entirely. The !mobile sibling is a
-	// no-op that falls through to the cookie/demo path.
-	if tryMobileAuthOverride(w) {
-		return
-	}
-
 	response := struct {
 		Authenticated bool   `json:"authenticated"`
 		Method        string `json:"method,omitempty"`

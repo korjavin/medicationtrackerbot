@@ -93,7 +93,7 @@ type FoodProductsFilter struct {
 type Repo struct {
 	db *storedb.DB
 	// remoteMu guards remoteCfg so that SetRemoteConfig (now invoked from
-	// the mobile build's integrations hot-reload path while HTTP handlers
+	// the integrations hot-reload path while HTTP handlers
 	// concurrently serve SearchRemoteAPI) does not race with readers.
 	remoteMu  sync.RWMutex
 	remoteCfg RemoteConfig
@@ -117,7 +117,7 @@ func New(d *storedb.DB) *Repo {
 }
 
 // SetRemoteConfig swaps in the remote-search configuration. Safe to call at
-// any time — the mobile build invokes it from the integrations hot-reload
+// any time — cmd/bot invokes it from the integrations hot-reload
 // path while HTTP handlers are concurrently reading the snapshot via
 // RemoteConfigSnapshot.
 func (r *Repo) SetRemoteConfig(cfg RemoteConfig) {

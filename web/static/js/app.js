@@ -144,40 +144,13 @@ async function checkAuth() {
     await hydrateMedicationsFromDexie();
     await hydrateSectionsFromDexie();
 
-    // Embedded-shell short-circuit (Capacitor APK / mobile build). The native
-    // bootstrap shim sets window.__MEDTRACKER_BOOTSTRAP__.apiBase before this
-    // script runs (see core/native-bootstrap.js). On the mobile build the Go
-    // binary uses LocalUserResolver — every request is trusted, there is no
-    // cookie, and the Telegram login UI is meaningless. Skip the /auth/status
-    // probe, the cached-cookie logic, and the login fallback; go straight to
-    // /api/bootstrap so the firstrun overlay can mount on a fresh install.
-    if (window.__MEDTRACKER_BOOTSTRAP__ && window.__MEDTRACKER_BOOTSTRAP__.apiBase) {
-        sessionStorage.removeItem('medtracker_auth_reload_in_progress');
-        saveAuthState('local');
-        const bootstrap = await apiCall(bootstrapURL(), 'GET');
-        if (bootstrap) {
-            await applyBootstrapPayload(bootstrap);
-        } else {
-            await loadInitData();
-            if (!window.SettingsState.isLoaded() && window.DataStore) {
-                try {
-                    const cachedBundle = await window.DataStore.getCached('settings_bundle');
-                    if (cachedBundle) {
-                        hydrateFeatureSettingsFromBundle(cachedBundle);
-                    }
-                } catch (_) { /* best-effort cache read */ }
-            }
-        }
-        return true;
-    }
-
-    // Cloud-mode short-circuit (mirrors the embedded-shell branch above).
-    // web/cloud/js/cloud-boot.js sets window.__MEDTRACKER_CLOUD__ synchronously
-    // before any other script runs, then asynchronously warm-unlocks the vault
-    // and installs the apiCall shim (window.offlineAwareApiCall) — unlike the
-    // mobile apiBase value, that install is not ready yet at this point, so we
-    // await window.MedTrackerCloudReady before touching the network. There is
-    // no cookie and the Telegram login UI is meaningless here either.
+    // Cloud-mode short-circuit. web/cloud/js/cloud-boot.js sets
+    // window.__MEDTRACKER_CLOUD__ synchronously before any other script runs,
+    // then asynchronously warm-unlocks the vault and installs the apiCall shim
+    // (window.offlineAwareApiCall) — that install is not ready yet at this
+    // point, so we await window.MedTrackerCloudReady before touching the
+    // network. There is no cookie and the Telegram login UI is meaningless
+    // here.
     if (window.__MEDTRACKER_CLOUD__) {
         if (window.MedTrackerCloudReady) {
             try { await window.MedTrackerCloudReady; } catch (_) { /* boot() already redirects to /unlock on failure */ }

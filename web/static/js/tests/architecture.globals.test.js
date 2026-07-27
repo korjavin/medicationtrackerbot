@@ -54,7 +54,6 @@ const ALLOWED_GLOBALS = new Set([
     'window.apiCallDirect',             // core/api.js — low-level fetch used by data-store.js
     'window.makeAuthHeaders',           // core/api.js — auth header construction shared by direct-fetch callers (streaming food product search, multipart food-photo upload, ElevenLabs URL fetch, BP/weight CSV exports) that cannot route through apiCallDirect
     'window.makeWriteHeaders',          // core/api.js — makeAuthHeaders + X-Client-ID for direct-fetch *write* sites (food photo POST, food description POST, food log DELETE) so the backend's notifyOnWriteMiddleware can echo the originating clientId back via source_client_id on the SSE payload — preventing self-origin banner regressions on long-running AI flows that exceed the 5s timing-window fallback
-    'window.resolveApiUrl',             // core/api.js — prefixes endpoint paths with window.__MEDTRACKER_BOOTSTRAP__.apiBase when injected by the Capacitor shell (Phase 2a, Task 5); falls back to same-origin in browser PWA + server-mode builds
     'window.AppKernel',                 // core/app-kernel.js — module registry
     'window.ChartUtils',               // core/chart-utils.js — shared SVG chart utilities
     'window.escapeHtml',               // core/utils.js — canonical HTML entity escaper; consumed by sync.js debug panel + app.js medication schedule renderer
@@ -185,11 +184,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.SettingsIntegrations',      // features/settings/integrations.js — load + save handlers for the Integrations card (OpenAI / Food / ElevenLabs credentials); routes the save through DataStore.applyOptimistic so the masked GET view repaints immediately on commit and rolls back on failure.
     'window.SettingsImportExport',      // features/settings/importexport.js — Settings → Import/Export section (C2e Task 6). One shared screen for both runtimes: export via CloudVault.exportAll() (cloud) or GET /api/export (bot) with optional browser-side age (BackupCrypto) encryption + Blob download; import reads a .json/.age file, optional decrypt, destructive replace-confirm, then CloudVault.importAll() (cloud) or POST /api/import mode:replace (bot), then reloads. Cloud branch never fetches /api/export|/api/import.
 
-    // Backend logs diagnostics — embedded-Go shell (mobile Phase 2a, Task 5).
-    'window.BackendLogs',               // features/backend-logs.js — Settings → About → "Backend logs" debug screen. Detects window.MedtrackerNative (Capacitor shell's addJavascriptInterface bridge); reveals a "View logs" row that opens a modal showing the last 200 stdout+stderr lines from the embedded Go binary. No-op in browser PWA + server-mode where MedtrackerNative is absent.
-
-    // Capacitor shell bootstrap — embedded-Go shell (mobile Phase 2a, Task 5).
-    'window.__MEDTRACKER_BOOTSTRAP__',  // index.html inline shim — Capacitor shell injects { apiBase: "http://127.0.0.1:<port>" } before WebView load by mirroring window.MedtrackerNative.apiBase(). core/api.js's resolveApiUrl() reads it to prefix relative endpoints. Reserved as the carrier for future shell-injected feature flags. The assignment lives in index.html (not a JS file) so the regex below does not flag it; the allowlist entry exists for documentation and to prevent a future JS-side writer from being silently rejected.
+    'window.__MEDTRACKER_BOOTSTRAP__',  // features/auth-bootstrap.js — mirror of the /api/bootstrap payload's needs_first_run flag so a late-loading firstrun orchestrator can read it without re-fetching.
 
     // Cloud-mode boot shim (C1) — web/cloud/js/cloud-boot.js, injected by
     // internal/cloudserver/router.go ahead of every other script on account
@@ -206,19 +201,13 @@ const ALLOWED_GLOBALS = new Set([
     'window.MedTrackerCloud',           // cloud-boot.js — published once warmUnlock() resolves a non-null ctx ({ accountId, dek }); features/settings.js's cloud Notifications branch reads window.MedTrackerCloud.ctx to call the DOM-free subscribe()/sendTestPush(ctx) helpers without re-deriving the vault key
     'window.CloudVault',                // cloud-boot.js — { exportAll, importAll } for the Settings → Import/Export screen (C2e Task 5): fully client-side full-vault export/import against the unlocked vault via web/domain/vault.js; exportAll reads unmasked integrations module-to-module (never across the /api shim), importAll wipes+relays the record store (preserving nk/reminder prefs) then forces one snapshot upload
 
-    // Native platform abstractions — mobile Phase 2b, Task 1 (foundation).
-    // The four globals below are the seam between feature code and platform
-    // APIs (web/* impls for the PWA, capacitor/* impls for the Android shell).
-    // native/index.js installs stubs that throw NotImplementedError; Tasks
-    // 2–5 of the Phase 2b plan replace each stub with a real web vs Capacitor
-    // selector.
-    // First-run guided setup overlay — mobile Phase 2c, Task 3.
+    // First-run guided setup overlay.
     'window.WGFirstRun',                // features/firstrun/index.js exposes the mount/dismiss/isActive surface for the first-run overlay; state.js attaches the sessionStorage step tracker under `.state`. Mounted once at bootstrap when /api/bootstrap returns needs_first_run: true.
 
-    'window.MediaCapture',              // native/index.js — camera + photo picker abstraction (takePhoto, pickPhoto); web impl wraps getUserMedia + <input type=file>, Capacitor impl wraps @capacitor/camera
-    'window.Geolocation',               // native/index.js — device geolocation abstraction (getCurrentPosition); web impl wraps navigator.geolocation, Capacitor impl wraps @capacitor/geolocation with a 1h in-memory last-known-position cache
-    'window.Barcode',                   // native/index.js — barcode scanner abstraction (scan); web impl uses window.BarcodeDetector with a ZXing fallback, Capacitor impl wraps @capacitor-mlkit/barcode-scanning
-    'window.Reminders',                 // native/index.js — local-notification reminders abstraction (schedule, cancelAll); web impl is a no-op (Web Push owns the browser path via push.js), Capacitor impl wraps @capacitor/local-notifications with replace-all semantics on every appResume
+    // Device-capability abstractions — native/index.js installs stubs that
+    // throw NotImplementedError; the native/web/* impls replace them.
+    'window.MediaCapture',              // native/index.js — camera + photo picker abstraction (takePhoto, pickPhoto, openCameraStream, recordAudio); web impl wraps getUserMedia + <input type=file>
+    'window.Barcode',                   // native/index.js — barcode scanner abstraction (scan, supportsLiveScan); web impl uses window.BarcodeDetector with a ZXing fallback
 ]);
 
 /**

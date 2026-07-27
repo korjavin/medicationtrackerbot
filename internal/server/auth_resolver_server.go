@@ -1,5 +1,3 @@
-//go:build !mobile
-
 package server
 
 import "github.com/korjavin/medicationtrackerbot/internal/server/auth"
@@ -8,9 +6,7 @@ import "github.com/korjavin/medicationtrackerbot/internal/server/auth"
 // Telegram WebApp initData + OIDC session cookie + allowedUserID enforcement.
 // When DEMO_MODE is on (s.demoMode == true) the server skips auth entirely and
 // hands every request to the configured demo user — the public-demo
-// counterpart of the mobile build's LocalUserResolver. The mobile build has a
-// paired file (auth_resolver_mobile.go) that returns a single-user resolver
-// for the Capacitor wrapper instead.
+// counterpart of the Telegram/OIDC path.
 func newDefaultResolver(s *Server) auth.UserResolver {
 	if s.demoMode {
 		return auth.NewDemoUserResolver(auth.User{

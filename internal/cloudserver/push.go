@@ -222,7 +222,7 @@ type putScheduleRequest struct {
 
 // PutSchedule replaces the caller's session account's pending push schedule:
 // every not-yet-sent entry is dropped and the batch is inserted in its place
-// (replace-all, mirroring the Capacitor Reminders loop). Entries the relay
+// (replace-all). Entries the relay
 // has already fired are untouched.
 func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())

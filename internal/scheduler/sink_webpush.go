@@ -1,5 +1,3 @@
-//go:build !mobile
-
 package scheduler
 
 import (
@@ -11,11 +9,9 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/notifier"
 )
 
-// WebPushSink is the server-build ReminderSink. It fans notifications out
-// across the configured notifier.Notifier set (typically Telegram + Web Push)
-// addressed to allowedUserID. Task 6 of the local-only-mode plan tags this
-// file with //go:build !mobile and adds a sibling sink_localnotifications.go
-// for the mobile build.
+// WebPushSink is the ReminderSink. It fans notifications out across the
+// configured notifier.Notifier set (typically Telegram + Web Push) addressed
+// to allowedUserID.
 type WebPushSink struct {
 	notifiers     []notifier.Notifier
 	allowedUserID int64
@@ -27,12 +23,6 @@ type WebPushSink struct {
 // nowhere to be delivered.
 func NewWebPushSink(notifiers []notifier.Notifier, allowedUserID int64) *WebPushSink {
 	return &WebPushSink{notifiers: notifiers, allowedUserID: allowedUserID}
-}
-
-// defaultSink is the server-build tag-aware sink factory. The mobile-build
-// equivalent lives in sink_localnotifications.go.
-func defaultSink(notifiers []notifier.Notifier, allowedUserID int64) ReminderSink {
-	return NewWebPushSink(notifiers, allowedUserID)
 }
 
 // HasChannel reports whether any notifier is configured.

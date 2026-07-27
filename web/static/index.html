@@ -15,13 +15,9 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-    <!-- Capacitor-shell native bootstrap shim. Must run before core/api.js so
-         resolveApiUrl sees window.__MEDTRACKER_BOOTSTRAP__ on first call.
-         External file because the server's CSP blocks inline scripts. -->
-    <script src="/static/js/core/native-bootstrap.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <!-- The Telegram WebApp SDK is loaded dynamically by
-         core/messenger-adapter.js (only when running outside Capacitor) so
-         the mobile APK never makes an external network call for it. -->
+    <!-- The Telegram WebApp SDK is injected at runtime by
+         core/messenger-adapter.js, only in bot mode. Keeping the CDN out of
+         this document is enforced by architecture.no-telegram-in-html.test.js. -->
     <script src="/static/vendor/dexie.min.js"></script>
     <script src="/static/vendor/zxing.min.js"></script>
     <script src="/static/config.js"></script>
@@ -1057,22 +1053,6 @@
                 </div>
             </section>
 
-            <section id="settings-about" class="wg-card wg-settings-section wg-settings-about wg-settings-hidden">
-                <h3 class="wg-settings-section__title">About</h3>
-                <p class="wg-settings-section__desc">Diagnostics for the embedded server</p>
-                <div class="wg-settings-row-list">
-                    <div id="backend-logs-row" class="wg-settings-row hidden">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title">Backend logs</div>
-                            <div class="wg-settings-row__desc">Last 200 log lines from the embedded server (debug)</div>
-                        </div>
-                        <div class="wg-settings-row__control">
-                            <button id="backend-logs-open-btn" type="button" class="wg-gloss wg-settings-action-btn">View logs</button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
             </details>
 
             <div class="wg-settings-version">
@@ -1082,22 +1062,6 @@
         </div>
     </div>
     </div>
-
-    <mt-modal id="backend-logs-modal" class="hidden wg-modal wg-backend-logs-modal">
-        <div class="wg-backend-logs-modal__header">
-            <div class="wg-backend-logs-modal__heading">
-                <span class="wg-section-label wg-backend-logs-modal__eyebrow">Diagnostics</span>
-                <span class="wg-mono-display wg-backend-logs-modal__title">Backend logs</span>
-            </div>
-            <div class="wg-backend-logs-modal__header-actions">
-                <button type="button" id="backend-logs-close-btn"
-                    class="wg-gloss wg-backend-logs-modal__header-btn">Close</button>
-            </div>
-        </div>
-        <div class="wg-backend-logs-modal__body">
-            <pre id="backend-logs-output" class="wg-mono-display wg-backend-logs-modal__output"></pre>
-        </div>
-    </mt-modal>
 
     <!-- Cloud-mode invite claim link (minted by POST /api/invite). The claim
          token lives only in the URL fragment shown here — never persisted. -->
@@ -2196,25 +2160,13 @@
     <script src="/static/js/sync.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/data-store.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/cached-fetch.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <!-- Native platform abstraction foundation (mobile Phase 2b, Task 1).
-         Exposes window.MediaCapture / Geolocation / Barcode / Reminders as
-         stubs that throw NotImplementedError; Tasks 2–5 install real impls.
-         Must load before feature modules so refactored callers (food
-         scanner / food photo) see the globals at module-evaluate time. -->
+    <!-- Device-capability abstraction. Exposes window.MediaCapture /
+         window.Barcode; the web/* impls register themselves. Must load before
+         feature modules so food scanner / food photo see the globals at
+         module-evaluate time. -->
     <script src="/static/js/native/index.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <!-- Native platform impls (mobile Phase 2b, Tasks 2–5). Each file registers
-         its impl via window.Geolocation.__native.registerImpl; the foundation
-         selects between web and capacitor impls based on isNativePlatform().
-         Both impls are loaded so tests / debugging tools can reach the
-         non-selected one via the registry. -->
-    <script src="/static/js/native/web/geolocation.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/native/capacitor/geolocation.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/native/web/media-capture.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/native/capacitor/media-capture.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/native/web/barcode.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/native/capacitor/barcode.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/native/web/reminders.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/native/capacitor/reminders.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <!-- First-run guided setup (mobile Phase 2c). state.js attaches the
          sessionStorage step tracker onto window.WGFirstRun.state;
          index.js attaches the mount/dismiss/isActive surface. Either
@@ -2224,9 +2176,7 @@
          needs_first_run: true, so production server installs (Telegram
          auth, existing user) see no behaviour change. -->
     <script src="/static/js/features/firstrun/state.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/features/firstrun/permissions.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/firstrun/screens/welcome.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/features/firstrun/screens/permissions.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/firstrun/screens/features.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/firstrun/screens/integrations.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/firstrun/screens/done.js?v=TIMESTAMP_PLACEHOLDER"></script>
@@ -2264,7 +2214,6 @@
     <script src="/static/js/features/settings.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/settings/integrations.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/settings/importexport.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/features/backend-logs.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/today.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/journey.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/tz-plan-banner.js?v=TIMESTAMP_PLACEHOLDER"></script>

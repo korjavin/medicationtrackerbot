@@ -6,7 +6,7 @@ import (
 )
 
 // newHTTPServer returns the production HTTP server configuration shared by
-// both server and mobile builds. Timeouts are tuned for: OpenFoodFacts search
+// the server build. Timeouts are tuned for: OpenFoodFacts search
 // (slow, ~30s) on writes; chunked SSE streams; and a generous max header size
 // for token-bearing OIDC redirects.
 func newHTTPServer(addr string, handler http.Handler) *http.Server {

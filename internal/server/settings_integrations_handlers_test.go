@@ -286,7 +286,7 @@ func TestHandleGetIntegrations_EmptySettingsReturnsAllEmpty(t *testing.T) {
 }
 
 // TestHandlePatchIntegrations_InvokesReloaderAfterSuccess asserts the hot
-// reload contract the mobile build depends on: after a successful PATCH the
+// reload contract cmd/bot depends on: after a successful PATCH the
 // registered reloader runs so the freshly-saved OpenAI / Food / ElevenLabs
 // values become live without a process restart. Without this hook the
 // firstrun overlay's "enter key, unlock AI features" promise would fall

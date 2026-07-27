@@ -10,12 +10,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const STATE_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/state.js');
-const PERMISSIONS_SCREEN_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/permissions.js');
 const FEATURES_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/features.js');
 const INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/index.js');
 
 // features/firstrun/screens/features.js — the feature-picker step (med-4pz.2).
-// Sits between "permissions" and "integrations". Toggles write through
+// Sits between "welcome" and "integrations". Toggles write through
 // immediately via the Settings global `toggleFeatureSetting` when it is
 // loaded, falling back to a direct POST when it is not (this harness).
 //
@@ -40,7 +39,7 @@ function loadFlow({ features = null, fetchMock = null, toggleMock = null, initia
     if (toggleMock) window.toggleFeatureSetting = toggleMock;
     if (initialStep) window.sessionStorage.setItem('wg-firstrun-step', initialStep);
 
-    for (const file of [STATE_JS, PERMISSIONS_SCREEN_JS, FEATURES_JS, INDEX_JS]) {
+    for (const file of [STATE_JS, FEATURES_JS, INDEX_JS]) {
         const src = fs.readFileSync(file, 'utf8');
         window.eval(`${src}\n//# sourceURL=file://${file}`);
     }
@@ -347,10 +346,8 @@ describe('firstrun feature picker screen', () => {
         }
     });
 
-    // The permissions screen auto-advances on non-native builds (cloud/web),
-    // which is the path a browser cloud user actually takes into this step.
-    it('is reached from the permissions screen on a web build', () => {
-        const { window, cleanup } = loadFlow({ initialStep: 'permissions', fetchMock: okFetch() });
+    it('is the step the welcome screen advances into', () => {
+        const { window, cleanup } = loadFlow({ initialStep: 'features', fetchMock: okFetch() });
         try {
             window.WGFirstRun.mount();
             expect(window.WGFirstRun.state.getStep()).toBe('features');

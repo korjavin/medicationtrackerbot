@@ -82,7 +82,7 @@ across reloads the payload reporting `false` is the only thing keeping the overl
 **Why the split.** The vault flag answers *"has this human ever been onboarded?"* — that must survive a new
 device. The step tracker answers *"where were they 30 seconds ago?"* — that must not. Syncing a half-finished
 step across devices would resume a wizard on a phone the user never started it on. The existing
-`state.js` comment already reasons this way for Capacitor; the same logic holds for cloud.
+`state.js` comment already reasons this way; the same logic holds for cloud.
 
 **Resume after abandon** therefore falls out for free, and matches today's documented semantics: a mid-session
 kill resumes at the last visible step; a power-cycle (or a different device) wipes `sessionStorage` and
@@ -90,22 +90,21 @@ restarts at `welcome`, because the vault flag is still unset. Intentional, not a
 
 ## Step sequence
 
-Existing registry order is `welcome → permissions → integrations → done` (`state.js:22`, `VALID_STEPS`).
+Existing registry order is `welcome → features → integrations → done` (`state.js`, `VALID_STEPS`).
 The bead asks for `intro → sections tour → feature picker → BYO keys → safety nudges`. Reconciled:
 
 | # | step | status | notes |
 |---|------|--------|-------|
 | 1 | `welcome` | **exists** | reuse. Owns "Skip all" (calls `complete()`). |
 | 2 | `sections` | **new** (`med-4pz.3`) | sections intro / tour |
-| 3 | `features` | **new** (`med-4pz.2`) | feature picker |
+| 3 | `features` | **exists** | feature picker |
 | 4 | `integrations` | **exists** | BYO keys. `med-4pz.3` re-checks copy for cloud. |
 | 5 | `safety` | **new** (`med-4pz.4`) | Emergency Kit + second device |
 | 6 | `done` | **exists** | reuse; `POST /api/firstrun/complete` |
 
-`permissions` is bot/Capacitor-oriented (push permission). Cloud push exists, so **keep it**, but it should
-self-gate to a no-op when permission is already granted — same pattern `renderTelegramStep` uses in the claim
-wizard (`signup.js:239`), which falls straight through when Telegram is disabled. Not verified: whether
-`firstrun/permissions.js` behaves correctly under cloud push. **`med-4pz.4` must check this before assuming.**
+The old `permissions` step was Capacitor-oriented (native OS permission prompts) and was removed with the
+Android shell — browsers surface permission prompts inline at first capability use. If cloud push wants an
+explicit opt-in step, it is a new step, not a revival of that one.
 
 Adding steps means extending the frozen `VALID_STEPS` array in `state.js:22` — it is the single source of
 truth for step validity and unknown names are silently rejected by `setStep`.

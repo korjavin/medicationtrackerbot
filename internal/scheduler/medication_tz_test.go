@@ -1,5 +1,3 @@
-//go:build !mobile
-
 // Tests that exercise WebPushSink delivery semantics via mock notifiers.
 
 package scheduler

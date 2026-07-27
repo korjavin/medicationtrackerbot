@@ -824,8 +824,6 @@ instance (constructed in `cmd/bot/main_server.go`, passed into both `server.New`
 `bot.New`). This is required because `ScoreDay` serializes per user via an in-process
 lock (`scoreMu`) on the service struct — separate instances would let a bot import
 and a server read-rescore for the same user race and stale-overwrite each other.
-The mobile build (`main_mobile.go`) has no bot; it constructs its own server-only
-instance as before.
 
 ### 14.5 Sync honesty — Plan 6 (status)
 
@@ -906,7 +904,7 @@ stays available for other surfaces; the stack is a sibling component, not a rewr
 Per direction this plan added no tests beyond `tests/wg-ring-stack.test.js`;
 verification was `go test ./...` (untouched), `pnpm test` (architecture guards:
 globals allowlist incl. `window.WGRingStack`, design tokens, SW precache; existing
-Today/Journey feature suites), and manual phone-width/Android-emulator smoke.
+Today/Journey feature suites), and manual phone-width smoke.
 
 ### 14.7 Health Score & habit strength — Plan 8 (status)
 
@@ -1165,8 +1163,8 @@ mechanics, no new tables.
     `FormatWeeklyReview` — a thin-channel formatter shared with the
     scheduled digest below, independently phrased from the web card (no
     shared template layer between the two presentation languages).
-  - **Opt-in Sunday digest** (`internal/scheduler/weekly_digest.go`,
-    `!mobile`-tagged): a scheduler job polling for Sunday at
+  - **Opt-in Sunday digest** (`internal/scheduler/weekly_digest.go`):
+    a scheduler job polling for Sunday at
     `WeeklyDigestHour` (19:00, user tz, `Config` constant, no per-user
     customization) for users with both `gamification_enabled` and the new
     `weekly_digest_enabled` flag, sending `FormatWeeklyReview`'s text
@@ -1175,9 +1173,7 @@ mechanics, no new tables.
     `POST /api/settings/features/weekly_digest` surface and a Settings UI
     switch next to the gamification toggle — opt-in per design principles
     #4/#8. Send failures are logged and never retried (a weekly nicety,
-    next week comes) and never affect scoring or other reminders. Mobile
-    build: the Journey card works as-is; the digest job is not wired to
-    `LocalNotificationSink`.
+    next week comes) and never affect scoring or other reminders.
 - **Tone:** neutral-to-positive phrasing only, matching the rest of the
   design's Gentler-Streak stance (§9) — a down week reads as observation
   ("BP logging was lighter this week"), never "you failed"; no red styling

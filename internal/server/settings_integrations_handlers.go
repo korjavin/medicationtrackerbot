@@ -148,11 +148,11 @@ func (s *Server) handleGetIntegrations(w http.ResponseWriter, r *http.Request) {
 // the request body are left untouched.
 //
 // When the embedding binary registered a reloader via SetIntegrationsReloader
-// (mobile build does; server build does not), the new values take effect
+// (cmd/bot does), the new values take effect
 // immediately — the callback re-resolves config from the settings table and
 // rewires the AI client, food remote config, and ElevenLabs config without
 // requiring a process restart. This is what makes the firstrun overlay's
-// "enter key, unlock AI features" promise actually hold on mobile. Without
+// "enter key, unlock AI features" promise actually hold. Without
 // the reloader, the in-memory copies stay at their startup values and a
 // restart is required to pick up the new keys.
 func (s *Server) handleUpdateIntegrations(w http.ResponseWriter, r *http.Request) {

@@ -14,7 +14,7 @@ const INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/index.js'
 
 // features/firstrun/screens/welcome.js — Task 4. Renders the first
 // screen of the post-install overlay (welcome + "Get started" + "Skip
-// all"). "Get started" advances the step tracker to "permissions";
+// all"). "Get started" advances the step tracker to "features";
 // "Skip all" POSTs /api/firstrun/complete and dismisses without
 // touching the remaining screens.
 
@@ -67,7 +67,7 @@ describe('firstrun welcome screen', () => {
         } finally { cleanup(); }
     });
 
-    it('"Get started" advances the step tracker to permissions', () => {
+    it('"Get started" advances the step tracker to features', () => {
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
         });
@@ -75,12 +75,12 @@ describe('firstrun welcome screen', () => {
             window.WGFirstRun.mount();
             const getStarted = document.querySelector('[data-firstrun-action="advance"]');
             getStarted.click();
-            expect(window.WGFirstRun.state.getStep()).toBe('permissions');
-            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('permissions');
+            expect(window.WGFirstRun.state.getStep()).toBe('features');
+            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('features');
         } finally { cleanup(); }
     });
 
-    it('"Get started" re-renders the panel (permissions screen unregistered → empty body)', () => {
+    it('"Get started" re-renders the panel (features screen unregistered → empty body)', () => {
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
         });

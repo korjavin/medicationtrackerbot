@@ -10,7 +10,7 @@ import (
 
 // TestFirstRunComplete_Idempotent confirms POST /api/firstrun/complete can be
 // called repeatedly without error and that the underlying flag converges to
-// true. The mobile shell may retry the dismissal on transient network blips,
+// true. A client may retry the dismissal on transient network blips,
 // so the endpoint must accept a duplicate POST as a no-op rather than a 4xx.
 func TestFirstRunComplete_Idempotent(t *testing.T) {
 	srv, db := createBPTestServer(t)
@@ -18,8 +18,8 @@ func TestFirstRunComplete_Idempotent(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Pre-condition: simulate a fresh mobile DB where the first-run flow has
-	// not been dismissed. The migration default for new mobile rows is 0;
+	// Pre-condition: simulate a fresh DB where the first-run flow has
+	// not been dismissed. The migration default for new rows is 0;
 	// existing test rows get backfilled to 1, so flip it explicitly.
 	if err := db.Settings.SetFirstRunComplete(ctx, false); err != nil {
 		t.Fatalf("seed SetFirstRunComplete(false): %v", err)
@@ -79,7 +79,7 @@ func TestFirstRunComplete_PersistsFlag(t *testing.T) {
 		t.Fatalf("seed SetFirstRunComplete(false): %v", err)
 	}
 
-	// Sanity: precondition matches a fresh mobile install.
+	// Sanity: precondition matches a fresh install.
 	pre, err := db.Settings.GetFirstRunComplete(ctx)
 	if err != nil {
 		t.Fatalf("pre GetFirstRunComplete: %v", err)

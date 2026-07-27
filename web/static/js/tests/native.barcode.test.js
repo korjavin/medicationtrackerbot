@@ -1,12 +1,10 @@
 /**
  * native.barcode.test.js
  *
- * Pins the Phase 2b Task 4 Barcode abstraction contract: a web impl that
- * wraps window.BarcodeDetector with a ZXing fallback for still images, a
- * Capacitor impl wrapping window.Capacitor.Plugins.BarcodeScanner, both
- * returning { format, rawValue } on success or null when nothing was
- * decoded / the user canceled. The runtime selector in native/index.js
- * picks one based on isNativePlatform().
+ * Pins the Barcode abstraction contract: a web impl that wraps
+ * window.BarcodeDetector with a ZXing fallback for still images, returning
+ * { format, rawValue } on success or null when nothing was decoded / the
+ * user canceled.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
@@ -19,16 +17,14 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const NATIVE_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/native/index.js');
 const WEB_BC_JS = path.join(REPO_ROOT, 'web/static/js/native/web/barcode.js');
-const CAP_BC_JS = path.join(REPO_ROOT, 'web/static/js/native/capacitor/barcode.js');
 
-function loadEnv({ capacitor, barcodeDetector, zxing } = {}) {
+function loadEnv({ barcodeDetector, zxing } = {}) {
     const dom = new JSDOM('<!doctype html><html><body></body></html>', {
         url: 'http://app.example.test/',
         runScripts: 'outside-only',
         pretendToBeVisual: true,
     });
     const { window } = dom;
-    if (capacitor !== undefined) window.Capacitor = capacitor;
     if (barcodeDetector !== undefined) window.BarcodeDetector = barcodeDetector;
     if (zxing !== undefined) window.ZXing = zxing;
     const evalFile = (file) => {
@@ -37,7 +33,6 @@ function loadEnv({ capacitor, barcodeDetector, zxing } = {}) {
     };
     evalFile(NATIVE_INDEX_JS);
     evalFile(WEB_BC_JS);
-    evalFile(CAP_BC_JS);
     return { window, cleanup: () => dom.window.close() };
 }
 
@@ -54,7 +49,7 @@ describe('native/web/barcode.js — web impl', () => {
     let env;
     afterEach(() => { if (env) env.cleanup(); env = null; });
 
-    it('is selected as window.Barcode when Capacitor is absent', () => {
+    it('is registered as window.Barcode', () => {
         env = loadEnv();
         const webImpl = env.window.Barcode.__native.getImpl('Barcode', 'web');
         expect(env.window.Barcode).toBe(webImpl);
@@ -246,11 +241,6 @@ describe('native/web/barcode.js — web impl', () => {
         expect(revokeObjectURL.mock.calls[0][0]).toBe('blob:fake/url');
     });
 
-    it('hasNativeScanner() is false — the browser has no full-screen scanner UI', () => {
-        env = loadEnv();
-        expect(env.window.Barcode.hasNativeScanner()).toBe(false);
-    });
-
     it('supportsLiveScan() follows window.BarcodeDetector presence, probed at call time', () => {
         env = loadEnv();
         expect(env.window.Barcode.supportsLiveScan()).toBe(false);
@@ -278,135 +268,5 @@ describe('native/web/barcode.js — web impl', () => {
         expect(caught).toBeDefined();
         expect(caught.name).toBe('BarcodeError');
         expect(/unsupported source/i.test(caught.message)).toBe(true);
-    });
-});
-
-describe('native/capacitor/barcode.js — Capacitor impl', () => {
-    let env;
-    afterEach(() => { if (env) env.cleanup(); env = null; });
-
-    function makeCapacitor({ scan }) {
-        return {
-            isNativePlatform: () => true,
-            Plugins: {
-                BarcodeScanner: { scan },
-            },
-        };
-    }
-
-    it('is selected as window.Barcode when isNativePlatform() is true', () => {
-        env = loadEnv({
-            capacitor: makeCapacitor({ scan: vi.fn() }),
-        });
-        const capImpl = env.window.Barcode.__native.getImpl('Barcode', 'capacitor');
-        expect(env.window.Barcode).toBe(capImpl);
-    });
-
-    it('scan() opens MLKit and returns the first barcode as { format, rawValue }', async () => {
-        const scan = vi.fn().mockResolvedValue({
-            barcodes: [
-                { rawValue: '0123456789012', format: 'EAN_13', displayValue: '0123456789012' },
-            ],
-        });
-        env = loadEnv({ capacitor: makeCapacitor({ scan }) });
-        const result = await env.window.Barcode.scan();
-        expect(scan).toHaveBeenCalledWith({});
-        expect(result).toEqual({ format: 'EAN_13', rawValue: '0123456789012' });
-    });
-
-    it('uppercases the formats list when handing it to MLKit', async () => {
-        const scan = vi.fn().mockResolvedValue({
-            barcodes: [{ rawValue: 'x', format: 'QR_CODE' }],
-        });
-        env = loadEnv({ capacitor: makeCapacitor({ scan }) });
-        await env.window.Barcode.scan({ formats: ['qr_code', 'ean_13'] });
-        expect(scan).toHaveBeenCalledWith({ formats: ['QR_CODE', 'EAN_13'] });
-    });
-
-    it('returns null when MLKit resolves with an empty barcodes array (user dismiss)', async () => {
-        const scan = vi.fn().mockResolvedValue({ barcodes: [] });
-        env = loadEnv({ capacitor: makeCapacitor({ scan }) });
-        const result = await env.window.Barcode.scan();
-        expect(result).toBeNull();
-    });
-
-    it('returns null when MLKit rejects with a "User cancelled" message', async () => {
-        const scan = vi.fn().mockRejectedValue(new Error('User cancelled scan'));
-        env = loadEnv({ capacitor: makeCapacitor({ scan }) });
-        const result = await env.window.Barcode.scan();
-        expect(result).toBeNull();
-    });
-
-    it('returns null on a generic "canceled" rejection (single-l variant)', async () => {
-        const scan = vi.fn().mockRejectedValue(new Error('scan canceled'));
-        env = loadEnv({ capacitor: makeCapacitor({ scan }) });
-        const result = await env.window.Barcode.scan();
-        expect(result).toBeNull();
-    });
-
-    it('normalizes permission-denied errors to BarcodeError / PERMISSION_DENIED', async () => {
-        const scan = vi.fn().mockRejectedValue(new Error('Camera permission was denied'));
-        env = loadEnv({ capacitor: makeCapacitor({ scan }) });
-        let caught;
-        try { await env.window.Barcode.scan(); }
-        catch (e) { caught = e; }
-        expect(caught).toBeDefined();
-        expect(caught.name).toBe('BarcodeError');
-        expect(caught.code).toBe('PERMISSION_DENIED');
-    });
-
-    it('hasNativeScanner() is true and supportsLiveScan() is false (MLKit owns the UI)', () => {
-        env = loadEnv({ capacitor: makeCapacitor({ scan: vi.fn() }), barcodeDetector: function () {} });
-        expect(env.window.Barcode.hasNativeScanner()).toBe(true);
-        // Even with a BarcodeDetector present in the WebView, the in-app frame
-        // loop must never run in the shell.
-        expect(env.window.Barcode.supportsLiveScan()).toBe(false);
-    });
-
-    it('rejects with UNAVAILABLE when Capacitor.Plugins.BarcodeScanner is missing', async () => {
-        env = loadEnv({ capacitor: { isNativePlatform: () => true, Plugins: {} } });
-        let caught;
-        try { await env.window.Barcode.scan(); }
-        catch (e) { caught = e; }
-        expect(caught).toBeDefined();
-        expect(caught.name).toBe('BarcodeError');
-        expect(caught.code).toBe('UNAVAILABLE');
-    });
-});
-
-describe('native/index.js — runtime selector after Task 4', () => {
-    let env;
-    afterEach(() => { if (env) env.cleanup(); env = null; });
-
-    it('selects the web Barcode impl when Capacitor.isNativePlatform() is false', () => {
-        env = loadEnv({ capacitor: { isNativePlatform: () => false } });
-        const web = env.window.Barcode.__native.getImpl('Barcode', 'web');
-        expect(env.window.Barcode).toBe(web);
-    });
-
-    it('selects the Capacitor Barcode impl when Capacitor.isNativePlatform() is true', () => {
-        env = loadEnv({
-            capacitor: { isNativePlatform: () => true, Plugins: { BarcodeScanner: {} } },
-        });
-        const cap = env.window.Barcode.__native.getImpl('Barcode', 'capacitor');
-        expect(env.window.Barcode).toBe(cap);
-    });
-
-    it('registers both web and capacitor impls regardless of selection', () => {
-        env = loadEnv();
-        const web = env.window.Barcode.__native.getImpl('Barcode', 'web');
-        const cap = env.window.Barcode.__native.getImpl('Barcode', 'capacitor');
-        expect(typeof web.scan).toBe('function');
-        expect(typeof cap.scan).toBe('function');
-    });
-
-    it('both impls expose the platform-decision methods', () => {
-        env = loadEnv();
-        const web = env.window.Barcode.__native.getImpl('Barcode', 'web');
-        const cap = env.window.Barcode.__native.getImpl('Barcode', 'capacitor');
-        expect(web.hasNativeScanner()).toBe(false);
-        expect(web.supportsLiveScan()).toBe(false);
-        expect(cap.hasNativeScanner()).toBe(true);
-        expect(cap.supportsLiveScan()).toBe(false);
     });
 });

@@ -2,7 +2,7 @@
    setup flow (mobile Phase 2c). Mounted by features/firstrun/index.js
    when /api/bootstrap returns `needs_first_run: true`. The overlay sits
    above the entire app — including the bottom nav — so the welcome /
-   permissions / integrations / done screens are the only thing the user
+   integrations / done screens are the only thing the user
    sees until they advance or skip.
 
    All visual values resolve through `--wg-*` design tokens (CLAUDE.md
@@ -60,7 +60,7 @@
     }
 }
 
-/* Screen content — shared across welcome, permissions, integrations,
+/* Screen content — shared across welcome, features, integrations,
    done. Per-screen modules append their content into `.wg-firstrun-
    overlay__body`; the tagline + actions classes provide consistent
    typography and layout so the screens feel like one flow rather than
@@ -113,64 +113,9 @@
     border: 1px solid var(--wg-border-strong);
 }
 
-/* Permission rows (Task 5) — one card per requestable capability. The
-   "Allow" button shares the .wg-firstrun-btn styles above; granted/denied
-   states are signalled by a leading-border colour change so the row label
-   stays readable in both light and dark themes. All visual values resolve
-   via design tokens (CLAUDE.md rule #3). */
-.wg-firstrun-permissions {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-md);
-}
-
-.wg-firstrun-permission {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-    padding: var(--space-md);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--wg-border-strong);
-    background: var(--wg-bg-card);
-}
-
-.wg-firstrun-permission--granted {
-    border-color: var(--wg-success, var(--wg-border-strong));
-}
-
-.wg-firstrun-permission--denied {
-    border-color: var(--wg-warning, var(--wg-border-strong));
-}
-
-.wg-firstrun-permission__label {
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
-    font-weight: 600;
-    color: var(--wg-fg-1);
-}
-
-.wg-firstrun-permission__copy {
-    margin: 0;
-    color: var(--wg-fg-2);
-    font-size: var(--font-size-sm);
-    line-height: 1.4;
-}
-
-.wg-firstrun-permission__status {
-    margin: 0;
-    color: var(--wg-fg-2);
-    font-size: var(--font-size-sm);
-    line-height: 1.4;
-    min-height: 0;
-}
-
-.wg-firstrun-permission__status:empty {
-    display: none;
-}
-
 /* Capability blurbs on the final screen (med-1mn) — MCP and the voice agent,
-   the two things onboarding otherwise never mentions. Same card shape as the
-   permission rows above; all values resolve via design tokens. */
+   the two things onboarding otherwise never mentions. All values resolve via
+   design tokens. */
 .wg-firstrun-capabilities {
     display: flex;
     flex-direction: column;
@@ -265,10 +210,8 @@
 }
 
 /* Feature picker rows (med-4pz.2) — label + one-line copy on the left, a
-   checkbox on the right. Structurally a permission row turned horizontal;
-   it gets its own class rather than reusing .wg-firstrun-permission so the
-   two can diverge (permissions grow status text, features grow toggles).
-   All visual values resolve via design tokens (CLAUDE.md rule #3). */
+   checkbox on the right. All visual values resolve via design tokens
+   (CLAUDE.md rule #3). */
 .wg-firstrun-features {
     display: flex;
     flex-direction: column;

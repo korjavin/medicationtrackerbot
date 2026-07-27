@@ -1,6 +1,6 @@
 // Package config holds the typed configuration struct that the bot main wires
-// from process environment variables. It exists so the upcoming mobile build
-// (//go:build mobile) and the existing server build share one shape and so the
+// from process environment variables. It exists so every build shares one
+// shape and so the
 // growing set of os.Getenv reads scattered across the codebase can be replaced
 // with explicit dependency injection.
 //
@@ -14,8 +14,8 @@
 // Config with a settings-derived Config using the precedence:
 //
 //  1. Env var (the server-mode operator's source of truth)
-//  2. Settings table (user-edited via the Settings UI; the mobile build's only
-//     source because the mobile binary's environment is the OS launcher's env,
+//  2. Settings table (user-edited via the Settings UI; the only source when
+//     the process environment carries no provider keys,
 //     not a docker-compose file)
 //  3. Built-in default (e.g. https://api.openai.com/v1 for OpenAI URL — defaults
 //     are still applied by individual call sites, not here)
@@ -353,8 +353,7 @@ type SettingsReader interface {
 // ElevenLabs) from the settings table and returns a Config with just those
 // fields populated. Fields not represented in the settings table (DBPath,
 // SessionSecret, VAPID, OIDC, MCP, TelegramBotToken, etc.) are left zero —
-// those still come from env in server mode and from build-time defaults in
-// mobile mode.
+// those still come from env.
 func LoadFromSettings(ctx context.Context, r SettingsReader) (*Config, error) {
 	openAI, err := r.GetIntegrationOpenAI(ctx)
 	if err != nil {

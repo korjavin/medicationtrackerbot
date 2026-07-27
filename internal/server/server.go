@@ -1,15 +1,12 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
-	"io"
-	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -111,7 +108,7 @@ type Server struct {
 	// demoMode flips the server into public-demo behavior: newDefaultResolver
 	// returns a DemoUserResolver that bypasses Telegram + OIDC, and the AI /
 	// cost-sensitive routes are wrapped in per-IP rate limiters. cmd/bot/
-	// main_server.go sets this via SetDemoMode after construction. The mobile
+	// main_server.go sets this via SetDemoMode after construction. The
 	// build never reads this — it has its own resolver via the build tag.
 	demoMode bool
 	// demoCfg holds the per-IP rate-limit thresholds applied to AI /
@@ -121,7 +118,7 @@ type Server struct {
 	// integrationsReloader is invoked after a successful PATCH
 	// /api/settings/integrations so the embedding binary can rebuild the
 	// AI client, food remote config, and ElevenLabs config from the
-	// updated settings rows without a process restart. The mobile build
+	// updated settings rows without a process restart. The bot build
 	// wires this; the firstrun overlay's "enter key, unlock AI features"
 	// flow depends on it to make freshly-saved provider keys live before
 	// the user reaches the food / voice features. Server build leaves it
@@ -138,18 +135,10 @@ type Server struct {
 	// last — leaving the in-memory providers behind the database.
 	reloadMu sync.Mutex
 	// integrationsMu guards elevenLabs + foodAI so the hot-reload path
-	// (SetElevenLabsConfig / SetFoodAIService invoked from the mobile
-	// build's integrationsReloader while HTTP handlers are concurrently
-	// reading these fields) cannot tear a struct or interface read.
+	// (SetElevenLabsConfig / SetFoodAIService invoked from an
+	// integrationsReloader while HTTP handlers are concurrently reading
+	// these fields) cannot tear a struct or interface read.
 	integrationsMu sync.RWMutex
-	// staticFS, when non-nil, is read by the static-file handlers
-	// (serveIndexWithBotUsername, serveServiceWorker, serveOIDCSetup, the
-	// /static/ FileServer, /favicon.ico, /pitch) in place of the relative
-	// "./web/static/*" disk paths. The mobile build wires this via
-	// SetStaticFS(web.StaticFS()) because the embedded ELF runs from
-	// Android's read-only nativeLibraryDir with no co-located "./web/static"
-	// directory. Server build leaves it nil and reads from disk.
-	staticFS fs.FS
 }
 
 // DemoConfig groups the per-IP rate-limit thresholds applied to AI /
@@ -443,8 +432,7 @@ func (s *Server) SetDemoConfig(cfg DemoConfig) {
 // POST /api/workout/external endpoint (Mi Notify webhook). New() seeds the
 // field from EXTERNAL_WORKOUT_API_KEY as a backward-compatible default; this
 // setter lets the server-mode entry point pass the value through the typed
-// config struct alongside ElevenLabs / OpenAI / Food. The mobile build never
-// calls this — that endpoint has no remote ingress on a Capacitor install.
+// config struct alongside ElevenLabs / OpenAI / Food.
 func (s *Server) SetExternalAPIKey(key string) {
 	s.externalAPIKey = key
 	if key == "" {
@@ -454,7 +442,7 @@ func (s *Server) SetExternalAPIKey(key string) {
 
 // SetFoodAIService wires the AI-backed food parser used by the photo upload
 // endpoint. When unset, /api/food/log/from-photo returns 503. Safe to call
-// at any time — the mobile build invokes it from the integrations hot-reload
+// at any time — cmd/bot invokes it from the integrations hot-reload
 // path while handlers may be concurrently dispatching on foodAIService().
 func (s *Server) SetFoodAIService(svc domain.FoodAIService) {
 	s.integrationsMu.Lock()
@@ -473,7 +461,7 @@ func (s *Server) foodAIService() domain.FoodAIService {
 }
 
 // SetIntegrationsReloader registers a hot-reload callback invoked after a
-// successful PATCH /api/settings/integrations. The mobile build uses it so
+// successful PATCH /api/settings/integrations. cmd/bot uses it so
 // the first-run integrations screen makes the freshly-saved OpenAI / Food /
 // ElevenLabs values live without a process restart — otherwise the user
 // reaches the food / voice features and hits 503 until they kill and
@@ -511,65 +499,17 @@ func (s *Server) SetTZLifecycle(svc tzreschedule.LifecycleService) {
 	s.tzLifecycle = svc
 }
 
-// SetStaticFS swaps the static-file source from disk (the default
-// "./web/static" relative path) to the supplied fs.FS, which must be rooted
-// so that "index.html", "js/...", "css/...", etc. resolve directly under
-// the root. The mobile build calls this with the embedded FS from
-// internal/web because Android's nativeLibraryDir has no co-located
-// "./web/static" tree. Server build leaves staticFS nil and the existing
-// disk-based handlers fire as before.
-func (s *Server) SetStaticFS(f fs.FS) {
-	s.staticFS = f
-}
-
-// readStaticFile reads a file from the configured static-asset source.
-// When staticFS is set the read goes through the embedded FS; otherwise it
-// falls back to "./web/static/<name>" so the server build keeps working
-// from the developer's CWD with no compile-time assumption about embedding.
+// readStaticFile reads a file from the on-disk static-asset tree.
 func (s *Server) readStaticFile(name string) ([]byte, error) {
-	if s.staticFS != nil {
-		return fs.ReadFile(s.staticFS, name)
-	}
 	return os.ReadFile("./web/static/" + name)
 }
 
-// serveStaticFile serves a single named asset honoring the same disk-vs-FS
-// switch as readStaticFile. The caller is responsible for any Content-Type
-// or cache-control headers it wants set before calling this — http.ServeContent
-// fills in a Content-Type based on the file extension when one isn't already
-// present.
+// serveStaticFile serves a single named asset from the on-disk static-asset
+// tree. The caller is responsible for any Content-Type or cache-control
+// headers it wants set before calling this — http.ServeFile fills in a
+// Content-Type based on the file extension when one isn't already present.
 func (s *Server) serveStaticFile(w http.ResponseWriter, r *http.Request, name string) {
-	if s.staticFS == nil {
-		http.ServeFile(w, r, "./web/static/"+name)
-		return
-	}
-	f, err := s.staticFS.Open(name)
-	if err != nil {
-		http.Error(w, "Not Found", http.StatusNotFound)
-		return
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	content, err := io.ReadAll(f)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	http.ServeContent(w, r, name, info.ModTime(), bytes.NewReader(content))
-}
-
-// staticFileSystem returns the http.FileSystem the /static/ FileServer
-// reads from. When staticFS is set we adapt it via http.FS; otherwise we
-// keep the existing on-disk path.
-func (s *Server) staticFileSystem() http.FileSystem {
-	if s.staticFS != nil {
-		return http.FS(s.staticFS)
-	}
-	return http.Dir("./web/static")
+	http.ServeFile(w, r, "./web/static/"+name)
 }
 
 // deleteNotification deletes a previously sent notification from all notifiers.
@@ -743,10 +683,8 @@ func (s *Server) Routes() http.Handler {
 	// Server-generated config
 	mux.HandleFunc("/static/config.js", s.serveConfigJS)
 
-	// Static Files with no-cache headers. The underlying filesystem is
-	// either disk-backed (server build, "./web/static") or embed-backed
-	// (mobile build, SetStaticFS) depending on what the caller wired.
-	staticFileServer := http.FileServer(s.staticFileSystem())
+	// Static Files with no-cache headers.
+	staticFileServer := http.FileServer(http.Dir("./web/static"))
 	mux.Handle("/static/", noCacheMiddleware(http.StripPrefix("/static/", staticFileServer)))
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		s.serveStaticFile(w, r, "icons/favicon.ico")
@@ -1003,8 +941,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /internal/mcp/bridge", s.handleMCPBridge)
 
 	// Apply Middleware to API. The resolver is build-tag-selected: server
-	// builds get the Telegram+OIDC resolver, mobile builds get a single-user
-	// resolver. See auth_resolver_server.go / auth_resolver_mobile.go.
+	// deployments get the Telegram+OIDC resolver, DEMO_MODE gets the fixed
+	// demo user. See auth_resolver_server.go.
 	authMW := AuthMiddleware(newDefaultResolver(s))
 	mux.Handle("/api/", authMW(apiHandler))
 
@@ -1199,8 +1137,6 @@ func (s *Server) serveIndexWithBotUsername(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 
-	// Read index.html. Source switches between disk and embedded FS based
-	// on the staticFS field; see SetStaticFS for details.
 	content, err := s.readStaticFile("index.html")
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)

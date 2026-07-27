@@ -4,26 +4,6 @@
 // window.DataStore (data-store.js, for cursor advancement).
 // safeAlert() is provided by core/utils.js, loaded before this file.
 
-// resolveApiUrl prepends the bootstrap-injected `apiBase` when present so
-// the Capacitor shell can serve the WebView from one origin
-// (capacitor://localhost in future iterations) and reach the embedded Go
-// backend at another (http://127.0.0.1:<port>). In the canonical Phase 2a
-// design the WebView is loaded directly from the backend origin and apiBase
-// equals self.location.origin — in that case the prefix is functionally a
-// no-op but harmless. In the browser PWA + server-mode build no bootstrap
-// is injected and endpoint paths fall through unchanged.
-function resolveApiUrl(endpoint) {
-    if (typeof endpoint !== 'string' || !endpoint.startsWith('/')) {
-        return endpoint;
-    }
-    const bs = (typeof window !== 'undefined') ? window.__MEDTRACKER_BOOTSTRAP__ : null;
-    const apiBase = (bs && typeof bs.apiBase === 'string') ? bs.apiBase : '';
-    if (!apiBase) return endpoint;
-    // Trim a single trailing slash so we don't produce '//api/...'.
-    const trimmed = apiBase.endsWith('/') ? apiBase.slice(0, -1) : apiBase;
-    return trimmed + endpoint;
-}
-window.resolveApiUrl = resolveApiUrl;
 
 // Builds the canonical headers object for a messenger-authenticated request.
 // The header name is sourced from window.MessengerAdapter.authHeaderName()
@@ -114,7 +94,7 @@ async function apiCallDirect(endpoint, method = "GET", body = null, opts = {}) {
     // arrive aborts res.text(), and that abort must still surface as
     // err.aborted so apiCall() can rethrow instead of swallowing it.
     try {
-        const res = await fetch(resolveApiUrl(endpoint), {
+        const res = await fetch(endpoint, {
             method,
             headers,
             body: body ? (isRawBody ? body : JSON.stringify(body)) : null,
