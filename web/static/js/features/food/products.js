@@ -891,11 +891,13 @@ function autofillFoodProduct(product) {
     document.getElementById('food-fat').value = product.fat_100g;
     document.getElementById('food-calories').value = product.energy_kcal_100g;
 
+    // Only write the weight when the product actually carries one (a meal with
+    // a known total). A plain product has no weight to overwrite with, so
+    // whatever the user already typed is preserved — clearing it here was pure
+    // data loss (med-ejq.1).
     const weightInput = document.getElementById('food-weight');
     if (product.is_meal && product.total_weight_g > 0) {
         weightInput.value = product.total_weight_g;
-    } else {
-        weightInput.value = '';
     }
 
     if (weightInput.value) {

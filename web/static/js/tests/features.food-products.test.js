@@ -217,4 +217,74 @@ describe('features/food/products.js — split-file integration', () => {
             }
         }
     });
+
+    // ===========================================================================
+    // Autocomplete pick must not destroy a weight the user already typed
+    // (med-ejq.1). autofillFoodProduct is the single shared path for all seven
+    // selection call sites, so it is driven here through the real autocomplete
+    // list click.
+    // ===========================================================================
+
+    function pickFromAutocomplete(env, product) {
+        const { window, document } = env;
+        window.renderFoodAutocomplete([product]);
+        document.querySelector('#food-autocomplete-list .autocomplete-item-name').click();
+    }
+
+    it('keeps a weight the user already typed when a plain product is picked', () => {
+        const { document } = env;
+        document.getElementById('food-weight').value = '150';
+
+        pickFromAutocomplete(env, {
+            id: 11,
+            name: 'Greek Yogurt',
+            carbs_100g: 4,
+            protein_100g: 10,
+            fat_100g: 5,
+            energy_kcal_100g: 100,
+            is_meal: false,
+        });
+
+        expect(document.getElementById('food-weight').value).toBe('150');
+        // Macros recompute against the preserved weight:
+        // (4*4 + 4*10 + 9*5) * 150/100 = 151.5 → 152
+        expect(document.getElementById('food-calories').value).toBe('152');
+        expect(document.activeElement.id).toBe('food-calories');
+    });
+
+    it('still overwrites the weight with a meal total_weight_g', () => {
+        const { document } = env;
+        document.getElementById('food-weight').value = '150';
+
+        pickFromAutocomplete(env, {
+            id: 12,
+            name: 'Lunch Bowl',
+            carbs_100g: 10,
+            protein_100g: 5,
+            fat_100g: 2,
+            energy_kcal_100g: 78,
+            is_meal: true,
+            total_weight_g: 400,
+        });
+
+        expect(document.getElementById('food-weight').value).toBe('400');
+    });
+
+    it('focuses the weight field when it is still empty after a pick', () => {
+        const { document } = env;
+        document.getElementById('food-weight').value = '';
+
+        pickFromAutocomplete(env, {
+            id: 13,
+            name: 'Apple',
+            carbs_100g: 14,
+            protein_100g: 0.3,
+            fat_100g: 0.2,
+            energy_kcal_100g: 52,
+            is_meal: false,
+        });
+
+        expect(document.getElementById('food-weight').value).toBe('');
+        expect(document.activeElement.id).toBe('food-weight');
+    });
 });
