@@ -893,8 +893,14 @@ function autofillFoodProduct(product) {
 
     // Only write the weight when the product actually carries one (a meal with
     // a known total). A plain product has no weight to overwrite with, so
-    // whatever the user already typed is preserved — clearing it here was pure
-    // data loss (med-ejq.1).
+    // whatever is already in the field is left alone — clearing it here was
+    // pure data loss (med-ejq.1).
+    //
+    // Picking a meal and then a plain product does leave the meal's weight
+    // behind. That is deliberate: it is visible and editable, whereas any
+    // scheme for telling "the user typed this" from "we auto-filled this"
+    // needs state that outlives the modal and silently wipes a real value
+    // whenever it goes stale — the exact bug being fixed.
     const weightInput = document.getElementById('food-weight');
     if (product.is_meal && product.total_weight_g > 0) {
         weightInput.value = product.total_weight_g;

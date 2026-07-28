@@ -270,6 +270,33 @@ describe('features/food/products.js — split-file integration', () => {
         expect(document.getElementById('food-weight').value).toBe('400');
     });
 
+    it('leaves a prior meal weight in place when a plain product is picked next', () => {
+        const { document } = env;
+
+        pickFromAutocomplete(env, {
+            id: 12,
+            name: 'Lunch Bowl',
+            carbs_100g: 10, protein_100g: 5, fat_100g: 2, energy_kcal_100g: 78,
+            is_meal: true,
+            total_weight_g: 400,
+        });
+        expect(document.getElementById('food-weight').value).toBe('400');
+
+        pickFromAutocomplete(env, {
+            id: 11,
+            name: 'Greek Yogurt',
+            carbs_100g: 4, protein_100g: 10, fat_100g: 5, energy_kcal_100g: 100,
+            is_meal: false,
+        });
+
+        // Deliberate: a plain product carries no weight, so the field is never
+        // written. Telling "the meal put 400 here" apart from "the user typed
+        // 400" needs state that outlives the modal, and once that state goes
+        // stale it silently wipes a real typed value — the bug this fix kills.
+        // A leftover weight is visible and editable; a vanished one is not.
+        expect(document.getElementById('food-weight').value).toBe('400');
+    });
+
     it('focuses the weight field when it is still empty after a pick', () => {
         const { document } = env;
         document.getElementById('food-weight').value = '';
