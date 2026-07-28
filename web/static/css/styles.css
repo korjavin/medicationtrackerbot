@@ -6966,6 +6966,19 @@ textarea.wg-input {
     background: var(--wg-food-macro-fat);
 }
 
+/* Over target: the fill is capped at 100% width, so colour carries the
+   overflow. Declared after the variant rules so it wins at equal
+   specificity while the row keeps its variant class. Reuses the shared
+   tag-alert triplet — no new red enters the palette. The row's
+   "· over" value text is the non-colour cue. */
+.wg-macro-bar__fill--over {
+    background: var(--wg-tag-alert-fg);
+}
+
+.wg-macro-bar__value-over {
+    color: var(--wg-tag-alert-fg);
+}
+
 .wg-macro-bar__value {
     min-width: 72px;
     text-align: right;

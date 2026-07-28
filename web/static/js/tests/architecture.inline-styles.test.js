@@ -43,8 +43,8 @@ const SCOPED_FILES = [
  */
 const ALLOWED = new Map([
     [
-        'web/static/js/components/wg-macro-bar.js:85',
-        "style.setProperty on a neutral CSS custom property (--fill-pct) — CSS class reads it via width: var(--fill-pct, 0%); no hardcoded visual value lives in JS",
+        'web/static/js/components/wg-macro-bar.js:90',
+        "style.setProperty on a neutral CSS custom property (--fill-pct) — CSS class reads it via width: var(--fill-pct, 0%); no hardcoded visual value lives in JS. Line shifted by the med-ejq.2 over-target modifier (class + doc-comment lines added above).",
     ],
     [
         'web/static/js/features/food/log.js:1379',
