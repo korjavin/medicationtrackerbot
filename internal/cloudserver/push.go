@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -132,7 +131,8 @@ func (a *PushAPI) PostSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req subscriptionRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxPushSubscriptionBodyBytes)).Decode(&req); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxPushSubscriptionBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
@@ -169,7 +169,8 @@ func (a *PushAPI) DeleteSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req deleteSubscriptionRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxPushSubscriptionBodyBytes)).Decode(&req); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxPushSubscriptionBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
@@ -232,7 +233,8 @@ func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req putScheduleRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxScheduleBodyBytes)).Decode(&req); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxScheduleBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
@@ -308,7 +310,8 @@ func (a *PushAPI) PostTestPush(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req testPushRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxTestPushBodyBytes)).Decode(&req); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxTestPushBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}

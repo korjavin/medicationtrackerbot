@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"math/big"
 	"net"
@@ -345,7 +344,8 @@ func (a *MCPRemoteAPI) PostRemote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req enableMCPRemoteRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxMCPRemoteBodyBytes)).Decode(&req); err != nil || req.PairingCode == "" {
+	r.Body = http.MaxBytesReader(w, r.Body, maxMCPRemoteBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.PairingCode == "" {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}

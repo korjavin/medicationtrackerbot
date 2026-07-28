@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -95,7 +94,8 @@ func (a *SyncAPI) PostOps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req postOpsRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxSyncOpsBodyBytes)).Decode(&req); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSyncOpsBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
@@ -224,7 +224,8 @@ func (a *SyncAPI) PostSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req putSnapshotRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxSnapshotBodyBytes)).Decode(&req); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxSnapshotBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
