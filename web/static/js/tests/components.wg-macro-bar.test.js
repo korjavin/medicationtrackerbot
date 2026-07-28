@@ -73,6 +73,35 @@ describe('WGMacroBar.render', () => {
         expect(fill.style.getPropertyValue('--fill-pct')).toBe('100%');
     });
 
+    it('flags over-target rows with the --over modifier, keeping the variant class and the 100% cap', () => {
+        const row = env.api.render({ label: 'Carbs', value: 400, target: 200, unit: 'g', variant: 'carbs' });
+        const fill = row.querySelector('.wg-macro-bar__fill');
+        expect(fill.classList.contains('wg-macro-bar__fill--over')).toBe(true);
+        expect(fill.classList.contains('wg-macro-bar__fill--carbs')).toBe(true);
+        expect(fill.style.getPropertyValue('--fill-pct')).toBe('100%');
+        // Non-colour cue for the overflow.
+        expect(row.querySelector('.wg-macro-bar__value').textContent).toContain('over');
+        // No colour literal and no second inline style beyond --fill-pct.
+        expect(row.outerHTML).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+        expect(fill.getAttribute('style')).toBe('--fill-pct: 100%;');
+    });
+
+    it('does not flag a row that lands exactly on target', () => {
+        const row = env.api.render({ label: 'Protein', value: 120, target: 120, unit: 'g', variant: 'protein' });
+        const fill = row.querySelector('.wg-macro-bar__fill');
+        expect(fill.classList.contains('wg-macro-bar__fill--over')).toBe(false);
+        expect(row.querySelector('.wg-macro-bar__value-over')).toBeNull();
+    });
+
+    it('does not flag over-target when the target is missing, zero, negative, or non-finite', () => {
+        for (const target of [undefined, 0, -50, NaN, 'abc']) {
+            const row = env.api.render({ label: 'Energy', value: 500, target, unit: 'kcal', variant: 'energy' });
+            const fill = row.querySelector('.wg-macro-bar__fill');
+            expect(fill.classList.contains('wg-macro-bar__fill--over')).toBe(false);
+            expect(fill.style.getPropertyValue('--fill-pct')).toBe('0%');
+        }
+    });
+
     it('clamps fill width to 0% for negative values', () => {
         const row = env.api.render({ label: 'Fat', value: -10, target: 70, unit: 'g', variant: 'fat' });
         const fill = row.querySelector('.wg-macro-bar__fill');

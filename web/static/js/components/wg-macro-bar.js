@@ -30,6 +30,7 @@
 //     <div class="wg-macro-bar__value">
 //       <span class="wg-macro-bar__value-current">{value}</span>
 //       <span class="wg-macro-bar__value-target"> / {target} {unit}</span>
+//       <span class="wg-macro-bar__value-over"> · over</span>   (only when value > target)
 //     </div>
 //   </div>
 
@@ -81,6 +82,10 @@
         if (VARIANTS.has(variant)) {
             fill.classList.add(`wg-macro-bar__fill--${variant}`);
         }
+        const over = Number.isFinite(target) && target > 0 && value > target;
+        if (over) {
+            fill.classList.add('wg-macro-bar__fill--over');
+        }
         const pct = computePercent(value, target);
         fill.style.setProperty('--fill-pct', `${pct}%`);
         track.appendChild(fill);
@@ -100,6 +105,15 @@
         const unitSuffix = unit ? ` ${unit}` : '';
         targetSpan.textContent = ` / ${targetLabel}${unitSuffix}`;
         valueEl.appendChild(targetSpan);
+
+        if (over) {
+            // Non-colour cue: the fill is capped at 100% width, so red alone
+            // would be the only overflow signal.
+            const overSpan = document.createElement('span');
+            overSpan.classList.add('wg-macro-bar__value-over');
+            overSpan.textContent = ' · over';
+            valueEl.appendChild(overSpan);
+        }
 
         row.appendChild(valueEl);
 
