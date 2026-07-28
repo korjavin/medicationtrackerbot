@@ -255,6 +255,19 @@
         </div>
 
         <div id="food-view" class="view wg-screen-stage">
+            <!-- Food sub-tab strip (med-ejq.3). Restores the outer pill strip
+                 retired in Phase 5, Task 4 — but with Log / Food DB instead of
+                 the old Meals-bearing set, matching the meds + workouts
+                 sub-tab pattern. The day navigator lives inside the Log pane
+                 so it does not hover over a date-less product list. -->
+            <div class="wg-gloss--inset wg-food-subtabs food-tabs" id="food-subtabs">
+                <button class="wg-gloss wg-food-subtabs__btn wg-gloss--sun wg-food-subtabs__btn--active food-tab active" data-tab="log" aria-pressed="true">Log</button>
+                <button class="wg-gloss wg-food-subtabs__btn food-tab" data-tab="fooddb" aria-pressed="false">Food DB</button>
+            </div>
+
+            <input type="file" id="food-photo-input" accept="image/*" class="hidden" aria-hidden="true">
+
+            <div id="food-log-tab" class="food-tab-content active">
             <!-- Day navigator + inline +Add (Phase 5, Task 4). Chevron buttons
                  bracket the mono-display date title; trailing sun-gloss pill
                  opens the food modal directly. -->
@@ -278,9 +291,6 @@
                     <span class="wg-toolbar-btn__label">Scan</span>
                 </button>
             </div>
-            <input type="file" id="food-photo-input" accept="image/*" class="hidden" aria-hidden="true">
-
-            <div id="food-log-tab" class="food-tab-content active">
                 <!-- Stale-data chip (Task 5 of local-first read resilience).
                      Populated by _renderFoodData() from the lastFoodLogsMeta
                      captured on every cachedFetch read; hidden by default so
@@ -317,30 +327,11 @@
 
                 <div id="food-target-progress" class="food-target-progress hidden"></div>
 
-                <div id="food-summary" class="food-summary-block"></div>
                 <div id="food-list"></div>
-
-                <!-- Food library entry (Phase 5, Task 4). Preserves access to
-                     My Meals + Food DB after the outer tab strip was removed. -->
-                <div class="wg-food-library-entry">
-                    <button id="food-library-toggle-btn" type="button" class="wg-food-library-entry__btn" aria-expanded="false" aria-controls="food-library-view">
-                        <span class="wg-food-library-entry__label">Meals · Food DB</span>
-                        <span class="wg-food-library-entry__chevron" aria-hidden="true">↓</span>
-                    </button>
-                </div>
             </div>
 
-            <div id="food-library-view" class="wg-food-library-view hidden">
-                <section id="food-meals-tab" class="wg-food-db-panel">
-                    <p class="wg-food-db-panel__hint">
-                        Select items from your log to create a meal template. Use the Select button on the daily total.
-                    </p>
-                    <div id="food-meals-list" class="wg-food-db-panel__list">
-                        <!-- Meals injected here -->
-                    </div>
-                </section>
-
-                <section id="food-fooddb-tab" class="wg-food-db-panel">
+            <div id="food-fooddb-tab" class="food-tab-content">
+                <section class="wg-food-db-panel">
                     <input type="text" id="fooddb-search" class="wg-input wg-food-db-panel__search" placeholder="Search products...">
                     <div class="wg-gloss--inset wg-food-db-panel__sort fooddb-sort-controls">
                         <button class="wg-gloss wg-food-db-panel__sort-btn wg-gloss--sun fooddb-sort-btn active" data-sort="usage" aria-pressed="true">Most Used</button>
@@ -1742,24 +1733,6 @@
         </div>
     </mt-modal>
 
-    <!-- Modal for Saving a Meal -->
-    <mt-modal id="food-save-meal-modal" class="hidden">
-        <div class="modal-header">
-            <h3>Save as Meal</h3>
-            <div class="actions">
-                <button id="food-save-meal-cancel-btn" class="btn btn-secondary">Cancel</button>
-                <button id="food-save-meal-confirm-btn" class="btn btn-primary">Save</button>
-            </div>
-        </div>
-        <p class="hint">
-            Combine the selected logs into a reusable meal template. It will appear first in your food searches.
-        </p>
-        <div class="form-row">
-            <label for="food-save-meal-name">Meal Name:</label>
-            <input type="text" id="food-save-meal-name" placeholder="e.g. My Favorite Breakfast">
-        </div>
-    </mt-modal>
-
     <!-- Modal for Adding/Editing Medication -->
     <div id="modal-overlay" class="hidden"></div>
     <mt-modal id="med-modal" class="hidden wg-modal wg-meds-modal">
@@ -2198,7 +2171,6 @@
     <script src="/static/js/features/food/ai-undo.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/food/photo.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/food/log.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/features/food/meals.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/food/db.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/food/index.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/bp.js?v=TIMESTAMP_PLACEHOLDER"></script>

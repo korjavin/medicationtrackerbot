@@ -100,7 +100,6 @@ const STATIC_ASSETS = [
     '/static/js/features/food/ai-undo.js',
     '/static/js/features/food/photo.js',
     '/static/js/features/food/log.js',
-    '/static/js/features/food/meals.js',
     '/static/js/features/food/db.js',
     '/static/js/features/food/index.js',
     '/static/js/features/bp.js',

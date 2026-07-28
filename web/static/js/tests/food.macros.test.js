@@ -220,7 +220,7 @@ describe('Food daily macros card (Phase 4, Task 4)', () => {
         expect(document.getElementById('food-macros-card-kcal').textContent).toBe('500');
     });
 
-    it('_renderFoodData populates the macros card on day view and hides legacy #food-summary', () => {
+    it('_renderFoodData populates the macros card on day view', () => {
         const { window, document } = env;
 
         window._renderFoodData([], null, 'day', '2026-04-20');
@@ -228,9 +228,6 @@ describe('Food daily macros card (Phase 4, Task 4)', () => {
         const card = document.getElementById('food-macros-card');
         expect(card.classList.contains('hidden')).toBe(false);
         expect(document.getElementById('food-macros-card-kcal').textContent).toBe('0');
-
-        const summary = document.getElementById('food-summary');
-        expect(summary.classList.contains('hidden')).toBe(true);
 
         const progress = document.getElementById('food-target-progress');
         expect(progress.classList.contains('hidden')).toBe(true);

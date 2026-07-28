@@ -142,10 +142,6 @@ const ALLOWLIST = [
         reason: 'Food DB browse panel; the apiCall read drives a paginated search UI (server-side filter+sort, per-page state held in closure) rather than a section-landing render — offline this panel intentionally shows the empty state',
     },
     {
-        file: 'food/meals.js',
-        reason: 'My Meals section — renders from the shared window.FoodProducts cache, only DELETE / POST mutations of its own',
-    },
-    {
         file: 'food/ai-undo.js',
         reason: 'shared undo helper for the food-photo + food-description AI flows; issues DELETE /api/food/log/:id mutations (cache is invalidated via DataStore.invalidateTags after a successful round) and surfaces card success/error state — no section-landing reads',
     },

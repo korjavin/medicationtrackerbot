@@ -1026,10 +1026,9 @@ async function deleteFoodProduct(id, displayName) {
             await initFoodProductsCache();
 
             const fooddbTab = document.getElementById('food-fooddb-tab');
-            if (fooddbTab && !fooddbTab.classList.contains('hidden')) {
+            if (fooddbTab && fooddbTab.classList.contains('active')) {
                 if (typeof loadFoodDB === 'function') loadFoodDB();
             }
-            if (typeof loadMyMeals === 'function') loadMyMeals();
         } catch (e) {
             console.error('Failed to delete food product:', e);
             safeAlert('Failed to delete product.');
@@ -1037,7 +1036,7 @@ async function deleteFoodProduct(id, displayName) {
     });
 }
 
-async function navigateToFoodProduct(event, productId, isMeal) {
+async function navigateToFoodProduct(event, productId) {
     event.preventDefault();
     window.ModalManager.food.close();
 
@@ -1045,18 +1044,9 @@ async function navigateToFoodProduct(event, productId, isMeal) {
         await initFoodProductsCache();
     }
 
-    const libView = document.getElementById('food-library-view');
-    const libBtn = document.getElementById('food-library-toggle-btn');
-    if (libView) libView.classList.remove('hidden');
-    if (libBtn) {
-        libBtn.setAttribute('aria-expanded', 'true');
-        libBtn.classList.add('wg-food-library-entry__btn--open');
-    }
-    if (isMeal) {
-        if (typeof loadMyMeals === 'function') loadMyMeals();
-    } else {
-        if (typeof loadFoodDB === 'function') loadFoodDB();
-    }
+    // med-ejq.3: meals and plain products both live in the Food DB pane now,
+    // so there is nothing left to branch on — switchFoodTab loads the list.
+    if (typeof switchFoodTab === 'function') switchFoodTab('fooddb');
     setTimeout(() => {
         const cache = window.FoodProducts.cache;
         if (cache && cache.length > 0) {

@@ -1482,15 +1482,6 @@ describe('Architecture – design tokens', () => {
             '.chart-disclaimer',
             // SVG
             '.svg-chart',
-            // Food log items
-            '.food-checkbox-wrap', '.food-checkbox',
-            // Food floating button
-            '.food-floating-btn',
-            // Food meal cards
-            '.food-meal-header', '.food-meal-info', '.food-meal-name',
-            '.food-meal-actions', '.food-nutrition-row',
-            // Food summary
-            '.food-summary-wrapper', '.food-summary-details', '.food-select-btn',
             // Food DB cards
             '.food-db-actions-row', '.food-db-info', '.food-db-name',
             '.food-db-macros', '.food-db-meta', '.food-meal-badge',

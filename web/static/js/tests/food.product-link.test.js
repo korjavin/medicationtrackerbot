@@ -66,17 +66,19 @@ describe('editFoodLog product-link wiring (CSP-safe)', () => {
         expect(link.hasAttribute('onclick')).toBe(false);
     });
 
-    it('renders meal label when is_meal is true', () => {
+    // med-ejq.3 — meals and plain products share the Food DB pane now, so the
+    // link no longer forks its label on is_meal.
+    it('renders the same product label for meal-backed logs', () => {
         seedLog({ product_id: 101, is_meal: true });
         env.window.editFoodLog(7);
 
         const link = env.document.querySelector('#food-product-link-container a.food-product-link');
         expect(link).not.toBeNull();
-        expect(link.textContent).toBe('→ View Meal');
+        expect(link.textContent).toBe('→ View in Products');
         expect(link.hasAttribute('onclick')).toBe(false);
     });
 
-    it('clicking the link invokes navigateToFoodProduct with (event, productId, isMeal)', () => {
+    it('clicking the link invokes navigateToFoodProduct with (event, productId)', () => {
         seedLog({ product_id: 42, is_meal: false });
         const spy = vi.fn();
         env.window.navigateToFoodProduct = spy;
@@ -94,10 +96,9 @@ describe('editFoodLog product-link wiring (CSP-safe)', () => {
         expect(typeof args[0].preventDefault).toBe('function');
         expect(args[0].defaultPrevented).toBe(true); // listener called preventDefault
         expect(args[1]).toBe(42);
-        expect(args[2]).toBe(false);
     });
 
-    it('passes is_meal=true to navigateToFoodProduct for meal logs', () => {
+    it('routes a meal-backed log to the same product destination', () => {
         seedLog({ product_id: 99, is_meal: true });
         const spy = vi.fn();
         env.window.navigateToFoodProduct = spy;
@@ -107,9 +108,7 @@ describe('editFoodLog product-link wiring (CSP-safe)', () => {
         link.click();
 
         expect(spy).toHaveBeenCalledTimes(1);
-        const args = spy.mock.calls[0];
-        expect(args[1]).toBe(99);
-        expect(args[2]).toBe(true);
+        expect(spy.mock.calls[0][1]).toBe(99);
     });
 
     it('hides the container and clears its children when product_id is missing', () => {

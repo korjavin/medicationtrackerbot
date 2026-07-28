@@ -27,8 +27,6 @@
     let foodMacrosRange = 'day';
     let currentFoodStatsPeriod = 'day';
     let lastFoodLogsMeta = null;
-    let foodMultiSelectMode = false;
-    let foodSelectedLogIds = new Set();
 
     window.FoodLog = window.FoodLog || {};
 
@@ -69,19 +67,6 @@
         enumerable: true,
         configurable: true
     });
-    Object.defineProperty(window.FoodLog, 'multiSelectMode', {
-        get: () => foodMultiSelectMode,
-        set: (v) => { foodMultiSelectMode = !!v; },
-        enumerable: true,
-        configurable: true
-    });
-    window.FoodLog.getSelectedIds = () => Array.from(foodSelectedLogIds);
-    window.FoodLog.hasSelected = (id) => foodSelectedLogIds.has(id);
-    window.FoodLog.addSelected = (id) => { foodSelectedLogIds.add(id); };
-    window.FoodLog.deleteSelected = (id) => { foodSelectedLogIds.delete(id); };
-    window.FoodLog.clearSelected = () => { foodSelectedLogIds.clear(); };
-    window.FoodLog.selectedCount = () => foodSelectedLogIds.size;
-
     // Backward-compatible alias for the legacy `window.foodTargets` global
     // surfaced by app.js. Settings tests + the targets save flow read this
     // directly. Kept as a live getter so writes through window.FoodLog.targets
@@ -350,16 +335,14 @@ function editFoodLog(id) {
 
     const linkContainer = document.getElementById('food-product-link-container');
     if (log.product_id) {
-        const linkText = log.is_meal ? '→ View Meal' : '→ View in Products';
         const link = document.createElement('a');
         link.href = '#';
         link.className = 'food-product-link';
-        link.textContent = linkText;
+        link.textContent = '→ View in Products';
         const productId = log.product_id;
-        const isMeal = !!log.is_meal;
         link.addEventListener('click', (event) => {
             event.preventDefault();
-            navigateToFoodProduct(event, productId, isMeal);
+            navigateToFoodProduct(event, productId);
         });
         linkContainer.replaceChildren(link);
         linkContainer.classList.remove('hidden');
@@ -952,28 +935,7 @@ function renderFoodItemRow(log) {
         item.classList.add('wg-food-item-row--rejected');
     }
 
-    if (window.FoodLog.multiSelectMode) {
-        const checkboxDiv = document.createElement('div');
-        checkboxDiv.className = 'food-checkbox-wrap wg-food-item-row__checkbox';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.className = 'food-checkbox';
-        cb.checked = window.FoodLog.hasSelected(log.id);
-        cb.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (cb.checked) {
-                window.FoodLog.addSelected(log.id);
-            } else {
-                window.FoodLog.deleteSelected(log.id);
-            }
-            updateFoodSelectUI();
-        });
-        checkboxDiv.appendChild(cb);
-        item.appendChild(checkboxDiv);
-        item.addEventListener('click', () => cb.click());
-    } else {
-        item.addEventListener('click', () => editFoodLog(log.id));
-    }
+    item.addEventListener('click', () => editFoodLog(log.id));
 
     const body = document.createElement('div');
     body.className = 'wg-food-item-row__body';
@@ -1058,15 +1020,10 @@ function buildFoodActionButton(iconName, ariaLabel, onClick) {
 
 function _renderFoodData(groups, weekStats, range, dateStr) {
     const list = document.getElementById('food-list');
-    const summary = document.getElementById('food-summary');
 
     list.replaceChildren();
     let dayCals = 0, dayCarbs = 0, dayProt = 0, dayFat = 0;
     window.FoodLog.setCurrent({});
-
-    if (!window.FoodLog.multiSelectMode) {
-        window.FoodLog.clearSelected();
-    }
 
     if (!groups || groups.length === 0) {
         const empty = document.createElement('p');
@@ -1089,7 +1046,6 @@ function _renderFoodData(groups, weekStats, range, dateStr) {
         progress.classList.add('hidden');
         progress.replaceChildren();
     }
-    summary.classList.add('hidden');
 
     const isWeek = range === 'week';
     const stats = weekStats || {};
@@ -1122,8 +1078,6 @@ function _renderFoodData(groups, weekStats, range, dateStr) {
     }
 
     syncFoodMacrosToggleActiveClass();
-
-    updateFoodSelectUI();
 
     renderFoodStaleBadge();
 }
@@ -1222,101 +1176,6 @@ function renderFoodMacrosCard(calories, carbs, protein, fat, targets, opts) {
     }
 
     card.classList.remove('hidden');
-}
-
-function toggleFoodSelectMode() {
-    window.FoodLog.multiSelectMode = !window.FoodLog.multiSelectMode;
-    if (!window.FoodLog.multiSelectMode) {
-        window.FoodLog.clearSelected();
-    }
-    loadFoodLogs();
-}
-
-function updateFoodSelectUI() {
-    let actionBtn = document.getElementById('food-save-meal-floating-btn');
-    if (window.FoodLog.multiSelectMode && window.FoodLog.selectedCount() >= 2) {
-        if (!actionBtn) {
-            actionBtn = document.createElement('button');
-            actionBtn.id = 'food-save-meal-floating-btn';
-            actionBtn.className = 'btn btn-primary btn-pill food-floating-btn';
-            actionBtn.addEventListener('click', openFoodSaveMealModal);
-
-            const foodView = document.getElementById('food-view');
-            if (foodView) {
-                foodView.appendChild(actionBtn);
-            } else {
-                document.body.appendChild(actionBtn);
-            }
-        }
-        actionBtn.textContent = `Save as Meal (${window.FoodLog.selectedCount()})`;
-        actionBtn.classList.remove('hidden');
-    } else {
-        if (actionBtn) {
-            actionBtn.classList.add('hidden');
-        }
-    }
-}
-
-// Day-view entry point for the multi-select + Save-as-Meal workflow. Phase 4
-// replaced the old "Daily Total" summary with the macros card, which removed
-// the Select button that lived on the summary. Re-render just the Select
-// button into #food-summary on day view so the My Meals creation flow stays
-// reachable.
-function renderFoodDaySelectControl(summaryEl, hasLogs) {
-    summaryEl.replaceChildren();
-    if (!hasLogs) {
-        summaryEl.classList.add('hidden');
-        return;
-    }
-    const wrapper = document.createElement('div');
-    wrapper.className = 'food-summary-wrapper';
-    const selectBtn = document.createElement('button');
-    selectBtn.type = 'button';
-    selectBtn.className = 'btn btn-sm btn-secondary food-select-btn';
-    if (window.FoodLog.multiSelectMode) {
-        selectBtn.classList.replace('btn-secondary', 'btn-primary');
-        selectBtn.textContent = 'Cancel';
-    } else {
-        selectBtn.textContent = '☑ Select';
-    }
-    selectBtn.addEventListener('click', toggleFoodSelectMode);
-    wrapper.appendChild(selectBtn);
-    summaryEl.appendChild(wrapper);
-    summaryEl.classList.remove('hidden');
-}
-
-function renderFoodSummary(summaryEl, label, calories, carbs, protein, fat) {
-    summaryEl.replaceChildren();
-
-    const wrapper = document.createElement('div');
-    wrapper.className = 'food-summary-wrapper';
-
-    const textGroup = document.createElement('div');
-    const text = document.createTextNode(`${label}: ${Math.round(calories)} kcal `);
-    const details = document.createElement('span');
-    details.className = 'food-summary-details';
-    details.textContent = `(C:${Math.round(carbs * 10) / 10} P:${Math.round(protein)} F:${Math.round(fat * 10) / 10})`;
-    textGroup.appendChild(text);
-    textGroup.appendChild(details);
-
-    wrapper.appendChild(textGroup);
-
-    if (label === 'Daily Total') {
-        const selectBtn = document.createElement('button');
-        selectBtn.className = 'btn btn-sm btn-secondary food-select-btn';
-
-        if (window.FoodLog.multiSelectMode) {
-            selectBtn.classList.replace('btn-secondary', 'btn-primary');
-            selectBtn.textContent = 'Cancel';
-        } else {
-            selectBtn.innerHTML = '&#9745; Select';
-        }
-
-        selectBtn.addEventListener('click', toggleFoodSelectMode);
-        wrapper.appendChild(selectBtn);
-    }
-
-    summaryEl.appendChild(wrapper);
 }
 
 function renderFoodTargetProgress(valCals, valCarbs, valProt, valFat, period = 'day') {
@@ -1518,7 +1377,6 @@ window.FoodLog.openEdit = editFoodLog;
 window.FoodLog.close = closeFoodModal;
 window.FoodLog.computeTotals = computeFoodTotals;
 window.FoodLog.calculate = calculateFoodCalories;
-window.FoodLog.toggleSelectMode = toggleFoodSelectMode;
 
 // Back-compat: maintain the legacy `window.loadFoodLogs` / `window.loadFoodTargets`
 // / `window.saveFoodTargets` names because the architecture.globals allowlist

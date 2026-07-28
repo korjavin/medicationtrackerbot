@@ -9,14 +9,13 @@
 //     inputs)
 //   - icon hydration for the day-nav / modal / inline-add buttons
 //   - the Daily / Weekly macros toggle (setFoodMacrosRange)
-//   - the collapsible library entry (toggleFoodLibraryView) that exposes
-//     #food-meals-list (FoodMeals.load) and #fooddb-list (FoodDB.load)
+//   - the Log / Food DB sub-tab strip (switchFoodTab)
 //
 // Module-level mutable state is allowed here for the orchestrator only:
 // `foodControlsBound` is the once-flag for the bind IIFE, mirroring
 // `workoutControlsBound` in the workout orchestrator. All other state has
 // been pushed into the per-concern sub-files' IIFE closures (log.js,
-// products.js, scanner.js, photo.js, meals.js, db.js).
+// products.js, scanner.js, photo.js, db.js).
 //
 // Load order: this file MUST be loaded last in the food sub-tree because
 // `bindFoodControls` references handlers declared in the other files.
@@ -58,17 +57,30 @@ function renderFoodInlineAddIcon() {
     }
 }
 
-function toggleFoodLibraryView() {
-    const view = document.getElementById('food-library-view');
-    const btn = document.getElementById('food-library-toggle-btn');
-    if (!view || !btn) return;
-    const nowVisible = view.classList.toggle('hidden') === false;
-    btn.setAttribute('aria-expanded', nowVisible ? 'true' : 'false');
-    btn.classList.toggle('wg-food-library-entry__btn--open', nowVisible);
-    if (nowVisible) {
-        if (typeof loadMyMeals === 'function') loadMyMeals();
-        if (typeof loadFoodDB === 'function') loadFoodDB();
-    }
+// Food sub-tab strip (med-ejq.3). Same shape as switchMedTab /
+// switchWorkoutTab: TabController owns the pane + `.active` toggling, and a
+// sibling sync paints the gloss pills, mirroring syncMedsSubTabActiveClass.
+function syncFoodSubTabActiveClass(activeTab) {
+    const container = document.querySelector('.wg-food-subtabs');
+    if (!container) return;
+    container.querySelectorAll('.food-tab').forEach((btn) => {
+        const isActive = btn.dataset.tab === activeTab;
+        btn.classList.toggle('wg-gloss--sun', isActive);
+        btn.classList.toggle('wg-food-subtabs__btn--active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+}
+
+function switchFoodTab(tab) {
+    const activated = window.TabController.activateTabGroup(tab, {
+        buttonSelector: '.food-tab',
+        contentSelector: '.food-tab-content',
+        contentIdFromTab: (name) => `food-${name}-tab`
+    });
+    if (!activated) return;
+
+    syncFoodSubTabActiveClass(tab);
+    if (tab === 'fooddb' && typeof loadFoodDB === 'function') loadFoodDB();
 }
 
 (function () {
@@ -149,7 +161,12 @@ function toggleFoodLibraryView() {
             }
         });
         bindChange('food-photo-input', (e) => uploadFoodPhoto(e.target));
-        bindClick('food-library-toggle-btn', () => toggleFoodLibraryView());
+
+        window.TabController.bindTabGroup({
+            container: document.querySelector('.food-tabs'),
+            buttonSelector: '.food-tab',
+            onTabSelect: switchFoodTab
+        });
 
         const macrosToggle = document.getElementById('food-macros-toggle');
         if (macrosToggle) {
@@ -194,9 +211,6 @@ function toggleFoodLibraryView() {
         bindClick('food-scanner-close-btn', () => closeFoodScannerModal());
         bindClick('food-product-cancel-btn', () => closeFoodProductModal());
         bindClick('food-product-save-btn', () => saveFoodProduct());
-
-        bindClick('food-save-meal-cancel-btn', () => closeFoodSaveMealModal());
-        bindClick('food-save-meal-confirm-btn', () => confirmSaveMeal());
 
         renderFoodDayNavIcons();
         renderFoodModalIcons();

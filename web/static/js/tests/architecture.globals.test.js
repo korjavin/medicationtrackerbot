@@ -174,7 +174,6 @@ const ALLOWED_GLOBALS = new Set([
     'window.FoodProducts',              // features/food/products.js — product search + cache + autocomplete public API
     'window.FoodScanner',               // features/food/scanner.js — barcode/QR scanner modal public API
     'window.FoodPhoto',                 // features/food/photo.js — food photo capture + EXIF + undo public API
-    'window.FoodMeals',                 // features/food/meals.js — My Meals list + save-as-meal flow public API
     'window.FoodDB',                    // features/food/db.js — Food DB browse + paginate public API
 
     // Settings view — extracted from app.js (Plan 2026-06-10 finish-app-js-split, Task 2).
