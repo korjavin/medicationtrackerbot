@@ -51,15 +51,14 @@ const FOOD_PHOTO_SUMMARY_JS = path.join(REPO_ROOT, 'web/static/js/features/food-
 // features/food.js was split into per-concern sub-files under
 // features/food/ (2026-05-13). The harness loads them in dependency order:
 // products.js first (decodeFoodDisplayText / renderFoodAutocomplete shared
-// utilities used by log.js + meals.js + db.js), then scanner.js + photo.js,
-// then log.js (the daily-log + targets + modal lifecycle), then meals.js +
-// db.js (My Meals + Food DB browse), and finally index.js (orchestrator).
+// utilities used by log.js + db.js), then scanner.js + photo.js, then log.js
+// (the daily-log + targets + modal lifecycle), then db.js (Food DB browse),
+// and finally index.js (orchestrator).
 const FOOD_PRODUCTS_JS = path.join(REPO_ROOT, 'web/static/js/features/food/products.js');
 const FOOD_SCANNER_JS = path.join(REPO_ROOT, 'web/static/js/features/food/scanner.js');
 const FOOD_AI_UNDO_JS = path.join(REPO_ROOT, 'web/static/js/features/food/ai-undo.js');
 const FOOD_PHOTO_JS = path.join(REPO_ROOT, 'web/static/js/features/food/photo.js');
 const FOOD_LOG_JS = path.join(REPO_ROOT, 'web/static/js/features/food/log.js');
-const FOOD_MEALS_JS = path.join(REPO_ROOT, 'web/static/js/features/food/meals.js');
 const FOOD_DB_JS = path.join(REPO_ROOT, 'web/static/js/features/food/db.js');
 const FOOD_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/food/index.js');
 const BP_JS = path.join(REPO_ROOT, 'web/static/js/features/bp.js');
@@ -349,7 +348,6 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalFileCached(window, FOOD_AI_UNDO_JS);
   evalFileCached(window, FOOD_PHOTO_JS);
   evalFileCached(window, FOOD_LOG_JS);
-  evalFileCached(window, FOOD_MEALS_JS);
   evalFileCached(window, FOOD_DB_JS);
   evalFileCached(window, FOOD_INDEX_JS);
   evalFileCached(window, BP_JS);

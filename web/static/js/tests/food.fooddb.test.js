@@ -25,16 +25,16 @@ describe('Food → Food DB panel (Phase 4 follow-up, Task 5)', () => {
     });
 
     it('panel root carries the Wandergeek .wg-food-db-panel shell class', () => {
-        // Phase 5, Task 4 — the outer food-tab-content wrapper was retired
-        // along with the subtab strip; the panel now lives inside the
-        // collapsible #food-library-view alongside `.wg-food-db-panel`.
+        // med-ejq.3 — the collapsible #food-library-view is gone; Food DB is
+        // its own `.food-tab-content` pane behind the Log / Food DB pills,
+        // wrapping the `.wg-food-db-panel` shell.
         const { document } = env;
-        const panel = document.getElementById('food-fooddb-tab');
+        const pane = document.getElementById('food-fooddb-tab');
+        expect(pane).not.toBeNull();
+        expect(pane.classList.contains('food-tab-content')).toBe(true);
+        expect(document.getElementById('food-library-view')).toBeNull();
+        const panel = pane.querySelector('.wg-food-db-panel');
         expect(panel).not.toBeNull();
-        expect(panel.classList.contains('wg-food-db-panel')).toBe(true);
-        const libraryView = document.getElementById('food-library-view');
-        expect(libraryView).not.toBeNull();
-        expect(libraryView.contains(panel)).toBe(true);
     });
 
     it('search input uses the .wg-input token class and has no inline style', () => {

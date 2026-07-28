@@ -2335,8 +2335,7 @@ input:checked+.toggle-slider:before {
     transform: translateX(22px);
 }
 
-#food-product-modal,
-#food-save-meal-modal {
+#food-product-modal {
     position: fixed;
     top: 50%;
     left: 50%;
@@ -2358,8 +2357,7 @@ input:checked+.toggle-slider:before {
     z-index: var(--z-popover);
 }
 
-#food-product-modal.hidden,
-#food-save-meal-modal.hidden {
+#food-product-modal.hidden {
     display: none;
 }
 
@@ -2641,91 +2639,9 @@ input:checked+.toggle-slider:before {
 }
 
 /* Food log items */
-.food-checkbox-wrap {
-    margin-right: var(--space-md);
-    flex-shrink: 0;
-}
-
-.food-checkbox {
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-}
-
 .food-product-link {
     color: var(--primary-color);
     text-decoration: none;
-}
-
-/* Food floating action button */
-.food-floating-btn {
-    position: fixed;
-    bottom: 80px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: var(--z-overlay);
-    box-shadow: var(--shadow-md);
-}
-
-/* Food meal cards — Meal DB panel inner row layout (Phase 4, Task 5 follow-up) */
-.food-meal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: var(--space-md);
-    margin-bottom: var(--space-sm);
-}
-
-.food-meal-info {
-    flex: 1;
-    min-width: 0;
-}
-
-.food-meal-name {
-    font-weight: var(--font-weight-bold);
-    font-size: var(--font-size-md);
-    color: var(--wg-fg-1);
-}
-
-.food-meal-actions {
-    display: flex;
-    gap: var(--space-xs);
-    flex-shrink: 0;
-}
-
-.food-nutrition-row {
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    display: flex;
-    gap: var(--space-lg);
-    color: var(--wg-fg-2);
-    letter-spacing: 0.02em;
-}
-
-/* Food summary */
-.food-summary-block {
-    margin-bottom: var(--space-lg);
-    padding: var(--space-md);
-    font-weight: var(--font-weight-bold);
-    background: var(--secondary-bg-color);
-    border-radius: var(--radius-md);
-}
-
-.food-summary-wrapper {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.food-summary-details {
-    font-weight: var(--font-weight-normal);
-    font-size: var(--font-size-sm);
-    margin-left: var(--space-md);
-}
-
-.food-select-btn {
-    margin: 0;
-    border: 1px solid var(--border-color, #ccc);
 }
 
 .fooddb-pagination-controls {
@@ -7136,10 +7052,27 @@ textarea.wg-input {
     gap: var(--space-sm);
 }
 
-/* Phase 5, Task 4 — outer `.wg-food-subtabs` strip was retired in favor of
-   an inline +Add button in the day navigator and a Daily/Weekly segmented
-   toggle inside the macros card. Rules for `.wg-food-subtabs` and
-   `.wg-food-subtabs__btn` were removed alongside the markup. */
+/* Food sub-tab strip. Phase 5, Task 4 retired the original strip when the
+   only remaining destinations were folded into a collapsible accordion;
+   med-ejq.3 brings it back with Log / Food DB so the Food DB is a real pane
+   rather than something to unfold. Same two-pill shape as
+   `.wg-health-subtabs` — the active pill carries `.wg-gloss--sun` plus
+   `.wg-food-subtabs__btn--active` for tests. */
+.wg-food-subtabs {
+    display: flex;
+    gap: var(--wg-food-subtab-gap);
+    padding: var(--wg-food-subtab-pad-y) var(--wg-food-subtab-pad-x);
+    margin-bottom: var(--space-md);
+}
+
+.wg-food-subtabs__btn {
+    flex: 1;
+    min-height: 36px;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--wg-radius-gloss);
+}
 
 /* In-card Daily/Weekly toggle (Phase 5, Task 4). Inset pill strip that sits
    above the kcal total inside `.wg-food-macros-card`; the active pill uses
@@ -7186,49 +7119,6 @@ textarea.wg-input {
     font-size: var(--font-size-xs);
     color: var(--wg-fg-4);
     margin-top: var(--space-xs);
-}
-
-/* Food library entry (Phase 5, Task 4). Ghost-link row below the meal list
-   that reveals the collapsed My Meals + Food DB panels. Keeps the sections
-   reachable after the outer tab strip was removed. */
-.wg-food-library-entry {
-    display: flex;
-    justify-content: center;
-    margin-top: var(--space-lg);
-    margin-bottom: var(--space-md);
-}
-
-.wg-food-library-entry__btn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
-    padding: var(--space-xs) var(--space-md);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-xs);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--wg-fg-3);
-    background: transparent;
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-.wg-food-library-entry__btn--open .wg-food-library-entry__chevron {
-    transform: rotate(180deg);
-}
-
-.wg-food-library-entry__chevron {
-    display: inline-block;
-    transition: transform 160ms ease;
-}
-
-.wg-food-library-view {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-lg);
-    margin-top: var(--space-md);
-    margin-bottom: var(--space-md);
 }
 
 /* Meds sub-tab strip (Phase 5, Task 2; revised Task 5; Round-2 Task 7).

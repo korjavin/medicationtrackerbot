@@ -114,9 +114,8 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         expect(document.querySelector('.food-today-chip')).toBeNull();
     });
 
-    it('outer subtab strip and Day|Week pipe row are absent (Phase 5, Task 4)', () => {
+    it('Day|Week pipe row is absent (Phase 5, Task 4)', () => {
         const { document } = env;
-        expect(document.querySelector('.wg-food-subtabs')).toBeNull();
         expect(document.getElementById('food-stats-period-container')).toBeNull();
         expect(document.getElementById('food-period-day-link')).toBeNull();
         expect(document.getElementById('food-period-week-link')).toBeNull();
@@ -133,22 +132,51 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         expect(btns[1].dataset.range).toBe('week');
     });
 
-    it('Meals · Food DB library entry toggles the library panel', () => {
+    // med-ejq.3 — the collapsible "Meals · Food DB" accordion is gone; Food DB
+    // is a first-class pane behind a Log / Food DB pill strip, and the meal
+    // surface is no longer reachable from the frontend at all.
+    it('Log / Food DB sub-tab strip switches panes and drops the meal surface', () => {
         const { document, window } = env;
-        const btn = document.getElementById('food-library-toggle-btn');
-        const view = document.getElementById('food-library-view');
-        expect(btn).not.toBeNull();
-        expect(view).not.toBeNull();
-        expect(view.classList.contains('hidden')).toBe(true);
+        expect(document.getElementById('food-library-toggle-btn')).toBeNull();
+        expect(document.getElementById('food-library-view')).toBeNull();
+        expect(document.getElementById('food-meals-tab')).toBeNull();
+        expect(document.getElementById('food-save-meal-modal')).toBeNull();
 
-        // Stub loaders so the toggle click doesn't attempt network calls.
-        window.loadMyMeals = () => {};
-        window.loadFoodDB = () => {};
+        const strip = document.querySelector('.wg-food-subtabs');
+        expect(strip).not.toBeNull();
+        const pills = strip.querySelectorAll('.food-tab');
+        expect([...pills].map((b) => b.dataset.tab)).toEqual(['log', 'fooddb']);
 
-        btn.click();
-        expect(view.classList.contains('hidden')).toBe(false);
-        btn.click();
-        expect(view.classList.contains('hidden')).toBe(true);
+        const logPane = document.getElementById('food-log-tab');
+        const dbPane = document.getElementById('food-fooddb-tab');
+        expect(logPane.classList.contains('active')).toBe(true);
+        expect(dbPane.classList.contains('active')).toBe(false);
+
+        // Stub the loader so the pane switch doesn't attempt a network call.
+        let loads = 0;
+        window.loadFoodDB = () => { loads += 1; };
+
+        pills[1].click();
+        expect(dbPane.classList.contains('active')).toBe(true);
+        expect(logPane.classList.contains('active')).toBe(false);
+        expect(pills[1].classList.contains('wg-food-subtabs__btn--active')).toBe(true);
+        expect(pills[1].getAttribute('aria-pressed')).toBe('true');
+        expect(loads).toBe(1);
+
+        pills[0].click();
+        expect(logPane.classList.contains('active')).toBe(true);
+        expect(dbPane.classList.contains('active')).toBe(false);
+        expect(pills[0].classList.contains('wg-gloss--sun')).toBe(true);
+        expect(pills[1].getAttribute('aria-pressed')).toBe('false');
+    });
+
+    // The day navigator belongs to the Log pane — a date picker hovering over
+    // a date-less product list was the reason it moved inside (med-ejq.3).
+    it('day navigator lives inside the Log pane', () => {
+        const { document } = env;
+        const nav = document.querySelector('.wg-food-day-nav');
+        expect(nav).not.toBeNull();
+        expect(document.getElementById('food-log-tab').contains(nav)).toBe(true);
     });
 
     it('clicking the inline +Add button opens the food modal', () => {

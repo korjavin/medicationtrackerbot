@@ -108,25 +108,6 @@ describe('features/food/log.js — split-file integration', () => {
         expect(document.getElementById('food-barcode').value).toBe('X1');
     });
 
-    it('multi-select state (mode + selected ids) flows through the FoodLog namespace', () => {
-        const { window } = env;
-        expect(window.FoodLog.multiSelectMode).toBe(false);
-        expect(window.FoodLog.selectedCount()).toBe(0);
-
-        window.FoodLog.multiSelectMode = true;
-        window.FoodLog.addSelected(1);
-        window.FoodLog.addSelected(2);
-        expect(window.FoodLog.selectedCount()).toBe(2);
-        expect(window.FoodLog.hasSelected(1)).toBe(true);
-        expect(window.FoodLog.getSelectedIds().sort()).toEqual([1, 2]);
-
-        window.FoodLog.deleteSelected(1);
-        expect(window.FoodLog.hasSelected(1)).toBe(false);
-
-        window.FoodLog.clearSelected();
-        expect(window.FoodLog.selectedCount()).toBe(0);
-    });
-
     it('window.foodTargets remains the canonical alias for the closure-private targets state', () => {
         const { window } = env;
         // window.foodTargets is defined as a getter/setter on the log.js closure.
