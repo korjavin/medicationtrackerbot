@@ -22,8 +22,10 @@ not as a settled fact.
 > The exception, stated up front rather than buried: the **opt-in integrations**
 > in §5 do handle plaintext by design — a trial-AI prompt, a voice transcript, a
 > Telegram message, a hosted-MCP query. That plaintext is a single request's
-> worth, never the vault behind it, and each integration is off until the user
-> enables it. The canonical enumeration, with code evidence, is
+> worth, never the vault behind it. Telegram, the trial AI/voice proxies, and
+> hosted MCP are off until the user enables them; the food and RxNav proxies
+> have no separate toggle and carry a query whenever the user uses that feature.
+> The canonical enumeration, with code evidence, is
 > [cloud-mode.md → Privacy boundary](cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
 
 ## 1. Logs

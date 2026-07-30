@@ -60,6 +60,12 @@ const BANNED = [
   [/(provides|does)\s+exactly\s+three\s+things/i, 'the operator also runs plaintext proxies and relays'],
   [/zero[\s-]?knowledge\s+(health\s+)?(platform|service|product|app|company)/i,
     'the vault is zero-knowledge; the service is not — say "zero-knowledge vault"'],
+  // Caught by codex review on this bead: it is tempting to summarize the
+  // carve-outs as uniformly opt-in, but the operator-default food proxy and the
+  // RxNav proxy have no toggle at all — they carry a query whenever the feature
+  // is used. Split the list by activation instead of flattening it.
+  [/(every ?one|each ?one|all of them|they all|they|each|none)\s+(is|are|stays?|stay)\s+off\s+until/i,
+    'food + RxNav lookups have no enable step — separate "off until you turn it on" from "active on use"'],
 ];
 
 // Any of these counts as acknowledging that something sits outside the vault.

@@ -31,7 +31,12 @@ The hard part of "the server can't read your data" is usually the stuff that *ne
 
 > **The promise, in full.** Your vault — every health record you store and sync — is end-to-end encrypted. The keys never leave your devices, and the server holds only ciphertext it cannot open. Optional integrations you turn on reach outside that vault and have separately disclosed boundaries.
 >
-> Those integrations, in full: **Telegram** (message text crosses the relay in the clear both ways; the bot token is sealed under a server-held key), **trial AI** and **trial voice** on the operator's OpenAI/ElevenLabs accounts, the **hosted Claude connector** (tier 2 — the operator runs the shim and sees query and response content), the **operator-default food database** (search terms cross an operator proxy unless you bring your own endpoint), and **drug lookups** to RxNav. Every one is off until you enable it, and each is spelled out in Settings → *What can the operator see?* and in the [privacy boundary table](docs/cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
+> Those integrations, in full, split by how each one switches on:
+>
+> - **Off until you turn them on:** **Telegram** (message text crosses the relay in the clear both ways; the bot token is sealed under a server-held key, not your vault key), **trial AI** and **trial voice** on the operator's OpenAI/ElevenLabs accounts, and the **hosted Claude connector** (tier 2 — the operator runs the shim and sees query and response content). The local Claude shim is *not* in this list: it stays sealed end-to-end.
+> - **Active whenever you use the feature, with no separate switch:** the **operator-default food database** (search terms and barcodes cross an operator proxy — setting your own endpoint in Settings removes the operator from that path) and **drug lookups** to RxNav (always proxied; there is no bring-your-own alternative).
+>
+> Each is spelled out in Settings → *What can the operator see?* and in the [privacy boundary table](docs/cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
 
 ## What you get
 

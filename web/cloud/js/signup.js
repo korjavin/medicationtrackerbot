@@ -103,10 +103,11 @@ function renderWelcome(app, claimToken, errorText) {
       <h1>Welcome to Med Tracker Cloud</h1>
       <p>Your vault is encrypted on this device. This server only stores an
          encrypted bundle it cannot read, and rings your reminders.</p>
-      <p>Optional extras you can switch on later — Telegram, trial AI, voice,
-         the hosted Claude connector, food lookup — send data outside the
-         vault and are not end-to-end encrypted. They stay off until you
-         enable them, and Settings lists exactly what each one shares.</p>
+      <p>Some optional extras send data outside the vault and are not
+         end-to-end encrypted. Telegram, trial AI, trial voice, and the hosted
+         Claude connector stay off until you switch them on. Food search and
+         drug lookups have no switch — they go through an operator proxy
+         whenever you use them. Settings lists exactly what each one shares.</p>
       <button id="create-passkey">Create your passkey</button>
     </section>`;
   // Error text may carry a browser exception message; render via textContent,
