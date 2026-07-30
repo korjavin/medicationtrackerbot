@@ -110,8 +110,8 @@ export const CLOUD_EXTRA = [
     method: 'GET',
     path: '/api/workout/progression-preview',
     risk: 'read',
-    description: 'Dry-run the opt-in progression rules (Phase 4) without saving anything. For every scheduled exercise carrying a progression rule (linear or double), this finds its most recent completed log and computes the suggested next plan target — the same math applied automatically when a session is completed, but read-only. Use it to preview whether the next session will add weight or bump the rep target. Exercises with no rule (or rule "none", which just mirrors last performance) and exercises with no completed log yet are omitted. Computed client-side over your vault.',
-    response_summary: 'Object {exercises: [...]}. Each entry has exercise_id, exercise_name, variant_id, rule {type, increment_kg, ...}, current {target_sets, target_reps_min, target_reps_max, target_weight_kg}, proposed (same shape, with the rule applied), and changed (boolean — whether proposed differs from current). An empty exercises array means no rule-carrying exercise has a completed log to project from.',
+    description: 'Dry-run the opt-in progression rules (Phase 4) without saving anything. For every scheduled exercise carrying a progression rule (linear or double), this finds its most recent completed log and computes the suggested next plan target — the same math applied automatically when a session is completed, but read-only. Use it to preview whether the next session will add weight or bump the rep target. Progression is goal-differentiated and RIR-gated: a load bump needs the rep target AND effort near enough to failure for the training goal (RIR = 10 − RPE at or below the goal target — strength 2, hypertrophy/endurance 1, general ungated); a log with no RPE is never gated. Exercises with no rule (or rule "none", which just mirrors last performance) and exercises with no completed log yet are omitted. Computed client-side over your vault.',
+    response_summary: 'Object {exercises: [...]}. Each entry has exercise_id, exercise_name, variant_id, rule {type, increment_kg, ...}, training_goal (the effective goal: the exercise override, else its routine\'s), effort (the least-hard work set of the source log as "RPE 8 · 2 RIR", or null when no RPE was logged), current {target_sets, target_reps_min, target_reps_max, target_weight_kg}, proposed (same shape, with the rule applied), and changed (boolean — whether proposed differs from current). changed:false with a high-RIR effort means the RIR gate held the load, not that the reps were missed. An empty exercises array means no rule-carrying exercise has a completed log to project from.',
     params_schema: { type: 'object', properties: {} },
     response_example: {
       exercises: [{
@@ -119,6 +119,8 @@ export const CLOUD_EXTRA = [
         exercise_name: 'Bench Press',
         variant_id: 3,
         rule: { type: 'linear', increment_kg: 2.5 },
+        training_goal: 'strength',
+        effort: 'RPE 9 · 1 RIR',
         current: {
           target_sets: 4, target_reps_min: 6, target_reps_max: 6, target_weight_kg: 60,
         },

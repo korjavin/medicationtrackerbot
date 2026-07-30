@@ -34,7 +34,9 @@
 
 import { localDateParts, localWallToUtcMs } from './medschedule.js';
 import { formatHHMM } from './reminders.js';
-import { normalizeGoal, TRAINING_GOALS } from './workout-goals.js';
+import {
+  normalizeGoal, TRAINING_GOALS, defaultsForGoal, rirFromRpe, formatEffort,
+} from './workout-goals.js';
 
 const WORKOUT_RECORD_TYPES = {
   GROUP: 'workoutgroup',
@@ -407,10 +409,23 @@ function workSetStats(sets, reps, perSet) {
     // weight, so its reps are a valid target judgment.
     const work = perSet.filter((s) => s.set_type !== 'warmup' && s.set_type !== 'drop');
     if (work.length === 0) return null;
-    return { count: work.length, minReps: Math.min(...work.map((s) => s.reps)) };
+    // minRpe is the RPE-side twin of minReps for the RIR gate (med-qj4.6.3):
+    // the least-hard work set the user actually RATED. Unlike reps, effort is
+    // optional per set, and rating only the top set is normal practice (the
+    // science table prescribes "RIR 0-2 on the top set") — so an unrated set
+    // means "no opinion", never "failed the gate". Counting it as non-qualifying
+    // would silently stop progression for everyone who doesn't rate every single
+    // set. No work set rated at all → null → gate open.
+    const rpes = work.map((s) => s.rpe).filter((v) => hasValue(v));
+    return {
+      count: work.length,
+      minReps: Math.min(...work.map((s) => s.reps)),
+      minRpe: rpes.length ? Math.min(...rpes) : null,
+    };
   }
   if (!hasValue(reps)) return null;
-  return { count: hasValue(sets) ? sets : 0, minReps: reps };
+  // Flat-scalar logs carry no effort at all (the scalars derive from the sets).
+  return { count: hasValue(sets) ? sets : 0, minReps: reps, minRpe: null };
 }
 
 // mirrorPatch is today's "mirror last performance" write-back: best-effort
@@ -437,7 +452,11 @@ function mirrorPatch(exercise, sets, reps, weight) {
 //   double: rep window [min,max] (defaults from the exercise's rep targets) —
 //           all sets at max → weight += increment_kg and reps reset to min;
 //           else all sets >= min → prescribed reps climb one toward max.
-function progressionPatch(exercise, sets, reps, weight, perSet) {
+// `goal` (med-qj4.6.3) parameterizes both presets: its rep band fills in any
+// target the user left unset, and its target_rir gates the LOAD BUMP on
+// proximity to failure. Nothing here changes for an exercise without an opt-in
+// rule, and nothing changes for a log that carries no RPE.
+function progressionPatch(exercise, sets, reps, weight, perSet, goal) {
   const rule = exercise.progression_rule;
   if (!rule || rule.type === 'none') return mirrorPatch(exercise, sets, reps, weight);
   const stats = workSetStats(sets, reps, perSet);
@@ -456,31 +475,64 @@ function progressionPatch(exercise, sets, reps, weight, perSet) {
   // to 0, never null), so treat non-positive as "no anchor" too — otherwise a
   // bodyweight exercise on linear/double would bump its target to increment_kg.
   const weightBase = (hasValue(weight) && weight > 0) ? weight : null;
+  // "Hold the plan": anchor to the stable logged weight so re-propagation is
+  // idempotent. If an earlier same-session save qualified (weight += increment)
+  // and a later edit no longer does, returning {} would leave that un-earned
+  // bump stuck on the plan with no recovery path. No anchor → hold as-is.
+  const hold = () => (hasValue(weightBase) ? { target_weight_kg: weightBase } : {});
+
+  // Goal-differentiated preset parameters (med-qj4.6.3). The band FILLS IN only
+  // where the user left a rep target unset: an explicit target on the exercise
+  // (or an anchored window on the rule) always wins. 0 is createExercise's
+  // "unset" default for target_reps_min, not a real target — treated as absent
+  // so the goal band can supply a meaningful gate instead of `reps >= 0`.
+  const band = defaultsForGoal(goal);
+  const pos = (v) => (hasValue(v) && v > 0 ? v : null);
+
+  // RIR gate (med-qj4.6.3): a load bump fires only when the work sets were taken
+  // near enough to failure for the goal — RIR = 10 − RPE ≤ the goal's target_rir
+  // (strength 2, hypertrophy/endurance 1, general ungated). Hitting the rep
+  // target with reps still in reserve holds the plan; that case is the effort
+  // insight (med-qj4.6.5), not a heavier bar — `stats.minRpe` + `effortOk` are
+  // the hook it reads. No RPE logged → effort unknown → gate open, so users who
+  // don't log effort keep today's behavior exactly.
+  const worstRir = rirFromRpe(stats.minRpe);
+  const effortOk = worstRir === null || !hasValue(band.target_rir) || worstRir <= band.target_rir;
 
   if (rule.type === 'linear') {
-    const goal = hasValue(exercise.target_reps_max) ? exercise.target_reps_max : exercise.target_reps_min;
-    if (hasValue(goal) && stats.minReps >= goal && hasValue(weightBase)) {
+    const goalReps = pos(exercise.target_reps_max) ?? pos(exercise.target_reps_min) ?? band.reps_max;
+    if (stats.minReps >= goalReps && effortOk && hasValue(weightBase)) {
       return { target_weight_kg: weightBase + rule.increment_kg };
     }
-    // Not met: anchor the plan to the stable logged weight so re-propagation is
-    // idempotent — same seam as the double-climb branch below. If an earlier
-    // same-session save qualified (weight += increment) and a later edit drops
-    // below the goal, returning {} would leave that un-earned bump stuck on the
-    // plan with no recovery path. weightBase absent → no anchor, hold as-is.
-    return hasValue(weightBase) ? { target_weight_kg: weightBase } : {};
+    return hold();
   }
 
   // double progression
-  const min = hasValue(rule.min_reps) ? rule.min_reps : exercise.target_reps_min;
-  const max = hasValue(rule.max_reps) ? rule.max_reps
-    : (hasValue(exercise.target_reps_max) ? exercise.target_reps_max : exercise.target_reps_min);
-  if (!hasValue(min) || !hasValue(max)) return {};
+  const minSet = pos(rule.min_reps) ?? pos(exercise.target_reps_min);
+  const maxSet = pos(rule.max_reps) ?? pos(exercise.target_reps_max) ?? pos(exercise.target_reps_min);
+  let min = minSet ?? band.reps_min;
+  let max = maxSet ?? band.reps_max;
+  // The two can cross when only ONE end was set and the goal band supplied the
+  // other (e.g. an explicit 6-rep ceiling with no floor, on hypertrophy's floor
+  // of 8). The band-derived end always yields — an explicit target must never be
+  // rewritten by a default. Both explicit and crossed can't reach here
+  // (anchorDoubleWindow rejects an inverted window at persist time); the else is
+  // a defensive tie-break.
+  if (min > max) {
+    if (minSet === null) min = max;
+    else max = min;
+  }
   if (stats.minReps >= max) {
+    // Reps maxed but not near failure → no load bump, no rep reset: the plan
+    // stands and the user gets the effort nudge instead.
+    if (!effortOk) return hold();
     const patch = { target_reps_min: min, target_reps_max: max };
     if (hasValue(weightBase)) patch.target_weight_kg = weightBase + rule.increment_kg;
     return patch;
   }
   if (stats.minReps >= min) {
+    // Deliberately NOT effort-gated: reps in reserve is precisely the signal to
+    // prescribe MORE REPS at the same load, which is what this branch does.
     // Track the logged weight here too. propagate merges partial patches over the
     // live (possibly already-bumped) plan, so if an earlier same-session save hit
     // max (reset → weight += increment) and a later edit drops to a mere climb,
@@ -493,7 +545,7 @@ function progressionPatch(exercise, sets, reps, weight, perSet) {
   // Below min: same idempotency anchor as the climb branch — an earlier
   // same-session save that hit max bumped the weight; without re-pinning to the
   // logged weight a later edit below min would leave that bump stuck.
-  return hasValue(weightBase) ? { target_weight_kg: weightBase } : {};
+  return hold();
 }
 
 const VALID_LOG_STATUSES = new Set(['', 'completed', 'skipped']);
@@ -1413,6 +1465,18 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
   // -- Exercise logs --
 
+  // effectiveGoal resolves the training goal that parameterizes progression
+  // (med-qj4.6.3): the exercise's own override, else the owning routine's goal,
+  // else the hypertrophy default — the same precedence the exercise editor's
+  // cascade uses (med-qj4.6.1). The routine is reached exercise → variant →
+  // group; a missing link just falls through to the default.
+  async function effectiveGoal(exercise) {
+    if (exercise && exercise.training_goal) return normalizeGoal(exercise.training_goal);
+    const variant = await findByNumericId(records, WORKOUT_RECORD_TYPES.VARIANT, exercise.variant_id);
+    const group = variant && await findByNumericId(records, WORKOUT_RECORD_TYPES.GROUP, variant.group_id);
+    return normalizeGoal(group && group.training_goal);
+  }
+
   // propagateExerciseToSchedule ports PropagateExerciseToSchedule (repo.go:1330):
   // best-effort write-back of non-null sets/reps/weight onto the scheduled
   // exercise definition, guarded only if the session is still
@@ -1433,7 +1497,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
     // `none`/absent rule → mirror; linear/double → apply the opt-in rule. An
     // unmet rule returns {} (plan held steady), so the spread leaves it as-is.
-    const patch = progressionPatch(exercise, sets, reps, weight, perSet);
+    const patch = progressionPatch(exercise, sets, reps, weight, perSet, await effectiveGoal(exercise));
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, {
       ...exercise,
       ...patch,
@@ -2014,7 +2078,12 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       // Same effective-scalar collapse propagate does at write time.
       const sets = latest.sets_completed === 0 ? null : latest.sets_completed;
       const reps = latest.reps_completed === 0 ? null : latest.reps_completed;
-      const patch = progressionPatch(exercise, sets, reps, latest.weight_kg, latest.sets);
+      const goal = await effectiveGoal(exercise);
+      const patch = progressionPatch(exercise, sets, reps, latest.weight_kg, latest.sets, goal);
+      // Effort of that log, in the goal's own terms — without it a `changed:
+      // false` entry is unexplainable when the RIR gate (med-qj4.6.3) is what
+      // held the load. null when the log carries no RPE (gate not applied).
+      const stats = workSetStats(sets, reps, latest.sets);
       const current = {
         target_sets: exercise.target_sets,
         target_reps_min: exercise.target_reps_min,
@@ -2027,6 +2096,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         exercise_name: exercise.exercise_name,
         variant_id: exercise.variant_id,
         rule: exercise.progression_rule,
+        training_goal: goal,
+        effort: stats ? formatEffort(stats.minRpe) : null,
         current,
         proposed,
         changed: Object.keys(patch).some((k) => patch[k] !== current[k]),

@@ -1063,8 +1063,42 @@ describe('cloud MCP workouts.progression_preview compute', () => {
     expect(exercises[0]).toMatchObject({
       exercise_id: 12,
       changed: true,
+      training_goal: 'hypertrophy',
+      effort: null,
       current: { target_weight_kg: 60 },
       proposed: { target_weight_kg: 62.5 },
+    });
+  });
+
+  // med-qj4.6.3: the same reps logged far from failure must NOT project a bump,
+  // and the preview has to say why — otherwise `changed:false` is unreadable.
+  it('reports the RIR gate holding the load, with the effort that caused it', async () => {
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const records = createInMemoryRecordsPort({
+      workoutexercise: [{
+        recordId: 'ex-12', id: 12, variant_id: 3, exercise_name: 'Bench Press',
+        target_sets: 3, target_reps_min: 6, target_reps_max: 6, target_weight_kg: 60,
+        progression_rule: { type: 'linear', increment_kg: 2.5 },
+      }],
+      exerciselog: [{
+        recordId: 'log-99', id: 99, exercise_id: 12, status: 'completed',
+        sets_completed: 3, reps_completed: 6, weight_kg: 60,
+        sets: [
+          { set_index: 0, weight_kg: 60, reps: 6, rpe: 8, set_type: 'normal' },
+          { set_index: 1, weight_kg: 60, reps: 6, rpe: 7, set_type: 'normal' },
+          { set_index: 2, weight_kg: 60, reps: 6, rpe: 8, set_type: 'normal' },
+        ],
+        logged_at: '2026-07-05T18:30:00.000Z',
+      }],
+    });
+    const router = createApiRouter(null, { records, now, timeZone: 'UTC' });
+    const { exercises } = await router('/api/workout/progression-preview', 'GET');
+    expect(exercises[0]).toMatchObject({
+      exercise_id: 12,
+      changed: false,
+      training_goal: 'hypertrophy',
+      effort: 'RPE 7 · 3 RIR',
+      proposed: { target_weight_kg: 60 },
     });
   });
 
