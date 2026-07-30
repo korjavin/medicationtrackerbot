@@ -394,4 +394,45 @@ describe('Section-header stale badges (Task 6)', () => {
             expectOfflineBadge(document.getElementById('health-notes-stale-badge'));
         });
     });
+
+    // med-eas.68 — in cloud mode reads come from the local E2EE vault, so a
+    // cache-age chip ("Updated 1d ago" / "Offline · 3h old") is meaningless and
+    // reads as "your data is old" when it is live. WGStaleBadge suppresses the
+    // chip centrally, so no section can leak it.
+    describe('Cloud mode', () => {
+        let env;
+        beforeEach(() => { env = loadFrontendEnv(); });
+        afterEach(() => { try { env.window.localStorage.clear(); } catch (_) { /* ignore */ } env.cleanup(); env = null; });
+
+        it('mounts no chip for BP even with a warm, stale api_cache while offline', async () => {
+            const { window, document } = env;
+            window.__MEDTRACKER_CLOUD__ = true;
+            window.MedTrackerDB = {
+                BPStore: {
+                    getPending: async () => [],
+                    getRejected: async () => [],
+                    getAll: async () => [],
+                    confirmDelete: async () => undefined
+                }
+            };
+            installApiCacheMap(window, {
+                bp: {
+                    data: {
+                        readingsRes: [{ id: 1, measured_at: new Date().toISOString(), systolic: 120, diastolic: 80 }],
+                        goalRes: { systolic: 120, diastolic: 80 },
+                        statsRes: {}
+                    },
+                    timestamp: Date.now() - 26 * 60 * 60 * 1000 // 26h ago → "Updated 1d ago" in bot mode
+                }
+            });
+            setOnline(window, false);
+            window.apiCall = vi.fn(async () => null);
+
+            await window.loadBPReadings();
+
+            const slot = document.getElementById('bp-stale-badge');
+            expect(slot.querySelector('.wg-stale-badge')).toBeNull();
+            expect(slot.classList.contains('hidden')).toBe(true);
+        });
+    });
 });

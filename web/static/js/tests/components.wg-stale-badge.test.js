@@ -134,4 +134,39 @@ describe('WGStaleBadge.render', () => {
         const el = env.api.render({ fetchedAt, isOffline: true, now: NOW });
         expect(el.textContent).toBe('Offline · 3d old');
     });
+
+    // med-eas.68 — cloud reads come from the local vault, so neither the
+    // "Updated …" nor the "Offline · …" framing is true there. Callers do
+    // `slot.replaceChildren(badge)` / `appendChild(badge)`, so render still has
+    // to hand back an element — an empty hidden one.
+    describe('cloud mode', () => {
+        beforeEach(() => { env.window.__MEDTRACKER_CLOUD__ = true; });
+
+        it('returns an empty hidden chip instead of an "Updated …" label', () => {
+            const el = env.api.render({ fetchedAt: NOW - 26 * HOUR, isOffline: false, now: NOW });
+            expect(el.textContent).toBe('');
+            expect(el.classList.contains('hidden')).toBe(true);
+            expect(el.classList.contains('wg-stale-badge')).toBe(false);
+        });
+
+        it('suppresses the offline chip too', () => {
+            const el = env.api.render({ fetchedAt: null, isOffline: true, now: NOW });
+            expect(el.textContent).toBe('');
+            expect(el.classList.contains('hidden')).toBe(true);
+        });
+
+        it('mountFromKey clears + hides the slot and returns null', async () => {
+            const slot = env.window.document.createElement('div');
+            slot.appendChild(env.window.document.createElement('span'));
+            env.window.MedTrackerDB = {
+                ApiCache: { getWithMeta: async () => ({ timestamp: NOW - 26 * HOUR, data: {} }) }
+            };
+
+            const result = await env.api.mountFromKey({ slot, key: 'bp', now: NOW });
+
+            expect(result).toBeNull();
+            expect(slot.childNodes.length).toBe(0);
+            expect(slot.classList.contains('hidden')).toBe(true);
+        });
+    });
 });
