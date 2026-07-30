@@ -120,11 +120,18 @@ export function remindersDomain(ctx, { records: recordsOverride } = {}) {
 }
 
 export async function recomputeAndPush(ctx, opts = {}) {
+  const domain = remindersDomain(ctx, opts);
   const [entries, pref] = await Promise.all([
     computeReminderEntries(ctx, opts),
-    remindersDomain(ctx, opts).getDeliveryPref(),
+    domain.getDeliveryPref(),
   ]);
   await pushSchedule(ctx, entries, pref);
+  // Only after the upload lands: the vault's record of which meds each reminder
+  // NAMED must never get ahead of the reminders the relay actually serves. It is
+  // what a Telegram Confirm resolves by identity at drain time (bd med-eas.65),
+  // and it is merge-and-prune rather than replace-all, so a slot that has left
+  // the forward horizon is still resolvable while its message is tappable.
+  await domain.recordSlotMedications(entries);
 }
 
 // scheduleReminderRecompute debounces recomputeAndPush per ctx (keyed by

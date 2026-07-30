@@ -37,7 +37,6 @@ import { createApiRouter } from './apishim.js';
 import { createDispatcher } from './mcp-responder.js';
 import { createTGAgent } from './tg-agent.js';
 import { recordsPort, ORIGIN_EXTERNAL } from './sync.js';
-import { getSlotMedications } from './push.js';
 import { minDoseIntervalMs } from '../../domain/medschedule.js';
 
 export const INTAKE_SLOT_ACTION = 'intake_slot_action';
@@ -109,22 +108,24 @@ function truncateRunes(s, n) {
 const INTAKE_RECORD_TYPE = 'intake';
 const MEDICATION_RECORD_TYPE = 'medication';
 
-// How far a single dose's instant may drift between push (computeReminderHorizon)
-// and drain (materializeDueDoses) and still be treated as the SAME dose by a
-// Confirm/Snooze tap. Set to the deterministic dose-clustering window
-// (CLUSTER_WINDOW_MS = 10min, medintake.js): triggerNext/confirmSchedule store a
-// clustered dose's scheduled_at at clusterEarliestMs — up to 10min before its own
-// slot — which is the drift that leaves meds unconfirmed under an exact match (the
-// reported "4 meds, only 2 confirmed" bug). Deliberately NOT a wider band: the
-// callback carries only the slot (callback_data is 64-byte limited; med IDs can't
-// be embedded), so drift and a genuinely different dose are indistinguishable by
-// time alone. A different dose is ≥ the med's minDoseInterval (hours) away — far
-// outside 10min — so this band can NEVER confirm a dose the user didn't take. A
-// larger drift (a DST/tz-plan step, a big schedule edit) falls OUT of the band:
-// that dose stays PENDING and is re-reminded — a safe false-negative, chosen over
-// a false-positive (recording a med as taken when it wasn't is worse for meds).
-// Distinct instants are already separate messages (computeReminderHorizon groups
-// bySlot on exact scheduledAtMs).
+// LEGACY-ONLY drift band. Every reminder pushed since bd med-eas.65 records the
+// meds it named in the vault (reminders.js recordSlotMedications), and the
+// identity path below resolves the tap from that — no time band involved. This
+// constant survives for the taps identity cannot serve, and only those:
+//
+//   • a reminder pushed before that shipped, still sitting in the user's chat;
+//   • a tap on a message older than SLOTMEDS_RETAIN_MS (48h).
+//
+// For those the callback carries only the slot (callback_data is 64-byte
+// limited; med IDs cannot be embedded), so drift and a genuinely different dose
+// are indistinguishable by time alone. The value is the deterministic
+// dose-clustering window (CLUSTER_WINDOW_MS = 10min, medintake.js), because
+// triggerNext/confirmSchedule store a clustered dose's scheduled_at at
+// clusterEarliestMs — up to 10min before its own slot. A different dose is ≥ the
+// med's minDoseInterval (hours) away, far outside 10min, so this band can NEVER
+// confirm a dose the user didn't take. A larger drift falls OUT of it: that dose
+// stays PENDING and is re-reminded — a safe false-negative, chosen over a
+// false-positive (recording a med as taken when it wasn't is worse for meds).
 const SLOT_DRIFT_BAND_MS = 10 * 60 * 1000; // = CLUSTER_WINDOW_MS (medintake.js)
 
 // Mirrors DEFAULT_SNOOZE_MINUTES in web/domain/medintake.js (and the server's
@@ -149,10 +150,10 @@ function isAlreadyApplied(err) {
 // within `bandMs`. Nearest-wins guards the rare case where both an on-slot and a
 // drifted intake of the same med sit inside the band — we act on one, not both.
 //
-// ponytail: known false-positive ceiling. At drain time a dose is only its
-// {status, scheduled_at} — the instant the reminder named is NOT carried (the
-// callback is slot-only, and carrying it end-to-end is the fix med-eas.67
-// deliberately rejected). So if the exact on-slot dose was already handled via
+// ponytail: known false-positive ceiling. The reminder's med IDENTITY is
+// carried (med-eas.65), but not the exact dose INSTANT it named — the stored
+// intake's scheduled_at is re-derived and drifts, which is the whole reason
+// identity is what gets carried. So if the exact on-slot dose was already handled via
 // another channel AND a *different* dose of this same multi-daily med drifted
 // into `bandMs`, we confirm that other instant. The two cases are
 // indistinguishable here, so this is accepted rather than fixed. Requires a
@@ -172,12 +173,12 @@ function nearestPendingByMed(intakes, medId, slotMs, bandMs) {
   return best;
 }
 
-// getSlotMedicationsSafe reads the push-time slot→medIds map (device-local), but
-// a Confirm drain must never fail on a missing/unavailable device store: any
-// throw (no IndexedDB, a store read error) is treated as "no map" so the ±band
-// fallback takes over — the load-bearing medication-safety guard. Silent: a
-// mapless slot (every legacy reminder, and a cross-device gap) is the EXPECTED
-// fallback, not an error to log on every such tap.
+// getSlotMedicationsSafe reads the push-time slot→medIds map out of the vault,
+// but a Confirm drain must never fail on a read that doesn't come back: any
+// throw is treated as "no map" so the ±band fallback takes over — the
+// load-bearing medication-safety guard. Silent: a mapless slot (a legacy
+// reminder, a tap older than the retention window) is the EXPECTED fallback,
+// not an error to log on every such tap.
 async function getSlotMedicationsSafe(getSlotMeds, slotUnix) {
   try {
     return await getSlotMeds(slotUnix);
@@ -189,18 +190,22 @@ async function getSlotMedicationsSafe(getSlotMeds, slotUnix) {
 // applyIntakeSlotAction confirms (or snoozes) the meds a slot reminder named.
 //
 // It resolves the slot to intakes by IDENTITY when the push-time slot→medIds map
-// is present (getSlotMeds): for each NAMED med it acts on that med's nearest
-// PENDING dose within the med's OWN minDoseInterval of the slot. Scoping the
-// wider interval to the reminder's own named meds is what makes it safe — we only
-// ever touch a dose the reminder explicitly told the user about, so no false
-// positive, even when a course/tz-plan dose drifted HOURS off its clock slot
-// (bd med-eas.67). With no stored map (a legacy reminder, a cross-device gap) it
-// falls back to the fixed ±SLOT_DRIFT_BAND_MS match, unchanged.
+// is present (getSlotMeds — by default the vault record every pushSchedule
+// writes, so it is there on EVERY unlocked device, not just the one that pushed):
+// for each NAMED med it acts on that med's nearest PENDING dose within the med's
+// OWN minDoseInterval of the slot. Scoping the wider interval to the reminder's
+// own named meds is what makes it safe — we only ever touch a dose the reminder
+// explicitly told the user about, so no false positive, even when a course/
+// tz-plan dose drifted HOURS off its clock slot (bd med-eas.67, med-eas.65).
+// With no stored map (a reminder pushed before that shipped, or one older than
+// the retention window) it falls back to the fixed ±SLOT_DRIFT_BAND_MS match.
 //
 // atUnix is the SERVER's timestamp for the tap, so a Confirm tapped at 09:00
 // records taken_at 09:00 even when the app first opens at noon — the backdating
 // rule (docs/cloud-mode.md → drain protocol, rule 4).
-export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, getSlotMeds = getSlotMedications }) {
+export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, getSlotMeds }) {
+  const slotMeds = getSlotMeds
+    || ((slotUnix) => createRemindersDomain({ records, now }).getSlotMedications(slotUnix));
   const slotMs = event.slot_unix * 1000;
   const atMs = event.at_unix * 1000;
   // confirm() backdates taken_at to atMs deterministically, so this instant is
@@ -214,7 +219,7 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   await intake.materializeDueDoses();
 
   const intakes = await records.list(INTAKE_RECORD_TYPE);
-  const medicationIds = await getSlotMedicationsSafe(getSlotMeds, event.slot_unix);
+  const medicationIds = await getSlotMedicationsSafe(slotMeds, event.slot_unix);
 
   // medById + each med's own drift band (minDoseInterval) are needed by both the
   // identity selection and the receipt count, so build them once.

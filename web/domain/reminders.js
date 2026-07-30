@@ -26,6 +26,15 @@ const WEIGHT_REMINDERPREF_RECORD_TYPE = 'weightreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_ID = 'weightreminderpref';
 const DELIVERYPREF_RECORD_TYPE = 'reminderdeliverypref';
 const DELIVERYPREF_RECORD_ID = 'reminderdeliverypref';
+// slotmeds — the vault-resident record of which medications each pushed
+// reminder NAMED, keyed by its "s:<slotUnix>" callback stem (bd med-eas.65).
+// A Telegram Confirm carries only that stem, so this is what lets the drain
+// resolve the tap to the message's own med set by identity instead of guessing
+// from a time band. In the vault (not a device store, as med-eas.67 first had
+// it) because the device that PUSHED the reminder is routinely not the device
+// that DRAINS the tap — every cross-device Confirm used to miss the map.
+const SLOTMEDS_RECORD_TYPE = 'slotmeds';
+const SLOTMEDS_RECORD_ID = 'slotmeds-current';
 
 export const DELIVERY_CHANNELS = ['webpush', 'telegram', 'both'];
 export const VERBOSITIES = ['detailed', 'generic'];
@@ -35,6 +44,16 @@ const FORECAST_DAYS = 7;
 // ponytail: hard cap far under the relay's 2000-entry/4KB limit; unrealistic
 // to hit with real schedules, guards a pathological edge case only.
 const MAX_HORIZON_ENTRIES = 500;
+
+// How long a FIRED slot's med set is kept after its instant. The horizon is
+// forward-looking and rebuilt constantly, so a slot leaves it as soon as the
+// local day rolls over — but the Telegram message is still sitting in the
+// user's chat, and the relay re-fires it for ~6h. Without retention, "tap
+// yesterday evening's Confirm this morning" found no map and fell back to the
+// ±band, which is exactly the drift case this whole record exists to fix.
+// 48h covers a night, a phone that was off, and the re-fire chain. Past that a
+// tap is legacy-shaped and takes the ±band path.
+const SLOTMEDS_RETAIN_MS = 48 * 60 * 60 * 1000;
 
 function medDisplayName(med) {
   return med.dosage ? `${med.name} (${med.dosage})` : med.name;
@@ -533,6 +552,28 @@ function findSingleton(all, recordId) {
   return all.find((r) => r.recordId === recordId && !r.deleted);
 }
 
+// The "s:<slotUnix>" stem computeReminderHorizon puts on every medication entry
+// (grouped dose reminders and the relay's re-fires alike). BP/weight/workout
+// entries carry a different stem or none, and contribute no slot.
+function slotUnixFromCallback(cb) {
+  const m = /^s:(\d+)$/.exec(cb || '');
+  return m ? Number(m[1]) : null;
+}
+
+// slotMedicationsFromEntries collapses a horizon into slotUnix → [medId…],
+// deduped within a slot (a re-reminder shares its grouped slot's stem, so its
+// single med folds back in).
+export function slotMedicationsFromEntries(entries) {
+  const slots = {};
+  for (const e of entries || []) {
+    const slotUnix = slotUnixFromCallback(e.callback);
+    if (slotUnix == null || !Array.isArray(e.medicationIds)) continue;
+    const ids = slots[slotUnix] || (slots[slotUnix] = []);
+    for (const id of e.medicationIds) if (id != null && !ids.includes(id)) ids.push(id);
+  }
+  return slots;
+}
+
 // createRemindersDomain builds the enable/disable preference + horizon-build
 // API over the injected ports:
 //   records — { list(type), put(type, record), del(type, id) }
@@ -651,6 +692,47 @@ export function createRemindersDomain({ records, now }) {
     return getDeliveryPref();
   }
 
+  // --- slot → named medications (bd med-eas.65) ---
+  //
+  // recordSlotMedications is called by the shim AFTER a successful
+  // pushSchedule, with the horizon that was uploaded. Unlike the relay
+  // schedule it is NOT replace-all: a slot's entry describes what a message
+  // SAID, and a delivered Telegram message stays tappable long after its slot
+  // has left the forward horizon. So new slots are merged over the ones still
+  // inside SLOTMEDS_RETAIN_MS and anything older is pruned.
+  //
+  // Merging is what makes the retention safe, not a hazard: an entry the newest
+  // horizon dropped can only ever be consulted by a tap on the older message
+  // that named it, which is precisely the set that tap meant. (The one case
+  // last-writer-wins gets wrong — a LATER push ADDS a med to an existing slot
+  // and the user taps the EARLIER message — is unchanged from the replace-all
+  // map this succeeds, and is the same accepted ceiling documented in
+  // inbox-apply.js's nearestPendingByMed.)
+  async function recordSlotMedications(entries) {
+    const all = await records.list(SLOTMEDS_RECORD_TYPE);
+    const rec = findSingleton(all, SLOTMEDS_RECORD_ID);
+    const keepFromUnix = (now() - SLOTMEDS_RETAIN_MS) / 1000;
+    const slots = {};
+    for (const [slotUnix, ids] of Object.entries((rec && rec.slots) || {})) {
+      if (Number(slotUnix) >= keepFromUnix && Array.isArray(ids) && ids.length) slots[slotUnix] = ids;
+    }
+    Object.assign(slots, slotMedicationsFromEntries(entries));
+    await records.put(SLOTMEDS_RECORD_TYPE, {
+      recordId: SLOTMEDS_RECORD_ID, clientTs: now(), deleted: false, slots,
+    });
+  }
+
+  // getSlotMedications returns the med ids the reminder NAMED for slotUnix, or
+  // null when nothing is recorded for it — a reminder pushed before this
+  // shipped, or one older than the retention window. inbox-apply then falls
+  // back to its fixed ±band match.
+  async function getSlotMedications(slotUnix) {
+    const all = await records.list(SLOTMEDS_RECORD_TYPE);
+    const rec = findSingleton(all, SLOTMEDS_RECORD_ID);
+    const ids = rec && rec.slots && rec.slots[slotUnix];
+    return Array.isArray(ids) && ids.length ? ids : null;
+  }
+
   // buildHorizon returns [] when reminders are disabled — the caller uploads
   // that empty med portion via a replace-all pushSchedule, per the plan's
   // "disabled -> upload empty med portion" rule.
@@ -699,5 +781,6 @@ export function createRemindersDomain({ records, now }) {
     getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled,
     snoozeBPReminder, dontBugBPReminder, snoozeWeightReminder, dontBugWeightReminder,
     getDeliveryPref, setDeliveryPref, buildHorizon,
+    recordSlotMedications, getSlotMedications,
   };
 }
