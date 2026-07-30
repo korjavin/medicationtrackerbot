@@ -4,8 +4,14 @@
 // on a platform-aware "Add to Home Screen" step between the Emergency Kit tail
 // and entering the app. These pin: it auto-skips when already installed
 // (display-mode: standalone), iOS gets Share → Add to Home Screen instructions,
-// Android/desktop get a real one-tap prompt when the browser offers one and a
-// menu hint otherwise, and every path has a non-blocking way through to the app.
+// Android gets a real one-tap prompt when the browser offers one and a menu hint
+// otherwise, and every path has a non-blocking way through to the app.
+//
+// bd med-eas.63 narrowed and sharpened it: the step shows only where it can
+// matter (mobile and not already installed — desktop is no longer nagged), and
+// the copy is platform-honest. iOS is told outright that a browser tab gets no
+// push at all; Android is told push works either way. Nothing here redirects
+// into the installed app — no platform offers a way to.
 //
 // The cloud shell has no integration entry point, so this follows the pure-unit
 // convention of signup.claimed-link.test.js (repo rule 8's documented exception).
@@ -30,9 +36,11 @@ vi.mock('../telegram.js', () => ({ mountTelegram: async (_app, { onDone }) => on
 // stands in for the real shared helper (an <ol> the wizard injects verbatim).
 let standalone = false;
 let ios = false;
+let mobile = true;
 vi.mock('../push.js', () => ({
   isStandalone: () => standalone,
   isIOS: () => ios,
+  isMobile: () => mobile,
   iosInstallStepsHtml: (last) => '<ol><li>Tap the Share button in Safari.</li>' +
     `<li>Choose "Add to Home Screen".</li><li>${last}</li></ol>`,
 }));
@@ -59,6 +67,7 @@ beforeEach(async () => {
   bipHandlers.length = 0;
   standalone = false;
   ios = false;
+  mobile = true;
   // Fresh module instance → deferredInstallPrompt starts null every test.
   ({ renderEmergencyKit } = await import('../signup.js'));
 
@@ -94,8 +103,18 @@ describe('install step: derived skip', () => {
     standalone = true;
     const app = await reachInstallStep();
     await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
-    // No install UI was ever rendered — it was a derived no-op.
+    // No install UI was ever rendered — it was a derived no-op. This is also the
+    // resume landing: a user who installs and reopens from the Home Screen comes
+    // back standalone, so the step never asks a second time.
     expect(app.querySelector('#install-skip')).toBeNull();
+  });
+
+  it('never nags a desktop browser, which delivers push to a plain tab', async () => {
+    mobile = false;
+    const app = await reachInstallStep();
+    await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
+    expect(app.querySelector('#install-skip')).toBeNull();
+    expect(app.querySelector('#install-now')).toBeNull();
   });
 });
 
@@ -110,6 +129,31 @@ describe('install step: iOS', () => {
     expect(app.querySelector('#install-continue')).not.toBeNull();
     // An instruction list, not the Android one-tap button.
     expect(app.querySelector('#install-now')).toBeNull();
+  });
+
+  // The honesty constraint of bd med-eas.63: on iOS, push in a tab does not work
+  // at all, so the copy says so outright instead of hedging to "less reliable".
+  it('states plainly that reminders cannot arrive in the browser tab', async () => {
+    ios = true;
+    const app = await reachInstallStep();
+    await vi.waitFor(() => expect(app.querySelector('#install-skip')).not.toBeNull());
+
+    expect(app.textContent).toContain('cannot reach you in this browser tab');
+    expect(app.textContent).toContain('no reminders will arrive');
+    // The escape hatch is named for what it does, and is not a dead end.
+    expect(app.querySelector('#install-skip').textContent).toContain('Continue in browser');
+  });
+
+  // Reopening the installed app is a fresh storage container on iOS; the passkey
+  // is what carries across, so the instructions must send the user to unlock
+  // rather than imply the tab's session follows them.
+  it('tells the user to reopen and unlock with the same passkey', async () => {
+    ios = true;
+    const app = await reachInstallStep();
+    await vi.waitFor(() => expect(app.querySelector('#install-skip')).not.toBeNull());
+
+    expect(app.textContent).toContain('unlock with the same passkey');
+    expect(app.textContent).toContain('already saved');
   });
 
   it('reaches the app from the "I\'ve installed it" button', async () => {
@@ -129,7 +173,17 @@ describe('install step: iOS', () => {
   });
 });
 
-describe('install step: Android/desktop', () => {
+describe('install step: Android', () => {
+  // The other half of the honesty constraint: Android web push works from a
+  // browser tab, so this step must not claim the user's reminders are broken.
+  it('offers install as a convenience without claiming reminders are broken', async () => {
+    const app = await reachInstallStep();
+    await vi.waitFor(() => expect(app.querySelector('#install-skip')).not.toBeNull());
+
+    expect(app.textContent).toContain('Reminders work in Chrome either way');
+    expect(app.textContent).not.toContain('cannot');
+  });
+
   it('offers a one-tap install when the browser fired beforeinstallprompt', async () => {
     const evt = fireBeforeInstallPrompt();
     const app = await reachInstallStep();

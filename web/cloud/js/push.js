@@ -31,6 +31,15 @@ export function isIOS() {
   return /iP(hone|ad|od)/.test(navigator.userAgent);
 }
 
+// Install guidance is a MOBILE problem (bd med-eas.63): a desktop browser
+// delivers web push to a plain tab just fine, so nudging a desktop user to
+// install is nagging, not help. A coarse UA test is enough — the only two
+// platforms whose install story differs are the two named here, and the copy
+// downstream is written per-platform anyway.
+export function isMobile() {
+  return isIOS() || /Android/i.test(navigator.userAgent);
+}
+
 // The two load-bearing iOS install instructions, shared by the post-onboarding
 // Reminders gate (renderInstallFirst) and the signup wizard's install step so
 // the Share → "Add to Home Screen" wording can't drift between them. `lastStep`
