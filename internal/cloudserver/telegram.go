@@ -628,6 +628,11 @@ const (
 	onboardingClaimedMessage = "You already have a Med Tracker account. Open your subdomain and unlock it with your passkey — " +
 		"I can't create a second one for you."
 	onboardingMintFailMessage = "Sorry, I couldn't create your account just now. Please try again in a few minutes."
+	// onboardingLinkedMessage answers a sender who already runs a child bot: this
+	// is the wrong chat, and their own bot is one tap away (bd med-eas.62). %s is
+	// the child bot's username.
+	onboardingLinkedMessage = "✅ You're set up — chat with your assistant here: @%s\n\n" +
+		"This chat only sets new bots up; everything you log goes to your own bot."
 )
 
 // onboardingQuotaMessage is built from the cap so the copy can't drift from it.
@@ -644,12 +649,9 @@ var onboardingQuotaMessage = fmt.Sprintf(
 // inviteMonthlyQuota.
 const managerInviteQuota = 3
 
-// affirmatives / greetings classify the one-word replies this conversation
-// expects. Anything else gets the nudge.
-var (
-	affirmatives = map[string]bool{"yes": true, "y": true, "yeah": true, "yep": true, "sure": true, "ok": true, "okay": true}
-	greetings    = map[string]bool{"/start": true, "hi": true, "hello": true, "help": true}
-)
+// affirmatives are the one-word replies that accept the offer to mint an
+// account. Everything else (greetings included) gets the offer itself.
+var affirmatives = map[string]bool{"yes": true, "y": true, "yeah": true, "yep": true, "sure": true, "ok": true, "okay": true}
 
 // handleManagerMessage runs the onboarding conversation for an ordinary private
 // message to the managebot: explain, offer, and on agreement mint an invite.
@@ -676,14 +678,27 @@ func (t *TelegramAPI) handleManagerMessage(ctx context.Context, msg *tgclient.Me
 		return
 	}
 
+	// A sender whose own child bot is already linked landed in the wrong chat:
+	// point them at that bot instead of running onboarding (or, worse, saying
+	// nothing). Checked before the claimed gate because it covers BYO/web/admin-CLI
+	// onboarding too, which "tg:"-attributed claims never see (bd med-eas.62).
+	switch bot, err := t.store.BotByChatID(ctx, msg.Chat.ID); {
+	case err == nil && bot.BotUsername != "":
+		t.replyManagerLinked(ctx, msg.Chat.ID, bot.BotUsername)
+		return
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		slog.Error("telegram manager message: linked-bot check", "error", err)
+		return
+	}
+
 	claimed, err := t.store.HasClaimedAccountCreatedBy(ctx, creator)
 	if err != nil {
 		slog.Error("telegram manager message: claimed check", "error", err)
 		return
 	}
 	if claimed {
-		// A linked sender is the manager bot's only feedback audience, so this
-		// reply carries the "Send feedback" button when the channel is enabled.
+		// A claimed sender is a feedback audience, so this reply carries the
+		// "Send feedback" button when the channel is enabled.
 		t.replyManagerClaimed(ctx, msg.Chat.ID)
 		return
 	}
@@ -691,14 +706,27 @@ func (t *TelegramAPI) handleManagerMessage(ctx context.Context, msg *tgclient.Me
 	switch text := strings.TrimSpace(strings.ToLower(msg.Text)); {
 	case affirmatives[text]:
 		t.mintInvite(ctx, msg.Chat.ID, creator)
-	case greetings[text]:
-		t.reply(ctx, msg.Chat.ID, onboardingOfferMessage)
 	default:
-		// ponytail: stay silent on arbitrary chatter. Onboarding still starts from
-		// /start|hi|hello|help above, and Telegram auto-sends /start on first open,
-		// so nudging every stray line only annoys users who already own a bot
-		// (BYO/web/admin-CLI onboarding is invisible to the "claimed" check).
-		return
+		// Anything else (including the greetings) gets the offer: a sender who
+		// reaches here has no linked bot and no claimed account, so silence would
+		// just strand them (bd med-eas.62). The users this used to protect — people
+		// who already own a bot via BYO/web/admin-CLI onboarding — are now caught by
+		// the linked-bot check above.
+		t.reply(ctx, msg.Chat.ID, onboardingOfferMessage)
+	}
+}
+
+// replyManagerLinked points a sender at their own child bot with a one-tap URL
+// button. It carries the "Send feedback" button too when the channel is enabled:
+// a linked sender is as much the manager bot's feedback audience as a claimed one
+// (this reply shadows replyManagerClaimed for anyone who has linked a bot).
+func (t *TelegramAPI) replyManagerLinked(ctx context.Context, chatID int64, botUsername string) {
+	buttons := []tgclient.InlineKeyboardButton{{Text: "💬 Open @" + botUsername, URL: "https://t.me/" + botUsername}}
+	if t.feedbackEnabled() {
+		buttons = append(buttons, feedbackButton()...)
+	}
+	if err := t.managerClient().SendMessageWithButtons(ctx, chatID, fmt.Sprintf(onboardingLinkedMessage, botUsername), buttons); err != nil {
+		slog.Error("telegram manager message: send linked reply", "error", err, "chat_id", chatID)
 	}
 }
 
