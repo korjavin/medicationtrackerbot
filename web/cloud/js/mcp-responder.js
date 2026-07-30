@@ -750,11 +750,11 @@ export function createResponder({
     return `${base}?pairing=${encodeURIComponent(pairingId)}`;
   }
 
-  async function onFrame(data) {
-    // Capture the socket this frame arrived on: the dispatch below awaits, and
-    // a reconnect (see scheduleReconnect) can rebind `ws` to a new CONNECTING
-    // socket meanwhile — send()ing on that throws and loses the response.
-    const sock = ws;
+  // sock is the socket the frame arrived on, passed in rather than read off
+  // `ws`: the dispatch below awaits, and a reconnect can rebind `ws` to a new
+  // CONNECTING socket meanwhile — send()ing on that throws and loses the
+  // response.
+  async function onFrame(sock, data) {
     const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(await data.arrayBuffer());
     let payload;
     try {
@@ -799,11 +799,19 @@ export function createResponder({
   function connect() {
     stopped = false;
     status = 'connecting';
-    ws = new WebSocket(wsURL());
-    ws.binaryType = 'arraybuffer';
-    ws.onopen = () => { status = 'linked'; reconnectDelay = RECONNECT_MIN_MS; };
-    ws.onmessage = (ev) => { onFrame(ev.data).catch(() => {}); };
-    ws.onclose = (ev) => {
+    const sock = new WebSocket(wsURL());
+    ws = sock;
+    sock.binaryType = 'arraybuffer';
+    sock.onopen = () => { status = 'linked'; reconnectDelay = RECONNECT_MIN_MS; };
+    sock.onmessage = (ev) => { onFrame(sock, ev.data).catch(() => {}); };
+    sock.onclose = (ev) => {
+      // A socket this responder has already replaced must not act on its own
+      // close: resume() can redial while the previous socket is still CLOSING,
+      // and letting the loser schedule a reconnect opens a SECOND device leg.
+      // The relay allows one, so it evicts the healthy leg with 4409 — which
+      // the handler below reads as "pairing replaced" and stops the responder
+      // for good. Exactly the silent-death this whole change exists to fix.
+      if (ws !== sock) return;
       status = 'idle';
       // The relay refuses this pairing — it's gone (4404) or it was replaced
       // (4409). Reconnecting can never succeed under either: stop, and let the
@@ -818,7 +826,7 @@ export function createResponder({
       }
       scheduleReconnect();
     };
-    ws.onerror = () => {};
+    sock.onerror = () => {};
   }
 
   // A phone freezes a backgrounded tab: timers stop, so a pending

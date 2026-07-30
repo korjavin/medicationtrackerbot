@@ -798,6 +798,29 @@ describe('mcp-responder reconnect loop', () => {
     responder.stop();
   });
 
+  // A wake-up can land while the previous socket is still CLOSING. If that
+  // socket's late onclose schedules its own reconnect, the responder ends up
+  // with two device legs; the relay only keeps one, evicts the healthy one with
+  // 4409, and the loser stops for good — the silent death this whole change is
+  // about.
+  it('ignores the close of a socket it already replaced on wake-up', () => {
+    const responder = makeResponder();
+    responder.connect();
+    const stale = FakeSocket.instances[0];
+    stale.readyState = 2; // CLOSING
+
+    doc.fire('visibilitychange');
+    expect(FakeSocket.instances).toHaveLength(2);
+
+    stale.fireClose(1006); // late close from the replaced socket
+    vi.advanceTimersByTime(120_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    // The live leg must still be considered current, not stopped.
+    FakeSocket.instances[1].onopen();
+    expect(responder.getStatus()).toBe('linked');
+    responder.stop();
+  });
+
   it('does not re-dial on wake-up while the socket is still open', () => {
     const responder = makeResponder();
     responder.connect();
