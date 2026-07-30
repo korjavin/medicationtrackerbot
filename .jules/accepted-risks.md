@@ -8,7 +8,7 @@ Format mirrors `sentinel.md` but inverts the verdict: instead of "what we learne
 
 ## 2026-05-10 — Empty `MCP_ALLOWED_SUBJECT` is an allowed configuration
 
-**Finding:** When `MCP_ALLOWED_SUBJECT` is empty, the MCP server accepts any JWT that passes signature, audience, expiration, and issuer checks — i.e., any valid Pocket-ID token from the configured issuer/client. This corresponds to threat-model entry **TM-008** ("OAuth audience/subject bypass") and the recommendation in `threat-model.md:543` to require `MCP_ALLOWED_SUBJECT` in production.
+**Finding:** When `MCP_ALLOWED_SUBJECT` is empty, the MCP server accepts any JWT that passes signature, audience, expiration, and issuer checks — i.e., any valid Pocket-ID token from the configured issuer/client. This corresponds to threat-model entry **TM-008** ("OAuth audience/subject bypass") and the recommendation in `docs/security/threat-model.md:543` to require `MCP_ALLOWED_SUBJECT` in production.
 
 **Decision:** **Accepted.** The current behavior — treat empty `MCP_ALLOWED_SUBJECT` as "no subject allowlist applied" — is intentional and must remain configurable, including the empty default.
 
