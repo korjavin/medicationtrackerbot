@@ -228,6 +228,17 @@ func (r *Repo) BotByAccount(ctx context.Context, accountID string) (*TGBot, erro
 	return scanTGBot(row.Scan)
 }
 
+// BotByChatID returns the bot whose /start-linked chat is chatID, or
+// sql.ErrNoRows if none. A Telegram private chat id equals the user's own id
+// regardless of which bot the chat is with, so this is how the MANAGER bot
+// recognizes a sender who already runs a child bot (bd med-eas.62). Most
+// recently linked wins if one person owns several accounts.
+func (r *Repo) BotByChatID(ctx context.Context, chatID int64) (*TGBot, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT `+tgBotColumns+` FROM tg_bots WHERE chat_id = ? ORDER BY linked_at_unix DESC LIMIT 1`, chatID)
+	return scanTGBot(row.Scan)
+}
+
 // BotByWebhookRef returns the bot addressed by a child-webhook ref (the
 // account id embedded in /tg/bot/<ref>/<secret>). The caller compares the
 // path secret against WebhookSecret in memory — the DB never indexes on it.

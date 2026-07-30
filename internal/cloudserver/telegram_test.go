@@ -658,6 +658,32 @@ func mintedBy(t *testing.T, store *cloudstore.Repo, creator string) int {
 
 const tgCreator = "tg:4242"
 
+// seedLinkedBot provisions an account (attributed to nobody, i.e. the
+// BYO/admin-CLI shape the "tg:" claimed check can't see) and links botUsername
+// to chatID, exactly as a /start on the child bot would.
+func seedLinkedBot(t *testing.T, store *cloudstore.Repo, botUsername string, chatID int64) {
+	t.Helper()
+	inv, err := Provision(t.Context(), store, 14*24*time.Hour, time.Now().UTC(), "")
+	if err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if err := store.UpsertBot(t.Context(), cloudstore.TGBot{
+		AccountID:     inv.Account.ID,
+		BotID:         909,
+		BotUsername:   botUsername,
+		TokenCT:       []byte("ct"),
+		TokenNonce:    []byte("nonce"),
+		Kind:          "managed",
+		WebhookSecret: "secret",
+		CreatedAt:     time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("UpsertBot: %v", err)
+	}
+	if err := store.LinkChat(t.Context(), inv.Account.ID, chatID, time.Now().UTC()); err != nil {
+		t.Fatalf("LinkChat: %v", err)
+	}
+}
+
 // TestManagerOnboarding guards the managebot's private-chat conversation:
 // /start explains without minting, "yes" mints an invite attributed to
 // "tg:<uid>" and replies with its claim link, a 4th "yes" inside the window is
@@ -675,14 +701,65 @@ func TestManagerOnboarding(t *testing.T) {
 		}
 	})
 
-	t.Run("unrecognized text stays silent", func(t *testing.T) {
+	// bd med-eas.62: an unlinked sender's stray line is answered with the offer —
+	// silence stranded people who tapped the manager bot by mistake.
+	t.Run("unrecognized text from an unlinked sender gets the offer", func(t *testing.T) {
 		store, tg, top, secret := managerFixture(t)
 		tgMessage(t, top, secret, "what is this")
-		if len(tg.mu.sent) != 0 {
-			t.Fatalf("stray chatter should get no reply, sent: %v", tg.mu.sent)
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "personal health-tracking bot") {
+			t.Fatalf("stray chatter got no onboarding reply, sent: %v", tg.mu.sent)
 		}
 		if n := mintedBy(t, store, tgCreator); n != 0 {
 			t.Fatalf("nudge minted %d accounts, want 0", n)
+		}
+	})
+
+	// bd med-eas.62: the already-provisioned half — a user whose child bot is
+	// linked to this chat gets pointed at that bot, never silence and never a
+	// re-offer of onboarding.
+	t.Run("linked sender is pointed at their own bot", func(t *testing.T) {
+		store, tg, top, secret := managerFixture(t)
+		seedLinkedBot(t, store, "mt_mine_bot", 77)
+
+		tgMessage(t, top, secret, "what is this")
+		if len(tg.mu.sent) != 1 {
+			t.Fatalf("linked sender got %d replies, want exactly 1: %v", len(tg.mu.sent), tg.mu.sent)
+		}
+		sent := tg.mu.sent[0]
+		if !strings.Contains(sent, "@mt_mine_bot") || !strings.Contains(sent, `https://t.me/mt_mine_bot`) {
+			t.Fatalf("reply lacks the child-bot pointer + one-tap URL button: %s", sent)
+		}
+		if strings.Contains(sent, "Want me to create an account") {
+			t.Fatalf("re-offered onboarding to a provisioned user: %s", sent)
+		}
+		if n := mintedBy(t, store, tgCreator); n != 0 {
+			t.Fatalf("minted %d accounts for a linked sender, want 0", n)
+		}
+	})
+
+	// A "yes" from a linked sender must not mint either — the pointer wins over
+	// the affirmative.
+	t.Run("linked sender saying yes gets the pointer, not a new account", func(t *testing.T) {
+		store, tg, top, secret := managerFixture(t)
+		seedLinkedBot(t, store, "mt_mine_bot", 77)
+
+		tgMessage(t, top, secret, "yes")
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "@mt_mine_bot") {
+			t.Fatalf("reply is not the child-bot pointer: %v", tg.mu.sent)
+		}
+		if n := mintedBy(t, store, tgCreator); n != 0 {
+			t.Fatalf("minted %d accounts for a linked sender, want 0", n)
+		}
+	})
+
+	// Another account's linked chat must not answer for this sender.
+	t.Run("a bot linked to a different chat does not shadow onboarding", func(t *testing.T) {
+		store, tg, top, secret := managerFixture(t)
+		seedLinkedBot(t, store, "mt_other_bot", 999)
+
+		tgMessage(t, top, secret, "hi")
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "personal health-tracking bot") {
+			t.Fatalf("want the onboarding offer, got: %v", tg.mu.sent)
 		}
 	})
 
