@@ -25,8 +25,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockResponse, loadFrontendEnv } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
+import { idle, signal } from './helpers/settle.js';
 
 const AUTH_CACHE_KEY = 'medtracker_auth_state';
+
+// med-tc1.10 — verifyAuthInBackground is fire-and-forget (returns nothing), so
+// "it did NOT clear the auth state" has no completion promise to await. Two
+// progress-bounded barriers replace the old `setTimeout(r, 30)`:
+//   1. `probed` fires from inside the fetch mock — /auth/status was issued.
+//   2. `idle()` then runs the response handler to exhaustion. Everything after
+//      the fetch is pure promise work (res.json / clearAuthState /
+//      clearSwBootstrapCache), and one idle round drains the entire microtask
+//      queue including chained continuations — so a mutant that clears on this
+//      branch has provably done so before the assertion.
+function stubAuthStatusFetch(window, respond) {
+    const probed = signal();
+    window.fetch = vi.fn((url) => {
+        probed.fire();
+        return respond(url);
+    });
+    return probed;
+}
 
 function setAuthCache(window) {
     window.localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({
@@ -200,16 +219,16 @@ describe('features/auth-bootstrap.js — verifyAuthInBackground', () => {
         const { window } = env;
         setAuthCache(window);
 
-        window.fetch = vi.fn().mockResolvedValue(createMockResponse({
+        const probed = stubAuthStatusFetch(window, () => Promise.resolve(createMockResponse({
             status: 503,
-        }));
+        })));
 
         window.verifyAuthInBackground();
 
-        // Give the verifier time to process the 5xx response. The 5xx branch
-        // must short-circuit before touching clearAuthState; the cached auth
-        // state therefore must survive.
-        await new Promise((r) => setTimeout(r, 30));
+        // The 5xx branch must short-circuit before touching clearAuthState; the
+        // cached auth state therefore must survive the handler running out.
+        await probed.wait;
+        await idle();
 
         expect(window.localStorage.getItem(AUTH_CACHE_KEY)).not.toBeNull();
     });
@@ -218,11 +237,12 @@ describe('features/auth-bootstrap.js — verifyAuthInBackground', () => {
         const { window } = env;
         setAuthCache(window);
 
-        window.fetch = vi.fn().mockRejectedValue(new Error('network down'));
+        const probed = stubAuthStatusFetch(window, () => Promise.reject(new Error('network down')));
 
         window.verifyAuthInBackground();
 
-        await new Promise((r) => setTimeout(r, 30));
+        await probed.wait;
+        await idle();
 
         expect(window.localStorage.getItem(AUTH_CACHE_KEY)).not.toBeNull();
     });

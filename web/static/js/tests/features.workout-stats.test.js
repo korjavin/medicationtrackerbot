@@ -3,6 +3,7 @@
 // persisted range selector.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { idle, signal } from './helpers/settle.js';
 import * as WorkoutAnalysis from '../../../../web/domain/workout-analysis.js';
 
 describe('features/workout/stats.js — split-file integration', () => {
@@ -61,11 +62,19 @@ describe('features/workout/stats.js — split-file integration', () => {
       ],
     };
 
+    // med-tc1.10 — `fetched` fires from inside the mock the moment the catalog
+    // request is issued (the #716 pattern), so cases that need "the catalog
+    // round-trip has started" get a fact instead of a `setTimeout(r, 0)` guess.
     function stubCatalog(window, response) {
+      const fetched = signal();
       window.fetch = vi.fn(async (url) => {
-        if (String(url).includes('/static/data/exercises-catalog.json')) return response;
+        if (String(url).includes('/static/data/exercises-catalog.json')) {
+          fetched.fire();
+          return response;
+        }
         return { ok: true, status: 200, json: async () => ({}) };
       });
+      return fetched;
     }
 
     it('buckets logged exercises by catalog body_part, case-insensitively, with an uncategorized fallback', async () => {
@@ -98,7 +107,12 @@ describe('features/workout/stats.js — split-file integration', () => {
       const container = document.getElementById('workout-stats-display');
       window._renderWorkoutStats(container, { total_sessions: 0, top_exercises: [] });
 
-      await new Promise((r) => setTimeout(r, 0));
+      // Nothing async is supposed to happen here at all, so there is no progress
+      // point to latch onto — the barrier has to be pure WORK. Each idle round
+      // drains the whole microtask queue, so a _renderBodyPartSplit that reached
+      // its `await load()` (i.e. checked for an empty list too late) would have
+      // issued the catalog fetch well before the assertions below.
+      await idle();
       expect(container.querySelector('.wg-workouts-stats__body-split')).toBeNull();
       const catalogFetches = window.fetch.mock.calls.filter((c) => String(c[0]).includes('exercises-catalog.json'));
       expect(catalogFetches).toHaveLength(0);
@@ -142,7 +156,7 @@ describe('features/workout/stats.js — split-file integration', () => {
 
     it('a failed catalog fetch is silent — stats still render, no split section', async () => {
       const { window, document } = env;
-      stubCatalog(window, { ok: false, status: 500, json: async () => ({}) });
+      const fetched = stubCatalog(window, { ok: false, status: 500, json: async () => ({}) });
 
       const container = document.getElementById('workout-stats-display');
       window._renderWorkoutStats(container, {
@@ -150,7 +164,11 @@ describe('features/workout/stats.js — split-file integration', () => {
         top_exercises: [{ exercise_name: 'Bench Press', session_count: 1, total_volume_kg: 100 }],
       });
 
-      await new Promise((r) => setTimeout(r, 0));
+      // `fetched` proves the catalog load ran (so the failure path is genuinely
+      // exercised); `idle()` then lets the .catch → empty-Map → skip tail finish
+      // — a split section that was going to render has rendered by then.
+      await fetched.wait;
+      await idle();
       expect(container.querySelector('.wg-workouts-stats')).toBeTruthy(); // base stats rendered
       expect(container.querySelector('.wg-workouts-stats__body-split')).toBeNull();
     });

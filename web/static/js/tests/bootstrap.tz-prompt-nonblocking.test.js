@@ -16,6 +16,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
+import { idle, signal } from './helpers/settle.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,15 +26,27 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const BOOTSTRAP_JS = path.join(REPO_ROOT, 'web/static/js/features/bootstrap.js');
 
+// med-tc1.10 — the fake store doubles as the progress barrier. maybeUpdateTimezone
+// touches this cache at exactly two points: one `get` (the settings bundle whose
+// timezone it compares against) and, on the dismiss path, one `set` (the offline
+// mirror of the dismissal). Firing a signal from inside each is the #716 pattern —
+// the point of interest reports itself instead of a sleep guessing at it.
+//   `read`    — maybeUpdateTimezone has loaded the bundle and is now deciding.
+//   `written` — the dismiss mirror has landed; `map` is safe to assert on.
+// Both are keyed on 'settings_bundle' so an unrelated cache touch from another
+// bootstrap path can never settle a barrier early and weaken an assertion.
 function installApiCacheMap(window, initialCache = {}) {
     const map = new Map();
     for (const [key, value] of Object.entries(initialCache)) {
         map.set(key, { id: key, timestamp: Date.now(), data: value });
     }
+    const read = signal();
+    const written = signal();
     window.MedTrackerDB = window.MedTrackerDB || {};
     window.MedTrackerDB.ApiCache = {
         async get(key) {
             const entry = map.get(key);
+            if (key === 'settings_bundle') read.fire();
             return entry ? entry.data : null;
         },
         async getWithMeta(key) {
@@ -42,16 +55,18 @@ function installApiCacheMap(window, initialCache = {}) {
         },
         async set(key, data) {
             map.set(key, { id: key, timestamp: Date.now(), data });
+            if (key === 'settings_bundle') written.fire();
         },
         async setWithMeta(key, data, timestamp) {
             map.set(key, { id: key, timestamp, data });
+            if (key === 'settings_bundle') written.fire();
         },
         async clear(key) {
             if (key) map.delete(key);
             else map.clear();
         }
     };
-    return map;
+    return { map, read, written };
 }
 
 function forceDetectedTimezone(window, detectedTz) {
@@ -79,14 +94,20 @@ function stubBootstrapGlobals(window) {
     window.handleDeepLinks = vi.fn();
 }
 
-async function waitForModal(document, { timeoutMs = 200 } = {}) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-        const modal = document.querySelector('mt-modal.mt-confirm-modal');
-        if (modal) return modal;
-        await new Promise(resolve => setTimeout(resolve, 5));
-    }
-    return null;
+// med-tc1.10 — replaces a 200ms/5ms poll loop for the confirm modal.
+// utils.js `safeConfirm` mounts the in-page modal SYNCHRONOUSLY inside its
+// Promise executor (_mountConfirmModal appends to document.body before
+// safeConfirm returns), so wrapping the global and firing after the call-through
+// makes "the modal is in the DOM" a fact rather than a deadline to poll against.
+function watchConfirmModal(window) {
+    const shown = signal();
+    const original = window.safeConfirm;
+    window.safeConfirm = (...args) => {
+        const result = original(...args);
+        shown.fire();
+        return result;
+    };
+    return shown;
 }
 
 describe('bootstrap.js TZ prompt is non-blocking', () => {
@@ -121,8 +142,10 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
         // still awaits it on the critical path, switchTab will never be
         // reached and the assertion below will fail.
         let promptCalled = 0;
+        const prompted = signal();
         window.safeConfirm = () => {
             promptCalled += 1;
+            prompted.fire();
             return new Promise(() => { /* never resolves */ });
         };
 
@@ -137,10 +160,13 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
         const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
         window.eval(bootstrapSource);
 
-        // Yield enough turns for: checkAuth().then → mount → switchTab →
-        // queueMicrotask(maybeUpdateTimezone) → await DataStore.getCached
-        // → safeConfirm (now pending forever).
-        await new Promise(resolve => setTimeout(resolve, 50));
+        // med-tc1.10 — the prompt itself is the settle point, and it is exactly
+        // the ordering under test: this resolves the instant bootstrap reaches
+        // safeConfirm, so a switchTab that has not happened BY THEN is the
+        // regression (an awaited prompt on the critical path). The old 50ms
+        // sleep only hoped the whole checkAuth → mount → switchTab →
+        // queueMicrotask → getCached chain fit inside a wall-clock window.
+        await prompted.wait;
 
         expect(switchTabSpy).toHaveBeenCalledWith('today');
         // The prompt was scheduled — confirms we genuinely hit the await
@@ -160,16 +186,21 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
 
         const apiCallSpy = vi.fn().mockResolvedValue({ status: 'ok' });
         window.apiCall = apiCallSpy;
-        const invalidateSpy = vi.fn().mockResolvedValue(undefined);
+        // The invalidation is the LAST statement of the accept path, so firing
+        // from inside its mock settles the whole `apiCall → invalidateKey` tail.
+        const invalidated = signal();
+        const invalidateSpy = vi.fn(async () => { invalidated.fire(); });
         window.DataStore.invalidateKey = invalidateSpy;
 
         stubBootstrapFetch(window);
         stubBootstrapGlobals(window);
+        const modalShown = watchConfirmModal(window);
 
         const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
         window.eval(bootstrapSource);
 
-        const modal = await waitForModal(document);
+        await modalShown.wait;
+        const modal = document.querySelector('mt-modal.mt-confirm-modal');
         expect(modal).not.toBeNull();
         const message = modal.querySelector('.mt-confirm-modal__message');
         expect(message.textContent).toContain(detectedTz);
@@ -177,8 +208,7 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
 
         modal.querySelector('.mt-confirm-modal__confirm').click();
 
-        // Yield for: safeConfirm resolve → await apiCall → await invalidateKey
-        await new Promise(resolve => setTimeout(resolve, 30));
+        await invalidated.wait;
 
         expect(apiCallSpy).toHaveBeenCalledWith('/api/settings', 'POST', { timezone: detectedTz });
         expect(invalidateSpy).toHaveBeenCalledWith('settings_bundle');
@@ -194,7 +224,9 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
 
         const detectedTz = 'America/Chicago';
         forceDetectedTimezone(window, detectedTz);
-        installApiCacheMap(window, {
+        // The cache mirror is the LAST statement of the dismiss path (it runs
+        // after the dismiss POST), so `written` settles the whole tail.
+        const { written } = installApiCacheMap(window, {
             settings_bundle: { timezone: 'Europe/Berlin' }
         });
 
@@ -205,16 +237,18 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
 
         stubBootstrapFetch(window);
         stubBootstrapGlobals(window);
+        const modalShown = watchConfirmModal(window);
 
         const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
         window.eval(bootstrapSource);
 
-        const modal = await waitForModal(document);
+        await modalShown.wait;
+        const modal = document.querySelector('mt-modal.mt-confirm-modal');
         expect(modal).not.toBeNull();
 
         modal.querySelector('.mt-confirm-modal__cancel').click();
 
-        await new Promise(resolve => setTimeout(resolve, 30));
+        await written.wait;
 
         expect(apiCallSpy).toHaveBeenCalledWith(
             '/api/tz-suggestion/dismiss',
@@ -238,7 +272,7 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
 
         const detectedTz = 'America/Chicago';
         forceDetectedTimezone(window, detectedTz);
-        const cacheMap = installApiCacheMap(window, {
+        const { map: cacheMap, written } = installApiCacheMap(window, {
             settings_bundle: { timezone: 'Europe/Berlin' }
         });
 
@@ -249,15 +283,19 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
 
         stubBootstrapFetch(window);
         stubBootstrapGlobals(window);
+        const modalShown = watchConfirmModal(window);
 
         const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
         window.eval(bootstrapSource);
 
-        const modal = await waitForModal(document);
+        await modalShown.wait;
+        const modal = document.querySelector('mt-modal.mt-confirm-modal');
         expect(modal).not.toBeNull();
         modal.querySelector('.mt-confirm-modal__cancel').click();
 
-        await new Promise(resolve => setTimeout(resolve, 30));
+        // `written` fires from inside ApiCache.set AFTER the map has been
+        // updated, so the entry below is guaranteed to be the mirrored one.
+        await written.wait;
 
         const cached = cacheMap.get('settings_bundle');
         expect(cached?.data?.dismissedTzSuggestion).toBe(detectedTz);
@@ -270,7 +308,7 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
 
         const detectedTz = 'America/Chicago';
         forceDetectedTimezone(window, detectedTz);
-        installApiCacheMap(window, {
+        const { read } = installApiCacheMap(window, {
             settings_bundle: { timezone: detectedTz }
         });
 
@@ -283,8 +321,14 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
         const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
         window.eval(bootstrapSource);
 
-        // Give the queueMicrotask path a chance to run; modal must NOT appear.
-        await new Promise(resolve => setTimeout(resolve, 50));
+        // A negative assertion needs a unit of WORK, not a deadline. Two
+        // barriers: `read` proves maybeUpdateTimezone actually ran and loaded
+        // the bundle (so the case is not passing because nothing happened at
+        // all), and `idle()` then gives the skip decision every chance to turn
+        // into a prompt — each round drains the entire microtask queue, and
+        // safeConfirm mounts its modal synchronously once reached.
+        await read.wait;
+        await idle();
 
         expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
         expect(apiCallSpy).not.toHaveBeenCalledWith('/api/settings', expect.anything(), expect.anything());
@@ -296,7 +340,7 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
 
         const detectedTz = 'America/Chicago';
         forceDetectedTimezone(window, detectedTz);
-        installApiCacheMap(window, {
+        const { read } = installApiCacheMap(window, {
             settings_bundle: {
                 timezone: 'Europe/Berlin',
                 dismissedTzSuggestion: detectedTz,
@@ -312,7 +356,8 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
         const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
         window.eval(bootstrapSource);
 
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await read.wait;
+        await idle();
 
         expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
         // Neither endpoint should be touched when we silently skip.

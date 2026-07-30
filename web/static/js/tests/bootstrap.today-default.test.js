@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
+import { signal } from './helpers/settle.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +25,20 @@ function stubBootstrapGlobals(window, switchTabSpy) {
     window.handleDeepLinks = vi.fn();
 }
 
+// med-tc1.10 — the settle point IS the call under test. Every case here asserts
+// which section bootstrap lands on, and bootstrap reaches that decision through
+// checkAuth().then → mountCanonicalBottomNav → switchTab(readSavedActiveTab()).
+// The old `setTimeout(r, 50)` bet that the whole chain fits in 50ms of wall
+// clock; resolving from inside the spy (the #716 pattern) makes "switchTab has
+// been called" a fact instead. bootstrap calls switchTab exactly once — the
+// deep-link router is stubbed out and the nav's onChange only fires on a tap —
+// so this same barrier also settles the `not.toHaveBeenCalledWith(...)` half:
+// after it, the one and only call has already happened.
+function spySwitchTab() {
+    const called = signal();
+    return { spy: vi.fn(() => called.fire()), called };
+}
+
 describe('bootstrap.js initial-section restore', () => {
     it('calls switchTab("today") for a fresh user (no saved active tab)', async () => {
         allowConsoleNoise();
@@ -33,13 +48,13 @@ describe('bootstrap.js initial-section restore', () => {
                 features: { bp: true, weight: true, medication: true }
             });
 
-            const switchTabSpy = vi.fn();
+            const { spy: switchTabSpy, called } = spySwitchTab();
             stubBootstrapGlobals(window, switchTabSpy);
 
             const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
             window.eval(bootstrapSource);
 
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await called.wait;
 
             expect(switchTabSpy).toHaveBeenCalledWith('today');
         } finally {
@@ -58,13 +73,13 @@ describe('bootstrap.js initial-section restore', () => {
             window.localStorage.setItem('mt-active-tab', 'bp');
             window.localStorage.setItem('mt-active-tab-at', String(Date.now()));
 
-            const switchTabSpy = vi.fn();
+            const { spy: switchTabSpy, called } = spySwitchTab();
             stubBootstrapGlobals(window, switchTabSpy);
 
             const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
             window.eval(bootstrapSource);
 
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await called.wait;
 
             expect(switchTabSpy).toHaveBeenCalledWith('bp');
         } finally {
@@ -84,13 +99,13 @@ describe('bootstrap.js initial-section restore', () => {
             // Last activity 31 minutes ago — past the 30-min restore window.
             window.localStorage.setItem('mt-active-tab-at', String(Date.now() - 31 * 60 * 1000));
 
-            const switchTabSpy = vi.fn();
+            const { spy: switchTabSpy, called } = spySwitchTab();
             stubBootstrapGlobals(window, switchTabSpy);
 
             const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
             window.eval(bootstrapSource);
 
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await called.wait;
 
             expect(switchTabSpy).toHaveBeenCalledWith('today');
             expect(switchTabSpy).not.toHaveBeenCalledWith('bp');
@@ -110,13 +125,13 @@ describe('bootstrap.js initial-section restore', () => {
             // Legacy state: section saved before timestamps were introduced.
             window.localStorage.setItem('mt-active-tab', 'bp');
 
-            const switchTabSpy = vi.fn();
+            const { spy: switchTabSpy, called } = spySwitchTab();
             stubBootstrapGlobals(window, switchTabSpy);
 
             const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
             window.eval(bootstrapSource);
 
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await called.wait;
 
             expect(switchTabSpy).toHaveBeenCalledWith('today');
             expect(switchTabSpy).not.toHaveBeenCalledWith('bp');
@@ -136,13 +151,13 @@ describe('bootstrap.js initial-section restore', () => {
             window.localStorage.setItem('mt-active-tab', 'bp');
             window.localStorage.setItem('mt-active-tab-at', String(Date.now()));
 
-            const switchTabSpy = vi.fn();
+            const { spy: switchTabSpy, called } = spySwitchTab();
             stubBootstrapGlobals(window, switchTabSpy);
 
             const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
             window.eval(bootstrapSource);
 
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await called.wait;
 
             expect(switchTabSpy).toHaveBeenCalledWith('today');
             expect(switchTabSpy).not.toHaveBeenCalledWith('bp');
@@ -162,13 +177,13 @@ describe('bootstrap.js initial-section restore', () => {
             window.localStorage.setItem('mt-active-tab', 'unknown-id');
             window.localStorage.setItem('mt-active-tab-at', String(Date.now()));
 
-            const switchTabSpy = vi.fn();
+            const { spy: switchTabSpy, called } = spySwitchTab();
             stubBootstrapGlobals(window, switchTabSpy);
 
             const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
             window.eval(bootstrapSource);
 
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await called.wait;
 
             expect(switchTabSpy).toHaveBeenCalledWith('today');
             expect(switchTabSpy).not.toHaveBeenCalledWith('unknown-id');
