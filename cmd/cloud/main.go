@@ -43,6 +43,7 @@ type config struct {
 	internalWebhookBase  string
 	requestInviteEmail   string
 	feedbackAgeRecipient string
+	feedbackAdminChatID  int64
 	trial                cloudserver.TrialConfig
 }
 
@@ -102,6 +103,18 @@ func loadConfig() (config, error) {
 			return cfg, errors.New("CLOUD_ACCOUNT_QUOTA_BYTES must be a non-negative integer (0 disables the quota)")
 		}
 		cfg.accountQuotaBytes = bytes
+	}
+
+	// FEEDBACK_ADMIN_CHAT_ID is the developer's numeric Telegram chat for the
+	// best-effort feedback relay. Unset or unparseable = relay off; a typo must
+	// not brick startup for an optional notification.
+	if adminChat := os.Getenv("FEEDBACK_ADMIN_CHAT_ID"); adminChat != "" {
+		id, err := strconv.ParseInt(adminChat, 10, 64)
+		if err != nil {
+			slog.Warn("FEEDBACK_ADMIN_CHAT_ID is not a number; feedback relay disabled", "value", adminChat)
+		} else {
+			cfg.feedbackAdminChatID = id
+		}
 	}
 
 	trial, err := cloudserver.TrialConfigFromEnv()
@@ -238,7 +251,8 @@ func main() {
 	foodProxyAPI.RegisterRoutes(apiMux)
 	rxnavProxyAPI.RegisterRoutes(apiMux)
 	cloudserver.NewEgressAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
-	cloudserver.NewFeedbackAPI(store, cfg.sessionSecret, cfg.feedbackAgeRecipient).RegisterRoutes(apiMux)
+	feedbackAPI := cloudserver.NewFeedbackAPI(store, cfg.sessionSecret, cfg.feedbackAgeRecipient)
+	feedbackAPI.RegisterRoutes(apiMux)
 
 	// Telegram is fully disabled unless a manager bot token is configured; the
 	// wizard step simply doesn't render and no webhook routes are wired.
@@ -263,6 +277,11 @@ func main() {
 			tgAPI = nil
 		} else {
 			tgAPI.RegisterAPIRoutes(apiMux)
+			// Feedback relay needs BOTH a manager bot and an admin chat id; either
+			// missing leaves it off (bd med-orj). The web ping is metadata-only —
+			// the server still cannot read web feedback.
+			tgAPI.SetFeedbackAdminChat(cfg.feedbackAdminChatID)
+			feedbackAPI.SetNotifier(tgAPI.NotifyFeedback)
 		}
 	}
 

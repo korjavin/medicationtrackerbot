@@ -288,6 +288,13 @@ type recordMu struct {
 	commands []string
 	edits    []string
 	deletes  []string
+	copies   []string
+	// sendFails / copyFails make sendMessage / copyMessage record the attempt and
+	// then answer Telegram's 403 (the admin never pressed /start, or the message
+	// can't be copied), standing in for a relay that must degrade to a log line
+	// rather than an error.
+	sendFails bool
+	copyFails bool
 	// deleteFails makes deleteMessage return Telegram's 400 (message can't be
 	// deleted — already gone or >48h old), standing in for the best-effort path.
 	deleteFails bool
@@ -339,12 +346,29 @@ func newRecordingTG(t *testing.T) *recordingTG {
 			io.WriteString(w, `{"ok":true,"result":{"id":7,"is_bot":true,"username":"mt_manager_bot","can_manage_bots":true}}`)
 		case "getManagedBotToken":
 			io.WriteString(w, `{"ok":true,"result":"555:CHILD"}`)
+		case "copyMessage":
+			b, _ := io.ReadAll(r.Body)
+			rec.mu.Lock()
+			rec.mu.copies = append(rec.mu.copies, string(b))
+			n := len(rec.mu.copies)
+			fails := rec.mu.copyFails
+			rec.mu.Unlock()
+			if fails {
+				io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: message can't be copied"}`)
+				return
+			}
+			fmt.Fprintf(w, `{"ok":true,"result":{"message_id":%d}}`, 2000+n)
 		case "sendMessage":
 			b, _ := io.ReadAll(r.Body)
 			rec.mu.Lock()
 			rec.mu.sent = append(rec.mu.sent, string(b))
 			n := len(rec.mu.sent)
+			fails := rec.mu.sendFails
 			rec.mu.Unlock()
+			if fails {
+				io.WriteString(w, `{"ok":false,"error_code":403,"description":"Forbidden: bot was blocked by the user"}`)
+				return
+			}
 			// Real Telegram returns the sent Message; the seal path reads its
 			// message_id so a client can later edit that exact message.
 			fmt.Fprintf(w, `{"ok":true,"result":{"message_id":%d}}`, 1000+n)

@@ -74,8 +74,9 @@ func TestFeedbackWaiting_Expired(t *testing.T) {
 
 // managerFeedbackFixture wires the manager webhook with the Telegram feedback
 // channel enabled (a fresh age recipient), returning the decrypt identity so a
-// test can verify a queued blob round-trips.
-func managerFeedbackFixture(t *testing.T) (*cloudstore.Repo, *recordingTG, http.Handler, string, *age.X25519Identity) {
+// test can verify a queued blob round-trips. adminChatID 0 leaves the admin
+// relay off (the default deployment).
+func managerFeedbackFixture(t *testing.T, adminChatID int64) (*cloudstore.Repo, *recordingTG, http.Handler, string, *age.X25519Identity) {
 	t.Helper()
 	id, err := age.GenerateX25519Identity()
 	if err != nil {
@@ -84,6 +85,7 @@ func managerFeedbackFixture(t *testing.T) (*cloudstore.Repo, *recordingTG, http.
 	store := setupStore(t)
 	tg := newRecordingTG(t)
 	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, id.Recipient().String(), 14*24*time.Hour)
+	tgAPI.SetFeedbackAdminChat(adminChatID)
 	top := http.NewServeMux()
 	tgAPI.RegisterWebhookRoutes(top)
 	return store, tg, top, deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1"), id
@@ -153,7 +155,7 @@ func onlyFeedbackDoc(t *testing.T, store *cloudstore.Repo, id *age.X25519Identit
 
 func TestManagerFeedback_ButtonOnlyForLinkedSender(t *testing.T) {
 	t.Run("linked greeting carries the fb button", func(t *testing.T) {
-		store, tg, top, secret, _ := managerFeedbackFixture(t)
+		store, tg, top, secret, _ := managerFeedbackFixture(t, 0)
 		seedClaimedAccount(t, store, tgCreator)
 		tgMessage(t, top, secret, "hi")
 		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], `"callback_data":"fb"`) {
@@ -162,7 +164,7 @@ func TestManagerFeedback_ButtonOnlyForLinkedSender(t *testing.T) {
 	})
 
 	t.Run("unlinked greeting has no button", func(t *testing.T) {
-		_, tg, top, secret, _ := managerFeedbackFixture(t)
+		_, tg, top, secret, _ := managerFeedbackFixture(t, 0)
 		tgMessage(t, top, secret, "hi")
 		if len(tg.mu.sent) != 1 || strings.Contains(tg.mu.sent[0], "callback_data") {
 			t.Fatalf("unlinked greeting should carry no button: %v", tg.mu.sent)
@@ -180,7 +182,7 @@ func TestManagerFeedback_ButtonOnlyForLinkedSender(t *testing.T) {
 }
 
 func TestManagerFeedback_CallbackArmsCapture(t *testing.T) {
-	_, tg, top, secret, _ := managerFeedbackFixture(t)
+	_, tg, top, secret, _ := managerFeedbackFixture(t, 0)
 	postManager(t, top, secret, fbCallbackBody)
 	if len(tg.mu.answered) != 1 {
 		t.Fatalf("callback tap not acked: %v", tg.mu.answered)
@@ -191,7 +193,7 @@ func TestManagerFeedback_CallbackArmsCapture(t *testing.T) {
 }
 
 func TestManagerFeedback_CaptureText(t *testing.T) {
-	store, tg, top, secret, id := managerFeedbackFixture(t)
+	store, tg, top, secret, id := managerFeedbackFixture(t, 0)
 	accountID := seedClaimedAccount(t, store, tgCreator)
 
 	postManager(t, top, secret, fbCallbackBody) // arm chat 77
@@ -221,7 +223,7 @@ func TestManagerFeedback_CaptureText(t *testing.T) {
 }
 
 func TestManagerFeedback_CapturePhotoWithCaption(t *testing.T) {
-	store, tg, top, secret, id := managerFeedbackFixture(t)
+	store, tg, top, secret, id := managerFeedbackFixture(t, 0)
 	seedClaimedAccount(t, store, tgCreator)
 
 	postManager(t, top, secret, fbCallbackBody)
@@ -242,7 +244,7 @@ func TestManagerFeedback_CapturePhotoWithCaption(t *testing.T) {
 }
 
 func TestManagerFeedback_CaptureVoice(t *testing.T) {
-	store, tg, top, secret, id := managerFeedbackFixture(t)
+	store, tg, top, secret, id := managerFeedbackFixture(t, 0)
 	seedClaimedAccount(t, store, tgCreator)
 
 	postManager(t, top, secret, fbCallbackBody)
@@ -256,7 +258,7 @@ func TestManagerFeedback_CaptureVoice(t *testing.T) {
 }
 
 func TestManagerFeedback_CaptureRejectedWithoutAccount(t *testing.T) {
-	store, tg, top, secret, _ := managerFeedbackFixture(t)
+	store, tg, top, secret, _ := managerFeedbackFixture(t, 0)
 	// No claimed account for tg:4242 — a stale tap arrives.
 	postManager(t, top, secret, fbCallbackBody)
 	resetSent(tg)
@@ -267,6 +269,141 @@ func TestManagerFeedback_CaptureRejectedWithoutAccount(t *testing.T) {
 	}
 	if items, _ := store.ListFeedback(context.Background(), 100); len(items) != 0 {
 		t.Fatalf("unlinked sender queued feedback: %d items", len(items))
+	}
+}
+
+// feedbackAdminChat stands in for FEEDBACK_ADMIN_CHAT_ID in relay tests.
+const feedbackAdminChat = int64(9001)
+
+// waitForSent / waitForCopies poll the fake for at least n recorded sendMessage
+// / copyMessage bodies. Both relays run on their own goroutine (off the request
+// and webhook paths), so these assertions can't be immediate.
+func waitForSent(t *testing.T, tg *recordingTG, n int) []string {
+	t.Helper()
+	return waitForRecorded(t, tg, n, "sendMessage", func() []string { return tg.mu.sent })
+}
+
+func waitForCopies(t *testing.T, tg *recordingTG, n int) []string {
+	t.Helper()
+	return waitForRecorded(t, tg, n, "copyMessage", func() []string { return tg.mu.copies })
+}
+
+func waitForRecorded(t *testing.T, tg *recordingTG, n int, what string, read func() []string) []string {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		tg.mu.Lock()
+		got := append([]string(nil), read()...)
+		tg.mu.Unlock()
+		if len(got) >= n {
+			return got
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %d %s call(s), got %d: %v", n, what, len(got), got)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// TestNotifyFeedback_NoopWhenAdminChatUnset: the default deployment
+// (FEEDBACK_ADMIN_CHAT_ID unset) sends nothing at all.
+func TestNotifyFeedback_NoopWhenAdminChatUnset(t *testing.T) {
+	tg := newRecordingTG(t)
+	tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", time.Hour)
+	tgAPI.NotifyFeedback("bug", "1.2.3") // synchronous — nothing can be in flight
+	if len(tg.mu.sent) != 0 {
+		t.Fatalf("relay fired with no admin chat configured: %v", tg.mu.sent)
+	}
+}
+
+// TestNotifyFeedback_TruncatesUntrustedMetadata: kind/app_version come straight
+// off a POST body, so they are capped before they reach a Telegram message.
+func TestNotifyFeedback_TruncatesUntrustedMetadata(t *testing.T) {
+	tg := newRecordingTG(t)
+	tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", time.Hour)
+	tgAPI.SetFeedbackAdminChat(feedbackAdminChat)
+	tgAPI.NotifyFeedback(strings.Repeat("A", 5000), "")
+
+	if len(tg.mu.sent) != 1 {
+		t.Fatalf("want 1 ping, got %v", tg.mu.sent)
+	}
+	if strings.Contains(tg.mu.sent[0], strings.Repeat("A", feedbackPingFieldMax+1)) {
+		t.Fatalf("oversized kind was not truncated: %s", tg.mu.sent[0])
+	}
+	if !strings.Contains(tg.mu.sent[0], "app —") {
+		t.Fatalf("empty app version should render as a placeholder: %s", tg.mu.sent[0])
+	}
+}
+
+// TestManagerFeedback_RelaysFullContentToAdmin: telegram-origin feedback is
+// relayed in full — the manager bot already held that plaintext — as a header
+// plus a copyMessage of the user's own message, so media rides along by file_id.
+func TestManagerFeedback_RelaysFullContentToAdmin(t *testing.T) {
+	cases := map[string]string{
+		"text":  `{"update_id":9,"message":{"message_id":11,"text":"the weight chart is broken","from":{"id":4242,"is_bot":false},"chat":{"id":77,"type":"private"}}}`,
+		"voice": `{"update_id":9,"message":{"message_id":12,"voice":{"file_id":"VOICE1","mime_type":"audio/ogg","duration":3,"file_size":8},"from":{"id":4242,"is_bot":false},"chat":{"id":77,"type":"private"}}}`,
+		"photo": `{"update_id":9,"message":{"message_id":13,"caption":"see the glitch","photo":[{"file_id":"AgACPHOTO","file_size":8}],"from":{"id":4242,"is_bot":false},"chat":{"id":77,"type":"private"}}}`,
+	}
+	for name, update := range cases {
+		t.Run(name, func(t *testing.T) {
+			store, tg, top, secret, _ := managerFeedbackFixture(t, feedbackAdminChat)
+			seedClaimedAccount(t, store, tgCreator)
+			postManager(t, top, secret, fbCallbackBody)
+			resetSent(tg)
+			postManager(t, top, secret, update)
+
+			// The copy is the relay's last call, so once it lands both sends are in.
+			copies := waitForCopies(t, tg, 1)
+			sent := waitForSent(t, tg, 2)
+			if len(copies) != 1 {
+				t.Fatalf("want exactly 1 copyMessage to the admin, got %v", copies)
+			}
+			// One thanks to the user (chat 77), one header to the admin (9001).
+			if len(sent) != 2 {
+				t.Fatalf("want thanks + admin header, got %v", sent)
+			}
+			if !strings.Contains(sent[0], "Thanks") {
+				t.Fatalf("user lost their thanks reply: %v", sent)
+			}
+			if !strings.Contains(sent[1], `"chat_id":9001`) || !strings.Contains(sent[1], "New feedback (telegram)") {
+				t.Fatalf("admin header missing/mis-addressed: %v", sent)
+			}
+			for _, want := range []string{`"chat_id":9001`, `"from_chat_id":77`} {
+				if !strings.Contains(copies[0], want) {
+					t.Errorf("copyMessage missing %q: %s", want, copies[0])
+				}
+			}
+			if items, _ := store.ListFeedback(context.Background(), 10); len(items) != 1 {
+				t.Fatalf("relay changed what was queued: %d items", len(items))
+			}
+		})
+	}
+}
+
+// TestManagerFeedback_AdminRelayFailureIsInvisibleToTheUser: Telegram refuses
+// both the header and the copy — the feedback is still queued, and the relay
+// degrades to its text fallback instead of surfacing anything to the user.
+func TestManagerFeedback_AdminRelayFailureIsInvisibleToTheUser(t *testing.T) {
+	store, tg, top, secret, _ := managerFeedbackFixture(t, feedbackAdminChat)
+	seedClaimedAccount(t, store, tgCreator)
+	postManager(t, top, secret, fbCallbackBody)
+	resetSent(tg)
+	tg.mu.Lock()
+	tg.mu.sendFails = true
+	tg.mu.copyFails = true
+	tg.mu.Unlock()
+
+	tgMessage(t, top, secret, "the weight chart is broken")
+
+	if items, _ := store.ListFeedback(context.Background(), 10); len(items) != 1 {
+		t.Fatalf("a failing admin relay lost the feedback: %d items", len(items))
+	}
+	// thanks (to the user, also 403s) + admin header + text fallback after the
+	// refused copy. All three failures are warns, none reaches the user.
+	waitForCopies(t, tg, 1)
+	sent := waitForSent(t, tg, 3)
+	if !strings.Contains(sent[2], "the weight chart is broken") {
+		t.Fatalf("refused copy did not fall back to sending the text: %v", sent)
 	}
 }
 

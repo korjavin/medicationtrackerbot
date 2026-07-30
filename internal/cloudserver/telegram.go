@@ -201,6 +201,12 @@ type TelegramAPI struct {
 	// button offered, a stale tap does nothing. The manager bot only ever holds
 	// the public key: it encrypts feedback blindly and cannot decrypt (med-dni.5).
 	feedbackRecipient string
+	// feedbackAdminChatID is the developer's Telegram chat (FEEDBACK_ADMIN_CHAT_ID)
+	// that gets a best-effort DM when feedback arrives. 0 disables the relay
+	// entirely. Web feedback only ever pings metadata here — the server holds
+	// ciphertext it cannot read; telegram-origin feedback is relayed in full
+	// because the manager bot already had that plaintext (bd med-orj).
+	feedbackAdminChatID int64
 	// feedbackWaiting tracks chats that tapped "Send feedback" and whose next
 	// message should be captured as feedback, with a short TTL. In-memory only.
 	// ponytail: lost on restart / not shared across replicas — a one-column table
@@ -232,6 +238,12 @@ func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDom
 		claimTTL:          claimTTL,
 	}
 }
+
+// SetFeedbackAdminChat points the feedback relay at the developer's chat
+// (FEEDBACK_ADMIN_CHAT_ID). A setter rather than yet another positional arg on
+// NewTelegramAPI, and because cmd/cloud builds the feedback API before the
+// Telegram one. 0 (unset) leaves the relay off — the default.
+func (t *TelegramAPI) SetFeedbackAdminChat(chatID int64) { t.feedbackAdminChatID = chatID }
 
 // ConfigureProxy scopes the Bot API proxy (bd med-eas.46). When cmd/cloud enables
 // the local proxy (CLOUD_TG_API_BASE_URL), child bots run on it for file_id

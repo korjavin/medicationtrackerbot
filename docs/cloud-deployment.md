@@ -106,6 +106,12 @@ routes simply don't register.
    env) and registers the manager webhook at `https://<CLOUD_BASE_DOMAIN>/tg/manager/<secret>`.
    Log line `telegram disabled` means the token is unset (or not forwarded by
    compose); its absence is not an error.
+4. Optional: set `FEEDBACK_ADMIN_CHAT_ID=<your numeric Telegram user id>` to have
+   the manager bot DM you when feedback arrives, instead of only finding out by
+   running `cmd/feedbackpull`. Press `/start` on the manager bot once first, or
+   Telegram 403s the DM (harmless — it degrades to a log warning). Web feedback
+   pings **metadata only** (kind + app version + time); the server still cannot
+   read it. Telegram-origin feedback is relayed in full. Unset = no relay.
 
 **Token-at-rest trade-off (read before setting `SESSION_SECRET`):** each child
 bot token is sealed with AES-GCM under a key derived from `SESSION_SECRET`

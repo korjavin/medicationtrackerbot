@@ -43,7 +43,11 @@ type FeedbackItem struct {
 // client_id) via ON CONFLICT DO NOTHING, so the reliable-retry client
 // (med-dni.3) can re-POST the same item over a flaky connection without
 // duplicating rows — and one account's client_id never collides with another's.
-func (r *Repo) AppendFeedback(ctx context.Context, accountID, clientID, kind, appVersion string, ciphertext []byte, now time.Time) error {
+//
+// queued reports whether this call actually inserted, so a caller can tell a new
+// submission from a retry that changed nothing (the admin relay pings only on the
+// former — bd med-orj). It is false whenever err is non-nil.
+func (r *Repo) AppendFeedback(ctx context.Context, accountID, clientID, kind, appVersion string, ciphertext []byte, now time.Time) (queued bool, err error) {
 	// A retry of an already-queued client_id must always succeed (idempotent),
 	// even once the account is at the cap — so check for the existing row first.
 	var one int
@@ -51,9 +55,9 @@ func (r *Repo) AppendFeedback(ctx context.Context, accountID, clientID, kind, ap
 		`SELECT 1 FROM feedback_queue WHERE account_id = ? AND client_id = ?`,
 		accountID, clientID).Scan(&one); {
 	case err == nil:
-		return nil // already queued; the client's retry is a no-op
+		return false, nil // already queued; the client's retry is a no-op
 	case !errors.Is(err, sql.ErrNoRows):
-		return err
+		return false, err
 	}
 	// Genuinely new submission: bound the per-account backlog before inserting.
 	// ponytail: the count+insert isn't atomic, so two concurrent new client_ids
@@ -61,17 +65,22 @@ func (r *Repo) AppendFeedback(ctx context.Context, accountID, clientID, kind, ap
 	var count int
 	if err := r.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM feedback_queue WHERE account_id = ?`, accountID).Scan(&count); err != nil {
-		return err
+		return false, err
 	}
 	if count >= feedbackPerAccountCap {
-		return ErrFeedbackQueueFull
+		return false, ErrFeedbackQueueFull
 	}
-	_, err := r.db.ExecContext(ctx,
+	res, err := r.db.ExecContext(ctx,
 		`INSERT INTO feedback_queue (account_id, client_id, kind, app_version, ciphertext, created_at_unix)
 		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(account_id, client_id) DO NOTHING`,
 		accountID, clientID, kind, appVersion, ciphertext, storedb.TimeToUnix(now))
-	return err
+	if err != nil {
+		return false, err
+	}
+	// DO NOTHING affects 0 rows when a concurrent request won the race above.
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // ListFeedback returns queued items oldest-first, bounded by limit — the drain
