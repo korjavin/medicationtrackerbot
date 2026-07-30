@@ -259,11 +259,33 @@ func setSecurityHeaders(w http.ResponseWriter, appDocument bool, egressHosts []s
 	if appDocument {
 		connectSrc = buildConnectSrc(egressHosts)
 	}
-	h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; worker-src 'self'; media-src 'self'; "+connectSrc+"; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+	h.Set("Content-Security-Policy", cspPolicy(connectSrc, ""))
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+}
+
+// cspPolicy renders the origin's Content-Security-Policy. It is the single
+// source of truth for the policy string — setSecurityHeaders emits it for every
+// response, and the feedback reader page re-emits it with one narrow widening.
+//
+// mediaExtra is an additional source allowed for img-src and media-src ONLY
+// ("" for none). The web-feedback reader page needs "blob:" there: the
+// screenshots and voice memos it shows were decrypted in page memory and exist
+// nowhere the origin could serve them from, so 'self' would block them outright.
+// It is deliberately not plumbed into script-src / worker-src / default-src —
+// TestSecurityHeaders_NoBlobOrDataScript pins that no document on this origin
+// can execute script from a blob:/data: URL, and an image is not code.
+func cspPolicy(connectSrc, mediaExtra string) string {
+	imgSrc, mediaSrc := "'self'", "'self'"
+	if mediaExtra != "" {
+		imgSrc += " " + mediaExtra
+		mediaSrc += " " + mediaExtra
+	}
+	return "default-src 'self'; script-src 'self'; style-src 'self'; img-src " + imgSrc +
+		"; worker-src 'self'; media-src " + mediaSrc + "; " + connectSrc +
+		"; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
 }
 
 // buildConnectSrc renders the app document's scoped connect-src directive:
@@ -304,6 +326,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case feedbackReaderPath:
 			noStore(w)
+			// Decrypted attachments only exist in page memory, so they are shown
+			// as blob: URLs; img-src/media-src 'self' would block them. Nothing
+			// else about the policy moves — see cspPolicy.
+			w.Header().Set("Content-Security-Policy", cspPolicy("connect-src 'self'", "blob:"))
 			r.URL.Path = "/feedback.html"
 		case feedbackQueuePath:
 			if h.feedbackReader == nil {

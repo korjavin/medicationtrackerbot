@@ -246,3 +246,31 @@ func TestFeedbackReaderPage_ServedOnBaseDomain(t *testing.T) {
 		}
 	}
 }
+
+// TestFeedbackReaderPage_CSPAllowsBlobMediaOnly: decrypted screenshots and voice
+// memos live only in page memory, so they render from blob: URLs — img-src and
+// media-src must allow that, and nothing a script can execute through may.
+func TestFeedbackReaderPage_CSPAllowsBlobMediaOnly(t *testing.T) {
+	store := setupStore(t)
+	shell := testFS()
+	shell["feedback.html"] = &fstest.MapFile{Data: []byte("reader page")}
+	h := New("localhost", store, shell, testAppFS(), testDomainFS(), nil, "", false, false)
+
+	r := httptest.NewRequest(http.MethodGet, feedbackReaderPath, nil)
+	r.Host = "localhost"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	csp := rec.Header().Get("Content-Security-Policy")
+
+	for _, name := range []string{"img-src", "media-src"} {
+		if got := cspDirective(csp, name); !strings.Contains(got, "blob:") {
+			t.Errorf("%s = %q: decrypted attachments cannot render without blob:", name, got)
+		}
+	}
+	// The script-execution half of the policy is untouched — an image is not code.
+	for _, name := range []string{"default-src", "script-src", "worker-src"} {
+		if got := cspDirective(csp, name); strings.Contains(got, "blob:") {
+			t.Errorf("%s = %q carries blob: — the reader page must not widen script execution", name, got)
+		}
+	}
+}
