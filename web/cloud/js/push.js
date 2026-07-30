@@ -11,13 +11,11 @@ import { openDb } from './localdb.js';
 
 const REMINDERS_KEY = 'demoReminders';
 
-// Device-local (non-synced) map of slotUnix → [medicationId…] the reminder
-// horizon NAMED for that slot, written on every pushSchedule (replace-all, like
-// the schedule itself) so a Confirm tap can act on the meds by identity instead
-// of re-deriving them from a ±band at drain time (bd med-eas.67). Device store,
-// not the vault, to avoid oplog churn on every horizon build — the ±band
-// fallback in inbox-apply covers a cross-device/stale gap.
-const SLOT_MEDS_KEY = 'slotMeds';
+// The slotUnix → [medicationId…] map a Confirm tap resolves by identity used to
+// live here, in a device-local store (bd med-eas.67). It moved into the vault —
+// reminders.js's recordSlotMedications, written by recomputeAndPush right after
+// this module's upload lands — because the device that pushes a reminder is
+// routinely not the device that drains the tap (bd med-eas.65).
 
 // Exported so the signup wizard's install step (web/cloud/js/signup.js) derives
 // the same shown/skipped/iOS state from display-mode instead of duplicating the
@@ -86,60 +84,6 @@ async function writeReminders(list) {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-  } finally {
-    db.close();
-  }
-}
-
-// The horizon puts an "s:<slotUnix>" stem on every medication entry (grouped
-// dose reminders and re-reminders alike); BP/weight entries have no callback.
-function slotUnixFromCallback(cb) {
-  const m = /^s:(\d+)$/.exec(cb || '');
-  return m ? Number(m[1]) : null;
-}
-
-// Build slotUnix → [medId…] from the horizon entries, deduped within a slot. A
-// re-reminder shares its grouped slot's stem, so its single med id folds in.
-function slotMedsFromReminders(reminders) {
-  const slots = {};
-  for (const r of reminders) {
-    const slotUnix = slotUnixFromCallback(r.callback);
-    if (slotUnix == null || !Array.isArray(r.medicationIds)) continue;
-    const ids = slots[slotUnix] || (slots[slotUnix] = []);
-    for (const id of r.medicationIds) if (id != null && !ids.includes(id)) ids.push(id);
-  }
-  return slots;
-}
-
-async function writeSlotMeds(slots) {
-  const db = await openDb();
-  try {
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('device', 'readwrite');
-      tx.objectStore('device').put({ slots }, SLOT_MEDS_KEY);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } finally {
-    db.close();
-  }
-}
-
-// getSlotMedications returns the med ids the reminder NAMED for slotUnix at push
-// time, or null when this device has no stored map for it (a reminder pushed
-// before this shipped, or from another device) — inbox-apply then falls back to
-// the ±band match.
-export async function getSlotMedications(slotUnix) {
-  const db = await openDb();
-  try {
-    const rec = await new Promise((resolve, reject) => {
-      const tx = db.transaction('device', 'readonly');
-      const req = tx.objectStore('device').get(SLOT_MEDS_KEY);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-    const ids = rec && rec.slots && rec.slots[slotUnix];
-    return Array.isArray(ids) && ids.length ? ids : null;
   } finally {
     db.close();
   }
@@ -344,20 +288,26 @@ export async function sendTestPush(ctx) {
 // Serialize pushSchedule per account (bd med-eas.67). The debounce in
 // scheduleReminderRecompute only orders the SCHEDULING of recomputes, not their
 // execution — a timer fires and deletes itself regardless of whether the prior
-// recompute's push is still in flight — so two clear→PUT→write sequences can
-// interleave. The two PUTs are independent HTTP requests the relay may process
-// in an order that disagrees with which fresh slot→meds map lands last locally,
-// leaving the map naming a med the served schedule doesn't — the exact
-// false-positive Confirm the clear-before-write guard forbids (its reasoning
-// covers only sequential rewrites). Chaining makes the whole sequence atomic per
-// account: the map always matches the schedule from the same push that ran last.
+// recompute's push is still in flight — so two replace-all PUTs can be in flight
+// at once and the relay may settle on whichever it happens to process last,
+// which need not be the one built from the freshest vault state. Chaining makes
+// the last-run recompute the last schedule served — and, via onPushed, the last
+// slot→meds map recorded, so the two can never end up describing different
+// horizons.
 const pushChains = new Map();
 
-export function pushSchedule(ctx, reminders, pref = {}) {
+// onPushed runs INSIDE the per-account chain, immediately after a successful
+// upload — that is the whole point of the parameter. reminders.js passes the
+// slot→meds vault write here rather than awaiting pushSchedule and writing
+// afterwards: outside the chain, a slow recompute could record its map after a
+// newer recompute's schedule had already become the one being served, and
+// Confirm would then resolve a delivered message against a med set the relay
+// never sent.
+export function pushSchedule(ctx, reminders, pref = {}, onPushed) {
   const key = (ctx && ctx.accountId) || ctx;
   const run = (pushChains.get(key) || Promise.resolve())
     .catch(() => {})
-    .then(() => pushScheduleInner(ctx, reminders, pref));
+    .then(() => pushScheduleInner(ctx, reminders, pref, onPushed));
   // Store a settled-swallowing tail so a rejected push can't wedge the chain,
   // but return the real promise so callers still see the failure.
   pushChains.set(key, run.catch(() => {}));
@@ -368,7 +318,7 @@ export function pushSchedule(ctx, reminders, pref = {}) {
 // the delivery channel and, for Telegram, how much the message says — a Telegram
 // entry hands the relay PLAINTEXT (it cannot decrypt the vault), so 'generic'
 // verbosity is what keeps medication names out of the relay's reach.
-async function pushScheduleInner(ctx, reminders, pref = {}) {
+async function pushScheduleInner(ctx, reminders, pref = {}, onPushed) {
   const delivery = ['webpush', 'telegram', 'both'].includes(pref.delivery) ? pref.delivery : 'webpush';
   const verbosity = pref.verbosity === 'generic' ? 'generic' : 'detailed';
   const needsCT = delivery === 'webpush' || delivery === 'both';
@@ -395,33 +345,13 @@ async function pushScheduleInner(ctx, reminders, pref = {}) {
     }
     entries.push(entry);
   }
-  // Invalidate the previous slot → medicationIds map BEFORE swapping the relay
-  // schedule (bd med-eas.67). A stale map is worse than none: if the rewrite
-  // below fails, is interrupted (tab closed after the PUT lands), or the new
-  // horizon simply drops a med a still-mapped older slot named, the identity path
-  // in inbox-apply would confirm that unnamed med's dose — a false positive the
-  // design forbids. A cleared map makes getSlotMedications return null, so
-  // inbox-apply falls back to the safe ±band match. Best-effort: only a fully
-  // broken IndexedDB leaves the old map, and that same store also fails the write.
-  try {
-    await writeSlotMeds({});
-  } catch (e) {
-    console.warn('[push] could not clear the slot→meds map', e);
-  }
   const res = await fetch('/api/push/schedule', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ entries }),
   });
   if (!res.ok) throw new Error('Could not schedule the reminder.');
-  // Record the fresh map only after the upload lands, so the local identity map
-  // never gets ahead of the reminders the relay actually serves. Replace-all:
-  // overwriting drops last build's slots, so no stale entries accumulate.
-  try {
-    await writeSlotMeds(slotMedsFromReminders(reminders));
-  } catch (e) {
-    console.warn('[push] could not store the slot→meds map', e);
-  }
+  if (onPushed) await onPushed(reminders);
 }
 
 async function addDemoReminder(ctx, minutes, text) {

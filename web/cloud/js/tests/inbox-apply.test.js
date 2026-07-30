@@ -550,6 +550,122 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
             expect(Date.parse(i.snoozed_until)).toBe((TAP_UNIX + 600) * 1000);
         }
     });
+
+    // --- bd med-eas.65: the named-med map rides the VAULT, so identity works on
+    // whichever device drains the tap — not only the one that pushed. No
+    // getSlotMeds is injected in these: they exercise the production default,
+    // which reads the `slotmeds` record off the same records port.
+    const slotMedsRecord = (slots) => ({
+        slotmeds: [{ recordId: 'slotmeds-current', deleted: false, clientTs: SLOT_UNIX * 1000, slots }],
+    });
+
+    it('confirms a dose drifted far beyond the band from the vault map alone (cross-device tap)', async () => {
+        const driftedIso = new Date((SLOT_UNIX + 3 * 3600) * 1000).toISOString(); // 3h: way past the ±10min band
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'B', schedule: DAILY, inventory_count: 30 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-b-drift', deleted: false, medication_id: 'med-b', scheduled_at: driftedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+            ...slotMedsRecord({ [SLOT_UNIX]: ['med-a', 'med-b'] }),
+        });
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction(
+            { ...confirmEvent, message_id: 11 },
+            { intake: domainFor(records, now), records, now, editReply },
+        );
+
+        const intakes = await records.list('intake');
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
+        // Under the ±band this stayed PENDING and got re-reminded — the med-eas.65 residual.
+        expect(intakes.find((i) => i.recordId === 'intake-med-b-drift').status).toBe('TAKEN');
+        expect(editReply).toHaveBeenCalledWith(11, expect.stringMatching(/Confirmed 2 medications/));
+    });
+
+    // A DST / tz-plan step: the approved plan walks a dose off its clock slot, so
+    // materializeDueDoses keeps the shifted `tz_step` row (its ±minDoseInterval
+    // dedup blocks a second on-slot row) and the reminder's slot no longer matches
+    // any intake instant. Identity still resolves it.
+    it('confirms a tz-plan step dose that moved off the reminder slot', async () => {
+        const steppedIso = new Date((SLOT_UNIX + 90 * 60) * 1000).toISOString(); // 1h30 tz step
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, tz_shift_policy: 'flexible', inventory_count: 30 },
+            ],
+            intake: [
+                { recordId: 'intake-med-a-step', deleted: false, medication_id: 'med-a', scheduled_at: steppedIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'tz_step' },
+            ],
+            ...slotMedsRecord({ [SLOT_UNIX]: ['med-a'] }),
+        });
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
+
+        const stepped = (await records.list('intake')).find((i) => i.recordId === 'intake-med-a-step');
+        expect(stepped.status).toBe('TAKEN');
+        expect(Date.parse(stepped.taken_at)).toBe(TAP_UNIX * 1000);
+    });
+
+    // Backward compatibility: a reminder pushed BEFORE med-eas.65 is still sitting
+    // in the user's Telegram history and carries the same slot-only callback. Its
+    // tap finds no `slotmeds` record and must still confirm the slot's meds via the
+    // legacy ±band — never crash, never silently do nothing.
+    it('still confirms a pre-med-eas.65 reminder tap via the legacy ±band', async () => {
+        const records = fakeRecords(seed()); // no slotmeds record at all
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction(
+            { ...confirmEvent, message_id: 12 },
+            { intake: domainFor(records, now), records, now, editReply },
+        );
+
+        const atSlot = (await records.list('intake')).filter((i) => i.scheduled_at === SLOT_ISO);
+        expect(atSlot).toHaveLength(2);
+        for (const i of atSlot) expect(i.status).toBe('TAKEN');
+        expect(editReply).toHaveBeenCalledWith(12, expect.stringMatching(/Confirmed 2 medications/));
+    });
+
+    // Same legacy shape, and the band still must not overreach: a med the old
+    // message could not have named (its own slot hours away) stays PENDING.
+    it('a legacy tap never reaches a med scheduled hours from the slot', async () => {
+        const otherIso = new Date((SLOT_UNIX + 4 * 3600) * 1000).toISOString();
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'Morning', schedule: DAILY, inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'Afternoon', schedule: '{"type":"daily","times":["04:00"]}', inventory_count: 20 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-b-other', deleted: false, medication_id: 'med-b', scheduled_at: otherIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
+
+        const intakes = await records.list('intake');
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
+        expect(intakes.find((i) => i.recordId === 'intake-med-b-other').status).toBe('PENDING');
+    });
+
+    // A vault map that names a slot OTHER than the tapped one is not a map for
+    // this tap: it must fall through to the legacy band, not act on the wrong set.
+    it('ignores a map entry for a different slot', async () => {
+        const records = fakeRecords({
+            ...seed(),
+            ...slotMedsRecord({ [SLOT_UNIX + 43200]: ['med-a'] }),
+        });
+        const now = () => DRAIN_MS;
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
+
+        const intakes = await records.list('intake');
+        // Band path: both on-slot doses confirmed, the 12h-later one untouched.
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
+        expect(intakes.find((i) => i.recordId === `intake-med-b-${SLOT_UNIX}`).status).toBe('TAKEN');
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX + 43200}`).status).toBe('PENDING');
+    });
 });
 
 describe('inbox-apply.js — createInboxApplier routing', () => {

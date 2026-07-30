@@ -120,11 +120,28 @@ export function remindersDomain(ctx, { records: recordsOverride } = {}) {
 }
 
 export async function recomputeAndPush(ctx, opts = {}) {
+  const domain = remindersDomain(ctx, opts);
   const [entries, pref] = await Promise.all([
     computeReminderEntries(ctx, opts),
-    remindersDomain(ctx, opts).getDeliveryPref(),
+    domain.getDeliveryPref(),
   ]);
-  await pushSchedule(ctx, entries, pref);
+  // The vault's record of which meds each reminder NAMED — what a Telegram
+  // Confirm resolves by identity at drain time (bd med-eas.65). Written in two
+  // moves around the upload, because only one of the two failure orderings is
+  // safe (see the domain's own comments):
+  //
+  //   1. drop every not-yet-fired slot BEFORE the PUT, so a PUT that lands
+  //      without its follow-up write leaves those slots MAPLESS (±band fallback,
+  //      a false negative) instead of naming meds the new reminder dropped;
+  //   2. merge the uploaded horizon back in AFTER the PUT succeeds, as
+  //      pushSchedule's post-upload hook — i.e. inside its per-account chain, so
+  //      two overlapping recomputes cannot leave the served schedule and the map
+  //      describing different horizons.
+  //
+  // Already-fired slots ride through both moves untouched: their messages are
+  // out, tappable, and cannot change.
+  await domain.dropFutureSlotMedications();
+  await pushSchedule(ctx, entries, pref, (pushed) => domain.recordSlotMedications(pushed));
 }
 
 // scheduleReminderRecompute debounces recomputeAndPush per ctx (keyed by
