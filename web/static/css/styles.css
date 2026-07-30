@@ -7692,6 +7692,50 @@ textarea.wg-input {
     margin-top: var(--space-md);
 }
 
+/* Goal-driven headline (med-qj4.6.4): the metric this exercise's training goal
+   is chasing, led ahead of the records list. */
+.wg-workouts-exercise-detail__headline {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-sm);
+}
+
+.wg-workouts-exercise-detail__headline-label {
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--wg-fg-3);
+}
+
+.wg-workouts-exercise-detail__headline-value {
+    font-size: var(--font-size-lg);
+    color: var(--wg-fg-1);
+}
+
+.wg-workouts-exercise-detail__headline-sub {
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+}
+
+/* Low-confidence caveat on an est-1RM derived from a high-rep set. */
+.wg-workouts-exercise-detail__flag {
+    align-self: flex-start;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.04em;
+    color: var(--wg-fg-4);
+}
+
+/* Near-failure advisory (med-qj4.6.5) — advice, not a warning: neutral tone,
+   no alarm colour, and it never blocks anything. */
+.wg-workouts-exercise-detail__advice {
+    margin-bottom: var(--space-sm);
+    font-size: var(--font-size-sm);
+    line-height: 1.45;
+    color: var(--wg-fg-2);
+}
+
 .wg-workouts-exercise-detail__unavailable {
     color: var(--wg-fg-4);
     text-align: center;

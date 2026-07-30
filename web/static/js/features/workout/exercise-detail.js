@@ -5,9 +5,16 @@
 // Phase 3 (epic med-qj4) read-side surface. Fetches one exercise's completed
 // history (`GET /api/workout/exercises/history?name=`) and folds it through the
 // pure web/domain/workout-analysis.js module (est-1RM / PRs / series) to render
-// a records summary plus est-1RM + top-weight progress graphs. Also owns the
-// shared analysis-module resolver + isPRLog record test consumed by the session
-// log-card PR badge (sessions.js).
+// a records summary plus progress graphs. Also owns the shared analysis-module
+// resolver + isPRLog record test consumed by the session log-card PR badge
+// (sessions.js).
+//
+// The headline metric and graph order follow the exercise's effective training
+// goal (med-qj4.6.4), and a hypertrophy exercise whose recent rated sets sit far
+// from failure gets a gentle advisory (med-qj4.6.5). Both decisions are made in
+// workout-analysis.js — goalHeadline / effortInsight — so nothing goal-shaped
+// (rep thresholds, RIR cutoffs, the RIR = 10 − RPE conversion) is duplicated in
+// this plain script; it only formats what the module hands it.
 //
 // The static frontend is classic <script> (no bundler / ESM imports), so the
 // pure module reaches it two ways: tests inject `window.WorkoutAnalysis`; at
@@ -61,7 +68,18 @@
         return `${n % 1 === 0 ? n : n.toFixed(1)} kg`;
     }
 
-    function _recordRow(label, valueText) {
+    // Low-confidence chip for an est-1RM back-computed from a high-rep set
+    // (med-qj4.6.4). Epley/Brzycki drift past ~10-12 reps, so the number gets
+    // the caveat attached to it rather than a footnote elsewhere.
+    function _confidenceFlag(reps) {
+        const flag = document.createElement('span');
+        flag.className = 'wg-workouts-exercise-detail__flag';
+        flag.textContent = `estimate · from a ${reps}-rep set`;
+        flag.title = 'The Epley formula loses accuracy above ~12 reps — treat this as a rough estimate.';
+        return flag;
+    }
+
+    function _recordRow(label, valueText, flagNode) {
         const row = document.createElement('li');
         row.className = 'wg-card wg-workouts-stats__top-row wg-workouts-exercise-detail__record';
 
@@ -79,7 +97,53 @@
         head.appendChild(name);
         head.appendChild(value);
         row.appendChild(head);
+        if (flagNode) row.appendChild(flagNode);
         return row;
+    }
+
+    // Format a headline/summary value in its own unit: kg through the weight
+    // formatter, counts as plain integers.
+    function _fmtUnit(value, unit) {
+        const n = Number(value) || 0;
+        if (unit === 'kg') return _fmtWeight(n);
+        return n > 0 ? `${Math.round(n)} ${unit}` : '—';
+    }
+
+    const CHART_LABELS = {
+        'est-1rm': 'Estimated 1RM · over time',
+        'top-weight': 'Top weight · over time',
+        volume: 'Volume load · over time',
+        reps: 'Total reps · over time',
+    };
+
+    // Goal-driven headline card (med-qj4.6.4): the metric this exercise's
+    // effective training goal is actually chasing, ahead of the records list.
+    function _headlineCard(headline) {
+        const card = document.createElement('div');
+        card.className = 'wg-card wg-workouts-exercise-detail__headline';
+        card.dataset.goal = headline.goal;
+
+        const label = document.createElement('span');
+        label.className = 'wg-workouts-exercise-detail__headline-label';
+        label.textContent = headline.label;
+        card.appendChild(label);
+
+        const value = document.createElement('span');
+        value.className = 'wg-mono-display wg-workouts-exercise-detail__headline-value';
+        value.textContent = _fmtUnit(headline.value, headline.unit);
+        card.appendChild(value);
+
+        if (headline.low_confidence && headline.confidence_reps) {
+            card.appendChild(_confidenceFlag(headline.confidence_reps));
+        }
+
+        if (headline.sub_label) {
+            const sub = document.createElement('span');
+            sub.className = 'wg-workouts-exercise-detail__headline-sub';
+            sub.textContent = `${headline.sub_label}: ${_fmtUnit(headline.sub_value, headline.sub_unit)}`;
+            card.appendChild(sub);
+        }
+        return card;
     }
 
     function _chartFor(series, metric, labelText) {
@@ -111,9 +175,14 @@
         return section;
     }
 
-    // renderDetail paints the records summary + progress graphs into `root`.
-    // Pure DOM builder (no fetch) so tests can drive it with hand-built PRs/series.
-    function renderDetail(root, name, prs, series) {
+    // renderDetail paints the goal headline, records summary and progress graphs
+    // into `root`. Pure DOM builder (no fetch) so tests can drive it with
+    // hand-built PRs/series. `opts` carries the folded goal presentation:
+    //   headline — goalHeadline() output (med-qj4.6.4); absent → the historical
+    //              est-1RM/top-weight pair, no headline card.
+    //   effort   — effortInsight() output (med-qj4.6.5); absent/null when the
+    //              user logs no RPE, in which case nothing about effort renders.
+    function renderDetail(root, name, prs, series, opts) {
         root.className = 'wg-workouts-exercise-detail';
         root.replaceChildren();
 
@@ -137,6 +206,21 @@
         header.appendChild(title);
         root.appendChild(header);
 
+        const headline = opts && opts.headline;
+        const effort = opts && opts.effort;
+        if (headline) root.appendChild(_headlineCard(headline));
+
+        // Near-failure advisory (med-qj4.6.5). Advice, not a verdict: it never
+        // gates progression, only appears for a hypertrophy goal with enough
+        // rated sets to mean something, and is silent for everyone else.
+        if (effort && effort.advise) {
+            const advice = document.createElement('p');
+            advice.className = 'wg-card wg-workouts-exercise-detail__advice';
+            advice.textContent = `Your last ${effort.sets} rated sets sat around ${effort.median_rir} reps in reserve — `
+                + 'push closer to failure or add load; the last few reps drive growth.';
+            root.appendChild(advice);
+        }
+
         if (prs) {
             const recHeading = document.createElement('div');
             recHeading.className = 'wg-section-label wg-workouts-stats__section-label';
@@ -145,14 +229,27 @@
 
             const list = document.createElement('ul');
             list.className = 'wg-workouts-stats__top-exercises wg-workouts-exercise-detail__records';
+            // The est-1RM row carries its own confidence caveat when the best
+            // estimate came off a high-rep set — the flag belongs next to the
+            // number wherever the number appears, headline or not.
+            // `best_est_1rm_low_confidence` is the domain's verdict (the rep
+            // threshold lives in workout-analysis.js, never duplicated here).
+            const est1rmFlag = prs.best_est_1rm_low_confidence
+                ? _confidenceFlag(prs.best_est_1rm_reps)
+                : null;
             const rows = [
-                ['Heaviest weight', _fmtWeight(prs.heaviest_weight)],
-                ['Best est. 1RM', _fmtWeight(prs.best_est_1rm)],
-                ['Best set volume', prs.best_set_volume > 0 ? `${Math.round(prs.best_set_volume)} kg` : '—'],
-                ['Best session volume', prs.best_session_volume > 0 ? `${Math.round(prs.best_session_volume)} kg` : '—'],
-                ['Most reps', prs.most_reps > 0 ? String(prs.most_reps) : '—'],
+                ['Heaviest weight', _fmtWeight(prs.heaviest_weight), null],
+                ['Best est. 1RM', _fmtWeight(prs.best_est_1rm), est1rmFlag],
+                ['Best set volume', prs.best_set_volume > 0 ? `${Math.round(prs.best_set_volume)} kg` : '—', null],
+                ['Best session volume', prs.best_session_volume > 0 ? `${Math.round(prs.best_session_volume)} kg` : '—', null],
+                ['Most reps', prs.most_reps > 0 ? String(prs.most_reps) : '—', null],
             ];
-            rows.forEach(([label, value]) => list.appendChild(_recordRow(label, value)));
+            // Per-set RIR made visible (med-qj4.6.5) — shown for every goal, so
+            // rating effort pays off even where the advisory never fires.
+            if (effort) {
+                rows.push([`Recent effort · ${effort.sets} rated sets`, `${effort.median_rir} RIR median`, null]);
+            }
+            rows.forEach(([label, value, flag]) => list.appendChild(_recordRow(label, value, flag)));
             root.appendChild(list);
 
             // Per-rep-count set-records (heaviest weight lifted for exactly N reps).
@@ -182,9 +279,15 @@
             root.appendChild(unavailable);
         }
 
+        // Graph order follows the goal's emphasis — the metric it's chasing
+        // first. No headline (analysis module unavailable) → the historical pair.
         const s = Array.isArray(series) ? series : [];
-        root.appendChild(_chartFor(s, 'est-1rm', 'Estimated 1RM · over time'));
-        root.appendChild(_chartFor(s, 'top-weight', 'Top weight · over time'));
+        const charts = (headline && Array.isArray(headline.charts) && headline.charts.length)
+            ? headline.charts
+            : ['est-1rm', 'top-weight'];
+        charts.forEach((metric) => {
+            root.appendChild(_chartFor(s, metric, CHART_LABELS[metric] || metric));
+        });
     }
 
     // open fetches the exercise history, folds it, and mounts the detail view
@@ -203,9 +306,14 @@
         const WA = await getAnalysis();
         const prs = WA ? WA.exercisePRs(logs) : null;
         const series = WA ? WA.exerciseSeries(logs) : [];
+        // The exercise's effective goal rides on the history response
+        // (listExerciseLogsByName); absent → normalizeGoal's hypertrophy default.
+        const goal = logs.length ? logs[0].training_goal : null;
+        const headline = WA && typeof WA.goalHeadline === 'function' ? WA.goalHeadline(goal, prs, series) : null;
+        const effort = WA && typeof WA.effortInsight === 'function' ? WA.effortInsight(logs, goal) : null;
 
         const root = document.createElement('div');
-        renderDetail(root, name, prs, series);
+        renderDetail(root, name, prs, series, { headline, effort });
         container.replaceChildren(root);
     }
 

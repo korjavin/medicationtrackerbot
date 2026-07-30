@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import {
   GOAL_DEFAULTS,
@@ -63,5 +66,44 @@ describe('workout-goals effort conversion (RIR ⇄ RPE)', () => {
   it('formatEffort spells out both ends', () => {
     expect(formatEffort(8)).toBe('RPE 8 · 2 RIR');
     expect(formatEffort(10)).toBe('RPE 10 · 0 RIR');
+  });
+});
+
+// The exercise editor is a plain <script> and cannot import this ES module, so
+// it keeps a hand-copy of the goal table (see the comment above
+// WORKOUT_GOAL_DEFAULTS in features/workout/exercises.js). That copy shipped
+// with no guard — a table edit here would silently leave the editor cascading
+// stale rep ranges. This pins the copy against the source of truth; if the seam
+// is ever fixed properly (feature layer importing web/domain/), delete this test
+// along with the duplicate.
+describe('WORKOUT_GOAL_DEFAULTS duplicate in the exercise editor', () => {
+  const EXERCISES_JS = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../features/workout/exercises.js',
+  );
+
+  it('matches GOAL_DEFAULTS for every goal', () => {
+    const src = fs.readFileSync(EXERCISES_JS, 'utf8');
+    const block = /const WORKOUT_GOAL_DEFAULTS = \{([\s\S]*?)\n\};/.exec(src);
+    expect(block, 'WORKOUT_GOAL_DEFAULTS literal not found — did it move or get renamed?').toBeTruthy();
+
+    for (const goal of TRAINING_GOALS) {
+      const row = new RegExp(`\\b${goal}:\\s*\\{([^}]*)\\}`).exec(block[1]);
+      expect(row, `no ${goal} row in the duplicated table`).toBeTruthy();
+      const num = (key) => Number((new RegExp(`${key}:\\s*(\\d+)`).exec(row[1]) || [])[1]);
+      const str = (key) => (new RegExp(`${key}:\\s*'([^']*)'`).exec(row[1]) || [])[1];
+      expect({
+        reps_min: num('reps_min'),
+        reps_max: num('reps_max'),
+        progression: str('progression'),
+      }).toEqual({
+        reps_min: GOAL_DEFAULTS[goal].reps_min,
+        reps_max: GOAL_DEFAULTS[goal].reps_max,
+        progression: GOAL_DEFAULTS[goal].progression,
+      });
+      // target_rir is deliberately absent from the copy — the editor has no
+      // target-RIR field. Pin that so it isn't half-copied later.
+      expect(row[1]).not.toMatch(/target_rir/);
+    }
   });
 });

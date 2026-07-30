@@ -21,7 +21,9 @@
 //              of weeks rounded up.
 //   metric   — 'sessions' (default) renders completed sessions per week;
 //              'volume' renders the numeric `volume` or `total_volume_kg`
-//              field when the caller aggregates sessions upstream.
+//              field when the caller aggregates sessions upstream;
+//              'est-1rm' / 'top-weight' / 'reps' render the matching
+//              per-session field from exerciseSeries (workout-analysis.js).
 //   width    — coord-space width (default 358; SVG scales to container).
 //   height   — coord-space height (default 200).
 //
@@ -63,6 +65,11 @@
         }
         if (metric === 'top-weight') {
             return raw.top_weight != null ? Number(raw.top_weight) : null;
+        }
+        // Total working reps per session — the endurance-goal headline graph
+        // (med-qj4.6.4); exerciseSeries emits `reps` alongside volume/est-1RM.
+        if (metric === 'reps') {
+            return raw.reps != null ? Number(raw.reps) : null;
         }
         // Default: completed-sessions-per-week trend.
         if (raw.value != null) return Number(raw.value);

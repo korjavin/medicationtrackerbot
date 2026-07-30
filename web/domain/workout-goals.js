@@ -3,10 +3,12 @@
 // (C6 runs web/domain/ inside Go via goja). The canonical GOAL_DEFAULTS table is
 // duplicated by the plain-script exercise-editor cascade (WORKOUT_GOAL_DEFAULTS
 // in web/static/js/features/workout/exercises.js — it can't import ES modules);
-// keep the two in sync. GOAL_DEFAULTS/defaultsForGoal now drive the RIR-gated
-// progression presets in web/domain/workout.js (med-qj4.6.3); the graph
-// emphasis + effort insight (med-qj4.6.4/.5) are still to come — rpeFromRir is
-// staged for them (rendering a goal's target_rir as an RPE cue).
+// the two are pinned in sync by workout-goals.test.js. GOAL_DEFAULTS/
+// defaultsForGoal drive the RIR-gated progression presets in
+// web/domain/workout.js (med-qj4.6.3); normalizeGoal + rirFromRpe drive the
+// goal-driven graph emphasis and the near-failure effort insight in
+// web/domain/workout-analysis.js (med-qj4.6.4/.5). rpeFromRir is the display
+// direction (rendering a goal's target_rir as an RPE cue).
 //
 // Table from docs/workout-depth.md §Science basis (repetition continuum).
 // progression preset ids match the Phase-4 selector: 'none'|'linear'|'double'.
