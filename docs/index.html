@@ -817,7 +817,9 @@
 
             <div class="sees">
                 <div><strong>The server</strong>Moves sealed frames between the AI and your device.
-                    Never holds a key, never sees plaintext.</div>
+                    Never holds a vault key. On this path it sees only frame sizes and timing — the
+                    opt-in hosted connector is the disclosed exception, where the server runs the
+                    bridge itself and does see the traffic.</div>
                 <div><strong>Your device</strong>Holds the only key. Decrypts on demand, only while
                     unlocked and present.</div>
                 <div><strong>The AI you choose</strong>Sees exactly what you send it for that task —
@@ -972,7 +974,7 @@
         <div class="wrap">
             <div class="section-head">
                 <div class="kicker">Trust, proven — not asserted</div>
-                <h2>We hold none of your data, and we test that in the open.</h2>
+                <h2>We hold no readable copy of your vault, and we test that in the open.</h2>
             </div>
             <div class="trust">
                 <div class="tcard">
@@ -997,10 +999,22 @@
                 </div>
             </div>
             <p class="honest">
-                Straight about the edges: what you choose to send an AI provider is seen by that
-                provider once it arrives — we control <em>whether</em> and <em>what</em> leaves and stay
-                blind to it, but we don't govern their retention. Web-delivered crypto trusts the
-                origin; we mitigate and disclose it. Self-hosting means the trust is yours to hold.
+                <strong>The promise, and its edges.</strong> Your vault — every health record you
+                store and sync — is end-to-end encrypted. The keys never leave your devices, and the
+                server holds only ciphertext it cannot open. Optional integrations you turn on reach
+                outside that vault, and here they are, in full: <strong>Telegram</strong> (message
+                text crosses the relay in the clear both ways, and the bot token is sealed under a
+                server-held key, not your vault key); <strong>trial AI</strong> and
+                <strong>trial voice</strong>, where your prompt, meal photo, or audio travels through
+                our server to <em>our</em> OpenAI / ElevenLabs account; the <strong>hosted Claude
+                connector</strong>, where we run the bridge and therefore see query and response
+                content in transit; the <strong>default food database</strong>, where search terms
+                cross our proxy unless you point it at your own; and <strong>drug lookups</strong> to
+                RxNav. Each is off until you switch it on, each is named in the app under
+                <em>What can the operator see?</em>, and none of them can reach the vault. With your
+                own provider key, nothing goes through us at all. Beyond that: we don't govern any
+                third party's retention, and web-delivered crypto trusts the origin — we mitigate and
+                disclose it. Self-hosting means the trust is yours to hold.
             </p>
         </div>
     </section>

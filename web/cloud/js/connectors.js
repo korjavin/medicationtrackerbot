@@ -60,8 +60,10 @@ function renderPicker(app, ctx, onExit, pairing, remote) {
       <p id="claude-status"></p>
       <div class="claude-mode">
         <h3>Remote connector (claude.ai, ChatGPT) — primary</h3>
-        <p>The server relays MCP traffic to your unlocked browser tab end-to-end encrypted via the relay. By enabling it
-           you consent to the server seeing MCP requests and responses in transit — nothing is stored.</p>
+        <p>The server relays MCP traffic to your unlocked browser tab. This mode is <strong>not</strong> end-to-end
+           encrypted: by enabling it you consent to the server seeing MCP requests and responses in transit — nothing
+           is stored, and it never gains access to your vault. Prefer the local shim below if you want the traffic
+           sealed from the operator too.</p>
         <div id="claude-remote-url-block" hidden>
           <dl>
             <dt>Connector URL</dt><dd class="claude-remote-url" id="claude-remote-url-current"></dd>

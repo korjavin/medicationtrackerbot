@@ -182,7 +182,11 @@ describe('mcp-responder dispatch', () => {
     expect(response.result).toBeUndefined();
     expect(response.error.code).toBe(-32601);
     expect(response.error.message).toContain('not available in cloud mode');
-    expect(response.error.message).toContain('zero-knowledge');
+    // med-yor.1: the reason is "the server has no vault key", not "this
+    // connector is zero-knowledge" — the latter was false for the opt-in
+    // hosted tier-2 connector, which does see request/response plaintext.
+    expect(response.error.message).toContain('no vault key');
+    expect(response.error.message).not.toContain('zero-knowledge');
     // It must point the agent at the thing that does work, or it will retry.
     expect(response.error.message).toContain('mcp_call');
   });

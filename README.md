@@ -2,9 +2,9 @@
 
 **Private health tracking that doesn't ask you to give up sync, reminders, chat, or AI to get it.**
 
-Most privacy-first apps make you pay for privacy in convenience: no cross-device sync, notifications that don't really work, no assistant, a clunky shell. This one is built the other way around. Your health data is end-to-end encrypted and the keys live on *your* devices — and *because* of that, everything still works: real-time sync, reminders that actually fire, an optional Telegram chat, an installable PWA, and your own AI pointed at your own data.
+Most privacy-first apps make you pay for privacy in convenience: no cross-device sync, notifications that don't really work, no assistant, a clunky shell. This one is built the other way around. Your vault is end-to-end encrypted and the keys live on *your* devices — and *because* of that, everything still works: real-time sync, reminders that actually fire, an optional Telegram chat, an installable PWA, and your own AI pointed at your own data.
 
-You track medications, blood pressure, weight, workouts, meals, sleep, and notes in one place. The server running it can't read any of it.
+You track medications, blood pressure, weight, workouts, meals, sleep, and notes in one place. The server running it can't read the vault. The optional integrations you switch on — Telegram, trial AI, voice, the hosted Claude connector, food lookup — deliberately leave the vault, and each one is enumerated in [the privacy boundary table](docs/cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
 
 ---
 
@@ -13,7 +13,7 @@ You track medications, blood pressure, weight, workouts, meals, sleep, and notes
 There are two kinds of place your data can live, and this app is careful about which is which.
 
 - **Your devices** hold the keys and the plaintext. Encryption and decryption happen in your browser. A passkey — Face ID / fingerprint — unwraps a random data key that never leaves the device.
-- **The server** holds only a sealed, encrypted blob. It's a *blind* sync-and-backup hub: it stores ciphertext, relays it between your devices, and rings your reminders on schedule — without ever holding the key to open any of it. A full breach, a subpoena, or a curious operator yields ciphertext and timing metadata, not your health.
+- **The server** holds only a sealed, encrypted blob of your vault. It's a *blind* sync-and-backup hub: it stores ciphertext, relays it between your devices, and rings your reminders on schedule — without ever holding the key to open any of it. Against the vault, a full breach, a subpoena, or a curious operator yields ciphertext and timing metadata, not your health. That guarantee covers the vault; it does not cover the opt-in integrations below, which are a separate, enumerated trust decision.
 
 This is what makes the convenience possible. Because your own devices can decrypt, you don't lose anything to the encryption:
 
@@ -29,7 +29,9 @@ The hard part of "the server can't read your data" is usually the stuff that *ne
 - **Install it like an app.** The PWA installs to your home screen on iOS and Android, works offline, and receives web push — no app store, no separate build.
 - **Optional Telegram chat.** Bring your own bot token and answer a reminder, log a reading, or ask what's due next in the chat you already have open. Inbound messages land in a sealed mailbox. It's off by default, and — unlike the vault — Telegram text crosses the relay in plaintext by design, so it's a clearly labeled opt-in, not the default path.
 
-> Your vault and synced health records are end-to-end encrypted. Optional integrations you choose to turn on — Telegram, AI, food lookup — reach outside the vault and have separately disclosed boundaries in Settings.
+> **The promise, in full.** Your vault — every health record you store and sync — is end-to-end encrypted. The keys never leave your devices, and the server holds only ciphertext it cannot open. Optional integrations you turn on reach outside that vault and have separately disclosed boundaries.
+>
+> Those integrations, in full: **Telegram** (message text crosses the relay in the clear both ways; the bot token is sealed under a server-held key), **trial AI** and **trial voice** on the operator's OpenAI/ElevenLabs accounts, the **hosted Claude connector** (tier 2 — the operator runs the shim and sees query and response content), the **operator-default food database** (search terms cross an operator proxy unless you bring your own endpoint), and **drug lookups** to RxNav. Every one is off until you enable it, and each is spelled out in Settings → *What can the operator see?* and in the [privacy boundary table](docs/cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
 
 ## What you get
 
@@ -58,7 +60,7 @@ The hard part of "the server can't read your data" is usually the stuff that *ne
 A self-hosted **encrypted cloud** serves one installable PWA per user (their own subdomain). This is the production baseline and the place new product work lands. All health logic runs in the browser; every record is end-to-end encrypted.
 
 - **Passkey-only unlock** — WebAuthn PRF unwraps a random 256-bit data key. No passwords, no server-side secret to crack.
-- **Server sees only ciphertext + timing metadata** — health data, provider keys, and reminder content are all encrypted.
+- **On the vault path, the server sees only ciphertext + timing metadata** — health data, provider keys, and reminder content are all encrypted. Opt-in integrations are the documented exception.
 - **Encrypted sync + blind push relay** — an encrypted oplog syncs your devices; a blind relay delivers reminders it can't read.
 - **Emergency Kit** — a high-entropy recovery code re-enrolls a new device if you lose all your others.
 - **Bring your own keys** — AI, vision, voice, and food-DB keys live inside your vault and are called from your browser.
@@ -79,7 +81,7 @@ See the [legacy server installation guide](./docs/installer.md).
 
 Want your assistant to analyze your blood pressure against your sleep and medications? A fitness summary blending workouts, steps, nutrition, weight, and your own notes?
 
-In **cloud mode**, your AI runs in your browser against your own provider keys (stored inside the encrypted vault) — the operator never sees the prompt or the data. A shared trial key is available as a clearly disclosed opt-in if you'd rather not bring your own.
+In **cloud mode**, your AI runs in your browser against your own provider keys (stored inside the encrypted vault) — with your own key, the operator never sees the prompt or the data. If you'd rather not bring a key, a shared trial key is available as an opt-in with its own consent step; on that path your prompt and any meal photo travel through the operator's server to the operator's OpenAI account, so it is explicitly *not* end-to-end encrypted.
 
 In **server mode**, run the optional MCP server — a separate, OAuth-protected process (Pocket-ID):
 
@@ -97,7 +99,7 @@ Your diary notes ride along as context so the AI understands *why* a week looked
 
 ## Security posture
 
-- **Cloud mode is the production baseline:** zero-knowledge end-to-end encryption, passkey-only unlock (WebAuthn PRF over a random 256-bit key), blind push relay, encrypted oplog sync, Emergency Kit recovery, invite-only registration.
+- **Cloud mode is the production baseline:** a zero-knowledge, end-to-end-encrypted vault, passkey-only unlock (WebAuthn PRF over a random 256-bit key), blind push relay, encrypted oplog sync, Emergency Kit recovery, invite-only registration. The opt-in integrations that leave that boundary are enumerated in [docs/cloud-mode.md](docs/cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
 - **Legacy server mode** keeps everything on infrastructure you own: single-user allowlist, Telegram/OIDC auth, OAuth-protected MCP, local SQLite. It is kept working for existing operators but is no longer the default.
 
 Full trust model, boundaries, and honest caveats: [docs/cloud-mode.md](./docs/cloud-mode.md#trust-model--what-the-server-can-and-cannot-see), [docs/cloud-crypto.md](./docs/cloud-crypto.md), and the [privacy audit](./docs/2026-07-12-gpt-5.6-sol-cloud-privacy-audit.md).
