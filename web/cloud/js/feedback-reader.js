@@ -312,8 +312,10 @@ export async function mount() {
   setText(status, `${items.length} item${items.length === 1 ? '' : 's'} waiting. The key is used here only — it is never sent to the server.`);
   if (keyRow) keyRow.hidden = false;
 
-  // Ack state: the ids currently on screen WITH their plaintext visible, and
-  // the results they came from. Nothing else is ever eligible for deletion.
+  // Ack state: the local snapshot of the queue, the ids currently on screen WITH
+  // their plaintext visible, and the results they came from. Nothing outside
+  // readIds is ever eligible for deletion.
+  let queue = items;
   let readIds = [];
   let lastResults = [];
 
@@ -323,6 +325,16 @@ export async function mount() {
     ackAll.textContent = `Delete all ${readIds.length} read`;
   };
 
+  // Drop acked ids from the local snapshot as well as the screen. Without this,
+  // pressing Decrypt a second time in the same session would re-render rows that
+  // are no longer in the queue — the page would claim there is unread feedback
+  // after it has been drained.
+  const dropAcked = (ids) => {
+    const gone = new Set(ids);
+    queue = queue.filter((it) => !gone.has(it.id));
+    lastResults = lastResults.filter((r) => !gone.has(r.item.id));
+  };
+
   const ackOne = async (it, li) => {
     setText(error, '');
     if (!(await ackItems(token, [it.id]))) {
@@ -330,6 +342,7 @@ export async function mount() {
       return;
     }
     li.remove();
+    dropAcked([it.id]);
     readIds = readIds.filter((id) => id !== it.id);
     refreshAckAll();
   };
@@ -341,11 +354,12 @@ export async function mount() {
       setText(error, MSG.ackFailed);
       return;
     }
+    dropAcked(readIds);
     readIds = [];
-    // Repaint with only the items that did NOT decrypt. They were never read,
-    // so they were never acked, and they must stay on screen (and in the queue)
-    // for cmd/feedbackpull to look at.
-    const stuck = lastResults.filter((r) => r.error);
+    // What survives dropAcked is exactly the items that did NOT decrypt. They
+    // were never read, so they were never acked, and they must stay on screen
+    // (and in the queue) for cmd/feedbackpull to look at.
+    const stuck = lastResults;
     renderResults(list, stuck);
     refreshAckAll();
     setText(status, stuck.length === 0 ? MSG.allAcked : `${stuck.length} item${stuck.length === 1 ? '' : 's'} could not be read — left in the queue.`);
@@ -362,7 +376,7 @@ export async function mount() {
     }
     setText(error, '');
     try {
-      const results = await decryptAll(items, identity);
+      const results = await decryptAll(queue, identity);
       lastResults = results;
       readIds = results.filter((r) => r.doc).map((r) => r.item.id);
       renderResults(list, results, ackOne);

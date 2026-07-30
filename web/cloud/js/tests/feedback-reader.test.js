@@ -444,6 +444,30 @@ describe('ack', () => {
     expect(q('#fr-ack-all').textContent).toContain('2');
   });
 
+  it('does not resurrect an acked item when the key is pasted a second time', async () => {
+    const fetchStub = await decryptedPage(await mixedItems());
+
+    click(document.querySelectorAll('#fr-items .fr-item')[0].querySelector('button'));
+    await waitFor(() => document.querySelectorAll('#fr-items .fr-item').length === 2);
+
+    // The queue snapshot is local, so a second Decrypt must not re-render a row
+    // the server no longer has — the page would be claiming unread feedback that
+    // does not exist, and offering to delete it again.
+    q('#fr-key').value = identity;
+    click(q('#fr-decrypt'));
+    await waitFor(() => q('#fr-status').textContent === '2 items.');
+
+    const shown = document.querySelectorAll('#fr-items .fr-item');
+    expect(shown).toHaveLength(2);
+    expect(document.body.textContent).not.toContain('readable one');
+    expect(q('#fr-ack-all').textContent).toContain('1');
+
+    click(q('#fr-ack-all'));
+    await waitFor(() => q('#fr-status').textContent.includes('could not be read'));
+    // Item 1 was acked once, not twice: the batch only carried what was left.
+    expect(fetchStub.acked).toEqual([1, 3]);
+  });
+
   it('never puts the pasted key on the ack request', async () => {
     const fetchStub = await decryptedPage(await mixedItems());
 
