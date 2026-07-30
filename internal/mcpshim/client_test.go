@@ -13,15 +13,24 @@ import (
 )
 
 // newDroppingRelay stands in for a relay that accepts a shim leg and then
-// recycles it — a proxy timeout, a redeploy, or the relay restarting. The
-// close lands after the client has already put its request on the wire.
-func newDroppingRelay(t *testing.T, dials *atomic.Int64) *PairingCode {
+// recycles it — a proxy timeout, a redeploy, or the relay restarting.
+//
+// readFirst decides which side of the split under test it reproduces: true
+// consumes the request frame before closing, so the drop provably lands AFTER
+// the request went out (closing straight after the handshake would race the
+// client's Write and sometimes exercise the unsent-frame path instead).
+func newDroppingRelay(t *testing.T, dials *atomic.Int64, readFirst bool) *PairingCode {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		dials.Add(1)
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
 			return
+		}
+		if readFirst {
+			if _, _, err := conn.Read(r.Context()); err != nil {
+				return
+			}
 		}
 		conn.CloseNow()
 	}))
@@ -40,7 +49,7 @@ func newDroppingRelay(t *testing.T, dials *atomic.Int64) *PairingCode {
 // stop after one attempt and say so.
 func TestClientCall_DropAfterSendIsNotRetried(t *testing.T) {
 	var dials atomic.Int64
-	c := NewClientFromPairingWithOptions(newDroppingRelay(t, &dials), nil)
+	c := NewClientFromPairingWithOptions(newDroppingRelay(t, &dials, true), nil)
 
 	_, err := c.Call(context.Background(), "mcp_call", map[string]any{"operation_id": "health.bp.create"})
 
@@ -62,7 +71,7 @@ func TestClientCall_DropAfterSendIsNotRetried(t *testing.T) {
 // only way to reach it is a connection that is already dead when Call writes.
 func TestClientCall_UnsentFrameIsRetried(t *testing.T) {
 	var dials atomic.Int64
-	pc := newDroppingRelay(t, &dials)
+	pc := newDroppingRelay(t, &dials, false)
 	c := NewClientFromPairingWithOptions(pc, nil)
 
 	// Seed the Client with a connection that is already torn down, so the first

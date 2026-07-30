@@ -348,6 +348,14 @@ func (a *MCPRelayAPI) serveLeg(ctx context.Context, conn *websocket.Conn, record
 		keepalive(legCtx, conn, leg, record.accountID)
 	}()
 
+	// Frames that cannot go out immediately queue here and are delivered by one
+	// worker, in order. A goroutine per frame would be simpler but would let two
+	// frames queued during the same reconnect window race each other onto the
+	// wire — and WebSocket delivery is ordered, so nothing downstream expects to
+	// have to re-order.
+	deferred := make(chan deferredFrame, deferredFrameBuffer)
+	go deliverDeferred(legCtx, deferred, record, isDevice, peerCh, leg)
+
 	for {
 		typ, data, err := conn.Read(ctx)
 		if err != nil {
@@ -360,8 +368,9 @@ func (a *MCPRelayAPI) serveLeg(ctx context.Context, conn *websocket.Conn, record
 			// handoff, battery saver — and each drop tore down the caller's
 			// live connection mid-call, surfacing as a raw
 			// `relay connection closed: ... "peer disconnected"` instead of an
-			// answer. The device is usually back within seconds, and awaitPeer
-			// parks the in-flight frame long enough to be answered when it is;
+			// answer. The device is usually back within seconds, and the
+			// deferred queue holds the in-flight frame long enough to be
+			// answered when it is;
 			// killing the shim guarantees the failure the wait would have
 			// avoided.
 			//
@@ -400,41 +409,74 @@ func (a *MCPRelayAPI) serveLeg(ctx context.Context, conn *websocket.Conn, record
 			}
 		}
 		// No peer, or the conn we had is dead / mid-eviction — most often a
-		// phone that is already reconnecting. Keep trying off the read loop,
-		// never on it: see deliverWhenPeerAttaches.
-		go deliverWhenPeerAttaches(legCtx, deadline, record, isDevice, peerCh, leg, typ, data)
+		// phone that is already reconnecting. Hand the frame to the worker and
+		// keep reading: see deliverDeferred for why this must not block here.
+		select {
+		case deferred <- deferredFrame{deadline: deadline, typ: typ, data: data}:
+		default:
+			slog.Warn("mcp relay: frame dropped, deferred queue full", "leg", leg,
+				"account_id", record.accountID, "pairing", endpointFingerprint(record.id))
+		}
 	}
 }
 
-// deliverWhenPeerAttaches writes one frame as soon as the opposite leg can
-// take it, retrying until the frame's shared deadline (see relayFrameBudget).
+// deferredFrameBuffer caps how many frames may be waiting on a reconnecting
+// peer at once. A leg is rate-limited to 120 frames per 10s and each waiting
+// frame expires within relayFrameBudget, so this only fills under a burst far
+// beyond interactive use — and dropping there is the same outcome as expiry:
+// one call reporting the device offline.
+const deferredFrameBuffer = 32
+
+// deferredFrame is one frame waiting for the opposite leg, carrying the
+// deadline it was read at so time spent queued cannot extend its budget.
+type deferredFrame struct {
+	deadline time.Time
+	typ      websocket.MessageType
+	data     []byte
+}
+
+// deliverDeferred writes queued frames to the opposite leg as soon as that leg
+// can take them, in queue order, giving up on any whose budget has run out.
 //
 // Waiting is what keeps the shim's opening request — written the instant it
 // dials, often before the browser tab has attached — and any frame caught
 // mid-reconnect from being dropped into a 30s CallTimeout that blames the
-// device for being a second late. It retries rather than waiting once because
-// the peer slot can hold a conn that is already dead but not yet cleared: a
-// phone drops its leg and reconnects, and both the nil window and the
-// dead-conn window have to be ridden out.
+// device for being a second late.
 //
-// It runs OFF the read loop, deliberately. The read loop is what processes this
-// leg's own keepalive pongs (coder/websocket dispatches control frames inside
+// This runs OFF the read loop, deliberately. The read loop is what processes
+// its leg's keepalive pongs (coder/websocket dispatches control frames inside
 // conn.Read), so a leg that waited there would stop answering its own pings and
 // be reaped as dead while perfectly healthy — on precisely the path this whole
-// change exists to survive.
-//
-// A frame delivered twice (first Write reported an error after the peer had
-// already taken it) is harmless: the responder's nonce ring refuses a repeated
-// write frame, and a repeated read is idempotent.
-//
-// ponytail: one goroutine per waiting frame. Bounded by the rate limiter
-// (120 frames / 10s) and each one's own deadline, so a leg tops out at a few
-// hundred short-lived goroutines; a per-leg queue would be tidier if that ever
-// mattered.
-func deliverWhenPeerAttaches(legCtx context.Context, deadline time.Time, record *pairingRecord, isDevice bool,
-	peerCh chan *websocket.Conn, leg string, typ websocket.MessageType, data []byte,
+// design exists to survive.
+func deliverDeferred(legCtx context.Context, queue <-chan deferredFrame, record *pairingRecord,
+	isDevice bool, peerCh chan *websocket.Conn, leg string,
 ) {
-	expiry := time.NewTimer(time.Until(deadline))
+	for {
+		select {
+		case <-legCtx.Done():
+			return
+		case frame := <-queue:
+			if !deliverWhenPeerAttaches(legCtx, frame, record, isDevice, peerCh) {
+				slog.Warn("mcp relay: frame dropped, peer never attached", "leg", leg,
+					"account_id", record.accountID, "pairing", endpointFingerprint(record.id))
+			}
+		}
+	}
+}
+
+// deliverWhenPeerAttaches places one frame, retrying until its deadline, and
+// reports whether it went out. It retries rather than waiting once because the
+// peer slot can hold a conn that is already dead but not yet cleared: a phone
+// drops its leg and reconnects, and both the nil window and the dead-conn
+// window have to be ridden out.
+//
+// A frame delivered twice (a Write reported an error after the peer had already
+// taken it) is harmless: the responder's nonce ring refuses a repeated write
+// frame, and a repeated read is idempotent.
+func deliverWhenPeerAttaches(legCtx context.Context, frame deferredFrame, record *pairingRecord,
+	isDevice bool, peerCh chan *websocket.Conn,
+) bool {
+	expiry := time.NewTimer(time.Until(frame.deadline))
 	defer expiry.Stop()
 	// peerCh is a one-shot hint from join, so it can miss a peer that attached,
 	// left, and came back while we were waiting. Poll as the backstop; the
@@ -443,22 +485,20 @@ func deliverWhenPeerAttaches(legCtx context.Context, deadline time.Time, record 
 	defer poll.Stop()
 	for {
 		if peer := record.peerConn(isDevice); peer != nil {
-			wctx, cancel := context.WithDeadline(legCtx, deadline)
-			err := peer.Write(wctx, typ, data)
+			wctx, cancel := context.WithDeadline(legCtx, frame.deadline)
+			err := peer.Write(wctx, frame.typ, frame.data)
 			cancel()
 			if err == nil {
-				return
+				return true
 			}
 		}
 		select {
 		case <-peerCh:
 		case <-poll.C:
 		case <-expiry.C:
-			slog.Warn("mcp relay: frame dropped, peer never attached", "leg", leg,
-				"account_id", record.accountID, "pairing", endpointFingerprint(record.id))
-			return
+			return false
 		case <-legCtx.Done():
-			return
+			return true // shutting down, not a delivery failure worth logging
 		}
 	}
 }
