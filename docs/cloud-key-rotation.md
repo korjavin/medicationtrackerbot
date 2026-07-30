@@ -237,12 +237,26 @@ The initiating device must, in order:
    open on a shared laptop must not be enough to rotate an account, for the same
    reason it is not enough to delete one (`internal/cloudserver/account.go:59-70`).
    The assertion also yields `PRF_init` → `KEK_init` for step 7.
-7. Replace the `nk`, `inboxkey`, and `mcppairing` records in the **local** record
-   store with the new values, then build the rotation snapshot from that store via
-   the existing `snapshotAt` path (`sync.js:637-676`) using
+7. In the **local** record store: replace the `nk` and `inboxkey` records with the
+   new values, and **delete** the `mcppairing` record (§5.4 revokes the pairing;
+   minting a replacement client-side would leave the responder believing it is
+   connected with a pairing the relay never issued — the existing `forgetPairing`
+   already does exactly this drop, `web/cloud/js/mcp-pairing.js:68-75`). Then build
+   the rotation snapshot from that store under
    `K_data′ = HKDF(DEK′, "mt/v1/data")`. NK′, the new inbox private key, and the
-   dropped/replaced pairing record therefore ride the snapshot; no extra
-   distribution step.
+   removal of the pairing record therefore ride the snapshot; no extra distribution
+   step.
+
+   **The snapshot must be built without being uploaded.** `snapshotAt`
+   (`web/cloud/js/sync.js:637-676`) does both — it encrypts *and* immediately POSTs
+   to `/api/sync/snapshot`. Reusing it here would publish a `DEK′`-encrypted
+   snapshot while the account is still at epoch `N`; if the subsequent
+   `POST /api/rotate` then failed, the stored snapshot would be unreadable by the
+   account's live keys — a direct I1 violation from a step that is supposed to be
+   the safe, abortable half of the ceremony. So: split `snapshotAt` into a pure
+   `buildSnapshot(ctx, kData, seq) → {nonce, ct}` and a thin `snapshotAt` that calls
+   it and POSTs. Rotation calls `buildSnapshot` only, and the ciphertext reaches the
+   server exclusively inside the atomic `POST /api/rotate` body.
 8. Wrap `DEK′` under `KEK_init` → `envelope_init`, and under `KEK_rec′` →
    `envelope_rec′` with `verifier′` (`crypto.js:161-167`, `:235-241`).
 9. **Self-check before sending:** unwrap `DEK′` back out of `envelope_init` and
@@ -501,7 +515,10 @@ for a mailbox that drains on every app open.
   (`internal/cloudserver/mcp_relay.go:95`). But the thief's copy still works against
   a live pairing, so the pairing must be revoked — `pairings.revoke(accountID)`
   (`mcp_relay.go:174-196`) in the pre-transaction teardown hook, and the
-  `mcppairing` record dropped from the rotation snapshot. The user re-pairs.
+  `mcppairing` record **deleted** — never replaced with a locally-minted one — from
+  the rotation snapshot (§3.2 step 7). The user re-pairs through the ordinary
+  `POST /api/mcp/pairings` flow, which is the only thing that can mint a pairing the
+  relay actually knows about.
 - **Tier 2** (hosted remote): `mcp_remote.pairing_key_ct` is sealed under the
   server's `sessionSecret` (`internal/cloudserver/mcp_remote.go:280-301`, `:374`) —
   the operator can decrypt it, and so could anyone who took a copy through the
@@ -733,6 +750,13 @@ coverage-shaped files)**
 17. Writes queued while offline survive a rotation and land after re-unlock (I5).
 18. The ceremony does not send `POST /api/rotate` if the round-trip self-check fails
     (I8).
+18b. `snapshotAt` is split into a pure `buildSnapshot(ctx, kData, seq)` and a thin
+    uploading wrapper; the rotation ceremony calls only `buildSnapshot`, and a test
+    asserts the whole ceremony issues **zero** requests to `/api/sync/snapshot`
+    (§3.2 step 7). The existing `maybeSnapshot` / forced-import callers keep their
+    current behaviour.
+18c. The rotation snapshot's record set contains the new `nk` and `inboxkey` records
+    and contains **no** `mcppairing` record (§5.4).
 19. The Emergency Kit save gate completes before any request is sent; abandoning it
     leaves the old kit live (§3.2 step 5).
 20. After success, the client rewrites the LDK cache, refreshes the SW's plaintext
