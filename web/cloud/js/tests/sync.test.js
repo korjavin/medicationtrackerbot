@@ -1026,9 +1026,18 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     }));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     teardown?.();
     teardown = null;
+    // `await nextOpsGet()` proves a drain *entered* its fetch, not that it
+    // finished — pullOnOpen still has flushPending + maybeSnapshot to go. A
+    // drain left running past afterEach is module-global state: the next test's
+    // startReconnectAutoDrain would coalesce into the stale `drainInFlight` and
+    // never fire its own ops GET, and the leaked run would hit unstubbed
+    // globals. reauthenticate() is the one exported barrier that provably waits
+    // the slot empty (`while (drainInFlight) await drainInFlight`) and leaves it
+    // empty; teardown() above already set `stopped`, so no rerun can re-fill it.
+    await reauthenticate(ctx).catch(() => {});
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
