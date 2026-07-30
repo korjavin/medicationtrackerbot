@@ -76,9 +76,50 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         expect(allSets.some((s) => s.set_type === 'warmup' && s.weight_kg === 40)).toBe(true);
         expect(allSets.some((s) => s.weight_kg === 85 && s.reps === 5)).toBe(true);
 
+        // Library-only history has no workout_exercises row to inherit a goal
+        // from, so training_goal stays null and the UI falls back to the default.
+        expect(history.every((e) => e.training_goal === null)).toBe(true);
+
         // A different exercise name returns nothing.
         const none = await window.apiCallDirect('/api/workout/exercises/history?name=Deadlift');
         expect(none).toEqual([]);
+    });
+
+    // med-qj4.6.4/.5: the detail view's headline emphasis + near-failure advisory
+    // are goal-driven, and the exercise NAME is the only handle the client has —
+    // so the effective goal rides on the history response.
+    it('exercises/history carries the exercise\'s effective training goal', async () => {
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        const { window } = env;
+        const group = await window.apiCall('/api/workout/groups/create', 'POST', {
+            name: 'Strength Block', training_goal: 'strength',
+        });
+        const variant = await window.apiCall('/api/workout/variants/create', 'POST', {
+            group_id: group.id, name: 'A',
+        });
+        const exercise = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variant.id, exercise_name: 'Squat', target_sets: 3, target_reps_min: 5,
+        });
+
+        const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: session.id, exercise_id: exercise.id, exercise_name: 'Squat',
+            source: 'schedule', status: 'completed', sets: [{ weight_kg: 100, reps: 5, rpe: 8 }],
+        });
+        await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+        // Inherited from the routine (no per-exercise override).
+        let history = await window.apiCallDirect('/api/workout/exercises/history?name=Squat');
+        expect(history).toHaveLength(1);
+        expect(history[0].training_goal).toBe('strength');
+
+        // An explicit per-exercise override wins over the routine's goal.
+        await window.apiCall(`/api/workout/exercises/update?id=${exercise.id}`, 'PUT', {
+            variant_id: variant.id, exercise_name: 'Squat',
+            target_sets: 3, target_reps_min: 5, training_goal: 'endurance',
+        });
+        history = await window.apiCallDirect('/api/workout/exercises/history?name=Squat');
+        expect(history[0].training_goal).toBe('endurance');
     });
 
     it('mi-band list respects limit, patch applies diff-semantics over six fields, delete tombstones', async () => {

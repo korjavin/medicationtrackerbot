@@ -2115,9 +2115,26 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const lim = opts && opts.limit > 0 ? opts.limit : 500;
     const sessions = await activeRecords(WORKOUT_RECORD_TYPES.SESSION);
     const dateById = new Map(sessions.map((s) => [s.id, s.scheduled_date]));
-    return (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
-      .filter((l) => l.status === 'completed' && l.exercise_name === name && dateById.has(l.session_id))
-      .map((l) => ({ date: dateById.get(l.session_id), sets: l.sets, session_id: l.session_id }))
+    const logs = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
+      .filter((l) => l.status === 'completed' && l.exercise_name === name && dateById.has(l.session_id));
+
+    // The exercise's effective training goal rides along (med-qj4.6.4/.5): the
+    // detail view's headline emphasis and near-failure advisory are goal-driven,
+    // and an exercise *name* is the only handle the client has here — there is
+    // no other route from a name to its workout_exercises row. Resolved once
+    // from any scheduled log (library logs live in a different id space and
+    // carry no plan). No scheduled log → null, and the UI falls back to the
+    // hypertrophy default via normalizeGoal.
+    const scheduled = logs.find((l) => l.source !== 'library' && l.exercise_id > 0);
+    const exercise = scheduled
+      ? await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, scheduled.exercise_id)
+      : null;
+    const goal = exercise ? await effectiveGoal(exercise) : null;
+
+    return logs
+      .map((l) => ({
+        date: dateById.get(l.session_id), sets: l.sets, session_id: l.session_id, training_goal: goal,
+      }))
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, lim);
   }

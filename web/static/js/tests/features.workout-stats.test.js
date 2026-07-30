@@ -382,6 +382,118 @@ describe('features/workout/stats.js — split-file integration', () => {
     });
   });
 
+  // med-qj4.6.4 / .6.5 — the detail view's headline metric, graph order and
+  // effort surfaces follow the exercise's effective training goal.
+  describe('goal-driven emphasis + effort insight', () => {
+    // One session, newest-first as listExerciseLogsByName returns it, with the
+    // effective goal riding on each entry.
+    function history(goal, sets) {
+      return [{ date: '2026-01-08', session_id: 2, sets, training_goal: goal }];
+    }
+
+    async function openWith(logs) {
+      const { window, document } = env;
+      window.WorkoutAnalysis = WorkoutAnalysis;
+      window.apiCall = vi.fn(async (url) => (String(url).includes('/api/workout/exercises/history') ? logs : null));
+      await window.WorkoutExerciseDetail.open('Bench Press');
+      return document.getElementById('workout-stats-display');
+    }
+
+    function chartMetrics(container) {
+      return Array.from(container.querySelectorAll('svg.wg-workout-chart'))
+        .map((svg) => svg.dataset.workoutMetric);
+    }
+
+    it('leads a strength exercise with est-1RM and graphs est-1RM first', async () => {
+      const container = await openWith(history('strength', [
+        { set_index: 0, weight_kg: 100, reps: 5, set_type: 'normal' },
+      ]));
+      const headline = container.querySelector('.wg-workouts-exercise-detail__headline');
+      expect(headline).toBeTruthy();
+      expect(headline.dataset.goal).toBe('strength');
+      expect(headline.textContent).toContain('Best est. 1RM');
+      expect(headline.textContent).toContain('116.7 kg');
+      expect(chartMetrics(container)).toEqual(['est-1rm', 'top-weight']);
+    });
+
+    it('leads a hypertrophy exercise with volume load + weekly hard sets', async () => {
+      const container = await openWith(history('hypertrophy', [
+        { set_index: 0, weight_kg: 60, reps: 10, set_type: 'normal' },
+        { set_index: 1, weight_kg: 60, reps: 10, set_type: 'normal' },
+      ]));
+      const headline = container.querySelector('.wg-workouts-exercise-detail__headline');
+      expect(headline.textContent).toContain('Volume load');
+      expect(headline.textContent).toContain('1200 kg');
+      expect(headline.textContent).toContain('Hard sets · last 7 days: 2 sets');
+      expect(chartMetrics(container)).toEqual(['volume', 'est-1rm']);
+    });
+
+    it('leads an endurance exercise with total reps', async () => {
+      const container = await openWith(history('endurance', [
+        { set_index: 0, weight_kg: 30, reps: 20, set_type: 'normal' },
+        { set_index: 1, weight_kg: 30, reps: 18, set_type: 'normal' },
+      ]));
+      const headline = container.querySelector('.wg-workouts-exercise-detail__headline');
+      expect(headline.textContent).toContain('Reps · last session');
+      expect(headline.textContent).toContain('38 reps');
+      expect(chartMetrics(container)).toEqual(['reps', 'volume']);
+    });
+
+    it('falls back to the hypertrophy emphasis when the history carries no goal', async () => {
+      const container = await openWith([
+        { date: '2026-01-08', session_id: 2, sets: [{ set_index: 0, weight_kg: 60, reps: 10, set_type: 'normal' }] },
+      ]);
+      expect(container.querySelector('.wg-workouts-exercise-detail__headline').dataset.goal).toBe('hypertrophy');
+    });
+
+    it('flags an est-1RM computed from a high-rep set, where the number is', async () => {
+      const container = await openWith(history('strength', [
+        { set_index: 0, weight_kg: 80, reps: 20, set_type: 'normal' },
+      ]));
+      const flags = container.querySelectorAll('.wg-workouts-exercise-detail__flag');
+      // Once on the headline, once on the "Best est. 1RM" record row.
+      expect(flags.length).toBe(2);
+      expect(flags[0].textContent).toContain('from a 20-rep set');
+      // A low-rep estimate carries no caveat.
+      const clean = await openWith(history('strength', [
+        { set_index: 0, weight_kg: 100, reps: 5, set_type: 'normal' },
+      ]));
+      expect(clean.querySelectorAll('.wg-workouts-exercise-detail__flag').length).toBe(0);
+    });
+
+    it('advises a hypertrophy exercise whose rated sets sit far from failure', async () => {
+      const container = await openWith(history('hypertrophy', [
+        { set_index: 0, weight_kg: 60, reps: 10, rpe: 5, set_type: 'normal' },
+        { set_index: 1, weight_kg: 60, reps: 10, rpe: 5, set_type: 'normal' },
+        { set_index: 2, weight_kg: 60, reps: 10, rpe: 6, set_type: 'normal' },
+      ]));
+      const advice = container.querySelector('.wg-workouts-exercise-detail__advice');
+      expect(advice).toBeTruthy();
+      expect(advice.textContent).toContain('push closer to failure or add load');
+      // Per-set RIR is surfaced as a record row alongside it.
+      expect(container.textContent).toContain('Recent effort · 3 rated sets');
+    });
+
+    it('never advises a strength goal, but still shows its effort summary', async () => {
+      const container = await openWith(history('strength', [
+        { set_index: 0, weight_kg: 100, reps: 5, rpe: 5, set_type: 'normal' },
+        { set_index: 1, weight_kg: 100, reps: 5, rpe: 5, set_type: 'normal' },
+        { set_index: 2, weight_kg: 100, reps: 5, rpe: 6, set_type: 'normal' },
+      ]));
+      expect(container.querySelector('.wg-workouts-exercise-detail__advice')).toBeNull();
+      expect(container.textContent).toContain('Recent effort');
+    });
+
+    it('says nothing about effort when no RPE was logged', async () => {
+      const container = await openWith(history('hypertrophy', [
+        { set_index: 0, weight_kg: 60, reps: 10, set_type: 'normal' },
+        { set_index: 1, weight_kg: 60, reps: 10, set_type: 'normal' },
+      ]));
+      expect(container.querySelector('.wg-workouts-exercise-detail__advice')).toBeNull();
+      expect(container.textContent).not.toContain('Recent effort');
+    });
+  });
+
   // Phase 3 — PR badge on the session log card.
   describe('session log-card PR badge (Phase 3)', () => {
     it('appends a PR badge when a saved log beats the exercise history baseline', async () => {
