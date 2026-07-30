@@ -67,10 +67,15 @@ describe('pushSchedule slot→meds map (med-eas.67)', () => {
     // — a false-positive Confirm. Serialized, B runs strictly after A.
     const ctx = { accountId: 'acct-1' };
     let resolveFirst;
+    let firstPutEntered;
+    const entered = new Promise((r) => { firstPutEntered = r; });
     let puts = 0;
     globalThis.fetch = vi.fn(() => {
       puts += 1;
-      if (puts === 1) return new Promise((r) => { resolveFirst = () => r({ ok: true }); });
+      if (puts === 1) {
+        firstPutEntered();
+        return new Promise((r) => { resolveFirst = () => r({ ok: true }); });
+      }
       return Promise.resolve({ ok: true });
     });
 
@@ -78,7 +83,14 @@ describe('pushSchedule slot→meds map (med-eas.67)', () => {
     const pB = pushSchedule(ctx, [rem(1000, ['med-b'])], PREF);
 
     // A's PUT hangs; B must not have started its own PUT (it's chained behind A).
-    await new Promise((r) => setTimeout(r, 10));
+    // Both waits are bounded by real progress, never by a wall clock — a fixed
+    // sleep raced A's own IndexedDB work under load and saw puts === 0 (med-tc1.8):
+    //   1. `entered` — A has reached its fetch.
+    //   2. one IndexedDB round-trip — an UNSERIALIZED B would have queued its
+    //      clear-the-map write on this same store before A got to fetch, so this
+    //      read completes only after that write, and hence after B's own fetch.
+    await entered;
+    await getSlotMedications(9999);
     expect(puts).toBe(1);
 
     resolveFirst();
