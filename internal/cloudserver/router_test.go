@@ -32,6 +32,20 @@ func TestWorkletModulesAreEmbedded(t *testing.T) {
 			t.Errorf("%s does not register an AudioWorklet processor", name)
 		}
 	}
+
+	// libsamplerate is the SDK's resampler module, loaded on any engine that
+	// cannot pin the AudioContext sample rate (Firefox, Safari). It is not a
+	// processor — it installs globalThis.LibSampleRate into the worklet scope,
+	// which the concat processor then uses. Same all-or-nothing failure mode:
+	// missing from the embedded FS means the CDN URL was the only source, and
+	// script-src 'self' blocks that (bd med-yor.17).
+	b, err := webstatic.FS.ReadFile("vendor/worklets/libsamplerate.worklet.js")
+	if err != nil {
+		t.Fatalf("read vendor/worklets/libsamplerate.worklet.js from embedded web/static: %v", err)
+	}
+	if !strings.Contains(string(b), "globalThis.LibSampleRate") {
+		t.Error("libsamplerate.worklet.js does not install globalThis.LibSampleRate")
+	}
 }
 
 func setupStore(t *testing.T) *cloudstore.Repo {

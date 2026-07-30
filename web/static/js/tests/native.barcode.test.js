@@ -241,6 +241,86 @@ describe('native/web/barcode.js — web impl', () => {
         expect(revokeObjectURL.mock.calls[0][0]).toBe('blob:fake/url');
     });
 
+    // bd med-bje. The cloud CSP is `img-src 'self'` with no blob:, so the old
+    // createObjectURL + <img>.src route never loaded the photo and the
+    // "Use Photo" fallback silently failed on account subdomains. Nothing about
+    // createImageBitmap + canvas is CSP-governed.
+    it('decodes a Blob through createImageBitmap + canvas, minting no object URL', async () => {
+        const detect = vi.fn().mockResolvedValue([{ rawValue: '888', format: 'ean_13' }]);
+        const ctor = vi.fn(function () { this.detect = detect; });
+        env = loadEnv({ barcodeDetector: ctor });
+        const createObjectURL = vi.fn().mockReturnValue('blob:should-not-be-used');
+        env.window.URL.createObjectURL = createObjectURL;
+
+        const bitmapClose = vi.fn();
+        env.window.createImageBitmap = vi.fn(async () => ({ width: 640, height: 480, close: bitmapClose }));
+        const drawImage = vi.fn();
+        env.window.HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ drawImage }));
+
+        const blob = new env.window.Blob(['x'], { type: 'image/jpeg' });
+        const result = await env.window.Barcode.scan({ source: blob });
+
+        expect(createObjectURL).not.toHaveBeenCalled();
+        expect(env.window.createImageBitmap).toHaveBeenCalledWith(blob);
+        expect(drawImage).toHaveBeenCalled();
+        // Bitmap pixels are copied into the canvas, so the bitmap is released.
+        expect(bitmapClose).toHaveBeenCalled();
+        const decoded = detect.mock.calls[0][0];
+        expect(String(decoded.tagName).toUpperCase()).toBe('CANVAS');
+        expect(decoded.width).toBe(640);
+        expect(decoded.height).toBe(480);
+        expect(result).toEqual({ format: 'ean_13', rawValue: '888' });
+    });
+
+    // ZXing is the only decoder on the engines that lack BarcodeDetector —
+    // i.e. exactly the ones the photo path exists for. It has no public canvas
+    // entry point, so the impl assembles the BinaryBitmap the way the library's
+    // own createBinaryBitmap() does.
+    it('falls back to ZXing over the canvas when BarcodeDetector is absent', async () => {
+        const decodeBitmap = vi.fn(() => ({ text: '5901234123457', format: 4 }));
+        function FakeReader() { this.decodeBitmap = decodeBitmap; }
+        const luminanceArgs = [];
+        env = loadEnv({
+            barcodeDetector: undefined,
+            zxing: {
+                BrowserMultiFormatReader: FakeReader,
+                HTMLCanvasElementLuminanceSource: function (canvas) { luminanceArgs.push(canvas); },
+                HybridBinarizer: function (source) { this.source = source; },
+                BinaryBitmap: function (binarizer) { this.binarizer = binarizer; },
+            },
+        });
+        env.window.createImageBitmap = vi.fn(async () => ({ width: 10, height: 10 }));
+        env.window.HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ drawImage: vi.fn() }));
+
+        const blob = new env.window.Blob(['x'], { type: 'image/jpeg' });
+        const result = await env.window.Barcode.scan({ source: blob });
+
+        expect(luminanceArgs).toHaveLength(1);
+        expect(String(luminanceArgs[0].tagName).toUpperCase()).toBe('CANVAS');
+        expect(decodeBitmap).toHaveBeenCalledTimes(1);
+        expect(result).toEqual({ format: '4', rawValue: '5901234123457' });
+    });
+
+    it('returns null when ZXing finds nothing in the canvas', async () => {
+        function FakeReader() {
+            this.decodeBitmap = vi.fn(() => { throw new Error('NotFoundException'); });
+        }
+        env = loadEnv({
+            barcodeDetector: undefined,
+            zxing: {
+                BrowserMultiFormatReader: FakeReader,
+                HTMLCanvasElementLuminanceSource: function () {},
+                HybridBinarizer: function () {},
+                BinaryBitmap: function () {},
+            },
+        });
+        env.window.createImageBitmap = vi.fn(async () => ({ width: 10, height: 10 }));
+        env.window.HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ drawImage: vi.fn() }));
+
+        const blob = new env.window.Blob(['x'], { type: 'image/jpeg' });
+        expect(await env.window.Barcode.scan({ source: blob })).toBeNull();
+    });
+
     it('supportsLiveScan() follows window.BarcodeDetector presence, probed at call time', () => {
         env = loadEnv();
         expect(env.window.Barcode.supportsLiveScan()).toBe(false);

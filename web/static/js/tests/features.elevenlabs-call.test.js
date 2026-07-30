@@ -372,6 +372,36 @@ describe('features/elevenlabs-call.js — setMute / toggleMute', () => {
                 rawAudioProcessor: '/static/vendor/worklets/raw-audio-processor.js',
                 audioConcatProcessor: '/static/vendor/worklets/audio-concat-processor.js',
             });
+            expect(opts.libsampleratePath).toBe('/static/vendor/worklets/libsamplerate.worklet.js');
+        } finally {
+            cleanup();
+        }
+    });
+
+    // bd med-yor.17. The SDK resamples on any engine that cannot pin the
+    // AudioContext sample rate (Firefox, Safari) and fetches libsamplerate from
+    // jsdelivr to do it — blocked by script-src 'self' on both origins, and
+    // fatal, since the output controller rethrows. `libsampleratePath` alone is
+    // not enough: through 1.17.0 the SDK forwards it to the input controller
+    // only, so the output half still reaches for the CDN.
+    it('redirects the SDK\'s hardcoded libsamplerate CDN URL to the self-hosted copy', async () => {
+        const CDN = 'https://cdn.jsdelivr.net/npm/@alexanderolsen/libsamplerate-js@2.1.2/dist/libsamplerate.worklet.js';
+        const { window, cleanup } = createConversationEnv();
+        try {
+            const addModule = vi.fn(async () => {});
+            window.AudioWorklet = function AudioWorklet() {};
+            window.AudioWorklet.prototype.addModule = addModule;
+
+            await startCall(window);
+
+            const worklet = new window.AudioWorklet();
+            await worklet.addModule(CDN);
+            expect(addModule).toHaveBeenCalledWith('/static/vendor/worklets/libsamplerate.worklet.js', undefined);
+
+            // Everything else — including the same-origin worklet paths — is
+            // passed straight through.
+            await worklet.addModule('/static/vendor/worklets/raw-audio-processor.js');
+            expect(addModule).toHaveBeenLastCalledWith('/static/vendor/worklets/raw-audio-processor.js', undefined);
         } finally {
             cleanup();
         }

@@ -13,9 +13,10 @@
 //
 // The signed URL is fetched from /api/elevenlabs/signed-url, which keeps
 // ELEVENLABS_API_KEY server-side. The SDK handles the WebSocket session +
-// AudioWorklets; the worklet modules are self-hosted (WORKLET_PATHS below) so
-// the DEK-bearing document can keep a plain `script-src 'self'` — see
-// setSecurityHeaders in internal/cloudserver/router.go (bd med-yor.8).
+// AudioWorklets; every worklet module it loads is self-hosted (WORKLET_PATHS
+// and LIBSAMPLERATE_PATH below) so the DEK-bearing document can keep a plain
+// `script-src 'self'` — see setSecurityHeaders in
+// internal/cloudserver/router.go (bd med-yor.8, med-yor.17).
 //
 // The SDK is vendored (bd med-7e7.1) rather than pulled from esm.sh: in cloud
 // mode this page holds the in-memory DEK, and a third-party script executing
@@ -41,6 +42,40 @@
         rawAudioProcessor: '/static/vendor/worklets/raw-audio-processor.js',
         audioConcatProcessor: '/static/vendor/worklets/audio-concat-processor.js',
     };
+
+    // Self-hosted libsamplerate worklet (bd med-yor.17). The SDK resamples
+    // whenever the engine cannot pin the AudioContext sample rate —
+    // getSupportedConstraints().sampleRate false (Firefox, Safari) or a
+    // context rate that differs from the agent's — and addModule()s
+    // libsamplerate from jsdelivr to do it. Both CSPs are script-src 'self'
+    // with no CDN host, so that load is blocked and the whole call throws
+    // (MediaDeviceOutput.create rethrows; there is no degraded mode). The file
+    // is byte-identical to the CDN/npm artifact for the pinned version the
+    // bundle names — vendor.elevenlabs-client.test.js pins both the URL and
+    // the bytes.
+    const LIBSAMPLERATE_PATH = '/static/vendor/worklets/libsamplerate.worklet.js';
+
+    // …and the same URL again, because @elevenlabs/client (through 1.17.0)
+    // accepts `libsampleratePath` on both controllers but only forwards it to
+    // the input one: setupWebSocketIO() omits it from MediaDeviceOutput.create.
+    // On Firefox both controllers take the resampling branch, so passing the
+    // option alone still leaves the output half fetching from jsdelivr and the
+    // call still fails. The bundle is marked DO-NOT-EDIT, and the SDK exposes
+    // no hook onto the output AudioContext, so we redirect that one known URL
+    // at the AudioWorklet.addModule seam instead. Drops out the moment
+    // upstream forwards the option.
+    const LIBSAMPLERATE_CDN_URL = 'https://cdn.jsdelivr.net/npm/@alexanderolsen/libsamplerate-js@2.1.2/dist/libsamplerate.worklet.js';
+
+    function redirectLibsamplerateWorklet() {
+        const proto = window.AudioWorklet && window.AudioWorklet.prototype;
+        if (!proto || proto.__medtrackerLibsamplerateRedirect) return;
+        const addModule = proto.addModule;
+        if (typeof addModule !== 'function') return;
+        proto.addModule = function (url, options) {
+            return addModule.call(this, url === LIBSAMPLERATE_CDN_URL ? LIBSAMPLERATE_PATH : url, options);
+        };
+        proto.__medtrackerLibsamplerateRedirect = true;
+    }
 
     let sdkPromise = null;
     function loadSDK() {
@@ -457,9 +492,11 @@
                 throw new Error('ElevenLabs SDK missing Conversation.startSession');
             }
             const clientTools = buildClientTools();
+            redirectLibsamplerateWorklet();
             activeConversation = await Conversation.startSession({
                 signedUrl,
                 workletPaths: WORKLET_PATHS,
+                libsampleratePath: LIBSAMPLERATE_PATH,
                 ...(clientTools ? { clientTools } : {}),
                 onConnect: () => setState('in_call', 'Connected'),
                 onDisconnect: () => {

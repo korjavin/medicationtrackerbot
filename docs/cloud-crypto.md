@@ -246,7 +246,12 @@ navigation — but it is **not** a total close. Enforced by `TestRouter_HostVari
 
 `script-src` is the other half of this and is now a plain `'self'` on every document,
 including this one — the `blob: data:` allowance the voice SDK's AudioWorklets used to
-force is gone (the worklets are self-hosted and handed to the SDK as paths). What that
+force is gone (the worklets are self-hosted and handed to the SDK as paths). The SDK's
+libsamplerate resampler, which it otherwise pulls from jsdelivr on engines that cannot
+pin the AudioContext sample rate, is self-hosted the same way (bd med-yor.17) rather
+than allowed through as a CDN host. `img-src` is likewise a plain `'self'`: the photo
+barcode path decodes with `createImageBitmap` onto a canvas instead of loading a
+`blob:` URL into an `<img>` (bd med-bje). What that
 does **not** fix is that the operator serves the script in the first place: see
 [security/release-integrity.md](security/release-integrity.md) for that boundary stated
 plainly, the build-provenance / published-hash evidence that makes a divergence
