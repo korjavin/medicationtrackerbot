@@ -678,6 +678,7 @@ class FakeSocket {
   fireClose(code) { this.readyState = 3; this.onclose({ code }); }
 }
 FakeSocket.instances = [];
+FakeSocket.CONNECTING = 0;
 FakeSocket.OPEN = 1;
 
 function makeResponder(overrides = {}) {
@@ -693,10 +694,29 @@ function makeResponder(overrides = {}) {
   });
 }
 
+// This file runs in the node environment (no jsdom), so `document` has to be
+// stubbed. globalThis is already an EventTarget, which is what the responder
+// attaches its 'online' listener to.
+function fakeDocument() {
+  const listeners = new Map();
+  return {
+    visibilityState: 'visible',
+    addEventListener(type, fn) {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(fn);
+    },
+    removeEventListener(type, fn) { listeners.get(type)?.delete(fn); },
+    fire(type) { [...(listeners.get(type) || [])].forEach((fn) => fn()); },
+  };
+}
+
 describe('mcp-responder reconnect loop', () => {
+  let doc;
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubGlobal('WebSocket', FakeSocket);
+    doc = fakeDocument();
+    vi.stubGlobal('document', doc);
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -758,6 +778,67 @@ describe('mcp-responder reconnect loop', () => {
     expect(responder.getStatus()).toBe('idle');
 
     vi.advanceTimersByTime(120_000);
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
+  // A phone freezes a backgrounded tab, so the queued backoff timer never
+  // fires: without a wake-up the device leg stays down until a manual reload,
+  // and every MCP call meanwhile reports "no unlocked device online".
+  it('re-dials immediately when the tab becomes visible again', () => {
+    const responder = makeResponder();
+    responder.connect();
+    FakeSocket.instances[0].fireClose(1006); // queues a reconnect at +1000ms
+
+    doc.fire('visibilitychange');
+
+    expect(FakeSocket.instances).toHaveLength(2); // no timer advance needed
+    // The queued backoff must have been cancelled, not left to double-connect.
+    vi.advanceTimersByTime(120_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    responder.stop();
+  });
+
+  // A wake-up can land while the previous socket is still CLOSING. If that
+  // socket's late onclose schedules its own reconnect, the responder ends up
+  // with two device legs; the relay only keeps one, evicts the healthy one with
+  // 4409, and the loser stops for good — the silent death this whole change is
+  // about.
+  it('ignores the close of a socket it already replaced on wake-up', () => {
+    const responder = makeResponder();
+    responder.connect();
+    const stale = FakeSocket.instances[0];
+    stale.readyState = 2; // CLOSING
+
+    doc.fire('visibilitychange');
+    expect(FakeSocket.instances).toHaveLength(2);
+
+    stale.fireClose(1006); // late close from the replaced socket
+    vi.advanceTimersByTime(120_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    // The live leg must still be considered current, not stopped.
+    FakeSocket.instances[1].onopen();
+    expect(responder.getStatus()).toBe('linked');
+    responder.stop();
+  });
+
+  it('does not re-dial on wake-up while the socket is still open', () => {
+    const responder = makeResponder();
+    responder.connect();
+    FakeSocket.instances[0].readyState = FakeSocket.OPEN;
+
+    doc.fire('visibilitychange');
+
+    expect(FakeSocket.instances).toHaveLength(1);
+    responder.stop();
+  });
+
+  it('stops listening for wake-ups once stopped', () => {
+    const responder = makeResponder();
+    responder.connect();
+    responder.stop();
+
+    doc.fire('visibilitychange');
+
     expect(FakeSocket.instances).toHaveLength(1);
   });
 

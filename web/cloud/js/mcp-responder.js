@@ -750,11 +750,11 @@ export function createResponder({
     return `${base}?pairing=${encodeURIComponent(pairingId)}`;
   }
 
-  async function onFrame(data) {
-    // Capture the socket this frame arrived on: the dispatch below awaits, and
-    // a reconnect (see scheduleReconnect) can rebind `ws` to a new CONNECTING
-    // socket meanwhile — send()ing on that throws and loses the response.
-    const sock = ws;
+  // sock is the socket the frame arrived on, passed in rather than read off
+  // `ws`: the dispatch below awaits, and a reconnect can rebind `ws` to a new
+  // CONNECTING socket meanwhile — send()ing on that throws and loses the
+  // response.
+  async function onFrame(sock, data) {
     const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(await data.arrayBuffer());
     let payload;
     try {
@@ -799,11 +799,19 @@ export function createResponder({
   function connect() {
     stopped = false;
     status = 'connecting';
-    ws = new WebSocket(wsURL());
-    ws.binaryType = 'arraybuffer';
-    ws.onopen = () => { status = 'linked'; reconnectDelay = RECONNECT_MIN_MS; };
-    ws.onmessage = (ev) => { onFrame(ev.data).catch(() => {}); };
-    ws.onclose = (ev) => {
+    const sock = new WebSocket(wsURL());
+    ws = sock;
+    sock.binaryType = 'arraybuffer';
+    sock.onopen = () => { status = 'linked'; reconnectDelay = RECONNECT_MIN_MS; };
+    sock.onmessage = (ev) => { onFrame(sock, ev.data).catch(() => {}); };
+    sock.onclose = (ev) => {
+      // A socket this responder has already replaced must not act on its own
+      // close: resume() can redial while the previous socket is still CLOSING,
+      // and letting the loser schedule a reconnect opens a SECOND device leg.
+      // The relay allows one, so it evicts the healthy leg with 4409 — which
+      // the handler below reads as "pairing replaced" and stops the responder
+      // for good. Exactly the silent-death this whole change exists to fix.
+      if (ws !== sock) return;
       status = 'idle';
       // The relay refuses this pairing — it's gone (4404) or it was replaced
       // (4409). Reconnecting can never succeed under either: stop, and let the
@@ -812,24 +820,60 @@ export function createResponder({
       if (ev && (ev.code === STATUS_NO_PAIRING || ev.code === STATUS_PAIRING_REPLACED)) {
         stopped = true;
         clearTimeout(reconnectTimer);
+        removeWakeListeners();
         onStalePairing(ev.code);
         return;
       }
       scheduleReconnect();
     };
-    ws.onerror = () => {};
+    sock.onerror = () => {};
+  }
+
+  // A phone freezes a backgrounded tab: timers stop, so a pending
+  // scheduleReconnect never fires, and the socket is usually already dead by
+  // the time the user comes back. Waiting for the (frozen) backoff timer is why
+  // an app that looks unlocked and focused answers nothing until it is manually
+  // reloaded. Anything meaning "the user is here again" re-dials immediately.
+  //
+  // ponytail: a socket that thaws still in readyState OPEN but half-open is left
+  // alone here — the relay's keepalive ping reaps it within ~30s and onclose
+  // then runs this path. Force-closing every OPEN socket on each tab switch
+  // would churn far more than it fixes.
+  function resume() {
+    if (stopped) return;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    clearTimeout(reconnectTimer);
+    reconnectDelay = RECONNECT_MIN_MS;
+    connect();
+  }
+
+  const onVisible = () => { if (globalThis.document?.visibilityState === 'visible') resume(); };
+  function addWakeListeners() {
+    globalThis.addEventListener?.('online', resume);
+    globalThis.document?.addEventListener?.('visibilitychange', onVisible);
+  }
+  function removeWakeListeners() {
+    globalThis.removeEventListener?.('online', resume);
+    globalThis.document?.removeEventListener?.('visibilitychange', onVisible);
+  }
+
+  function start() {
+    addWakeListeners();
+    connect();
   }
 
   function stop() {
     stopped = true;
     clearTimeout(reconnectTimer);
+    removeWakeListeners();
     status = 'idle';
     if (ws) ws.close();
   }
 
   return {
-    connect,
+    connect: start,
     stop,
+    resume,
     getStatus: () => status,
     dispatcher,
   };
