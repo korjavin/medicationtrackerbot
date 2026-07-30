@@ -205,10 +205,10 @@ describe('Service Worker (sw.js) Fetch and Cache Strategies', () => {
         expect(mockCacheInstance.put).toHaveBeenCalledWith('/__app_shell__', expect.any(Response));
     });
 
-    it('bypasses the SPA shell handler for standalone HTML pages (/oidc-setup, /pitch)', async () => {
+    it('bypasses the SPA shell handler for standalone HTML pages (/oidc-setup)', async () => {
         const fetchHandler = global.self.addEventListener.mock.calls.find(c => c[0] === 'fetch')[1];
 
-        const standalonePaths = ['/oidc-setup', '/pitch'];
+        const standalonePaths = ['/oidc-setup'];
         for (const pathname of standalonePaths) {
             mockCacheInstance.put.mockClear();
             mockCacheInstance.match.mockClear();

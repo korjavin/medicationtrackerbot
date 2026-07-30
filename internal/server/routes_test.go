@@ -51,7 +51,6 @@ func TestRoutesRegistration(t *testing.T) {
 
 	mockFiles := []string{
 		filepath.Join(testStaticDir, "index.html"),
-		filepath.Join(testStaticDir, "pitch.html"),
 		filepath.Join(testIconsDir, "favicon.ico"),
 		filepath.Join(testStaticDir, "sw.js"),
 		filepath.Join(testStaticDir, "oidc-setup.html"),
@@ -69,7 +68,6 @@ func TestRoutesRegistration(t *testing.T) {
 	}{
 		{"Static Config JS", "GET", "/static/config.js", http.StatusOK},
 		{"Service Worker", "GET", "/static/sw.js", http.StatusOK},
-		{"Pitch Deck", "GET", "/pitch", http.StatusOK},
 		{"Main Index", "GET", "/", http.StatusOK},
 		{"Deep Link BP", "GET", "/bp_add", http.StatusOK},
 		{"Favicon", "GET", "/favicon.ico", http.StatusOK},
