@@ -3,6 +3,7 @@ package cloudserver
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -116,6 +117,25 @@ func callbackChatID(cq *tgclient.CallbackQuery) (int64, bool) {
 	return 0, false
 }
 
+// feedbackAccountID resolves the account to attribute a Telegram feedback item
+// to. It MUST match handleManagerMessage's audience test, in the same order,
+// because that is who gets offered the button: the linked-bot-by-chat check
+// first (it covers BYO / web / admin-CLI onboarding, whose accounts carry no
+// "tg:" provenance), then the claimed-by-creator check for accounts minted
+// through the manager bot. Resolving only the latter — as this did before
+// med-eas.62 widened the audience — told every linked-but-not-tg-minted user to
+// "finish setting up your account" after prompting them for feedback.
+// "" means genuinely no account, not "no bot in this chat".
+func (t *TelegramAPI) feedbackAccountID(ctx context.Context, chatID int64, creator string) (string, error) {
+	switch bot, err := t.store.BotByChatID(ctx, chatID); {
+	case err == nil && bot.AccountID != "":
+		return bot.AccountID, nil
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return "", err
+	}
+	return t.store.ClaimedAccountIDForCreator(ctx, creator)
+}
+
 // captureFeedback handles the message following a "Send feedback" tap: it
 // resolves the sender's claimed account, builds the v1 plaintext doc from the
 // text/caption plus at most one downloaded attachment (voice or photo),
@@ -124,7 +144,7 @@ func callbackChatID(cq *tgclient.CallbackQuery) (int64, bool) {
 // persists the plaintext. Every failure becomes a friendly reply; the webhook
 // still answers 200.
 func (t *TelegramAPI) captureFeedback(ctx context.Context, msg *tgclient.Message, creator string) {
-	accountID, err := t.store.ClaimedAccountIDForCreator(ctx, creator)
+	accountID, err := t.feedbackAccountID(ctx, msg.Chat.ID, creator)
 	if err != nil {
 		slog.Error("telegram feedback: resolve account", "error", err)
 		t.reply(ctx, msg.Chat.ID, feedbackFailMessage)

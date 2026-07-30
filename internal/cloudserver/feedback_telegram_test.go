@@ -272,6 +272,60 @@ func TestManagerFeedback_CaptureRejectedWithoutAccount(t *testing.T) {
 	}
 }
 
+// seedLinkedBotAccount inserts a claimed account with NO "tg:" provenance — the
+// shape web / BYO / admin-CLI onboarding produces — and links its bot to chatID,
+// which is the state BotByChatID recognizes.
+func seedLinkedBotAccount(t *testing.T, store *cloudstore.Repo, chatID int64) string {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now().UTC()
+	tokenHash := []byte("claim-hash-fb-linked-00000000000")
+	acc, err := store.CreateAccount(ctx, "acc-linked", "brave-otter-lnk999", tokenHash, now.Add(time.Hour), now, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	if _, err := store.ConsumeClaimToken(ctx, acc.Subdomain, tokenHash, now); err != nil {
+		t.Fatalf("ConsumeClaimToken: %v", err)
+	}
+	if err := store.UpsertBot(ctx, cloudstore.TGBot{
+		AccountID: acc.ID, BotID: 909, BotUsername: "mt_tafbfquc_bot",
+		TokenCT: []byte("ct"), TokenNonce: []byte("nonce"),
+		Kind: "managed", WebhookSecret: "secret", CreatedAt: now,
+	}); err != nil {
+		t.Fatalf("UpsertBot: %v", err)
+	}
+	if err := store.LinkChat(ctx, acc.ID, chatID, now); err != nil {
+		t.Fatalf("LinkChat: %v", err)
+	}
+	return acc.ID
+}
+
+// TestManagerFeedback_CaptureFromLinkedBotAccount pins the capture path to the
+// same audience the button is offered to. med-eas.62 widened that audience to
+// anyone with a bot linked by chat id (BYO / web / admin-CLI onboarding, which
+// never carries "tg:" provenance), but capture kept resolving only tg:-minted
+// accounts — so those users were prompted for feedback and then told to finish
+// setting up the account they were already using.
+func TestManagerFeedback_CaptureFromLinkedBotAccount(t *testing.T) {
+	store, tg, top, secret, id := managerFeedbackFixture(t, 0)
+	accID := seedLinkedBotAccount(t, store, 77)
+
+	postManager(t, top, secret, fbCallbackBody)
+	resetSent(tg)
+	tgMessage(t, top, secret, "Hi, what's up")
+
+	item, doc := onlyFeedbackDoc(t, store, id)
+	if doc.Text != "Hi, what's up" {
+		t.Fatalf("linked-bot feedback not captured: %+v", doc)
+	}
+	if item.AccountID != accID {
+		t.Fatalf("feedback attributed to %q, want the linked account %q", item.AccountID, accID)
+	}
+	if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "Thanks") {
+		t.Fatalf("want the thanks reply, got: %v", tg.mu.sent)
+	}
+}
+
 // feedbackAdminChat stands in for FEEDBACK_ADMIN_CHAT_ID in relay tests.
 const feedbackAdminChat = int64(9001)
 
