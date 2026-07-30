@@ -36,4 +36,45 @@ describe('vendored @elevenlabs/client', () => {
         expect(src).not.toMatch(/from\s*["']https?:\/\//);
         expect(src).not.toMatch(/import\s*\(\s*["']https?:\/\//);
     });
+
+    // bd med-yor.8. The SDK inlines each AudioWorklet's source and, absent an
+    // explicit path, hands it to addModule() as a blob: URL (data: fallback) —
+    // which forces the DEK-bearing document's CSP to widen script-src, because
+    // no engine ships worklet-src. elevenlabs-call.js passes workletPaths
+    // instead, pointing at vendor/worklets/*.js. Those files are extracted
+    // verbatim from this bundle, so a re-vendor that changes a processor would
+    // otherwise leave the served copy stale — and the SDK does NOT fall back to
+    // a blob: when a supplied path loads the wrong thing. On a re-vendor, copy
+    // each processor's template literal out of the new bundle into its file.
+    it('serves worklet modules byte-identical to the ones the SDK would inline', async () => {
+        const fs = await import('node:fs/promises');
+        const path = await import('node:path');
+        const { fileURLToPath } = await import('node:url');
+        const here = path.dirname(fileURLToPath(import.meta.url));
+        const src = await fs.readFile(path.join(here, '../../vendor/elevenlabs-client.min.js'), 'utf8');
+
+        // esbuild emits `<fn>("<name>", `<source>`)`; the sources carry no
+        // backslash escapes and no ${} interpolation, so the literal ends at
+        // the first backtick (asserted below, so a future bundle that does
+        // escape something fails loudly rather than silently truncating).
+        function inlinedWorklet(name) {
+            const marker = `("${name}",\``;
+            const start = src.indexOf(marker);
+            expect(start, `bundle no longer inlines ${name}`).toBeGreaterThan(-1);
+            const from = start + marker.length;
+            const end = src.indexOf('`', from);
+            const body = src.slice(from, end);
+            expect(body).not.toContain('\\');
+            expect(body).not.toContain('${');
+            return body;
+        }
+
+        for (const [name, file] of [
+            ['rawAudioProcessor', 'raw-audio-processor.js'],
+            ['audioConcatProcessor', 'audio-concat-processor.js'],
+        ]) {
+            const served = await fs.readFile(path.join(here, '../../vendor/worklets/', file), 'utf8');
+            expect(served, `${file} drifted from the bundle's ${name}`).toBe(inlinedWorklet(name));
+        }
+    });
 });

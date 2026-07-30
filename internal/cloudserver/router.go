@@ -219,11 +219,25 @@ func injectCloudBoot(idx []byte, foodDBURL string, trialAI, trialVoice bool, bui
 // appDocument loads the @elevenlabs/client voice SDK as an ES module, but from
 // OUR OWN origin (/static/vendor/elevenlabs-client.min.js) — no third-party
 // script executes on the DEK-bearing page, so script-src keeps 'self' (bd
-// med-7e7.1). blob: and data: remain because the SDK builds its AudioWorklets
-// (rawAudioProcessor / audioConcatProcessor) from blob: URLs and Chrome falls
-// back worklet-src → worker-src → script-src. Those are same-origin-authored
-// blobs, not a foreign script host: an attacker who can mint a blob: script
-// already has script execution.
+// med-7e7.1). script-src is now 'self' with NO blob:/data: on any document
+// (bd med-yor.8): the SDK used to build its AudioWorklets from blob: URLs (with
+// a data: fallback), and because no engine ships `worklet-src` those loads are
+// checked against script-src, which forced the widening. The worklet sources
+// are now self-hosted at /static/vendor/worklets/*.js and passed to the SDK as
+// `workletPaths` (web/static/js/features/elevenlabs-call.js), so the modules
+// load same-origin and the blob:/data: allowance is dead — same reason
+// worker-src/media-src no longer need blob: either (nothing else on the origin
+// constructs a Worker or plays a blob: URL; the SDK's audio element uses
+// srcObject, which CSP does not govern). TestSecurityHeaders_NoBlobOrDataScript
+// fails if any of that silently comes back.
+//
+// KNOWN, PRE-EXISTING GAP (not introduced here): on engines where
+// navigator.mediaDevices.getSupportedConstraints().sampleRate is false the SDK
+// resamples via a libsamplerate worklet fetched from cdn.jsdelivr.net. That
+// cross-origin script was already blocked by script-src 'self' before this
+// change (blob:/data: never allowed it), so voice already degraded there; the
+// SDK accepts a `libsampleratePath`, so self-hosting that file is the fix if it
+// ever matters.
 //
 // wss://api.elevenlabs.io is listed explicitly: the voice SDK opens a wss:
 // socket, and relying on the CSP3 https:→wss: scheme-coercion match is fragile
@@ -231,16 +245,10 @@ func injectCloudBoot(idx []byte, foodDBURL string, trialAI, trialVoice bool, bui
 func setSecurityHeaders(w http.ResponseWriter, appDocument bool, egressHosts []string) {
 	h := w.Header()
 	connectSrc := "connect-src 'self'"
-	scriptSrc := "script-src 'self'"
-	workerSrc := ""
-	mediaSrc := ""
 	if appDocument {
 		connectSrc = buildConnectSrc(egressHosts)
-		scriptSrc = "script-src 'self' blob: data:"
-		workerSrc = "worker-src 'self' blob:; "
-		mediaSrc = "media-src 'self' blob:; "
 	}
-	h.Set("Content-Security-Policy", "default-src 'self'; "+scriptSrc+"; style-src 'self'; img-src 'self'; "+workerSrc+mediaSrc+connectSrc+"; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+	h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; worker-src 'self'; media-src 'self'; "+connectSrc+"; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Referrer-Policy", "no-referrer")
