@@ -44,9 +44,10 @@ func NewClientFromPairingWithOptions(pc *PairingCode, opts *websocket.DialOption
 }
 
 // maxCallAttempts bounds how many connections one Call will burn through
-// before giving up. A dropped connection fails fast (it is not a timeout), so
-// this does not multiply CallTimeout: an attempt that keeps its socket and
-// simply gets no answer returns ErrDeviceOffline, which exits the loop.
+// before giving up. Only a request that never left this process is retried
+// (errFrameNotSent), and that fails immediately, so this does not multiply
+// CallTimeout: an attempt that gets its frame out and then waits returns
+// ErrDeviceOffline or ErrCallIndeterminate, both of which exit the loop.
 const maxCallAttempts = 3
 
 // Call ensures a live connection to the relay, then runs one JSON-RPC
@@ -55,11 +56,16 @@ const maxCallAttempts = 3
 // with the request (a proxy timeout, a redeploy), and one of those must not
 // become the caller's error.
 //
+// Only a request that never left this process is retried. Once the frame is
+// out we cannot know whether the device applied it, and re-sending would reseal
+// it under a fresh nonce that the responder's replay ring cannot match — so
+// that case returns ErrCallIndeterminate and stops here rather than risking a
+// duplicate write.
+//
 // Whatever happens, a transport failure never reaches the caller verbatim.
-// This transport has exactly one interesting failure — nothing on the other
-// end — and "relay connection closed: failed to get reader: received close
-// frame" tells an agent nothing it can act on, while ErrDeviceOffline tells it
-// (and the user) precisely what to do.
+// "relay connection closed: failed to get reader: received close frame" tells
+// an agent nothing it can act on; the sentinels tell it (and the user) exactly
+// what is true and what to do.
 func (c *Client) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	var lastErr error
 	for attempt := 0; attempt < maxCallAttempts; attempt++ {
@@ -76,7 +82,7 @@ func (c *Client) Call(ctx context.Context, method string, params any) (json.RawM
 			return nil, fmt.Errorf("mcpshim: connect to relay: %w", err)
 		}
 		result, err := core.Call(ctx, method, params)
-		if !errors.Is(err, errConnectionDropped) {
+		if !errors.Is(err, errFrameNotSent) {
 			return result, err
 		}
 		lastErr = err
