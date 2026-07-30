@@ -193,10 +193,15 @@ by construction.
 Three columns, all with defaults so existing rows are valid without a backfill:
 
 ```sql
-ALTER TABLE accounts   ADD COLUMN key_epoch INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE envelopes  ADD COLUMN epoch     INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE snapshots  ADD COLUMN epoch     INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE accounts   ADD COLUMN key_epoch        INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE accounts   ADD COLUMN last_rotation_id TEXT;              -- nullable
+ALTER TABLE envelopes  ADD COLUMN epoch            INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE snapshots  ADD COLUMN epoch            INTEGER NOT NULL DEFAULT 0;
 ```
+
+`last_rotation_id` is the client-generated id of the ceremony that produced the
+current epoch. It exists so a retry can be distinguished from a *different*
+rotation attempt that happens to target the same epoch — see §3.3 step 1.
 
 `envelopes`' primary key stays `(account_id, credential_ref)`
 (`001_init.sql:24-32`) — **epoch is not part of it**. Only one epoch is ever live
@@ -214,6 +219,9 @@ Epoch is surfaced to clients on every sync response: add `"key_epoch"` to
 
 The initiating device must, in order:
 
+0. Generate a random 128-bit `rotation_id` and hold it for the whole ceremony,
+   including every retry. It is what makes a retry distinguishable from a second,
+   different rotation (§3.3 step 1).
 1. Be unlocked and hold the DEK.
 2. `flushPending` to empty — all local writes are on the server
    (`web/cloud/js/sync.js:940-1000`).
@@ -247,9 +255,9 @@ Request:
 
 ```jsonc
 {
-  "expected_last_seq": 4821,           // optimistic concurrency, see below
-  "epoch": 1,                          // must equal accounts.key_epoch + 1
-  "keep_credential_ids": ["<b64url>"], // the initiating credential; others are evicted
+  "rotation_id": "<128-bit hex>",  // generated once per ceremony, see step 1
+  "expected_last_seq": 4821,       // optimistic concurrency, see below
+  "epoch": 1,                      // must equal accounts.key_epoch + 1
   "envelope":  { "v":1, "nonce":"…", "ct":"…", "mac":"…" },
   "recovery":  { "envelope": { … }, "verifier": "…" },
   "snapshot":  { "snapshot_seq": 4821, "nonce":"…", "ct":"…" },
@@ -257,25 +265,48 @@ Request:
 }
 ```
 
+There is deliberately **no "keep these credentials" list**. The surviving
+credential is always exactly the session's own — every other credential on the
+account is evicted, including ones the user still physically holds. Keeping a
+second credential would leave a row that still passes `CredentialExists` (so its
+sessions stay valid) while having no epoch-`N+1` envelope it could open the vault
+with — a half-evicted credential, which is precisely the partial-rotation class
+this document exists to prevent. Since §2 establishes that v1 cannot re-wrap any
+other credential's envelope anyway, keeping one was never useful. A hardware key
+in a safe is re-enrolled like any other device.
+
 Gated by `RequireSession` **and** `VerifyReauth`. In a single
 `db.WithTx`, in this order:
 
-1. **Idempotency.** If `req.epoch == accounts.key_epoch` and
-   `snapshots.epoch == accounts.key_epoch`, return `200 {"key_epoch": N}` and do
-   nothing. A retried request after a lost response is a no-op, not a second
-   rotation.
+1. **Idempotency, keyed on `rotation_id`, not on the epoch.** If
+   `req.epoch == accounts.key_epoch`:
+   - and `req.rotation_id == accounts.last_rotation_id` → this is a retry of the
+     ceremony that already committed. Return `200 {"key_epoch": N}` and do nothing.
+   - and it does **not** match → return `409`. This is a *different* rotation that
+     raced to the same epoch and lost.
+
+   The distinction is load-bearing. Two tabs on the same device can each build a
+   complete epoch-`N+1` ceremony with different `DEK′`. Matching on the epoch alone
+   would hand the loser a `200`, and it would then proceed through §3.4 writing
+   *its* `DEK″` into the LDK cache and *its* `NK″` into the push schedule — neither
+   of which can open the snapshot the winner actually stored. A `409` instead sends
+   it down the ordinary stale-epoch path (§5.1) and it re-derives to the winner's
+   keys. `rotation_id` is generated once, at the start of §3.2, and reused across
+   every retry of that same ceremony.
 2. Reject `req.epoch != accounts.key_epoch + 1` with `409`.
 3. Reject `req.expected_last_seq != sync_state.last_seq` with `409 stale` — a
    concurrent device appended ops after the initiator pulled to head. The client
    re-pulls and retries (§6.1). Without this, those ops would be silently
    destroyed by step 7.
-4. Reject an empty `keep_credential_ids`, or any id not currently in
-   `credentials`, with `400`. Rotation must never produce a passkey-less account.
-5. `DELETE FROM credentials WHERE account_id = ? AND id NOT IN (keep…)` — this is
-   the eviction, and by §1.2 it is also session revocation for every evicted
-   device.
+4. Reject with `400` if the session's own credential is no longer in `credentials`
+   (it was evicted by a concurrent rotation). Rotation must never produce a
+   passkey-less account.
+5. `DELETE FROM credentials WHERE account_id = ? AND id != <session credential>` —
+   this is the eviction, and by §1.2 it is also session revocation for every
+   evicted device. The surviving credential is the session's own, never a
+   client-supplied list.
 6. `DELETE FROM envelopes WHERE account_id = ?` (all epochs, all refs), then
-   insert `envelope_init` at `epoch = N+1` for the kept credential and
+   insert `envelope_init` at `epoch = N+1` for the surviving credential and
    `envelope_rec′` at `credential_ref = 'recovery'`, and write
    `sha256(verifier′)` into `recovery_auth` — the same atomic envelope+verifier
    pairing `PutRecoveryMaterial` already enforces
@@ -286,7 +317,7 @@ Gated by `RequireSession` **and** `VerifyReauth`. In a single
    replaces a snapshot at the same or a lower seq. Then
    `DELETE FROM oplog WHERE account_id = ?` — *all* rows, not just
    `seq <= snapshot_seq`. Step 3 has already established there are none above it.
-8. `UPDATE accounts SET key_epoch = N+1, inbox_public_key = ?`.
+8. `UPDATE accounts SET key_epoch = N+1, last_rotation_id = ?, inbox_public_key = ?`.
 9. `DELETE FROM push_subscriptions WHERE account_id = ?` (§5.2),
    `DELETE FROM scheduled_pushes WHERE account_id = ?` (all of it — client-origin
    and `origin='relay_refire'` alike; every row is ciphertext under the retired
@@ -356,8 +387,11 @@ are re-encrypted under `DEK′` on the next flush after it re-unlocks.
 *Test:* Vitest — queue writes offline, rotate, reconnect, assert every queued
 record lands.
 
-**I6 — Idempotent retry.** Replaying an identical `POST /api/rotate` after a lost
-response returns `200` and changes nothing (step 1 of §3.3).
+**I6 — Idempotent retry, and only a retry.** Replaying a `POST /api/rotate` with
+the same `rotation_id` after a lost response returns `200` and changes nothing. A
+request carrying a *different* `rotation_id` at an epoch that has already committed
+returns `409`, never `200` (§3.3 step 1) — so a losing concurrent ceremony can never
+be told its keys are live when they are not.
 
 **I7 — The rotation snapshot always lands.** The rotate path must not go through
 the monotonic-floor early-return at `internal/cloudstore/sync.go:183-189`.
@@ -377,10 +411,13 @@ and needs no new mechanism.
 *Test:* Go — mint a session for credential B, rotate keeping only A, assert every
 account-scoped route returns 401 for B.
 
-**I10 — Rotation never strands.** `keep_credential_ids` must be non-empty and
-every id must exist, **and** the recovery envelope + verifier must be written in
-the same transaction. The account is therefore openable by at least two
-independent paths at commit.
+**I10 — Rotation never strands, and never half-evicts.** At commit, exactly one
+credential row survives (the session's own), it has an envelope at the new epoch,
+**and** the recovery envelope + verifier were written in the same transaction. The
+account is therefore openable by two independent paths, and no surviving credential
+lacks a usable envelope.
+*Test:* after rotation, assert `COUNT(credentials) == 1` and that every row in
+`credentials` has a matching `envelopes` row at `accounts.key_epoch`.
 
 ---
 
@@ -499,10 +536,14 @@ Prevented, then repaired:
 
 ### 6.2 Two devices both attempt rotation
 
-The second one's `epoch` is no longer `key_epoch + 1`, so it 409s at §3.3 step 2.
-Its client re-derives to the winner's epoch (§5.1) and, if the user still wants a
-rotation, starts a fresh one at `N+2`. Nothing partial can result: the whole
-rotation is one transaction.
+If the second request arrives after the first commits, its `epoch` is no longer
+`key_epoch + 1`, so it 409s at §3.3 step 2. If both target the *same* epoch — two
+tabs on the same device, each with its own `DEK′` — the loser matches step 1's
+epoch test but not `last_rotation_id`, and 409s there. Either way the loser's client
+re-derives to the winner's epoch (§5.1) and, if the user still wants a rotation,
+starts a fresh ceremony at `N+2` with a fresh `rotation_id`. Nothing partial can
+result: the whole rotation is one transaction, and the only `200` a client can
+receive is for the ceremony whose material actually landed.
 
 ### 6.3 A device offline for weeks
 
@@ -524,7 +565,7 @@ not affect anyone else — the dry-queue stale-sync warning
 
 The reason every row says "yes" is that the only step which changes what can open
 the vault is a single atomic transaction, and it writes two independent openers
-(the kept credential's envelope and the recovery envelope) before it commits.
+(the surviving credential's envelope and the recovery envelope) before it commits.
 
 ---
 
@@ -642,9 +683,9 @@ Implementation is complete when all of the following hold.
 
 **Schema and server**
 
-1. Migration adds `accounts.key_epoch`, `envelopes.epoch`, `snapshots.epoch`, all
-   `NOT NULL DEFAULT 0`; `envelopes`' primary key is unchanged; existing accounts
-   need no backfill.
+1. Migration adds `accounts.key_epoch`, `envelopes.epoch`, `snapshots.epoch` (all
+   `NOT NULL DEFAULT 0`) and the nullable `accounts.last_rotation_id`; `envelopes`'
+   primary key is unchanged; existing accounts need no backfill.
 2. `key_epoch` appears in the `GET /api/sync/ops`, `GET /api/sync/snapshot`, and
    `GET /api/envelopes/{credential_ref}` responses.
 3. `POST /api/sync/ops` requires `key_epoch` and returns `409` with the current
@@ -663,11 +704,15 @@ Implementation is complete when all of the following hold.
 
 8. `TestRotate_OpenableAfterEveryStep` — I1 holds with the transaction aborted after
    each statement.
-9. `TestRotate_Idempotent` — a replayed identical request returns 200 and mutates
-   nothing (I6).
+9. `TestRotate_Idempotent` — a replay with the same `rotation_id` returns 200 and
+   mutates nothing; a request with a *different* `rotation_id` at the same
+   already-committed epoch returns 409 and mutates nothing (I6).
 10. `TestRotate_RejectsStaleLastSeq` — a concurrent append between the client's pull
     and the rotate call produces `409` and destroys no op (§6.1).
-11. `TestRotate_RejectsEmptyOrUnknownKeepList` — 400, account untouched (I10).
+11. `TestRotate_EvictsEveryOtherCredential` — after rotating an account with three
+    credentials, exactly the session's own survives, and every surviving credential
+    has an envelope at the new epoch (I10). A request from a session whose own
+    credential was concurrently evicted returns 400 and leaves the account untouched.
 12. `TestRotate_EvictedSessionRejected` — a session for an evicted credential 401s on
     every account-scoped route (I9).
 13. `TestRotate_ClearsDerivedState` — after rotation, `push_subscriptions`,
