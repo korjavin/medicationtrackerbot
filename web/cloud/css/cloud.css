@@ -261,3 +261,42 @@ body {
 .note-row span:first-child {
   flex: 1;
 }
+
+/* The [hidden] attribute is the native way to toggle a block, but the UA
+   default (display: none) loses to any explicit display: on a class — e.g.
+   .note-form's flex, which the feedback reader's key row wears. Restore the
+   attribute's authority once, globally, instead of adding a .hidden class. */
+[hidden] {
+  display: none !important;
+}
+
+/* Web-feedback reader (/feedback, bd med-rbl.2). */
+.fr-list {
+  list-style: none;
+  padding: 0;
+}
+
+.fr-item {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--wg-border-strong);
+}
+
+.fr-meta {
+  margin: 0 0 0.25rem;
+  font-family: var(--wg-font-mono);
+}
+
+/* Feedback text is arbitrary user input: wrap it rather than let a long
+   unbroken string widen the page. */
+.fr-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fr-attachment {
+  display: block;
+  max-width: 100%;
+  margin-top: 0.5rem;
+  border-radius: var(--wg-radius-gloss);
+}

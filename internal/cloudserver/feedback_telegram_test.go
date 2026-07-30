@@ -374,7 +374,7 @@ func TestNotifyFeedback_NoopWhenAdminChatUnset(t *testing.T) {
 // off a POST body, so they are capped before they reach a Telegram message.
 func TestNotifyFeedback_TruncatesUntrustedMetadata(t *testing.T) {
 	tg := newRecordingTG(t)
-	tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", time.Hour)
+	tgAPI := NewTelegramAPI(setupStore(t), tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", time.Hour)
 	tgAPI.SetFeedbackAdminChat(feedbackAdminChat)
 	tgAPI.NotifyFeedback(strings.Repeat("A", 5000), "")
 

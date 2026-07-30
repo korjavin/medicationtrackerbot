@@ -42,6 +42,10 @@ type Handler struct {
 	buildID    string       // asset fingerprint lifted out of appIndex; see version.go
 	api        http.Handler
 	mcp        http.Handler // Task 2: hosted-remote streamable-HTTP MCP endpoint, mounted at "/mcp/<token>"; nil until SetMCPHandler is called
+	// feedbackReader serves GET /api/feedback/queue on the BASE domain (bd
+	// med-rbl.1). nil (the default, and every deployment without a manager bot)
+	// 404s it, same as an unmounted route.
+	feedbackReader http.Handler
 
 	landingRaw   []byte // web/cloud/index.html verbatim, used to build landingIndex
 	landingIndex []byte // landingRaw + "request an invite" contact line; nil = serve the raw shell file (today's behavior), see SetRequestInviteEmail
@@ -150,6 +154,13 @@ func (h *Handler) SetMCPHandler(mcp http.Handler) {
 	h.mcp = mcp
 }
 
+// SetFeedbackReader mounts the base-domain web-feedback queue endpoint (bd
+// med-rbl.1). A setter, like SetMCPHandler, to avoid churning New's ~35 call
+// sites. Leaving it nil 404s GET /api/feedback/queue.
+func (h *Handler) SetFeedbackReader(reader http.Handler) {
+	h.feedbackReader = reader
+}
+
 // BuildID exposes the asset fingerprint already served at GET /api/version, so
 // /readyz can report which build answered without a second source of truth.
 func (h *Handler) BuildID() string {
@@ -248,11 +259,33 @@ func setSecurityHeaders(w http.ResponseWriter, appDocument bool, egressHosts []s
 	if appDocument {
 		connectSrc = buildConnectSrc(egressHosts)
 	}
-	h.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; worker-src 'self'; media-src 'self'; "+connectSrc+"; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+	h.Set("Content-Security-Policy", cspPolicy(connectSrc, ""))
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+}
+
+// cspPolicy renders the origin's Content-Security-Policy. It is the single
+// source of truth for the policy string — setSecurityHeaders emits it for every
+// response, and the feedback reader page re-emits it with one narrow widening.
+//
+// mediaExtra is an additional source allowed for img-src and media-src ONLY
+// ("" for none). The web-feedback reader page needs "blob:" there: the
+// screenshots and voice memos it shows were decrypted in page memory and exist
+// nowhere the origin could serve them from, so 'self' would block them outright.
+// It is deliberately not plumbed into script-src / worker-src / default-src —
+// TestSecurityHeaders_NoBlobOrDataScript pins that no document on this origin
+// can execute script from a blob:/data: URL, and an image is not code.
+func cspPolicy(connectSrc, mediaExtra string) string {
+	imgSrc, mediaSrc := "'self'", "'self'"
+	if mediaExtra != "" {
+		imgSrc += " " + mediaExtra
+		mediaSrc += " " + mediaExtra
+	}
+	return "default-src 'self'; script-src 'self'; style-src 'self'; img-src " + imgSrc +
+		"; worker-src 'self'; media-src " + mediaSrc + "; " + connectSrc +
+		"; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
 }
 
 // buildConnectSrc renders the app document's scoped connect-src directive:
@@ -281,6 +314,33 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if h.landingIndex != nil && (r.URL.Path == "/" || r.URL.Path == "/index.html") {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Write(h.landingIndex)
+			return
+		}
+		// The web-feedback reader (bd med-rbl) lives on the BASE domain, not a
+		// subdomain: web feedback is anonymous, so there is no account to scope
+		// it to, and this branch returns before the subdomain /api/ forward and
+		// the ceremony-page switch below ever run. Both halves therefore have to
+		// be handled here. Neither is an app document, so the strict
+		// connect-src 'self' set above stands — the reader makes exactly one
+		// same-origin fetch.
+		switch r.URL.Path {
+		case feedbackReaderPath:
+			noStore(w)
+			// Decrypted attachments only exist in page memory, so they are shown
+			// as blob: URLs; img-src/media-src 'self' would block them. Nothing
+			// else about the policy moves — see cspPolicy.
+			w.Header().Set("Content-Security-Policy", cspPolicy("connect-src 'self'", "blob:"))
+			r.URL.Path = "/feedback.html"
+		case feedbackQueuePath:
+			if h.feedbackReader == nil {
+				http.NotFound(w, r)
+				return
+			}
+			h.feedbackReader.ServeHTTP(w, r)
+			return
+		case feedbackAgeVendorPath:
+			noStore(w)
+			h.app.ServeHTTP(w, r)
 			return
 		}
 		h.shell.ServeHTTP(w, r)

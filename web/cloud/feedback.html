@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Web feedback · Med Tracker Cloud</title>
+<link rel="stylesheet" href="/css/cloud.css">
+</head>
+<!-- data-page is the auto-mount marker js/feedback-reader.js checks, so
+     importing that module in a test never kicks off a fetch. -->
+<body data-page="feedback-reader">
+  <main class="wizard-step">
+    <h1>Web feedback</h1>
+    <p class="muted">The server stores this feedback encrypted and cannot read
+       it. Paste the developer's age private key below to decrypt it here, in
+       this page — the key is never sent anywhere, never stored, and is cleared
+       as soon as it is used.</p>
+    <p id="fr-status" class="muted">Loading…</p>
+    <!-- No &lt;form&gt;: an implicit submit would navigate and could put the key
+         in a query string. Deliberately outside any form, autocomplete off, so
+         no password manager offers to save it either. -->
+    <div id="fr-key-row" class="note-form" hidden>
+      <input id="fr-key" type="password" autocomplete="off" autocapitalize="off"
+             autocorrect="off" spellcheck="false" placeholder="AGE-SECRET-KEY-1…"
+             aria-label="age private key">
+      <button id="fr-decrypt" type="button">Decrypt</button>
+    </div>
+    <p id="fr-error" class="wizard-error"></p>
+    <ul id="fr-items" class="fr-list"></ul>
+  </main>
+  <script src="/js/feedback-reader.js" type="module"></script>
+</body>
+</html>

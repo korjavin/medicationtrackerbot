@@ -215,22 +215,38 @@ const (
 // NotifyFeedback DMs the admin chat that a *web* feedback item was queued. It is
 // METADATA ONLY — kind, app version, time — and deliberately so: for web feedback
 // the server holds nothing but client-encrypted ciphertext and must stay unable to
-// read it, so the developer runs cmd/feedbackpull for the content (bd med-orj).
-// No account id either — web feedback is anonymous by design.
+// read it. No account id either — web feedback is anonymous by design.
+//
+// It carries a link to the base-domain reader page (bd med-rbl), which fetches
+// that ciphertext and decrypts it in the developer's browser after they paste the
+// age private key. The capability token rides the URL FRAGMENT, which is
+// load-bearing twice over: browsers never send a fragment to the server (so the
+// token stays out of access logs), and Telegram PREFETCHES links to build a
+// preview — a query-param token would be spent by their crawler before the
+// developer ever tapped it.
 //
 // It runs on its OWN detached, timeout-bounded context — never the request's,
 // which is cancelled the moment the 204 is written — and swallows every error
 // into a warn: a 403 because the admin never pressed /start on the manager bot
-// must never turn a stored feedback item into a 500. The caller (FeedbackAPI)
-// fires it off the request path. No-op when FEEDBACK_ADMIN_CHAT_ID is unset.
+// must never turn a stored feedback item into a 500. A token-mint failure is the
+// same kind of non-event: it degrades to the old "run feedbackpull" text rather
+// than dropping the ping. The caller (FeedbackAPI) fires it off the request path.
+// No-op when FEEDBACK_ADMIN_CHAT_ID is unset.
 func (t *TelegramAPI) NotifyFeedback(kind, appVersion string) {
 	if t == nil || t.feedbackAdminChatID == 0 {
 		return
 	}
-	text := fmt.Sprintf("📮 New feedback (web) · kind %s · app %s · %s — run feedbackpull to read.",
-		feedbackPingField(kind), feedbackPingField(appVersion), time.Now().UTC().Format(time.RFC3339))
 	ctx, cancel := context.WithTimeout(context.Background(), feedbackPingTimeout)
 	defer cancel()
+
+	tail := "run feedbackpull to read."
+	if token, err := mintFeedbackReaderToken(ctx, t.store, time.Now().UTC()); err != nil {
+		slog.Warn("telegram feedback: mint reader token", "error", err)
+	} else {
+		tail = "read it here (link expires in 30 min): https://" + t.baseDomain + feedbackReaderPath + "#t=" + token
+	}
+	text := fmt.Sprintf("📮 New feedback (web) · kind %s · app %s · %s — %s",
+		feedbackPingField(kind), feedbackPingField(appVersion), time.Now().UTC().Format(time.RFC3339), tail)
 	if err := t.managerClient().SendMessage(ctx, t.feedbackAdminChatID, text); err != nil {
 		slog.Warn("telegram feedback: admin ping failed", "error", err)
 	}
