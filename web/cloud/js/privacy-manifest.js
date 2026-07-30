@@ -618,15 +618,44 @@ export const PRIVACY_MANIFEST = [
     operatorVisibility: 'ciphertext',
     retention: 'Queued until the developer drains it; the app version and feedback kind travel as plaintext metadata',
     activation: 'user-initiated',
-    activationNote: 'when you send feedback',
+    activationNote: 'when you send feedback from inside the app',
     byo: 'n/a',
     evidence: ['web/cloud/js/feedback-submit.js:10', 'internal/cloudserver/feedback.go:39'],
-    code: { go: ['internal/cloudserver/feedback.go', 'internal/cloudserver/feedback_telegram.go'], hosts: [] },
+    code: { go: ['internal/cloudserver/feedback.go'], hosts: [] },
     docSignal: null,
     userCopy: {
       category: 'leaves',
-      title: 'Feedback you send, and anything attached to it',
-      detail: 'Feedback is encrypted in your browser to the developer\'s key before it is uploaded, so the operator stores it without being able to read it — but the developer can, including any screenshot or voice note you attach. It carries no account id. Only what you type and attach is sent; the app version and the kind of feedback travel unencrypted so the operator knows something arrived.',
+      title: 'Feedback you send from inside the app',
+      detail: 'Feedback sent from the app is encrypted in your browser to the developer\'s key before it is uploaded, so the operator stores it without being able to read it — but the developer can, including any screenshot or voice note you attach. It carries no account id. Only what you type and attach is sent; the app version and the kind of feedback travel unencrypted so the operator knows something arrived. Feedback sent to the Telegram bot instead is a different path — see below.',
+    },
+  },
+  {
+    // Caught by codex review on this bead: the Telegram feedback channel is NOT
+    // the browser-encrypted path. The manager bot receives the message in the
+    // clear, the SERVER builds the plaintext feedbackDoc and downloads the
+    // attachment bytes, encrypts it server-side, and then copies the original
+    // message into the developer's admin chat in full.
+    id: 'feedback-telegram',
+    feature: 'Feedback sent to the Telegram bot',
+    boundary: 'carve-out',
+    data: 'Your message text and any voice note or screenshot, in plaintext on the operator\'s server; the original message is then copied verbatim into the developer\'s Telegram admin chat',
+    destination: 'The operator\'s server (plaintext), Telegram, and the developer\'s admin chat. The queued copy is encrypted server-side to the developer\'s key',
+    operatorVisibility: 'plaintext',
+    retention: 'The admin-chat copy stays in that Telegram chat; the queued ciphertext waits until the developer drains it',
+    activation: 'user-initiated',
+    activationNote: 'when you tap "Send feedback" in the manager bot and send the next message',
+    byo: 'n/a — use the in-app feedback form for the browser-encrypted path',
+    evidence: [
+      'internal/cloudserver/feedback_telegram.go:168',
+      'internal/cloudserver/feedback_telegram.go:185',
+      'internal/cloudserver/feedback_telegram.go:280',
+    ],
+    code: { go: ['internal/cloudserver/feedback_telegram.go'], hosts: [] },
+    docSignal: null,
+    userCopy: {
+      category: 'visible',
+      title: 'Feedback you send to the Telegram bot',
+      detail: 'Sending feedback through the bot is not the same as sending it from inside the app. Telegram delivers it in the clear, the server reads your text and downloads any voice note or screenshot to package it, and it then copies your original message straight into the developer\'s Telegram chat — so both the operator and the developer see the contents. Your name is not attached, but nothing about this path is encrypted before it reaches the server. Use the in-app feedback form if you would rather the operator could not read it.',
     },
   },
 ];
