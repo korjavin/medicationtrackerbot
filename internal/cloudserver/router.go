@@ -45,6 +45,18 @@ type Handler struct {
 
 	landingRaw   []byte // web/cloud/index.html verbatim, used to build landingIndex
 	landingIndex []byte // landingRaw + "request an invite" contact line; nil = serve the raw shell file (today's behavior), see SetRequestInviteEmail
+
+	localOnlyPasskeyPOC bool // bd med-eas.2.1; advertised at GET /api/version, see SetLocalOnlyPasskeyPOC
+}
+
+// SetLocalOnlyPasskeyPOC advertises the bd med-eas.2.1 local-only-passkey POC
+// at GET /api/version so the signup/unlock shell knows whether to offer it.
+// This is a UI-visibility hint only — the ceremony itself is gated server-side
+// by WebAuthnAPI.SetLocalOnlyPasskeyPOC, which cmd/cloud sets from the same env
+// var. Default false: the flag key is then absent from /api/version and no
+// client ever renders the affordance.
+func (h *Handler) SetLocalOnlyPasskeyPOC(enabled bool) {
+	h.localOnlyPasskeyPOC = enabled
 }
 
 // New builds the host-routing Handler. shellFS is the embedded web/cloud tree

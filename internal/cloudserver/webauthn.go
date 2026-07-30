@@ -1,6 +1,7 @@
 package cloudserver
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -38,6 +39,7 @@ func logCeremonyFailure(ceremony, accountID string, err error) {
 // ceremonies need.
 type webauthnStore interface {
 	ClaimAndAddCredential(ctx context.Context, subdomain string, tokenHash []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) (*cloudstore.Account, error)
+	ClaimAndAddLocalOnlyCredential(ctx context.Context, subdomain string, tokenHash []byte, cred cloudstore.Credential, recEnv cloudstore.Envelope, verifierHash []byte, now time.Time) (*cloudstore.Account, error)
 	ValidEnrollmentToken(ctx context.Context, accountID string, tokenHash []byte, now time.Time) (bool, error)
 	RedeemTransferToken(ctx context.Context, accountID string, tokenHash []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) error
 	AddCredentialWithEnvelope(ctx context.Context, sourceCredentialID []byte, cred cloudstore.Credential, env cloudstore.Envelope) error
@@ -64,6 +66,12 @@ type WebAuthnAPI struct {
 	// begin+finish, which also carry the signup-claim and device-enrollment
 	// tokens) per client IP. Shared by AccountAPI's re-auth route too.
 	limiter *rateLimiter
+	// allowLocalOnly enables the bd med-eas.2.1 POC: accepting a first
+	// credential registered with key_mode "local_only" (no envelope, recovery
+	// material bundled into the same transaction). Default false — with it off
+	// the server behaves exactly as before and rejects every local-only
+	// registration, so the POC is inert on any deployment that hasn't opted in.
+	allowLocalOnly bool
 }
 
 // NewWebAuthnAPI builds the WebAuthn handlers. sessionSecret mints the HMAC
@@ -77,6 +85,13 @@ func NewWebAuthnAPI(store webauthnStore, sessionSecret string) *WebAuthnAPI {
 		reauthChallenges: newChallengeStore[loginChallenge](),
 		limiter:          newRateLimiter(ceremonyRateLimitMax, ceremonyRateLimitWindow),
 	}
+}
+
+// SetLocalOnlyPasskeyPOC turns the bd med-eas.2.1 local-only-passkey POC on.
+// Setter rather than a NewWebAuthnAPI param so every existing call site (and
+// test) keeps the production default: off.
+func (a *WebAuthnAPI) SetLocalOnlyPasskeyPOC(enabled bool) {
+	a.allowLocalOnly = enabled
 }
 
 // RegisterRoutes adds the WebAuthn ceremony routes to mux, so callers that
@@ -371,6 +386,63 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 type registerFinishRequest struct {
 	Credential json.RawMessage `json:"credential"`
 	Envelope   envelopeWire    `json:"envelope"`
+	// KeyMode is empty or "prf" for every production registration. "local_only"
+	// selects the bd med-eas.2.1 POC path below, which carries Recovery instead
+	// of Envelope. Explicit rather than inferred from which field is populated —
+	// the mode is a security-relevant choice the user made, not a shape.
+	KeyMode string `json:"key_mode,omitempty"`
+	// Recovery is the recovery envelope + verifier, required for (and only
+	// accepted with) KeyMode "local_only".
+	Recovery *recoveryMaterialRequest `json:"recovery,omitempty"`
+}
+
+// validEnvelopeFields reports whether an envelope's byte fields are present and
+// within the suite-v1 sanity caps.
+func validEnvelopeFields(e envelopeWire) bool {
+	return len(e.Nonce) > 0 && len(e.Nonce) <= maxNonceLen &&
+		len(e.CT) > 0 && len(e.CT) <= maxCTLen && len(e.MAC) <= maxMACLen
+}
+
+// validateKeyMode checks a register/finish body against its declared key_mode
+// and the gate that authorized the ceremony. It returns (localOnly, 0, "") when
+// the body is acceptable, or (_, status, message) describing the rejection.
+//
+// The default ("" or "prf") branch is exactly the validation RegisterFinish has
+// always done. The local-only branch (bd med-eas.2.1 POC) is deliberately
+// narrow: operator flag on, first credential only, recovery material present,
+// and no credential envelope — a local-only credential has no KEK, so an
+// envelope claiming to be for it could only be junk or a smuggling attempt.
+func (a *WebAuthnAPI) validateKeyMode(req *registerFinishRequest, gate registerGate) (localOnly bool, status int, message string) {
+	switch req.KeyMode {
+	case "", cloudstore.KeyModePRF:
+		if !validEnvelopeFields(req.Envelope) {
+			return false, http.StatusBadRequest, "envelope field too large or missing"
+		}
+		if req.Recovery != nil {
+			return false, http.StatusBadRequest, "recovery material is only accepted for local-only registration"
+		}
+		return false, 0, ""
+	case cloudstore.KeyModeLocalOnly:
+		if !a.allowLocalOnly {
+			return true, http.StatusForbidden, "local-only passkeys are not enabled on this server"
+		}
+		// POC scope: the first credential on a fresh account only. Adding a
+		// local-only credential alongside a PRF one would create a mixed account
+		// whose revocation and rotation semantics this POC has not validated.
+		if gate != gateClaim {
+			return true, http.StatusForbidden, "local-only passkeys are only supported for the first credential"
+		}
+		if len(req.Envelope.Nonce) != 0 || len(req.Envelope.CT) != 0 || len(req.Envelope.MAC) != 0 {
+			return true, http.StatusBadRequest, "local-only registration must not carry a credential envelope"
+		}
+		if req.Recovery == nil || !validEnvelopeFields(req.Recovery.Envelope) ||
+			len(req.Recovery.Verifier) == 0 || len(req.Recovery.Verifier) > maxVerifierLen {
+			return true, http.StatusBadRequest, "local-only registration requires recovery material"
+		}
+		return true, 0, ""
+	default:
+		return false, http.StatusBadRequest, "unknown key_mode"
+	}
 }
 
 // RegisterFinish verifies the authenticator's response against the challenge
@@ -402,9 +474,9 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	if len(req.Envelope.Nonce) == 0 || len(req.Envelope.Nonce) > maxNonceLen ||
-		len(req.Envelope.CT) == 0 || len(req.Envelope.CT) > maxCTLen || len(req.Envelope.MAC) > maxMACLen {
-		http.Error(w, "envelope field too large or missing", http.StatusBadRequest)
+	localOnly, status, msg := a.validateKeyMode(&req, challenge.gate)
+	if status != 0 {
+		http.Error(w, msg, status)
 		return
 	}
 
@@ -436,6 +508,30 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 		BackupEligible: cred.Flags.BackupEligible,
 		BackupState:    cred.Flags.BackupState,
 		CreatedAt:      now,
+		KeyMode:        cloudstore.KeyModePRF,
+	}
+	if localOnly {
+		credRow.KeyMode = cloudstore.KeyModeLocalOnly
+		verifierHash := sha256.Sum256(req.Recovery.Verifier)
+		recRow := cloudstore.Envelope{
+			AccountID:     account.ID,
+			CredentialRef: "recovery",
+			V:             req.Recovery.Envelope.V,
+			Nonce:         req.Recovery.Envelope.Nonce,
+			CT:            req.Recovery.Envelope.CT,
+			MAC:           req.Recovery.Envelope.MAC,
+		}
+		if _, err := a.store.ClaimAndAddLocalOnlyCredential(r.Context(), account.Subdomain, challenge.tokenHash, credRow, recRow, verifierHash[:], now); err != nil {
+			if errors.Is(err, cloudstore.ErrClaimInvalid) {
+				http.Error(w, "claim already used or expired", http.StatusConflict)
+				return
+			}
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		http.SetCookie(w, sessionCookie(NewSessionToken(account.ID, cred.ID, a.sessionSecret)))
+		writeJSON(w, http.StatusOK, map[string]string{"account_id": account.ID})
+		return
 	}
 	envRow := cloudstore.Envelope{
 		AccountID:     account.ID,
@@ -578,8 +674,27 @@ func (a *WebAuthnAPI) LoginFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// key_mode tells the client whether this credential can reach an envelope at
+	// all. Reported explicitly so a cold unlock never has to infer "local-only"
+	// from a 404 on the envelope fetch — which would read identically to an
+	// operator withholding a PRF credential's envelope.
 	http.SetCookie(w, sessionCookie(NewSessionToken(account.ID, cred.ID, a.sessionSecret)))
-	writeJSON(w, http.StatusOK, map[string]string{"account_id": account.ID})
+	writeJSON(w, http.StatusOK, map[string]string{
+		"account_id": account.ID,
+		"key_mode":   keyModeOf(creds, cred.ID),
+	})
+}
+
+// keyModeOf looks up the stored key mode for credentialID, defaulting to
+// KeyModePRF when the credential isn't in the list (it always is — FinishLogin
+// just matched against this same slice).
+func keyModeOf(creds []cloudstore.Credential, credentialID []byte) string {
+	for _, c := range creds {
+		if bytes.Equal(c.ID, credentialID) && c.KeyMode != "" {
+			return c.KeyMode
+		}
+	}
+	return cloudstore.KeyModePRF
 }
 
 func setChallengeCookie(w http.ResponseWriter, name, path, value string) {

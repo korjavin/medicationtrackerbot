@@ -67,6 +67,21 @@ describe('devices.js device list', () => {
     expect(rows[1].querySelector('.device-unverified')).not.toBeNull();
   });
 
+  // bd med-eas.2.1: a local-only credential has no envelope BY DESIGN. Calling
+  // that "unverified — remove?" is a false alarm on a passkey the user chose,
+  // and it trains people to ignore the badge that flags a forged envelope.
+  it('shows local-only credentials as a limitation, not as an audit failure', async () => {
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => [{ credential_id: 'aaaabbbbcccc', created_at: '2026-07-01T10:00:00Z', key_mode: 'local_only' }],
+    }));
+    await renderAndSettle();
+
+    const row = app.querySelector('#device-list .device-row');
+    expect(row.querySelector('.device-unverified')).toBeNull();
+    expect(row.querySelector('.device-local-only').textContent).toMatch(/not backed up on the server/i);
+  });
+
   // The point of med-lyv: devices and connectors are separate pages now.
   it('renders neither the connector picker nor the Telegram mount', async () => {
     await renderAndSettle();

@@ -59,7 +59,18 @@ function renderLocked(app, errorText) {
     app.querySelector('section').appendChild(p);
   }
   app.querySelector('#unlock-button').addEventListener('click', () => {
-    coldUnlock(app).catch((err) => renderLocked(app, err.message || String(err)));
+    coldUnlock(app).catch((err) => {
+      // A local-only credential (bd med-eas.2.1 POC) authenticated fine and has
+      // no envelope by design. Re-offering "unlock with passkey" would loop the
+      // user forever; the honest screen names the two paths that work.
+      if (err?.name === 'LocalOnlyPasskeyError') {
+        import('./local-only.js')
+          .then(({ renderLocalOnlyColdOpen }) => renderLocalOnlyColdOpen(app))
+          .catch(() => renderLocked(app, err.message));
+        return;
+      }
+      renderLocked(app, err.message || String(err));
+    });
   });
 }
 
@@ -83,19 +94,9 @@ export async function assertPasskey() {
   });
 
   const prfOutput = assertion.getClientExtensionResults().prf?.results?.first;
-  if (!prfOutput) throw new Error("This passkey doesn't support the security feature this app needs.");
+  if (!prfOutput) await throwMissingPrf(assertion);
 
-  const finishBody = assertion.toJSON();
-  // Never transmit the PRF output — it lives client-side only.
-  if (finishBody.clientExtensionResults) delete finishBody.clientExtensionResults.prf;
-
-  const finishRes = await fetch('/api/webauthn/login/finish', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(finishBody),
-  });
-  if (!finishRes.ok) throw new Error('Unlock failed. Please try again.');
-  const { account_id: accountId } = await finishRes.json();
+  const { account_id: accountId } = await finishLogin(assertion);
 
   const credentialId = new Uint8Array(assertion.rawId);
   const kek = await deriveKEK(new Uint8Array(prfOutput), accountId, credentialId);
@@ -106,6 +107,43 @@ export async function assertPasskey() {
   const envelope = { nonce: fromBase64(envJson.nonce), ct: fromBase64(envJson.ct) };
   const dek = await unwrapEnvelope({ kek, envelope, accountId, credentialId });
   return { accountId, dek, credentialId };
+}
+
+// POSTs the assertion to login/finish, which verifies the signature and mints
+// the device session. Returns the parsed body ({account_id, key_mode}).
+async function finishLogin(assertion) {
+  const finishBody = assertion.toJSON();
+  // Never transmit the PRF output — it lives client-side only.
+  if (finishBody.clientExtensionResults) delete finishBody.clientExtensionResults.prf;
+
+  const finishRes = await fetch('/api/webauthn/login/finish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(finishBody),
+  });
+  if (!finishRes.ok) throw new Error('Unlock failed. Please try again.');
+  return finishRes.json();
+}
+
+// Always throws. An assertion with no PRF output is normally an authenticator
+// that cannot do PRF at all — that message is unchanged and, with the POC flag
+// off, is reached without ever sending the assertion to the server, exactly as
+// before.
+//
+// With the local-only-passkey POC enabled (bd med-eas.2.1) the same symptom has
+// a second cause: a credential deliberately registered with no envelope. Only
+// the server knows which, and only then is it worth a round trip — the
+// credential's declared key_mode answers it. This is why the mode is a stored
+// property and not inferred from a 404 on the envelope fetch, which would look
+// identical to an operator withholding a real envelope.
+async function throwMissingPrf(assertion) {
+  const unsupported = new Error("This passkey doesn't support the security feature this app needs.");
+  const { localOnlyPocEnabled, LocalOnlyPasskeyError, LOCAL_ONLY } = await import('./local-only.js');
+  if (!(await localOnlyPocEnabled())) throw unsupported;
+
+  const { key_mode: keyMode } = await finishLogin(assertion);
+  if (keyMode === LOCAL_ONLY) throw new LocalOnlyPasskeyError();
+  throw unsupported;
 }
 
 async function coldUnlock(app) {

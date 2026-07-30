@@ -156,7 +156,10 @@ async function startRegistration(app, claimToken) {
   });
   const prfOutput = prfAssertion.getClientExtensionResults().prf?.results?.first;
   if (!prfOutput) {
-    renderUnsupportedAuthenticator(app);
+    // Nothing has been claimed yet — register/finish is never called on this
+    // branch. The POC fallback (if the operator enabled it) picks up from here
+    // with the same still-unspent claim.
+    await renderUnsupportedAuthenticator(app, { accountId, credential, claimToken });
     return;
   }
 
@@ -201,7 +204,13 @@ async function startRegistration(app, claimToken) {
 
 // Exported so claim.js (device-transfer enrollment) shows the identical
 // unsupported-authenticator state rather than a second copy of this copy.
-export function renderUnsupportedAuthenticator(app) {
+//
+// pocCtx, when given (signup's first credential only), lets the local-only
+// passkey POC append an explicit opt-in below this message — and only if the
+// operator has the POC enabled. claim.js passes nothing, so device-transfer
+// enrollment is unchanged: retry with another authenticator is still the only
+// offer there.
+export async function renderUnsupportedAuthenticator(app, pocCtx) {
   app.innerHTML = `
     <section class="wizard-step">
       <h1>This device can't be used yet</h1>
@@ -209,6 +218,15 @@ export function renderUnsupportedAuthenticator(app) {
          needs to protect your data. Try a hardware security key (e.g. a
          YubiKey) or a different device or browser.</p>
     </section>`;
+  if (!pocCtx) return;
+  try {
+    const { localOnlyPocEnabled, appendLocalOnlyOffer } = await import('./local-only.js');
+    if (await localOnlyPocEnabled()) appendLocalOnlyOffer(app, pocCtx);
+  } catch (e) {
+    // The POC is strictly additive; if its module or probe fails the user still
+    // sees the honest "try another authenticator" message above.
+    console.error('[signup] local-only offer unavailable', e);
+  }
 }
 
 function renderLossProtection(app, ctx) {
@@ -265,13 +283,7 @@ function renderLossProtectionError(app, err) {
 // upload happens BEFORE the kit renders, so any failure leaves the previous
 // recovery material untouched and the old code still working.
 export async function renderEmergencyKit(app, ctx) {
-  const { codeBytes, formatted } = await generateRecoveryCode();
-  const kekRec = await deriveKEKRec(codeBytes, ctx.accountId);
-  const verifier = await deriveVerifier(codeBytes, ctx.accountId);
-  const kMac = await deriveKMac(ctx.dek);
-  const envelopeRec = await wrapEnvelope({
-    kek: kekRec, dek: ctx.dek, kMac, accountId: ctx.accountId, credentialId: 'recovery',
-  });
+  const material = await buildRecoveryMaterial(ctx);
 
   // Envelope + verifier go up in one atomic request: a partial write would
   // pair a new envelope with the old verifier, silently breaking recovery
@@ -280,18 +292,48 @@ export async function renderEmergencyKit(app, ctx) {
   const recoveryRes = await fetch('/api/recovery-material', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      envelope: {
-        v: envelopeRec.v,
-        nonce: toBase64(envelopeRec.nonce),
-        ct: toBase64(envelopeRec.ct),
-        mac: toBase64(envelopeRec.mac),
-      },
-      verifier: toBase64(verifier),
-    }),
+    body: JSON.stringify(recoveryMaterialWire(material)),
   });
   if (!recoveryRes.ok) throw new Error('Could not save recovery material.');
 
+  await renderKitScreen(app, ctx, material.formatted);
+}
+
+// Mints a fresh recovery code and wraps the DEK under it, WITHOUT uploading.
+// Split out of renderEmergencyKit so the local-only-passkey POC
+// (web/cloud/js/local-only.js) can carry the same material inside its
+// register/finish request instead of a separate session-authed PUT — that
+// credential has no envelope of its own, so its recovery material has to land
+// in the very transaction that claims the account.
+export async function buildRecoveryMaterial({ accountId, dek }) {
+  const { codeBytes, formatted } = await generateRecoveryCode();
+  const kekRec = await deriveKEKRec(codeBytes, accountId);
+  const verifier = await deriveVerifier(codeBytes, accountId);
+  const kMac = await deriveKMac(dek);
+  const envelope = await wrapEnvelope({
+    kek: kekRec, dek, kMac, accountId, credentialId: 'recovery',
+  });
+  return { formatted, verifier, envelope };
+}
+
+// The {envelope, verifier} JSON body both the /api/recovery-material PUT and
+// the local-only register/finish request send.
+export function recoveryMaterialWire({ envelope, verifier }) {
+  return {
+    envelope: {
+      v: envelope.v,
+      nonce: toBase64(envelope.nonce),
+      ct: toBase64(envelope.ct),
+      mac: toBase64(envelope.mac),
+    },
+    verifier: toBase64(verifier),
+  };
+}
+
+// Renders the kit itself with its download/print gate. Exported for the same
+// reason as buildRecoveryMaterial: the POC path shows the identical screen,
+// with a different action behind the continue button.
+export async function renderKitScreen(app, ctx, formatted) {
   const kitUrl = location.origin;
   const { qrcode } = await import('../vendor/qrcode.mjs');
   const qr = qrcode(0, 'M');

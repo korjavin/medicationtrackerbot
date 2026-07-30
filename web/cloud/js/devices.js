@@ -153,9 +153,18 @@ function renderDeviceRow(app, ctx, onExit, d) {
   label.textContent = `Passkey ${d.credential_id.slice(0, 8)}… — added ${new Date(d.created_at).toLocaleDateString()}`;
   li.appendChild(label);
 
+  // A local-only credential (bd med-eas.2.1 POC) has no envelope by design, so
+  // the audit has nothing to check. Calling that "unverified — remove?" would
+  // be a false alarm on a credential the user deliberately chose — and would
+  // teach them to ignore the badge that flags a genuinely forged envelope.
   const badge = document.createElement('span');
-  badge.className = d.verified ? 'device-verified' : 'device-unverified';
-  badge.textContent = d.verified ? 'verified' : 'unverified — remove?';
+  if (d.key_mode === 'local_only') {
+    badge.className = 'device-local-only';
+    badge.textContent = 'local-only — key not backed up on the server';
+  } else {
+    badge.className = d.verified ? 'device-verified' : 'device-unverified';
+    badge.textContent = d.verified ? 'verified' : 'unverified — remove?';
+  }
   li.appendChild(badge);
 
   const revokeButton = document.createElement('button');

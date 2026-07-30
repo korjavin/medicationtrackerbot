@@ -216,7 +216,16 @@ func main() {
 	}
 	slog.Info("VAPID key backfill complete", "accountsBackfilled", backfilled)
 
+	// bd med-eas.2.1 POC — off unless the operator opts in. See
+	// docs/cloud-crypto.md "Local-only passkey (POC)"; this is NOT cleared for
+	// production rollout.
+	localOnlyPOC := os.Getenv("CLOUD_LOCAL_ONLY_PASSKEY_POC") == "1"
+	if localOnlyPOC {
+		slog.Warn("local-only passkey POC enabled — non-PRF credentials may enroll with no server-side envelope", "flag", "CLOUD_LOCAL_ONLY_PASSKEY_POC")
+	}
+
 	webauthnAPI := cloudserver.NewWebAuthnAPI(store, cfg.sessionSecret)
+	webauthnAPI.SetLocalOnlyPasskeyPOC(localOnlyPOC)
 	envelopeAPI := cloudserver.NewEnvelopeAPI(store, cfg.sessionSecret)
 	transferAPI := cloudserver.NewTransferAPI(store, cfg.sessionSecret)
 	deviceAPI := cloudserver.NewDeviceAPI(store, cfg.sessionSecret)
@@ -303,6 +312,7 @@ func main() {
 	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
 	router.SetRequestInviteEmail(cfg.requestInviteEmail)
 	router.SetFeedbackRecipient(cfg.feedbackAgeRecipient)
+	router.SetLocalOnlyPasskeyPOC(localOnlyPOC)
 
 	// A nil *TelegramAPI stored in a TelegramSender interface is NOT a nil
 	// interface, so assign only when Telegram actually came up — otherwise the
