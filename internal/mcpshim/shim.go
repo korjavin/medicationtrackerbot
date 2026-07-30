@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,20 +31,35 @@ const maxFrameBytes = 64 << 10
 const CallTimeout = 30 * time.Second
 
 // ErrDeviceOffline is Call's error when no response arrives within
-// CallTimeout. Text matches the plan's locked "offline-device UX" decision
-// verbatim so cmd/mcpshim (Task 5) can surface it as the MCP tool error
-// without rewrapping.
-//nolint:staticcheck // ST1005: this is a terminal, user-facing sentence relayed verbatim to the model (the plan's locked offline-device UX text), not a wrapped Go error.
-var ErrDeviceOffline = errors.New("No unlocked Med Tracker device is online. Open your app at https://<sub>.<base> and unlock it, then retry — this connector talks to your device, not to a server, because your data is end-to-end encrypted.")
+// CallTimeout. It is surfaced by cmd/mcpshim (Task 5) as the MCP tool error
+// without rewrapping, so it is written as a terminal user-facing sentence.
+//
+// The plan's locked text named the app URL as "https://<sub>.<base>", which is
+// a template that nothing ever filled in — it reached real users as those
+// literal angle brackets. Nobody needs to be told their own address, so the
+// sentence just says what to do.
+//
+//nolint:staticcheck // ST1005: this is a terminal, user-facing sentence relayed verbatim to the model (the plan's offline-device UX text), not a wrapped Go error.
+var ErrDeviceOffline = errors.New("No unlocked Med Tracker device is online. Open the Med Tracker app on any device and unlock it, then retry — this connector talks to your device, not to a server, because your data is end-to-end encrypted.")
 
-// errConnectionDropped marks a Call failure caused by this ShimCore's own
-// relay connection already having died (most often because the relay closed
-// the shim leg in lockstep with its paired device leg dropping — serveLeg's
-// symmetric close). Client matches this with errors.Is to redial and retry
-// once, so the caller sees a real CallTimeout wait against a fresh
-// connection (and thus ErrDeviceOffline) instead of this raw transport
-// error.
-var errConnectionDropped = errors.New("mcpshim: connection dropped")
+// errFrameNotSent marks a Call that failed BEFORE its request frame left this
+// process — the cached connection was already dead when we tried to write. No
+// side effect can have happened, so Client retries it on a fresh connection;
+// this is the only error it retries.
+var errFrameNotSent = errors.New("mcpshim: request frame not sent")
+
+// ErrCallIndeterminate is Call's error when the connection dropped AFTER the
+// request frame went out. The device may or may not have applied it, and we
+// cannot find out: the response that would have told us is what got lost.
+//
+// This must never be retried automatically. The responder's replay ring keys on
+// the frame's GCM nonce, which is drawn fresh per attempt, so a re-sent request
+// is indistinguishable to it from a new one — an auto-retry here would silently
+// log a medication dose twice. Handing the ambiguity to the caller is the only
+// honest option, so the sentence says plainly what to do about it.
+//
+//nolint:staticcheck // ST1005: terminal, user-facing sentence relayed verbatim to the model, not a wrapped Go error.
+var ErrCallIndeterminate = errors.New("The connection to your Med Tracker device dropped after this request was sent, so it may or may not have been applied. Check the current state before retrying — a blind retry could apply the same change twice.")
 
 // ShimCore holds one live connection to the relay's shim leg: the pairing
 // key, the socket, and the table correlating outstanding requests to their
@@ -117,7 +133,7 @@ func (s *ShimCore) Call(ctx context.Context, method string, params any) (json.Ra
 	}()
 
 	if err := s.conn.Write(ctx, websocket.MessageBinary, frame); err != nil {
-		return nil, fmt.Errorf("%w: write frame: %w", errConnectionDropped, err)
+		return nil, fmt.Errorf("%w: %w", errFrameNotSent, err)
 	}
 
 	timer := time.NewTimer(CallTimeout)
@@ -133,7 +149,11 @@ func (s *ShimCore) Call(ctx context.Context, method string, params any) (json.Ra
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-s.closed:
-		return nil, fmt.Errorf("%w: %w", errConnectionDropped, s.closeErr)
+		// The detail is for the operator; the caller gets the sentence it can
+		// act on (see ErrCallIndeterminate).
+		slog.Warn("mcpshim: connection dropped after the request was sent",
+			"method", method, "error", s.closeErr)
+		return nil, ErrCallIndeterminate
 	}
 }
 
@@ -152,10 +172,9 @@ func (s *ShimCore) CloseNow() {
 	s.conn.CloseNow()
 }
 
-// isClosed reports whether readLoop has already torn this connection down
-// (relay dropped it — most commonly because the paired device went
-// offline, per serveLeg's symmetric close). Client uses this to decide
-// whether a call needs a fresh Dial before it can proceed.
+// isClosed reports whether readLoop has already torn this connection down.
+// Client uses this to decide whether a call needs a fresh Dial before it can
+// proceed.
 func (s *ShimCore) isClosed() bool {
 	select {
 	case <-s.closed:

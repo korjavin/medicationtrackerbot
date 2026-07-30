@@ -5,19 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/coder/websocket"
 )
 
 // Client wraps ShimCore with reconnect-on-drop, the single object cmd/mcpshim's
-// stdio server calls into for every tool invocation. The relay closes a
-// shim leg whenever its paired device leg drops (internal/cloudserver's
-// serveLeg closes both sides symmetrically), so a stale ShimCore's next Call
-// would otherwise fail immediately with a raw transport error instead of the
-// plan's actionable offline text. Reconnecting first means the call instead
-// waits out a fresh CallTimeout with nothing to answer it and returns
-// ErrDeviceOffline, exactly like the never-paired case.
+// stdio server calls into for every tool invocation. A relay leg outlives many
+// calls but not forever — a proxy recycles it, the service redeploys — and a
+// stale ShimCore's next Call would otherwise fail with a raw transport error
+// instead of an answer. Reconnecting and retrying means a recycled connection
+// costs a redial, not the call.
 type Client struct {
 	pc   *PairingCode
 	opts *websocket.DialOptions
@@ -44,25 +43,56 @@ func NewClientFromPairingWithOptions(pc *PairingCode, opts *websocket.DialOption
 	return &Client{pc: pc, opts: opts}
 }
 
+// maxCallAttempts bounds how many connections one Call will burn through
+// before giving up. Only a request that never left this process is retried
+// (errFrameNotSent), and that fails immediately, so this does not multiply
+// CallTimeout: an attempt that gets its frame out and then waits returns
+// ErrDeviceOffline or ErrCallIndeterminate, both of which exit the loop.
+const maxCallAttempts = 3
+
 // Call ensures a live connection to the relay, then runs one JSON-RPC
-// round-trip through it. If the cached connection turns out to have died
-// between the liveness check and the call itself (isClosed's check is
-// inherently racy against the relay closing it out from under us), Call
-// redials once and retries — see errConnectionDropped.
+// round-trip through it. A connection that dies mid-call is redialed and the
+// call retried — the relay recycles a leg for reasons that have nothing to do
+// with the request (a proxy timeout, a redeploy), and one of those must not
+// become the caller's error.
+//
+// Only a request that never left this process is retried. Once the frame is
+// out we cannot know whether the device applied it, and re-sending would reseal
+// it under a fresh nonce that the responder's replay ring cannot match — so
+// that case returns ErrCallIndeterminate and stops here rather than risking a
+// duplicate write.
+//
+// Whatever happens, a transport failure never reaches the caller verbatim.
+// "relay connection closed: failed to get reader: received close frame" tells
+// an agent nothing it can act on; the sentinels tell it (and the user) exactly
+// what is true and what to do.
 func (c *Client) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	core, err := c.connected(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("mcpshim: connect to relay: %w", err)
-	}
-	result, err := core.Call(ctx, method, params)
-	if errors.Is(err, errConnectionDropped) {
-		core, err = c.redial(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("mcpshim: reconnect to relay: %w", err)
+	var lastErr error
+	for attempt := 0; attempt < maxCallAttempts; attempt++ {
+		// The first attempt may reuse a cached connection; every retry forces a
+		// fresh one, since the reason we are retrying is that the last one died.
+		dial := c.connected
+		if attempt > 0 {
+			dial = c.redial
 		}
-		return core.Call(ctx, method, params)
+		core, err := dial(ctx)
+		if err != nil {
+			// The relay is unreachable or the pairing is gone — neither is a
+			// dead device, so say what actually happened.
+			return nil, fmt.Errorf("mcpshim: connect to relay: %w", err)
+		}
+		result, err := core.Call(ctx, method, params)
+		if !errors.Is(err, errFrameNotSent) {
+			return result, err
+		}
+		lastErr = err
 	}
-	return result, err
+	// The detail goes to the operator's logs, never into the returned error:
+	// this string is relayed verbatim to a model and shown to a user, and a
+	// websocket close-frame dump is noise to both.
+	slog.Warn("mcpshim: call exhausted its connection attempts",
+		"method", method, "attempts", maxCallAttempts, "error", lastErr)
+	return nil, ErrDeviceOffline
 }
 
 func (c *Client) connected(ctx context.Context) (*ShimCore, error) {

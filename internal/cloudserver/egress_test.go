@@ -51,13 +51,13 @@ func TestPutEgressHosts(t *testing.T) {
 
 	// Each of these must be rejected before storage.
 	bad := map[string][]string{
-		"scheme":     {"https://api.openai.com"},
-		"path":       {"api.openai.com/v1"},
-		"port":       {"api.openai.com:443"},
-		"space":      {"api.openai.com evil.com"},
-		"uppercase":  {"API.openai.com"},
+		"scheme":      {"https://api.openai.com"},
+		"path":        {"api.openai.com/v1"},
+		"port":        {"api.openai.com:443"},
+		"space":       {"api.openai.com evil.com"},
+		"uppercase":   {"API.openai.com"},
 		"leading dot": {".openai.com"},
-		"too many":   {"a.com", "b.com", "c.com", "d.com", "e.com", "f.com", "g.com", "h.com", "i.com"},
+		"too many":    {"a.com", "b.com", "c.com", "d.com", "e.com", "f.com", "g.com", "h.com", "i.com"},
 	}
 	for name, hosts := range bad {
 		if code := put(hosts); code != http.StatusBadRequest {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/korjavin/medicationtrackerbot/internal/mcpshim"
 )
 
 // relayTestDeadline is a hang safety-net for the relay ws handshakes, not a
@@ -240,7 +241,7 @@ func TestMCPRelay_CrossPairingAccessRejected(t *testing.T) {
 	}
 }
 
-func TestMCPRelay_DeadPeerClosePropagates(t *testing.T) {
+func TestMCPRelay_DeviceDropLeavesShimLegOpen(t *testing.T) {
 	h, host, claimToken := newTestMCPRelayHandler(t)
 	session := registerAndGetSession(t, h, host, claimToken)
 	pairingID := mintPairing(t, h, host, session)
@@ -282,18 +283,35 @@ func TestMCPRelay_DeadPeerClosePropagates(t *testing.T) {
 		t.Fatalf("close device: %v", err)
 	}
 
-	if _, _, err := shimConn.Read(ctx); err == nil {
-		t.Fatalf("shim read after device dropped: expected error (propagated close), got none")
+	// The device drop must NOT reach the shim. A phone drops its leg on any tab
+	// freeze, network handoff or battery-saver kick, and it used to take the
+	// caller's live connection with it — surfacing mid-call as a raw
+	// `relay connection closed: ... "peer disconnected"` instead of an answer.
+	readErr := make(chan error, 1)
+	go func() {
+		_, _, err := shimConn.Read(ctx)
+		readErr <- err
+	}()
+	select {
+	case err := <-readErr:
+		t.Fatalf("shim leg closed after the device dropped: %v", err)
+	case <-time.After(2 * time.Second):
 	}
 }
 
-// TestMCPRelay_ShimDropLeavesDeviceLegOpen is the asymmetric half of the close
-// rule above, and the churn fix behind the "connector is unstable" report: a
-// shim leg comes and goes by design (the hosted client dials lazily, proxies
-// recycle it), and closing the browser's device leg every time it did left the
-// tab reconnect-looping — each gap a call that found "no unlocked device
-// online" while the app was open and unlocked.
-func TestMCPRelay_ShimDropLeavesDeviceLegOpen(t *testing.T) {
+// TestMCPRelay_FrameWaitsForADeviceThatIsNotThereYet is the payoff of the
+// keep-the-leg-alive design: a call issued while the phone is away (tab thaw,
+// wifi handoff, battery-saver kick, or simply the hosted shim dialing before
+// the tab has attached) is delivered when the device shows up, instead of being
+// dropped for having no peer and waiting out a 30s "device offline" while the
+// device was one second behind.
+//
+// The device is absent rather than mid-drop deliberately: a leg that has closed
+// but whose teardown the relay has not yet observed is a millisecond-wide race
+// with no observable edge to synchronise on, and a write into a
+// not-yet-reaped socket cannot be confirmed at this layer anyway (see
+// relayPingEvery). This pins the part that is actually guaranteed.
+func TestMCPRelay_FrameWaitsForADeviceThatIsNotThereYet(t *testing.T) {
 	h, host, claimToken := newTestMCPRelayHandler(t)
 	session := registerAndGetSession(t, h, host, claimToken)
 	pairingID := mintPairing(t, h, host, session)
@@ -305,48 +323,48 @@ func TestMCPRelay_ShimDropLeavesDeviceLegOpen(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
 	defer cancel()
 
+	// Shim first, no device anywhere.
+	shimConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/shim?pairing="+pairingID, &websocket.DialOptions{HTTPClient: client})
+	if err != nil {
+		t.Fatalf("dial shim: %v", err)
+	}
+	defer shimConn.CloseNow()
+
+	want := []byte("call-issued-before-the-device-attached")
+	if err := shimConn.Write(ctx, websocket.MessageBinary, want); err != nil {
+		t.Fatalf("shim write with no device attached: %v", err)
+	}
+
+	// The phone shows up and must find the frame waiting.
 	deviceHeader := http.Header{}
 	deviceHeader.Set("Cookie", session.Name+"="+session.Value)
-	deviceConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device?pairing="+pairingID, &websocket.DialOptions{
+	device, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device?pairing="+pairingID, &websocket.DialOptions{
 		HTTPClient: client,
 		HTTPHeader: deviceHeader,
 	})
 	if err != nil {
 		t.Fatalf("dial device: %v", err)
 	}
-	defer deviceConn.CloseNow()
+	defer device.CloseNow()
 
-	shimConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/shim?pairing="+pairingID, &websocket.DialOptions{HTTPClient: client})
+	_, got, err := device.Read(ctx)
 	if err != nil {
-		t.Fatalf("dial shim: %v", err)
+		t.Fatalf("late device read: %v", err)
 	}
-
-	// Prime the rendezvous so both legs are certainly bridged before the drop.
-	if err := shimConn.Write(ctx, websocket.MessageBinary, []byte("hello")); err != nil {
-		t.Fatalf("shim write: %v", err)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("late device got %q, want %q", got, want)
 	}
-	if _, _, err := deviceConn.Read(ctx); err != nil {
-		t.Fatalf("device read (priming): %v", err)
-	}
+}
 
-	if err := shimConn.CloseNow(); err != nil {
-		t.Fatalf("close shim: %v", err)
-	}
-
-	// Read concurrently: coder/websocket delivers a close frame (and the pong
-	// for the ping below) only through an active reader.
-	readErr := make(chan error, 1)
-	go func() {
-		_, _, err := deviceConn.Read(ctx)
-		readErr <- err
-	}()
-
-	// Give the relay real time to notice the shim drop and (wrongly) propagate
-	// it — an immediate check would pass even against the old symmetric close.
-	select {
-	case err := <-readErr:
-		t.Fatalf("device leg closed after the shim dropped: %v", err)
-	case <-time.After(2 * time.Second):
+// TestRelayFrameBudgetFitsInsideCallTimeout pins the contract that lets the
+// relay hold a frame at all: it must give up before the caller has been told
+// the device is offline. Past that point the agent may have retried under a
+// fresh nonce — which the responder's replay ring cannot catch — so a late
+// delivery would apply the write twice.
+func TestRelayFrameBudgetFitsInsideCallTimeout(t *testing.T) {
+	if relayFrameBudget >= mcpshim.CallTimeout {
+		t.Fatalf("relayFrameBudget (%s) must stay under mcpshim.CallTimeout (%s)",
+			relayFrameBudget, mcpshim.CallTimeout)
 	}
 }
 
