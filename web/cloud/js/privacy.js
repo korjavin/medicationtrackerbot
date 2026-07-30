@@ -2,31 +2,43 @@
 // leakage table is honest and complete, and a non-technical friend will never
 // read it. This is the same truth in plain language, in the app.
 //
+// SOURCE OF TRUTH (bd med-yor.4): the items below are DERIVED from
+// ./privacy-manifest.js — this file only owns the section framing and the
+// rendering. Do not add a hand-written item here; add a manifest entry with
+// `userCopy` and it appears automatically. That is what closed the old hole
+// where a `docSignal: null` item escaped every machine check: the manifest
+// requires user-facing copy on every entry and is itself coverage-checked
+// against the real egress call sites by
+// tests/architecture.privacy-claims.test.js.
+//
 // DRIFT GUARD: every item whose `docSignal` is non-null must correspond exactly
-// to a Signal row in that doc table, and vice versa — tests/privacy.drift check
-// asserts the two sets are equal, so a leakage row added to the doc fails CI
-// until it is added here (and the reverse). Items with `docSignal: null` are
-// deliberate additions the table does not enumerate as their own row (trial-AI
-// prompts, transient inbound-Telegram content) — honest exposures the bead asks
-// us to name; they are not checked against the doc.
+// to a Signal row in the doc's metadata-leakage table, and vice versa —
+// tests/privacy.drift.test.js asserts the two sets are equal.
 //
 // Categories:
 //   protected — encrypted on your device; the operator stores only ciphertext.
 //   visible   — the operator (this server) can observe it. Metadata, never your
 //               health content, except the clearly-marked flows that say so.
+//   device    — never leaves your device, but is readable by anyone who has it.
 //   leaves    — goes from your browser DIRECT to a third party, never through
 //               the operator. A different trust decision, made plain.
+import { PRIVACY_MANIFEST } from './privacy-manifest.js';
 
 export const PRIVACY_CATEGORIES = [
   {
     key: 'protected',
     title: 'What is protected',
-    intro: 'Everything you record — medications and doses, blood pressure, weight, food, workouts, sleep, diary notes — is encrypted on your device before it is ever sent. The operator stores only that ciphertext and holds no key to it. Losing your device and your Emergency Kit means even you cannot get back in; that is the cost of the operator never being able to read your vault. Optional features you switch on reach outside the vault — the two sections below name every one of them.',
+    intro: 'Everything you record — medications and doses, blood pressure, weight, food, workouts, sleep, diary notes — is encrypted on your device before it is ever sent. The operator stores only that ciphertext and holds no key to it. Losing your device and your Emergency Kit means even you cannot get back in; that is the cost of the operator never being able to read your vault. Optional features you switch on reach outside the vault — the sections below name every one of them.',
+  },
+  {
+    key: 'device',
+    title: 'What stays on this device',
+    intro: 'Encrypted in the cloud is not the same as locked on your phone. So the app works offline, this device keeps a readable copy and stays unlocked once you have unlocked it.',
   },
   {
     key: 'visible',
     title: 'What the operator can see',
-    intro: 'The server needs some metadata to function. None of it is your health content, apart from the clearly-marked flows below where content passes through in transit.',
+    intro: 'The server needs some metadata to function. Apart from the clearly-marked flows below, none of it is your health content — but metadata is not nothing: when you sync, when reminders fire, when messages arrive, how big each blob is and which kinds of record you keep are enough to infer a routine and a rough idea of what you track. Read this list as "what could be inferred", not "harmless".',
   },
   {
     key: 'leaves',
@@ -35,110 +47,22 @@ export const PRIVACY_CATEGORIES = [
   },
 ];
 
-export const PRIVACY_ITEMS = [
-  // --- protected (framing; not doc-table rows) --------------------------------
-  {
-    category: 'protected',
-    docSignal: null,
-    title: 'Your health data',
-    detail: 'Stored and synced only as ciphertext. The operator cannot read a single reading, dose, note, or value.',
-  },
+// PRIVACY_ITEMS is derived, not authored — every entry with `userCopy` in the
+// manifest renders here, in manifest order. An egress path with no copy is
+// impossible: the manifest guard requires `userCopy` on every entry (or an
+// explicit `userCopyCoveredBy` pointing at the sibling row that names it).
+export const PRIVACY_ITEMS = PRIVACY_MANIFEST
+  .filter((entry) => entry.userCopy)
+  .map((entry) => ({
+    id: entry.id,
+    category: entry.userCopy.category,
+    docSignal: entry.docSignal || null,
+    title: entry.userCopy.title,
+    detail: entry.userCopy.detail,
+  }));
 
-  // --- visible to the operator (metadata) -------------------------------------
-  {
-    category: 'visible',
-    docSignal: 'Reminder timing',
-    title: 'When your reminders fire',
-    detail: 'A reminder is a blind alarm clock: the server knows a reminder is due at a time, but its content stays sealed.',
-  },
-  {
-    category: 'visible',
-    docSignal: 'Subdomain (≈ account existence)',
-    title: 'That your account exists',
-    detail: 'Your account lives at its own subdomain, so the operator (and, over the network, DNS observers) can tell an account exists. The wildcard certificate keeps the name out of public certificate logs.',
-  },
-  {
-    category: 'visible',
-    docSignal: 'Sync cadence, blob sizes, IPs',
-    title: 'When and how much you sync',
-    detail: 'How often your device syncs, the size of each encrypted blob, and your IP address — the same as any sync service sees. No content.',
-  },
-  {
-    category: 'visible',
-    docSignal: 'TG bot token, chat id, TG message text (both directions) in transit',
-    title: 'Telegram chat + reminders, if you turn them on',
-    detail: 'A chat bot cannot be end-to-end encrypted, so text crosses the relay in plain text both ways. Reminders it sends carry the detail you choose — "Medication time" with no names (generic), or the medication named (detailed) — in Settings → Notifications. Messages you send the bot also transit the relay in the clear, but the server seals each on arrival and never reads it: no parsing, no AI, no logs. Only your unlocked app opens and acts on them. Photos are fetched through the server but never stored there.',
-  },
-  {
-    category: 'visible',
-    docSignal: 'MCP query content',
-    title: 'Claude connector queries (hosted mode only)',
-    detail: 'With the local Claude connector, your queries stay sealed end-to-end. Only the opt-in hosted remote mode lets the server see query content in transit; it is off unless you enable it.',
-  },
-  {
-    category: 'visible',
-    docSignal: 'MCP frame sizes + timing',
-    title: 'Claude connector traffic shape',
-    detail: 'When the connector is active, the relay sees message sizes and timing and pairing ids — never the content, which stays sealed.',
-  },
-  {
-    category: 'visible',
-    docSignal: 'MCP pairing key at rest (tier 2 only)',
-    title: 'Hosted connector key (hosted mode only)',
-    detail: 'The hosted remote mode stores a pairing key on the server while it is enabled. It is deleted when you disconnect, and the pairing token itself is never logged.',
-  },
-  {
-    category: 'visible',
-    docSignal: null,
-    title: 'Trial AI prompts, if you use the operator\'s key',
-    detail: 'If you use the shared trial AI instead of your own key, your meal descriptions and photos pass through the operator\'s OpenAI account to be parsed. This only happens with your explicit consent — you are asked on first use, and can revoke it any time in Settings → Integrations. Add your own key there to keep them off the operator entirely.',
-  },
-  {
-    category: 'visible',
-    docSignal: null,
-    title: 'Telegram assistant answers, if you use the trial key',
-    detail: 'When the Telegram assistant answers you on the trial key, your message AND the health data it reads from your vault to answer — blood pressure history, notes, and the like — transit the operator\'s OpenAI account. This has its own consent, separate from meal parsing, asked on first use and revocable in Settings → Integrations.',
-  },
-  {
-    category: 'visible',
-    docSignal: null,
-    title: 'Trial voice calls, if you use the operator\'s key',
-    detail: 'Trial voice calls run on the operator\'s ElevenLabs account, so your voice audio and the agent conversation pass through it. This requires your explicit consent — asked on first use, revocable in Settings → Integrations. With your own ElevenLabs key the operator is not involved.',
-  },
-  {
-    category: 'visible',
-    docSignal: 'Drug-name search + interaction queries',
-    title: 'Drug-name and interaction lookups',
-    detail: 'Drug searches and interaction checks are relayed through the operator\'s server to RxNav (NIH) — the server can see the drug name in transit but is blind by design: the application never logs or stores the query. Only the resolved drug id is kept on the medication record.',
-  },
-  {
-    category: 'visible',
-    docSignal: null,
-    title: 'A Telegram message, briefly, before it is sealed',
-    detail: 'Telegram delivers your messages to the bot in the clear, so the relay unavoidably sees an inbound message in memory for the instant it takes to seal it to your account. It is never stored unsealed.',
-  },
-
-  {
-    // Deliberately in `visible`, not `leaves`: without a food-DB key of your
-    // own, fooddb.js routes the query through the operator's same-origin
-    // /api/food/* proxy (internal/cloudserver/food_proxy.go), so the operator
-    // does see the search term. Only the BYO path is browser-direct.
-    category: 'visible',
-    docSignal: 'Food/barcode search terms',
-    title: 'Food and barcode searches',
-    detail: 'Unless you set your own food database in Settings → Integrations, searches and scanned barcodes go through the operator\'s server to the operator\'s food database — so the operator sees the search term in transit (the same exposure as searching a public food catalogue). Set your own endpoint and the query goes from your browser straight there instead, never through the operator.',
-  },
-
-  // --- leaves your device to third parties ------------------------------------
-  {
-    category: 'leaves',
-    docSignal: 'Meal descriptions + photos (AI parsing)',
-    title: 'AI meal parsing with your own key',
-    detail: 'When you use your own OpenAI-compatible key, meal descriptions and photos go straight from your browser to that provider — never proxied through the operator.',
-  },
-];
-
-// renderPrivacyInto builds the three-section transparency view into `container`.
+// renderPrivacyInto builds the transparency view into `container`, one section
+// per PRIVACY_CATEGORIES entry.
 // Everything here is authored constants (no user or server data), but it is
 // still built with textContent + createElement rather than innerHTML — this
 // ships on the DEK-bearing page, and "static today" is how an injection lands
@@ -184,3 +108,4 @@ export function renderPrivacyInto(container, doc = (typeof document !== 'undefin
     container.appendChild(section);
   }
 }
+
