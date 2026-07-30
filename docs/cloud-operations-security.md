@@ -14,10 +14,19 @@ document marks it as a **required deployment decision** with a safe default,
 not as a settled fact.
 
 > **One-line reality check.** The vault ciphertext, the wrapped-DEK envelopes,
-> and the recovery verifier are all the server ever holds; the DEK/NK exist
-> only inside an unlocked browser tab. Nothing in this document — no log, no
-> backup, no subprocessor — ever holds a decryptable copy of a user's health
-> data. Retention below is about *ciphertext and metadata*, not plaintext.
+> and the recovery verifier are all the server ever *stores*; the DEK/NK exist
+> only inside an unlocked browser tab. No log, no backup, and no subprocessor
+> ever holds a decryptable copy of **the vault**, and §1–§4's retention is about
+> *ciphertext and metadata*, not plaintext.
+>
+> The exception, stated up front rather than buried: the **opt-in integrations**
+> in §5 do handle plaintext by design — a trial-AI prompt, a voice transcript, a
+> Telegram message, a hosted-MCP query. That plaintext is a single request's
+> worth, never the vault behind it. Telegram, the trial AI/voice proxies, and
+> hosted MCP are off until the user enables them; the food and RxNav proxies
+> have no separate toggle and carry a query whenever the user uses that feature.
+> The canonical enumeration, with code evidence, is
+> [cloud-mode.md → Privacy boundary](cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
 
 ## 1. Logs
 
@@ -169,13 +178,20 @@ them can ever access the vault, the DEK, or the NK** — those exist only inside
 an unlocked browser tab and are never transmitted. There is no row in this
 table that implies vault access, because none exists.
 
+This table answers *which third party sees what, and for how long*. For the
+complementary question — *which features move plaintext past the operator, and
+where in the code that happens* — see the canonical
+[Privacy boundary carve-out table](cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs)
+in cloud-mode.md. The two are deliberately one list viewed from two angles, not
+two competing inventories.
+
 | Subprocessor | Feature | Exactly the data slice it sees | Activation |
 |---|---|---|---|
 | **Trial OpenAI (operator key)** | Food AI parse, chat | The specific prompt text and/or food **photo** the user submits for that request. Routed through the operator's trial key. | Only when the user uses the operator-provided trial AI and has not supplied their own key. |
 | **ElevenLabs** | Voice | The **audio / transcript** for that voice interaction. | Only when the user invokes voice. |
 | **Telegram** | Reminders, chat interface | The **reminder / chat text** delivered to or from the user's Telegram. | Only if the user links Telegram (optional). |
 | **RxNav (via blind proxy)** | Drug interaction / lookup | The **drug-name query** for that lookup. Reaches RxNav through the server's blind `/api/rxnav/*` proxy; the app never logs it (§1.1), but RxNav receives the query to answer it. | Only when a medication lookup / interaction check runs. |
-| **Food database** | Product search | The **search terms** the user types. | Only when the user searches products (degrades to local-only if unset — [cloud-deployment.md](cloud-deployment.md)). |
+| **Food database** | Product search | The **search terms** the user types. With the operator default, they reach it through the operator's same-origin `/api/food/*` proxy, so the operator also sees them in transit; with a BYO endpoint the query is browser-direct. | Only when the user searches products (degrades to local-only if unset — [cloud-deployment.md](cloud-deployment.md)). |
 | **Push services** (browser vendor endpoints, e.g. FCM/Mozilla/Apple) | Web Push reminders | An **encrypted, opaque push payload** and the subscription endpoint. Payloads are app-layer encrypted in addition to Web Push encryption; the push service relays ciphertext it cannot read. | Whenever the user has an active push subscription. |
 
 Each slice is scoped to the moment of use — a subprocessor sees a single

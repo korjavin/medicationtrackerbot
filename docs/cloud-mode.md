@@ -8,16 +8,16 @@ C0a deviations from this spec, discovered during implementation: subdomain and `
 
 Second install story, alongside server mode (`docs/architecture.md`):
 
-> Visit the signup page → get `https://amber-falcon-8k3q9x.app.<cloud-domain>` → create a passkey (Face ID / fingerprint) → save the Emergency Kit → Add to Home Screen. Done. Reminders fire, data syncs across devices, camera/AI/voice features unlock as the user adds their own provider keys. The cloud operator is *cryptographically unable* to read any of it.
+> Visit the signup page → get `https://amber-falcon-8k3q9x.app.<cloud-domain>` → create a passkey (Face ID / fingerprint) → save the Emergency Kit → Add to Home Screen. Done. Reminders fire, data syncs across devices, camera/AI/voice features unlock as the user adds their own provider keys. The cloud operator is *cryptographically unable* to read the vault: the DEK never leaves the browser, and sync and reminder content are stored only as ciphertext.
 
-The cloud provides exactly three things: **hosting** (a trusted HTTPS origin per user), **storage** (encrypted blobs), and a **push relay** (a blind alarm clock). Everything else — all domain logic, all provider API calls — runs in the browser.
+The vault path is the whole default product: **hosting** (a trusted HTTPS origin per user), **storage** (encrypted blobs), and a **push relay** (a blind alarm clock). All domain logic and all BYO-key provider calls run in the browser. Separate from that path, a handful of **opt-in integrations deliberately leave the vault boundary** — they are enumerated in [Privacy boundary — the vault promise and its carve-outs](#privacy-boundary--the-vault-promise-and-its-carve-outs) and must never be described as end-to-end encrypted.
 
 ## Goals / non-goals
 
 Goals:
 
 - Zero install effort: no server, no DNS, no certs, no app store. One URL, one passkey — no passphrase to memorize.
-- Zero knowledge: a full server breach, subpoena, or malicious operator yields ciphertext and timing metadata, nothing else.
+- Zero-knowledge vault: a full server breach, subpoena, or malicious operator yields ciphertext plus the operational metadata in [Metadata leakage summary](#metadata-leakage-summary) — never a health record. Opt-in integrations are outside this guarantee and are enumerated separately.
 - Full PWA capabilities on iOS ≥ 16.4 and Android: installed home-screen app, offline, camera, barcode, web-push reminders.
 - Multi-device with durable backup — the cloud copy is the source of truth; browser storage is a cache.
 - BYO keys: OpenAI(-compatible), vision, ElevenLabs, food DB — stored inside the encrypted vault, used directly from the browser.
@@ -26,7 +26,7 @@ Goals:
 Non-goals:
 
 - Replacing server mode. Self-hosted installs keep Telegram-rich bot UX, server-side MCP, importers.
-- Server-side AI proxying or any server feature that requires plaintext.
+- Server-side plaintext on the *vault* path. (This is **not** "no server-side proxying at all": the operator-trial AI/voice proxies, the operator-default food proxy, the Telegram relay, and hosted MCP all handle plaintext by design. Each is opt-in and enumerated under [Privacy boundary](#privacy-boundary--the-vault-promise-and-its-carve-outs).)
 - Multi-user accounts / sharing (future work, needs asymmetric sharing crypto).
 
 ## Architecture
@@ -50,6 +50,65 @@ Non-goals:
                │
         FCM / APNs / api.telegram.org
 ```
+
+## Privacy boundary — the vault promise and its carve-outs
+
+This is the canonical statement of what the product promises. Every other
+surface (README, landing page, signup wizard, Settings → *What can the operator
+see?*) restates **this** promise and never a broader one.
+
+> **The promise.** Your vault — every health record you store and sync — is
+> end-to-end encrypted. The keys never leave your devices, and the server holds
+> only ciphertext it cannot open. Optional integrations you turn on reach
+> outside that vault and have separately disclosed boundaries.
+
+The first sentence is unconditional and true: `web/cloud/js/crypto.js` generates
+the DEK in the browser, wraps it under passkey-PRF envelopes, and nothing but
+ciphertext is ever `POST`ed to the sync API. The second sentence is the part
+that top-level copy used to omit.
+
+**Any absolute phrasing that extends the vault guarantee to the whole product is
+false** — it contradicts the rows below. The specific banned phrasings, and the
+copy surfaces they are enforced across, live in the `BANNED` list of
+`web/cloud/js/tests/architecture.privacy-claims.test.js`; that test fails CI if
+one comes back. Equally, do not "fix" a claim by hedging the vault away: the
+same test asserts the vault half of the promise is still stated.
+
+### The carve-outs
+
+Each row is an implemented feature that moves plaintext or metadata outside the
+vault. **They do not share one activation story, and flattening them into "all
+opt-in" is the regression this table exists to prevent.** Three classes:
+
+1. **Off until the user turns them on** — Telegram, trial AI, trial voice,
+   hosted MCP (tier 2).
+2. **No toggle; active whenever the feature is used** — the operator-default
+   food DB (a BYO endpoint removes the operator from the path) and RxNav drug
+   lookups (always proxied; no BYO alternative exists).
+3. **Always on, inherent to running the service** — operational metadata.
+
+The `How it is turned on` column below states which class each row is in.
+Third-party retention for each destination is in
+[cloud-operations-security.md §5](cloud-operations-security.md#5-subprocessors--who-sees-what);
+the metadata-only signals are in [Metadata leakage summary](#metadata-leakage-summary).
+
+| Carve-out | What leaves the vault | Who sees it | How it is turned on | Evidence |
+|---|---|---|---|---|
+| **Trial AI** (operator's key) | The prompt text and meal **photos** of that request, in plaintext through the operator's server | Operator, then the operator's OpenAI(-compatible) account | Opt-in; per-use consent, revocable in Settings → Integrations | `internal/cloudserver/trial_proxy.go:99` (`POST /api/trial/openai/chat/completions`) |
+| **Trial voice** (operator's key) | Voice audio and the agent conversation | Operator (mints the signed URL), then the operator's ElevenLabs account | Opt-in; separate consent, revocable in Settings → Integrations | `internal/cloudserver/trial_proxy.go:100` (`GET /api/trial/elevenlabs/signed-url`) |
+| **Telegram** | Outbound reminder/confirmation text the client composes, forwarded **verbatim**; inbound message text, transiently in memory before it is sealed to the inbox key | Operator + Telegram | Opt-in; requires the user to link a bot | `internal/cloudserver/push.go:209-215` (`TGText` plaintext), `internal/cloudserver/telegram.go` (relay), `internal/cloudserver/inbox.go:41` (sealing) |
+| **Telegram bot token** | The bot token at rest, sealed under a key **derived from `SESSION_SECRET`** — so a server that holds that secret can recover it. This is *not* vault-grade: unlike the DEK, the operator possesses the unwrapping key | Operator | Opt-in with Telegram | `internal/cloudserver/tg_token.go:22-55` (`tgSealKey` / `openTGToken`) |
+| **Hosted MCP (tier 2)** | Full MCP query **and response** content in plaintext in server memory — the operator runs the shim. The pairing key is stored at rest while enabled | Operator + the hosted AI client (claude.ai / ChatGPT) | Opt-in; explicit enable, deleted on Disconnect | `internal/cloudserver/mcp_remote.go:23-28`, `internal/cloudserver/mcp_endpoint.go` |
+| **Local MCP (tier 1)** — *not* a carve-out | Nothing. Frames are opaque; the relay sees sizes and timing only | Operator sees ciphertext sizes/timing | Opt-in pairing with a local shim | `internal/cloudserver/mcp_relay.go:13-18` (`the relay never decrypts`) |
+| **Operator-default food DB** | Search terms and scanned barcodes, through a **same-origin operator proxy** — not browser-direct | Operator + the operator's food-DB instance | Active whenever the user searches food without a BYO food-DB key | `internal/cloudserver/food_proxy.go:48-49` |
+| **Drug lookups (RxNav)** | Drug-name queries, through a blind same-origin proxy | Operator in transit (never logged/stored) + RxNav (NIH) | Active whenever a medication lookup or interaction check runs | `internal/cloudserver/rxnav_proxy.go:56-59` |
+| **Operational metadata** | Account existence/subdomain, sync cadence, blob sizes, IPs, reminder **timing**, push endpoints, registered egress hosts, MCP frame sizes | Operator (and, for DNS/SNI, network observers) | Always — inherent to running the service | [Metadata leakage summary](#metadata-leakage-summary) |
+
+Two things are deliberately **not** carve-outs and must keep their strong
+wording: BYO-key provider calls go browser-direct and never touch the operator
+(`web/cloud/js/fooddb.js`, `web/cloud/js/aiclient.js`), and web-push reminder
+payloads are app-layer encrypted under the NK on top of RFC 8291, so the push
+relay and the browser vendor both carry ciphertext (`internal/cloudserver/push.go:29`).
 
 ## Trust model — what the server can and cannot see
 
@@ -601,7 +660,7 @@ Migration is a special case of the general **no-lock-in guarantee (C2e)**: one c
 | MCP query content | nobody (tier 1) / cloud in transit (tier 2) | tier 2 off by default, explicit consent |
 | MCP frame sizes + timing | cloud (tier 1) | inherent to a blind relay; pairing ids only, content stays sealed |
 | MCP pairing key at rest (tier 2 only) | cloud, while remote mode is enabled | opt-in only; deleted on Disconnect; token itself is never logged (mind Traefik access logs — it travels in the URL path) |
-| Food/barcode search terms | operator's food-DB instance (default) | same exposure class as public Open Food Facts; endpoint swappable in settings |
+| Food/barcode search terms | with the operator default: **cloud in transit** (same-origin `/api/food/*` proxy) + the operator's food-DB instance; with a BYO endpoint: that endpoint only, browser-direct | same exposure class as public Open Food Facts; endpoint swappable in settings, which also removes the operator from the path (`web/cloud/js/fooddb.js` `isOperatorDefault`) |
 | Drug-name search + interaction queries | cloud (blind same-origin proxy, in transit) + RxNav (NIH) | proxied same-origin (`/api/rxnav/*`) so the app document's `connect-src` stays minimal; the proxy is blind by the fixed-string log invariant (never logs name/rxcui/body — mind Traefik access logs, the drug name travels in the query string); nothing persisted beyond `rxcui`/`normalized_name` on the med record |
 | Meal descriptions + photos (AI parsing) | the user's own OpenAI(-compatible) provider, direct from the client | BYO key + BYO consent — never proxied through the cloud operator; same never-see guarantee as the vault keys that authorize it |
 

@@ -21,7 +21,7 @@ export const PRIVACY_CATEGORIES = [
   {
     key: 'protected',
     title: 'What is protected',
-    intro: 'Everything you record — medications and doses, blood pressure, weight, food, workouts, sleep, diary notes — is encrypted on your device before it is ever sent. The operator stores only that ciphertext and holds no key to it. Losing your device and your Emergency Kit means even you cannot get back in; that is the cost of the operator never being able to read your data.',
+    intro: 'Everything you record — medications and doses, blood pressure, weight, food, workouts, sleep, diary notes — is encrypted on your device before it is ever sent. The operator stores only that ciphertext and holds no key to it. Losing your device and your Emergency Kit means even you cannot get back in; that is the cost of the operator never being able to read your vault. Optional features you switch on reach outside the vault — the two sections below name every one of them.',
   },
   {
     key: 'visible',
@@ -31,7 +31,7 @@ export const PRIVACY_CATEGORIES = [
   {
     key: 'leaves',
     title: 'What leaves your device to others',
-    intro: 'A few features talk from your browser straight to a third party — never routed through the operator. You choose whether to use them.',
+    intro: 'A few features talk from your browser straight to a third party — never routed through the operator, because you supplied the key. You choose whether to use them.',
   },
 ];
 
@@ -118,13 +118,18 @@ export const PRIVACY_ITEMS = [
     detail: 'Telegram delivers your messages to the bot in the clear, so the relay unavoidably sees an inbound message in memory for the instant it takes to seal it to your account. It is never stored unsealed.',
   },
 
-  // --- leaves your device to third parties ------------------------------------
   {
-    category: 'leaves',
+    // Deliberately in `visible`, not `leaves`: without a food-DB key of your
+    // own, fooddb.js routes the query through the operator's same-origin
+    // /api/food/* proxy (internal/cloudserver/food_proxy.go), so the operator
+    // does see the search term. Only the BYO path is browser-direct.
+    category: 'visible',
     docSignal: 'Food/barcode search terms',
     title: 'Food and barcode searches',
-    detail: 'Search terms go to the configured food database (the same exposure as searching a public food catalogue). The endpoint is swappable in settings.',
+    detail: 'Unless you set your own food database in Settings → Integrations, searches and scanned barcodes go through the operator\'s server to the operator\'s food database — so the operator sees the search term in transit (the same exposure as searching a public food catalogue). Set your own endpoint and the query goes from your browser straight there instead, never through the operator.',
   },
+
+  // --- leaves your device to third parties ------------------------------------
   {
     category: 'leaves',
     docSignal: 'Meal descriptions + photos (AI parsing)',

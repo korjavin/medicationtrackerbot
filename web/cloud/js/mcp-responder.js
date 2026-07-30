@@ -583,8 +583,8 @@ export function createDispatcher({ router, now = Date.now }) {
     // of letting it read as an unimplemented method it should retry.
     if (method === 'mcp_execute') {
       throw new MCPError(-32601, 'mcp_execute is not available in cloud mode: multi-step scripting requires a '
-        + 'server-side Python sandbox, and this connector is zero-knowledge — the server never sees your '
-        + 'plaintext, so it has nothing to run a script against. Chain mcp_call instead, one operation per call.');
+        + 'server-side Python sandbox, and the server holds no vault key — it has nothing to run a script '
+        + 'against. Chain mcp_call instead, one operation per call.');
     }
     throw new MCPError(-32601, `unknown method "${method}"`);
   }

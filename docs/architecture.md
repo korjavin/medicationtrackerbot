@@ -3,9 +3,18 @@
 ## Product Strategy
 
 Cloud mode (`cmd/cloud`) is the default production architecture. It serves a
-zero-knowledge browser PWA on per-account subdomains; clients hold the vault
-keys and plaintext, while the server stores encrypted sync state and operates
-blind relays for push, Telegram, and optional hosted MCP.
+browser PWA on per-account subdomains over a **zero-knowledge vault**: clients
+hold the vault keys and plaintext, while the server stores encrypted sync state
+and runs a genuinely blind push relay (reminder payloads are encrypted under the
+NK on top of RFC 8291).
+
+Not every relay is blind, and the distinction is load-bearing — never describe
+the whole service as zero-knowledge. The Telegram relay forwards client-composed
+reminder text verbatim and sees inbound messages transiently before sealing them;
+hosted MCP (tier 2) runs the shim server-side and sees query and response
+plaintext; the operator-trial AI/voice proxies and the operator-default food
+proxy carry plaintext by design. All are opt-in and enumerated, with code
+evidence, in [docs/cloud-mode.md → Privacy boundary](cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
 
 The original Telegram/server mode (`cmd/bot`) is legacy maintenance. Keep it
 working for existing installs, but do not use it as the product baseline for

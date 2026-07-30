@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MedTrackerBot - The Story</title>
+    <title>Med Tracker - The Story</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -19,10 +19,12 @@
 
     <header class="hero">
         <div class="container">
-            <h1 class="hero-title">Your Health, <span class="highlight">End-to-End Encrypted</span>
+            <h1 class="hero-title">Your Health Vault, <span class="highlight">End-to-End
+                    Encrypted</span>
             </h1>
             <p class="hero-subtitle">How we turned a mess of health apps into one private companion —
-                installable in your browser, encrypted on your device, and unlocked only by you.</p>
+                installable in your browser, with a vault encrypted on your device and unlocked only by
+                you. The optional integrations that reach outside that vault are named in Chapter 7.</p>
         </div>
     </header>
 
@@ -36,7 +38,7 @@
                 <p>We started with a simple frustration: keeping track of medications, blood pressure, weight, and sleep
                     required <strong>four different apps</strong> — each one another company holding your medical data.</p>
                 <p>None of them talked to each other. None of them gave the full picture. We needed a single source of
-                    truth that <strong>only you can read</strong>.</p>
+                    truth whose <strong>vault only you can read</strong>.</p>
             </div>
             <!-- Telegram and Web Interface Side-by-Side -->
             <!-- No visual as requested -->
@@ -156,7 +158,7 @@
                 <h2>Keep Your Favorite Tools</h2>
                 <p>Have other tracking apps you love? No problem. We believe in an open ecosystem.</p>
                 <p>Devices like <strong>Mi Band</strong> are just one example. Our open import system allows for
-                    unlimited custom integrations. Just export your data, send it to the bot, and we handle the rest.
+                    unlimited custom integrations. Just export your data, hand it to the app, and we handle the rest.
                 </p>
                 <ul class="check-list">
                     <li>Mi Band Integration (Example)</li>
@@ -176,17 +178,28 @@
             <div class="chapter-content">
                 <span class="chapter-tag">Step 6: Zero-Knowledge Privacy</span>
                 <h2>Encrypted Before It Leaves Your Device</h2>
-                <p>This is the heart of it. In the cloud edition, every record is <strong>end-to-end encrypted in
-                    your browser</strong> before it's ever sent. The server stores only ciphertext — a full breach,
-                    a subpoena, or a curious operator yields nothing readable.</p>
+                <p>This is the heart of it. In the cloud edition — the default — every record in your
+                    <strong>vault</strong> is <strong>end-to-end encrypted in your browser</strong> before it's ever
+                    sent. The server stores only that ciphertext; against the vault, a full breach, a subpoena, or a
+                    curious operator yields nothing readable.</p>
                 <p>You unlock with a <strong>passkey</strong> (Face ID or fingerprint) — there's no password to steal
                     and nothing crackable stored on the server. Devices sync through an encrypted log, and reminders
                     ring via a <strong>blind push relay</strong> that never learns what they say.</p>
+                <p><strong>Where the vault ends.</strong> A few features are deliberately outside it. Off until you
+                    turn them on: <strong>Telegram</strong> (chat text crosses the relay in the clear both ways),
+                    <strong>trial AI</strong> and <strong>trial voice</strong> (your prompt, photo, or audio goes
+                    through the operator's OpenAI / ElevenLabs account), and the <strong>hosted Claude connector</strong>
+                    (the operator runs the bridge and sees the traffic). With no separate switch, active whenever you
+                    use them: the <strong>default food database</strong> (search terms cross the operator's proxy
+                    unless you supply your own endpoint) and <strong>drug lookups</strong> to RxNav. Bring your own
+                    provider key and the AI and food paths stop touching the operator entirely. The app lists all of it
+                    under <em>What can the operator see?</em></p>
                 <p><strong>No vendor lock.</strong> Export everything anytime, or self-host the whole cloud yourself.</p>
                 <ul class="check-list">
-                    <li>Zero-Knowledge, End-to-End Encrypted</li>
+                    <li>Zero-Knowledge Vault, End-to-End Encrypted</li>
                     <li>Passkey Unlock — No Passwords</li>
                     <li>Blind Push Relay &amp; Encrypted Sync</li>
+                    <li>Integrations Outside the Vault — Each One Disclosed</li>
                 </ul>
             </div>
             <div class="chapter-visual">
