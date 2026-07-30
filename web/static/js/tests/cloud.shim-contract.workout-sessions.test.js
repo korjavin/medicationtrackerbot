@@ -915,6 +915,30 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(60);
     });
 
+    it('progression: rating only the top set still progresses (unrated ≠ failed the gate)', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'linear', increment_kg: 2.5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        // RPE is optional per set and rating just the top set is normal practice
+        // ("RIR 0-2 on the top set"). The gate judges the sets the user rated —
+        // an unrated set is no opinion, not a veto — so this bumps.
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: sessionId, exercise_id: ex.id, exercise_name: 'Bench', source: 'schedule', status: 'completed',
+            sets: [
+                { set_index: 0, weight_kg: 60, reps: 10, set_type: 'normal' },
+                { set_index: 1, weight_kg: 60, reps: 10, set_type: 'normal' },
+                { set_index: 2, weight_kg: 60, reps: 10, rpe: 9, set_type: 'normal' },
+            ],
+        });
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+    });
+
     it('progression: the goal override sets the RIR threshold (strength tolerates RIR 2)', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);

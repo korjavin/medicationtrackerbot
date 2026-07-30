@@ -292,8 +292,12 @@ from `GOAL_DEFAULTS`, no new mechanism:
   meaningless `reps >= 0`.
 - **RIR gate (the substance).** A **load bump** fires only when `reps >= target` **AND**
   `RIR <= target_rir` (strength 2, hypertrophy/endurance 1, `general` ungated). Effort
-  is judged on the **least-hard work set** (`minRpe`) — the same "all sets must qualify"
-  rule the rep gate uses on `minReps`; warm-up and drop sets are excluded as before.
+  is judged on the **least-hard *rated* work set** (`minRpe`) — the same "all sets must
+  qualify" rule the rep gate uses on `minReps`; warm-up and drop sets are excluded as
+  before. RPE is optional per set and rating only the top set is normal practice
+  ("RIR 0–2 on the top set"), so an **unrated set is no opinion, not a veto** — counting
+  it as non-qualifying would silently stop progression for anyone who doesn't rate every
+  set.
   Hitting the reps with reps in reserve **holds the plan** (no bump, and for double no
   rep reset either) — that case is the effort insight (`med-qj4.6.5`), not a heavier
   bar. Double-progression's **rep climb is deliberately not gated**: reps in reserve is

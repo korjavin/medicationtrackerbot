@@ -409,10 +409,13 @@ function workSetStats(sets, reps, perSet) {
     // weight, so its reps are a valid target judgment.
     const work = perSet.filter((s) => s.set_type !== 'warmup' && s.set_type !== 'drop');
     if (work.length === 0) return null;
-    // minRpe is the RPE-side twin of minReps: the LEAST-hard work set, because
-    // the RIR gate (med-qj4.6.3) asks "were they ALL near failure?" just as the
-    // rep gate asks "did they ALL hit the target?". null when no work set
-    // carries an RPE — effort unknown, which leaves the gate open.
+    // minRpe is the RPE-side twin of minReps for the RIR gate (med-qj4.6.3):
+    // the least-hard work set the user actually RATED. Unlike reps, effort is
+    // optional per set, and rating only the top set is normal practice (the
+    // science table prescribes "RIR 0-2 on the top set") — so an unrated set
+    // means "no opinion", never "failed the gate". Counting it as non-qualifying
+    // would silently stop progression for everyone who doesn't rate every single
+    // set. No work set rated at all → null → gate open.
     const rpes = work.map((s) => s.rpe).filter((v) => hasValue(v));
     return {
       count: work.length,
