@@ -96,6 +96,13 @@ jobs:
     permissions:
       contents: write
       packages: write
+      # Release-integrity evidence (bd med-yor.8, docs/security/release-integrity.md):
+      # keyless Sigstore signing of the image's SLSA provenance. The cloud origin
+      # serves the JavaScript that handles the vault DEK, so "which build is this
+      # origin running, and did this repo's CI actually build it" has to be
+      # answerable by someone other than the operator.
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout repository
@@ -129,6 +136,46 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Signs a SLSA provenance statement for the pushed image with a short-lived
+      # Sigstore certificate bound to this workflow's OIDC identity — no key
+      # material to hold, nothing to rotate. Anyone can then check that the image
+      # a cloud host is running came from this repository at this commit:
+      #   gh attestation verify oci://ghcr.io/<owner>/<repo>:<sha> --repo <owner>/<repo>
+      - name: Attest image provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
+          subject-digest: ${{ steps.build-and-push.outputs.digest }}
+          push-to-registry: true
+
+      # Published hashes of every browser-delivered file, taken from the same
+      # tree the image was built from (the placeholder sed above has already
+      # run, so these are the bytes the origin serves). This is the convenience
+      # view of the attested image: it turns "is my browser running the public
+      # build?" into a curl + sha256sum per asset instead of pulling and
+      # unpacking the image. See docs/security/release-integrity.md.
+      - name: Publish browser-bundle hashes
+        run: |
+          find web -type f \( -name '*.js' -o -name '*.html' -o -name '*.css' -o -name '*.json' \) \
+            -not -path 'web/*/js/tests/*' -not -path 'web/*/tests/*' \
+            | LC_ALL=C sort | xargs sha256sum > /tmp/SHA256SUMS-web.txt
+          {
+            echo "### Browser bundle — $(wc -l < /tmp/SHA256SUMS-web.txt) files"
+            echo "commit \`${{ github.sha }}\`, image digest \`${{ steps.build-and-push.outputs.digest }}\`"
+            echo '<details><summary>SHA256SUMS</summary>'
+            echo
+            echo '```'
+            cat /tmp/SHA256SUMS-web.txt
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload browser-bundle hashes
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-bundle-sha256sums-${{ github.sha }}
+          path: /tmp/SHA256SUMS-web.txt
 
       - name: Update and commit docker-compose.yml
         env:

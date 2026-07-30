@@ -12,9 +12,10 @@
 //   error      — primary button reads "Try again"; click → startCall()
 //
 // The signed URL is fetched from /api/elevenlabs/signed-url, which keeps
-// ELEVENLABS_API_KEY server-side. The SDK handles WebRTC + AudioWorklets;
-// CSP must permit blob: + data: scripts and worker-src blob: for the
-// rawAudioProcessor / audioConcatProcessor worklets.
+// ELEVENLABS_API_KEY server-side. The SDK handles the WebSocket session +
+// AudioWorklets; the worklet modules are self-hosted (WORKLET_PATHS below) so
+// the DEK-bearing document can keep a plain `script-src 'self'` — see
+// setSecurityHeaders in internal/cloudserver/router.go (bd med-yor.8).
 //
 // The SDK is vendored (bd med-7e7.1) rather than pulled from esm.sh: in cloud
 // mode this page holds the in-memory DEK, and a third-party script executing
@@ -23,6 +24,23 @@
 
 (function () {
     const SDK_URL = '/static/vendor/elevenlabs-client.min.js';
+
+    // Self-hosted AudioWorklet modules. Without these the SDK builds each
+    // worklet from a blob: URL (and falls back to data:), which forces the
+    // document's CSP to widen `script-src` to `'self' blob: data:` — on the
+    // cloud origin that is the DEK-bearing document. Passing explicit paths
+    // makes the SDK addModule() these same-origin URLs instead and never mint
+    // a blob/data script, so `script-src 'self'` holds. The files are extracted
+    // verbatim from the vendored bundle; vendor.elevenlabs-client.test.js fails
+    // if they drift from the strings the SDK would otherwise have inlined.
+    //
+    // Only the WebSocket session (the one `signedUrl` selects) honours these;
+    // the SDK's WebRTC path builds its analyser worklet without a path option.
+    // We always pass signedUrl, so we are always on the WebSocket path.
+    const WORKLET_PATHS = {
+        rawAudioProcessor: '/static/vendor/worklets/raw-audio-processor.js',
+        audioConcatProcessor: '/static/vendor/worklets/audio-concat-processor.js',
+    };
 
     let sdkPromise = null;
     function loadSDK() {
@@ -441,6 +459,7 @@
             const clientTools = buildClientTools();
             activeConversation = await Conversation.startSession({
                 signedUrl,
+                workletPaths: WORKLET_PATHS,
                 ...(clientTools ? { clientTools } : {}),
                 onConnect: () => setState('in_call', 'Connected'),
                 onDisconnect: () => {

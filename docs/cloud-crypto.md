@@ -244,6 +244,14 @@ navigation — but it is **not** a total close. Enforced by `TestRouter_HostVari
 `TestRouter_AppDocumentReflectsEgressHosts` (served CSP reflects stored hosts, no bare
 `https:`/`wss:` token). See [cloud-mode.md](cloud-mode.md).
 
+`script-src` is the other half of this and is now a plain `'self'` on every document,
+including this one — the `blob: data:` allowance the voice SDK's AudioWorklets used to
+force is gone (the worklets are self-hosted and handed to the SDK as paths). What that
+does **not** fix is that the operator serves the script in the first place: see
+[security/release-integrity.md](security/release-integrity.md) for that boundary stated
+plainly, the build-provenance / published-hash evidence that makes a divergence
+detectable, and the verification commands.
+
 ## Open questions
 
 - PRF-over-hybrid (Path A) support matrix — still deferred; revisit if the platform matrix matures enough to justify a second enrollment path alongside Path B.

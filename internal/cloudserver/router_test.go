@@ -3,6 +3,7 @@ package cloudserver
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -10,7 +11,28 @@ import (
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
+	webstatic "github.com/korjavin/medicationtrackerbot/web/static"
 )
+
+// TestWorkletModulesAreEmbedded pins the deployment half of the script-src
+// narrowing: elevenlabs-call.js hands the SDK explicit worklet paths, and the
+// SDK does NOT fall back to a blob: when a given path fails — so a worklet
+// missing from the embedded FS is a broken voice call, not a degraded one.
+func TestWorkletModulesAreEmbedded(t *testing.T) {
+	for _, name := range []string{
+		"vendor/worklets/raw-audio-processor.js",
+		"vendor/worklets/audio-concat-processor.js",
+	} {
+		b, err := webstatic.FS.ReadFile(name)
+		if err != nil {
+			t.Errorf("read %s from embedded web/static: %v", name, err)
+			continue
+		}
+		if !strings.Contains(string(b), "registerProcessor(") {
+			t.Errorf("%s does not register an AudioWorklet processor", name)
+		}
+	}
+}
 
 func setupStore(t *testing.T) *cloudstore.Repo {
 	t.Helper()
@@ -220,11 +242,6 @@ func TestRouter_HostVariants(t *testing.T) {
 			// the app's fetches, so they stay strict 'self'. The base domain and
 			// the passkey ceremony pages make no cross-origin calls and stay strict.
 			wantConnect := "connect-src 'self';"
-			// The app document also loads the @elevenlabs/client voice SDK, but
-			// from our own origin (vendored) — so script-src keeps 'self' and only
-			// gains blob:/data: for the SDK's AudioWorklets. No third-party script
-			// host may appear here: that is the med-7e7.1 invariant.
-			wantScript := "script-src 'self';"
 			// A 404 host never reaches the app-document branch (the account
 			// doesn't resolve), so it keeps the strict default — only a served "/"
 			// on a known subdomain carries the scoped allowlist.
@@ -232,16 +249,16 @@ func TestRouter_HostVariants(t *testing.T) {
 				stripPort(tc.host) != "app.example.com" && tc.path == "/"
 			if appDocument {
 				wantConnect = "connect-src 'self' https://api.elevenlabs.io wss://api.elevenlabs.io;"
-				wantScript = "script-src 'self' blob: data:;"
 			}
 			if !strings.Contains(csp, wantConnect) {
 				t.Errorf("CSP connect-src = %q, want it to contain %q", csp, wantConnect)
 			}
-			if !strings.Contains(csp, wantScript) {
-				t.Errorf("CSP script-src = %q, want it to contain %q", csp, wantScript)
-			}
-			if appDocument && !strings.Contains(csp, "worker-src 'self' blob:;") {
-				t.Errorf("CSP = %q, want worker-src 'self' blob: for account app SDK worklets", csp)
+			// connect-src is now the ONLY directive the app document relaxes.
+			// The app document loads the @elevenlabs/client voice SDK, but from
+			// our own origin (vendored) and with self-hosted worklet modules, so
+			// script-src is a plain 'self' everywhere (bd med-yor.8).
+			if !strings.Contains(csp, "script-src 'self';") {
+				t.Errorf("CSP script-src = %q, want it to contain %q", csp, "script-src 'self';")
 			}
 			// med-7e7.1: no third-party script host may ever appear in script-src.
 			// These pages hold the in-memory DEK, and docs/cloud-crypto.md rates
@@ -364,6 +381,46 @@ func TestRouter_FeedbackRecipientMeta(t *testing.T) {
 			t.Fatalf("app document leaks feedback meta when recipient is unset:\n%s", body)
 		}
 	})
+}
+
+// TestSecurityHeaders_NoBlobOrDataScript pins the script-execution half of the
+// CSP: no document on the E2EE origin — app document included — may load or
+// evaluate script from anywhere but 'self'. The DEK lives in this document's
+// memory, so every extra source here is a route to it.
+//
+// This exists because the allowance already regressed once: the ElevenLabs SDK
+// builds its AudioWorklets from blob: URLs (with a data: fallback), no engine
+// ships `worklet-src`, and those loads therefore land on script-src — which is
+// why the app document used to serve `script-src 'self' blob: data:`. The fix
+// (bd med-yor.8) self-hosts the worklet modules and hands the SDK their paths
+// (web/static/js/features/elevenlabs-call.js), so nothing mints script from a
+// blob:/data: URL any more. If a future SDK bump quietly needs the widening
+// back, this test is where it must be argued for, not silently re-added.
+func TestSecurityHeaders_NoBlobOrDataScript(t *testing.T) {
+	// Directives a script can execute through. img-src/font-src are deliberately
+	// not listed: a data: image is not code.
+	scriptish := []string{"default-src", "script-src", "worker-src", "child-src"}
+	banned := []string{"blob:", "data:", "'unsafe-inline'", "'unsafe-eval'", "'wasm-unsafe-eval'", "*"}
+
+	for _, appDocument := range []bool{false, true} {
+		rec := httptest.NewRecorder()
+		setSecurityHeaders(rec, appDocument, []string{"api.openai.com"})
+		csp := rec.Header().Get("Content-Security-Policy")
+		for _, name := range scriptish {
+			value := cspDirective(csp, name)
+			if value == "" {
+				continue // absent directive falls back to default-src, checked above
+			}
+			for _, tok := range banned {
+				if slices.Contains(strings.Fields(value), tok) {
+					t.Errorf("appDocument=%v: %s = %q carries %q — that is script execution reachable from the in-memory DEK", appDocument, name, value, tok)
+				}
+			}
+			if strings.Contains(value, "//") {
+				t.Errorf("appDocument=%v: %s = %q names a foreign host (vendor it instead)", appDocument, name, value)
+			}
+		}
+	}
 }
 
 // bareSchemeToken returns a bare `https:`/`wss:` token if the CSP directive value

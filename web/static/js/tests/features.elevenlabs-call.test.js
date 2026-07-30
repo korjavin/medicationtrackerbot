@@ -358,6 +358,24 @@ describe('features/elevenlabs-call.js — setMute / toggleMute', () => {
             cleanup();
         }
     });
+
+    // bd med-yor.8: without explicit paths the SDK builds each AudioWorklet
+    // from a blob: URL (data: fallback), and since no engine ships worklet-src
+    // those loads hit script-src — which is what forced the cloud app document
+    // to serve `script-src 'self' blob: data:` on the page holding the DEK.
+    // Self-hosted paths are what let that shrink back to 'self'.
+    it('hands the SDK same-origin worklet paths so script-src can stay self-only', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            const { opts } = await startCall(window);
+            expect(opts.workletPaths).toEqual({
+                rawAudioProcessor: '/static/vendor/worklets/raw-audio-processor.js',
+                audioConcatProcessor: '/static/vendor/worklets/audio-concat-processor.js',
+            });
+        } finally {
+            cleanup();
+        }
+    });
 });
 
 describe('features/elevenlabs-call.js — sendPhoto', () => {
