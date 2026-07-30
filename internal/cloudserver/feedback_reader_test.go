@@ -87,6 +87,47 @@ func TestFeedbackQueue_TokenGate(t *testing.T) {
 	}
 }
 
+// TestFeedbackQueue_NewestFirstSoTheAnnouncedItemIsReachable: the per-account
+// cap does not bound the queue globally, so an oldest-first window would push
+// the item the DM just announced past the limit once enough rows sit undrained.
+// The reader must always show it — and show it first.
+func TestFeedbackQueue_NewestFirstSoTheAnnouncedItemIsReachable(t *testing.T) {
+	store, _ := setupStoreWithDB(t)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), nil, "", false, false)
+	h.SetFeedbackReader(NewFeedbackReaderAPI(store))
+
+	ctx := context.Background()
+	base := time.Now().UTC().Add(-24 * time.Hour)
+	// More rows than one response can carry, spread across accounts so the
+	// per-account cap never trips.
+	for i := 0; i < feedbackQueueLimit+5; i++ {
+		account, _ := setupInvite(t, store)
+		if _, err := store.AppendFeedback(ctx, account.ID, "cid", "bug", "1.2.3",
+			[]byte("blob"), base.Add(time.Duration(i)*time.Minute)); err != nil {
+			t.Fatalf("seed %d: %v", i, err)
+		}
+	}
+	newest, _ := setupInvite(t, store)
+	if _, err := store.AppendFeedback(ctx, newest.ID, "cid", "just-arrived", "9.9.9",
+		[]byte("blob"), time.Now().UTC()); err != nil {
+		t.Fatalf("append newest: %v", err)
+	}
+
+	token := mintToken(t, store, time.Now().UTC(), feedbackReaderTokenTTL)
+	var body struct {
+		Items []feedbackQueueItem `json:"items"`
+	}
+	if err := json.Unmarshal(getQueue(t, h, token).Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Items) != feedbackQueueLimit {
+		t.Fatalf("got %d items, want the %d-row cap", len(body.Items), feedbackQueueLimit)
+	}
+	if body.Items[0].Kind != "just-arrived" {
+		t.Fatalf("the just-announced item is not first: %+v", body.Items[0])
+	}
+}
+
 // TestFeedbackQueue_NoAccountID: web feedback is anonymous, and this endpoint
 // must not be the thing that de-anonymizes it. Asserted on the RAW JSON, not the
 // struct, so an added field can't slip past a typed decode.

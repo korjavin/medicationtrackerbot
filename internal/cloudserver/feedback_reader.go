@@ -40,7 +40,10 @@ const (
 	feedbackAgeVendorPath = "/static/vendor/age.min.js"
 
 	// feedbackQueueLimit bounds one queue response — the same ceiling as the
-	// per-account queue cap, so a full queue still renders in one page.
+	// per-account queue cap, so one account's full queue still renders in one
+	// page. The queue is NOT globally bounded by that cap, which is why the read
+	// is newest-first (ListRecentFeedback): past this many undrained rows an
+	// oldest-first window would hide the very item the DM announced.
 	feedbackQueueLimit = 100
 )
 
@@ -49,7 +52,7 @@ const (
 // Telegram ping does) and, until med-rbl.3, cannot delete either.
 type feedbackReaderStore interface {
 	FeedbackReaderTokenValid(ctx context.Context, tokenHash []byte, now time.Time) (bool, error)
-	ListFeedback(ctx context.Context, limit int) ([]cloudstore.FeedbackItem, error)
+	ListRecentFeedback(ctx context.Context, limit int) ([]cloudstore.FeedbackItem, error)
 }
 
 // feedbackReaderMinter is the write half, used by the Telegram ping path only.
@@ -126,7 +129,7 @@ func (a *FeedbackReaderAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items, err := a.store.ListFeedback(r.Context(), feedbackQueueLimit)
+	items, err := a.store.ListRecentFeedback(r.Context(), feedbackQueueLimit)
 	if err != nil {
 		slog.Error("feedback reader: list queue", "error", err)
 		http.Error(w, "server error", http.StatusInternalServerError)

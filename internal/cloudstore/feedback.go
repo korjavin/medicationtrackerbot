@@ -87,9 +87,26 @@ func (r *Repo) AppendFeedback(ctx context.Context, accountID, clientID, kind, ap
 // ListFeedback returns queued items oldest-first, bounded by limit — the drain
 // order for the med-dni.4 developer CLI.
 func (r *Repo) ListFeedback(ctx context.Context, limit int) ([]FeedbackItem, error) {
+	return r.listFeedback(ctx, "ASC", limit)
+}
+
+// ListRecentFeedback returns queued items NEWEST-first, bounded by limit — the
+// read order for the browser reader page (bd med-rbl.1). The direction matters:
+// the per-account cap does not bound the queue globally, so once more than
+// `limit` rows are undrained the oldest-first order would push the item the
+// Telegram DM just announced off the end of the window, and the reader has no
+// pagination and (until med-rbl.3) no way to drain. Newest-first makes the
+// announced item always the first one on the page.
+func (r *Repo) ListRecentFeedback(ctx context.Context, limit int) ([]FeedbackItem, error) {
+	return r.listFeedback(ctx, "DESC", limit)
+}
+
+// order is one of the two literals above — never caller input — so it is safe to
+// interpolate; SQLite takes no placeholder in an ORDER BY direction.
+func (r *Repo) listFeedback(ctx context.Context, order string, limit int) ([]FeedbackItem, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, account_id, client_id, kind, app_version, ciphertext, created_at_unix
-		 FROM feedback_queue ORDER BY created_at_unix ASC, id ASC LIMIT ?`, limit)
+		 FROM feedback_queue ORDER BY created_at_unix `+order+`, id `+order+` LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
