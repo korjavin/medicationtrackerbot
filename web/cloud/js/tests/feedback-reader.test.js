@@ -18,6 +18,7 @@ import {
   MSG,
   QUEUE_URL,
   TOKEN_HEADER,
+  ackItems,
   decryptAll,
   mount,
   readToken,
@@ -67,6 +68,7 @@ function seedPage() {
         <button id="fr-decrypt" type="button">Decrypt</button>
       </div>
       <p id="fr-error" class="wizard-error"></p>
+      <button id="fr-ack-all" class="secondary" type="button" hidden>Delete all read</button>
       <ul id="fr-items" class="fr-list"></ul>
     </main>`;
 }
@@ -82,16 +84,39 @@ async function waitFor(cond, tries = 200) {
 }
 
 // queueResponder returns a fetch stub that answers the queue endpoint with the
-// given items and records the requests it saw.
-function queueResponder(items, status = 200) {
+// given items, serves the DELETE (ack) half, and records the requests it saw —
+// including every id the page asked to delete, which is what the ordering rule
+// is asserted against.
+function queueResponder(items, status = 200, { ackOk = true } = {}) {
   const calls = [];
+  const acked = [];
   const fn = vi.fn(async (url, init) => {
     calls.push({ url, init });
+    if ((init?.method || 'GET') === 'DELETE') {
+      if (!ackOk) return { ok: false, status: 401, json: async () => ({}) };
+      const ids = JSON.parse(init.body).ids;
+      acked.push(...ids);
+      return { ok: true, status: 200, json: async () => ({ deleted: ids.length }) };
+    }
     if (status !== 200) return { ok: false, status, json: async () => ({}) };
     return { ok: true, status: 200, json: async () => ({ items }) };
   });
   fn.calls = calls;
+  fn.acked = acked;
   return fn;
+}
+
+// decryptedPage mounts the reader with the given items and decrypts them, so an
+// ack test starts from the only state in which acking is legal: rendered.
+async function decryptedPage(items, opts) {
+  const fetchStub = queueResponder(items, 200, opts);
+  vi.stubGlobal('fetch', fetchStub);
+  window.location.hash = '#t=live';
+  await mount();
+  q('#fr-key').value = identity;
+  click(q('#fr-decrypt'));
+  await waitFor(() => document.querySelectorAll('#fr-items .fr-item').length === items.length);
+  return fetchStub;
 }
 
 beforeEach(() => {
@@ -300,6 +325,19 @@ describe('mount', () => {
     expect(q('#fr-error').textContent).toBe(MSG.needKey);
   });
 
+  it('offers nothing to delete before anything has been decrypted', async () => {
+    const items = [item(1, await encryptDoc({ v: 1, text: 'hi', attachments: [] }))];
+    vi.stubGlobal('fetch', queueResponder(items));
+    window.location.hash = '#t=live';
+
+    await mount();
+
+    // The queue is loaded but still ciphertext: acking now would delete
+    // feedback nobody has read.
+    expect(q('#fr-ack-all').hidden).toBe(true);
+    expect(document.querySelectorAll('#fr-items button')).toHaveLength(0);
+  });
+
   it('clears the key field when the page is hidden', async () => {
     vi.stubGlobal('fetch', queueResponder([]));
     window.location.hash = '#t=live';
@@ -308,6 +346,112 @@ describe('mount', () => {
     q('#fr-key').value = 'AGE-SECRET-KEY-1SOMETHING';
     window.dispatchEvent(new window.Event('pagehide'));
 
+    expect(q('#fr-key').value).toBe('');
+  });
+});
+
+// The ack half (bd med-rbl.3). The rule these tests exist to pin, copied from
+// cmd/feedbackpull's run(): an item is only ever deleted AFTER its plaintext has
+// decrypted and rendered. feedbackpull writes the rendered item before acking so
+// a failed write cannot destroy the only copy of the feedback; the page cannot
+// delegate that to the server, which never sees plaintext, so it has to hold the
+// property itself.
+describe('ack', () => {
+  // Two readable items around one that will never decrypt.
+  async function mixedItems() {
+    return [
+      item(1, await encryptDoc({ v: 1, text: 'readable one', attachments: [] })),
+      item(2, 'bm90IGFuIGFnZSBmaWxlIGF0IGFsbA=='),
+      item(3, await encryptDoc({ v: 1, text: 'readable two', attachments: [] })),
+    ];
+  }
+
+  it('sends the ack with the token in the header, ids in the body, nothing in the URL', async () => {
+    const fetchStub = queueResponder([]);
+    vi.stubGlobal('fetch', fetchStub);
+
+    expect(await ackItems('secret-token', [7, 9])).toBe(true);
+
+    const { url, init } = fetchStub.calls[0];
+    expect(init.method).toBe('DELETE');
+    expect(url).toBe(QUEUE_URL);
+    expect(url).not.toContain('secret-token');
+    expect(url).not.toContain('7');
+    expect(init.headers[TOKEN_HEADER]).toBe('secret-token');
+    expect(JSON.parse(init.body)).toEqual({ ids: [7, 9] });
+  });
+
+  it('refuses to send an empty ack — an empty list must never mean "drain everything"', async () => {
+    const fetchStub = queueResponder([]);
+    vi.stubGlobal('fetch', fetchStub);
+
+    expect(await ackItems('live', [])).toBe(false);
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it('gives an item that failed to decrypt no delete control at all', async () => {
+    await decryptedPage(await mixedItems());
+
+    const rendered = document.querySelectorAll('#fr-items .fr-item');
+    expect(rendered[0].querySelector('button')).not.toBeNull();
+    // Structurally unackable, not merely discouraged: there is no control to press.
+    expect(rendered[1].querySelector('button')).toBeNull();
+    expect(rendered[2].querySelector('button')).not.toBeNull();
+  });
+
+  it('deletes only the item whose button was pressed', async () => {
+    const fetchStub = await decryptedPage(await mixedItems());
+
+    click(document.querySelectorAll('#fr-items .fr-item')[0].querySelector('button'));
+    await waitFor(() => document.querySelectorAll('#fr-items .fr-item').length === 2);
+
+    expect(fetchStub.acked).toEqual([1]);
+    const left = document.querySelectorAll('#fr-items .fr-item');
+    expect(left).toHaveLength(2);
+    expect(left[0].querySelector('.wizard-error').textContent).toBe(MSG.itemDecrypt);
+    expect(left[1].querySelector('.fr-text').textContent).toBe('readable two');
+    // The batch button now offers one fewer item.
+    expect(q('#fr-ack-all').textContent).toContain('1');
+  });
+
+  it('delete-all acks every READ item and leaves the unreadable one queued', async () => {
+    const fetchStub = await decryptedPage(await mixedItems());
+    expect(q('#fr-ack-all').hidden).toBe(false);
+
+    click(q('#fr-ack-all'));
+    await waitFor(() => document.querySelectorAll('#fr-items .fr-item').length === 1);
+
+    // Item 2 never decrypted, so it is not in the request and stays on screen.
+    expect(fetchStub.acked).toEqual([1, 3]);
+    const left = document.querySelectorAll('#fr-items .fr-item');
+    expect(left).toHaveLength(1);
+    expect(left[0].querySelector('.wizard-error').textContent).toBe(MSG.itemDecrypt);
+    expect(left[0].querySelector('button')).toBeNull();
+    expect(q('#fr-ack-all').hidden).toBe(true);
+  });
+
+  it('keeps the item on screen and says so when the delete is rejected', async () => {
+    const fetchStub = await decryptedPage(await mixedItems(), { ackOk: false });
+
+    click(document.querySelectorAll('#fr-items .fr-item')[0].querySelector('button'));
+    await waitFor(() => q('#fr-error').textContent !== '');
+
+    expect(q('#fr-error').textContent).toBe(MSG.ackFailed);
+    expect(fetchStub.acked).toEqual([]);
+    // Nothing vanished on a failed ack: the developer can retry or fall back to
+    // cmd/feedbackpull, and the plaintext is still on the page.
+    expect(document.querySelectorAll('#fr-items .fr-item')).toHaveLength(3);
+    expect(q('#fr-ack-all').textContent).toContain('2');
+  });
+
+  it('never puts the pasted key on the ack request', async () => {
+    const fetchStub = await decryptedPage(await mixedItems());
+
+    click(q('#fr-ack-all'));
+    await waitFor(() => fetchStub.acked.length > 0);
+
+    const wire = JSON.stringify(fetchStub.calls);
+    expect(wire).not.toContain(identity);
     expect(q('#fr-key').value).toBe('');
   });
 });

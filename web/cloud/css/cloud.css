@@ -294,6 +294,15 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* Per-item ack. Deliberately quiet and small: it sits under every readable item,
+   so at the wizard-action size it would shout louder than the feedback itself.
+   Scoped to .wizard-step so it beats `.wizard-step button` on specificity. */
+.wizard-step .fr-ack {
+  margin-top: 0.5rem;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.85rem;
+}
+
 .fr-attachment {
   display: block;
   max-width: 100%;

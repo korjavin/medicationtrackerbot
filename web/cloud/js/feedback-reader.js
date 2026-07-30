@@ -66,6 +66,8 @@ export const MSG = {
   itemDecrypt: 'Could not decrypt this item with that key.',
   itemParse: 'Decrypted, but the contents are not readable as a feedback document.',
   itemVersion: 'Decrypted, but this is a newer document format than this page understands.',
+  ackFailed: 'Could not delete — nothing was removed. The link may have expired; reopen it from the message.',
+  allAcked: 'Queue drained. Everything readable has been deleted.',
 };
 
 // readToken(hash) -> the capability token carried in the URL fragment, '' when
@@ -98,6 +100,31 @@ export async function fetchQueue(token) {
   } catch {
     return { ok: false, status: res.status, items: [] };
   }
+}
+
+// ackItems(token, ids) -> true when the server accepted the delete (bd
+// med-rbl.3). Same capability token as the read, in the same header.
+//
+// Callers must pass only ids whose plaintext is already on the screen. That
+// ordering is cmd/feedbackpull's rule (run() writes the rendered item before it
+// acks, so a failed write cannot destroy the only copy of the feedback) and it
+// has to be enforced HERE: the server never sees plaintext, so it cannot check
+// that anything was read. renderResults makes it structural by only ever
+// attaching an ack control to an item that decrypted.
+export async function ackItems(token, ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return false;
+  let res;
+  try {
+    res = await fetch(QUEUE_URL, {
+      method: 'DELETE',
+      headers: { [TOKEN_HEADER]: token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+      cache: 'no-store',
+    });
+  } catch {
+    return false;
+  }
+  return !!res.ok;
 }
 
 // decryptAll(items, identity) -> [{ item, doc }] | [{ item, error }] per input,
@@ -193,7 +220,12 @@ function renderAttachment(att) {
 
 // renderResults paints the decrypt results into the list, replacing whatever was
 // there. textContent everywhere — feedback text is untrusted user input.
-export function renderResults(list, results) {
+//
+// onAck(item, li), when supplied, adds a per-item delete control — but ONLY to
+// an item that decrypted and painted. An item that failed gets no control at
+// all, so "never ack what the developer has not seen" is a property of the
+// markup rather than a rule someone has to remember (bd med-rbl.3).
+export function renderResults(list, results, onAck) {
   if (!list) return;
   list.replaceChildren();
   for (const res of results) {
@@ -222,6 +254,19 @@ export function renderResults(list, results) {
     for (const att of Array.isArray(res.doc.attachments) ? res.doc.attachments : []) {
       li.append(renderAttachment(att));
     }
+    if (onAck) {
+      const ack = document.createElement('button');
+      ack.type = 'button';
+      ack.className = 'secondary fr-ack';
+      ack.textContent = 'Delete';
+      ack.addEventListener('click', () => {
+        ack.disabled = true;
+        Promise.resolve(onAck(res.item, li))
+          .catch(() => {})
+          .then(() => { ack.disabled = false; });
+      });
+      li.append(ack);
+    }
     list.append(li);
   }
 }
@@ -234,6 +279,7 @@ export async function mount() {
   const keyRow = el('fr-key-row');
   const keyInput = el('fr-key');
   const button = el('fr-decrypt');
+  const ackAll = el('fr-ack-all');
   const list = el('fr-items');
 
   const token = readToken(window.location.hash);
@@ -266,6 +312,45 @@ export async function mount() {
   setText(status, `${items.length} item${items.length === 1 ? '' : 's'} waiting. The key is used here only — it is never sent to the server.`);
   if (keyRow) keyRow.hidden = false;
 
+  // Ack state: the ids currently on screen WITH their plaintext visible, and
+  // the results they came from. Nothing else is ever eligible for deletion.
+  let readIds = [];
+  let lastResults = [];
+
+  const refreshAckAll = () => {
+    if (!ackAll) return;
+    ackAll.hidden = readIds.length === 0;
+    ackAll.textContent = `Delete all ${readIds.length} read`;
+  };
+
+  const ackOne = async (it, li) => {
+    setText(error, '');
+    if (!(await ackItems(token, [it.id]))) {
+      setText(error, MSG.ackFailed);
+      return;
+    }
+    li.remove();
+    readIds = readIds.filter((id) => id !== it.id);
+    refreshAckAll();
+  };
+
+  const ackRead = async () => {
+    if (readIds.length === 0) return;
+    setText(error, '');
+    if (!(await ackItems(token, readIds))) {
+      setText(error, MSG.ackFailed);
+      return;
+    }
+    readIds = [];
+    // Repaint with only the items that did NOT decrypt. They were never read,
+    // so they were never acked, and they must stay on screen (and in the queue)
+    // for cmd/feedbackpull to look at.
+    const stuck = lastResults.filter((r) => r.error);
+    renderResults(list, stuck);
+    refreshAckAll();
+    setText(status, stuck.length === 0 ? MSG.allAcked : `${stuck.length} item${stuck.length === 1 ? '' : 's'} could not be read — left in the queue.`);
+  };
+
   const decrypt = async () => {
     if (!keyInput) return;
     // Read and clear in one step, so the DOM stops holding the key immediately.
@@ -278,7 +363,10 @@ export async function mount() {
     setText(error, '');
     try {
       const results = await decryptAll(items, identity);
-      renderResults(list, results);
+      lastResults = results;
+      readIds = results.filter((r) => r.doc).map((r) => r.item.id);
+      renderResults(list, results, ackOne);
+      refreshAckAll();
       setText(status, `${results.length} item${results.length === 1 ? '' : 's'}.`);
     } catch (err) {
       // Only our own fixed messages reach the DOM (decryptAll throws MSG.badKey
@@ -290,6 +378,7 @@ export async function mount() {
   };
 
   if (button) button.addEventListener('click', () => { decrypt().catch(() => {}); });
+  if (ackAll) ackAll.addEventListener('click', () => { ackRead().catch(() => {}); });
   if (keyInput) {
     keyInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') decrypt().catch(() => {});
