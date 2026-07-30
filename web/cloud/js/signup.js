@@ -17,7 +17,7 @@ import {
   toBase64,
 } from './crypto.js';
 import { establishLdkCache } from './unlock.js';
-import { isIOS, isStandalone, iosInstallStepsHtml } from './push.js';
+import { isIOS, isMobile, isStandalone, iosInstallStepsHtml } from './push.js';
 
 const EXPIRED_LINK_MESSAGE = 'Could not start passkey registration — the invite link may be expired.';
 
@@ -478,16 +478,21 @@ async function renderTelegramStep(app, ctx) {
   }
 }
 
-// Wizard step 6: platform-aware "Add to Home Screen". Installing the PWA is what
-// makes iOS web push work at all — Safari only delivers push to an installed
-// app, so a user who finishes signup and never installs gets no reminders
-// (med-v1z). It also improves push reliability + engagement on Android/desktop,
-// so every non-standalone user is nudged, not just iOS. Derived state per
-// docs/cloud-mode.md: already running standalone means it's installed, so skip
-// straight through with no dead step. Never blocks — a "Skip for now" path
-// always reaches the app, with the reactive Reminders-screen gate as fallback.
+// Wizard step 6: platform-aware "install & reopen". It is the last step before
+// the app, i.e. immediately before anything arms reminders — the exact point
+// where staying in a browser tab silently breaks push (med-v1z, bd med-eas.63).
+//
+// There is deliberately NO auto-redirect into the installed app: iOS exposes no
+// API to open one, and Android's `beforeinstallprompt` only offers to install,
+// never a handoff. Guiding is the whole of what the platform allows.
+//
+// Shown only when it can matter: a non-standalone MOBILE browser. Already
+// standalone means installed (skip, no dead step); desktop delivers push to a
+// plain tab, so nudging there is nagging. Never blocks — "Continue in browser
+// anyway" always reaches the app, with the reactive Reminders-screen gate and
+// Settings' iOS hint as fallbacks.
 function renderInstallStep(app, ctx) {
-  if (isStandalone()) {
+  if (isStandalone() || !isMobile()) {
     enterApp(ctx);
     return;
   }
@@ -495,33 +500,46 @@ function renderInstallStep(app, ctx) {
     renderIOSInstallStep(app, ctx);
     return;
   }
-  renderGenericInstallStep(app, ctx);
+  renderAndroidInstallStep(app, ctx);
 }
 
+// iOS gets the blunt truth: web push in a Safari tab is not degraded, it is
+// absent. Reopening the installed app is a fresh storage container, so the
+// wizard's progress cannot travel with it — the passkey can (platform keychain),
+// which is why the instructions end on "unlock with the same passkey" rather
+// than pretending the tab's session resumes. See docs/cloud-mode.md
+// ("The wizard is stateless").
 function renderIOSInstallStep(app, ctx) {
   app.innerHTML = `
     <section class="wizard-step">
       <h1>Add to your Home Screen</h1>
-      <p>Install Med Tracker to your Home Screen so reminders can reach you —
-         iOS only delivers notifications to an installed app.</p>
-      ${iosInstallStepsHtml('Open Med Tracker from your Home Screen — your reminders will work from there.')}
+      <p>Reminders cannot reach you in this browser tab. iOS delivers
+         notifications only to an installed app — in Safari, Med Tracker cannot
+         notify you at all.</p>
+      ${iosInstallStepsHtml('Open Med Tracker from your Home Screen and unlock with the same passkey — everything you set up here is already saved.')}
       <button id="install-continue">I've installed it</button>
-      <button id="install-skip" class="secondary">Skip for now</button>
+      <button id="install-skip" class="secondary">Continue in browser anyway</button>
+      <p class="muted">You can install later from Safari's Share menu — until
+         you do, no reminders will arrive on this device.</p>
     </section>`;
   app.querySelector('#install-continue').addEventListener('click', () => enterApp(ctx));
   app.querySelector('#install-skip').addEventListener('click', () => enterApp(ctx));
 }
 
-function renderGenericInstallStep(app, ctx) {
+// Android push DOES work from a browser tab — Chrome delivers to the service
+// worker with the tab closed. Saying otherwise to make the install look
+// necessary would be a lie, so this asks rather than warns.
+function renderAndroidInstallStep(app, ctx) {
   const hasPrompt = !!deferredInstallPrompt;
   app.innerHTML = `
     <section class="wizard-step">
       <h1>Add to your Home Screen</h1>
-      <p>Install Med Tracker for reliable reminders and one-tap access.</p>
+      <p>Installing gives you a home-screen icon and a full-screen app.
+         Reminders work in Chrome either way, so this one is up to you.</p>
       ${hasPrompt
         ? '<button id="install-now">Add to Home Screen</button>'
         : '<p>Open your browser menu and choose “Install app” / “Add to Home Screen”.</p>'}
-      <button id="install-skip" class="secondary">Skip for now</button>
+      <button id="install-skip" class="secondary">Continue in browser anyway</button>
     </section>`;
   app.querySelector('#install-skip').addEventListener('click', () => enterApp(ctx));
   const now = app.querySelector('#install-now');

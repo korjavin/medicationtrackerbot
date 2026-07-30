@@ -18,9 +18,12 @@ vi.mock('../telegram.js', () => ({ mountTelegram: async (_app, { onDone }) => on
 // window-based probe; report standalone so it auto-skips (this env has no
 // window) — the install step's own behavior is covered in
 // signup.install-step.test.js.
+// Every export signup.js imports must be present: a factory mock throws on a
+// missing one, and `isStandalone() || !isMobile()` only short-circuits by luck.
 vi.mock('../push.js', () => ({
   isStandalone: () => true,
   isIOS: () => false,
+  isMobile: () => false,
   iosInstallStepsHtml: () => '',
 }));
 
