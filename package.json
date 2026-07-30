@@ -6,7 +6,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "privacy:docs": "node scripts/gen-privacy-docs.mjs"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^3.2.7",

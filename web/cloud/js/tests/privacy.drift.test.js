@@ -3,6 +3,14 @@
 // asks for: every Signal row in the doc has a matching privacy item, and every
 // doc-tied privacy item names a real doc row. Add a leakage row to the doc and
 // this fails until it is added to the page, and vice versa.
+//
+// med-yor.4: PRIVACY_ITEMS is now DERIVED from web/cloud/js/privacy-manifest.js,
+// so `docSignal` no longer decides whether an item is machine-checked at all —
+// it only decides whether the item is cross-checked against this particular doc
+// table (the metadata-only rows). Every manifest entry, docSignal or not, is
+// coverage-checked against the real egress call sites and rendered into the
+// generated boundary table by architecture.privacy-claims.test.js. That is what
+// closed the "docSignal: null escapes every guard" hole the audit found.
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
