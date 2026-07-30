@@ -505,12 +505,20 @@ function progressionPatch(exercise, sets, reps, weight, perSet, goal) {
   }
 
   // double progression
-  const min = pos(rule.min_reps) ?? pos(exercise.target_reps_min) ?? band.reps_min;
-  const maxRaw = pos(rule.max_reps) ?? pos(exercise.target_reps_max) ?? pos(exercise.target_reps_min) ?? band.reps_max;
-  // A goal band floor above an explicit ceiling (e.g. a 6-rep exercise on the
-  // hypertrophy band's floor of 8) would otherwise reset prescribed reps above
-  // the window's own top.
-  const max = Math.max(min, maxRaw);
+  const minSet = pos(rule.min_reps) ?? pos(exercise.target_reps_min);
+  const maxSet = pos(rule.max_reps) ?? pos(exercise.target_reps_max) ?? pos(exercise.target_reps_min);
+  let min = minSet ?? band.reps_min;
+  let max = maxSet ?? band.reps_max;
+  // The two can cross when only ONE end was set and the goal band supplied the
+  // other (e.g. an explicit 6-rep ceiling with no floor, on hypertrophy's floor
+  // of 8). The band-derived end always yields — an explicit target must never be
+  // rewritten by a default. Both explicit and crossed can't reach here
+  // (anchorDoubleWindow rejects an inverted window at persist time); the else is
+  // a defensive tie-break.
+  if (min > max) {
+    if (minSet === null) min = max;
+    else max = min;
+  }
   if (stats.minReps >= max) {
     // Reps maxed but not near failure → no load bump, no rep reset: the plan
     // stands and the user gets the effort nudge instead.

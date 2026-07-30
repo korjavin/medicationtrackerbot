@@ -984,6 +984,24 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(target.target_weight_kg).toBe(60);
     });
 
+    it('progression double: the goal band never raises an explicit rep ceiling', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        // Ceiling set (6), floor left unset — hypertrophy's band floor is 8, so a
+        // naive fill would push the window to 8 and strand the user's own target.
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 0, target_reps_max: 6, target_weight_kg: 60, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 5 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        await logAllSetsAtRpe(window, sessionId, ex.id, 'Bench', 6, 60, 3, 10);
+        const target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_reps_max).toBe(6);
+        expect(target.target_weight_kg).toBe(65);
+    });
+
     it('progression: an exercise with no rep target falls back to the goal band, never "reps >= 0"', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);
