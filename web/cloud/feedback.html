@@ -27,6 +27,9 @@
       <button id="fr-decrypt" type="button">Decrypt</button>
     </div>
     <p id="fr-error" class="wizard-error"></p>
+    <!-- Shown only once something has decrypted AND painted: acking an item the
+         developer has not actually read is the one thing this must not do. -->
+    <button id="fr-ack-all" class="secondary" type="button" hidden>Delete all read</button>
     <ul id="fr-items" class="fr-list"></ul>
   </main>
   <script src="/js/feedback-reader.js" type="module"></script>
