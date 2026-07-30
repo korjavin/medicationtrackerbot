@@ -154,6 +154,109 @@ The device-list UI (`web/cloud/js/devices.js`) is reachable from the Settings sc
 - Orphaned envelopes (user deleted the passkey at the OS level): harmless ciphertext; the device-list UI surfaces credentials that haven't asserted in N days for cleanup.
 - Malicious/unverified envelopes: the device-list UI recomputes each envelope's `mac` with `K_mac` (available on any unlocked device) and renders **unverified — remove?** for any that fail — the client-side defense against a server or attacker inserting a credential it can't produce a valid MAC for (see Security analysis).
 
+## Local-only passkey (POC — bd med-eas.2.1, NOT cleared for rollout)
+
+**Status: proof of concept, off by default, no production rollout authorized.**
+Enabled only when the operator sets `CLOUD_LOCAL_ONLY_PASSKEY_POC=1`. With the
+flag unset — every deployment today — the server rejects every local-only
+registration, `GET /api/version` omits the capability key, and no client renders
+the affordance. Existing accounts are untouched: `credentials.key_mode` defaults
+to `'prf'` and every existing code path is unchanged.
+
+The mode exists to validate the architecture decision in
+[2026-07-13-cloud-prf-compatibility-research.md](2026-07-13-cloud-prf-compatibility-research.md)
+for authenticators that can register and assert passkeys but cannot evaluate the
+`prf` extension (the Bitwarden browser-extension adapter is the documented
+example). PRF remains the default and preferred path, and its immediate-assertion
+probe is unchanged: `create()` is still followed by a `get()` whose 32-byte PRF
+output is required before `register/finish` is called.
+
+What the mode is:
+
+- an ordinary WebAuthn credential provides **server authentication only**;
+- the DEK is wrapped by the existing device-local non-extractable **LDK** and by
+  the **recovery code**;
+- the credential has **no envelope at all** — nothing server-side wraps the DEK
+  for it, and no key share, XOR split, passphrase KEK, or low-entropy verifier is
+  added anywhere (the research doc's server/client split is explicitly rejected);
+- the credential's mode is **stored explicitly** (`credentials.key_mode`), never
+  inferred from a missing envelope — which would be indistinguishable from an
+  operator withholding a real one.
+
+What the mode costs — stated to the user *before* they commit, on a dedicated
+screen with an acknowledgement gate:
+
+- clearing this browser's site data loses the local DEK copy;
+- opening the account in another browser, a private window, or on another device
+  does not work, **even with a synced passkey**;
+- the **Emergency Kit is mandatory**, not encouraged: it is the only server-side
+  route back to the DEK. A trusted-device transfer from a still-unlocked device
+  is the other.
+
+Enrollment ordering is the security-relevant part, and it is strict:
+
+1. generate the DEK, wrap it with a fresh LDK, **reopen IndexedDB and unwrap it
+   back** — a browser that silently drops the record fails here, before anything
+   irreversible;
+2. mint the recovery code and wrap the DEK under `KEK_rec`;
+3. render the Emergency Kit and require a real download or print;
+4. only then call `register/finish`, which persists **credential + recovery
+   envelope + verifier in one transaction** (`ClaimAndAddLocalOnlyCredential`).
+
+Any failure before step 4 leaves the invite claim unspent. Retry restarts the
+ceremony from `register/begin`: the WebAuthn challenge is single-use with a
+5-minute TTL, so the created credential and its attestation are spent whatever
+the finish returned. `navigator.storage.persist()` is requested best-effort; the
+read-back check is what actually gates.
+
+**Emergency Kit redemption also works local-only**, which is what makes the
+"your Emergency Kit is the way back" promise keepable on the authenticators this
+mode targets. `recover.js` opts `enrollWithToken` into the same warned fallback,
+and `register/finish` accepts `key_mode: "local_only"` through the enrollment
+gate — carrying no recovery material (that would burn the code the user just
+typed; `recover.js` rotates it deliberately right afterwards) and only when the
+store confirms, inside the transaction, that the account already has a usable
+recovery envelope + verifier. `devices.js` likewise falls back to the
+already-unlocked screen's DEK when the rotation ceremony's assertion comes back
+local-only, so a local-only account can still rotate the code that is its only
+backup.
+
+Deliberate POC scope limits:
+
+- **The session gate refuses `local_only`.** An already-unlocked device can open
+  the vault; a local-only sibling credential buys nothing and only muddies the
+  device list.
+- **Device transfer (Path B) does not offer the fallback in the UI.** That flow
+  ends by navigating into the app with no Emergency Kit step, so there is no
+  moment to state what the mode costs. The server would accept it (the recovery
+  invariant is the same), but no client asks.
+- **`DeleteCredentialWithEnvelope` counts only PRF credentials** when enforcing
+  the never-strand-the-account guard: a local-only credential authenticates but
+  is not a server-side unwrap path, so it cannot stand in for one.
+- **The device list renders local-only credentials as a limitation**
+  ("local-only — key not backed up on the server"), not as the
+  "unverified — remove?" audit alarm. The envelope audit is unchanged for PRF
+  credentials.
+- **Strict mode (no LDK) is incompatible** with this credential type. Strict mode
+  is not implemented yet; whichever lands second must handle the interaction.
+
+Honest residuals this POC does **not** close:
+
+- **IndexedDB eviction still forces recovery.** No web API can promise
+  durability; `persist()` only reduces the odds.
+- **A stolen local-only passkey grants a session** — destructive capability over
+  ciphertext (sync writes, device revocation, egress-host registration) with no
+  read capability. A different risk shape from a PRF credential, not a smaller one.
+- **The 5-minute WebAuthn challenge TTL is in tension with the mandatory
+  save-your-kit gate.** A user who takes longer than that at the Emergency Kit
+  screen loses the ceremony and has to start over (invite intact, orphan passkey
+  left on the authenticator). Shipping this would need either a longer TTL for
+  this mode or a different ordering, and the ordering is what buys the atomicity.
+- **Whether users actually understand that a synced passkey will not recover
+  their vault on a fresh device** is a UX-research question the code cannot
+  answer. Per the research doc, a negative answer means retaining PRF-only policy.
+- **Strict mode**, when it lands, must reject this credential type explicitly.
+
 ## The push key (NK) — why it exists
 
 Push arrives at the service worker in the background: **no user gesture, no WebAuthn possible**. Rich reminder text therefore cannot be gated on a passkey ceremony. NK is the deliberate, documented compromise:

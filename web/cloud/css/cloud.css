@@ -224,6 +224,11 @@ body {
   font-weight: bold;
 }
 
+/* bd med-eas.2.1 POC — a deliberate limitation, not an anomaly: caution, not alarm. */
+.device-local-only {
+  color: var(--wg-sun-soft);
+}
+
 .sync-status {
   color: var(--wg-fg-3);
   font-size: 0.9rem;

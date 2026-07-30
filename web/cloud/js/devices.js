@@ -131,7 +131,21 @@ async function rotateEmergencyKit(app, ctx, onDone) {
   // ceremony also hands back the DEK, so the rotation re-wraps the key the
   // authenticator just proved this user can reach.
   const { assertPasskey } = await import('./unlock.js');
-  const { accountId, dek } = await assertPasskey();
+  let accountId;
+  let dek;
+  try {
+    ({ accountId, dek } = await assertPasskey());
+  } catch (err) {
+    // A local-only credential (bd med-eas.2.1 POC) asserts and verifies
+    // server-side exactly like any other — it simply has no envelope to unwrap.
+    // Proof of presence is what this gate is for, and that much did happen, so
+    // rotate against the DEK this already-unlocked screen holds. Without this,
+    // a local-only account could never rotate the recovery code that is its ONLY
+    // backup.
+    if (err?.name !== 'LocalOnlyPasskeyError') throw err;
+    accountId = err.accountId;
+    dek = ctx.dek;
+  }
   if (accountId !== ctx.accountId) {
     throw new Error('That passkey belongs to a different account.');
   }
@@ -153,9 +167,18 @@ function renderDeviceRow(app, ctx, onExit, d) {
   label.textContent = `Passkey ${d.credential_id.slice(0, 8)}… — added ${new Date(d.created_at).toLocaleDateString()}`;
   li.appendChild(label);
 
+  // A local-only credential (bd med-eas.2.1 POC) has no envelope by design, so
+  // the audit has nothing to check. Calling that "unverified — remove?" would
+  // be a false alarm on a credential the user deliberately chose — and would
+  // teach them to ignore the badge that flags a genuinely forged envelope.
   const badge = document.createElement('span');
-  badge.className = d.verified ? 'device-verified' : 'device-unverified';
-  badge.textContent = d.verified ? 'verified' : 'unverified — remove?';
+  if (d.key_mode === 'local_only') {
+    badge.className = 'device-local-only';
+    badge.textContent = 'local-only — key not backed up on the server';
+  } else {
+    badge.className = d.verified ? 'device-verified' : 'device-unverified';
+    badge.textContent = d.verified ? 'verified' : 'unverified — remove?';
+  }
   li.appendChild(badge);
 
   const revokeButton = document.createElement('button');

@@ -45,6 +45,13 @@ type deviceListItem struct {
 	// Envelope carries nonce+ct+mac (not just mac) so the client can recompute
 	// and verify the audit tag (docs/cloud-crypto.md envelope-audit MAC).
 	Envelope *envelopeWire `json:"envelope,omitempty"`
+	// KeyMode distinguishes a credential that legitimately has no envelope
+	// (cloudstore.KeyModeLocalOnly, bd med-eas.2.1 POC) from a PRF credential
+	// whose envelope is missing — which is the anomaly the audit badge exists to
+	// surface. Without it the device list flags every local-only passkey as
+	// "unverified — remove?", training users to ignore the one warning that
+	// matters.
+	KeyMode string `json:"key_mode"`
 }
 
 // ListDevices returns every credential registered for the caller's session
@@ -66,10 +73,15 @@ func (a *DeviceAPI) ListDevices(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]deviceListItem, 0, len(creds))
 	for _, c := range creds {
+		keyMode := c.KeyMode
+		if keyMode == "" {
+			keyMode = cloudstore.KeyModePRF
+		}
 		item := deviceListItem{
 			CredentialID:   base64.RawURLEncoding.EncodeToString(c.ID),
 			CreatedAt:      c.CreatedAt,
 			LastAssertedAt: c.LastAssertedAt,
+			KeyMode:        keyMode,
 		}
 		env, err := a.store.GetEnvelope(r.Context(), session.AccountID, item.CredentialID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {

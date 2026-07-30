@@ -38,5 +38,14 @@ func buildIDFrom(idx []byte) string {
 func (h *Handler) serveVersion(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	json.NewEncoder(w).Encode(map[string]string{"build_id": h.buildID})
+	body := map[string]any{"build_id": h.buildID}
+	// Omitted entirely when off, so the served JSON is byte-identical to what
+	// every deployment answers today. The unlock/signup shell reads it to decide
+	// whether the local-only-passkey POC affordance exists at all; the server
+	// enforces the same flag independently in WebAuthnAPI.validateKeyMode, so a
+	// client that lies about it gets a 403 rather than an account.
+	if h.localOnlyPasskeyPOC {
+		body["local_only_passkey_poc"] = true
+	}
+	json.NewEncoder(w).Encode(body)
 }

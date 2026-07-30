@@ -67,6 +67,13 @@ var ErrLastCredential = errors.New("cloudstore: cannot remove the account's last
 // minting a fresh credential + session.
 var ErrSourceCredentialRevoked = errors.New("cloudstore: source credential revoked")
 
+// ErrNoRecoveryMaterial is returned by RedeemLocalOnlyTransferToken when the
+// account has no usable recovery envelope + verifier. A local-only credential
+// is not a server-side unwrap path, so adding one to an account that has no
+// other way in would create exactly the stranded state the last-credential
+// guard exists to prevent.
+var ErrNoRecoveryMaterial = errors.New("cloudstore: account has no usable recovery material")
+
 // Account is one row in the accounts table. ClaimTokenHash/ClaimExpiresAt are
 // nil once the account has been claimed (first credential registered).
 type Account struct {
@@ -96,7 +103,25 @@ type Credential struct {
 	BackupState    bool
 	CreatedAt      time.Time
 	LastAssertedAt *time.Time
+	// KeyMode is how this credential reaches the DEK: KeyModePRF (the default
+	// and only production mode) or KeyModeLocalOnly (bd med-eas.2.1 POC). It is
+	// stored explicitly rather than inferred from envelope presence, so a
+	// missing envelope row is always an anomaly for a PRF credential and never
+	// silently reinterpreted as "this one is local-only".
+	KeyMode string
 }
+
+// Credential key modes. See docs/cloud-crypto.md "Local-only passkey (POC)".
+const (
+	// KeyModePRF: the credential's WebAuthn PRF output derives a KEK that
+	// unwraps a server-stored envelope. Every credential created before the POC
+	// migration, and every credential the default path creates.
+	KeyModePRF = "prf"
+	// KeyModeLocalOnly: the credential authenticates to the server but has NO
+	// envelope — the DEK is reachable only from this browser's LDK cache or the
+	// recovery code. POC only, gated behind an operator flag.
+	KeyModeLocalOnly = "local_only"
+)
 
 // Envelope is one row in the envelopes table — opaque ciphertext keyed by
 // account + credential ref (a credential id, or the literal "recovery").
@@ -485,6 +510,53 @@ func (r *Repo) ClaimAndAddCredential(ctx context.Context, subdomain string, toke
 	return account, nil
 }
 
+// ClaimAndAddLocalOnlyCredential is ClaimAndAddCredential's POC counterpart for
+// a KeyModeLocalOnly first credential (bd med-eas.2.1): it consumes the claim,
+// inserts the credential, and writes the RECOVERY envelope + its verifier — all
+// in one transaction. No per-credential envelope row is written, because a
+// local-only credential has no KEK and therefore nothing to wrap the DEK with.
+//
+// Bundling the recovery material into the same transaction is the whole point.
+// A local-only credential's only other copy of the DEK is the browser's LDK
+// cache, so an account that finished registration without recovery material
+// would be one cleared-site-data away from unrecoverable. Either everything
+// lands or the claim stays spendable and the client retries.
+//
+// The server still learns nothing that decrypts: it stores an envelope wrapped
+// under a 160-bit recovery code it has never seen, and the hash of a verifier
+// derived from that same code under a separate HKDF label.
+func (r *Repo) ClaimAndAddLocalOnlyCredential(ctx context.Context, subdomain string, tokenHash []byte, cred Credential, recEnv Envelope, verifierHash []byte, now time.Time) (*Account, error) {
+	var account *Account
+	err := r.db.WithTx(ctx, func(tx storedb.TX) error {
+		a, err := consumeClaimTx(ctx, tx, subdomain, tokenHash, now)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix, key_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, storedb.TimeToUnix(cred.CreatedAt), KeyModeLocalOnly); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO envelopes (account_id, credential_ref, v, nonce, ct, mac) VALUES (?, 'recovery', ?, ?, ?, ?)`,
+			cred.AccountID, recEnv.V, recEnv.Nonce, recEnv.CT, recEnv.MAC); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO recovery_auth (account_id, verifier_hash) VALUES (?, ?)
+			 ON CONFLICT(account_id) DO UPDATE SET verifier_hash = excluded.verifier_hash, failed_attempts = 0, window_start_unix = NULL`,
+			cred.AccountID, verifierHash); err != nil {
+			return err
+		}
+		account = a
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return account, nil
+}
+
 // SweepExpiredClaims deletes unclaimed accounts whose claim has expired,
 // freeing their subdomains. Called opportunistically on provisioning rather
 // than from a background job (ponytail: this service is invite-only and
@@ -626,7 +698,7 @@ func (r *Repo) AddCredential(ctx context.Context, cred Credential) error {
 // CredentialsByAccount returns every credential registered for an account.
 func (r *Repo) CredentialsByAccount(ctx context.Context, accountID string) ([]Credential, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix, last_asserted_at_unix FROM credentials WHERE account_id = ?`,
+		`SELECT id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix, last_asserted_at_unix, key_mode FROM credentials WHERE account_id = ?`,
 		accountID)
 	if err != nil {
 		return nil, err
@@ -641,7 +713,7 @@ func (r *Repo) CredentialsByAccount(ctx context.Context, accountID string) ([]Cr
 			createdUnix    int64
 			lastAssertedAt sql.NullInt64
 		)
-		if err := rows.Scan(&c.ID, &c.AccountID, &c.PublicKey, &c.Transports, &signCount, &c.BackupEligible, &c.BackupState, &createdUnix, &lastAssertedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.AccountID, &c.PublicKey, &c.Transports, &signCount, &c.BackupEligible, &c.BackupState, &createdUnix, &lastAssertedAt, &c.KeyMode); err != nil {
 			return nil, err
 		}
 		c.SignCount = uint32(signCount)
@@ -697,8 +769,14 @@ func (r *Repo) DeleteCredentialWithEnvelope(ctx context.Context, accountID strin
 		if n == 0 {
 			return sql.ErrNoRows
 		}
+		// Only PRF credentials count as a remaining server-side unwrap path. A
+		// KeyModeLocalOnly credential (bd med-eas.2.1 POC) can authenticate but
+		// has no envelope, so leaving one behind does NOT keep the account
+		// openable from anywhere but the browser profile that holds its LDK
+		// cache — counting it here would let the last real unwrap path be
+		// revoked with no recovery-material check.
 		var remaining int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM credentials WHERE account_id = ?`, accountID).Scan(&remaining); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM credentials WHERE account_id = ? AND key_mode = ?`, accountID, KeyModePRF).Scan(&remaining); err != nil {
 			return err
 		}
 		if remaining == 0 {
@@ -948,6 +1026,49 @@ func (r *Repo) AddCredentialWithEnvelope(ctx context.Context, sourceCredentialID
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO envelopes (account_id, credential_ref, v, nonce, ct, mac) VALUES (?, ?, ?, ?, ?, ?)`,
 			env.AccountID, env.CredentialRef, env.V, env.Nonce, env.CT, env.MAC)
+		return err
+	})
+}
+
+// RedeemLocalOnlyTransferToken is RedeemTransferToken's counterpart for a
+// KeyModeLocalOnly re-enrollment (bd med-eas.2.1 POC): Emergency Kit redemption
+// or a device transfer onto an authenticator that cannot do PRF. No envelope is
+// written — that credential has no KEK.
+//
+// The transaction refuses (ErrNoRecoveryMaterial) unless the account already has
+// BOTH halves of usable recovery material. That is the invariant that makes a
+// local-only credential safe to add at all: it is not itself a server-side
+// unwrap path, so the account must already have one that isn't this browser's
+// IndexedDB. Checked inside the transaction so a concurrent recovery-material
+// rewrite can't slip between a pre-read and the insert.
+func (r *Repo) RedeemLocalOnlyTransferToken(ctx context.Context, accountID string, tokenHash []byte, cred Credential, now time.Time) error {
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		result, err := tx.ExecContext(ctx,
+			`DELETE FROM transfer_slots WHERE account_id = ? AND enrollment_token_hash = ? AND fetched = 1 AND expires_at_unix > ?`,
+			accountID, tokenHash, storedb.TimeToUnix(now))
+		if err != nil {
+			return err
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return ErrTransferSlotInvalid
+		}
+		var hasRecovery int
+		err = tx.QueryRowContext(ctx, `SELECT 1 FROM envelopes e
+			WHERE e.account_id = ? AND e.credential_ref = 'recovery'
+			  AND EXISTS (SELECT 1 FROM recovery_auth ra WHERE ra.account_id = e.account_id)`, accountID).Scan(&hasRecovery)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNoRecoveryMaterial
+		}
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix, key_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, storedb.TimeToUnix(cred.CreatedAt), KeyModeLocalOnly)
 		return err
 	})
 }

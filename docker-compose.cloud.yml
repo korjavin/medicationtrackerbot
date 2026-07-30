@@ -44,6 +44,12 @@ services:
       # server holds ciphertext it cannot read; telegram-origin feedback is
       # relayed in full. Unset/0 = no relay. Needs MANAGER_BOT_TOKEN too.
       - FEEDBACK_ADMIN_CHAT_ID=${FEEDBACK_ADMIN_CHAT_ID:-}
+      # PROOF OF CONCEPT (bd med-eas.2.1), not cleared for production. "1"
+      # allows a first credential to enroll in local-only mode: an ordinary
+      # passkey authenticates while the DEK is wrapped only by this browser's
+      # LDK and the recovery code. No new decrypting material is stored
+      # server-side. Unset = the mode is rejected and invisible.
+      - CLOUD_LOCAL_ONLY_PASSKEY_POC=${CLOUD_LOCAL_ONLY_PASSKEY_POC:-}
       - MANAGER_BOT_TOKEN=${MANAGER_BOT_TOKEN:-}
       - CLOUD_FOOD_DB_URL=${CLOUD_FOOD_DB_URL:-}
       # Operator key for a KEYED food DB, forwarded upstream as X-API-Key.
