@@ -22,9 +22,9 @@ import {
   LocalOnlyPasskeyError,
   appendLocalOnlyOffer,
   localOnlyPocEnabled,
+  offerLocalOnlyEnrollment,
   proveLocalKeyStorage,
   renderLocalOnlyColdOpen,
-  renderLocalOnlyWarning,
 } from '../local-only.js';
 
 // A fake LDK cache that really round-trips, so proveLocalKeyStorage is exercised
@@ -81,6 +81,14 @@ function fakeCredential() {
   };
 }
 
+// Drives the real entry point rather than hand-wiring the continuation, so the
+// signup path's onAccept is what these exercise.
+function openWarning() {
+  app().innerHTML = '<section></section>';
+  appendLocalOnlyOffer(app(), { accountId: 'acct-1', credential: fakeCredential(), claimToken: 'claim-1' });
+  app().querySelector('#local-only-offer').click();
+}
+
 describe('local-only passkey POC (bd med-eas.2.1)', () => {
   describe('operator flag', () => {
     it('is enabled only when /api/version says so explicitly', async () => {
@@ -109,7 +117,7 @@ describe('local-only passkey POC (bd med-eas.2.1)', () => {
     });
 
     it('states the recovery limitation up front, before anything is committed', () => {
-      renderLocalOnlyWarning(app(), { accountId: 'a', credential: fakeCredential() });
+      openWarning();
       const text = app().textContent;
       expect(text).toMatch(/cannot unlock your data/i);
       expect(text).toMatch(/only in this browser/i);
@@ -118,7 +126,7 @@ describe('local-only passkey POC (bd med-eas.2.1)', () => {
     });
 
     it('keeps the commit button disabled until the user acknowledges', () => {
-      renderLocalOnlyWarning(app(), { accountId: 'a', credential: fakeCredential() });
+      openWarning();
       const button = app().querySelector('#local-only-continue');
       const checkbox = app().querySelector('#local-only-ack');
       expect(button.disabled).toBe(true);
@@ -151,7 +159,7 @@ describe('local-only passkey POC (bd med-eas.2.1)', () => {
     // Drives the real screens: warning -> ack -> continue -> Emergency Kit ->
     // download -> finish. Returns once the flow has settled.
     async function runEnrollment() {
-      renderLocalOnlyWarning(app(), { accountId: 'acct-1', credential: fakeCredential() });
+      openWarning();
       const checkbox = app().querySelector('#local-only-ack');
       checkbox.checked = true;
       checkbox.dispatchEvent(new dom.window.Event('change'));
@@ -199,17 +207,70 @@ describe('local-only passkey POC (bd med-eas.2.1)', () => {
       expect(raw).not.toContain(code.replace(/-/g, ''));
     });
 
-    it('leaves the invite spendable when the finish call fails', async () => {
+    // The server consumes the WebAuthn challenge on the finish attempt whatever
+    // the outcome, so a retry that re-posted the same credential would fail
+    // forever on "challenge expired". Recovery is a fresh ceremony from the
+    // still-unspent invite — observable here as a new register/begin.
+    it('restarts the ceremony from register/begin when the finish call fails', async () => {
       await runEnrollment();
+      let failFinish = true;
       globalThis.fetch = vi.fn(async (url, init) => {
         requests.push({ url, init });
-        return { ok: false, status: 500, json: async () => ({}) };
+        if (url === '/api/webauthn/register/finish' && failFinish) {
+          return { ok: false, status: 500, json: async () => ({}) };
+        }
+        return { ok: true, status: 200, json: async () => ({ publicKey: {} }) };
       });
 
       app().querySelector('#kit-download').click();
       app().querySelector('#kit-continue').click();
       await vi.waitFor(() => expect(app().textContent).toMatch(/has not been used/i));
       expect(globalThis.location.href).toBe('');
+
+      failFinish = false;
+      app().querySelector('#local-only-retry').click();
+      await vi.waitFor(() =>
+        expect(requests.some((r) => r.url === '/api/webauthn/register/begin')).toBe(true));
+    });
+  });
+
+  // The mode declares the Emergency Kit mandatory. If redeeming it then demanded
+  // a PRF-capable authenticator to re-enroll, that promise would be unkeepable
+  // for exactly the users this mode targets — claim.js's shared enrollment tail
+  // dead-ends on "this device can't be used yet". recover.js opts into this
+  // fallback; the device-transfer caller does not.
+  describe('Emergency Kit re-enrollment on a non-PRF authenticator', () => {
+    it('registers local-only without sending recovery material again', async () => {
+      const done = offerLocalOnlyEnrollment(app(), {
+        credential: fakeCredential(),
+        accountId: 'acct-1',
+        dek: new Uint8Array(32).fill(4),
+      });
+      const checkbox = app().querySelector('#local-only-ack');
+      checkbox.checked = true;
+      checkbox.dispatchEvent(new dom.window.Event('change'));
+      app().querySelector('#local-only-continue').click();
+
+      await expect(done).resolves.toBe(true);
+      const body = JSON.parse(finishRequests()[0].init.body);
+      expect(body.key_mode).toBe(LOCAL_ONLY);
+      // The code the user just typed is still theirs — re-enrollment must not
+      // burn it. recover.js rotates it deliberately, right after.
+      expect(body.recovery).toBeUndefined();
+      expect(body.envelope).toBeUndefined();
+      // The DEK recovered from the Emergency Kit is what got cached locally.
+      expect(ldk.record.dek).toEqual(new Uint8Array(32).fill(4));
+    });
+
+    it('resolves false when the user declines, registering nothing', async () => {
+      const done = offerLocalOnlyEnrollment(app(), {
+        credential: fakeCredential(),
+        accountId: 'acct-1',
+        dek: new Uint8Array(32),
+      });
+      app().querySelector('#local-only-back').click();
+      await expect(done).resolves.toBe(false);
+      expect(finishRequests()).toHaveLength(0);
     });
   });
 

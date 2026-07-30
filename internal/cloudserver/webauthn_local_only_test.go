@@ -67,6 +67,7 @@ func registerLocalOnly(t *testing.T, enabled bool, req registerFinishRequest) lo
 	mux := http.NewServeMux()
 	api.RegisterRoutes(mux)
 	NewDeviceAPI(store, localOnlyTestSecret).RegisterRoutes(mux)
+	NewRecoveryAPI(store).RegisterRoutes(mux)
 	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
 
 	rp := virtualwebauthn.RelyingParty{Name: "Med Tracker Cloud", ID: host, Origin: "http://" + host}
@@ -207,8 +208,13 @@ func TestValidateKeyMode(t *testing.T) {
 		{"unknown mode", true, gateClaim, registerFinishRequest{KeyMode: "server_share", Envelope: envelope}, http.StatusBadRequest, false},
 		{"local-only disabled", false, gateClaim, registerFinishRequest{KeyMode: cloudstore.KeyModeLocalOnly, Recovery: localOnlyRecovery()}, http.StatusForbidden, true},
 		{"local-only enabled", true, gateClaim, registerFinishRequest{KeyMode: cloudstore.KeyModeLocalOnly, Recovery: localOnlyRecovery()}, 0, true},
-		{"local-only via transfer gate", true, gateEnrollment, registerFinishRequest{KeyMode: cloudstore.KeyModeLocalOnly, Recovery: localOnlyRecovery()}, http.StatusForbidden, true},
-		{"local-only via session gate", true, gateSession, registerFinishRequest{KeyMode: cloudstore.KeyModeLocalOnly, Recovery: localOnlyRecovery()}, http.StatusForbidden, true},
+		// Re-enrollment (Emergency Kit redemption / device transfer) is allowed —
+		// the Emergency Kit has to actually work for the authenticators this mode
+		// targets — but must not carry NEW recovery material, which would burn the
+		// code the user is holding.
+		{"local-only re-enrollment", true, gateEnrollment, registerFinishRequest{KeyMode: cloudstore.KeyModeLocalOnly}, 0, true},
+		{"local-only re-enrollment with recovery material", true, gateEnrollment, registerFinishRequest{KeyMode: cloudstore.KeyModeLocalOnly, Recovery: localOnlyRecovery()}, http.StatusBadRequest, true},
+		{"local-only via session gate", true, gateSession, registerFinishRequest{KeyMode: cloudstore.KeyModeLocalOnly}, http.StatusForbidden, true},
 	}
 
 	for _, tc := range cases {
@@ -310,6 +316,68 @@ func TestDeviceList_ReportsKeyMode(t *testing.T) {
 	}
 	if items[0].Envelope != nil {
 		t.Fatalf("local-only credential must have no envelope, got %+v", items[0].Envelope)
+	}
+}
+
+// The whole mode rests on "your Emergency Kit is the way back". If redeeming it
+// then demanded a PRF-capable authenticator to re-enroll, the mandatory recovery
+// path would be unreachable for exactly the users this mode exists for. Drive
+// the real thing: local-only signup -> POST /api/recover with the verifier ->
+// re-enroll a second local-only credential through the enrollment gate.
+func TestLocalOnlyRecovery_ReEnrollsWithoutPRF(t *testing.T) {
+	run := registerLocalOnly(t, true, registerFinishRequest{
+		KeyMode:  cloudstore.KeyModeLocalOnly,
+		Recovery: localOnlyRecovery(),
+	})
+	if run.rec.Code != http.StatusOK {
+		t.Fatalf("register/finish status = %d, body %q", run.rec.Code, run.rec.Body.String())
+	}
+
+	body, _ := json.Marshal(recoveryVerifierRequest{Verifier: localOnlyVerifier})
+	recoverReq := httptest.NewRequest(http.MethodPost, "/api/recover", bytes.NewReader(body))
+	recoverReq.Host = run.host
+	recoverReq.Header.Set("Content-Type", "application/json")
+	recoverRec := httptest.NewRecorder()
+	run.handler.ServeHTTP(recoverRec, recoverReq)
+	if recoverRec.Code != http.StatusOK {
+		t.Fatalf("POST /api/recover status = %d, body %q", recoverRec.Code, recoverRec.Body.String())
+	}
+	var recovered recoverResponse
+	if err := json.Unmarshal(recoverRec.Body.Bytes(), &recovered); err != nil {
+		t.Fatalf("decode recover response: %v", err)
+	}
+
+	rp := virtualwebauthn.RelyingParty{Name: "Med Tracker Cloud", ID: run.host, Origin: "http://" + run.host}
+	authenticator := virtualwebauthn.NewAuthenticator()
+	cred := virtualwebauthn.NewCredential(virtualwebauthn.KeyTypeEC2)
+	opts, challengeCookie, code := beginRegistrationWithEnrollmentToken(t, run.handler, run.host, recovered.EnrollmentToken)
+	if code != http.StatusOK {
+		t.Fatalf("register/begin via recovery enrollment token status = %d", code)
+	}
+	response := virtualwebauthn.CreateAttestationResponse(rp, authenticator, cred, *opts)
+	// No recovery material in the body: the code the user just typed is still
+	// theirs until the client rotates it, and re-enrollment must not burn it.
+	finishRec := finishLocalOnly(t, run.handler, run.host, challengeCookie, response, registerFinishRequest{
+		KeyMode: cloudstore.KeyModeLocalOnly,
+	})
+	if finishRec.Code != http.StatusOK {
+		t.Fatalf("local-only re-enrollment status = %d, body %q", finishRec.Code, finishRec.Body.String())
+	}
+
+	creds, err := run.store.CredentialsByAccount(t.Context(), run.account.ID)
+	if err != nil || len(creds) != 2 {
+		t.Fatalf("expected 2 credentials after recovery, got %d (err %v)", len(creds), err)
+	}
+	for _, c := range creds {
+		if c.KeyMode != cloudstore.KeyModeLocalOnly {
+			t.Fatalf("credential %x has key_mode %q, want local_only", c.ID, c.KeyMode)
+		}
+	}
+	// Still exactly one envelope, still only the recovery one: re-enrolling
+	// added no server-side decrypting material.
+	envs, err := run.store.ListEnvelopes(t.Context(), run.account.ID)
+	if err != nil || len(envs) != 1 || envs[0].CredentialRef != "recovery" {
+		t.Fatalf("envelopes = %+v (err %v); want exactly the recovery envelope", envs, err)
 	}
 }
 

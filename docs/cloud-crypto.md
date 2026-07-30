@@ -203,15 +203,33 @@ Enrollment ordering is the security-relevant part, and it is strict:
 4. only then call `register/finish`, which persists **credential + recovery
    envelope + verifier in one transaction** (`ClaimAndAddLocalOnlyCredential`).
 
-Any failure before step 4 leaves the invite claim unspent, so the user simply
-retries. `navigator.storage.persist()` is requested best-effort; the read-back
-check is what actually gates.
+Any failure before step 4 leaves the invite claim unspent. Retry restarts the
+ceremony from `register/begin`: the WebAuthn challenge is single-use with a
+5-minute TTL, so the created credential and its attestation are spent whatever
+the finish returned. `navigator.storage.persist()` is requested best-effort; the
+read-back check is what actually gates.
+
+**Emergency Kit redemption also works local-only**, which is what makes the
+"your Emergency Kit is the way back" promise keepable on the authenticators this
+mode targets. `recover.js` opts `enrollWithToken` into the same warned fallback,
+and `register/finish` accepts `key_mode: "local_only"` through the enrollment
+gate — carrying no recovery material (that would burn the code the user just
+typed; `recover.js` rotates it deliberately right afterwards) and only when the
+store confirms, inside the transaction, that the account already has a usable
+recovery envelope + verifier. `devices.js` likewise falls back to the
+already-unlocked screen's DEK when the rotation ceremony's assertion comes back
+local-only, so a local-only account can still rotate the code that is its only
+backup.
 
 Deliberate POC scope limits:
 
-- **first credential only.** `register/finish` refuses `key_mode: "local_only"`
-  through the device-transfer and session gates, so a mixed PRF + local-only
-  account is never created.
+- **The session gate refuses `local_only`.** An already-unlocked device can open
+  the vault; a local-only sibling credential buys nothing and only muddies the
+  device list.
+- **Device transfer (Path B) does not offer the fallback in the UI.** That flow
+  ends by navigating into the app with no Emergency Kit step, so there is no
+  moment to state what the mode costs. The server would accept it (the recovery
+  invariant is the same), but no client asks.
 - **`DeleteCredentialWithEnvelope` counts only PRF credentials** when enforcing
   the never-strand-the-account guard: a local-only credential authenticates but
   is not a server-side unwrap path, so it cannot stand in for one.
@@ -222,13 +240,22 @@ Deliberate POC scope limits:
 - **Strict mode (no LDK) is incompatible** with this credential type. Strict mode
   is not implemented yet; whichever lands second must handle the interaction.
 
-Honest residuals this POC does **not** close: IndexedDB eviction still forces
-recovery (no web API can promise durability); a stolen local-only passkey grants
-a session — i.e. destructive capability over ciphertext — without any read
-capability, which is a different shape of risk from a PRF credential; and the
-open question of whether users genuinely understand that a synced passkey will
-not recover their vault on a fresh device is a UX-research question, not one the
-code can answer.
+Honest residuals this POC does **not** close:
+
+- **IndexedDB eviction still forces recovery.** No web API can promise
+  durability; `persist()` only reduces the odds.
+- **A stolen local-only passkey grants a session** — destructive capability over
+  ciphertext (sync writes, device revocation, egress-host registration) with no
+  read capability. A different risk shape from a PRF credential, not a smaller one.
+- **The 5-minute WebAuthn challenge TTL is in tension with the mandatory
+  save-your-kit gate.** A user who takes longer than that at the Emergency Kit
+  screen loses the ceremony and has to start over (invite intact, orphan passkey
+  left on the authenticator). Shipping this would need either a longer TTL for
+  this mode or a different ordering, and the ordering is what buys the atomicity.
+- **Whether users actually understand that a synced passkey will not recover
+  their vault on a fresh device** is a UX-research question the code cannot
+  answer. Per the research doc, a negative answer means retaining PRF-only policy.
+- **Strict mode**, when it lands, must reject this credential type explicitly.
 
 ## The push key (NK) — why it exists
 

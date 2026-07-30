@@ -102,6 +102,58 @@ func TestClaimAndAddLocalOnlyCredential_RollsBackOnFailure(t *testing.T) {
 	}
 }
 
+// TestRedeemLocalOnlyTransferToken_RequiresRecoveryMaterial: a local-only
+// credential is not a server-side unwrap path, so adding one to an account that
+// has none would produce exactly the stranded state the last-credential guard
+// exists to prevent. The check lives inside the transaction, so the slot must
+// also survive the refusal.
+func TestRedeemLocalOnlyTransferToken_RequiresRecoveryMaterial(t *testing.T) {
+	r := setupRepo(t)
+	now := time.Now().UTC()
+	tokenHash := sha256.Sum256([]byte("claim-token"))
+	if _, err := r.CreateAccount(t.Context(), "acct-1", "sub-1", tokenHash[:], now.Add(time.Hour), now, "vp", "vs", ""); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	env := Envelope{AccountID: "acct-1", CredentialRef: "Y3JlZC1wcmY", V: 1, Nonce: []byte("n"), CT: []byte("c"), MAC: []byte("m")}
+	if _, err := r.ClaimAndAddCredential(t.Context(), "sub-1", tokenHash[:], localOnlyCred("acct-1", []byte("cred-prf")), env, now); err != nil {
+		t.Fatalf("ClaimAndAddCredential: %v", err)
+	}
+
+	enrollHash := sha256.Sum256([]byte("enrollment-token"))
+	if err := r.CreateClaimedTransferSlot(t.Context(), "slot-1", "acct-1", enrollHash[:], now, now.Add(time.Hour)); err != nil {
+		t.Fatalf("CreateClaimedTransferSlot: %v", err)
+	}
+
+	err := r.RedeemLocalOnlyTransferToken(t.Context(), "acct-1", enrollHash[:], localOnlyCred("acct-1", []byte("cred-local")), now)
+	if !errors.Is(err, ErrNoRecoveryMaterial) {
+		t.Fatalf("RedeemLocalOnlyTransferToken = %v, want ErrNoRecoveryMaterial", err)
+	}
+	creds, _ := r.CredentialsByAccount(t.Context(), "acct-1")
+	if len(creds) != 1 {
+		t.Fatalf("expected the credential insert to roll back, got %d credentials", len(creds))
+	}
+
+	verifierHash := sha256.Sum256([]byte("verifier"))
+	if err := r.SetRecoveryMaterial(t.Context(), "acct-1", Envelope{V: 1, Nonce: []byte("n"), CT: []byte("c"), MAC: []byte("m")}, verifierHash[:]); err != nil {
+		t.Fatalf("SetRecoveryMaterial: %v", err)
+	}
+	// The refused attempt rolled back, so the same slot is still redeemable.
+	if err := r.RedeemLocalOnlyTransferToken(t.Context(), "acct-1", enrollHash[:], localOnlyCred("acct-1", []byte("cred-local")), now); err != nil {
+		t.Fatalf("RedeemLocalOnlyTransferToken with recovery material: %v", err)
+	}
+	creds, _ = r.CredentialsByAccount(t.Context(), "acct-1")
+	if len(creds) != 2 {
+		t.Fatalf("expected 2 credentials, got %d", len(creds))
+	}
+	// Still no envelope for the local-only credential.
+	envs, _ := r.ListEnvelopes(t.Context(), "acct-1")
+	for _, e := range envs {
+		if e.CredentialRef == "Y3JlZC1sb2NhbA" {
+			t.Fatalf("local-only credential must have no envelope, found %+v", e)
+		}
+	}
+}
+
 // TestDeleteCredential_LocalOnlyIsNotAnUnwrapPath: a local-only credential can
 // authenticate but cannot unwrap anything server-side, so it must not satisfy
 // the "the account still has a way in" guard when the last PRF credential is

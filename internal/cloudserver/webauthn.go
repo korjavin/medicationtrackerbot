@@ -40,6 +40,7 @@ func logCeremonyFailure(ceremony, accountID string, err error) {
 type webauthnStore interface {
 	ClaimAndAddCredential(ctx context.Context, subdomain string, tokenHash []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) (*cloudstore.Account, error)
 	ClaimAndAddLocalOnlyCredential(ctx context.Context, subdomain string, tokenHash []byte, cred cloudstore.Credential, recEnv cloudstore.Envelope, verifierHash []byte, now time.Time) (*cloudstore.Account, error)
+	RedeemLocalOnlyTransferToken(ctx context.Context, accountID string, tokenHash []byte, cred cloudstore.Credential, now time.Time) error
 	ValidEnrollmentToken(ctx context.Context, accountID string, tokenHash []byte, now time.Time) (bool, error)
 	RedeemTransferToken(ctx context.Context, accountID string, tokenHash []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) error
 	AddCredentialWithEnvelope(ctx context.Context, sourceCredentialID []byte, cred cloudstore.Credential, env cloudstore.Envelope) error
@@ -426,18 +427,32 @@ func (a *WebAuthnAPI) validateKeyMode(req *registerFinishRequest, gate registerG
 		if !a.allowLocalOnly {
 			return true, http.StatusForbidden, "local-only passkeys are not enabled on this server"
 		}
-		// POC scope: the first credential on a fresh account only. Adding a
-		// local-only credential alongside a PRF one would create a mixed account
-		// whose revocation and rotation semantics this POC has not validated.
-		if gate != gateClaim {
-			return true, http.StatusForbidden, "local-only passkeys are only supported for the first credential"
-		}
 		if len(req.Envelope.Nonce) != 0 || len(req.Envelope.CT) != 0 || len(req.Envelope.MAC) != 0 {
 			return true, http.StatusBadRequest, "local-only registration must not carry a credential envelope"
 		}
-		if req.Recovery == nil || !validEnvelopeFields(req.Recovery.Envelope) ||
-			len(req.Recovery.Verifier) == 0 || len(req.Recovery.Verifier) > maxVerifierLen {
-			return true, http.StatusBadRequest, "local-only registration requires recovery material"
+		switch gate {
+		case gateClaim:
+			// First credential on a fresh account: the recovery envelope is the
+			// account's ONLY server-side copy of the DEK, so it has to land in the
+			// same transaction or not at all.
+			if req.Recovery == nil || !validEnvelopeFields(req.Recovery.Envelope) ||
+				len(req.Recovery.Verifier) == 0 || len(req.Recovery.Verifier) > maxVerifierLen {
+				return true, http.StatusBadRequest, "local-only registration requires recovery material"
+			}
+		case gateEnrollment:
+			// Re-enrolling onto an existing account (Emergency Kit redemption, or a
+			// device transfer onto a second non-PRF authenticator). Its recovery
+			// material already exists — that is how the caller reached this point —
+			// and the store re-checks it inside the transaction. Accepting new
+			// material here would silently burn the code the user is holding.
+			if req.Recovery != nil {
+				return true, http.StatusBadRequest, "recovery material is rotated separately when re-enrolling"
+			}
+		default:
+			// gateSession: an already-unlocked device adding a passkey. It can
+			// already open the vault, so a local-only sibling credential buys
+			// nothing and only muddies the device list. Out of POC scope.
+			return true, http.StatusForbidden, "local-only passkeys cannot be added from an already-unlocked device"
 		}
 		return true, 0, ""
 	default:
@@ -512,21 +527,7 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 	}
 	if localOnly {
 		credRow.KeyMode = cloudstore.KeyModeLocalOnly
-		verifierHash := sha256.Sum256(req.Recovery.Verifier)
-		recRow := cloudstore.Envelope{
-			AccountID:     account.ID,
-			CredentialRef: "recovery",
-			V:             req.Recovery.Envelope.V,
-			Nonce:         req.Recovery.Envelope.Nonce,
-			CT:            req.Recovery.Envelope.CT,
-			MAC:           req.Recovery.Envelope.MAC,
-		}
-		if _, err := a.store.ClaimAndAddLocalOnlyCredential(r.Context(), account.Subdomain, challenge.tokenHash, credRow, recRow, verifierHash[:], now); err != nil {
-			if errors.Is(err, cloudstore.ErrClaimInvalid) {
-				http.Error(w, "claim already used or expired", http.StatusConflict)
-				return
-			}
-			http.Error(w, "server error", http.StatusInternalServerError)
+		if !a.persistLocalOnly(w, r, account, challenge, &req, credRow, now) {
 			return
 		}
 		http.SetCookie(w, sessionCookie(NewSessionToken(account.ID, cred.ID, a.sessionSecret)))
@@ -581,6 +582,50 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 
 	http.SetCookie(w, sessionCookie(NewSessionToken(account.ID, cred.ID, a.sessionSecret)))
 	writeJSON(w, http.StatusOK, map[string]string{"account_id": account.ID})
+}
+
+// persistLocalOnly commits a KeyModeLocalOnly credential (bd med-eas.2.1 POC).
+// No envelope is ever written for it — it has no KEK. Reports false having
+// already written the error response.
+//
+// gateClaim carries the account's first-ever recovery material in the same
+// transaction; gateEnrollment re-enrolls onto an account whose recovery material
+// must already exist, which the store re-checks inside its transaction. Only
+// these two gates reach here — validateKeyMode refuses the session gate.
+func (a *WebAuthnAPI) persistLocalOnly(w http.ResponseWriter, r *http.Request, account *cloudstore.Account, challenge registerChallenge, req *registerFinishRequest, credRow cloudstore.Credential, now time.Time) bool {
+	if challenge.gate == gateEnrollment {
+		err := a.store.RedeemLocalOnlyTransferToken(r.Context(), account.ID, challenge.tokenHash, credRow, now)
+		switch {
+		case err == nil:
+			return true
+		case errors.Is(err, cloudstore.ErrTransferSlotInvalid):
+			http.Error(w, "enrollment token already used or expired", http.StatusConflict)
+		case errors.Is(err, cloudstore.ErrNoRecoveryMaterial):
+			http.Error(w, "this account has no recovery code set up, so a local-only passkey cannot be added", http.StatusConflict)
+		default:
+			http.Error(w, "server error", http.StatusInternalServerError)
+		}
+		return false
+	}
+
+	verifierHash := sha256.Sum256(req.Recovery.Verifier)
+	recRow := cloudstore.Envelope{
+		AccountID:     account.ID,
+		CredentialRef: "recovery",
+		V:             req.Recovery.Envelope.V,
+		Nonce:         req.Recovery.Envelope.Nonce,
+		CT:            req.Recovery.Envelope.CT,
+		MAC:           req.Recovery.Envelope.MAC,
+	}
+	if _, err := a.store.ClaimAndAddLocalOnlyCredential(r.Context(), account.Subdomain, challenge.tokenHash, credRow, recRow, verifierHash[:], now); err != nil {
+		if errors.Is(err, cloudstore.ErrClaimInvalid) {
+			http.Error(w, "claim already used or expired", http.StatusConflict)
+			return false
+		}
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return false
+	}
+	return true
 }
 
 // LoginBegin starts an assertion ceremony against the account's existing

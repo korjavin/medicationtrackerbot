@@ -111,7 +111,15 @@ async function claimAndEnroll(app, { slotId, tk }) {
 // not in how they turn that into a live passkey + session. Returns false (having
 // already rendered the terminal error state) if the authenticator lacks PRF
 // support; true once the passkey + session + warm-unlock cache are all live.
-export async function enrollWithToken(app, { enrollmentToken, accountId, dek }) {
+//
+// allowLocalOnlyFallback (recover.js only, bd med-eas.2.1 POC) lets a non-PRF
+// authenticator finish an Emergency Kit redemption in local-only mode instead of
+// dead-ending — otherwise the recovery path that mode declares mandatory would
+// be unusable on exactly the authenticators it exists for. The device-transfer
+// caller does not pass it: that flow ends by navigating into the app with no
+// Emergency Kit step, so a local-only device would be enrolled there with no
+// moment to state what it costs.
+export async function enrollWithToken(app, { enrollmentToken, accountId, dek, allowLocalOnlyFallback }) {
   const beginRes = await fetch('/api/webauthn/register/begin', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -137,6 +145,12 @@ export async function enrollWithToken(app, { enrollmentToken, accountId, dek }) 
   });
   const prfOutput = prfAssertion.getClientExtensionResults().prf?.results?.first;
   if (!prfOutput) {
+    if (allowLocalOnlyFallback) {
+      const { localOnlyPocEnabled, offerLocalOnlyEnrollment } = await import('./local-only.js');
+      if (await localOnlyPocEnabled()) {
+        return offerLocalOnlyEnrollment(app, { credential, accountId, dek });
+      }
+    }
     renderUnsupportedAuthenticator(app);
     return false;
   }

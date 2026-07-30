@@ -30,9 +30,14 @@ export const LOCAL_ONLY = 'local_only';
 // unwrap, so the honest answer is "use your Emergency Kit", not "your passkey
 // is broken".
 export class LocalOnlyPasskeyError extends Error {
-  constructor() {
+  // accountId comes from the login/finish response: the assertion WAS verified
+  // server-side (that is what minted the session), it just cannot unwrap
+  // anything. Callers that only needed proof-of-presence — the Emergency Kit
+  // rotation in devices.js — can still proceed on that.
+  constructor(accountId) {
     super('This passkey can sign you in, but it cannot unlock your data on this browser.');
     this.name = 'LocalOnlyPasskeyError';
+    this.accountId = accountId;
   }
 }
 
@@ -71,14 +76,23 @@ export function appendLocalOnlyOffer(app, ctx) {
   button.id = 'local-only-offer';
   button.className = 'secondary';
   button.textContent = 'Read about local-only mode';
-  button.addEventListener('click', () => renderLocalOnlyWarning(app, ctx));
+  button.addEventListener('click', () => renderLocalOnlyWarning(app, {
+    onAccept: () => startLocalOnlyEnrollment(app, ctx),
+    onCancel: () => import('./signup.js').then(({ renderUnsupportedAuthenticator }) =>
+      renderUnsupportedAuthenticator(app, ctx)),
+  }));
   section.appendChild(button);
 }
 
 // The informed-consent screen. Every claim on it is literally true of the mode
 // as implemented; nothing here is a footnote after the fact — the credential is
 // not registered until the user has read this AND saved an Emergency Kit.
-export function renderLocalOnlyWarning(app, ctx) {
+//
+// onAccept/onCancel are supplied by the caller because the same screen gates two
+// entry points: first-credential signup, and re-enrollment after an Emergency
+// Kit redemption. onAccept may return a promise; a rejection is rendered inline
+// and the button re-enabled, since nothing is committed until it resolves.
+export function renderLocalOnlyWarning(app, { onAccept, onCancel }) {
   app.innerHTML = `
     <section class="wizard-step">
       <h1>Local-only passkey</h1>
@@ -114,19 +128,47 @@ export function renderLocalOnlyWarning(app, ctx) {
   const button = app.querySelector('#local-only-continue');
   checkbox.addEventListener('change', () => { button.disabled = !checkbox.checked; });
 
-  app.querySelector('#local-only-back').addEventListener('click', () => {
-    import('./signup.js').then(({ renderUnsupportedAuthenticator }) =>
-      renderUnsupportedAuthenticator(app, ctx));
-  });
+  app.querySelector('#local-only-back').addEventListener('click', onCancel);
 
   button.addEventListener('click', () => {
     button.disabled = true;
-    startLocalOnlyEnrollment(app, ctx).catch((err) => {
-      // Nothing is claimed until register/finish, which is the very last step —
-      // so every failure here leaves the invite still spendable.
-      const errorEl = app.querySelector('#local-only-error');
-      if (errorEl) errorEl.textContent = `${err.message || String(err)} Nothing was registered — you can try again.`;
-      button.disabled = false;
+    Promise.resolve()
+      .then(onAccept)
+      .catch((err) => {
+        // Nothing is registered until register/finish, which is the very last
+        // step — so every failure here leaves the invite still spendable.
+        const errorEl = app.querySelector('#local-only-error');
+        if (errorEl) errorEl.textContent = `${err.message || String(err)} Nothing was registered — you can try again.`;
+        button.disabled = false;
+      });
+  });
+}
+
+// Offers the same informed-consent screen inside an enrollment-token ceremony:
+// claim.js's shared tail hits a non-PRF authenticator while re-enrolling after
+// an Emergency Kit redemption. Without this the Emergency Kit — which this very
+// mode declares mandatory — would be unusable on the authenticators the mode
+// exists to support.
+//
+// Resolves true once the credential is registered local-only (the caller then
+// continues its own flow, which for recover.js is the forced code rotation),
+// false if the user declines, leaving the terminal unsupported-authenticator
+// screen in place. No recovery material is sent: the account already has it,
+// and re-enrollment must not burn the code the user just typed.
+export function offerLocalOnlyEnrollment(app, { credential, accountId, dek }) {
+  return new Promise((resolve, reject) => {
+    renderLocalOnlyWarning(app, {
+      onAccept: async () => {
+        await proveLocalKeyStorage(dek, accountId);
+        await finishLocalOnlyRegistration(credential);
+        resolve(true);
+      },
+      onCancel: () => {
+        import('./signup.js')
+          .then(({ renderUnsupportedAuthenticator }) => renderUnsupportedAuthenticator(app))
+          .then(() => resolve(false))
+          .catch(reject);
+      },
     });
   });
 }
@@ -186,24 +228,26 @@ export async function proveLocalKeyStorage(dek, accountId) {
   }
 }
 
-// register/finish carries key_mode plus the recovery material, so the server
-// commits credential + recovery envelope + verifier atomically. It carries NO
-// credential envelope — there is no KEK to make one with, and the server
-// rejects the request if one is present anyway.
+// register/finish carries key_mode and, for a first credential, the recovery
+// material — so the server commits credential + recovery envelope + verifier
+// atomically. Re-enrollment passes no material: the account already has some,
+// and sending more would burn the code the user is holding.
+//
+// It never carries a credential envelope: there is no KEK to make one with, and
+// the server rejects the request if one is present anyway.
 export async function finishLocalOnlyRegistration(credential, material) {
   const { recoveryMaterialWire } = await import('./signup.js');
   const finishBody = credential.toJSON();
   // Symmetry with the PRF path: never ship extension results to the server.
   if (finishBody.clientExtensionResults) delete finishBody.clientExtensionResults.prf;
 
+  const body = { credential: finishBody, key_mode: LOCAL_ONLY };
+  if (material) body.recovery = recoveryMaterialWire(material);
+
   const res = await fetch('/api/webauthn/register/finish', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      credential: finishBody,
-      key_mode: LOCAL_ONLY,
-      recovery: recoveryMaterialWire(material),
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error('Registration failed.');
   // The warning screen is a strictly stronger acknowledgement than the generic
@@ -213,16 +257,24 @@ export async function finishLocalOnlyRegistration(credential, material) {
   fetch('/api/loss-ack', { method: 'POST' }).catch(() => {});
 }
 
+// Retry restarts the wizard from register/begin, it does not re-post the same
+// finish. The server consumes the WebAuthn challenge on the finish attempt
+// (single-use, 5-minute TTL), so the created credential and its attestation are
+// spent whatever the outcome — replaying them would fail forever on
+// "challenge expired or unknown" while the invite itself is still perfectly
+// good. A fresh ceremony re-derives everything.
 function renderEnrollmentFailure(app, ctx, err) {
   app.innerHTML = `
     <section class="wizard-step">
       <h1>Registration didn't finish</h1>
-      <p>Your invite has not been used, so you can try again.</p>
+      <p>Your invite has not been used, so you can start over.</p>
       <p class="wizard-error" id="local-only-error"></p>
-      <button id="local-only-retry">Try again</button>
+      <button id="local-only-retry">Start over</button>
     </section>`;
   app.querySelector('#local-only-error').textContent = err.message || String(err);
-  app.querySelector('#local-only-retry').addEventListener('click', () => renderLocalOnlyWarning(app, ctx));
+  app.querySelector('#local-only-retry').addEventListener('click', () => {
+    import('./signup.js').then(({ runSignupWizard }) => runSignupWizard(ctx.claimToken));
+  });
 }
 
 // Cold open on a browser that does not hold this account's LDK cache: the

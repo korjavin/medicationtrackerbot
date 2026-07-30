@@ -91,7 +91,11 @@ async function redeem(app, accountId, code) {
     throw new Error('Could not unlock your data with this Account ID and code.');
   }
 
-  if (!(await enrollWithToken(app, { enrollmentToken, accountId, dek }))) return;
+  // allowLocalOnlyFallback: the Emergency Kit has to work on the same
+  // authenticator the user already has, including one that cannot do PRF
+  // (bd med-eas.2.1 POC — no-op unless the operator enabled it). The forced
+  // rotation below then hands them a fresh kit either way.
+  if (!(await enrollWithToken(app, { enrollmentToken, accountId, dek, allowLocalOnlyFallback: true }))) return;
 
   // Forced rotation: a redeemed recovery code is burned per
   // docs/cloud-crypto.md — re-run the same Emergency Kit ceremony signup

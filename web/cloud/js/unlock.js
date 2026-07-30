@@ -141,8 +141,8 @@ async function throwMissingPrf(assertion) {
   const { localOnlyPocEnabled, LocalOnlyPasskeyError, LOCAL_ONLY } = await import('./local-only.js');
   if (!(await localOnlyPocEnabled())) throw unsupported;
 
-  const { key_mode: keyMode } = await finishLogin(assertion);
-  if (keyMode === LOCAL_ONLY) throw new LocalOnlyPasskeyError();
+  const { key_mode: keyMode, account_id: accountId } = await finishLogin(assertion);
+  if (keyMode === LOCAL_ONLY) throw new LocalOnlyPasskeyError(accountId);
   throw unsupported;
 }
 

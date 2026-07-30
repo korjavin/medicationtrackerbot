@@ -67,6 +67,13 @@ var ErrLastCredential = errors.New("cloudstore: cannot remove the account's last
 // minting a fresh credential + session.
 var ErrSourceCredentialRevoked = errors.New("cloudstore: source credential revoked")
 
+// ErrNoRecoveryMaterial is returned by RedeemLocalOnlyTransferToken when the
+// account has no usable recovery envelope + verifier. A local-only credential
+// is not a server-side unwrap path, so adding one to an account that has no
+// other way in would create exactly the stranded state the last-credential
+// guard exists to prevent.
+var ErrNoRecoveryMaterial = errors.New("cloudstore: account has no usable recovery material")
+
 // Account is one row in the accounts table. ClaimTokenHash/ClaimExpiresAt are
 // nil once the account has been claimed (first credential registered).
 type Account struct {
@@ -1019,6 +1026,49 @@ func (r *Repo) AddCredentialWithEnvelope(ctx context.Context, sourceCredentialID
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO envelopes (account_id, credential_ref, v, nonce, ct, mac) VALUES (?, ?, ?, ?, ?, ?)`,
 			env.AccountID, env.CredentialRef, env.V, env.Nonce, env.CT, env.MAC)
+		return err
+	})
+}
+
+// RedeemLocalOnlyTransferToken is RedeemTransferToken's counterpart for a
+// KeyModeLocalOnly re-enrollment (bd med-eas.2.1 POC): Emergency Kit redemption
+// or a device transfer onto an authenticator that cannot do PRF. No envelope is
+// written — that credential has no KEK.
+//
+// The transaction refuses (ErrNoRecoveryMaterial) unless the account already has
+// BOTH halves of usable recovery material. That is the invariant that makes a
+// local-only credential safe to add at all: it is not itself a server-side
+// unwrap path, so the account must already have one that isn't this browser's
+// IndexedDB. Checked inside the transaction so a concurrent recovery-material
+// rewrite can't slip between a pre-read and the insert.
+func (r *Repo) RedeemLocalOnlyTransferToken(ctx context.Context, accountID string, tokenHash []byte, cred Credential, now time.Time) error {
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		result, err := tx.ExecContext(ctx,
+			`DELETE FROM transfer_slots WHERE account_id = ? AND enrollment_token_hash = ? AND fetched = 1 AND expires_at_unix > ?`,
+			accountID, tokenHash, storedb.TimeToUnix(now))
+		if err != nil {
+			return err
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return ErrTransferSlotInvalid
+		}
+		var hasRecovery int
+		err = tx.QueryRowContext(ctx, `SELECT 1 FROM envelopes e
+			WHERE e.account_id = ? AND e.credential_ref = 'recovery'
+			  AND EXISTS (SELECT 1 FROM recovery_auth ra WHERE ra.account_id = e.account_id)`, accountID).Scan(&hasRecovery)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNoRecoveryMaterial
+		}
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix, key_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, storedb.TimeToUnix(cred.CreatedAt), KeyModeLocalOnly)
 		return err
 	})
 }
