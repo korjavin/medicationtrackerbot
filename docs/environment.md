@@ -1,5 +1,9 @@
 # Environment Variables
 
+Cloud mode (`cmd/cloud`) is the default production service. The legacy
+`cmd/bot` and `cmd/mcptool` sections remain for existing single-user
+Telegram/server deployments.
+
 ## Precedence: env → settings table → built-in default
 
 The provider-credential vars (`OPENAI_*`, `OPENAI_VISION_*`, `FOOD_*`, `ELEVENLABS_*`) are also persisted in the singleton `settings` table and editable via the Settings UI's Integrations section. The `internal/config` package merges in this order:
@@ -10,7 +14,10 @@ The provider-credential vars (`OPENAI_*`, `OPENAI_VISION_*`, `FOOD_*`, `ELEVENLA
 
 Bootstrap vars (`DB_PATH`, `PORT`, `TZ`, `SESSION_SECRET`) and transport-restricted vars (`TELEGRAM_BOT_TOKEN`, `ALLOWED_USER_ID`, `MCP_*`, `POCKET_ID_*`, `OIDC_*`, `GOOGLE_*`, `VAPID_*`, `EXTERNAL_WORKOUT_API_KEY`, `MCP_AUDIT_SECRET`) are env-only — they have no settings-table counterpart.
 
-## Main bot (`cmd/bot`)
+## Legacy main bot (`cmd/bot`)
+
+The original Telegram/server deployment is legacy maintenance. Use
+`cmd/cloud` for new production deployments and new product planning.
 
 ```bash
 # Required
@@ -58,6 +65,8 @@ ELEVENLABS_AGENT_ID=agent_...
 
 ## Cloud service (`cmd/cloud`)
 
+Default production service.
+
 See [docs/cloud-deployment.md](cloud-deployment.md) for the full self-hosted deployment guide.
 
 ```bash
@@ -100,7 +109,7 @@ FEEDBACK_AGE_RECIPIENT=age1...        # Optional. age X25519 recipient public ke
 FEEDBACK_AGE_IDENTITY=/path/dev.key   # Dev/ops only, NOT read by the server. Default for the `-identity` flag of the `cmd/feedbackpull` decrypt CLI: the age private key (counterpart to FEEDBACK_AGE_RECIPIENT) the developer uses to drain + decrypt the feedback queue. Keep it off the server host.
 ```
 
-## MCP server (`cmd/mcptool`)
+## Legacy MCP server (`cmd/mcptool`)
 
 ```bash
 MCP_PORT=3100

@@ -1,5 +1,14 @@
 # Agent Instructions
 
+## Product Strategy
+
+Cloud mode (`cmd/cloud`) is the default production path. New product work should
+target the zero-knowledge browser PWA and cloud server unless the owner
+explicitly reactivates another mode. The original Telegram bot/server mode
+(`cmd/bot`) is legacy maintenance for existing installs. The removed
+Capacitor/mobile shell is frozen on the `mobile` branch and should be treated
+as historical.
+
 This project uses **bd** (beads) for issue tracking. Run `bd prime` for full workflow context.
 
 > **Architecture in one line:** Issues live in a local Dolt database

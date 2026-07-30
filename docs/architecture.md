@@ -1,6 +1,37 @@
 # Architecture
 
+## Product Strategy
+
+Cloud mode (`cmd/cloud`) is the default production architecture. It serves a
+zero-knowledge browser PWA on per-account subdomains; clients hold the vault
+keys and plaintext, while the server stores encrypted sync state and operates
+blind relays for push, Telegram, and optional hosted MCP.
+
+The original Telegram/server mode (`cmd/bot`) is legacy maintenance. Keep it
+working for existing installs, but do not use it as the product baseline for
+new features unless the owner explicitly reactivates that mode. The removed
+Capacitor Android/mobile shell is frozen on the `mobile` branch and should be
+treated as historical.
+
 ## System Components
+
+Cloud mode:
+
+```
+User device
+├── Browser PWA + passkey unlock
+├── IndexedDB encrypted vault + JS domain layer
+└── Cloud sync client
+        ↓ sealed oplog/snapshot frames
+cmd/cloud
+├── Account, invite, and WebAuthn device management
+├── Ciphertext sync and snapshot storage
+├── Blind web-push reminder relay
+├── Optional Telegram sealed-inbox relay
+└── Optional hosted MCP relay
+```
+
+Legacy server mode:
 
 ```
 User
@@ -13,21 +44,24 @@ User
 ## Code Structure
 
 **Entry Points** (`cmd/`):
-- `bot/` — main application (bot + web server + scheduler)
-- `mcptool/` — MCP server for AI integration (read-only health data access)
+- `cloud/` — default production service: zero-knowledge account hosting, encrypted sync, blind push, optional Telegram manager, optional hosted MCP relay
+- `bot/` — legacy self-hosted application (Telegram bot + web server + scheduler)
+- `mcptool/` — legacy server-mode MCP server for AI integration
 - `importer/` — Apple Health medication import
 - `bpimporter/` — Blood pressure CSV import
 - `genvapid/` — VAPID key generator for web push
 
 **Core Packages** (`internal/`):
 - `ai/` — AI client integration (OpenAI-compatible)
+- `cloudserver/` — cloud HTTP server, account/device lifecycle, sync, sealed inboxes, blind push, trial-provider proxies
+- `cloudstore/` — cloud account metadata, encrypted sync state, relay queues, invites, feedback, and admin queries
 - `store/` — database layer. Per-domain repositories under sub-packages (`medication/`, `bp/`, `weight/`, `food/`, `workout/`, `vitals/`, `diary/`, `tz/`, `settings/`, `auth/`, `push/`), with shared infra in `store/db/` (connection, migrations runner, `WithTx`). `store.Repos` is the aggregator. See [Store layer](#store-layer).
-- `server/` — HTTP handlers for REST API
-- `bot/` — Telegram bot logic (commands, callbacks, notifications) — thin channel layer only
+- `server/` — legacy server-mode HTTP handlers for REST API
+- `bot/` — legacy Telegram bot logic (commands, callbacks, notifications) — thin channel layer only
 - `domain/` — business logic services: `medication.go`, `exercise.go`, `reminder.go`, `food.go`, `food_ai.go`
 - `workout/` — workout session management service (`service.go`)
-- `scheduler/` — notification scheduling (medications, workouts, BP/weight reminders)
-- `mcp/` — Model Context Protocol server implementation
+- `scheduler/` — legacy server-mode notification scheduling (medications, workouts, BP/weight reminders)
+- `mcp/` — legacy server-mode Model Context Protocol server implementation
 - `rxnorm/` — drug interaction checking via NLM API
 - `webpush/` — web push notification support
 - `tzlookup/` — geo-to-timezone reverse lookup via `github.com/ringsaturn/tzf`. `LookupTimezone(lat, lng)` initialized lazily with `sync.Once`; timezone boundary data embedded in binary (~5 MB), no external API calls.
@@ -155,6 +189,15 @@ Both are called inside one `db.WithTx` opened by `Repos.ApproveAndMaterialize`. 
 See "Common Tasks → Adding a new health metric" in [CLAUDE.md](../CLAUDE.md). The short version: new migrations go in `internal/store/migrations/`; create a new `internal/store/<feature>/` package with a `Repo` + types + tests; wire it into `store.Repos`. Use the existing `diary/` and `push/` packages as the minimal reference shape.
 
 ## Authentication & Security
+
+Cloud authentication and privacy:
+
+- Users claim invite-created accounts on per-account subdomains.
+- WebAuthn PRF/passkey unlock unwraps a local data key; plaintext health data and provider secrets remain on the client.
+- The server stores encrypted oplog/snapshot frames and relay ciphertext. It can see account metadata, sync sizes, timing, and relay delivery metadata, but not vault records or reminder content.
+- Optional Telegram in cloud mode is a sealed-inbox relay. It is disabled unless an operator configures a manager bot and the user opts in.
+
+Legacy server-mode authentication:
 
 **Telegram Mini App**:
 - Validates `Telegram.WebApp.initData` signature using HMAC-SHA256

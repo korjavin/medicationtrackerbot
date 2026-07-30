@@ -1,6 +1,11 @@
 # MCP Server Deployment
 
-The MCP connector runs as a separate process (binary: `mcptool`) but shares the same Docker image and database as the main bot. It exposes an HTTP server that Claude connects to via a secure tunnel (handled by your Traefik setup).
+> **Status:** legacy server-mode runbook. Cloud mode is the default product
+> path and has its own relay/in-tab MCP model documented in
+> [cloud-mode.md](cloud-mode.md). Use this guide only for existing `cmd/bot` +
+> `cmd/mcptool` deployments.
+
+The legacy MCP connector runs as a separate process (binary: `mcptool`) but shares the same Docker image and database as the main bot. It exposes an HTTP server that Claude connects to via a secure tunnel (handled by your Traefik setup).
 
 ## 1. Pocket-ID Configuration
 

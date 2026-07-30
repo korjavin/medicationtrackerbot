@@ -51,11 +51,11 @@ The hard part of "the server can't read your data" is usually the stuff that *ne
 
 **Delivery & fit-and-finish** — web push · offline-first PWA · deep-link navigation · automatic timezone detection with confirmation.
 
-## Two ways to run it
+## Current run modes
 
-### Cloud (recommended) — zero-knowledge vault, passkey, PWA
+### Cloud (default) — zero-knowledge vault, passkey, PWA
 
-A self-hosted **encrypted cloud** serves one installable PWA per user (their own subdomain). All health logic runs in the browser; every record is end-to-end encrypted.
+A self-hosted **encrypted cloud** serves one installable PWA per user (their own subdomain). This is the production baseline and the place new product work lands. All health logic runs in the browser; every record is end-to-end encrypted.
 
 - **Passkey-only unlock** — WebAuthn PRF unwraps a random 256-bit data key. No passwords, no server-side secret to crack.
 - **Server sees only ciphertext + timing metadata** — health data, provider keys, and reminder content are all encrypted.
@@ -66,14 +66,14 @@ A self-hosted **encrypted cloud** serves one installable PWA per user (their own
 
 Registration is invite-only. See [docs/cloud-mode.md](./docs/cloud-mode.md) and [docs/cloud-crypto.md](./docs/cloud-crypto.md).
 
-### Server (single-user) — Telegram-native, MCP
+### Legacy server mode — Telegram-native, MCP
 
-The original mode: a single Go binary running the Telegram bot, web app, scheduler, and an optional OAuth-protected MCP endpoint against a local SQLite file you own outright.
+The original mode: a single Go binary running the Telegram bot, web app, scheduler, and an optional OAuth-protected MCP endpoint against a local SQLite file you own outright. It remains documented for existing installs, but it is no longer the product default and should not be used as the baseline for new feature work.
 
 - **Telegram** — the fastest interface for real life. Answer a reminder, log a reading, ask what's due next — in the chat you already have open.
 - **Web app** — trends, history, editing, meal planning, workout design, settings. The shell is cached, feeds refresh in the background, and time-sensitive writes work offline and sync later.
 
-See the [installation guide](./docs/installer.md).
+See the [legacy server installation guide](./docs/installer.md).
 
 ## Your AI, your data
 
@@ -91,14 +91,14 @@ Your diary notes ride along as context so the AI understands *why* a week looked
 
 ## Get it running
 
-- **Cloud (encrypted PWA):** **[Cloud deployment →](./docs/cloud-deployment.md)** — stand up the zero-knowledge cloud (Traefik + wildcard cert + `cmd/cloud`), then mint an invite. Users open a URL and create a passkey.
-- **Server (Telegram + web + MCP):** **[Installation guide →](./docs/installer.md)** — one installer provisions the app, Traefik, Pocket-ID, and the optional MCP sidecar.
+- **Cloud (encrypted PWA):** **[Cloud deployment →](./docs/cloud-deployment.md)** — the default deployment path. Stand up the zero-knowledge cloud (Traefik + wildcard cert + `cmd/cloud`), then mint an invite. Users open a URL and create a passkey.
+- **Legacy server (Telegram + web + MCP):** **[Installation guide →](./docs/installer.md)** — maintained for existing single-user installs, not the default strategy.
 - Works from a published container image or your own build.
 
 ## Security posture
 
-- **Cloud mode is zero-knowledge:** end-to-end encryption, passkey-only unlock (WebAuthn PRF over a random 256-bit key), blind push relay, encrypted oplog sync, Emergency Kit recovery, invite-only registration.
-- **Server mode** keeps everything on infrastructure you own: single-user allowlist, Telegram/OIDC auth, OAuth-protected MCP, local SQLite.
+- **Cloud mode is the production baseline:** zero-knowledge end-to-end encryption, passkey-only unlock (WebAuthn PRF over a random 256-bit key), blind push relay, encrypted oplog sync, Emergency Kit recovery, invite-only registration.
+- **Legacy server mode** keeps everything on infrastructure you own: single-user allowlist, Telegram/OIDC auth, OAuth-protected MCP, local SQLite. It is kept working for existing operators but is no longer the default.
 
 Full trust model, boundaries, and honest caveats: [docs/cloud-mode.md](./docs/cloud-mode.md#trust-model--what-the-server-can-and-cannot-see), [docs/cloud-crypto.md](./docs/cloud-crypto.md), and the [privacy audit](./docs/2026-07-12-gpt-5.6-sol-cloud-privacy-audit.md).
 
@@ -108,5 +108,3 @@ Full trust model, boundaries, and honest caveats: [docs/cloud-mode.md](./docs/cl
 
 - **Contributors**: start with [CLAUDE.md](./CLAUDE.md) — it indexes the architecture, feature, API, frontend, and deployment docs under [docs/](./docs/).
 - **License**: see [LICENSE](./LICENSE).
-</content>
-</invoke>

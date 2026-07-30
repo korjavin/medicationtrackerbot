@@ -103,4 +103,8 @@ After successful sync, records are deleted from IndexedDB rather than kept as "s
 
 ## Why vanilla JS instead of a framework
 
-The app is single-user, self-hosted, and runs primarily inside Telegram's WebView. A framework would add bundle size and build complexity for little benefit. The four-layer local-first architecture (SW → IndexedDB → SyncManager → SWR DataStore) is straightforward to implement with vanilla JS and Dexie.js.
+The app is a privacy-first PWA with a large amount of client-side domain logic
+and encrypted local state. A framework would add bundle size and build
+complexity for little benefit. The cloud vault/oplog path and the legacy
+four-layer local-first architecture (SW → IndexedDB → SyncManager → SWR
+DataStore) are straightforward to implement with vanilla JS and Dexie.js.

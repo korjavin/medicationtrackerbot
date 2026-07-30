@@ -1,4 +1,9 @@
-# 🚀 Step-by-Step Installation Guide
+# Legacy Server Installation Guide
+
+> **Status:** legacy server-mode runbook. Cloud mode is now the default
+> production strategy; start with [Cloud-mode deployment](cloud-deployment.md)
+> for new installs. This guide remains for existing single-user Telegram/server
+> operators.
 
 <div align="center">
   <img src="img/hero_installer.png" alt="Installer Hero Image" width="600" />
@@ -8,11 +13,11 @@
 
 ---
 
-## 👋 Introduction
+## Introduction
 
-Welcome! This guide will walk you through setting up your own **Medication Tracker Bot**.
+This guide walks through the legacy **Medication Tracker Bot** deployment.
 
-The installer automates the complex parts (Docker, SSL certificates, Nginx/Traefik configuration), asking you simple questions to customize your setup. By the end, you will have a fully functional web app and Telegram bot running on your own server.
+The installer automates the complex parts (Docker, SSL certificates, Nginx/Traefik configuration), asking you simple questions to customize your setup. By the end, you will have the legacy web app and Telegram bot running on your own server. New production deployments should use `cmd/cloud` instead.
 
 ### Why a Separate Server?
 We strongly advise using a **dedicated server (VPS)** rather than a shared hosting environment.
@@ -61,7 +66,7 @@ Log in to your domain registrar (Cloudflare, Namecheap, GoDaddy, etc.) and creat
 <img src="img/cloudflare_dns.png" alt="Cloudflare DNS Records Example" width="600" />
 
 ### 3. Telegram Bot Token
-Currently, the Telegram Bot is the core of the system. While we plan to make the web app fully standalone in the future, right now the bot is essential for:
+In legacy server mode, Telegram is part of the primary workflow. It is used for:
 *   **Notifications**: Receiving timely reminders.
 *   **Quick Logging**: Recording meds with a single tap.
 *   **File Imports**: Sending files (like **Mi Band** exports) to the tracker for processing.
