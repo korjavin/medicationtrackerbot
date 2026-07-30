@@ -5,6 +5,9 @@ import {
   TRAINING_GOALS,
   defaultsForGoal,
   normalizeGoal,
+  rirFromRpe,
+  rpeFromRir,
+  formatEffort,
 } from '../../../domain/workout-goals.js';
 
 describe('workout-goals defaults', () => {
@@ -31,5 +34,34 @@ describe('workout-goals defaults', () => {
     expect(normalizeGoal('endurance')).toBe('endurance');
     expect(normalizeGoal('nope')).toBe('hypertrophy');
     expect(normalizeGoal('')).toBe('hypertrophy');
+  });
+});
+
+// med-qj4.6.2: `rpe` stays the single STORED effort field; RIR is a view of it.
+// These are the only place `10 - x` may live, so pin both directions + the
+// absent-effort contract the progression gate and the later graph/insight code
+// depend on.
+describe('workout-goals effort conversion (RIR ⇄ RPE)', () => {
+  it('converts both directions, including halves', () => {
+    expect(rirFromRpe(10)).toBe(0);
+    expect(rirFromRpe(8)).toBe(2);
+    expect(rirFromRpe(7.5)).toBe(2.5);
+    expect(rpeFromRir(0)).toBe(10);
+    expect(rpeFromRir(2)).toBe(8);
+    // Round-trips: the goal table's target_rir read back as an RPE cue.
+    expect(rirFromRpe(rpeFromRir(GOAL_DEFAULTS.strength.target_rir))).toBe(2);
+  });
+
+  it('treats absent/blank/non-finite effort as null, never 10', () => {
+    for (const v of [null, undefined, '', 'hard', NaN, Infinity]) {
+      expect(rirFromRpe(v)).toBeNull();
+      expect(rpeFromRir(v)).toBeNull();
+      expect(formatEffort(v)).toBeNull();
+    }
+  });
+
+  it('formatEffort spells out both ends', () => {
+    expect(formatEffort(8)).toBe('RPE 8 · 2 RIR');
+    expect(formatEffort(10)).toBe('RPE 10 · 0 RIR');
   });
 });

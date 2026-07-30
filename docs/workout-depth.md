@@ -204,9 +204,8 @@ exposed as the cloud-only MCP op `workouts.progression_preview` (GET
 (`web/cloud/js/mcp-catalog.cloud-extra.js` + `apishim.js createApiRouter`), so
 `mcp-catalog.generated.js` stays untouched (drift-safe).
 
-Presets are **goal-agnostic**: they progress on hitting the numeric rep target only.
-Goal-differentiated presets and RIR-gating (progress only when near failure) are the
-goal-aware sub-epic (`med-qj4.6.3`), not this phase.
+The presets shipped goal-agnostic (rep target only); they are now goal-differentiated
+and RIR-gated — see below (`med-qj4.6.3`).
 
 ## Goal-aware foundation (`med-qj4.6.1`) — implemented
 
@@ -264,8 +263,49 @@ yet.)
 **Bot safety.** The shared editors send `training_goal`; the Go log/group handlers
 decode without `DisallowUnknownFields`, so the unknown key is silently ignored (same as
 Phase 1's `sets` and Phase 4's `progression_rule`) — no gate, no migration, no
-breakage. Goal-differentiated progression *compute* (`med-qj4.6.3`), goal graph
-emphasis (`med-qj4.6.4`), and the effort insight (`med-qj4.6.5`) are later beads.
+breakage. Goal graph emphasis (`med-qj4.6.4`) and the effort insight (`med-qj4.6.5`)
+are later beads.
+
+## Effort: one stored field (`med-qj4.6.2`) — implemented
+
+**`rpe` (per set, 1–10) is the canonical STORED effort field** — it is already
+persisted, validated (`normalizeSets` in `web/domain/workout.js`), synced and in users'
+vaults. RIR is a *view* of it, not a second column: `RIR = 10 − RPE`. No new field, no
+migration. `web/domain/workout-goals.js` owns the only conversion —
+`rirFromRpe` / `rpeFromRir` / `formatEffort(rpe)` (`8 → 'RPE 8 · 2 RIR'`), all
+returning `null` for absent/blank/non-finite effort so "no effort logged" stays
+distinguishable from a value. Goal defaults think in RIR (`target_rir`), stored sets
+think in RPE; these three functions are where the two meet, so progression
+(`med-qj4.6.3`), graphs (`.4`) and the insight (`.5`) never re-derive `10 - x`.
+
+## Goal-differentiated, RIR-gated progression (`med-qj4.6.3`) — implemented
+
+The Phase-4 presets are now parameterized by the **effective goal** (the exercise's
+`training_goal` override, else its routine's, else hypertrophy — `effectiveGoal` in
+`web/domain/workout.js`, same precedence as the editor cascade). Two parameters, both
+from `GOAL_DEFAULTS`, no new mechanism:
+
+- **Rep band (fill-only).** `reps_min`/`reps_max` fill in *only* where the user left a
+  target unset — an explicit positive target on the exercise (or the anchored window on
+  the rule) always wins. `0` is `createExercise`'s "unset" default, so it counts as
+  absent: an exercise with no rep target now gates on the goal band instead of the
+  meaningless `reps >= 0`.
+- **RIR gate (the substance).** A **load bump** fires only when `reps >= target` **AND**
+  `RIR <= target_rir` (strength 2, hypertrophy/endurance 1, `general` ungated). Effort
+  is judged on the **least-hard work set** (`minRpe`) — the same "all sets must qualify"
+  rule the rep gate uses on `minReps`; warm-up and drop sets are excluded as before.
+  Hitting the reps with reps in reserve **holds the plan** (no bump, and for double no
+  rep reset either) — that case is the effort insight (`med-qj4.6.5`), not a heavier
+  bar. Double-progression's **rep climb is deliberately not gated**: reps in reserve is
+  precisely the signal to prescribe more reps at the same load.
+
+**Nothing changes for anyone who hasn't opted in** (rule `none`/absent still just
+mirrors), and nothing changes for a log with **no RPE** — unknown effort leaves the gate
+open, so users who don't log RPE keep the pre-`.6.3` behavior exactly.
+
+`workouts.progression_preview` now reports `training_goal` and `effort` (the source
+log's least-hard work set, formatted, or `null`) per entry, so a `changed: false` caused
+by the gate is readable rather than mysterious.
 
 ## Success criteria (the spine, done)
 
