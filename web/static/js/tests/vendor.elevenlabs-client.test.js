@@ -77,4 +77,37 @@ describe('vendored @elevenlabs/client', () => {
             expect(served, `${file} drifted from the bundle's ${name}`).toBe(inlinedWorklet(name));
         }
     });
+
+    // bd med-yor.17. Unlike the two processors above, libsamplerate is NOT
+    // inlined — the bundle hardcodes a jsdelivr URL and addModule()s it
+    // whenever the engine cannot pin the AudioContext sample rate (Firefox,
+    // Safari). script-src 'self' blocks that, and the SDK rethrows, so the call
+    // dies. elevenlabs-call.js self-hosts the worklet and both passes
+    // `libsampleratePath` and rewrites this exact URL at the addModule seam
+    // (the SDK drops the option on the output controller). Both mechanisms key
+    // off the version in this string, so a re-vendor that bumps libsamplerate
+    // must land a matching re-download of vendor/worklets/libsamplerate.worklet.js.
+    it('pins the libsamplerate URL and the self-hosted copy of that exact artifact', async () => {
+        const fs = await import('node:fs/promises');
+        const path = await import('node:path');
+        const crypto = await import('node:crypto');
+        const { fileURLToPath } = await import('node:url');
+        const here = path.dirname(fileURLToPath(import.meta.url));
+
+        // Verified byte-identical to both the jsdelivr response and the npm
+        // tarball @alexanderolsen/libsamplerate-js@2.1.2 → dist/libsamplerate.worklet.js.
+        const URL = 'https://cdn.jsdelivr.net/npm/@alexanderolsen/libsamplerate-js@2.1.2/dist/libsamplerate.worklet.js';
+        const SHA256 = 'ca6e162f194d3ee5a2d2cd3c3b49641d31e56845aeae507feca1cdf8aa8116cb';
+
+        const src = await fs.readFile(path.join(here, '../../vendor/elevenlabs-client.min.js'), 'utf8');
+        expect(src, 'bundle no longer names the pinned libsamplerate URL').toContain(URL);
+
+        const caller = await fs.readFile(path.join(here, '../features/elevenlabs-call.js'), 'utf8');
+        expect(caller, 'elevenlabs-call.js redirects a URL the bundle no longer requests').toContain(URL);
+
+        const served = await fs.readFile(path.join(here, '../../vendor/worklets/libsamplerate.worklet.js'));
+        expect(crypto.createHash('sha256').update(served).digest('hex')).toBe(SHA256);
+        // The SDK's concat processor only resamples if the module defined this.
+        expect(served.toString('utf8')).toContain('globalThis.LibSampleRate');
+    });
 });

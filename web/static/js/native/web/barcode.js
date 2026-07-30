@@ -2,10 +2,11 @@
 //
 // scan({ source, formats }) decodes a single barcode/QR from the given source
 // — an HTMLVideoElement (live frame), HTMLImageElement / HTMLCanvasElement
-// (still), or a Blob/File (will be wrapped in an <img> first). Tries the
-// platform-native window.BarcodeDetector when present; for image/canvas/blob
-// sources, falls back to window.ZXing.BrowserMultiFormatReader if no barcode
-// was found (the legacy "Use Photo" path in features/food/scanner.js).
+// (still), or a Blob/File (decoded to a canvas first, see blobToStill). Tries
+// the platform-native window.BarcodeDetector when present; for
+// image/canvas/blob sources, falls back to
+// window.ZXing.BrowserMultiFormatReader if no barcode was found (the legacy
+// "Use Photo" path in features/food/scanner.js).
 // Returns { format, rawValue } on success or null when nothing was decoded
 // (= "cancel" for our purposes — the user picked an image without a barcode,
 // or a live frame had no readable code).
@@ -148,6 +149,41 @@
         });
     }
 
+    // Blob → a still both decoders can read, without ever minting a URL.
+    //
+    // The old path was URL.createObjectURL(blob) assigned to an <img>.src,
+    // which the cloud CSP blocks outright — it serves `img-src 'self'` with no
+    // blob:, so the image never loads and the "Use Photo" fallback fails on
+    // account subdomains (bd med-bje; bot mode allows `data: blob:` and was
+    // unaffected). createImageBitmap() decodes the bytes in-process, so no
+    // fetch directive applies at all; painting the bitmap onto a canvas then
+    // gives both decoders a source they accept — BarcodeDetector takes any
+    // ImageBitmapSource, and ZXing needs canvas pixels (see tryZXingOnCanvas).
+    // The <img> route stays as the fallback for engines without
+    // createImageBitmap.
+    function blobToStill(blob) {
+        if (typeof window.createImageBitmap !== 'function') return blobToImage(blob);
+        return window.createImageBitmap(blob).then(function (bitmap) {
+            try {
+                var canvas = window.document.createElement('canvas');
+                canvas.width = bitmap.width;
+                canvas.height = bitmap.height;
+                canvas.getContext('2d').drawImage(bitmap, 0, 0);
+                return canvas;
+            } finally {
+                if (bitmap && typeof bitmap.close === 'function') bitmap.close();
+            }
+        });
+    }
+
+    function toDecoded(result) {
+        if (!result || !result.text) return null;
+        return {
+            format: result.format != null ? String(result.format) : 'unknown',
+            rawValue: String(result.text),
+        };
+    }
+
     function tryZXingOnImage(image) {
         var ZXingGlobal = window.ZXing;
         if (!ZXingGlobal || !ZXingGlobal.BrowserMultiFormatReader) {
@@ -157,16 +193,44 @@
         return reader.decodeFromImageElement(image)
             .then(function (result) {
                 try { reader.reset(); } catch (_) { /* ignore */ }
-                if (!result || !result.text) return null;
-                return {
-                    format: result.format != null ? String(result.format) : 'unknown',
-                    rawValue: String(result.text),
-                };
+                return toDecoded(result);
             })
             .catch(function () {
                 try { reader.reset(); } catch (_) { /* ignore */ }
                 return null;
             });
+    }
+
+    // ZXing has no public canvas entry point in this build: decodeFromImageElement()
+    // insists on an <img>, and reader.decode(source) routes through
+    // createBinaryBitmap(), which sizes its scratch canvas from naturalWidth /
+    // videoWidth and so yields a 0×0 canvas for anything that is not an <img>
+    // or <video>. Assembling the BinaryBitmap here is exactly what
+    // createBinaryBitmap does internally minus that element sniffing, and all
+    // three classes are public exports of vendor/zxing.min.js.
+    function tryZXingOnCanvas(canvas) {
+        var Z = window.ZXing;
+        if (!Z || !Z.BrowserMultiFormatReader || !Z.HTMLCanvasElementLuminanceSource ||
+            !Z.HybridBinarizer || !Z.BinaryBitmap) {
+            return Promise.resolve(null);
+        }
+        var reader = new Z.BrowserMultiFormatReader();
+        return Promise.resolve()
+            .then(function () {
+                var source = new Z.HTMLCanvasElementLuminanceSource(canvas);
+                return reader.decodeBitmap(new Z.BinaryBitmap(new Z.HybridBinarizer(source)));
+            })
+            .then(toDecoded)
+            .catch(function () { return null; });
+    }
+
+    function decodeStill(still, formats) {
+        return tryBarcodeDetector(still, formats).then(function (result) {
+            if (result) return result;
+            if (isCanvasElement(still)) return tryZXingOnCanvas(still);
+            if (isImageElement(still)) return tryZXingOnImage(still);
+            return null;
+        });
     }
 
     function scan(opts) {
@@ -188,19 +252,12 @@
         }
 
         if (isImageElement(source) || isCanvasElement(source)) {
-            return tryBarcodeDetector(source, formats).then(function (result) {
-                if (result) return result;
-                if (isImageElement(source)) return tryZXingOnImage(source);
-                return null;
-            });
+            return decodeStill(source, formats);
         }
 
         if (isBlob(source)) {
-            return blobToImage(source).then(function (image) {
-                return tryBarcodeDetector(image, formats).then(function (result) {
-                    if (result) return result;
-                    return tryZXingOnImage(image);
-                });
+            return blobToStill(source).then(function (still) {
+                return decodeStill(still, formats);
             }).catch(function (e) { throw normalizeError(e); });
         }
 
