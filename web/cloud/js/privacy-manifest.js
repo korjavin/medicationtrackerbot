@@ -624,7 +624,10 @@ export const PRIVACY_MANIFEST = [
     code: { go: ['internal/cloudserver/feedback.go'], hosts: [] },
     docSignal: null,
     userCopy: {
-      category: 'leaves',
+      // Deliberately 'visible', not 'leaves': the upload goes TO the operator
+      // (blindly, as ciphertext) — it is not one of the browser-direct
+      // third-party calls that section promises. Caught by codex review.
+      category: 'visible',
       title: 'Feedback you send from inside the app',
       detail: 'Feedback sent from the app is encrypted in your browser to the developer\'s key before it is uploaded, so the operator stores it without being able to read it — but the developer can, including any screenshot or voice note you attach. It carries no account id. Only what you type and attach is sent; the app version and the kind of feedback travel unencrypted so the operator knows something arrived. Feedback sent to the Telegram bot instead is a different path — see below.',
     },
