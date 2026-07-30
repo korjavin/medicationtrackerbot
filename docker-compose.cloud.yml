@@ -39,6 +39,11 @@ services:
       # Unset = feedback disabled: no meta tag reaches the browser and
       # POST /api/feedback returns 503. Public key only, never a secret.
       - FEEDBACK_AGE_RECIPIENT=${FEEDBACK_AGE_RECIPIENT:-}
+      # Numeric Telegram chat id the manager bot DMs when feedback arrives.
+      # Web feedback pings METADATA ONLY (kind + app version + time) — the
+      # server holds ciphertext it cannot read; telegram-origin feedback is
+      # relayed in full. Unset/0 = no relay. Needs MANAGER_BOT_TOKEN too.
+      - FEEDBACK_ADMIN_CHAT_ID=${FEEDBACK_ADMIN_CHAT_ID:-}
       - MANAGER_BOT_TOKEN=${MANAGER_BOT_TOKEN:-}
       - CLOUD_FOOD_DB_URL=${CLOUD_FOOD_DB_URL:-}
       # Operator key for a KEYED food DB, forwarded upstream as X-API-Key.

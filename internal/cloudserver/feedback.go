@@ -31,11 +31,21 @@ type FeedbackAPI struct {
 	store         feedbackStore
 	sessionSecret string
 	recipient     string
+	// notify, when set, pings the developer that feedback arrived. It receives
+	// METADATA ONLY (kind + app version) — never content, ciphertext, or account
+	// id — because the server cannot read web feedback and the promise that it
+	// can't must stay true (bd med-orj). nil = no relay. Called on its own
+	// goroutine, so a slow or failing relay never delays the response.
+	notify func(kind, appVersion string)
 }
 
 func NewFeedbackAPI(store feedbackStore, sessionSecret, recipient string) *FeedbackAPI {
 	return &FeedbackAPI{store: store, sessionSecret: sessionSecret, recipient: recipient}
 }
+
+// SetNotifier wires the optional admin ping (see the notify field). A setter
+// because cmd/cloud only has a Telegram API to hand after this API is built.
+func (a *FeedbackAPI) SetNotifier(fn func(kind, appVersion string)) { a.notify = fn }
 
 func (a *FeedbackAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/feedback", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.SubmitFeedback)))
@@ -91,4 +101,9 @@ func (a *FeedbackAPI) SubmitFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+	// Best-effort admin ping, off the request path (and after the response) so a
+	// slow or failing Telegram can never delay or 500 a stored feedback item.
+	if a.notify != nil {
+		go a.notify(req.Kind, req.AppVersion)
+	}
 }

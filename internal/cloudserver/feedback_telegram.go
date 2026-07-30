@@ -171,11 +171,89 @@ func (t *TelegramAPI) captureFeedback(ctx context.Context, msg *tgclient.Message
 	switch err := t.store.AppendFeedback(ctx, accountID, randomSecret(), "telegram", "", ciphertext, time.Now().UTC()); {
 	case err == nil:
 		t.reply(ctx, msg.Chat.ID, feedbackThanksMessage)
+		t.relayFeedbackToAdmin(ctx, msg, text)
 	case errors.Is(err, cloudstore.ErrFeedbackQueueFull):
 		t.reply(ctx, msg.Chat.ID, feedbackQueueFullMessage)
 	default:
 		slog.Error("telegram feedback: append", "error", err)
 		t.reply(ctx, msg.Chat.ID, feedbackFailMessage)
+	}
+}
+
+// feedbackPingTimeout bounds the detached admin-ping call, and
+// feedbackPingFieldMax truncates the client-supplied metadata that goes into it
+// (kind/app_version come straight off an untrusted POST body).
+const (
+	feedbackPingTimeout  = 10 * time.Second
+	feedbackPingFieldMax = 40
+)
+
+// NotifyFeedback DMs the admin chat that a *web* feedback item was queued. It is
+// METADATA ONLY — kind, app version, time — and deliberately so: for web feedback
+// the server holds nothing but client-encrypted ciphertext and must stay unable to
+// read it, so the developer runs cmd/feedbackpull for the content (bd med-orj).
+// No account id either — web feedback is anonymous by design.
+//
+// It runs on its OWN detached, timeout-bounded context — never the request's,
+// which is cancelled the moment the 204 is written — and swallows every error
+// into a warn: a 403 because the admin never pressed /start on the manager bot
+// must never turn a stored feedback item into a 500. The caller (FeedbackAPI)
+// fires it off the request path. No-op when FEEDBACK_ADMIN_CHAT_ID is unset.
+func (t *TelegramAPI) NotifyFeedback(kind, appVersion string) {
+	if t == nil || t.feedbackAdminChatID == 0 {
+		return
+	}
+	text := fmt.Sprintf("📮 New feedback (web) · kind %s · app %s · %s — run feedbackpull to read.",
+		feedbackPingField(kind), feedbackPingField(appVersion), time.Now().UTC().Format(time.RFC3339))
+	ctx, cancel := context.WithTimeout(context.Background(), feedbackPingTimeout)
+	defer cancel()
+	if err := t.managerClient().SendMessage(ctx, t.feedbackAdminChatID, text); err != nil {
+		slog.Warn("telegram feedback: admin ping failed", "error", err)
+	}
+}
+
+// feedbackPingField renders one untrusted metadata field for the ping: trimmed,
+// length-capped, and never empty (so the message can't collapse into ambiguity).
+func feedbackPingField(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "—"
+	}
+	// Rune-wise: a byte slice could cut a multi-byte rune in half and Telegram
+	// rejects invalid UTF-8 outright, turning the ping into a silent no-op.
+	if r := []rune(s); len(r) > feedbackPingFieldMax {
+		s = string(r[:feedbackPingFieldMax]) + "…"
+	}
+	return strings.ReplaceAll(s, "\n", " ")
+}
+
+// relayFeedbackToAdmin sends a *telegram-origin* feedback message to the admin
+// chat in FULL: a one-line header plus a copy of the user's own message, so a
+// voice memo or screenshot rides along by file_id with no re-upload. This
+// downgrades nothing — the manager bot already held this plaintext to build the
+// doc it then encrypted. copyMessage rather than forwardMessage: no "forwarded
+// from" header keeps the sender unattributed, matching the web channel (the
+// encrypted queue item still carries the account id for cmd/feedbackpull).
+// Best-effort — every failure is a warn, never a user-visible error.
+func (t *TelegramAPI) relayFeedbackToAdmin(ctx context.Context, msg *tgclient.Message, text string) {
+	if t.feedbackAdminChatID == 0 || msg == nil {
+		return
+	}
+	client := t.managerClient()
+	if err := client.SendMessage(ctx, t.feedbackAdminChatID, "📮 New feedback (telegram):"); err != nil {
+		slog.Warn("telegram feedback: admin header failed", "error", err)
+	}
+	err := client.CopyMessage(ctx, t.feedbackAdminChatID, msg.Chat.ID, msg.MessageID)
+	if err == nil {
+		return
+	}
+	slog.Warn("telegram feedback: copy to admin failed", "error", err)
+	// Copy refused (message deleted, media restrictions): the text still gets
+	// through, which is the part that matters most.
+	if text != "" {
+		if err := client.SendMessage(ctx, t.feedbackAdminChatID, text); err != nil {
+			slog.Warn("telegram feedback: admin fallback send failed", "error", err)
+		}
 	}
 }
 

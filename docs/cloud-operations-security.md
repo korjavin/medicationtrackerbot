@@ -229,6 +229,25 @@ go run ./cmd/feedbackpull -db cloud.db -identity dev.key -out ./inbox -delete
   the drain or hide the rest. `-delete` acks **only** successfully-processed
   items.
 
+**Optional admin relay (`FEEDBACK_ADMIN_CHAT_ID`).** Because the queue only gets
+read when someone remembers to run the CLI, the manager bot can DM the developer
+that feedback arrived. What it relays differs by origin, and the difference is
+the point:
+
+- **Web feedback: metadata only** — kind, app version, timestamp. No content, no
+  ciphertext, no account id. The server cannot read web feedback and this relay
+  does not change that: the DM is a "go run feedbackpull" nudge, and the age
+  private key remains the only way to read the submission.
+- **Telegram-origin feedback: full content** — the message is `copyMessage`d to
+  the admin chat (media by `file_id`). No new exposure: the manager bot already
+  held that plaintext in memory to build the doc it then encrypted (§5.2 above /
+  docs/cloud-mode.md). `copyMessage` carries no "forwarded from" header, so the
+  sender is not attributed in the DM.
+
+Unset (or `0`) disables the relay entirely. Every DM is best-effort and off the
+request path — a failure is a log warning and never affects the user's
+submission.
+
 ## 6. Incident response and user notification
 
 - **Log discipline first.** The redaction invariants (§1.1) and the proxy

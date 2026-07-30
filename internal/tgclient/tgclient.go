@@ -350,6 +350,20 @@ func (c *Client) SendMessageReturningID(ctx context.Context, chatID int64, text 
 	return sent.MessageID, nil
 }
 
+// CopyMessage re-sends the content of an existing message (text, or media by
+// file_id — no download/re-upload) into chatID as a fresh message from this bot.
+// Unlike forwardMessage it carries no "forwarded from" header, so the original
+// sender stays anonymous — what the feedback relay wants (feedback is
+// deliberately unattributed; the encrypted queue item still carries the account
+// id for cmd/feedbackpull).
+func (c *Client) CopyMessage(ctx context.Context, chatID, fromChatID, messageID int64) error {
+	return c.call(ctx, "copyMessage", map[string]any{
+		"chat_id":      chatID,
+		"from_chat_id": fromChatID,
+		"message_id":   messageID,
+	}, nil)
+}
+
 // EditMessageText rewrites a message this bot previously sent. Editing a bot's
 // own message has no time limit, so a command queued on Monday and drained on
 // Friday still updates in place. Telegram answers 400

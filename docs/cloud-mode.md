@@ -325,6 +325,15 @@ A user can send feedback (text, voice, or a screenshot) through the **manager bo
 
 **Disabled when unset.** The whole feature is gated on `FEEDBACK_AGE_RECIPIENT != ""` — unset means no button is ever attached and no capture happens, mirroring the web feedback API's disabled state. Capture state is an in-memory `map[chatID]expiry` with a ~5 min TTL on `TelegramAPI`; a restart drops a pending prompt (the user re-taps). `ponytail:` a one-column table only if cloud ever runs multi-replica.
 
+### Admin relay: knowing feedback arrived (med-orj)
+
+Both channels drop into the same blind queue whose only reader is `cmd/feedbackpull`, run by hand — so feedback nobody drains is feedback nobody sees. Setting **`FEEDBACK_ADMIN_CHAT_ID`** (numeric Telegram chat id, requires `MANAGER_BOT_TOKEN`) makes the manager bot DM the developer when an item lands. The two channels relay deliberately different amounts:
+
+- **Web feedback → metadata ping only.** `FeedbackAPI` calls an optional `notify(kind, appVersion)` hook (`TelegramAPI.NotifyFeedback`) that DMs `📮 New feedback (web) · kind … · app … · <time> — run feedbackpull to read.` **No content, no ciphertext, no account id** — the server holds a blob it cannot read and the E2EE promise stays literally true. The client-side encryption (`web/cloud/js/feedback-submit.js`) and the queue are untouched; reading still requires the age private key.
+- **Telegram feedback → full content.** `relayFeedbackToAdmin` sends a one-line header plus a **`copyMessage`** of the user's own message, so a voice memo or screenshot rides along by `file_id` with no re-upload. This downgrades nothing: the manager bot already held that plaintext in memory to build the doc it then encrypted. `copyMessage` rather than `forwardMessage` keeps the sender unattributed (no "forwarded from" header), matching the web channel's anonymity; the queue row still carries the account id for `feedbackpull`. A refused copy falls back to sending the text.
+
+**Never on the request path.** The web ping is fired with `go a.notify(...)` *after* the 204 and runs on its own detached, 10s-bounded context — the request context dies with the response. Every failure (a 403 because the admin never pressed `/start`) is a `slog.Warn`, never an error to the user: a broken notification must not turn a stored feedback item into a 500. `FEEDBACK_ADMIN_CHAT_ID` unset (or unparseable — logged and treated as unset) means no relay at all.
+
 ## BYO provider keys
 
 All provider keys live as ordinary records inside the encrypted vault (synced across devices, invisible to the cloud). Calls go **directly from the browser** to the provider:
