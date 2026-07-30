@@ -1106,7 +1106,7 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/add an OpenAI key/));
     });
 
-    it('/food with trial consent not granted points at Settings, acks, and logs nothing', async () => {
+    it('/food with trial consent not granted offers the one-tap Allow button, acks, and logs nothing', async () => {
         const records = fakeRecords(seed());
         const now = () => DRAIN_MS;
         const editReply = vi.fn();
@@ -1116,7 +1116,20 @@ describe('inbox-apply.js — a Telegram data command', () => {
             .resolves.toBeUndefined();
 
         expect(await records.list('foodlog')).toHaveLength(0);
-        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/allow it first in Settings/));
+        // The button (med-eas.61) carries the navigation, so the text no longer
+        // spells out a Settings path — and it rides the scope the gate refused.
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/trial AI/), { trialConsentScope: 'ai' });
+    });
+
+    it('/activity with trial consent not granted offers the same Allow button', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn();
+        await expect(applyTGCommand(commandEvent('/activity 30 min run'), 24, { ...domainsFor(records, now, stubAIClient(TWO_EGGS), consentRefusingAIClient()), editReply }))
+            .resolves.toBeUndefined();
+
+        expect(await records.list('miband')).toHaveLength(0);
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/trial AI/), { trialConsentScope: 'ai' });
     });
 
     it('a failed edit never fails the drain — the record is already in the vault', async () => {
@@ -1201,7 +1214,7 @@ describe('inbox-apply.js — a Telegram data command', () => {
             .resolves.toBeUndefined();
 
         expect(await records.list('foodlog')).toHaveLength(0);
-        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/allow it first in Settings/));
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/trial AI/), { trialConsentScope: 'ai' });
     });
 
     // --- Free-text AI agent (bd med-vcv.2) ---
@@ -1255,11 +1268,21 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/add an OpenAI key/));
     });
 
-    it('an agent refused for missing trial consent points at Settings, not "try again"', async () => {
+    it('an agent refused for missing trial consent offers the one-tap Allow button, not "try again"', async () => {
         const editReply = vi.fn();
         const agent = { run: vi.fn().mockRejectedValue(Object.assign(new Error('consent'), { code: 'trial_consent_required', scope: 'tg' })) };
         await expect(applyTGText(textEvent('hi'), 45, { agent, records: fakeRecords(), editReply })).resolves.toBeUndefined();
-        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/allow it first in Settings/));
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/trial AI/), { trialConsentScope: 'tg' });
+    });
+
+    // The other refusal: no key of the user's own AND no trial to allow. An
+    // "Allow trial AI" button there would deep-link to a toggle that changes
+    // nothing, so the reply must stay button-less (2-arg editReply call).
+    it('a no-key agent gets no consent button — there is no trial to allow', async () => {
+        const editReply = vi.fn();
+        const agent = { run: vi.fn().mockRejectedValue(Object.assign(new Error('no key'), { code: 'no_api_key' })) };
+        await applyTGText(textEvent('hi'), 46, { agent, records: fakeRecords(), editReply });
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/add an OpenAI key/));
     });
 
     it('any other agent failure is answered and acked, never left dangling', async () => {

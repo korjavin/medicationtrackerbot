@@ -1295,7 +1295,18 @@ func (t *TelegramAPI) downloadDocument(ctx context.Context, client *tgclient.Cli
 type editReplyRequest struct {
 	MessageID int64  `json:"message_id"`
 	Text      string `json:"text"`
+	// TrialConsentScope, when set, asks for an "Allow trial AI" URL button on
+	// the edited message, deep-linking to the account's Settings with the
+	// consent ceremony for that scope. The client sends it when the drain hit
+	// the trial gate's refusal (med-eas.61); the relay only turns the scope
+	// name into a link — the grant itself happens in the vault, client-side.
+	TrialConsentScope string `json:"trial_consent_scope,omitempty"`
 }
+
+// trialConsentScopes are the vault trialconsent record's scopes (see
+// web/static/js/features/trial-consent.js). Validated here so the relay can
+// never be talked into composing a link to an arbitrary query string.
+var trialConsentScopes = map[string]bool{"ai": true, "tg": true, "voice": true}
 
 // maxEditTextRunes bounds the client-composed confirmation. Telegram's own cap
 // is 4096; reject earlier so a bug can't turn the relay into a message cannon.
@@ -1322,6 +1333,10 @@ func (t *TelegramAPI) EditReply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 		return
 	}
+	if req.TrialConsentScope != "" && !trialConsentScopes[req.TrialConsentScope] {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_request"})
+		return
+	}
 
 	bot, err := t.store.BotByAccount(r.Context(), sess.AccountID)
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && bot.ChatID == nil) {
@@ -1340,7 +1355,13 @@ func (t *TelegramAPI) EditReply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Never log req.Text — it is a confirmation derived from vault data.
-	err = client.EditMessageText(r.Context(), *bot.ChatID, req.MessageID, req.Text)
+	if buttons := t.trialConsentButtons(r.Context(), sess.AccountID, req.TrialConsentScope); len(buttons) > 0 {
+		err = client.EditMessageTextWithButtons(r.Context(), *bot.ChatID, req.MessageID, req.Text, buttons)
+	} else {
+		// Plain edit LEAVES any existing keyboard alone — the contract every
+		// other confirmation relies on.
+		err = client.EditMessageText(r.Context(), *bot.ChatID, req.MessageID, req.Text)
+	}
 	if err != nil && !tgclient.IsMessageNotModified(err) {
 		slog.Warn("telegram edit reply: edit failed", "account", sess.AccountID, "error", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "edit_failed"})
@@ -2028,6 +2049,27 @@ func (t *TelegramAPI) reminderDeepLink(ctx context.Context, accountID, section s
 		return ""
 	}
 	return "https://" + subdomain + "." + t.baseDomain + "/?tab=" + section
+}
+
+// trialConsentButtons is the one-tap escape from the drain's "trial AI needs
+// your OK" refusal (med-eas.61): a URL button onto the account's Settings with
+// ?action=trial_consent&scope=<scope>, which web/static/js/features/deeplink-router.js
+// turns into the SAME disclosure dialog the Settings row opens. The link cannot
+// grant anything — consent is a vault write only an unlocked client can make —
+// so this stays a navigation shortcut, not a server-side flip of a user choice.
+// Empty scope (or an unresolvable subdomain) means no button.
+func (t *TelegramAPI) trialConsentButtons(ctx context.Context, accountID, scope string) []tgclient.InlineKeyboardButton {
+	if scope == "" {
+		return nil
+	}
+	link := t.reminderDeepLink(ctx, accountID, "settings")
+	if link == "" {
+		return nil
+	}
+	return []tgclient.InlineKeyboardButton{{
+		Text: "🔓 Allow trial AI",
+		URL:  link + "&action=trial_consent&scope=" + scope,
+	}}
 }
 
 // dropEmptyURLButtons removes any URL button whose URL failed to resolve — an

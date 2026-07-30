@@ -392,18 +392,35 @@ export async function applyMeasureReminderAction(event, { reminders, editReply =
 // outbound reminder text it already relays (docs/cloud-mode.md → Inbound
 // plaintext). Best-effort: a failed edit must never fail the drain, because the
 // record is already in the vault and the receipt is cosmetic.
-async function editTelegramReply(messageId, text, { fetchImpl = fetch } = {}) {
+// trialConsentScope asks the relay to hang an "Allow trial AI" button off the
+// edited message, deep-linking to the in-app consent dialog for that scope
+// (med-eas.61). The relay only builds the link; the grant is a vault write the
+// user makes in the app, so the one tap stays an explicit affirmative act.
+async function editTelegramReply(messageId, text, { fetchImpl = fetch, trialConsentScope = '' } = {}) {
   if (!messageId || !text) return;
   try {
     const res = await fetchImpl('/api/telegram/reply-edit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message_id: messageId, text }),
+      body: JSON.stringify({ message_id: messageId, text, trial_consent_scope: trialConsentScope }),
     });
     if (!res.ok) console.warn('[inbox] could not update the Telegram reply', res.status);
   } catch (e) {
     console.warn('[inbox] could not update the Telegram reply', e);
   }
+}
+
+// The trial gate refused (aiclient.js): the user has no key of their own, the
+// operator's trial IS available, they simply never allowed the scope. Every
+// drain path answers the same way — one short line plus the relay's "Allow
+// trial AI" button, which deep-links to the in-app consent dialog — so nobody
+// is sent hunting through Settings at first use (med-eas.61). `no_api_key` gets
+// no button: there is no trial to allow.
+function replyTrialConsent(reply, what, err) {
+  return reply(
+    `🔑 ${what} needs your OK to use the trial AI — tap below (or add your own OpenAI key in Settings).`,
+    { trialConsentScope: err.scope },
+  );
 }
 
 // Confirmations respect the SAME verbosity the user picked for outbound
@@ -468,9 +485,11 @@ export async function applyTGCommand(event, eventId, { bp, weight, notes, intake
   // The receipt is cosmetic; the record is not. A Telegram outage must never
   // strand an event that already reached the vault, so the edit can never
   // reject out of here — not even an injected one.
-  const reply = async (text) => {
+  // ...rest, not (text, opts): a plain confirmation must call editReply with
+  // exactly two arguments, the shape every other caller and stub expects.
+  const reply = async (text, ...rest) => {
     try {
-      await editReply(event.reply_message_id, text);
+      await editReply(event.reply_message_id, text, ...rest);
     } catch (e) {
       console.warn('[inbox] could not update the Telegram reply', e);
     }
@@ -512,7 +531,7 @@ export async function applyTGCommand(event, eventId, { bp, weight, notes, intake
           return;
         }
         if (e && e.code === 'trial_consent_required') {
-          await reply('🔑 To log food by message with the trial AI, allow it first in Settings → Integrations (or add your own OpenAI key).');
+          await replyTrialConsent(reply, 'Logging food by message', e);
           return;
         }
         throw e;
@@ -531,7 +550,7 @@ export async function applyTGCommand(event, eventId, { bp, weight, notes, intake
           return;
         }
         if (e && e.code === 'trial_consent_required') {
-          await reply('🔑 To log cardio by message with the trial AI, allow it first in Settings → Integrations (or add your own OpenAI key).');
+          await replyTrialConsent(reply, 'Logging cardio by message', e);
           return;
         }
         throw e;
@@ -584,9 +603,11 @@ async function fetchTelegramPhoto(fileId, mime, { fetchImpl = fetch } = {}) {
 // would re-pull the bytes and re-bill the provider for a result that will not
 // improve. Idempotent on the happy path via per-item `tg-<eventId>-<i>` ids.
 export async function applyTGPhoto(event, eventId, { foodAI, verbosity = 'detailed', now = Date.now, editReply = editTelegramReply, fetchPhoto = fetchTelegramPhoto }) {
-  const reply = async (text) => {
+  // ...rest, not (text, opts): a plain confirmation must call editReply with
+  // exactly two arguments, the shape every other caller and stub expects.
+  const reply = async (text, ...rest) => {
     try {
-      await editReply(event.reply_message_id, text);
+      await editReply(event.reply_message_id, text, ...rest);
     } catch (e) {
       console.warn('[inbox] could not update the Telegram reply', e);
     }
@@ -617,7 +638,7 @@ export async function applyTGPhoto(event, eventId, { foodAI, verbosity = 'detail
       return;
     }
     if (e && e.code === 'trial_consent_required') {
-      await reply('🔑 To log food from a photo with the trial AI, allow it first in Settings → Integrations (or add your own OpenAI key).');
+      await replyTrialConsent(reply, 'Logging food from a photo', e);
       return;
     }
     console.warn('[inbox] could not parse the Telegram photo', e && e.code);
@@ -635,9 +656,11 @@ export async function applyTGPhoto(event, eventId, { foodAI, verbosity = 'detail
 // retry — the agent may have already written through its tools, and a re-drain
 // would re-run a non-deterministic loop and re-bill the provider.
 export async function applyTGText(event, eventId, { agent, records, verbosity = 'detailed', now = Date.now, editReply = editTelegramReply }) {
-  const reply = async (text) => {
+  // ...rest, not (text, opts): a plain confirmation must call editReply with
+  // exactly two arguments, the shape every other caller and stub expects.
+  const reply = async (text, ...rest) => {
     try {
-      await editReply(event.reply_message_id, text);
+      await editReply(event.reply_message_id, text, ...rest);
     } catch (e) {
       console.warn('[inbox] could not update the Telegram reply', e);
     }
@@ -661,7 +684,7 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
       return;
     }
     if (e && e.code === 'trial_consent_required') {
-      await reply('🔑 To chat with the assistant via the trial AI, allow it first in Settings → Integrations (or add your own OpenAI key).');
+      await replyTrialConsent(reply, 'Chatting with the assistant', e);
       return;
     }
     console.warn('[inbox] free-text agent failed', e && e.code);

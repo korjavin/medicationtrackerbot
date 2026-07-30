@@ -86,6 +86,23 @@ function handleDeepLinks() {
         } else {
             window.history.replaceState({}, '', '/');
         }
+    } else if (action === 'trial_consent') {
+        // The cloud bot's "🔓 Allow trial AI" button (med-eas.61). Consent is a
+        // vault write only an unlocked client can make, so the link cannot grant
+        // anything — it lands on Settings and opens the SAME disclosure dialog
+        // the Integrations row uses. Allowing there is still the user's tap.
+        const scope = urlParams.get('scope');
+        if (['ai', 'tg', 'voice'].includes(scope)) {
+            switchTab('settings');
+            setTimeout(async () => {
+                if (!window.TrialConsent || typeof window.TrialConsent.request !== 'function') return;
+                const granted = await window.TrialConsent.request(scope);
+                // Repaint the Integrations consent rows behind the dialog, which
+                // still read "Not asked" from the pre-grant load.
+                if (granted === true) window.SettingsIntegrations?.load?.();
+            }, 100);
+        }
+        window.history.replaceState({}, '', '/');
     } else if (action) {
         handlePushAction(action, urlParams);
         // Clean URL

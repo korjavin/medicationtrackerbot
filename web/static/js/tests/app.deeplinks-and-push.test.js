@@ -395,3 +395,79 @@ describe('handleDeepLinks – push-action query params', () => {
     }
   });
 });
+
+// The cloud bot's "🔓 Allow trial AI" button (bd med-eas.61). Trial consent is
+// a vault write, so the link can only NAVIGATE — it lands on Settings and opens
+// the existing disclosure dialog, where allowing is still the user's own tap.
+describe('handleDeepLinks – ?action=trial_consent (Telegram Allow trial AI button)', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('opens the consent dialog for the scope and refreshes the Integrations rows', async () => {
+    const { window, cleanup } = loadFrontendEnv({
+      url: 'https://acct.example.test/?tab=settings&action=trial_consent&scope=tg'
+    });
+
+    try {
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      const request = vi.fn().mockResolvedValue(true);
+      const load = vi.fn();
+      window.TrialConsent = { request };
+      window.SettingsIntegrations = { load };
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+
+      window.handleDeepLinks();
+
+      expect(switchTabSpy).toHaveBeenCalledWith('settings');
+      expect(request).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(110);
+
+      expect(request).toHaveBeenCalledWith('tg');
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('ignores an unknown scope — the link can never widen consent on its own', async () => {
+    const { window, cleanup } = loadFrontendEnv({
+      url: 'https://acct.example.test/?tab=settings&action=trial_consent&scope=everything'
+    });
+
+    try {
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      const request = vi.fn();
+      window.TrialConsent = { request };
+
+      window.handleDeepLinks();
+      await vi.advanceTimersByTimeAsync(110);
+
+      expect(switchTabSpy).not.toHaveBeenCalled();
+      expect(request).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('a declined dialog leaves the Integrations rows untouched', async () => {
+    const { window, cleanup } = loadFrontendEnv({
+      url: 'https://acct.example.test/?tab=settings&action=trial_consent&scope=ai'
+    });
+
+    try {
+      vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      const load = vi.fn();
+      window.TrialConsent = { request: vi.fn().mockResolvedValue(false) };
+      window.SettingsIntegrations = { load };
+
+      window.handleDeepLinks();
+      await vi.advanceTimersByTimeAsync(110);
+
+      expect(load).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+});
