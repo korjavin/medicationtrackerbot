@@ -257,6 +257,23 @@ describe('effortInsight', () => {
     expect(insight.advise).toBe(false);
   });
 
+  it('fills the window from the END of a long session, not its opening sets', () => {
+    // One session of 8 rated sets: easy early (RIR 5), taken close to failure by
+    // the end (RIR 1). Walking the session forwards would judge the user on the
+    // openers and wrongly advise; the last 6 sets are what actually happened.
+    const sets = [
+      ratedSet(60, 10, 5), ratedSet(60, 10, 5), ratedSet(60, 10, 5), ratedSet(60, 10, 5), // RIR 5
+      ratedSet(60, 10, 9), ratedSet(60, 10, 9), ratedSet(60, 10, 9), ratedSet(60, 10, 9), // RIR 1
+    ];
+    const insight = effortInsight([{ date: '2026-07-06', sets }], 'hypertrophy');
+    expect(insight.sets).toBe(6);
+    // Last 6 → [1,1,1,1,5,5] → 1. Forwards it would be [1,1,5,5,5,5] → 5, and
+    // this user would be told to try harder right after taking four sets to the
+    // brink.
+    expect(insight.median_rir).toBe(1);
+    expect(insight.advise).toBe(false);
+  });
+
   it('windows to the newest ~6 rated sets, ignoring older history', () => {
     const logs = [
       { date: '2026-07-06', sets: [ratedSet(60, 10, 9), ratedSet(60, 10, 9), ratedSet(60, 10, 9)] },

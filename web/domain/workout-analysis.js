@@ -224,7 +224,11 @@ export function effortInsight(logs, goal) {
   if (!Array.isArray(logs)) return null;
   const rirs = [];
   for (const log of logs) {
-    for (const s of nonWarmup(log)) {
+    // `logs` is newest-first but a log's own sets run set_index ascending, so
+    // walk each session backwards — otherwise a session with more rated sets
+    // than the window fills it from that session's OLDEST sets, and effort
+    // reliably drifts across a workout (fatigue), so that's a real skew.
+    for (const s of nonWarmup(log).reverse()) {
       const rir = rirFromRpe(s && s.rpe);
       if (rir !== null) rirs.push(rir);
     }
