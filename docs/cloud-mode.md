@@ -76,10 +76,19 @@ same test asserts the vault half of the promise is still stated.
 
 ### The carve-outs
 
-Each row is an implemented feature that moves plaintext outside the vault. All
-are **off unless the user turns them on** (the food DB and RxNav rows are
-"on when you use the feature", which is why they are called out rather than
-assumed). Third-party retention for each destination is in
+Each row is an implemented feature that moves plaintext or metadata outside the
+vault. **They do not share one activation story, and flattening them into "all
+opt-in" is the regression this table exists to prevent.** Three classes:
+
+1. **Off until the user turns them on** — Telegram, trial AI, trial voice,
+   hosted MCP (tier 2).
+2. **No toggle; active whenever the feature is used** — the operator-default
+   food DB (a BYO endpoint removes the operator from the path) and RxNav drug
+   lookups (always proxied; no BYO alternative exists).
+3. **Always on, inherent to running the service** — operational metadata.
+
+The `How it is turned on` column below states which class each row is in.
+Third-party retention for each destination is in
 [cloud-operations-security.md §5](cloud-operations-security.md#5-subprocessors--who-sees-what);
 the metadata-only signals are in [Metadata leakage summary](#metadata-leakage-summary).
 
