@@ -16,7 +16,6 @@ const APP_SHELL_CACHE_KEY = '/__app_shell__';
 //      standalone page, poisoning the shell cache for every other client.
 const NON_SPA_NAVIGATION_PATHS = new Set([
     '/oidc-setup',
-    '/pitch',
 ]);
 
 // Static assets to cache on install
@@ -313,9 +312,9 @@ self.addEventListener('fetch', (event) => {
 
     // HTML navigations - return cached shell immediately and refresh in background.
     if (event.request.mode === 'navigate') {
-        // Standalone non-SPA pages (e.g. /oidc-setup, /pitch) must skip the
-        // shell handler so their response is neither replaced by the cached
-        // SPA shell nor written into APP_SHELL_CACHE_KEY.
+        // Standalone non-SPA pages (e.g. /oidc-setup) must skip the shell
+        // handler so their response is neither replaced by the cached SPA
+        // shell nor written into APP_SHELL_CACHE_KEY.
         if (NON_SPA_NAVIGATION_PATHS.has(url.pathname)) {
             event.respondWith(
                 fetch(event.request).catch(() => new Response(

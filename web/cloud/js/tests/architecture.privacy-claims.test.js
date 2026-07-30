@@ -54,7 +54,6 @@ const SURFACES = [
   { file: 'web/cloud/js/signup.js', promise: false },
   { file: 'web/cloud/js/privacy.js', promise: false },
   { file: 'web/cloud/js/connectors.js', promise: false },
-  { file: 'web/static/pitch.html', promise: false },
 ];
 
 // Unconditional claims that are false for the implemented product. Each entry

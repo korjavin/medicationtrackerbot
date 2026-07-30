@@ -690,11 +690,6 @@ func (s *Server) Routes() http.Handler {
 		s.serveStaticFile(w, r, "icons/favicon.ico")
 	})
 
-	// Pitch Deck Presentation
-	mux.HandleFunc("/pitch", func(w http.ResponseWriter, r *http.Request) {
-		s.serveStaticFile(w, r, "pitch.html")
-	})
-
 	// OIDC Setup Helper
 	mux.HandleFunc("/oidc-setup", s.serveOIDCSetup)
 

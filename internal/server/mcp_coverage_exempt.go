@@ -37,7 +37,6 @@ var mcpCoverageExempt = []routeExemption{
 	{Method: "", Path: "/weight_add", Reason: "Telegram Mini App deep link to UI"},
 	{Method: "", Path: "/favicon.ico", Reason: "static asset"},
 	{Method: "", Path: "/oidc-setup", Reason: "browser-only OIDC setup page"},
-	{Method: "", Path: "/pitch", Reason: "static landing page"},
 	{Method: "", Path: "/static/", Reason: "static file subtree"},
 	{Method: "", Path: "/static/config.js", Reason: "server-generated static config for the SPA"},
 	{Method: "", Path: "/static/sw.js", Reason: "service worker delivery"},
