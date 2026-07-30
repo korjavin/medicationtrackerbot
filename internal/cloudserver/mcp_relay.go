@@ -29,11 +29,6 @@ const (
 	pairingIDBytes      = 16
 
 	maxRelayFrameBytes = 64 << 10
-	// relayWriteTimeout bounds a single pipe write: without it, a peer that
-	// keeps its socket open but stops reading wedges the other leg's goroutine
-	// in Write forever (r.Context() has no deadline and only cancels when the
-	// writer's own conn closes — which it can't, because it's stuck writing).
-	relayWriteTimeout = 30 * time.Second
 
 	// relayPingEvery/-Timeout keep each leg alive and, more importantly, make a
 	// dead one observable. Neither end of this relay speaks between tool calls,
@@ -44,15 +39,31 @@ const (
 	// CallTimeout and reports "No unlocked Med Tracker device is online" while
 	// the user is staring at an unlocked app. A failed ping closes the leg
 	// instead, so the browser responder's onclose fires and it redials.
-	relayPingEvery   = 20 * time.Second
-	relayPingTimeout = 10 * time.Second
+	//
+	// The interval is short relative to mcpshim.CallTimeout on purpose. A leg
+	// that dies silently (a frozen tab sends no FIN) still accepts writes into
+	// the kernel buffer, so frames sent to it in the meantime are simply lost —
+	// nothing at this layer can confirm delivery. The ping is the only thing
+	// that ends that window, and evicting the corpse within ~15s is what lets
+	// the NEXT call find no peer and wait for the reconnect (which delivers)
+	// instead of writing into a black hole (which does not).
+	relayPingEvery   = 10 * time.Second
+	relayPingTimeout = 5 * time.Second
 
-	// relayPeerWaitTimeout bounds how long a frame waits for the other leg to
-	// attach before being dropped; relayPeerPoll is how often that wait
-	// re-checks. See awaitPeer for why both exist and why the timeout sits
-	// under mcpshim.CallTimeout.
-	relayPeerWaitTimeout = 25 * time.Second
-	relayPeerPoll        = time.Second
+	// relayFrameBudget is how long the relay will spend placing ONE frame on the
+	// opposite leg — waiting for that leg to attach, and writing to it, across
+	// every attempt combined. relayPeerPoll is how often a waiting frame
+	// re-checks. It doubles as the write timeout: without a bound, a peer that
+	// holds its socket open but stops reading would wedge a writer forever.
+	//
+	// The budget starts when the frame is READ, not when a retry begins, and
+	// stays under mcpshim.CallTimeout, so the relay can never deliver a frame
+	// after the caller has been told the device is offline. That matters most
+	// for writes: past the timeout the agent may already have retried under a
+	// fresh nonce, which the responder's replay ring cannot catch, so a late
+	// delivery would be a duplicate side effect nobody asked for.
+	relayFrameBudget = 25 * time.Second
+	relayPeerPoll    = time.Second
 
 	// mcpRelayRateLimitMax/-Window bound how many frames one pairing may push
 	// through the relay per window — generous for interactive tool calls
@@ -342,26 +353,24 @@ func (a *MCPRelayAPI) serveLeg(ctx context.Context, conn *websocket.Conn, record
 		if err != nil {
 			slog.Info("mcp relay: leg disconnected", "leg", leg, "account_id", record.accountID,
 				"pairing", endpointFingerprint(record.id), "error", err)
-			// A dropped DEVICE leg must take the shim leg down with it: the
-			// shim caches its connection and only redials once it observes the
-			// socket die, so leaving it attached to a vanished device makes
-			// every later call time out into a bogus offline-device error.
+			// A leg drop is NOT propagated to its peer, in either direction.
 			//
-			// The reverse is deliberately NOT symmetric. A shim leg comes and
-			// goes by design (the hosted client dials lazily, proxies recycle
-			// it); closing the device leg every time churned the browser
-			// responder's reconnect loop for no reason, and every churn window
-			// was a call that missed a device that was in fact online.
+			// It used to be, device→shim, so the shim would notice and redial.
+			// But a phone drops its leg constantly — tab freeze, wifi↔cellular
+			// handoff, battery saver — and each drop tore down the caller's
+			// live connection mid-call, surfacing as a raw
+			// `relay connection closed: ... "peer disconnected"` instead of an
+			// answer. The device is usually back within seconds, and awaitPeer
+			// parks the in-flight frame long enough to be answered when it is;
+			// killing the shim guarantees the failure the wait would have
+			// avoided.
 			//
-			// Only tear down the peer if this conn is still the pairing's
-			// registered leg. If a newer connection evicted us (join replaced
-			// this slot), the replacement now owns the bridge — closing the
-			// peer here would kill the live bridge, not just our dead half.
-			if isDevice && record.current(isDevice, conn) {
-				if peer := record.peerConn(isDevice); peer != nil {
-					peer.Close(websocket.StatusNormalClosure, "peer disconnected")
-				}
-			}
+			// Nothing is lost by leaving the peer up. Both legs are pinged, so a
+			// genuinely dead one is reaped on its own; peerConn is re-read per
+			// frame, so a reconnecting leg re-bridges transparently; and a call
+			// with no device to answer it still ends in mcpshim's honest
+			// ErrDeviceOffline rather than a transport error the agent cannot
+			// act on.
 			return
 		}
 		if !a.limiter.Allow(record.id) {
@@ -373,73 +382,83 @@ func (a *MCPRelayAPI) serveLeg(ctx context.Context, conn *websocket.Conn, record
 			}
 			return
 		}
+		// One budget per frame, started here at read time and shared by the
+		// inline write and every deferred retry, so a slow write cannot buy the
+		// frame a fresh window past the caller's own timeout.
+		deadline := time.Now().Add(relayFrameBudget)
+
 		// Re-read the peer conn each frame rather than caching it: when the
 		// peer leg reconnects, join swaps in a fresh conn on its slot, and a
 		// cached pointer would keep writing the evicted (dead) conn — breaking
 		// the bridge one-way until a full teardown. See join.
-		peer := awaitPeer(legCtx, record, isDevice, peerCh)
-		if peer == nil {
-			// Either the leg died, or the peer never showed up inside the
-			// window. Dropping the frame (rather than closing this leg) is what
-			// keeps an idle browser tab attached: it is the side with nothing
-			// to say between calls, and closing it here meant every quiet
-			// stretch ended in a reconnect gap where a call found no device.
-			if legCtx.Err() != nil {
-				return
+		if peer := record.peerConn(isDevice); peer != nil {
+			wctx, cancel := context.WithDeadline(ctx, deadline)
+			err = peer.Write(wctx, typ, data)
+			cancel()
+			if err == nil {
+				continue
 			}
-			slog.Warn("mcp relay: frame dropped, peer never attached", "leg", leg,
-				"account_id", record.accountID, "pairing", endpointFingerprint(record.id))
-			continue
 		}
-		wctx, cancel := context.WithTimeout(ctx, relayWriteTimeout)
-		err = peer.Write(wctx, typ, data)
-		cancel()
-		if err != nil {
-			// The peer conn we wrote to is dead — but it may be an evicted conn
-			// mid-replacement. Drop the frame and keep serving; the next frame
-			// re-reads the current peer (possibly a reconnect).
-			continue
-		}
+		// No peer, or the conn we had is dead / mid-eviction — most often a
+		// phone that is already reconnecting. Keep trying off the read loop,
+		// never on it: see deliverWhenPeerAttaches.
+		go deliverWhenPeerAttaches(legCtx, deadline, record, isDevice, peerCh, leg, typ, data)
 	}
 }
 
-// awaitPeer returns the opposite leg's live conn, waiting up to
-// relayPeerWaitTimeout for it to attach if it has not yet. Returns nil if the
-// window expires or this leg dies.
+// deliverWhenPeerAttaches writes one frame as soon as the opposite leg can
+// take it, retrying until the frame's shared deadline (see relayFrameBudget).
 //
-// The wait happens here, per frame, rather than once before the read loop
-// starts: a leg parked before its first Read cannot process the pong for its
-// own keepalive ping, so it would reap itself. Waiting is what keeps the shim's
-// opening request — written the instant it dials, often before the browser tab
-// has attached — from being dropped into a 30s CallTimeout that reports the
-// device offline when it was merely a second late.
+// Waiting is what keeps the shim's opening request — written the instant it
+// dials, often before the browser tab has attached — and any frame caught
+// mid-reconnect from being dropped into a 30s CallTimeout that blames the
+// device for being a second late. It retries rather than waiting once because
+// the peer slot can hold a conn that is already dead but not yet cleared: a
+// phone drops its leg and reconnects, and both the nil window and the
+// dead-conn window have to be ridden out.
 //
-// The window is deliberately shorter than mcpshim.CallTimeout: past that the
-// caller has already been told the device is offline, and delivering the frame
-// anyway would apply a write the agent believes failed (and may have retried
-// under a fresh nonce, which the responder's replay ring cannot catch).
-func awaitPeer(legCtx context.Context, record *pairingRecord, isDevice bool, peerCh chan *websocket.Conn) *websocket.Conn {
-	if peer := record.peerConn(isDevice); peer != nil {
-		return peer
-	}
-	deadline := time.NewTimer(relayPeerWaitTimeout)
-	defer deadline.Stop()
+// It runs OFF the read loop, deliberately. The read loop is what processes this
+// leg's own keepalive pongs (coder/websocket dispatches control frames inside
+// conn.Read), so a leg that waited there would stop answering its own pings and
+// be reaped as dead while perfectly healthy — on precisely the path this whole
+// change exists to survive.
+//
+// A frame delivered twice (first Write reported an error after the peer had
+// already taken it) is harmless: the responder's nonce ring refuses a repeated
+// write frame, and a repeated read is idempotent.
+//
+// ponytail: one goroutine per waiting frame. Bounded by the rate limiter
+// (120 frames / 10s) and each one's own deadline, so a leg tops out at a few
+// hundred short-lived goroutines; a per-leg queue would be tidier if that ever
+// mattered.
+func deliverWhenPeerAttaches(legCtx context.Context, deadline time.Time, record *pairingRecord, isDevice bool,
+	peerCh chan *websocket.Conn, leg string, typ websocket.MessageType, data []byte,
+) {
+	expiry := time.NewTimer(time.Until(deadline))
+	defer expiry.Stop()
 	// peerCh is a one-shot hint from join, so it can miss a peer that attached,
-	// left, and came back while we were parked. Poll as the backstop; the
+	// left, and came back while we were waiting. Poll as the backstop; the
 	// channel is only there to make the common case immediate.
 	poll := time.NewTicker(relayPeerPoll)
 	defer poll.Stop()
 	for {
+		if peer := record.peerConn(isDevice); peer != nil {
+			wctx, cancel := context.WithDeadline(legCtx, deadline)
+			err := peer.Write(wctx, typ, data)
+			cancel()
+			if err == nil {
+				return
+			}
+		}
 		select {
 		case <-peerCh:
 		case <-poll.C:
-		case <-deadline.C:
-			return nil
+		case <-expiry.C:
+			slog.Warn("mcp relay: frame dropped, peer never attached", "leg", leg,
+				"account_id", record.accountID, "pairing", endpointFingerprint(record.id))
+			return
 		case <-legCtx.Done():
-			return nil
-		}
-		if peer := record.peerConn(isDevice); peer != nil {
-			return peer
+			return
 		}
 	}
 }
@@ -584,17 +603,6 @@ func (p *pairingRecord) peerConn(isDevice bool) *websocket.Conn {
 		return nil
 	}
 	return peer.conn
-}
-
-// current reports whether conn is still this pairing's registered leg — i.e.
-// it hasn't been evicted and replaced by a newer connection on the same leg.
-func (p *pairingRecord) current(isDevice bool, conn *websocket.Conn) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if isDevice {
-		return p.device != nil && p.device.conn == conn
-	}
-	return p.shim != nil && p.shim.conn == conn
 }
 
 // clear drops conn from whichever leg it occupies, provided it hasn't

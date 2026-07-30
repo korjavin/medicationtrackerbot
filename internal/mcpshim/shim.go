@@ -30,18 +30,21 @@ const maxFrameBytes = 64 << 10
 const CallTimeout = 30 * time.Second
 
 // ErrDeviceOffline is Call's error when no response arrives within
-// CallTimeout. Text matches the plan's locked "offline-device UX" decision
-// verbatim so cmd/mcpshim (Task 5) can surface it as the MCP tool error
-// without rewrapping.
-//nolint:staticcheck // ST1005: this is a terminal, user-facing sentence relayed verbatim to the model (the plan's locked offline-device UX text), not a wrapped Go error.
-var ErrDeviceOffline = errors.New("No unlocked Med Tracker device is online. Open your app at https://<sub>.<base> and unlock it, then retry — this connector talks to your device, not to a server, because your data is end-to-end encrypted.")
+// CallTimeout. It is surfaced by cmd/mcpshim (Task 5) as the MCP tool error
+// without rewrapping, so it is written as a terminal user-facing sentence.
+//
+// The plan's locked text named the app URL as "https://<sub>.<base>", which is
+// a template that nothing ever filled in — it reached real users as those
+// literal angle brackets. Nobody needs to be told their own address, so the
+// sentence just says what to do.
+//
+//nolint:staticcheck // ST1005: this is a terminal, user-facing sentence relayed verbatim to the model (the plan's offline-device UX text), not a wrapped Go error.
+var ErrDeviceOffline = errors.New("No unlocked Med Tracker device is online. Open the Med Tracker app on any device and unlock it, then retry — this connector talks to your device, not to a server, because your data is end-to-end encrypted.")
 
 // errConnectionDropped marks a Call failure caused by this ShimCore's own
-// relay connection already having died (most often because the relay closed
-// the shim leg in lockstep with its paired device leg dropping — serveLeg's
-// symmetric close). Client matches this with errors.Is to redial and retry
-// once, so the caller sees a real CallTimeout wait against a fresh
-// connection (and thus ErrDeviceOffline) instead of this raw transport
+// relay connection already having died — a proxy recycling an idle leg, or the
+// service redeploying. Client matches it with errors.Is to redial and retry, so
+// a recycled connection never surfaces to the caller as this raw transport
 // error.
 var errConnectionDropped = errors.New("mcpshim: connection dropped")
 
@@ -152,10 +155,9 @@ func (s *ShimCore) CloseNow() {
 	s.conn.CloseNow()
 }
 
-// isClosed reports whether readLoop has already torn this connection down
-// (relay dropped it — most commonly because the paired device went
-// offline, per serveLeg's symmetric close). Client uses this to decide
-// whether a call needs a fresh Dial before it can proceed.
+// isClosed reports whether readLoop has already torn this connection down.
+// Client uses this to decide whether a call needs a fresh Dial before it can
+// proceed.
 func (s *ShimCore) isClosed() bool {
 	select {
 	case <-s.closed:
