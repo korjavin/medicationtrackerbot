@@ -958,8 +958,46 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     }
   };
 
-  // The debounce is 250ms; wait past it plus a settle margin for pullOnOpen.
-  const settle = () => new Promise((r) => setTimeout(r, 400));
+  // med-tc1.9 — no wall-clock sleep is a synchronization point in here. The old
+  // `settle()` slept 400ms hoping the 250ms debounce had fired AND pullOnOpen
+  // had reached its fetch; 150ms of slack over a real timer is exactly the
+  // margin a loaded runner eats (same flake class as med-tc1.8 / #716). Three
+  // progress-bounded barriers replace it:
+  //
+  //   fireDebounce() — DRIVES the debounce with fake timers instead of
+  //     out-waiting it, so "the debounce has fired" is a fact, not a guess.
+  //     Only setTimeout/clearTimeout are faked: fake-indexeddb dispatches its
+  //     requests on setImmediate, which must stay real for the store to run.
+  //   nextOpsGet() — resolves from inside the fetch mock the moment the drain's
+  //     ops GET is entered (the #716 pattern: the mock reports progress).
+  //   idle() — a run of real IndexedDB round-trips, for the negative assertions
+  //     ("no second drain started"). Each round yields to the macrotask queue
+  //     the store's requests run on, so anything that *could* have progressed
+  //     has. The round count is a unit of WORK, not of time: a pullOnOpen needs
+  //     ~12-14 round-trips to reach its ops GET (measured by mutation — 10
+  //     rounds let an uncoalesced drain survive, 15 killed it), and that number
+  //     is a property of the code path, not of how loaded the machine is. 60 is
+  //     ~4x margin that a slow runner cannot erode, which is exactly what the
+  //     400ms-over-a-250ms-debounce sleep could not promise.
+  const fireDebounce = () => vi.advanceTimersByTimeAsync(250);
+
+  let notifyOpsGet = () => {};
+  const nextOpsGet = () => new Promise((r) => { notifyOpsGet = r; });
+  const countOpsGet = () => { opsGets++; notifyOpsGet(); };
+
+  const idbRoundTrip = async () => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const req = db.transaction('pending', 'readonly').objectStore('pending').getAll();
+        req.onsuccess = resolve;
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+  const idle = async (rounds = 60) => { for (let i = 0; i < rounds; i++) await idbRoundTrip(); };
 
   beforeEach(async () => {
     await new Promise((resolve, reject) => {
@@ -970,6 +1008,8 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     ctx = { accountId, dek: await generateDEK() };
     await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
     opsGets = 0;
+    notifyOpsGet = () => {};
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 
     vi.stubGlobal('window', new EventTarget());
     doc = new EventTarget();
@@ -978,7 +1018,7 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     vi.stubGlobal('navigator', { onLine: true });
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
       if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
-        opsGets++;
+        countOpsGet();
         return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
       }
       if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
@@ -986,24 +1026,38 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     }));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     teardown?.();
     teardown = null;
+    // `await nextOpsGet()` proves a drain *entered* its fetch, not that it
+    // finished — pullOnOpen still has flushPending + maybeSnapshot to go. A
+    // drain left running past afterEach is module-global state: the next test's
+    // startReconnectAutoDrain would coalesce into the stale `drainInFlight` and
+    // never fire its own ops GET, and the leaked run would hit unstubbed
+    // globals. reauthenticate() is the one exported barrier that provably waits
+    // the slot empty (`while (drainInFlight) await drainInFlight`) and leaves it
+    // empty; teardown() above already set `stopped`, so no rerun can re-fill it.
+    await reauthenticate(ctx).catch(() => {});
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
   it('an online event triggers a drain with no user write', async () => {
     teardown = startReconnectAutoDrain(ctx);
     expect(opsGets).toBe(0); // starting the listeners alone must not drain
+    const entered = nextOpsGet();
     window.dispatchEvent(new Event('online'));
-    await settle();
+    await fireDebounce();
+    await entered;
     expect(opsGets).toBeGreaterThan(0); // pullTail's ops GET fired — no writeRecord involved
   });
 
   it('a visibility regain while online triggers the same drain', async () => {
     teardown = startReconnectAutoDrain(ctx);
+    const entered = nextOpsGet();
     document.dispatchEvent(new Event('visibilitychange'));
-    await settle();
+    await fireDebounce();
+    await entered;
     expect(opsGets).toBeGreaterThan(0);
   });
 
@@ -1012,7 +1066,7 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     const gate = new Promise((r) => { release = r; });
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
       if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
-        opsGets++;
+        countOpsGet();
         await gate; // hold the first drain in flight
         return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
       }
@@ -1020,16 +1074,22 @@ describe('reconnect auto-drain (med-deq.2)', () => {
       throw new Error(`unexpected fetch: ${url}`);
     }));
     teardown = startReconnectAutoDrain(ctx);
+    const first = nextOpsGet();
     window.dispatchEvent(new Event('online'));
-    await settle(); // first drain is now in flight, blocked on the gate
+    await fireDebounce();
+    await first; // first drain is now in flight, blocked on the gate
     window.dispatchEvent(new Event('online'));
     window.dispatchEvent(new Event('online'));
-    await settle(); // debounce fired again while the first drain is still running
+    await fireDebounce(); // the re-trigger's debounce fires while the drain holds the slot
+    await idle(); // …and nothing it could have started gets to start
     expect(opsGets).toBe(1); // the in-flight guard coalesced the re-triggers
+    const followUp = nextOpsGet();
     release();
-    await settle(); // the mid-drain events must not be swallowed: the in-flight
+    await followUp; // the mid-drain events must not be swallowed: the in-flight
     // run may have already missed the reconnect they signalled (e.g. it was
     // stuck on a dying fetch), so exactly one follow-up drain runs after it.
+    expect(opsGets).toBe(2);
+    await idle(); // `rerun` is a single boolean — the follow-up must not chain another
     expect(opsGets).toBe(2);
   });
 
@@ -1038,7 +1098,7 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     const gate = new Promise((r) => { release = r; });
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
       if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
-        opsGets++;
+        countOpsGet();
         await gate; // hold the auto-drain in flight
         return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
       }
@@ -1046,13 +1106,15 @@ describe('reconnect auto-drain (med-deq.2)', () => {
       throw new Error(`unexpected fetch: ${url}`);
     }));
     teardown = startReconnectAutoDrain(ctx);
+    const first = nextOpsGet();
     window.dispatchEvent(new Event('online'));
-    await settle(); // auto-drain in flight, blocked on the gate
+    await fireDebounce();
+    await first; // auto-drain in flight, blocked on the gate
 
     // Two concurrent pullOnOpen runs would double-flush the same pending set;
     // reauthenticate must wait for the in-flight drain before draining itself.
     const reauth = reauthenticate(ctx);
-    await new Promise((r) => setTimeout(r, 50));
+    await idle(); // an unserialized reauth reaches its own ops GET well inside this
     expect(opsGets).toBe(1); // reauthenticate's drain has not started yet
     release();
     await reauth;
@@ -1064,7 +1126,7 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     const gate = new Promise((r) => { release = r; });
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
       if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
-        opsGets++;
+        countOpsGet();
         await gate; // hold the reauth-owned drain in flight
         return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
       }
@@ -1072,16 +1134,19 @@ describe('reconnect auto-drain (med-deq.2)', () => {
       throw new Error(`unexpected fetch: ${url}`);
     }));
     teardown = startReconnectAutoDrain(ctx);
+    const first = nextOpsGet();
     const reauth = reauthenticate(ctx); // owns the drain slot, blocked on the gate
-    await new Promise((r) => setTimeout(r, 50));
+    await first;
     expect(opsGets).toBe(1);
 
     window.dispatchEvent(new Event('online'));
-    await settle(); // debounce fired mid-reauth-drain: coalesced, not dropped
+    await fireDebounce(); // debounce fired mid-reauth-drain: coalesced, not dropped
+    await idle();
     expect(opsGets).toBe(1);
+    const followUp = nextOpsGet();
     release();
     await reauth;
-    await settle(); // the queued follow-up must run after the reauth drain settles
+    await followUp; // the queued follow-up must run after the reauth drain settles
     expect(opsGets).toBe(2);
   });
 
@@ -1112,7 +1177,7 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     // Unserialized, it would re-read the same 'pending' set and re-POST note-1
     // under the same predicted seq — a guaranteed mis-predict.
     const confirmed = flushConfirmed(ctx);
-    await new Promise((r) => setTimeout(r, 50));
+    await idle(); // an unserialized flushConfirmed re-reads 'pending' and re-POSTs inside this
     release();
     await write;
     await expect(confirmed).resolves.toBe(true);
@@ -1128,24 +1193,39 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     let sessionValid = false;
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
       if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
-        opsGets++;
+        countOpsGet();
         if (!sessionValid) return new Response('unauthorized', { status: 401 });
         return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
       }
       if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
       throw new Error(`unexpected fetch: ${url}`);
     }));
-    teardown = startReconnectAutoDrain(ctx, { onAuthExpired: () => { surfaced++; } });
+    // The callback itself is the settle point — it runs in the drain's .finally,
+    // after a full pullOnOpen tail (pullTail + flushPending + maybeSnapshot).
+    let notifyExpiry = () => {};
+    const expired = new Promise((r) => { notifyExpiry = r; });
+    teardown = startReconnectAutoDrain(ctx, { onAuthExpired: () => { surfaced++; notifyExpiry(); } });
     window.dispatchEvent(new Event('online'));
-    await settle();
+    await fireDebounce();
+    await expired;
     expect(opsGets).toBe(1);
     expect(surfaced).toBe(1); // the 401 drain surfaced the expiry
 
     // Session restored (e.g. re-auth completed): a successful drain must not
     // re-fire the callback (this also clears the module auth-expired state).
     sessionValid = true;
+    const second = nextOpsGet();
     window.dispatchEvent(new Event('online'));
-    await settle();
+    await fireDebounce();
+    await second;
+    // Proving a NEGATIVE needs the drain's .finally to have run. Re-trigger
+    // mid-drain: the event coalesces into `rerun`, and the follow-up drain is
+    // launched from onDrainSettled() — the same .finally, one line above the
+    // onAuthExpired check. Its ops GET is therefore proof the check ran.
+    const followUp = nextOpsGet();
+    window.dispatchEvent(new Event('online'));
+    await fireDebounce();
+    await followUp;
     expect(surfaced).toBe(1);
   });
 
@@ -1154,7 +1234,8 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     teardown();
     teardown = null;
     window.dispatchEvent(new Event('online'));
-    await settle();
+    await fireDebounce();
+    await idle();
     expect(opsGets).toBe(0);
   });
 });
