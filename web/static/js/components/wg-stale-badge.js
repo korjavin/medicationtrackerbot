@@ -24,6 +24,14 @@
 //
 // Visual values come exclusively from `.wg-stale-badge` + tone modifier
 // classes in styles.css; this module never sets a colour or background.
+//
+// CLOUD MODE (`window.__MEDTRACKER_CLOUD__`): the chip is suppressed entirely.
+// Reads there are served from the local E2EE vault (web/cloud/js/apishim.js),
+// which is authoritative and always current, so `fetchedAt` is a cache-write
+// time and not data currency — "Updated 1d ago" reads as "your data is old"
+// when it is live. The offline states are suppressed for the same reason: the
+// vault answers reads offline just as well as online, so "Offline · 3h old"
+// is equally untrue. Bot mode is unchanged.
 
 (function () {
     const HOUR_MS = 60 * 60 * 1000;
@@ -73,6 +81,10 @@
         return `Updated ${ageLabel} ago`;
     }
 
+    function isCloudMode() {
+        return (typeof window !== 'undefined') && !!window.__MEDTRACKER_CLOUD__;
+    }
+
     function isOnline() {
         return (typeof navigator !== 'undefined') ? navigator.onLine !== false : true;
     }
@@ -89,6 +101,12 @@
         const options = opts || {};
         const slot = options.slot;
         if (!slot || typeof slot.replaceChildren !== 'function') return null;
+
+        if (isCloudMode()) {
+            slot.replaceChildren();
+            slot.classList.add('hidden');
+            return null;
+        }
 
         const cache = (typeof window !== 'undefined') && window.MedTrackerDB
             ? window.MedTrackerDB.ApiCache
@@ -138,6 +156,15 @@
         const clock = asNumber(options.now) ?? Date.now();
 
         const span = document.createElement('span');
+
+        // Cloud mode: hand back an empty, hidden chip rather than null — every
+        // caller does `slot.replaceChildren(badge)` / `appendChild(badge)`, and
+        // null would either stringify to "null" or throw.
+        if (isCloudMode()) {
+            span.classList.add('hidden');
+            return span;
+        }
+
         span.classList.add('wg-stale-badge');
 
         const ageMs = ts === null ? Infinity : Math.max(0, clock - ts);
