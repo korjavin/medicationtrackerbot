@@ -384,11 +384,22 @@ func (c *Client) EditMessageText(ctx context.Context, chatID, messageID int64, t
 // Separate from EditMessageText, which omits reply_markup and so LEAVES existing
 // buttons in place (EditReply relies on that).
 func (c *Client) EditMessageTextClearMarkup(ctx context.Context, chatID, messageID int64, text string) error {
+	return c.EditMessageTextWithButtons(ctx, chatID, messageID, text, nil)
+}
+
+// EditMessageTextWithButtons rewrites a message's text and REPLACES its inline
+// keyboard with one row of buttons. No buttons means an empty inline_keyboard,
+// i.e. "remove them" — which is exactly EditMessageTextClearMarkup.
+func (c *Client) EditMessageTextWithButtons(ctx context.Context, chatID, messageID int64, text string, buttons []InlineKeyboardButton) error {
+	rows := [][]InlineKeyboardButton{}
+	if len(buttons) > 0 {
+		rows = append(rows, buttons)
+	}
 	return c.call(ctx, "editMessageText", map[string]any{
 		"chat_id":      chatID,
 		"message_id":   messageID,
 		"text":         text,
-		"reply_markup": map[string]any{"inline_keyboard": [][]InlineKeyboardButton{}},
+		"reply_markup": map[string]any{"inline_keyboard": rows},
 	}, nil)
 }
 

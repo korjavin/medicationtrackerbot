@@ -2475,6 +2475,53 @@ func TestEditReply(t *testing.T) {
 	}
 }
 
+// TestEditReply_TrialConsentButton (med-eas.61) pins the one-tap escape from the
+// drain's "trial AI needs your OK" refusal: the edit carries a URL button onto
+// the account's own Settings deep link. The relay only composes the link —
+// granting stays a vault write the unlocked client makes — and an unknown scope
+// never becomes a link at all.
+func TestEditReply_TrialConsentButton(t *testing.T) {
+	top, tg, host, _, session, _, _ := tgCommandFixture(t)
+	subdomain := strings.TrimSuffix(host, ".localhost")
+
+	body := []byte(`{"message_id":1001,"text":"🔑 needs your OK","trial_consent_scope":"tg"}`)
+	if rec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/reply-edit", host, session, body); rec.Code != http.StatusNoContent {
+		t.Fatalf("edit status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	tg.mu.Lock()
+	edits := append([]string(nil), tg.mu.edits...)
+	tg.mu.Unlock()
+	if len(edits) != 1 {
+		t.Fatalf("editMessageText calls = %d, want 1: %v", len(edits), edits)
+	}
+	want := "https://" + subdomain + ".localhost/?tab=settings\\u0026action=trial_consent\\u0026scope=tg"
+	if !strings.Contains(edits[0], want) {
+		t.Errorf("edit missing the consent deep link %q: %s", want, edits[0])
+	}
+	if !strings.Contains(edits[0], "Allow trial AI") {
+		t.Errorf("edit missing the consent button label: %s", edits[0])
+	}
+
+	// A scope the vault record doesn't have must never be reflected into a link.
+	for _, bad := range []string{`{"message_id":1001,"text":"x","trial_consent_scope":"bogus"}`, `{"message_id":1001,"text":"x","trial_consent_scope":"../ai"}`} {
+		if r := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/reply-edit", host, session, []byte(bad)); r.Code != http.StatusBadRequest {
+			t.Errorf("edit %q = %d, want 400", bad, r.Code)
+		}
+	}
+
+	// No scope → the plain edit, which leaves any existing keyboard alone.
+	plain := []byte(`{"message_id":1002,"text":"✅ Recorded."}`)
+	if rec := doReq(t, top, http.MethodPost, "http://"+host+"/api/telegram/reply-edit", host, session, plain); rec.Code != http.StatusNoContent {
+		t.Fatalf("plain edit status = %d", rec.Code)
+	}
+	tg.mu.Lock()
+	last := tg.mu.edits[len(tg.mu.edits)-1]
+	tg.mu.Unlock()
+	if strings.Contains(last, "reply_markup") {
+		t.Errorf("scope-less edit touched the keyboard: %s", last)
+	}
+}
+
 // TestDeleteReminder_BestEffort (bd med-eas.79 Task 2) pins that DeleteReminder
 // is account-scoped and never lets a Telegram error abort the caller: a 400 is
 // swallowed (returns nil) and messageID <= 0 is a no-op that touches nothing.
