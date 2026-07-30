@@ -28,7 +28,13 @@ export function isStandalone() {
 }
 
 export function isIOS() {
-  return /iP(hone|ad|od)/.test(navigator.userAgent);
+  if (/iP(hone|ad|od)/.test(navigator.userAgent)) return true;
+  // iPadOS 13+ Safari requests desktop sites by DEFAULT, reporting a
+  // "Macintosh; Intel Mac OS X" user agent — so the UA test alone misses every
+  // stock iPad, on a platform where a browser tab genuinely cannot receive push.
+  // Mac-like platform + touch points is the standard discriminator: no Mac
+  // reports touch points, and no iPad reports zero.
+  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
 }
 
 // Install guidance is a MOBILE problem (bd med-eas.63): a desktop browser

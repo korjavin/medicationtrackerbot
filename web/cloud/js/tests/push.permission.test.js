@@ -14,7 +14,7 @@
 // same behavior; these pin the module.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { requestNotificationPermission } from '../push.js';
+import { isIOS, isMobile, requestNotificationPermission } from '../push.js';
 
 vi.mock('../crypto.js', () => ({ encryptPushPayload: vi.fn(), toBase64: vi.fn() }));
 vi.mock('../sync.js', () => ({
@@ -93,5 +93,48 @@ describe('requestNotificationPermission (med-1n6)', () => {
 
     it('reports denied where there is no Notification API at all', async () => {
         await expect(within(requestNotificationPermission())).resolves.toBe('denied');
+    });
+});
+
+// The platform probes that decide who sees install guidance (bd med-eas.63).
+// They live here rather than in a file of their own because push.js is the one
+// module allowed to know what a platform is — everything else imports these.
+describe('platform probes', () => {
+    const setNavigator = (nav) => { globalThis.navigator = nav; };
+    afterEach(() => { delete globalThis.navigator; });
+
+    it('detects a stock iPad, which reports a Mac user agent since iPadOS 13', () => {
+        // Safari's default "Request Desktop Website" makes the UA say Macintosh;
+        // touch points are what give it away. Getting this wrong sends an iPad
+        // into the app with no install guidance and therefore no reminders.
+        setNavigator({
+            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15',
+            platform: 'MacIntel',
+            maxTouchPoints: 5,
+        });
+        expect(isIOS()).toBe(true);
+        expect(isMobile()).toBe(true);
+    });
+
+    it('does not mistake a real Mac for an iPad', () => {
+        setNavigator({
+            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15',
+            platform: 'MacIntel',
+            maxTouchPoints: 0,
+        });
+        expect(isIOS()).toBe(false);
+        expect(isMobile()).toBe(false);
+    });
+
+    it('treats iPhone and Android as mobile, desktop Chrome as not', () => {
+        setNavigator({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)', platform: 'iPhone', maxTouchPoints: 5 });
+        expect(isMobile()).toBe(true);
+
+        setNavigator({ userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/120', platform: 'Linux armv8l', maxTouchPoints: 5 });
+        expect(isMobile()).toBe(true);
+        expect(isIOS()).toBe(false);
+
+        setNavigator({ userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/120', platform: 'Linux x86_64', maxTouchPoints: 0 });
+        expect(isMobile()).toBe(false);
     });
 });
