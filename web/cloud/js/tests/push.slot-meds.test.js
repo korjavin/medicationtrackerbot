@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createRemindersDomain } from '../../../domain/reminders.js';
 import { recomputeAndPush } from '../reminders.js';
+import { pushSchedule } from '../push.js';
 
 const HOUR = 3600;
 const NOW_UNIX = 1767225600; // 2026-01-01T00:00:00Z
@@ -112,6 +113,17 @@ describe('slot→meds map (med-eas.65: vault-resident, merge-and-prune)', () => 
     expect(await domainAt(records, muchLater).getSlotMedications(NOW_UNIX + 72 * HOUR)).toEqual(['med-a']);
   });
 
+  // Retention is a property of the ANSWER, not of when a recompute last ran: a
+  // device closed for a week drains an old tap before it ever prunes, and must
+  // still take the ±band path for it.
+  it('refuses an entry past the retention window even when nothing has pruned it', async () => {
+    const records = fakeRecords();
+    await domainAt(records, NOW_MS).recordSlotMedications([rem(NOW_UNIX, ['med-a'])]);
+
+    expect(await domainAt(records, NOW_MS + 47 * HOUR * 1000).getSlotMedications(NOW_UNIX)).toEqual(['med-a']);
+    expect(await domainAt(records, NOW_MS + 49 * HOUR * 1000).getSlotMedications(NOW_UNIX)).toBeNull();
+  });
+
   // A later push that re-lists the same slot wins for that slot: it describes the
   // message the relay is actually serving for it now.
   it('a newer horizon replaces the med set of a slot it re-lists', async () => {
@@ -178,5 +190,37 @@ describe('recomputeAndPush records the slot→meds map after a successful push',
 
     await expect(recomputeAndPush(ctx, { records, timeZone: 'UTC' })).rejects.toThrow();
     expect(records.dump().slotmeds).toBeUndefined();
+  });
+
+  // The map write rides INSIDE pushSchedule's per-account chain. Outside it, a
+  // slow recompute could record its med sets after a newer recompute's schedule
+  // had already become the one the relay serves — and Confirm would then resolve
+  // a delivered message against a set the relay never sent.
+  it('records the map inside the per-account push chain, in push order', async () => {
+    const order = [];
+    let releaseFirst;
+    let firstEntered;
+    const entered = new Promise((r) => { firstEntered = r; });
+    let puts = 0;
+    globalThis.fetch = vi.fn(() => {
+      puts += 1;
+      order.push(`put${puts}`);
+      if (puts === 1) {
+        firstEntered();
+        return new Promise((r) => { releaseFirst = () => r({ ok: true }); });
+      }
+      return Promise.resolve({ ok: true });
+    });
+
+    const pA = pushSchedule(ctx, [rem(NOW_UNIX, ['med-a'])], { delivery: 'telegram' }, async () => { order.push('mapA'); });
+    const pB = pushSchedule(ctx, [rem(NOW_UNIX, ['med-b'])], { delivery: 'telegram' }, async () => { order.push('mapB'); });
+
+    // A's PUT hangs; B is chained behind it and has not started.
+    await entered;
+    expect(order).toEqual(['put1']);
+
+    releaseFirst();
+    await Promise.all([pA, pB]);
+    expect(order).toEqual(['put1', 'mapA', 'put2', 'mapB']);
   });
 });

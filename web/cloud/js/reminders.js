@@ -125,13 +125,18 @@ export async function recomputeAndPush(ctx, opts = {}) {
     computeReminderEntries(ctx, opts),
     domain.getDeliveryPref(),
   ]);
-  await pushSchedule(ctx, entries, pref);
-  // Only after the upload lands: the vault's record of which meds each reminder
-  // NAMED must never get ahead of the reminders the relay actually serves. It is
-  // what a Telegram Confirm resolves by identity at drain time (bd med-eas.65),
-  // and it is merge-and-prune rather than replace-all, so a slot that has left
-  // the forward horizon is still resolvable while its message is tappable.
-  await domain.recordSlotMedications(entries);
+  // The vault's record of which meds each reminder NAMED — what a Telegram
+  // Confirm resolves by identity at drain time (bd med-eas.65). Passed as the
+  // post-upload hook rather than awaited after pushSchedule so it lands inside
+  // pushSchedule's per-account chain: the served schedule and the map are then
+  // always from the same recompute, even when two overlap. Merge-and-prune
+  // rather than replace-all, so a slot that has left the forward horizon is
+  // still resolvable for as long as its message is tappable.
+  //
+  // If this write itself fails the previous map survives — one push behind,
+  // which is a state the retention window makes ordinary rather than a
+  // corruption, and getSlotMedications ages it out regardless.
+  await pushSchedule(ctx, entries, pref, (pushed) => domain.recordSlotMedications(pushed));
 }
 
 // scheduleReminderRecompute debounces recomputeAndPush per ctx (keyed by

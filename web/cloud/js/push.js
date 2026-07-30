@@ -291,14 +291,23 @@ export async function sendTestPush(ctx) {
 // recompute's push is still in flight — so two replace-all PUTs can be in flight
 // at once and the relay may settle on whichever it happens to process last,
 // which need not be the one built from the freshest vault state. Chaining makes
-// the last-run recompute the last schedule served.
+// the last-run recompute the last schedule served — and, via onPushed, the last
+// slot→meds map recorded, so the two can never end up describing different
+// horizons.
 const pushChains = new Map();
 
-export function pushSchedule(ctx, reminders, pref = {}) {
+// onPushed runs INSIDE the per-account chain, immediately after a successful
+// upload — that is the whole point of the parameter. reminders.js passes the
+// slot→meds vault write here rather than awaiting pushSchedule and writing
+// afterwards: outside the chain, a slow recompute could record its map after a
+// newer recompute's schedule had already become the one being served, and
+// Confirm would then resolve a delivered message against a med set the relay
+// never sent.
+export function pushSchedule(ctx, reminders, pref = {}, onPushed) {
   const key = (ctx && ctx.accountId) || ctx;
   const run = (pushChains.get(key) || Promise.resolve())
     .catch(() => {})
-    .then(() => pushScheduleInner(ctx, reminders, pref));
+    .then(() => pushScheduleInner(ctx, reminders, pref, onPushed));
   // Store a settled-swallowing tail so a rejected push can't wedge the chain,
   // but return the real promise so callers still see the failure.
   pushChains.set(key, run.catch(() => {}));
@@ -309,7 +318,7 @@ export function pushSchedule(ctx, reminders, pref = {}) {
 // the delivery channel and, for Telegram, how much the message says — a Telegram
 // entry hands the relay PLAINTEXT (it cannot decrypt the vault), so 'generic'
 // verbosity is what keeps medication names out of the relay's reach.
-async function pushScheduleInner(ctx, reminders, pref = {}) {
+async function pushScheduleInner(ctx, reminders, pref = {}, onPushed) {
   const delivery = ['webpush', 'telegram', 'both'].includes(pref.delivery) ? pref.delivery : 'webpush';
   const verbosity = pref.verbosity === 'generic' ? 'generic' : 'detailed';
   const needsCT = delivery === 'webpush' || delivery === 'both';
@@ -342,6 +351,7 @@ async function pushScheduleInner(ctx, reminders, pref = {}) {
     body: JSON.stringify({ entries }),
   });
   if (!res.ok) throw new Error('Could not schedule the reminder.');
+  if (onPushed) await onPushed(reminders);
 }
 
 async function addDemoReminder(ctx, minutes, text) {

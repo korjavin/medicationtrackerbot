@@ -726,7 +726,14 @@ export function createRemindersDomain({ records, now }) {
   // null when nothing is recorded for it — a reminder pushed before this
   // shipped, or one older than the retention window. inbox-apply then falls
   // back to its fixed ±band match.
+  //
+  // The age check is repeated HERE, not left to recordSlotMedications' prune:
+  // pruning only happens when a recompute runs, so a device that was closed for
+  // a week and drains an old tap on first open would otherwise take the identity
+  // path on an entry the design considers expired. Retention is a property of
+  // the answer, not of write scheduling.
   async function getSlotMedications(slotUnix) {
+    if (!(Number(slotUnix) * 1000 >= now() - SLOTMEDS_RETAIN_MS)) return null;
     const all = await records.list(SLOTMEDS_RECORD_TYPE);
     const rec = findSingleton(all, SLOTMEDS_RECORD_ID);
     const ids = rec && rec.slots && rec.slots[slotUnix];
