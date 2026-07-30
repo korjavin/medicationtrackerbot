@@ -2,6 +2,7 @@ package cloudstore
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"time"
@@ -114,4 +115,46 @@ func (r *Repo) ListFeedback(ctx context.Context, limit int) ([]FeedbackItem, err
 func (r *Repo) DeleteFeedback(ctx context.Context, id int64) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM feedback_queue WHERE id = ?`, id)
 	return err
+}
+
+// MintFeedbackReaderToken stores one reader capability by its SHA-256 hash
+// (bd med-rbl.1) — the caller keeps the only copy of the raw token and mails it
+// to the developer's Telegram DM. Expired rows are swept in the same call, which
+// is why there is no background job: mints only happen when web feedback
+// arrives, and that is exactly when the table needs pruning (mirrors
+// SweepExpiredClaims sweeping before it counts).
+func (r *Repo) MintFeedbackReaderToken(ctx context.Context, tokenHash []byte, now, expiresAt time.Time) error {
+	if _, err := r.db.ExecContext(ctx,
+		`DELETE FROM feedback_reader_tokens WHERE expires_at_unix <= ?`, storedb.TimeToUnix(now)); err != nil {
+		return err
+	}
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO feedback_reader_tokens (token_hash, created_at_unix, expires_at_unix) VALUES (?, ?, ?)`,
+		tokenHash, storedb.TimeToUnix(now), storedb.TimeToUnix(expiresAt))
+	return err
+}
+
+// FeedbackReaderTokenValid reports whether tokenHash matches a live (unexpired)
+// reader capability. It scans the unexpired rows and compares each in constant
+// time rather than issuing `WHERE token_hash = ?`, so neither the comparison nor
+// the index probe can leak a prefix of the stored hash through timing — same
+// shape as consumeClaimTx. The table holds at most a handful of live rows (30
+// min TTL, one mint per web feedback item), so the scan is free.
+func (r *Repo) FeedbackReaderTokenValid(ctx context.Context, tokenHash []byte, now time.Time) (bool, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT token_hash FROM feedback_reader_tokens WHERE expires_at_unix > ?`, storedb.TimeToUnix(now))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	match := 0
+	for rows.Next() {
+		var stored []byte
+		if err := rows.Scan(&stored); err != nil {
+			return false, err
+		}
+		match |= subtle.ConstantTimeCompare(stored, tokenHash)
+	}
+	return match == 1, rows.Err()
 }

@@ -183,8 +183,9 @@ func TestFeedback_QueueFullReturns429(t *testing.T) {
 // bd med-orj: the server cannot read web feedback, so it must not pretend to.
 func TestFeedback_AdminPingIsMetadataOnly(t *testing.T) {
 	tg := newRecordingTG(t)
-	// nil store: NotifyFeedback only talks to the Bot API.
-	tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", time.Hour)
+	// Its own store: NotifyFeedback also mints the reader token the DM links to
+	// (bd med-rbl.1). Which DB that lands in is irrelevant to what this asserts.
+	tgAPI := NewTelegramAPI(setupStore(t), tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", time.Hour)
 	tgAPI.SetFeedbackAdminChat(feedbackAdminChat)
 	h, host, accountID, session, store := feedbackTestServer(t, testRecipient, tgAPI.NotifyFeedback)
 
@@ -199,7 +200,9 @@ func TestFeedback_AdminPingIsMetadataOnly(t *testing.T) {
 		t.Fatalf("want exactly 1 admin DM, got %d: %v", len(sent), sent)
 	}
 	ping := sent[0]
-	for _, want := range []string{`"chat_id":9001`, "New feedback (web)", "bug", "1.2.3", "feedbackpull"} {
+	// The reader link replaced the old "run feedbackpull" tail (bd med-rbl.1);
+	// the metadata it carries is unchanged.
+	for _, want := range []string{`"chat_id":9001`, "New feedback (web)", "bug", "1.2.3", "/feedback#t="} {
 		if !strings.Contains(ping, want) {
 			t.Errorf("ping missing %q: %s", want, ping)
 		}
@@ -248,7 +251,7 @@ func TestFeedback_RelayFailureStillStoresAndReturns204(t *testing.T) {
 	tg.mu.Lock()
 	tg.mu.sendFails = true
 	tg.mu.Unlock()
-	tgAPI := NewTelegramAPI(nil, tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", time.Hour)
+	tgAPI := NewTelegramAPI(setupStore(t), tgTestSecret, "MANAGER:TOKEN", "localhost", tg.url, "", time.Hour)
 	tgAPI.SetFeedbackAdminChat(feedbackAdminChat)
 	h, host, _, session, store := feedbackTestServer(t, testRecipient, tgAPI.NotifyFeedback)
 

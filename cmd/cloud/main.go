@@ -303,6 +303,10 @@ func main() {
 	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
 	router.SetRequestInviteEmail(cfg.requestInviteEmail)
 	router.SetFeedbackRecipient(cfg.feedbackAgeRecipient)
+	// Base-domain web-feedback reader (bd med-rbl). Mounted unconditionally: it
+	// only ever answers a live capability token, and tokens exist only if the
+	// manager bot minted one for a queued item.
+	router.SetFeedbackReader(cloudserver.NewFeedbackReaderAPI(store))
 
 	// A nil *TelegramAPI stored in a TelegramSender interface is NOT a nil
 	// interface, so assign only when Telegram actually came up — otherwise the

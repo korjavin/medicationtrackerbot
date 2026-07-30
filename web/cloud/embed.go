@@ -4,5 +4,5 @@ package cloudweb
 
 import "embed"
 
-//go:embed index.html signup.html sw.js css js vendor
+//go:embed index.html signup.html feedback.html sw.js css js vendor
 var FS embed.FS
