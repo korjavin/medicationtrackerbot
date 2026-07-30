@@ -1,8 +1,16 @@
 # Frontend
 
-Vanilla JavaScript (no framework), Dexie.js for IndexedDB, Telegram WebApp SDK for theme integration.
+Cloud mode is the default frontend target: a browser PWA backed by an
+end-to-end encrypted vault, Dexie.js, and the runtime-agnostic JS domain layer
+under `web/domain/`. The same `web/static` app still supports the legacy
+Telegram/server mode, but Telegram-specific behavior must stay behind the
+messenger adapter and must not leak into cloud mode.
 
-## Local-First Architecture
+## Legacy Local-First Architecture
+
+The notes in this section describe the legacy server-mode `web/static` cache
+and sync stack. Cloud mode uses its own encrypted vault/oplog sync path under
+`web/cloud/js/`; when behavior differs, cloud is the product baseline.
 
 Four layers:
 

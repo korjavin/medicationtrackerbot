@@ -4,9 +4,9 @@ Guidance for Claude Code working in this repository. This file is an index — d
 
 ## Project Overview
 
-A self-hosted Telegram Mini App for comprehensive health tracking (medications, blood pressure, weight, workouts, sleep, food, diary). A single Go binary serves the Telegram Bot + web server + scheduler; the frontend is vanilla JavaScript.
+A self-hosted, zero-knowledge health-tracking PWA for medications, blood pressure, weight, workouts, sleep, food, and diary. Cloud mode (`cmd/cloud`) is the default production path: the browser holds vault keys and plaintext, while the server stores encrypted sync state and operates blind relays. The older Telegram bot/server binary remains as legacy maintenance.
 
-**Philosophy**: single source of truth for health metrics, with both a rich web interface and a minimalist chat interface. Self-hosted for real data ownership.
+**Philosophy**: single source of truth for health metrics, with the encrypted PWA as the primary interface and optional chat/AI integrations that do not become the trust anchor. Self-hosted for real data ownership.
 
 ## Critical Rules
 
@@ -36,10 +36,13 @@ Configuration layering: env var → settings table → built-in default. The `in
 ## Development Commands
 
 ```bash
-# Run the main bot + web server
+# Run the default cloud service
+go run ./cmd/cloud
+
+# Run the legacy bot + web server
 go run ./cmd/bot
 
-# Run the MCP server
+# Run the legacy MCP server
 go run ./cmd/mcptool
 
 # Run all tests
