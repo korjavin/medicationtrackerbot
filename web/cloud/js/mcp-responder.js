@@ -812,6 +812,7 @@ export function createResponder({
       if (ev && (ev.code === STATUS_NO_PAIRING || ev.code === STATUS_PAIRING_REPLACED)) {
         stopped = true;
         clearTimeout(reconnectTimer);
+        removeWakeListeners();
         onStalePairing(ev.code);
         return;
       }
@@ -820,16 +821,51 @@ export function createResponder({
     ws.onerror = () => {};
   }
 
+  // A phone freezes a backgrounded tab: timers stop, so a pending
+  // scheduleReconnect never fires, and the socket is usually already dead by
+  // the time the user comes back. Waiting for the (frozen) backoff timer is why
+  // an app that looks unlocked and focused answers nothing until it is manually
+  // reloaded. Anything meaning "the user is here again" re-dials immediately.
+  //
+  // ponytail: a socket that thaws still in readyState OPEN but half-open is left
+  // alone here — the relay's keepalive ping reaps it within ~30s and onclose
+  // then runs this path. Force-closing every OPEN socket on each tab switch
+  // would churn far more than it fixes.
+  function resume() {
+    if (stopped) return;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    clearTimeout(reconnectTimer);
+    reconnectDelay = RECONNECT_MIN_MS;
+    connect();
+  }
+
+  const onVisible = () => { if (globalThis.document?.visibilityState === 'visible') resume(); };
+  function addWakeListeners() {
+    globalThis.addEventListener?.('online', resume);
+    globalThis.document?.addEventListener?.('visibilitychange', onVisible);
+  }
+  function removeWakeListeners() {
+    globalThis.removeEventListener?.('online', resume);
+    globalThis.document?.removeEventListener?.('visibilitychange', onVisible);
+  }
+
+  function start() {
+    addWakeListeners();
+    connect();
+  }
+
   function stop() {
     stopped = true;
     clearTimeout(reconnectTimer);
+    removeWakeListeners();
     status = 'idle';
     if (ws) ws.close();
   }
 
   return {
-    connect,
+    connect: start,
     stop,
+    resume,
     getStatus: () => status,
     dispatcher,
   };

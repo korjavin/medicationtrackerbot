@@ -287,6 +287,69 @@ func TestMCPRelay_DeadPeerClosePropagates(t *testing.T) {
 	}
 }
 
+// TestMCPRelay_ShimDropLeavesDeviceLegOpen is the asymmetric half of the close
+// rule above, and the churn fix behind the "connector is unstable" report: a
+// shim leg comes and goes by design (the hosted client dials lazily, proxies
+// recycle it), and closing the browser's device leg every time it did left the
+// tab reconnect-looping — each gap a call that found "no unlocked device
+// online" while the app was open and unlocked.
+func TestMCPRelay_ShimDropLeavesDeviceLegOpen(t *testing.T) {
+	h, host, claimToken := newTestMCPRelayHandler(t)
+	session := registerAndGetSession(t, h, host, claimToken)
+	pairingID := mintPairing(t, h, host, session)
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	client := wsClientFor(srv.Listener.Addr().String())
+
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+
+	deviceHeader := http.Header{}
+	deviceHeader.Set("Cookie", session.Name+"="+session.Value)
+	deviceConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device?pairing="+pairingID, &websocket.DialOptions{
+		HTTPClient: client,
+		HTTPHeader: deviceHeader,
+	})
+	if err != nil {
+		t.Fatalf("dial device: %v", err)
+	}
+	defer deviceConn.CloseNow()
+
+	shimConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/shim?pairing="+pairingID, &websocket.DialOptions{HTTPClient: client})
+	if err != nil {
+		t.Fatalf("dial shim: %v", err)
+	}
+
+	// Prime the rendezvous so both legs are certainly bridged before the drop.
+	if err := shimConn.Write(ctx, websocket.MessageBinary, []byte("hello")); err != nil {
+		t.Fatalf("shim write: %v", err)
+	}
+	if _, _, err := deviceConn.Read(ctx); err != nil {
+		t.Fatalf("device read (priming): %v", err)
+	}
+
+	if err := shimConn.CloseNow(); err != nil {
+		t.Fatalf("close shim: %v", err)
+	}
+
+	// Read concurrently: coder/websocket delivers a close frame (and the pong
+	// for the ping below) only through an active reader.
+	readErr := make(chan error, 1)
+	go func() {
+		_, _, err := deviceConn.Read(ctx)
+		readErr <- err
+	}()
+
+	// Give the relay real time to notice the shim drop and (wrongly) propagate
+	// it — an immediate check would pass even against the old symmetric close.
+	select {
+	case err := <-readErr:
+		t.Fatalf("device leg closed after the shim dropped: %v", err)
+	case <-time.After(2 * time.Second):
+	}
+}
+
 // TestPairingTable_PermanentPairingSurvivesTTL locks in the Tier 2 fix: a
 // persisted (restored / made-permanent) pairing has a zero expiry and is never
 // swept by cleanup or rejected by the lookups, whereas a minted (Tier 1)
