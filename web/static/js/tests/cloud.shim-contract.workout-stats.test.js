@@ -120,6 +120,30 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         });
         history = await window.apiCallDirect('/api/workout/exercises/history?name=Squat');
         expect(history[0].training_goal).toBe('endurance');
+
+        // A second routine logs the same exercise name later. The goal must come
+        // from the NEWEST scheduled log, not from whichever record the store
+        // returns first — otherwise a retired routine's emphasis sticks.
+        const group2 = await window.apiCall('/api/workout/groups/create', 'POST', {
+            name: 'Hypertrophy Block', training_goal: 'hypertrophy',
+        });
+        const variant2 = await window.apiCall('/api/workout/variants/create', 'POST', {
+            group_id: group2.id, name: 'A',
+        });
+        const exercise2 = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variant2.id, exercise_name: 'Squat', target_sets: 3, target_reps_min: 10,
+        });
+        const later = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        await window.apiCall(`/api/workout/sessions/status?id=${later.id}`, 'PUT', { status: 'in_progress' });
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: later.id, exercise_id: exercise2.id, exercise_name: 'Squat',
+            source: 'schedule', status: 'completed', sets: [{ weight_kg: 60, reps: 10 }],
+        });
+        await window.apiCall(`/api/workout/sessions/status?id=${later.id}`, 'PUT', { status: 'completed' });
+
+        history = await window.apiCallDirect('/api/workout/exercises/history?name=Squat');
+        expect(history).toHaveLength(2);
+        expect(history[0].training_goal).toBe('hypertrophy');
     });
 
     it('mi-band list respects limit, patch applies diff-semantics over six fields, delete tombstones', async () => {

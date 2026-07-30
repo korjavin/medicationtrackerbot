@@ -2116,15 +2116,26 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const sessions = await activeRecords(WORKOUT_RECORD_TYPES.SESSION);
     const dateById = new Map(sessions.map((s) => [s.id, s.scheduled_date]));
     const logs = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
-      .filter((l) => l.status === 'completed' && l.exercise_name === name && dateById.has(l.session_id));
+      .filter((l) => l.status === 'completed' && l.exercise_name === name && dateById.has(l.session_id))
+      .sort((a, b) => {
+        const byDate = new Date(dateById.get(b.session_id)).getTime()
+          - new Date(dateById.get(a.session_id)).getTime();
+        // scheduled_date is day-granular, so two sessions on one day tie. Break
+        // on session id (monotonic) — otherwise "newest" is whatever order the
+        // record store happened to return, which the goal resolution below reads.
+        return byDate || b.session_id - a.session_id;
+      });
 
     // The exercise's effective training goal rides along (med-qj4.6.4/.5): the
     // detail view's headline emphasis and near-failure advisory are goal-driven,
     // and an exercise *name* is the only handle the client has here — there is
-    // no other route from a name to its workout_exercises row. Resolved once
-    // from any scheduled log (library logs live in a different id space and
-    // carry no plan). No scheduled log → null, and the UI falls back to the
-    // hypertrophy default via normalizeGoal.
+    // no other route from a name to its workout_exercises row. Resolved from the
+    // NEWEST scheduled log, because one name can have history under several
+    // workout_exercises rows (two routines, or a rebuilt plan) with different
+    // goals — picking whichever record happened to come back first would show a
+    // retired routine's emphasis. Library logs live in a different id space and
+    // carry no plan, so they're skipped; no scheduled log at all → null, and the
+    // UI falls back to the hypertrophy default via normalizeGoal.
     const scheduled = logs.find((l) => l.source !== 'library' && l.exercise_id > 0);
     const exercise = scheduled
       ? await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, scheduled.exercise_id)
@@ -2135,7 +2146,6 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       .map((l) => ({
         date: dateById.get(l.session_id), sets: l.sets, session_id: l.session_id, training_goal: goal,
       }))
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, lim);
   }
 
