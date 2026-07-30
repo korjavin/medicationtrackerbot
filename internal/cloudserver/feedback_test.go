@@ -155,7 +155,7 @@ func TestFeedback_QueueFullReturns429(t *testing.T) {
 	// Seed directly through the store until it reports the account is at the cap.
 	for i := 0; ; i++ {
 		cid := "seed-" + string(rune('a'+i%26)) + string(rune('0'+i/26))
-		err := store.AppendFeedback(ctx, accountID, cid, "", "", []byte("x"), time.Now())
+		_, err := store.AppendFeedback(ctx, accountID, cid, "", "", []byte("x"), time.Now())
 		if errors.Is(err, cloudstore.ErrFeedbackQueueFull) {
 			break
 		}
@@ -211,6 +211,33 @@ func TestFeedback_AdminPingIsMetadataOnly(t *testing.T) {
 	}
 	if items, _ := store.ListFeedback(context.Background(), 10); len(items) != 1 {
 		t.Fatalf("relay changed what was stored: %d items", len(items))
+	}
+}
+
+// TestFeedback_RetryDoesNotRePing: the reliable-retry client re-POSTs the same
+// client_id over a flaky connection. That stores nothing new, so it must not
+// announce "new feedback" again.
+func TestFeedback_RetryDoesNotRePing(t *testing.T) {
+	pings := make(chan string, 8)
+	h, host, _, session, _ := feedbackTestServer(t, testRecipient, func(kind, appVersion string) {
+		pings <- kind
+	})
+
+	body, _ := json.Marshal(submitFeedbackRequest{ClientID: "dup", Kind: "bug", Ciphertext: []byte("blob")})
+	for i := 0; i < 3; i++ {
+		if rec := postFeedbackRaw(t, h, host, session, body); rec.Code != http.StatusNoContent {
+			t.Fatalf("retry #%d = %d", i+1, rec.Code)
+		}
+	}
+	select {
+	case <-pings:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the first submission never pinged")
+	}
+	select {
+	case extra := <-pings:
+		t.Fatalf("a retry re-pinged the admin (%q); one queued item = one DM", extra)
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 

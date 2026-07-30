@@ -168,10 +168,13 @@ func (t *TelegramAPI) captureFeedback(ctx context.Context, msg *tgclient.Message
 		t.reply(ctx, msg.Chat.ID, feedbackFailMessage)
 		return
 	}
-	switch err := t.store.AppendFeedback(ctx, accountID, randomSecret(), "telegram", "", ciphertext, time.Now().UTC()); {
+	// The client id is freshly random, so this always inserts (or errors) — the
+	// queued flag the web path uses for retry-suppression is meaningless here.
+	_, err = t.store.AppendFeedback(ctx, accountID, randomSecret(), "telegram", "", ciphertext, time.Now().UTC())
+	switch {
 	case err == nil:
 		t.reply(ctx, msg.Chat.ID, feedbackThanksMessage)
-		t.relayFeedbackToAdmin(ctx, msg, text)
+		t.relayFeedbackToAdmin(msg, text)
 	case errors.Is(err, cloudstore.ErrFeedbackQueueFull):
 		t.reply(ctx, msg.Chat.ID, feedbackQueueFullMessage)
 	default:
@@ -185,6 +188,7 @@ func (t *TelegramAPI) captureFeedback(ctx context.Context, msg *tgclient.Message
 // (kind/app_version come straight off an untrusted POST body).
 const (
 	feedbackPingTimeout  = 10 * time.Second
+	feedbackRelayTimeout = 30 * time.Second // header + copyMessage
 	feedbackPingFieldMax = 40
 )
 
@@ -234,11 +238,21 @@ func feedbackPingField(s string) string {
 // doc it then encrypted. copyMessage rather than forwardMessage: no "forwarded
 // from" header keeps the sender unattributed, matching the web channel (the
 // encrypted queue item still carries the account id for cmd/feedbackpull).
-// Best-effort — every failure is a warn, never a user-visible error.
-func (t *TelegramAPI) relayFeedbackToAdmin(ctx context.Context, msg *tgclient.Message, text string) {
+// Best-effort — every failure is a warn, never a user-visible error — and, like
+// the web ping, off the caller's path: two more Bot API calls (15s timeout each)
+// inline would push the webhook toward a Telegram redelivery, and a redelivered
+// feedback message finds the armed flag already cleared, so the user would get a
+// confusing onboarding reply instead of nothing.
+func (t *TelegramAPI) relayFeedbackToAdmin(msg *tgclient.Message, text string) {
 	if t.feedbackAdminChatID == 0 || msg == nil {
 		return
 	}
+	go t.sendFeedbackToAdmin(msg, text)
+}
+
+func (t *TelegramAPI) sendFeedbackToAdmin(msg *tgclient.Message, text string) {
+	ctx, cancel := context.WithTimeout(context.Background(), feedbackRelayTimeout)
+	defer cancel()
 	client := t.managerClient()
 	if err := client.SendMessage(ctx, t.feedbackAdminChatID, "📮 New feedback (telegram):"); err != nil {
 		slog.Warn("telegram feedback: admin header failed", "error", err)

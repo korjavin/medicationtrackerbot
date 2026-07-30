@@ -289,10 +289,12 @@ type recordMu struct {
 	edits    []string
 	deletes  []string
 	copies   []string
-	// sendFails makes sendMessage record the attempt and then answer Telegram's
-	// 403 (the admin never pressed /start), standing in for a relay that must
-	// degrade to a log line rather than an error.
+	// sendFails / copyFails make sendMessage / copyMessage record the attempt and
+	// then answer Telegram's 403 (the admin never pressed /start, or the message
+	// can't be copied), standing in for a relay that must degrade to a log line
+	// rather than an error.
 	sendFails bool
+	copyFails bool
 	// deleteFails makes deleteMessage return Telegram's 400 (message can't be
 	// deleted — already gone or >48h old), standing in for the best-effort path.
 	deleteFails bool
@@ -349,7 +351,12 @@ func newRecordingTG(t *testing.T) *recordingTG {
 			rec.mu.Lock()
 			rec.mu.copies = append(rec.mu.copies, string(b))
 			n := len(rec.mu.copies)
+			fails := rec.mu.copyFails
 			rec.mu.Unlock()
+			if fails {
+				io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: message can't be copied"}`)
+				return
+			}
 			fmt.Fprintf(w, `{"ok":true,"result":{"message_id":%d}}`, 2000+n)
 		case "sendMessage":
 			b, _ := io.ReadAll(r.Body)

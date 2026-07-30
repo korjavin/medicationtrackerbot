@@ -275,20 +275,31 @@ func TestManagerFeedback_CaptureRejectedWithoutAccount(t *testing.T) {
 // feedbackAdminChat stands in for FEEDBACK_ADMIN_CHAT_ID in relay tests.
 const feedbackAdminChat = int64(9001)
 
-// waitForSent polls the fake for at least n recorded sendMessage bodies. The
-// web ping is fired on its own goroutine, so the assertion can't be immediate.
+// waitForSent / waitForCopies poll the fake for at least n recorded sendMessage
+// / copyMessage bodies. Both relays run on their own goroutine (off the request
+// and webhook paths), so these assertions can't be immediate.
 func waitForSent(t *testing.T, tg *recordingTG, n int) []string {
+	t.Helper()
+	return waitForRecorded(t, tg, n, "sendMessage", func() []string { return tg.mu.sent })
+}
+
+func waitForCopies(t *testing.T, tg *recordingTG, n int) []string {
+	t.Helper()
+	return waitForRecorded(t, tg, n, "copyMessage", func() []string { return tg.mu.copies })
+}
+
+func waitForRecorded(t *testing.T, tg *recordingTG, n int, what string, read func() []string) []string {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		tg.mu.Lock()
-		sent := append([]string(nil), tg.mu.sent...)
+		got := append([]string(nil), read()...)
 		tg.mu.Unlock()
-		if len(sent) >= n {
-			return sent
+		if len(got) >= n {
+			return got
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %d sent message(s), got %d: %v", n, len(sent), sent)
+			t.Fatalf("timed out waiting for %d %s call(s), got %d: %v", n, what, len(got), got)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -341,22 +352,25 @@ func TestManagerFeedback_RelaysFullContentToAdmin(t *testing.T) {
 			resetSent(tg)
 			postManager(t, top, secret, update)
 
+			// The copy is the relay's last call, so once it lands both sends are in.
+			copies := waitForCopies(t, tg, 1)
+			sent := waitForSent(t, tg, 2)
+			if len(copies) != 1 {
+				t.Fatalf("want exactly 1 copyMessage to the admin, got %v", copies)
+			}
 			// One thanks to the user (chat 77), one header to the admin (9001).
-			if len(tg.mu.sent) != 2 {
-				t.Fatalf("want thanks + admin header, got %v", tg.mu.sent)
+			if len(sent) != 2 {
+				t.Fatalf("want thanks + admin header, got %v", sent)
 			}
-			if !strings.Contains(tg.mu.sent[0], "Thanks") {
-				t.Fatalf("user lost their thanks reply: %v", tg.mu.sent)
+			if !strings.Contains(sent[0], "Thanks") {
+				t.Fatalf("user lost their thanks reply: %v", sent)
 			}
-			if !strings.Contains(tg.mu.sent[1], `"chat_id":9001`) || !strings.Contains(tg.mu.sent[1], "New feedback (telegram)") {
-				t.Fatalf("admin header missing/mis-addressed: %v", tg.mu.sent)
-			}
-			if len(tg.mu.copies) != 1 {
-				t.Fatalf("want exactly 1 copyMessage to the admin, got %v", tg.mu.copies)
+			if !strings.Contains(sent[1], `"chat_id":9001`) || !strings.Contains(sent[1], "New feedback (telegram)") {
+				t.Fatalf("admin header missing/mis-addressed: %v", sent)
 			}
 			for _, want := range []string{`"chat_id":9001`, `"from_chat_id":77`} {
-				if !strings.Contains(tg.mu.copies[0], want) {
-					t.Errorf("copyMessage missing %q: %s", want, tg.mu.copies[0])
+				if !strings.Contains(copies[0], want) {
+					t.Errorf("copyMessage missing %q: %s", want, copies[0])
 				}
 			}
 			if items, _ := store.ListFeedback(context.Background(), 10); len(items) != 1 {
@@ -367,7 +381,8 @@ func TestManagerFeedback_RelaysFullContentToAdmin(t *testing.T) {
 }
 
 // TestManagerFeedback_AdminRelayFailureIsInvisibleToTheUser: Telegram refuses
-// every send — the feedback is still queued and the user still gets a reply.
+// both the header and the copy — the feedback is still queued, and the relay
+// degrades to its text fallback instead of surfacing anything to the user.
 func TestManagerFeedback_AdminRelayFailureIsInvisibleToTheUser(t *testing.T) {
 	store, tg, top, secret, _ := managerFeedbackFixture(t, feedbackAdminChat)
 	seedClaimedAccount(t, store, tgCreator)
@@ -375,12 +390,20 @@ func TestManagerFeedback_AdminRelayFailureIsInvisibleToTheUser(t *testing.T) {
 	resetSent(tg)
 	tg.mu.Lock()
 	tg.mu.sendFails = true
+	tg.mu.copyFails = true
 	tg.mu.Unlock()
 
 	tgMessage(t, top, secret, "the weight chart is broken")
 
 	if items, _ := store.ListFeedback(context.Background(), 10); len(items) != 1 {
 		t.Fatalf("a failing admin relay lost the feedback: %d items", len(items))
+	}
+	// thanks (to the user, also 403s) + admin header + text fallback after the
+	// refused copy. All three failures are warns, none reaches the user.
+	waitForCopies(t, tg, 1)
+	sent := waitForSent(t, tg, 3)
+	if !strings.Contains(sent[2], "the weight chart is broken") {
+		t.Fatalf("refused copy did not fall back to sending the text: %v", sent)
 	}
 }
 

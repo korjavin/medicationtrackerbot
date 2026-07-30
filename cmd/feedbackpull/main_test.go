@@ -185,10 +185,10 @@ func TestRun(t *testing.T) {
 		st := setupStore(t)
 		good := encryptDoc(t, sampleDoc(), id.Recipient())
 		bad := encryptDoc(t, sampleDoc(), other.Recipient())
-		if err := st.AppendFeedback(ctx, "acc-1", "good", "bug", "1.0", good, now); err != nil {
+		if _, err := st.AppendFeedback(ctx, "acc-1", "good", "bug", "1.0", good, now); err != nil {
 			t.Fatalf("append good: %v", err)
 		}
-		if err := st.AppendFeedback(ctx, "acc-2", "bad", "bug", "1.0", bad, now.Add(time.Minute)); err != nil {
+		if _, err := st.AppendFeedback(ctx, "acc-2", "bad", "bug", "1.0", bad, now.Add(time.Minute)); err != nil {
 			t.Fatalf("append bad: %v", err)
 		}
 		return st

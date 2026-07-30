@@ -15,7 +15,7 @@ func TestFeedbackQueue(t *testing.T) {
 	t.Run("append then list round-trips ciphertext verbatim", func(t *testing.T) {
 		r := setupRepo(t)
 		ct := []byte{0x00, 0x01, 0xfe, 0xff, 'a', 'g', 'e'}
-		if err := r.AppendFeedback(ctx, "acc-1", "cid-1", "bug", "1.2.3", ct, now); err != nil {
+		if _, err := r.AppendFeedback(ctx, "acc-1", "cid-1", "bug", "1.2.3", ct, now); err != nil {
 			t.Fatalf("AppendFeedback: %v", err)
 		}
 		items, err := r.ListFeedback(ctx, 10)
@@ -39,11 +39,20 @@ func TestFeedbackQueue(t *testing.T) {
 
 	t.Run("duplicate client_id is a no-op", func(t *testing.T) {
 		r := setupRepo(t)
-		if err := r.AppendFeedback(ctx, "acc-1", "dup", "", "", []byte("first"), now); err != nil {
+		queued, err := r.AppendFeedback(ctx, "acc-1", "dup", "", "", []byte("first"), now)
+		if err != nil {
 			t.Fatalf("AppendFeedback 1: %v", err)
 		}
-		if err := r.AppendFeedback(ctx, "acc-1", "dup", "", "", []byte("second"), now.Add(time.Hour)); err != nil {
+		if !queued {
+			t.Error("first write should report queued=true")
+		}
+		// queued=false is what lets the admin relay stay quiet on a retry.
+		queued, err = r.AppendFeedback(ctx, "acc-1", "dup", "", "", []byte("second"), now.Add(time.Hour))
+		if err != nil {
 			t.Fatalf("AppendFeedback 2: %v", err)
+		}
+		if queued {
+			t.Error("retry of an existing client_id should report queued=false")
 		}
 		items, err := r.ListFeedback(ctx, 10)
 		if err != nil {
@@ -59,10 +68,10 @@ func TestFeedbackQueue(t *testing.T) {
 
 	t.Run("same client_id under two accounts both stored (per-account scope)", func(t *testing.T) {
 		r := setupRepo(t)
-		if err := r.AppendFeedback(ctx, "acc-1", "shared", "", "", []byte("a1"), now); err != nil {
+		if _, err := r.AppendFeedback(ctx, "acc-1", "shared", "", "", []byte("a1"), now); err != nil {
 			t.Fatalf("AppendFeedback acc-1: %v", err)
 		}
-		if err := r.AppendFeedback(ctx, "acc-2", "shared", "", "", []byte("a2"), now.Add(time.Minute)); err != nil {
+		if _, err := r.AppendFeedback(ctx, "acc-2", "shared", "", "", []byte("a2"), now.Add(time.Minute)); err != nil {
 			t.Fatalf("AppendFeedback acc-2: %v", err)
 		}
 		items, err := r.ListFeedback(ctx, 10)
@@ -76,7 +85,7 @@ func TestFeedbackQueue(t *testing.T) {
 
 	t.Run("delete removes the row", func(t *testing.T) {
 		r := setupRepo(t)
-		if err := r.AppendFeedback(ctx, "acc-1", "cid-del", "", "", []byte("x"), now); err != nil {
+		if _, err := r.AppendFeedback(ctx, "acc-1", "cid-del", "", "", []byte("x"), now); err != nil {
 			t.Fatalf("AppendFeedback: %v", err)
 		}
 		items, _ := r.ListFeedback(ctx, 10)
@@ -100,19 +109,19 @@ func TestFeedbackQueue(t *testing.T) {
 		r := setupRepo(t)
 		for i := 0; i < feedbackPerAccountCap; i++ {
 			cid := "cap-" + string(rune('a'+i%26)) + string(rune('0'+i/26))
-			if err := r.AppendFeedback(ctx, "acc-1", cid, "", "", []byte("x"), now); err != nil {
+			if _, err := r.AppendFeedback(ctx, "acc-1", cid, "", "", []byte("x"), now); err != nil {
 				t.Fatalf("AppendFeedback %d: %v", i, err)
 			}
 		}
-		if err := r.AppendFeedback(ctx, "acc-1", "one-too-many", "", "", []byte("x"), now); !errors.Is(err, ErrFeedbackQueueFull) {
+		if _, err := r.AppendFeedback(ctx, "acc-1", "one-too-many", "", "", []byte("x"), now); !errors.Is(err, ErrFeedbackQueueFull) {
 			t.Fatalf("over-cap append err = %v, want ErrFeedbackQueueFull", err)
 		}
 		// A retry of an already-queued client_id still succeeds at the cap.
-		if err := r.AppendFeedback(ctx, "acc-1", "cap-a0", "", "", []byte("x"), now); err != nil {
+		if _, err := r.AppendFeedback(ctx, "acc-1", "cap-a0", "", "", []byte("x"), now); err != nil {
 			t.Fatalf("idempotent retry at cap: %v", err)
 		}
 		// The cap is per-account: a different account is unaffected.
-		if err := r.AppendFeedback(ctx, "acc-2", "fresh", "", "", []byte("x"), now); err != nil {
+		if _, err := r.AppendFeedback(ctx, "acc-2", "fresh", "", "", []byte("x"), now); err != nil {
 			t.Fatalf("other-account append at acc-1 cap: %v", err)
 		}
 	})
@@ -121,7 +130,7 @@ func TestFeedbackQueue(t *testing.T) {
 		r := setupRepo(t)
 		for i, cid := range []string{"c0", "c1", "c2"} {
 			ts := now.Add(time.Duration(i) * time.Minute)
-			if err := r.AppendFeedback(ctx, "acc-1", cid, "", "", []byte(cid), ts); err != nil {
+			if _, err := r.AppendFeedback(ctx, "acc-1", cid, "", "", []byte(cid), ts); err != nil {
 				t.Fatalf("AppendFeedback %s: %v", cid, err)
 			}
 		}
