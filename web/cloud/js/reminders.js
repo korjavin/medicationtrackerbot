@@ -126,16 +126,21 @@ export async function recomputeAndPush(ctx, opts = {}) {
     domain.getDeliveryPref(),
   ]);
   // The vault's record of which meds each reminder NAMED — what a Telegram
-  // Confirm resolves by identity at drain time (bd med-eas.65). Passed as the
-  // post-upload hook rather than awaited after pushSchedule so it lands inside
-  // pushSchedule's per-account chain: the served schedule and the map are then
-  // always from the same recompute, even when two overlap. Merge-and-prune
-  // rather than replace-all, so a slot that has left the forward horizon is
-  // still resolvable for as long as its message is tappable.
+  // Confirm resolves by identity at drain time (bd med-eas.65). Written in two
+  // moves around the upload, because only one of the two failure orderings is
+  // safe (see the domain's own comments):
   //
-  // If this write itself fails the previous map survives — one push behind,
-  // which is a state the retention window makes ordinary rather than a
-  // corruption, and getSlotMedications ages it out regardless.
+  //   1. drop every not-yet-fired slot BEFORE the PUT, so a PUT that lands
+  //      without its follow-up write leaves those slots MAPLESS (±band fallback,
+  //      a false negative) instead of naming meds the new reminder dropped;
+  //   2. merge the uploaded horizon back in AFTER the PUT succeeds, as
+  //      pushSchedule's post-upload hook — i.e. inside its per-account chain, so
+  //      two overlapping recomputes cannot leave the served schedule and the map
+  //      describing different horizons.
+  //
+  // Already-fired slots ride through both moves untouched: their messages are
+  // out, tappable, and cannot change.
+  await domain.dropFutureSlotMedications();
   await pushSchedule(ctx, entries, pref, (pushed) => domain.recordSlotMedications(pushed));
 }
 

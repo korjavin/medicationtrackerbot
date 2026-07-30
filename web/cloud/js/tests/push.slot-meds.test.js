@@ -124,6 +124,24 @@ describe('slot→meds map (med-eas.65: vault-resident, merge-and-prune)', () => 
     expect(await domainAt(records, NOW_MS + 49 * HOUR * 1000).getSlotMedications(NOW_UNIX)).toBeNull();
   });
 
+  // A stale entry for a slot that has NOT fired yet is the one genuinely
+  // dangerous state: if the relay is serving a reminder that names fewer meds
+  // than the map still claims, Confirm would mark an unnamed med taken. So the
+  // pre-upload drop keeps only what has already been delivered.
+  it('drops not-yet-fired slots before an upload, keeping the delivered ones', async () => {
+    const records = fakeRecords();
+    await domainAt(records, NOW_MS).recordSlotMedications([
+      rem(NOW_UNIX - HOUR, ['med-a', 'med-d']), // already fired: its message is out
+      rem(NOW_UNIX + HOUR, ['med-a', 'med-d']), // not yet fired
+    ]);
+
+    await domainAt(records, NOW_MS).dropFutureSlotMedications();
+
+    const domain = domainAt(records, NOW_MS);
+    expect(await domain.getSlotMedications(NOW_UNIX - HOUR)).toEqual(['med-a', 'med-d']);
+    expect(await domain.getSlotMedications(NOW_UNIX + HOUR)).toBeNull();
+  });
+
   // A later push that re-lists the same slot wins for that slot: it describes the
   // message the relay is actually serving for it now.
   it('a newer horizon replaces the med set of a slot it re-lists', async () => {
@@ -189,7 +207,37 @@ describe('recomputeAndPush records the slot→meds map after a successful push',
     const records = fakeRecords(seed());
 
     await expect(recomputeAndPush(ctx, { records, timeZone: 'UTC' })).rejects.toThrow();
-    expect(records.dump().slotmeds).toBeUndefined();
+    const rec = (records.dump().slotmeds || [])[0];
+    expect(rec ? Object.keys(rec.slots) : []).toEqual([]);
+  });
+
+  // The failure the pre-upload drop exists for: a push whose PUT lands but whose
+  // follow-up map write never runs (tab closed, vault write errored). The
+  // previous horizon's future slots must NOT survive to name meds the new
+  // reminder dropped — the tap has to take the ±band fallback instead.
+  it('leaves no stale future slot when the map write after a successful PUT is lost', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+    const records = fakeRecords(seed());
+    await recomputeAndPush(ctx, { records, timeZone: 'UTC' });
+    const staleSlots = Object.keys((records.dump().slotmeds || [])[0].slots);
+    expect(staleSlots.length).toBeGreaterThan(0);
+
+    // Next recompute: the PUT lands, then the post-upload write is lost.
+    const boom = new Error('vault write lost');
+    const put = records.put;
+    let uploaded = false;
+    globalThis.fetch = vi.fn(async () => { uploaded = true; return { ok: true }; });
+    records.put = async (type, record) => {
+      if (type === 'slotmeds' && uploaded) throw boom;
+      return put(type, record);
+    };
+    await expect(recomputeAndPush(ctx, { records, timeZone: 'UTC' })).rejects.toThrow(boom);
+    records.put = put;
+
+    const domain = createRemindersDomain({ records, now: () => NOW_MS });
+    for (const slotUnix of staleSlots) {
+      expect(await domain.getSlotMedications(Number(slotUnix))).toBeNull();
+    }
   });
 
   // The map write rides INSIDE pushSchedule's per-account chain. Outside it, a

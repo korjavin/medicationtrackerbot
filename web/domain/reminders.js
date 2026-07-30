@@ -694,32 +694,74 @@ export function createRemindersDomain({ records, now }) {
 
   // --- slot → named medications (bd med-eas.65) ---
   //
-  // recordSlotMedications is called by the shim AFTER a successful
-  // pushSchedule, with the horizon that was uploaded. Unlike the relay
-  // schedule it is NOT replace-all: a slot's entry describes what a message
-  // SAID, and a delivered Telegram message stays tappable long after its slot
-  // has left the forward horizon. So new slots are merged over the ones still
-  // inside SLOTMEDS_RETAIN_MS and anything older is pruned.
+  // The map is NOT replace-all like the relay schedule it accompanies: a slot's
+  // entry describes what a message SAID, and a delivered Telegram message stays
+  // tappable long after its slot has left the forward horizon. So the shim
+  // writes it in two moves around the upload, and only the second one is
+  // allowed to go missing:
   //
-  // Merging is what makes the retention safe, not a hazard: an entry the newest
-  // horizon dropped can only ever be consulted by a tap on the older message
-  // that named it, which is precisely the set that tap meant. (The one case
-  // last-writer-wins gets wrong — a LATER push ADDS a med to an existing slot
-  // and the user taps the EARLIER message — is unchanged from the replace-all
-  // map this succeeds, and is the same accepted ceiling documented in
-  // inbox-apply.js's nearestPendingByMed.)
-  async function recordSlotMedications(entries) {
+  //   dropFutureSlotMedications()  BEFORE the schedule PUT
+  //   recordSlotMedications(horizon) AFTER it succeeds
+  //
+  // ponytail: cross-device ceiling. This is ONE singleton record, so two devices
+  // that both recompute before syncing each other's write resolve by LWW, and
+  // the loser's RETAINED (already-fired) slots are dropped from the map. Taps
+  // for those slots then take the ±band fallback — a degradation to the safe
+  // path, never a false confirm, and only for slots that fired while just one
+  // device was around. Upgrade path if that ever bites: a record per slot
+  // (`slotmeds-<slotUnix>`), which converges per-slot but costs one vault write
+  // per slot per recompute instead of one.
+  async function loadSlotMedications() {
     const all = await records.list(SLOTMEDS_RECORD_TYPE);
     const rec = findSingleton(all, SLOTMEDS_RECORD_ID);
-    const keepFromUnix = (now() - SLOTMEDS_RETAIN_MS) / 1000;
-    const slots = {};
-    for (const [slotUnix, ids] of Object.entries((rec && rec.slots) || {})) {
-      if (Number(slotUnix) >= keepFromUnix && Array.isArray(ids) && ids.length) slots[slotUnix] = ids;
-    }
-    Object.assign(slots, slotMedicationsFromEntries(entries));
+    return (rec && rec.slots) || {};
+  }
+
+  async function putSlotMedications(slots) {
     await records.put(SLOTMEDS_RECORD_TYPE, {
       recordId: SLOTMEDS_RECORD_ID, clientTs: now(), deleted: false, slots,
     });
+  }
+
+  // retained() keeps the entries a NEW horizon may not restate: those whose slot
+  // has already fired (their message is out and immutable) and is still inside
+  // the retention window. Entries for slots that have NOT fired are deliberately
+  // not retained — see dropFutureSlotMedications.
+  function retained(slots, nowMs) {
+    const out = {};
+    for (const [slotUnix, ids] of Object.entries(slots)) {
+      const slotMs = Number(slotUnix) * 1000;
+      if (slotMs <= nowMs && slotMs >= nowMs - SLOTMEDS_RETAIN_MS && Array.isArray(ids) && ids.length) {
+        out[slotUnix] = ids;
+      }
+    }
+    return out;
+  }
+
+  // dropFutureSlotMedications invalidates every not-yet-fired slot BEFORE the
+  // new schedule is uploaded. A stale FUTURE entry is the one genuinely
+  // dangerous state this record can be in: if the PUT lands and the write after
+  // it does not (the tab closes, the vault write errors), the relay would be
+  // serving a reminder that names fewer meds than the map still claims, and
+  // Confirm would mark an unnamed med taken. Clearing first makes that failure
+  // a mapless slot instead — the ±band fallback, a false negative. (Already-
+  // fired slots are safe to keep across the gap: their messages went out under
+  // the schedule that named them and cannot change.)
+  async function dropFutureSlotMedications() {
+    await putSlotMedications(retained(await loadSlotMedications(), now()));
+  }
+
+  // recordSlotMedications merges the uploaded horizon over what survived the
+  // drop above. Merging is what makes retention safe rather than a hazard: an
+  // entry the newest horizon dropped can only ever be consulted by a tap on the
+  // older, already-delivered message that named it — precisely the set that tap
+  // meant. (The one case last-writer-wins still gets wrong — a LATER push ADDS a
+  // med to an existing slot and the user taps the EARLIER message — is the same
+  // accepted ceiling documented in inbox-apply.js's nearestPendingByMed.)
+  async function recordSlotMedications(entries) {
+    const slots = retained(await loadSlotMedications(), now());
+    Object.assign(slots, slotMedicationsFromEntries(entries));
+    await putSlotMedications(slots);
   }
 
   // getSlotMedications returns the med ids the reminder NAMED for slotUnix, or
@@ -788,6 +830,6 @@ export function createRemindersDomain({ records, now }) {
     getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled,
     snoozeBPReminder, dontBugBPReminder, snoozeWeightReminder, dontBugWeightReminder,
     getDeliveryPref, setDeliveryPref, buildHorizon,
-    recordSlotMedications, getSlotMedications,
+    dropFutureSlotMedications, recordSlotMedications, getSlotMedications,
   };
 }
