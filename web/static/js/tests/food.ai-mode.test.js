@@ -18,6 +18,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { idle } from './helpers/settle.js';
 
 function flushPromises() {
     return new Promise((resolve) => setTimeout(resolve, 0));
@@ -57,6 +58,10 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
     });
 
     afterEach(() => {
+        // Unconditional — a test that installs fake timers and then times out
+        // never reaches its own restore, and faked timers leaking into the next
+        // test hang it too (the med-tc1.9 cross-test-leak lesson).
+        vi.useRealTimers();
         try {
             env.document.querySelectorAll('.wg-food-photo-summary').forEach((el) => el.remove());
             env.window.localStorage.clear();
@@ -436,6 +441,18 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
         });
         window.fetch = fetchSpy;
 
+        // med-tc1.10 — DRIVE the 800ms debounce instead of out-waiting it. The
+        // old `setTimeout(r, 900)` was both the suite's slowest single line and
+        // a wall-clock bet that a cancelled timer had had its chance to misfire.
+        // Fake timers turn "the debounce window has fully elapsed" into a fact,
+        // and advanceTimersByTimeAsync drains microtasks between each fired
+        // timer, so an uncancelled debounce would have run its whole async body
+        // (fetch → stream read → autofill) before the assertions below.
+        // Installed after showAddFoodModal so only the debounce is faked, and
+        // scoped to setTimeout/clearTimeout ONLY: vitest's default toFake also
+        // takes setImmediate, which idle() below rides on. afterEach restores.
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
         // Simulate the user typing a barcode that schedules a debounce.
         const barcodeInput = document.getElementById('food-barcode');
         barcodeInput.value = '1234567890123';
@@ -446,9 +463,8 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
         checkbox.checked = true;
         checkbox.dispatchEvent(new window.Event('change'));
 
-        // Advance past the debounce window. The cancelled timeout must not fire.
-        await new Promise((resolve) => setTimeout(resolve, 900));
-        await flushPromises();
+        await vi.advanceTimersByTimeAsync(900);
+        await idle();
 
         // No search request was issued — pending debounce was cancelled.
         const searchCall = fetchSpy.mock.calls.find(

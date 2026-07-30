@@ -13,6 +13,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
+import { signal } from './helpers/settle.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +22,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const BOOTSTRAP_JS = path.join(REPO_ROOT, 'web/static/js/features/bootstrap.js');
+
+// med-tc1.10 — same barrier as bootstrap.today-default: bootstrap's landing
+// decision IS the switchTab call, so resolve from inside the spy (#716) rather
+// than betting the checkAuth → mount → switchTab chain fits in a fixed sleep.
+// bootstrap calls switchTab exactly once (handleDeepLinks is stubbed), so the
+// `not.toHaveBeenCalledWith('bp')` half is settled by the same await.
+function spySwitchTab() {
+    const called = signal();
+    return { spy: vi.fn(() => called.fire()), called };
+}
 
 describe('bootstrap.js dynamic tab selection', () => {
     it('saved tab_order with a leading section does not override the Today landing', async () => {
@@ -43,7 +54,7 @@ describe('bootstrap.js dynamic tab selection', () => {
                 return createMockResponse({ json: {} });
             });
 
-            const switchTabSpy = vi.fn();
+            const { spy: switchTabSpy, called } = spySwitchTab();
             window.switchTab = switchTabSpy;
             window.initOIDCSetupBanner = vi.fn();
             window.handleDeepLinks = vi.fn();
@@ -51,7 +62,7 @@ describe('bootstrap.js dynamic tab selection', () => {
             const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
             window.eval(bootstrapSource);
 
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await called.wait;
 
             expect(switchTabSpy).toHaveBeenCalledWith('today');
             expect(switchTabSpy).not.toHaveBeenCalledWith('bp');
@@ -64,7 +75,7 @@ describe('bootstrap.js dynamic tab selection', () => {
         allowConsoleNoise();
         const { window, cleanup } = loadFrontendEnv();
         try {
-            const switchTabSpy = vi.fn();
+            const { spy: switchTabSpy, called } = spySwitchTab();
             window.switchTab = switchTabSpy;
             window.checkAuth = vi.fn().mockResolvedValue(true);
             window.initOIDCSetupBanner = vi.fn();
@@ -73,7 +84,7 @@ describe('bootstrap.js dynamic tab selection', () => {
             const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
             window.eval(bootstrapSource);
 
-            await new Promise(resolve => setTimeout(resolve, 10));
+            await called.wait;
 
             expect(switchTabSpy).toHaveBeenCalledWith('today');
         } finally {
