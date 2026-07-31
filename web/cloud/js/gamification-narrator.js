@@ -1,5 +1,5 @@
 // Gamification AI narration layer (Phase 6 of docs/design/2026-07-11-
-// gamification-redesign.md §4.3) — the OPT-IN, BYO-key prose seam that sits
+// gamification-redesign.md §4.3) — the OPT-IN prose seam that sits
 // OVER the deterministic engine (web/domain/gamification.js) and never inside
 // it. The pure domain module stays authoritative; this browser-layer module
 // only turns its ALREADY-COMPUTED read-models into a few warm sentences.
@@ -20,9 +20,20 @@
 //      error, or an empty response all resolve to { text: null } WITHOUT
 //      throwing — the caller keeps its deterministic card unchanged.
 //
-// Reuses aiClient.chat (web/cloud/js/aiclient.js) exactly like food AI and the
-// tg-agent: requests go device → the user's own OpenAI-compatible endpoint,
-// never through /api. `aiClient` is null in bot mode / when no key is set.
+// Reuses aiClient.chat (web/cloud/js/aiclient.js) exactly like the tg-agent,
+// which means it inherits that call's TWO paths, not one:
+//   - BYO key set → device → the user's own OpenAI-compatible endpoint,
+//     never through /api.
+//   - no key → the operator-proxied trial path (POST /api/trial/openai), gated
+//     on the `tg` consent scope (aiclient.js ensureTrialConsent('tg')). The
+//     scope is shared deliberately: the tg disclosure names this narrator and
+//     what it sends ("computed health summaries (weekly and workout stats)"),
+//     so a user granting it has been told narration is included. Both callers
+//     feed vault-derived health data to the same model, which is what that
+//     scope actually authorizes — the name is Telegram-flavoured, the boundary
+//     is not (bd med-eas.80; carve-outs in docs/cloud-mode.md → Privacy boundary).
+// This module is cloud-only (apishim.js is its sole wiring); bot mode 404s the
+// /narrate probe and journey.js keeps its deterministic card.
 
 // The provider is told, in the strongest terms the prompt can carry, that it
 // is a narrator and not a calculator. Even so, invariant 2 does not rely on
