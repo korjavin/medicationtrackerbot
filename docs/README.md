@@ -69,11 +69,11 @@ Kept for rationale and provenance. **Never cite as current behavior.**
 - **[plans/](plans/)** — implementation plans. `plans/completed/` is an archive
   of finished work; see [plans/README.md](plans/README.md). Neither directory is
   normative, and neither is edited after the fact.
-- **[legacy/](legacy/)** — the Telegram-bot / Go-server material that used to
+- **[archive/](archive/)** — the Telegram-bot / Go-server material that used to
   live in the current docs:
-  [architecture-bot-mode.md](legacy/architecture-bot-mode.md),
-  [threat-model-bot-mode.md](legacy/threat-model-bot-mode.md), and
-  [cloud-bot-parity.md](legacy/cloud-bot-parity.md). **That subject is not
+  [architecture-bot-mode.md](archive/architecture-bot-mode.md),
+  [threat-model-bot-mode.md](archive/threat-model-bot-mode.md), and
+  [cloud-bot-parity.md](archive/cloud-bot-parity.md). **That subject is not
   deployed and not operated** — the stack runs `./cloud`
   (`docker-compose.cloud.yml:14`). Its source stays in the tree and still
   compiles so it cannot silently rot. (`Dockerfile:18,33,59` does still compile

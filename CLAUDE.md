@@ -12,7 +12,7 @@ A self-hosted health-tracking PWA for medications, blood pressure, weight, worko
 
 ## Critical Rules
 
-1. **Domain logic lives in one place per runtime.** In the browser that is `web/domain/*.js` — pure ES modules behind injected ports, no browser globals, enforced by `architecture.domain-purity.test.js`. `web/cloud/js/apishim.js` and `mcp-responder.js` route into it; neither may hold domain logic of its own. (The Go `internal/domain/*` service pattern that governs `internal/server` + `internal/bot` is unchanged and documented in [docs/legacy/architecture-bot-mode.md](docs/legacy/architecture-bot-mode.md#domain-service-pattern).)
+1. **Domain logic lives in one place per runtime.** In the browser that is `web/domain/*.js` — pure ES modules behind injected ports, no browser globals, enforced by `architecture.domain-purity.test.js`. `web/cloud/js/apishim.js` and `mcp-responder.js` route into it; neither may hold domain logic of its own. (The Go `internal/domain/*` service pattern that governs `internal/server` + `internal/bot` is unchanged and documented in [docs/archive/architecture-bot-mode.md](docs/archive/architecture-bot-mode.md#domain-service-pattern).)
 2. **Never modify existing migrations.** Always add new ones in `internal/store/migrations/`.
 3. **No hardcoded colors or inline `.style.` assignments in frontend code.** Use design tokens and CSS classes. All visual values come from `--wg-*` tokens (Wandergeek system). Architecture tests enforce this. See [docs/frontend.md](docs/frontend.md#design-tokens).
 4. **New `window.*` globals require an allowlist entry** in `tests/architecture.globals.test.js` with justification.
@@ -172,10 +172,10 @@ a new metric is a new record type plus the browser code that understands it.
 
 The Go store/handler/scheduler path (`internal/store/`, `internal/server/`,
 `internal/bot/`, `internal/scheduler/`) is not on the deployed path; its
-conventions are in [docs/legacy/architecture-bot-mode.md](docs/legacy/architecture-bot-mode.md).
+conventions are in [docs/archive/architecture-bot-mode.md](docs/archive/architecture-bot-mode.md).
 If you do change Go code there, it must keep building and passing tests.
 
-Any new dose-like timestamp column (one that participates in SQL equality — dedupe, lookup by instant, etc.) must be stored as `INTEGER` unix-seconds-UTC, not as `DATETIME` text. Normalize via `t.UTC().Unix()` (or `storedb.TimeToUnix`) at the writer and `time.Unix(n, 0).UTC()` (or `storedb.UnixToTime`) at the reader. See [docs/legacy/architecture-bot-mode.md → Time storage](docs/legacy/architecture-bot-mode.md#time-storage); the convention is enforced cross-table by `TestDoseTimeColumnsAreInteger` in `internal/store/store_time_invariants_test.go` (current allowlist covers `intake_log.{scheduled,taken,snoozed_until}_at_unix` and `tz_transition_plans.{created,notified,approved}_at_unix`). When adding a new dose-like column, append it to the allowlist in the same test and to the package comment at the top of `internal/store/store.go`.
+Any new dose-like timestamp column (one that participates in SQL equality — dedupe, lookup by instant, etc.) must be stored as `INTEGER` unix-seconds-UTC, not as `DATETIME` text. Normalize via `t.UTC().Unix()` (or `storedb.TimeToUnix`) at the writer and `time.Unix(n, 0).UTC()` (or `storedb.UnixToTime`) at the reader. See [docs/archive/architecture-bot-mode.md → Time storage](docs/archive/architecture-bot-mode.md#time-storage); the convention is enforced cross-table by `TestDoseTimeColumnsAreInteger` in `internal/store/store_time_invariants_test.go` (current allowlist covers `intake_log.{scheduled,taken,snoozed_until}_at_unix` and `tz_transition_plans.{created,notified,approved}_at_unix`). When adding a new dose-like column, append it to the allowlist in the same test and to the package comment at the top of `internal/store/store.go`.
 
 ### Adding an MCP tool
 
