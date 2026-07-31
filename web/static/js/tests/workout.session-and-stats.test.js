@@ -230,12 +230,13 @@ describe('workout.js session and stats flows', () => {
         ]
       });
 
-      // Phase 7, Task 7: stats layout is Wandergeek — range selector + chart
+      // Phase 7, Task 7: stats layout is Wandergeek — range selector + the
+      // Consistency activity calendar (med-zte; a line chart until then)
       // + 2×2 stat-tile grid + optional Top Exercises list. The heatmap /
       // legend from the paper era is gone.
       expect(statsContainer.querySelector('.wg-workouts-stats')).not.toBeNull();
       expect(statsContainer.querySelector('.wg-workouts-stats__range')).not.toBeNull();
-      expect(statsContainer.querySelector('.wg-workouts-stats__chart-panel')).not.toBeNull();
+      expect(statsContainer.querySelector('.wg-workouts-stats__calendar-grid')).not.toBeNull();
       expect(statsContainer.innerHTML).toContain('Top Exercises');
       expect(statsContainer.innerHTML).toContain('Streak');
       expect(statsContainer.innerHTML).toContain('Sessions');

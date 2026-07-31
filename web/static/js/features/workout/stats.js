@@ -12,6 +12,10 @@
 // work did I do"), balance ("what am I neglecting"). One /api/workout/stats
 // fetch feeds all three (med-904.1 widened the payload), so switching views is
 // a client-side re-render and never a refetch; only the range strip fetches.
+//
+// med-zte swapped the marks inside two of those views: consistency draws a
+// GitHub-contribution day calendar instead of a sessions-per-week line, and
+// load draws bars instead of a line. Still three pills, still one fetch.
 
 const WORKOUTS_STATS_RANGE_KEY = 'mt-workouts-stats-range';
 const WORKOUTS_STATS_RANGE_OPTIONS = ['7d', '30d', '90d', 'all'];
@@ -51,27 +55,6 @@ function _formatVolume(kg) {
     if (!kg || kg === 0) return '—';
     if (kg >= 1000) return `${(kg / 1000).toFixed(1)}t`;
     return `${Math.round(kg).toLocaleString()} kg`;
-}
-
-// Aggregate a per-exercise list into a body-part distribution by session_count
-// (training frequency reads better than tonnage, and stays non-zero for
-// bodyweight moves). Unmatched names bucket as 'uncategorized'.
-//
-// Fed from `exercise_totals` (EVERY exercise trained in the range) since
-// med-904.1 — the top-8-volume-slice ceiling flagged in bead med-s5m.3 is
-// retired. `top_exercises` remains the fallback for a payload cached before
-// that field existed.
-function _computeBodyPartSplit(exercises, resolveFn) {
-    const totals = new Map();
-    for (const ex of (exercises || [])) {
-        const bp = resolveFn(ex.exercise_name) || 'uncategorized';
-        const count = ex.session_count || 0;
-        totals.set(bp, (totals.get(bp) || 0) + count);
-    }
-    return Array.from(totals.entries())
-        .filter(([, count]) => count > 0)
-        .map(([body_part, count]) => ({ body_part, count }))
-        .sort((a, b) => b.count - a.count);
 }
 
 // Balance view fold: per-body-part WORKING SETS (Hevy's "set count per muscle
@@ -122,11 +105,11 @@ function _buildTileGrid(pairs) {
 
 // WGWorkoutChart renders either an <svg> or an empty-state <div>; either way it
 // carries `.wg-workout-chart` so the panel styles itself consistently.
-function _buildChartPanel({ sessions, range, metric }) {
+function _buildChartPanel({ sessions, range, metric, variant }) {
     const chartPanel = document.createElement('div');
     chartPanel.className = 'wg-workouts-stats__chart-panel';
     const node = window.WGWorkoutChart && typeof window.WGWorkoutChart.render === 'function'
-        ? window.WGWorkoutChart.render({ sessions, range, metric })
+        ? window.WGWorkoutChart.render({ sessions, range, metric, variant })
         : null;
     if (node) {
         chartPanel.appendChild(node);
@@ -214,6 +197,110 @@ function _buildBarRow({ name, summary, pct, onOpen }) {
     return row;
 }
 
+// -- Consistency calendar (med-zte) ---------------------------------------
+//
+// GitHub-contribution-style day grid: 7 rows (Mon…Sun) × N week columns,
+// oldest week leftmost, one cell per day of the ACTIVE range. It replaces the
+// sessions-per-week line — a 2-vs-3 line is jagged noise, and the grid
+// strictly contains the line's information (per-week totals are just a column
+// read vertically) plus which days you trained.
+//
+// ponytail: hard cap of 53 week columns (~1 year). `range=all` on a multi-year
+// history would otherwise emit thousands of cells for a strip nobody can read
+// on a phone; widen (or add horizontal paging) only if someone asks for a
+// multi-year wall.
+const CALENDAR_MAX_WEEKS = 53;
+const CALENDAR_RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90 };
+// GitHub's convention: label Mon/Wed/Fri only, no month labels.
+const CALENDAR_WEEKDAYS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
+const DAY_MS = 86400000;
+
+// Days since the Monday of this day's week (UTC-anchored; getUTCDay 0 = Sun).
+function _sinceMonday(ms) {
+    return (new Date(ms).getUTCDay() + 6) % 7;
+}
+
+function _buildActivityCalendar(daily, range) {
+    const entries = new Map((daily || []).map((d) => [d.date, d]));
+
+    // Anchor "today" as a UTC midnight built from the LOCAL calendar day, so
+    // every step below is plain ms arithmetic that can't drift a timezone.
+    const local = new Date();
+    const todayMs = Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
+    // Grid ends on the Sunday of the current week so the last column is whole.
+    const endMs = todayMs + (6 - _sinceMonday(todayMs)) * DAY_MS;
+
+    const days = CALENDAR_RANGE_DAYS[range];
+    const oldest = daily && daily.length
+        ? Date.parse(`${daily[0].date}T00:00:00Z`)
+        : todayMs;
+    const firstDay = days
+        ? todayMs - (days - 1) * DAY_MS
+        : Math.min(Number.isFinite(oldest) ? oldest : todayMs, todayMs);
+    let startMs = firstDay - _sinceMonday(firstDay) * DAY_MS;
+    const capStart = endMs - (CALENDAR_MAX_WEEKS * 7 - 1) * DAY_MS;
+    if (startMs < capStart) startMs = capStart;
+    // startMs is a Monday and endMs a Sunday, so the inclusive span is always a
+    // whole number of weeks.
+    const weekCount = Math.round(((endMs - startMs) / DAY_MS + 1) / 7);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'wg-workouts-stats__calendar';
+
+    const weekdays = document.createElement('div');
+    weekdays.className = 'wg-workouts-stats__calendar-weekdays';
+    weekdays.setAttribute('aria-hidden', 'true');
+    CALENDAR_WEEKDAYS.forEach((text) => {
+        const label = document.createElement('span');
+        label.className = 'wg-workouts-stats__calendar-weekday';
+        label.textContent = text;
+        weekdays.appendChild(label);
+    });
+    wrap.appendChild(weekdays);
+
+    const grid = document.createElement('div');
+    grid.className = 'wg-workouts-stats__calendar-grid';
+    grid.dataset.range = range || 'all';
+    grid.dataset.weeks = String(weekCount);
+
+    // Cells stream in chronological order; the grid flows column-first over 7
+    // rows, so each column is one Mon→Sun week.
+    let trainedDays = 0;
+    let skippedDays = 0;
+    for (let ms = startMs; ms <= endMs; ms += DAY_MS) {
+        const date = new Date(ms).toISOString().slice(0, 10);
+        const entry = entries.get(date);
+        // Shade by STATUS, never volume: a bodyweight session logs zero
+        // tonnage and would render as a rest day on a volume-shaded grid.
+        let state = 'empty';
+        let what = 'nothing logged';
+        if (entry && entry.completed > 0) {
+            state = 'done';
+            what = entry.completed === 1 ? 'completed' : `${entry.completed} completed`;
+            trainedDays++;
+        } else if (entry && entry.skipped > 0) {
+            state = 'skipped';
+            what = entry.skipped === 1 ? 'skipped' : `${entry.skipped} skipped`;
+            skippedDays++;
+        }
+        const cell = document.createElement('div');
+        cell.className = `wg-workouts-stats__calendar-cell wg-workouts-stats__calendar-cell--${state}`;
+        // Days past today pad the final column to a full week; they aren't a
+        // rest day yet, so they get no label.
+        if (ms <= todayMs) cell.title = `${date} · ${what}`;
+        grid.appendChild(cell);
+    }
+
+    // The per-cell titles are tooltips, not an accessible name — screen
+    // readers get one summary off the grid itself.
+    grid.setAttribute('role', 'img');
+    grid.setAttribute('aria-label',
+        `Workout calendar, last ${weekCount} weeks: ${trainedDays} ${trainedDays === 1 ? 'day' : 'days'} trained, ${skippedDays} skipped.`);
+
+    wrap.appendChild(grid);
+    return wrap;
+}
+
 function _buildHint(text) {
     const p = document.createElement('p');
     p.className = 'text-center text-hint wg-workouts-stats__empty';
@@ -251,43 +338,14 @@ function _appendTopExercises(section, exercises) {
     section.appendChild(list);
 }
 
-// Append the body-part split section to an already-built stats section. Async
-// because it awaits the catalog; fire-and-forget from the view renderer, which
-// hands it the element it built (a stale in-flight append then lands on a
-// detached node rather than the live view).
-async function _renderBodyPartSplit(root, exercises) {
-    if (!exercises || exercises.length === 0) return;
-    const map = await window.WorkoutExerciseCatalog.load();
-    if (map.size === 0) return; // catalog unavailable — skip rather than show an all-uncategorized split
-    const split = _computeBodyPartSplit(exercises, window.WorkoutExerciseCatalog.resolveBodyPart);
-    if (split.length === 0) return;
-
-    root.appendChild(_buildSectionLabel('Body-part Split · Sessions'));
-
-    const maxCount = split[0].count || 1;
-    const list = document.createElement('ul');
-    list.className = 'wg-workouts-stats__top-exercises wg-workouts-stats__body-split';
-
-    split.forEach(({ body_part, count }) => {
-        list.appendChild(_buildBarRow({
-            name: _bodyPartLabel(body_part),
-            summary: count === 1 ? '1 session' : `${count} sessions`,
-            pct: maxCount > 0 ? (count / maxCount * 100).toFixed(1) : 0,
-        }));
-    });
-
-    root.appendChild(list);
-}
-
 // -- The three views ------------------------------------------------------
 
-// 1. Consistency — "did I show up". Today's screen, unchanged.
+// 1. Consistency — "did I show up". med-zte swapped the sessions-per-week line
+// for the day calendar above; the tiles and Top Exercises are unchanged. The
+// body-part split moved out entirely — the Balance view owns it now, and
+// rendering it in both was leftover duplication.
 function _renderConsistencyView(section, stats, range) {
-    section.appendChild(_buildChartPanel({
-        sessions: Array.isArray(stats.weekly_activity) ? stats.weekly_activity : [],
-        range,
-    }));
-    section.appendChild(_buildLegend('sessions', 'Sessions · per week'));
+    section.appendChild(_buildActivityCalendar(stats.daily_activity, range));
 
     // Every tile except Streak is scoped to the active range (the domain
     // computes them from the `range` query param); Streak is whole-history by
@@ -301,10 +359,6 @@ function _renderConsistencyView(section, stats, range) {
     ]));
 
     _appendTopExercises(section, stats.top_exercises);
-
-    // Body-part split (med-s5m.3) — appended asynchronously once the static
-    // catalog resolves.
-    _renderBodyPartSplit(section, stats.exercise_totals || stats.top_exercises);
 }
 
 // 2. Load — "how much work did I do". Volume load = sets × reps × weight, the
@@ -319,11 +373,14 @@ function _renderLoadView(section, stats, range) {
     const weekly = Array.isArray(stats.weekly_volume) ? stats.weekly_volume : [];
     // WGWorkoutChart's `volume` metric reads `volume` / `total_volume_kg` off
     // each entry, so map the payload's `volume_kg` onto that rather than
-    // teaching the chart a fourth field name.
+    // teaching the chart a fourth field name. Bars, not a line (med-zte):
+    // weekly tonnage is a set of discrete buckets, and a spline through them
+    // implies a continuous quantity that was never measured between Mondays.
     section.appendChild(_buildChartPanel({
         sessions: weekly.map((w) => ({ week: w.week, volume: w.volume_kg })),
         range,
         metric: 'volume',
+        variant: 'bars',
     }));
     section.appendChild(_buildLegend('volume', 'Volume · per week'));
 

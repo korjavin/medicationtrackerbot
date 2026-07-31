@@ -9,7 +9,7 @@
 //     calculateYAxisTicks) when available — no duplication.
 //
 // API:
-//   WGWorkoutChart.render({ sessions, range, metric, width, height }) → Element
+//   WGWorkoutChart.render({ sessions, range, metric, variant, width, height }) → Element
 //
 //   sessions — Array<{ week, completed, skipped }> (weekly_activity shape
 //              from /api/workout/stats) or already normalised
@@ -24,6 +24,12 @@
 //              field when the caller aggregates sessions upstream;
 //              'est-1rm' / 'top-weight' / 'reps' render the matching
 //              per-session field from exerciseSeries (workout-analysis.js).
+//   variant  — 'line' (default) draws the spline + last-point dot; 'bars'
+//              (med-zte) draws one <rect class="wg-workout-chart__bar"> per
+//              bucket instead. Bars are for DISCRETE buckets (weekly tonnage):
+//              they force a zero baseline and skip LTTB downsampling, because
+//              a truncated axis or a silently-dropped bucket both read as a
+//              smaller/absent week rather than an honest one.
 //   width    — coord-space width (default 358; SVG scales to container).
 //   height   — coord-space height (default 200).
 //
@@ -162,6 +168,16 @@
         return line;
     }
 
+    function makeBar(x, y, w, h) {
+        const rect = document.createElementNS(SVG_NS, 'rect');
+        rect.setAttribute('x', x.toFixed(1));
+        rect.setAttribute('y', y.toFixed(1));
+        rect.setAttribute('width', w.toFixed(1));
+        rect.setAttribute('height', h.toFixed(1));
+        rect.classList.add('wg-workout-chart__bar');
+        return rect;
+    }
+
     function makeLastCircle(cx, cy) {
         const circle = document.createElementNS(SVG_NS, 'circle');
         circle.setAttribute('cx', cx.toFixed(1));
@@ -230,6 +246,7 @@
         const options = opts || {};
         const range = typeof options.range === 'string' ? options.range : 'all';
         const metric = typeof options.metric === 'string' ? options.metric : 'sessions';
+        const variant = options.variant === 'bars' ? 'bars' : 'line';
         const rawSessions = Array.isArray(options.sessions) ? options.sessions : [];
         if (rawSessions.length === 0) return makeEmptyCard(range);
 
@@ -245,7 +262,9 @@
         const plotW = width - PAD_L - PAD_R;
         const plotH = height - PAD_T - PAD_B;
 
-        const data = downsample(filtered, plotW);
+        // Bars keep every bucket: LTTB dropping one would read as a week with
+        // no training rather than a week we chose not to draw.
+        const data = variant === 'bars' ? filtered : downsample(filtered, plotW);
         if (data.length === 0) return makeEmptyCard(range);
 
         const firstTime = data[0].date.getTime();
@@ -272,7 +291,10 @@
         const boundedMax = Math.max(Y_FLOOR, Math.min(Y_CEIL, dataMax));
         // Continuous metrics (volume/est-1rm/top-weight) get a padded,
         // rounded y-scale; only the sessions-per-week count keeps a 0 floor.
-        let yMin = metric !== 'sessions'
+        // Bars are read by AREA, so they must sit on a zero baseline — a
+        // floor-to-nearest-10 y-min would silently truncate every bar and make
+        // a 900 kg week look like a tenth of a 1000 kg one.
+        let yMin = metric !== 'sessions' && variant !== 'bars'
             ? Math.floor(boundedMin / 10) * 10
             : 0;
         let yMax = metric !== 'sessions'
@@ -285,8 +307,6 @@
             return PAD_T + plotH - ((clamped - yMin) / yRange) * plotH;
         };
 
-        const points = data.map((d) => [xOf(d.date.getTime()), yOf(d.value)]);
-
         const svg = document.createElementNS(SVG_NS, 'svg');
         svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
         svg.setAttribute('width', '100%');
@@ -294,6 +314,7 @@
         svg.classList.add('wg-workout-chart');
         svg.dataset.workoutRange = range;
         svg.dataset.workoutMetric = metric;
+        svg.dataset.workoutVariant = variant;
         svg.dataset.workoutYMin = String(yMin);
         svg.dataset.workoutYMax = String(yMax);
         svg.dataset.workoutPointCount = String(data.length);
@@ -325,6 +346,24 @@
             svg.appendChild(makeAxisTick(xOf(t), height - 8, label, 'x'));
         }
 
+        if (variant === 'bars') {
+            // One rect per bucket, centred on the bucket's x. The slot is the
+            // plot split evenly; the gap is what's left after the bar.
+            const slot = plotW / data.length;
+            const barW = Math.max(1, slot * 0.72);
+            const baseY = PAD_T + plotH;
+            for (const d of data) {
+                const cx = xOf(d.date.getTime());
+                const y = yOf(d.value);
+                // Clamp so the first/last bar sits inside the plot instead of
+                // hanging half-off the y-axis.
+                const x = Math.max(PAD_L, Math.min(PAD_L + plotW - barW, cx - barW / 2));
+                svg.appendChild(makeBar(x, y, barW, Math.max(0, baseY - y)));
+            }
+            return svg;
+        }
+
+        const points = data.map((d) => [xOf(d.date.getTime()), yOf(d.value)]);
         const linePath = makePath(buildSplinePath(points), 'wg-workout-chart__line');
         svg.appendChild(linePath);
 
