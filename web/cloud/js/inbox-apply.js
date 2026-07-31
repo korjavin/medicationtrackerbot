@@ -95,6 +95,51 @@ export function makeTGPrefsPort(records, now) {
   };
 }
 
+// A rolling conversation window for the free-text agent (bd med-48x). Each
+// Telegram message is its own sealed event drained by applyTGText, so without a
+// durable transcript the agent is amnesiac — "and last week?" refers to nothing.
+// Singleton vault record, same shape as tgprefs: one row holding the last few
+// turns, pruned by BOTH count and age on read AND on write (a tab can sit idle
+// for hours, so a read-side prune is what makes the 1h window real).
+//
+// Only the FINAL plain-text (user, assistant) pair is stored, never the
+// tool-call rounds: an assistant message carrying tool_calls must be immediately
+// followed by its matching role:'tool' replies or the provider 400s the request.
+const TG_CHAT_TYPE = 'tgchat';
+const TG_CHAT_RECORD_ID = 'tgchat';
+const TG_CHAT_MAX_TURNS = 5;
+const TG_CHAT_MAX_AGE_MS = 60 * 60 * 1000;
+
+function pruneTurns(turns, nowMs) {
+  return turns
+    .filter((t) => t && typeof t.ts === 'number' && t.ts >= nowMs - TG_CHAT_MAX_AGE_MS)
+    .slice(-TG_CHAT_MAX_TURNS);
+}
+
+async function readTGChat(records, atMs) {
+  const all = await records.list(TG_CHAT_TYPE);
+  const rec = all.find((r) => r.recordId === TG_CHAT_RECORD_ID && !r.deleted);
+  return pruneTurns((rec && Array.isArray(rec.turns)) ? rec.turns : [], atMs);
+}
+
+async function appendTGChatTurn(records, user, assistant, atMs) {
+  const turns = pruneTurns([...await readTGChat(records, atMs), { ts: atMs, user: String(user || ''), assistant: String(assistant || '') }], atMs);
+  await records.put(TG_CHAT_TYPE, { recordId: TG_CHAT_RECORD_ID, clientTs: atMs, deleted: false, turns });
+}
+
+// makeTGHistoryPort is the `history` port createTGAgent consumes: get(atMs)
+// returns the surviving turns oldest-first for the prompt, append(user,
+// assistant, atMs) records one completed exchange. atMs is the SENT time of the
+// message being handled (the drain clock only stands in when a caller has none),
+// so a backlog drain ages each turn by when it was written, not by when the tab
+// happened to open.
+export function makeTGHistoryPort(records, now) {
+  return {
+    get: (atMs) => readTGChat(records, atMs || now()),
+    append: (user, assistant, atMs) => appendTGChatTurn(records, user, assistant, atMs || now()),
+  };
+}
+
 // Telegram's editMessageText caps at 4096; the relay's EditReply rejects >1000
 // runes (and empty). Keep a margin so an agent answer never trips it.
 const MAX_REPLY_RUNES = 900;
@@ -682,7 +727,7 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
 
   let answer;
   try {
-    answer = await agent.run(event.text);
+    answer = await agent.run(event.text, event.at_unix ? event.at_unix * 1000 : now());
   } catch (e) {
     if (e && e.code === 'no_api_key') {
       await reply('🔑 To chat with the assistant, add an OpenAI key in Settings → Integrations (or the trial AI is unavailable right now).');
@@ -738,7 +783,7 @@ async function confirmDueIntakes({ intake, records, atMs, now }) {
 // decrypted event in, a domain write out. Unknown kinds are ignored rather than
 // thrown — a newer relay may queue kinds this client predates, and stalling the
 // whole drain on one of them would block the events it does understand.
-export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride } = {}) {
+export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride, history: historyOverride } = {}) {
   // A Telegram-drained /bp must repaint an open BP screen (med-d5t.10), so this
   // is explicitly external even though that is already the default. deferFlush:
   // an applied event's writes only queue to 'pending'; drainInbox pushes them
@@ -772,6 +817,11 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
   // Tests inject prefsOverride to stub the vault boundary.
   const prefs = prefsOverride || makeTGPrefsPort(records, now);
 
+  // The rolling transcript port: the agent reads the recent turns into its
+  // prompt and appends each completed exchange (med-48x). Tests inject
+  // historyOverride to stub the vault boundary.
+  const history = historyOverride || makeTGHistoryPort(records, now);
+
   // The free-text agent routes through the SAME apishim router + MCP responder
   // the cloud UI and MCP connector use, so a message-driven write is one code
   // path with the app (med-vcv.2). Tests inject agentOverride to stub the loop.
@@ -780,7 +830,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     const router = createApiRouter(ctx, { records, now, timeZone, origin: ORIGIN_EXTERNAL });
     const dispatcher = createDispatcher({ router, now });
     const aiClient = createAIClient({ settingsDomain: settings });
-    return createTGAgent({ chat: (a) => aiClient.chat(a), dispatcher, prefs });
+    return createTGAgent({ chat: (a) => aiClient.chat(a), dispatcher, prefs, history });
   })();
 
   return async function apply(event, eventId) {

@@ -84,8 +84,11 @@ function parseArgs(raw) {
 // MCPError on a bad op/arg; we hand the error text back to the model as the tool
 // result so it can self-correct rather than aborting the whole turn.
 const NOOP_PREFS = { get: async () => '', append: async () => {} };
+// history carries the recent conversation so a follow-up ("and last week?") has
+// something to refer to (bd med-48x). Plain text only — see run().
+const NOOP_HISTORY = { get: async () => [], append: async () => {} };
 
-export function createTGAgent({ chat, dispatcher, prefs = NOOP_PREFS, maxRounds = DEFAULT_MAX_ROUNDS }) {
+export function createTGAgent({ chat, dispatcher, prefs = NOOP_PREFS, history = NOOP_HISTORY, maxRounds = DEFAULT_MAX_ROUNDS }) {
   async function execTool(call) {
     const name = call.function && call.function.name;
     const args = parseArgs(call.function && call.function.arguments);
@@ -116,22 +119,41 @@ export function createTGAgent({ chat, dispatcher, prefs = NOOP_PREFS, maxRounds 
   }
 
   // run drives the conversation and returns the model's final plain-text answer
-  // (may be empty if the model chose to stay silent).
-  async function run(userText) {
+  // (may be empty if the model chose to stay silent). atMs is when the user
+  // SENT the message, not when this drain runs — a backlog drained after the tab
+  // was closed applies days of messages within one second, and aging the history
+  // by the drain clock would make all of them look like one live conversation.
+  // Same convention as every other inbound kind (telegram.go: "AtUnix is the
+  // SERVER's tap timestamp, not the drain's").
+  async function run(userText, atMs) {
     const note = (await prefs.get()) || '';
     const systemContent = note
       ? `${SYSTEM_PROMPT}\n\nWhat you already know about how THIS user talks (apply it when interpreting them):\n${note}`
       : SYSTEM_PROMPT;
+    // Prior turns go in as plain alternating user/assistant messages. Never the
+    // tool rounds: an assistant message with tool_calls and no matching
+    // role:'tool' replies is a 400 from the provider, i.e. chat breaks outright.
+    const past = (await history.get(atMs)) || [];
     const messages = [
       { role: 'system', content: systemContent },
+      ...past.flatMap((t) => [
+        { role: 'user', content: String(t.user || '') },
+        { role: 'assistant', content: String(t.assistant || '') },
+      ]),
       { role: 'user', content: userText },
     ];
+
+    // A blank answer carries nothing forward, so it is not worth a turn.
+    const finish = async (answer) => {
+      if (answer) await history.append(userText, answer, atMs);
+      return answer;
+    };
 
     for (let round = 0; round < maxRounds; round++) {
       const msg = await chat({ messages, tools: TOOLS });
       messages.push(msg);
       const calls = (msg && msg.tool_calls) || [];
-      if (!calls.length) return (msg && msg.content ? String(msg.content) : '').trim();
+      if (!calls.length) return finish((msg && msg.content ? String(msg.content) : '').trim());
       for (const call of calls) {
         const result = await execTool(call);
         messages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
@@ -143,7 +165,7 @@ export function createTGAgent({ chat, dispatcher, prefs = NOOP_PREFS, maxRounds 
     const final = await chat({
       messages: [...messages, { role: 'user', content: 'Now answer me in one or two plain sentences based on what you did.' }],
     });
-    return (final && final.content ? String(final.content) : '').trim();
+    return finish((final && final.content ? String(final.content) : '').trim());
   }
 
   return { run };

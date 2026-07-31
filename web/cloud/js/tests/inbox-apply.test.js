@@ -5,7 +5,7 @@
 // behavior, not of this module's bookkeeping.
 import { describe, expect, it, vi } from 'vitest';
 import { createIntakeDomain } from '../../../domain/medintake.js';
-import { applyIntakeSlotAction, applyWorkoutSessionAction, applyMeasureReminderAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, makeTGPrefsPort, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT, VITALS_IMPORT, WORKOUT_SESSION_ACTION, MEASURE_REMINDER_ACTION } from '../inbox-apply.js';
+import { applyIntakeSlotAction, applyWorkoutSessionAction, applyMeasureReminderAction, applyTGCommand, applyTGPhoto, applyTGText, createInboxApplier, makeTGPrefsPort, makeTGHistoryPort, INTAKE_SLOT_ACTION, TG_COMMAND, TG_PHOTO, TG_TEXT, VITALS_IMPORT, WORKOUT_SESSION_ACTION, MEASURE_REMINDER_ACTION } from '../inbox-apply.js';
 import { createRemindersDomain, DONT_BUG_MS } from '../../../domain/reminders.js';
 import { createTGAgent } from '../tg-agent.js';
 import { createBPDomain } from '../../../domain/bp.js';
@@ -1346,7 +1346,8 @@ describe('inbox-apply.js — a Telegram data command', () => {
         const editReply = vi.fn();
         const agent = { run: vi.fn().mockResolvedValue('Logged 2 eggs (140 kcal).') };
         await applyTGText(textEvent('i ate two eggs'), 40, { agent, records, editReply });
-        expect(agent.run).toHaveBeenCalledWith('i ate two eggs');
+        // 2nd arg: the SENT time, which ages the conversation history (med-48x).
+        expect(agent.run).toHaveBeenCalledWith('i ate two eggs', CMD_UNIX * 1000);
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, 'Logged 2 eggs (140 kcal).');
     });
 
@@ -1485,6 +1486,7 @@ describe('tgcommand.js — parsing', () => {
 // are exercised end-to-end, not mocked. Only the LLM boundary is stubbed.
 describe('inbox-apply.js — self-refining tgprefs (med-vcv.3)', () => {
     const TXT_UNIX = SLOT_UNIX + 3600;
+    const TXT_MS = TXT_UNIX * 1000; // when the message was SENT — 3h before DRAIN_MS
     const REPLY_ID = 4343;
     const now = () => DRAIN_MS;
     const stubDispatcher = { handle: vi.fn() }; // no mcp_* tool is exercised here
@@ -1572,6 +1574,79 @@ describe('inbox-apply.js — self-refining tgprefs (med-vcv.3)', () => {
         const note = (await records.list('tgprefs')).find((r) => r.recordId === 'tgprefs' && !r.deleted).note;
         const occurrences = note.split('\n').filter((l) => l === 'my usual = 2 eggs').length;
         expect(occurrences).toBe(1);
+    });
+
+    // bd med-48x — the rolling conversation window. Same posture as the tgprefs
+    // cases above: the REAL tg-agent over the REAL vault history port, only the
+    // LLM boundary stubbed, because what matters is what actually reaches the
+    // prompt and what actually survives in the record.
+    const userTexts = (messages) => messages.filter((m) => m.role === 'user').map((m) => m.content);
+    const chatRecord = async (records) => (await records.list('tgchat')).find((r) => r.recordId === 'tgchat' && !r.deleted);
+
+    it('carries the previous exchange into the NEXT message context', async () => {
+        const records = fakeRecords();
+        const captured = [];
+        // Snapshot: run() keeps pushing into the same array after this returns.
+        const chat = vi.fn(async ({ messages }) => { captured.push([...messages]); return { content: `answer ${captured.length}` }; });
+        const agent = createTGAgent({ chat, dispatcher: stubDispatcher, history: makeTGHistoryPort(records, now) });
+        const opts = { agent, records, editReply: vi.fn(), now };
+
+        await applyTGText(textEvent('what was my bp this week'), 60, opts);
+        await applyTGText(textEvent('and last week?'), 61, opts);
+
+        // The first turn is spliced in as a plain user/assistant pair, in order,
+        // ahead of the new question — that is the whole point of the feature.
+        expect(captured[1].map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'user']);
+        expect(captured[1].slice(1).map((m) => m.content)).toEqual([
+            'what was my bp this week',
+            'answer 1',
+            'and last week?',
+        ]);
+    });
+
+    it('sends at most the last 5 turns even when more are stored', async () => {
+        const turns = Array.from({ length: 7 }, (_, i) => ({ ts: TXT_MS - (7 - i) * 60_000, user: `u${i}`, assistant: `a${i}` }));
+        const records = fakeRecords({ tgchat: [{ recordId: 'tgchat', deleted: false, turns }] });
+        const captured = [];
+        const chat = vi.fn(async ({ messages }) => { captured.push([...messages]); return { content: 'ok' }; });
+        const agent = createTGAgent({ chat, dispatcher: stubDispatcher, history: makeTGHistoryPort(records, now) });
+
+        await applyTGText(textEvent('now what'), 62, { agent, records, editReply: vi.fn(), now });
+
+        expect(userTexts(captured[0])).toEqual(['u2', 'u3', 'u4', 'u5', 'u6', 'now what']);
+    });
+
+    // Ages by the message's own SENT time, not the drain clock (here 3h later):
+    // drainInbox applies a whole backlog in one loop, so drain-time aging would
+    // make days of queued messages look like one live conversation.
+    it('drops a turn older than the 1h window from the prompt AND from the record', async () => {
+        const stale = { ts: TXT_MS - 2 * 3600_000, user: 'ancient', assistant: 'ancient answer' };
+        const fresh = { ts: TXT_MS - 60_000, user: 'recent', assistant: 'recent answer' };
+        const records = fakeRecords({ tgchat: [{ recordId: 'tgchat', deleted: false, turns: [stale, fresh] }] });
+        const captured = [];
+        const chat = vi.fn(async ({ messages }) => { captured.push([...messages]); return { content: 'ok' }; });
+        const agent = createTGAgent({ chat, dispatcher: stubDispatcher, history: makeTGHistoryPort(records, now) });
+
+        await applyTGText(textEvent('still there?'), 63, { agent, records, editReply: vi.fn(), now });
+
+        expect(userTexts(captured[0])).toEqual(['recent', 'still there?']);
+        // Pruned on write too, so an idle tab cannot resurrect it later.
+        expect((await chatRecord(records)).turns.map((t) => t.user)).toEqual(['recent', 'still there?']);
+    });
+
+    it('stores ONLY the final plain-text pair — a persisted tool_calls round would 400 the next request', async () => {
+        const records = fakeRecords();
+        const chat = vi.fn()
+            .mockResolvedValueOnce({ content: '', tool_calls: [{ id: 'c1', function: { name: 'mcp_call', arguments: JSON.stringify({ operation_id: 'bp_list' }) } }] })
+            .mockResolvedValueOnce({ content: 'Your BP averaged 128/84.' });
+        const agent = createTGAgent({ chat, dispatcher: { handle: vi.fn().mockResolvedValue({ readings: [] }) }, history: makeTGHistoryPort(records, now) });
+
+        await applyTGText(textEvent('what was my bp'), 64, { agent, records, editReply: vi.fn(), now });
+
+        const { turns } = await chatRecord(records);
+        expect(turns).toHaveLength(1);
+        expect(turns[0]).toMatchObject({ user: 'what was my bp', assistant: 'Your BP averaged 128/84.' });
+        expect(JSON.stringify(turns)).not.toContain('tool_call');
     });
 });
 
