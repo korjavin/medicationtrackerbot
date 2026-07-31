@@ -791,17 +791,23 @@ async function deleteExerciseLog(index) {
         };
 
         try {
-            if (hadLog) {
-                const result = await apiCall(`/api/workout/sessions/logs/delete?id=${log.id}`, 'DELETE');
-                // Network/5xx: restore the local row + cached count.
-                if (result === null) return await restore();
-            }
+            // Plan removal FIRST, log delete second, so `restore()` stays
+            // truthful on a partial failure: if the plan removal fails nothing
+            // has been written yet, and if it succeeds but the log delete fails
+            // the log still exists — a restored row renders exactly what the
+            // server holds either way. The reverse order could restore a row
+            // whose log was already tombstoned.
             if (planBacked) {
                 const result = await apiCall('/api/workout/sessions/planned-exercise/delete', 'POST', {
                     session_id: sessionData.id,
                     exercise_id: log.exercise_id || 0,
                     exercise_name: log.exercise_name,
                 });
+                // Network/5xx: restore the local row + cached count.
+                if (result === null) return await restore();
+            }
+            if (hadLog) {
+                const result = await apiCall(`/api/workout/sessions/logs/delete?id=${log.id}`, 'DELETE');
                 if (result === null) return await restore();
             }
             if (historyHandle) await historyHandle.commit(null);
