@@ -170,6 +170,27 @@ describe('features/workout/library.js — split-file integration', () => {
       expect(values).not.toContain('Barbell bench press');
     });
 
+    it('drops an in-flight refresh once a shorter query has repainted the datalist', async () => {
+      const { window, document } = env;
+      let releaseCatalog;
+      const gate = new Promise((resolve) => { releaseCatalog = resolve; });
+      window.fetch = vi.fn(async (url) => {
+        if (!String(url).includes('exercises-catalog.json')) return { ok: true, status: 200, json: async () => ({}) };
+        await gate;
+        return { ok: true, status: 200, json: async () => CATALOG };
+      });
+      const datalist = document.getElementById('exercise-catalog-datalist');
+
+      // "be" starts the one-and-only catalog fetch...
+      const pending = window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'be');
+      // ...the user deletes back to one character before it resolves.
+      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'b');
+      releaseCatalog();
+      await pending;
+
+      expect(Array.from(datalist.options)).toHaveLength(0);
+    });
+
     it('fetches the 913 KB asset only once across repeated refreshes', async () => {
       const { window, document } = env;
       const fetchSpy = stubCatalogFetch(window, { ok: true, status: 200, json: async () => CATALOG });

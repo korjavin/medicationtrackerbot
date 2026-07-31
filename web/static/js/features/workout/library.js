@@ -314,12 +314,19 @@ const EXERCISE_CATALOG_SUGGESTION_LIMIT = 15;
 // Rebuild ONLY the catalog options (marked `data-catalog`) of a <datalist>.
 // User-library options are left untouched, and a catalog name already present
 // as a library option is skipped so the autofill-carrying one wins.
+let _catalogRefreshSeq = 0; // module-state: last-writer-wins guard for the awaited first fetch
 async function refreshExerciseCatalogSuggestions(datalist, query) {
     if (!datalist) return;
+    const seq = ++_catalogRefreshSeq;
     const q = (query || '').trim().toLowerCase();
     let matches = [];
     if (q.length >= EXERCISE_CATALOG_MIN_QUERY) {
         const names = await _loadExerciseCatalogNames();
+        // Only the first refresh actually awaits a network fetch; while it is
+        // in flight the user can delete back below the threshold, and that
+        // shorter (synchronous) refresh already repainted the datalist. Drop
+        // this stale continuation instead of re-appending its matches.
+        if (seq !== _catalogRefreshSeq) return;
         matches = names.filter(n => n.toLowerCase().includes(q));
         // Keep an exact match inside the cap: onSessionExerciseSelect,
         // saveNewSessionExercise and the exercises.js onchange all re-look-up
