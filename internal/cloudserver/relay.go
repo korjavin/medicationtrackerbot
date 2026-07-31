@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SherClockHolmes/webpush-go"
@@ -52,6 +53,30 @@ func mustMarshalStaleSyncWarning() []byte {
 	}
 	return b
 }
+
+// inboxWakePayload is the second server-composed, content-free push (bd
+// med-5fo): the server knows the instant a Telegram event lands in an account's
+// sealed inbox, and only an unlocked tab can apply it. Same non-NK channel as
+// staleSyncWarningPayload — a bare kind tag, no title/body, because sw.js keys
+// the (fixed, client-side) notification text off `kind` and never renders
+// server-supplied strings here.
+var inboxWakePayload = mustMarshalInboxWake()
+
+func mustMarshalInboxWake() []byte {
+	b, err := json.Marshal(struct {
+		Kind string `json:"kind"`
+	}{Kind: "inbox-wake"})
+	if err != nil {
+		panic(err) // static literal — cannot fail
+	}
+	return b
+}
+
+// inboxWakeCooldown coalesces a burst: at most one wake push per account per
+// window. A drain is per-ACCOUNT, not per-message, so the tab woken by the
+// first message of a burst drains the rest of it too — a later wake would only
+// spend the browser's silent-push budget for nothing.
+const inboxWakeCooldown = 10 * time.Second
 
 // PushSender delivers one already-encrypted payload to one subscription,
 // signed with that subscription's account's own VAPID keypair, and reports
@@ -137,6 +162,15 @@ type Relay struct {
 	tg                 TelegramSender // nil when no manager bot is configured
 	interval           time.Duration
 	dryQueueWarnWithin time.Duration
+
+	// Coalescing state for WakeInbox: accountID -> instant of its last wake.
+	// ponytail: an unbounded in-memory map (one time.Time per account that ever
+	// received Telegram mail) and per-process, so a multi-replica deploy would
+	// wake once per replica. Both are fine for single-process cmd/cloud; a
+	// sweep or a DB column if either changes.
+	wakeMu       sync.Mutex
+	lastWake     map[string]time.Time
+	wakeCooldown time.Duration
 }
 
 // NewRelay builds a Relay that ticks every 30s. dryQueueWarnWithin is
@@ -146,7 +180,15 @@ func NewRelay(store relayStore, sender PushSender, tg TelegramSender, dryQueueWa
 	if dryQueueWarnWithin <= 0 {
 		dryQueueWarnWithin = defaultDryQueueWarnWithin
 	}
-	return &Relay{store: store, sender: sender, tg: tg, interval: 30 * time.Second, dryQueueWarnWithin: dryQueueWarnWithin}
+	return &Relay{
+		store:              store,
+		sender:             sender,
+		tg:                 tg,
+		interval:           30 * time.Second,
+		dryQueueWarnWithin: dryQueueWarnWithin,
+		lastWake:           make(map[string]time.Time),
+		wakeCooldown:       inboxWakeCooldown,
+	}
 }
 
 // Run ticks until ctx is cancelled. Call it in its own goroutine, passing the
@@ -328,6 +370,52 @@ func (rl *Relay) StaleSyncSweep(ctx context.Context) {
 			slog.Error("push relay: mark stale-sync warned", "accountID", accountID, "error", err)
 		}
 	}
+}
+
+// WakeInbox tells an account's devices that sealed mail arrived, by fanning the
+// content-free inboxWakePayload out to its push subscriptions (bd med-5fo).
+// Without it a tab learns about a Telegram command only from its own poll, and
+// a backgrounded page is throttled to ~1/min or frozen outright.
+//
+// Blocking on purpose (the push send is a network round trip): callers that
+// must answer a third party first — the Telegram webhook — detach it, see
+// cmd/cloud's SetInboxWaker wiring. Every failure is logged and swallowed; a
+// wake that never lands only costs the latency the poller already covers.
+func (rl *Relay) WakeInbox(ctx context.Context, accountID string) {
+	if !rl.claimWake(accountID, time.Now()) {
+		return
+	}
+	subs, err := rl.store.List(ctx, accountID)
+	if err != nil {
+		slog.Error("push relay: list subscriptions for inbox wake", "accountID", accountID, "error", err)
+		return
+	}
+	if len(subs) == 0 {
+		return
+	}
+	keys, err := rl.store.AccountVAPIDKeysByID(ctx, accountID)
+	if err != nil {
+		slog.Error("push relay: load VAPID keys for inbox wake", "accountID", accountID, "error", err)
+		return
+	}
+	if keys.PublicKey == "" || keys.PrivateKey == "" {
+		return
+	}
+	for _, sub := range subs {
+		rl.send(ctx, sub, keys, inboxWakePayload)
+	}
+}
+
+// claimWake reports whether accountID may wake now, recording the instant when
+// it may. False means a wake already went out within wakeCooldown.
+func (rl *Relay) claimWake(accountID string, now time.Time) bool {
+	rl.wakeMu.Lock()
+	defer rl.wakeMu.Unlock()
+	if now.Sub(rl.lastWake[accountID]) < rl.wakeCooldown {
+		return false
+	}
+	rl.lastWake[accountID] = now
+	return true
 }
 
 func (rl *Relay) send(ctx context.Context, sub cloudstore.PushSubscription, keys cloudstore.AccountVAPIDKeys, ct []byte) {

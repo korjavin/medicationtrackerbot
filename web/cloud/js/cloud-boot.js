@@ -433,6 +433,23 @@ window.MedTrackerCloudReady = (async function boot() {
                 // bot lands (and its "Queued" reply becomes "Recorded") within
                 // seconds instead of waiting for the next page load.
                 startInboxPolling(ctx, { apply, onApplied: afterApply });
+
+                // ...and drain the instant the server says mail arrived (bd
+                // med-5fo). The SW turns the content-free inbox-wake push into
+                // this message; a backgrounded tab's timer is throttled to
+                // ~1/min (a frozen one never fires), so the push is what makes
+                // "Queued" → "Recorded" feel immediate on a phone. Calling
+                // drainInbox directly bypasses the poller's backoff gate;
+                // drainInbox's own in-flight guard makes an overlapping poll
+                // tick a no-op.
+                if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
+                    navigator.serviceWorker.addEventListener('message', (event) => {
+                        if (!event.data || event.data.type !== 'inbox-wake') return;
+                        drainInbox(ctx, { apply })
+                            .then((r) => (r.applied > 0 ? afterApply() : undefined))
+                            .catch((e) => console.error('[cloud-boot] inbox wake drain failed', e));
+                    });
+                }
             })
             .catch((e) => console.error('[cloud-boot] inbox key publish/drain failed', e));
 

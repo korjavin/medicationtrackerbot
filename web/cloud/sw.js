@@ -339,6 +339,15 @@ async function readNK() {
 // ciphertext and falls through to the decrypt attempt below.
 const STALE_SYNC_WARNING = { title: 'Med Tracker', body: 'Open the app to keep reminders running' };
 
+// The inbox wake (bd med-5fo) is the second such payload: the server sends it
+// the instant it seals a Telegram event, so an open tab drains it now instead
+// of at its next poll (a backgrounded page is throttled to ~1/min, a frozen one
+// never polls). It is a nudge, not news — the text below is only shown when no
+// window is open to take the nudge, and like every non-NK payload it is a FIXED
+// client-side constant.
+const INBOX_WAKE_KIND = 'inbox-wake';
+const INBOX_WAKE_NOTIFICATION = { title: 'Med Tracker', body: 'Open the app to record what you sent' };
+
 // Inlined from crypto.js encryptPushPayload/decryptPushPayload: NK app-layer is
 // AES-GCM(NK, payload, aad="mt/v1/push") with the 12-byte nonce packed ahead of
 // the ciphertext (single BLOB wire column). Kept here so the worker needs no
@@ -353,16 +362,15 @@ async function decryptPushPayload(nk, packed) {
   return new Uint8Array(pt);
 }
 
-function tryDecodeServerWarning(data) {
+function tryDecodeServerPayload(data) {
   try {
     const payload = JSON.parse(new TextDecoder().decode(data));
-    if (payload && payload.kind === 'server-warning') {
-      // The server is untrusted in the zero-knowledge model: render a fixed
-      // client-side constant keyed only on the `kind` flag, never the
-      // server-supplied title/body, so a hostile server can't inject arbitrary
-      // (phishing) notification text on this one non-NK-encrypted channel.
-      return { ...STALE_SYNC_WARNING };
-    }
+    // The server is untrusted in the zero-knowledge model: render a fixed
+    // client-side constant keyed only on the `kind` flag, never the
+    // server-supplied title/body, so a hostile server can't inject arbitrary
+    // (phishing) notification text on this one non-NK-encrypted channel.
+    if (payload && payload.kind === 'server-warning') return { ...STALE_SYNC_WARNING };
+    if (payload && payload.kind === INBOX_WAKE_KIND) return { ...INBOX_WAKE_NOTIFICATION, kind: INBOX_WAKE_KIND };
   } catch {
     // Not JSON — real NK ciphertext, ignore.
   }
@@ -373,8 +381,8 @@ function tryDecodeServerWarning(data) {
 // device's vault was never provisioned) — fall back to the content-free
 // generic notification rather than surfacing an error to the user.
 async function decodePush(data) {
-  const warning = tryDecodeServerWarning(data);
-  if (warning) return warning;
+  const serverComposed = tryDecodeServerPayload(data);
+  if (serverComposed) return serverComposed;
   try {
     const nk = await readNK();
     if (!nk) return GENERIC_NOTIFICATION;
@@ -421,12 +429,26 @@ self.addEventListener('push', (event) => {
   // calling .then() on it directly.
   const buf = event.data ? event.data.arrayBuffer() : null;
   event.waitUntil(
-    Promise.resolve(buf && buf.byteLength ? decodePush(buf) : GENERIC_NOTIFICATION).then((n) =>
-      self.registration.showNotification(n.title, {
+    Promise.resolve(buf && buf.byteLength ? decodePush(buf) : GENERIC_NOTIFICATION).then(async (n) => {
+      if (n.kind === INBOX_WAKE_KIND) {
+        // Hand the nudge to every open window — the page holds the DEK, so only
+        // it can drain the mailbox — and stay silent when one takes it. With no
+        // window there is nobody to drain, so the fixed notification is the only
+        // way the user learns their message is still queued.
+        //
+        // KNOWN TAX: the subscription is userVisibleOnly (see resubscribeAndUpload),
+        // so Chrome tolerates only a bounded number of notification-less pushes
+        // before it shows its own "site updated in the background" one. A chatty
+        // day in Telegram can therefore surface a notification per burst anyway.
+        const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        for (const client of windows) client.postMessage({ type: INBOX_WAKE_KIND });
+        if (windows.length) return undefined;
+      }
+      return self.registration.showNotification(n.title, {
         body: n.body,
         actions: NOTIFICATION_ACTIONS[n.kind] || [],
-      })
-    )
+      });
+    })
   );
 });
 

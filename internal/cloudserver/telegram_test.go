@@ -2248,6 +2248,52 @@ func TestChildWebhook_SealsCommandVerbatim(t *testing.T) {
 	}
 }
 
+// TestChildWebhook_SealWakesInboxOncePerBurst (bd med-5fo) pins the wake half of
+// the seal path: the server knows the instant mail lands, so it nudges the
+// account's devices instead of leaving them to poll — and a burst of messages
+// costs ONE push, because a drain is per-account, not per-message.
+//
+// The waker is called synchronously here; cmd/cloud detaches it so the webhook
+// never waits on a push service (see SetInboxWaker's wiring).
+func TestChildWebhook_SealWakesInboxOncePerBurst(t *testing.T) {
+	top, _, _, childPath, _, accountID, _, tgAPI := tgCommandFixtureAPI(t)
+
+	if err := tgAPI.store.UpsertPushSubscription(t.Context(), accountID, "https://push.example/wake", "p256dh", "auth", time.Now().UTC()); err != nil {
+		t.Fatalf("UpsertPushSubscription: %v", err)
+	}
+	sender := &fakeSender{}
+	relay := NewRelay(tgAPI.store, sender, nil, 0)
+	tgAPI.SetInboxWaker(relay.WakeInbox)
+
+	secret := childPath[strings.LastIndex(childPath, "/")+1:]
+	for i, cmd := range []string{"/bp 120 80", "/weight 81.2", "/note felt fine"} {
+		body := fmt.Sprintf(`{"update_id":%d,"message":{"message_id":%d,"text":"%s","chat":{"id":12345,"type":"private"}}}`, 100+i, 20+i, cmd)
+		if rec := postWebhook(t, top, childPath, secret, body); rec.Code != http.StatusOK {
+			t.Fatalf("message %d status = %d", i, rec.Code)
+		}
+	}
+
+	if len(sender.sent) != 1 {
+		t.Fatalf("wake pushes = %d, want 1 for a three-message burst: %+v", len(sender.sent), sender.sent)
+	}
+	var payload struct {
+		Kind  string `json:"kind"`
+		Title string `json:"title"`
+		Body  string `json:"body"`
+	}
+	if err := json.Unmarshal(sender.sent[0].ct, &payload); err != nil {
+		t.Fatalf("wake payload is not the plain JSON sw.js expects: %v", err)
+	}
+	if payload.Kind != "inbox-wake" {
+		t.Errorf("wake kind = %q, want inbox-wake", payload.Kind)
+	}
+	// SECURITY: this channel is outside NK encryption, so it must carry no
+	// server-composed text for the SW to render (see sw.js's fixed constants).
+	if payload.Title != "" || payload.Body != "" {
+		t.Errorf("wake carries server-composed text: %+v", payload)
+	}
+}
+
 // TestChildWebhook_SealsPhotoFileIDNotBytes (bd med-vcv.1) pins the photo half of
 // the zero-knowledge contract: a photo message seals only the LARGEST rendition's
 // file_id (+mime/size), never pixels, and replies "Queued" like any command.
@@ -2413,6 +2459,11 @@ func TestChildWebhook_CommandWithoutInboxKeyIsDropped(t *testing.T) {
 		`{"update_id":1,"message":{"message_id":1,"from":{"id":6918132008},"chat":{"id":100,"type":"private"},"managed_bot_created":{"bot":{"id":909,"username":"`+prov.Suggested+`"}}}}`)
 	bot, _ := store.BotByAccount(t.Context(), account.ID)
 
+	// A seal that never happened must wake nothing (bd med-5fo): there is no
+	// mail to drain, and a wake is a push the user may see.
+	woke := 0
+	tgAPI.SetInboxWaker(func(context.Context, string) { woke++ })
+
 	rec := postWebhook(t, top, "/tg/bot/"+account.ID+"/"+bot.WebhookSecret, bot.WebhookSecret,
 		`{"update_id":9,"message":{"message_id":7,"text":"/bp 128 84","chat":{"id":12345,"type":"private"}}}`)
 	if rec.Code != http.StatusOK {
@@ -2420,6 +2471,9 @@ func TestChildWebhook_CommandWithoutInboxKeyIsDropped(t *testing.T) {
 	}
 	if res := listInbox(t, top, host, session); len(res.Events) != 0 {
 		t.Fatalf("event stored despite no inbox key: %d events", len(res.Events))
+	}
+	if woke != 0 {
+		t.Errorf("dropped event woke the devices %d time(s) — nothing was sealed to drain", woke)
 	}
 	tg.mu.Lock()
 	sent := append([]string(nil), tg.mu.sent...)

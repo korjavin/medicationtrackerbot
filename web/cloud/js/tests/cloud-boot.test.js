@@ -241,6 +241,76 @@ describe('cloud-boot feedback launcher mount gate (med-dni.2 Task 3)', () => {
   });
 });
 
+describe('cloud-boot inbox wake (med-5fo)', () => {
+  // The server pushes a content-free inbox-wake the instant it seals a Telegram
+  // event; the SW relays it to every window. This is the page half: drain NOW
+  // rather than at the poller's next tick (throttled to ~1/min in a hidden tab).
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  let priorNavigator;
+  afterEach(() => { Object.defineProperty(globalThis, 'navigator', { value: priorNavigator, configurable: true, writable: true }); });
+
+  function fakeServiceWorker(handlers) {
+    priorNavigator = globalThis.navigator;
+    Object.defineProperty(globalThis, 'navigator', {
+      value: {
+        serviceWorker: {
+          controller: null,
+          register: () => new Promise(() => {}),
+          // Both cloud-boot listeners (reminder-action + inbox-wake) land here,
+          // so a dispatch fans out to all of them exactly as the browser would.
+          addEventListener: (type, fn) => { if (type === 'message') handlers.push(fn); },
+        },
+      },
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  it('drains on an inbox-wake message and ignores every other SW message', async () => {
+    const handlers = [];
+    fakeServiceWorker(handlers);
+    let drains = 0;
+
+    await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
+        'sync.js': {
+          pullOnOpen: async () => {},
+          startReconnectAutoDrain: () => () => {},
+          getSyncStatus: async () => ({ authExpired: false }),
+          readAllLiveRecords: async () => [],
+        },
+        'reminders.js': { scheduleReminderRecompute: () => {} },
+        'push.js': { ensurePushSubscription: async () => ({}) },
+        'mcp-responder.js': { refreshResponder: () => {} },
+        'inbox.js': {
+          ensureInboxKey: async () => {},
+          drainInbox: async () => { drains += 1; return { applied: 1 }; },
+          startInboxPolling: () => {},
+        },
+        'inbox-apply.js': { createInboxApplier: () => async () => {} },
+        'feedback-config.js': { getFeedbackRecipient: () => '' },
+      },
+    });
+    await flush();
+
+    expect(drains).toBe(1); // the boot-time drain
+    expect(handlers.length).toBeGreaterThan(0);
+
+    const dispatch = (data) => handlers.forEach((h) => h({ data }));
+    dispatch({ type: 'inbox-wake' });
+    await flush();
+    expect(drains).toBe(2);
+
+    dispatch({ type: 'reminder-action', route: '/api/bp/reminder/snooze' });
+    dispatch({ type: 'inbox_wake' });
+    await flush();
+    expect(drains).toBe(2);
+  });
+});
+
 describe('CloudVault.resetLocalSync inbox-clear ordering (med-eas.51)', () => {
   // A wedged account pauses the inbox poller's drain (drainInbox's wedge guard).
   // resetLocalSync clears syncWedged, which un-pauses the drain, so the server

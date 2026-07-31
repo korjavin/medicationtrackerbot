@@ -177,6 +177,51 @@ func TestRelay_StaleSyncSweep(t *testing.T) {
 	}
 }
 
+// TestRelay_WakeInboxCoalescesABurst pins the coalescing half of the inbox wake
+// (bd med-5fo): repeated wakes inside the cooldown collapse to one push (a drain
+// is per-account, not per-message), and the window is per-account so one busy
+// account never silences another.
+func TestRelay_WakeInboxCoalescesABurst(t *testing.T) {
+	store := setupStore(t)
+	accountA, _ := setupInvite(t, store)
+	accountB, _ := setupInvite(t, store)
+
+	ctx := context.Background()
+	for _, a := range []string{accountA.ID, accountB.ID} {
+		if err := store.UpsertPushSubscription(ctx, a, "https://push.example/"+a, "p256dh", "auth", time.Now().UTC()); err != nil {
+			t.Fatalf("UpsertPushSubscription: %v", err)
+		}
+	}
+
+	sender := &fakeSender{}
+	relay := NewRelay(store, sender, nil, 0)
+	relay.WakeInbox(ctx, accountA.ID)
+	relay.WakeInbox(ctx, accountA.ID)
+	relay.WakeInbox(ctx, accountA.ID)
+	relay.WakeInbox(ctx, accountB.ID)
+
+	if len(sender.sent) != 2 {
+		t.Fatalf("sends = %d, want 2 (one per account, burst coalesced): %+v", len(sender.sent), sender.sent)
+	}
+	var payload struct {
+		Kind string `json:"kind"`
+	}
+	if err := json.Unmarshal(sender.sent[0].ct, &payload); err != nil {
+		t.Fatalf("unmarshal wake payload: %v", err)
+	}
+	if payload.Kind != "inbox-wake" {
+		t.Fatalf("wake kind = %q, want inbox-wake", payload.Kind)
+	}
+
+	// Past the window the next event wakes again — coalescing must not turn into
+	// a permanent mute.
+	relay.wakeCooldown = 0
+	relay.WakeInbox(ctx, accountA.ID)
+	if len(sender.sent) != 3 {
+		t.Fatalf("sends after the cooldown lapsed = %d, want 3", len(sender.sent))
+	}
+}
+
 // TestRelay_SendsWithPerAccountVAPIDKeys guards the per-account-key design
 // upgrade: each account's own keypair (generated at Provision) must reach the
 // sender for that account's sends, and two accounts must never see each

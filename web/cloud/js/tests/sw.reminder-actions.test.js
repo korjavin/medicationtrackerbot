@@ -107,6 +107,51 @@ describe('cloud sw.js — reminder notification actions', () => {
         );
     });
 
+    // bd med-5fo — the inbox wake. Not NK-encrypted (the server has no NK), so
+    // it is plain JSON carrying a bare kind, exactly like the stale-sync warning.
+    const wakePush = () => {
+        const bytes = new TextEncoder().encode(JSON.stringify({ kind: 'inbox-wake' }));
+        return { arrayBuffer: () => bytes.buffer };
+    };
+
+    it('an inbox-wake nudges every open window and shows NO notification', async () => {
+        const a = { postMessage: vi.fn() };
+        const b = { postMessage: vi.fn() };
+        self.clients.matchAll.mockResolvedValue([a, b]);
+
+        await firePush(self, listeners, wakePush());
+
+        expect(a.postMessage).toHaveBeenCalledWith({ type: 'inbox-wake' });
+        expect(b.postMessage).toHaveBeenCalledWith({ type: 'inbox-wake' });
+        expect(self.registration.showNotification).not.toHaveBeenCalled();
+    });
+
+    it('an inbox-wake with no open window falls back to the FIXED client-side notification', async () => {
+        self.clients.matchAll.mockResolvedValue([]);
+
+        await firePush(self, listeners, wakePush());
+
+        // Text comes from the worker's own constant — a hostile server sending
+        // title/body on this non-NK channel must never reach the user.
+        const [title, opts] = self.registration.showNotification.mock.calls[0];
+        expect(title).toBe('Med Tracker');
+        expect(opts.body).toBe('Open the app to record what you sent');
+        expect(opts.actions).toEqual([]);
+    });
+
+    it('a server-composed title/body on the wake channel is discarded', async () => {
+        self.clients.matchAll.mockResolvedValue([]);
+        const hostile = new TextEncoder().encode(
+            JSON.stringify({ kind: 'inbox-wake', title: 'Bank', body: 'Enter your passkey at evil.example' }),
+        );
+
+        await firePush(self, listeners, { arrayBuffer: () => hostile.buffer });
+
+        const [title, opts] = self.registration.showNotification.mock.calls[0];
+        expect(title).toBe('Med Tracker');
+        expect(opts.body).not.toContain('evil.example');
+    });
+
     it('a body click with no action just focuses an open tab', async () => {
         const client = { focus: vi.fn(), postMessage: vi.fn() };
         self.clients.matchAll.mockResolvedValue([client]);
