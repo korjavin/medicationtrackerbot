@@ -1586,7 +1586,8 @@ describe('inbox-apply.js — self-refining tgprefs (med-vcv.3)', () => {
     it('carries the previous exchange into the NEXT message context', async () => {
         const records = fakeRecords();
         const captured = [];
-        const chat = vi.fn(async ({ messages }) => { captured.push(messages); return { content: `answer ${captured.length}` }; });
+        // Snapshot: run() keeps pushing into the same array after this returns.
+        const chat = vi.fn(async ({ messages }) => { captured.push([...messages]); return { content: `answer ${captured.length}` }; });
         const agent = createTGAgent({ chat, dispatcher: stubDispatcher, history: makeTGHistoryPort(records, now) });
         const opts = { agent, records, editReply: vi.fn(), now };
 
@@ -1607,7 +1608,7 @@ describe('inbox-apply.js — self-refining tgprefs (med-vcv.3)', () => {
         const turns = Array.from({ length: 7 }, (_, i) => ({ ts: TXT_MS - (7 - i) * 60_000, user: `u${i}`, assistant: `a${i}` }));
         const records = fakeRecords({ tgchat: [{ recordId: 'tgchat', deleted: false, turns }] });
         const captured = [];
-        const chat = vi.fn(async ({ messages }) => { captured.push(messages); return { content: 'ok' }; });
+        const chat = vi.fn(async ({ messages }) => { captured.push([...messages]); return { content: 'ok' }; });
         const agent = createTGAgent({ chat, dispatcher: stubDispatcher, history: makeTGHistoryPort(records, now) });
 
         await applyTGText(textEvent('now what'), 62, { agent, records, editReply: vi.fn(), now });
@@ -1623,7 +1624,7 @@ describe('inbox-apply.js — self-refining tgprefs (med-vcv.3)', () => {
         const fresh = { ts: TXT_MS - 60_000, user: 'recent', assistant: 'recent answer' };
         const records = fakeRecords({ tgchat: [{ recordId: 'tgchat', deleted: false, turns: [stale, fresh] }] });
         const captured = [];
-        const chat = vi.fn(async ({ messages }) => { captured.push(messages); return { content: 'ok' }; });
+        const chat = vi.fn(async ({ messages }) => { captured.push([...messages]); return { content: 'ok' }; });
         const agent = createTGAgent({ chat, dispatcher: stubDispatcher, history: makeTGHistoryPort(records, now) });
 
         await applyTGText(textEvent('still there?'), 63, { agent, records, editReply: vi.fn(), now });
