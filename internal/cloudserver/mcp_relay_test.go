@@ -130,6 +130,79 @@ func TestMCPRelay_FramesPassOpaqueBothWays(t *testing.T) {
 	}
 }
 
+// TestMCPRelay_LargeResponseFrameSurvives pins the fix for the third and worst
+// failure in this family. The cap is enforced with conn.SetReadLimit, and
+// coder/websocket CLOSES the connection on an oversized frame rather than
+// skipping it — so at the old 64 KiB cap, any mcp_call returning real health
+// data (a few weeks of vitals, a food log) killed the device leg, and every
+// call after it reported "no unlocked device is online" while the app sat open
+// and unlocked. Production logged `message too big: read limited at 65537
+// bytes` on a loop.
+//
+// 200 KiB: comfortably past the old cap, comfortably inside the new one.
+func TestMCPRelay_LargeResponseFrameSurvives(t *testing.T) {
+	h, host, claimToken := newTestMCPRelayHandler(t)
+	session := registerAndGetSession(t, h, host, claimToken)
+	pairingID := mintPairing(t, h, host, session)
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	client := wsClientFor(srv.Listener.Addr().String())
+
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+
+	deviceHeader := http.Header{}
+	deviceHeader.Set("Cookie", session.Name+"="+session.Value)
+	deviceConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device?pairing="+pairingID, &websocket.DialOptions{
+		HTTPClient: client,
+		HTTPHeader: deviceHeader,
+	})
+	if err != nil {
+		t.Fatalf("dial device: %v", err)
+	}
+	defer deviceConn.CloseNow()
+
+	shimConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/shim?pairing="+pairingID, &websocket.DialOptions{HTTPClient: client})
+	if err != nil {
+		t.Fatalf("dial shim: %v", err)
+	}
+	defer shimConn.CloseNow()
+	shimConn.SetReadLimit(mcpshim.MaxFrameBytes) // what the real shim does on dial
+
+	want := bytes.Repeat([]byte("x"), 200<<10)
+	if err := deviceConn.Write(ctx, websocket.MessageBinary, want); err != nil {
+		t.Fatalf("device write (large response): %v", err)
+	}
+	_, got, err := shimConn.Read(ctx)
+	if err != nil {
+		t.Fatalf("shim read (large response): %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("shim got %d bytes, want %d", len(got), len(want))
+	}
+
+	// And the device leg must still be usable — the old failure was not a
+	// dropped frame but a dead leg that took every later call with it.
+	if err := deviceConn.Write(ctx, websocket.MessageBinary, []byte("still alive")); err != nil {
+		t.Fatalf("device leg died after a large frame: %v", err)
+	}
+	if _, _, err := shimConn.Read(ctx); err != nil {
+		t.Fatalf("shim read after a large frame: %v", err)
+	}
+}
+
+// TestRelayFrameCapMatchesShim pins the pair of hand-synced constants. A shim
+// cap below the relay's would let the relay forward a frame the shim then dies
+// on — the same leg-killing failure, moved one hop.
+func TestRelayFrameCapMatchesShim(t *testing.T) {
+	if mcpshim.MaxFrameBytes < maxRelayFrameBytes {
+		t.Fatalf("mcpshim.MaxFrameBytes (%d) must be >= maxRelayFrameBytes (%d): the relay would forward "+
+			"a frame the shim's read limit then closes the connection on",
+			mcpshim.MaxFrameBytes, maxRelayFrameBytes)
+	}
+}
+
 func TestMCPRelay_ShimReconnectRebridgesBothWays(t *testing.T) {
 	h, host, claimToken := newTestMCPRelayHandler(t)
 	session := registerAndGetSession(t, h, host, claimToken)

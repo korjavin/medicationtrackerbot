@@ -8,7 +8,8 @@ import { createInMemoryRecordsPort } from '../../../static/js/tests/helpers/clou
 import { allowConsoleNoise } from '../../../static/js/tests/helpers/setup.js';
 import {
   CATALOG, clearNonceRing, createDispatcher, createNonceRing, createResponder,
-  handleRequest, STATUS_NO_PAIRING, STATUS_PAIRING_REPLACED, substitutePath, suggestOperations,
+  handleRequest, MAX_FRAME_BYTES, STATUS_NO_PAIRING, STATUS_PAIRING_REPLACED,
+  substitutePath, suggestOperations,
 } from '../mcp-responder.js';
 import { openDb } from '../localdb.js';
 
@@ -484,18 +485,19 @@ describe('mcp_help wire contract (generated catalog)', () => {
     expect(result.count).toBeLessThan(CATALOG.length);
   });
 
-  // internal/cloudserver/mcp_relay.go: maxRelayFrameBytes = 64 << 10 caps a
-  // sealed relay frame, so the plaintext help payload must stay under it.
-  it('keeps the no-args mcp_help payload under the 64 KiB relay frame cap', async () => {
+  // Help is the one response whose size this module controls end to end, so it
+  // stays well inside the relay's frame cap rather than relying on sendFrame's
+  // last-resort refusal.
+  it('keeps the no-args mcp_help payload inside the relay frame cap', async () => {
     const result = await makeDispatcher().handle('mcp_help', {});
     const bytes = new TextEncoder().encode(JSON.stringify(result)).length;
-    expect(bytes).toBeLessThan(64 * 1024);
+    expect(bytes).toBeLessThan(MAX_FRAME_BYTES);
   });
 
   // The id drill-in is the only variant returning full schemas, and the caller
-  // picks how many. Every op at once is ~73 KB — over the cap, the relay closes
-  // the device leg and the responder reconnect-loops.
-  it('budgets a full-catalog operation_ids drill-in under the 64 KiB relay frame cap', async () => {
+  // picks how many. Every op at once is ~83 KB — budgeted down not for the wire
+  // but to keep the calling agent's context usable (HELP_ENTRY_BUDGET_BYTES).
+  it('budgets a full-catalog operation_ids drill-in down to the help budget', async () => {
     const allIDs = CATALOG.map((op) => op.id);
     const result = await makeDispatcher().handle('mcp_help', { operation_ids: allIDs });
     const bytes = new TextEncoder().encode(JSON.stringify(result)).length;
@@ -1027,6 +1029,85 @@ describe('mcp-responder write-frame replay guard', () => {
 // Only that one failure mode counts. A domain error (no such medication, a
 // bogus schedule string) means the op *was* routed, which is all coverage
 // asserts.
+
+// --- Frame size guard (med-8k7c) -----------------------------------------
+// The relay enforces its cap with conn.SetReadLimit, and coder/websocket CLOSES
+// the connection on an oversized frame rather than skipping it. So an answer
+// bigger than the cap does not fail one call — it kills the device leg, and
+// every call after it reports "no unlocked device is online" until the tab
+// redials, straight back into the same oversized answer. A real account sat in
+// that loop with the app open and unlocked.
+//
+// Drives real sealed frames through createResponder: the guard lives at the
+// frame layer, so a dispatcher-level assertion would prove nothing.
+
+describe('mcp-responder frame size guard', () => {
+  const decoder = new TextDecoder();
+  const pairingId = 'pair-big';
+  const key = new Uint8Array(32).fill(9);
+
+  beforeEach(() => { vi.stubGlobal('WebSocket', FakeSocket); });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  // Injects a router returning `payload`, asks it for health.bp.list over a
+  // real frame, and returns the sealed bytes the responder sent back.
+  async function ask(payload) {
+    FakeSocket.instances = [];
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const responder = createResponder({
+      pairingId,
+      key,
+      router: async () => payload,
+      now,
+      relayURL: 'ws://relay.test/api/mcp/relay/device',
+    });
+    responder.connect();
+    const sock = FakeSocket.instances[0];
+    sock.readyState = 1;
+
+    const frame = await sealMCPFrame(key, pairingId, utf8(JSON.stringify({
+      jsonrpc: '2.0', id: 7, method: 'mcp_call', params: { op: 'health.bp.list', params: {} },
+    })));
+    sock.onmessage({ data: frame.buffer });
+    await vi.waitFor(() => expect(sock.sent).toHaveLength(1));
+
+    const sent = sock.sent[0];
+    const body = JSON.parse(decoder.decode(await openMCPFrame(key, pairingId, sent)));
+    responder.stop();
+    return { sent, body };
+  }
+
+  it('replaces an over-cap response with an actionable error instead of sending it', async () => {
+    allowConsoleNoise(); // sendFrame warns so a user debugging their own device sees it too
+
+    // ~1.5 MB of plausible rows — a few weeks of real readings clears the cap.
+    const huge = {
+      readings: Array.from({ length: 20000 }, (_, i) => ({
+        id: i, systolic: 120, diastolic: 80, measured_at: '2026-07-06T12:00:00.000Z',
+      })),
+    };
+
+    const { sent, body } = await ask(huge);
+
+    // The frame that actually went out is what kills the leg, so assert on it.
+    expect(sent.byteLength).toBeLessThanOrEqual(MAX_FRAME_BYTES);
+    // id correlation must survive, or the caller waits out a bogus offline timeout.
+    expect(body.id).toBe(7);
+    expect(body.result).toBeUndefined();
+    expect(body.error.code).toBe(-32603);
+    expect(body.error.message).toContain('too large');
+    // Naming the op is what makes the error actionable rather than mysterious.
+    expect(body.error.message).toContain('health.bp.list');
+  });
+
+  it('sends a normal-sized response untouched', async () => {
+    const { sent, body } = await ask({ readings: [{ id: 1, systolic: 118, diastolic: 76 }] });
+
+    expect(sent.byteLength).toBeLessThanOrEqual(MAX_FRAME_BYTES);
+    expect(body.error).toBeUndefined();
+    expect(body.result.result).toEqual({ readings: [{ id: 1, systolic: 118, diastolic: 76 }] });
+  });
+});
 
 describe('cloud MCP coverage sweep', () => {
   // Values are synthesized from each op's catalog `required` names, typed via

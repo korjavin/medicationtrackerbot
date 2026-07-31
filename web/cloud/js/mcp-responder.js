@@ -140,12 +140,11 @@ function searchCatalog(query) {
 }
 
 // An id drill-in is the only mcp_help variant that returns full schemas, and
-// its size is caller-controlled: internal/cloudserver/mcp_relay.go caps a
-// sealed relay frame at 64 KiB (maxRelayFrameBytes), and the whole catalog as
-// full entries is ~73 KB. Over the cap the relay closes the device leg, so the
-// agent sees an offline-device timeout and the responder reconnect-loops.
-// Budget the entries by serialized size (not a count — entry sizes vary ~4x)
-// and leave headroom for the envelope, note/next_step, and frame overhead.
+// its size is caller-controlled — the whole catalog as full entries is ~83 KB.
+// This budget sits well under MAX_FRAME_BYTES and is not about the wire:
+// dumping every nested schema at once floods the calling agent's context for no
+// gain, and it can ask for more ids in a follow-up. Budget by serialized size
+// (not a count — entry sizes vary ~4x), leaving headroom for the envelope.
 const HELP_ENTRY_BUDGET_BYTES = 48 * 1024;
 
 // takeWithinBudget returns the longest prefix of ids whose entries fit the
@@ -164,10 +163,10 @@ function takeWithinBudget(ids) {
 }
 
 // buildHelp mirrors internal/mcp/help.go's precedence: ids > query > topic >
-// full catalog. Only an id drill-in returns full entries — internal/cloudserver/
-// mcp_relay.go caps a relay frame at 64 KiB and the full catalog is ~100 KB.
-// Query matches stay compact deliberately: help.go:161-167 records that full
-// nested schemas on a query response make weaker models emit an empty turn.
+// full catalog. Only an id drill-in returns full entries (budgeted — see
+// HELP_ENTRY_BUDGET_BYTES). Query matches stay compact deliberately:
+// help.go:161-167 records that full nested schemas on a query response make
+// weaker models emit an empty turn.
 function buildHelp(params) {
   const p = params || {};
   const requested = [p.operation_id, ...(Array.isArray(p.operation_ids) ? p.operation_ids : [])]
@@ -703,6 +702,11 @@ function isWriteRequest(request) {
   return !!op && op.risk === MODE_WRITE;
 }
 
+// Mirrors maxRelayFrameBytes in internal/cloudserver/mcp_relay.go (and
+// MaxFrameBytes in internal/mcpshim/shim.go). Must not exceed the relay's cap —
+// see sendFrame for what an over-cap frame costs.
+export const MAX_FRAME_BYTES = 1 << 20;
+
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 
@@ -779,14 +783,41 @@ export function createResponder({
     // FIFO — a relay that floods distinct nonces can eventually replay a very
     // old write frame. An AAD counter is the durable fix (see the plan).
     if (isWriteRequest(request) && await nonceRing.seen(hex(bytes.slice(0, 12)))) {
-      const dup = { jsonrpc: '2.0', id: request.id, error: { code: -32600, message: 'duplicate frame: this write was already applied' } };
-      const dupFrame = await sealMCPFrame(key, pairingId, utf8(JSON.stringify(dup)));
-      if (sock.readyState === WebSocket.OPEN) sock.send(dupFrame);
+      await sendFrame(sock, { jsonrpc: '2.0', id: request.id, error: { code: -32600, message: 'duplicate frame: this write was already applied' } }, request);
       return;
     }
-    const response = await handleRequest(dispatcher, request);
-    const responseFrame = await sealMCPFrame(key, pairingId, utf8(JSON.stringify(response)));
-    if (sock.readyState === WebSocket.OPEN) sock.send(responseFrame);
+    await sendFrame(sock, await handleRequest(dispatcher, request), request);
+  }
+
+  // The single place a frame leaves this device, so the size cap is enforced
+  // once rather than at each call site.
+  //
+  // An oversized frame is not merely a failed call. The relay enforces its cap
+  // with conn.SetReadLimit and coder/websocket CLOSES the connection rather than
+  // skipping the frame, so one big answer kills the device leg — and every call
+  // after it reports "no unlocked device is online" until the tab redials,
+  // straight back into the same oversized answer. A real account sat in that
+  // loop with the app open and unlocked, the relay logging `message too big:
+  // read limited at 65537 bytes` over and over.
+  //
+  // Answering with an error the agent can act on keeps the leg alive and tells
+  // it how to get its data.
+  async function sendFrame(sock, response, request) {
+    let frame = await sealMCPFrame(key, pairingId, utf8(JSON.stringify(response)));
+    if (frame.byteLength > MAX_FRAME_BYTES) {
+      const opID = request?.params?.operation_id || request?.params?.op || request?.method || 'this request';
+      console.warn('[mcp] response too large for the relay', opID, frame.byteLength);
+      frame = await sealMCPFrame(key, pairingId, utf8(JSON.stringify({
+        jsonrpc: '2.0',
+        id: response.id,
+        error: {
+          code: -32603,
+          message: `The response to ${opID} is too large to send (${frame.byteLength} bytes; the limit is ${MAX_FRAME_BYTES}). `
+            + 'Ask for less in one call — a shorter date range, a smaller limit, or one id at a time — then combine the results.',
+        },
+      })));
+    }
+    if (sock.readyState === WebSocket.OPEN) sock.send(frame);
   }
 
   function scheduleReconnect() {
