@@ -28,7 +28,25 @@ const (
 	pairingCleanupEvery = time.Hour
 	pairingIDBytes      = 16
 
-	maxRelayFrameBytes = 64 << 10
+	// maxRelayFrameBytes caps one sealed frame. It is enforced with
+	// conn.SetReadLimit, and coder/websocket does not skip an oversized frame —
+	// it CLOSES the connection. So a single too-big response does not fail just
+	// that call: it kills the device leg, and every call after it reports "no
+	// unlocked device is online" until the tab redials, straight back into the
+	// same oversized answer.
+	//
+	// 64 KiB was exactly that trap in production — any mcp_call listing real
+	// health data (a few weeks of vitals, a food log, a session history) clears
+	// it easily, and the relay logged `message too big: read limited at 65537
+	// bytes` on a loop with the app open and unlocked the whole time. 1 MiB fits
+	// every list the domain layer can currently produce, and the responder
+	// refuses to send anything larger rather than re-entering that loop
+	// (web/cloud/js/mcp-responder.js's sendFrame).
+	//
+	// ponytail: worst-case memory is this times deferredFrameBuffer per waiting
+	// leg (~32 MiB). Fine for a self-hosted box; shrink the queue first if a
+	// hosted deployment ever runs many accounts hot.
+	maxRelayFrameBytes = 1 << 20
 
 	// relayPingEvery/-Timeout keep each leg alive and, more importantly, make a
 	// dead one observable. Neither end of this relay speaks between tool calls,
