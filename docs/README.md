@@ -35,20 +35,24 @@ Also normative, narrower in scope:
 |---|---|
 | [cloud-deployment.md](cloud-deployment.md) | Standing the service up: DNS, TLS, the app stack, invites, admin CLI, backups, restore, 3am debugging. |
 | [frontend.md](frontend.md) | The browser app's own structure: load order, design tokens, data flow, testing posture. |
-| [demo-mode.md](demo-mode.md) | The auth-less public demo deployment and its rate limits. |
 
 ## Reference
 
 | Doc | Answers |
 |---|---|
 | [vault-format.md](vault-format.md) | The canonical export/import JSON — field shapes, skip list, round-trip normalizations, age encryption. |
-| [api.md](api.md) | HTTP endpoints. |
 | [environment.md](environment.md) | Environment variables. |
 | [features.md](features.md) | User-visible feature behavior. |
-| [technical-decisions.md](technical-decisions.md) | Standing decisions and their rationale. |
-| [mcp-coverage.md](mcp-coverage.md) · [mcp-deployment.md](mcp-deployment.md) · [mcp-python-executor.md](mcp-python-executor.md) · [mcp-evals.md](mcp-evals.md) | The MCP operation registry, its coverage policy, and its evals. |
-| [sse-traefik.md](sse-traefik.md) | Reverse-proxy configuration notes. |
+| [technical-decisions.md](technical-decisions.md) | Standing frontend decisions: offline writes, 5xx-as-offline, the write-ahead queue, vanilla JS. |
+| [mcp-evals.md](mcp-evals.md) | Can a real LLM drive the discover-then-run surface to finish a task. |
 | [security/cors-policy.md](security/cors-policy.md) | CORS policy. |
+
+There is deliberately **no current `api.md`**. Cloud mode has no server-side
+`/api`: those paths are answered in-process by `web/cloud/js/apishim.js` against
+the local vault, and the authoritative list of operations is
+`internal/mcp/registry` → `web/cloud/js/mcp-catalog.generated.js`, which is
+generated and drift-tested. The old Go-server route table is in
+[archive/api.md](archive/api.md).
 
 ## Proposals — designed, not built
 
@@ -73,12 +77,25 @@ Kept for rationale and provenance. **Never cite as current behavior.**
   live in the current docs:
   [architecture-bot-mode.md](archive/architecture-bot-mode.md),
   [threat-model-bot-mode.md](archive/threat-model-bot-mode.md), and
-  [cloud-bot-parity.md](archive/cloud-bot-parity.md). **That subject is not
-  deployed and not operated** — the stack runs `./cloud`
-  (`docker-compose.cloud.yml:14`). Its source stays in the tree and still
-  compiles so it cannot silently rot. (`Dockerfile:18,33,59` does still compile
-  a `bot` binary into the image and leave it as the default `CMD`; narrowing
-  the image build is a separate change. Nothing deploys it either way.)
+  [cloud-bot-parity.md](archive/cloud-bot-parity.md), and its runbooks and
+  specs: [api.md](archive/api.md), [mcp-deployment.md](archive/mcp-deployment.md),
+  [mcp-coverage.md](archive/mcp-coverage.md),
+  [mcp-python-executor.md](archive/mcp-python-executor.md),
+  [sse-traefik.md](archive/sse-traefik.md),
+  [sse-change-stream.md](archive/sse-change-stream.md),
+  [demo-mode.md](archive/demo-mode.md), [installer.md](archive/installer.md).
+  **That subject is not built, not shipped, not deployed and not operated** —
+  the image builds and runs only `./cloud` (`Dockerfile:21,33,47`). Its source
+  stays in the tree and still compiles under `go build ./...` so it cannot
+  silently rot; that is the whole of its remaining status.
+
+  Two of those still matter to a working developer, so they are called out
+  rather than buried: **[archive/mcp-coverage.md](archive/mcp-coverage.md)**
+  documents `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt`, which **still
+  runs** against `internal/server` and will still fail CI — `CLAUDE.md` →
+  *Adding a new HTTP route* points at it for that reason. And
+  **[archive/installer.md](archive/installer.md)** documents `install.sh`, a
+  script that has been **deleted from the repository**; it cannot be followed.
 - **[2026-07-12-gpt-5.6-sol-cloud-privacy-audit.md](2026-07-12-gpt-5.6-sol-cloud-privacy-audit.md)**
   — the external privacy audit that drove most of the normative set above. A
   point-in-time review: several of its findings are now closed. Read it for the
@@ -87,9 +104,10 @@ Kept for rationale and provenance. **Never cite as current behavior.**
   [2026-05-13-go-code-review.md](2026-05-13-go-code-review.md),
   [2026-05-13-frontend-code-review.md](2026-05-13-frontend-code-review.md),
   [wandergeek-retrospective.md](wandergeek-retrospective.md),
-  [2026-07-13-cloud-prf-compatibility-research.md](2026-07-13-cloud-prf-compatibility-research.md),
-  [installer.md](installer.md) — point-in-time reviews, research notes, and
-  install docs for material no longer on the deployed path.
+  [2026-07-13-cloud-prf-compatibility-research.md](2026-07-13-cloud-prf-compatibility-research.md)
+  — point-in-time reviews and research notes. Left in place rather than moved:
+  they record a moment accurately and were never meant to be current, so
+  relocating them is churn.
 
 ---
 
@@ -108,6 +126,6 @@ Kept for rationale and provenance. **Never cite as current behavior.**
    rather than guessing — a confidently wrong architecture doc is worse than an
    incomplete one.
 4. **Do not add a "how it used to work" comparison** to a normative doc. If the
-   history is worth keeping, it belongs in `legacy/` or a plan.
+   history is worth keeping, it belongs in `archive/` or a plan.
 5. **Promoting a proposal?** Move its row from *Proposals* to *Normative* in
    the same commit that ships the code, and update its own status banner.

@@ -1,10 +1,17 @@
 # API Endpoints
 
+> **ARCHIVED.** The route table of the Go server (`internal/server`), which is
+> not built, shipped or deployed. **Cloud mode has no server-side `/api`** — the
+> same paths are answered in-process by `web/cloud/js/apishim.js` against the
+> local decrypted vault, so this file describes a transport that no longer
+> runs. Kept for history; not normative.
+> Current architecture: [docs/architecture.md](../architecture.md).
+
 ## Health Data
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/bootstrap` | All initial data in one request. Includes a `medications` array (same shape as `GET /api/medications?archived=true`) so the frontend can hydrate the meds list and Today tile without a follow-up round-trip; consumers seed both `DataStore` and Dexie via this field — see [frontend.md → Local-First Read Resilience](frontend.md#local-first-read-resilience). |
+| GET | `/api/bootstrap` | All initial data in one request. Includes a `medications` array (same shape as `GET /api/medications?archived=true`) so the frontend can hydrate the meds list and Today tile without a follow-up round-trip; consumers seed both `DataStore` and Dexie via this field — see [frontend.md → Local-First Read Resilience](../frontend.md#local-first-read-resilience). |
 | GET | `/api/medications` | List medications |
 | POST | `/api/medications` | Create medication |
 | PATCH | `/api/medications/:id` | Update medication |
@@ -76,12 +83,12 @@ All routes gate on the `gamification_enabled` flag in the service layer: when of
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/changes` | Change events since cursor (polling fallback — used when SSE is unavailable or after 3 consecutive `/api/changes/stream` errors within 30s). |
-| GET | `/api/changes/stream` | Server-Sent Events stream of change cursors (primary cross-client sync transport). Auth via `?initData=…` query param since EventSource cannot set custom headers. Fans out from the process-wide `ChangeBroker` — connected clients see writes from any device (or MCP) within ~50ms. See [architecture.md → Cross-client change broadcast](architecture.md#cross-client-change-broadcast-sse--polling-fallback), [technical-decisions.md → Why SSE is primary](technical-decisions.md), and [sse-traefik.md](sse-traefik.md) for the required Traefik configuration. |
+| GET | `/api/changes/stream` | Server-Sent Events stream of change cursors (primary cross-client sync transport). Auth via `?initData=…` query param since EventSource cannot set custom headers. Fans out from the process-wide `ChangeBroker` — connected clients see writes from any device (or MCP) within ~50ms. See [architecture.md → Cross-client change broadcast](architecture-bot-mode.md#cross-client-change-broadcast-sse--polling-fallback), [technical-decisions.md → Why SSE is primary](../technical-decisions.md), and [sse-traefik.md](sse-traefik.md) for the required Traefik configuration. |
 | GET | `/auth/status` | Check if session is authenticated (returns `{"authenticated": bool}`) |
 | GET | `/api/settings` | User settings bundle. Returns the same shape `/api/bootstrap` embeds under `settings`. Response: `{timezone, server_time, server_timezone, weight_unit_preference, features, food_targets, bp_reminder_status, weight_reminder_status, tab_order?}`. `features` is the same map as `/api/init` / bootstrap (`food, bp, weight, medication, workout, health, gamification`). `bp_reminder_status` / `weight_reminder_status` are `null` when the request has no authenticated user. `tab_order` is omitted (not `null`) when unset so clients preserve their local fallback. The frontend's `loadSettings()` SWR fetcher always reads `timezone`, `server_time`, `server_timezone`, and `weight_unit_preference` from this endpoint; it additionally consumes `features`, `food_targets`, `bp_reminder_status`, and `weight_reminder_status` as fallbacks when the matching granular endpoint (`/api/settings/features`, `/api/food/settings/targets`, `/api/bp/reminder/status`, `/api/weight/reminder/status`) returns `null` (e.g., transient 5xx / offline). The consolidated bundle is the canonical source for future single-round-trip refreshes, so any change here must keep these slices populated. |
 | POST | `/api/settings` | Update settings (accepts optional `timezone` IANA name; 400 on invalid values) |
 | PATCH | `/api/settings/weight-unit` | Set the user's preferred weight unit. Accepts `{"unit":"kg"\|"lb"}`; 400 on any other value. Storage of weight logs is always kg — this only affects the input default and rendered unit in the web app and bot. The preference is also returned by `/api/bootstrap` under `settings.weight_unit_preference` (defaults to `"kg"` for new users). |
-| GET | `/api/export` | Full-vault export (bot/server mode). Walks every domain repo for the authed user and returns the canonical one-user-all-domains JSON (`{"format":"medtracker-vault","version":1,"exported_at":<RFC3339>,"data":{...}}`, see [vault-format.md](vault-format.md)) with `Content-Disposition: attachment; filename=medtracker-vault-<date>.json`. Served `Content-Encoding: gzip` when the client accepts it (~10x; `fetch` decompresses transparently). Field names/values match each domain's existing `/api` wire shape. Optional `include_secrets` query param: absent / `1` / `true` → include `data.api_tokens` and `data.settings.integrations` (the default); `0` / `false` → both blocks are **omitted** (absent, not empty) so the file can be shared without provider keys or API-token hashes. Cloud mode never calls this — its export is fully client-side. |
+| GET | `/api/export` | Full-vault export (bot/server mode). Walks every domain repo for the authed user and returns the canonical one-user-all-domains JSON (`{"format":"medtracker-vault","version":1,"exported_at":<RFC3339>,"data":{...}}`, see [vault-format.md](../vault-format.md)) with `Content-Disposition: attachment; filename=medtracker-vault-<date>.json`. Served `Content-Encoding: gzip` when the client accepts it (~10x; `fetch` decompresses transparently). Field names/values match each domain's existing `/api` wire shape. Optional `include_secrets` query param: absent / `1` / `true` → include `data.api_tokens` and `data.settings.integrations` (the default); `0` / `false` → both blocks are **omitted** (absent, not empty) so the file can be shared without provider keys or API-token hashes. Cloud mode never calls this — its export is fully client-side. |
 | POST | `/api/import` | Full-vault import (bot/server mode), **replace-only**. Body is the canonical vault JSON plus `"mode":"replace"`, gzipped with `Content-Encoding: gzip` (the UI always compresses — a real vault's JSON exceeds the 64 MB body cap; the server inflates under a 1 GB ceiling). An uncompressed body still works. Validates format/version/mode, then in one transaction wipes the authed user's data (`seeddemo.WipeUserTx`) and inserts every domain (explicit ids for FK glue). All-or-nothing: on any validation failure returns `400 {"ok":false,"errors":[...]}` and touches nothing. The one exception to replace-semantics: an **absent** `data.api_tokens` / `data.settings.integrations` block leaves the target's existing tokens / provider keys untouched (a secrets-free vault must not silently unconfigure the destination); a **present** block replaces them. Merge mode is a non-goal. Cloud mode never calls this — its import lands one client-side snapshot. |
 | POST | `/api/push/subscribe` | Register push subscription |
 | POST | `/api/push/unsubscribe` | Remove push subscription |
@@ -105,7 +112,7 @@ All routes gate on the `gamification_enabled` flag in the service layer: when of
 
 ## Cloud Mode Invites (`cmd/cloud` only)
 
-Session-authed endpoint served on the account subdomain by `cmd/cloud` (see [cloud-mode.md → User-mintable invites](cloud-mode.md#user-mintable-invites)). Not present in the server build.
+Session-authed endpoint served on the account subdomain by `cmd/cloud` (see [cloud-mode.md → User-mintable invites](../cloud-mode.md#user-mintable-invites)). Not present in the server build.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -113,7 +120,7 @@ Session-authed endpoint served on the account subdomain by `cmd/cloud` (see [clo
 
 ## Cloud Mode Telegram (`cmd/cloud` only)
 
-Session-authed endpoints served on the account subdomain by `cmd/cloud` (see [cloud-mode.md → Telegram](cloud-mode.md#telegram-optional-byo-bot-token)). Not present in the server build.
+Session-authed endpoints served on the account subdomain by `cmd/cloud` (see [cloud-mode.md → Telegram](../cloud-mode.md#telegram-optional-byo-bot-token)). Not present in the server build.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -124,12 +131,12 @@ Session-authed endpoints served on the account subdomain by `cmd/cloud` (see [cl
 | POST | `/api/telegram/skip` | Record explicit opt-out |
 | POST | `/api/telegram/reset` | Clear the caller's `tg_pending` row so status returns to `none` (idempotent; touches nothing else). The pending page's "Start over" — escape hatch when the managed `managed_bot_created` update was lost, no need to wait out the TTL. Returns `{"reset": true}` |
 | POST | `/api/telegram/test` | Send a test notification through the linked bot |
-| POST | `/api/telegram/reply-edit` | Rewrite one of the bot's own messages (`{message_id, text}` → `204`). Cloud-only. The client calls this after draining a sealed command, to turn the relay's `⏳ Queued` placeholder into a confirmation **it** composed. The relay forwards `text` verbatim and takes the chat from the stored bot row, so a session can only edit messages in its own chat. See [cloud-mode.md → Closing the loop](cloud-mode.md#closing-the-loop--queued--recorded) |
+| POST | `/api/telegram/reply-edit` | Rewrite one of the bot's own messages (`{message_id, text}` → `204`). Cloud-only. The client calls this after draining a sealed command, to turn the relay's `⏳ Queued` placeholder into a confirmation **it** composed. The relay forwards `text` verbatim and takes the chat from the stored bot row, so a session can only edit messages in its own chat. See [cloud-mode.md → Closing the loop](../cloud-mode.md#closing-the-loop--queued--recorded) |
 | DELETE | `/api/telegram` | Unlink and delete the bot binding |
 
 ## Cloud Trial Proxy (cloud-only, `cmd/cloud`)
 
-Served only by the cloud service on the account subdomain; not present in the bot/server build. Both routes require an authenticated account session and share one per-account rate limit (`TRIAL_RATE_PER_MIN`, default 10/min) — on limit: `429 {"error":"trial_rate_limit","retry_after_seconds":60}` + `Retry-After`. When the corresponding `TRIAL_*` envs are unset: `503 {"error":"trial_not_configured"}` and the client degrades to pure BYO. See [cloud-mode.md → Trial provider keys](cloud-mode.md#trial-provider-keys-pooled-metered).
+Served only by the cloud service on the account subdomain; not present in the bot/server build. Both routes require an authenticated account session and share one per-account rate limit (`TRIAL_RATE_PER_MIN`, default 10/min) — on limit: `429 {"error":"trial_rate_limit","retry_after_seconds":60}` + `Retry-After`. When the corresponding `TRIAL_*` envs are unset: `503 {"error":"trial_not_configured"}` and the client degrades to pure BYO. See [cloud-mode.md → Trial provider keys](../cloud-mode.md#trial-provider-keys-pooled-metered).
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

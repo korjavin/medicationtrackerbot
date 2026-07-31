@@ -1,5 +1,12 @@
 # Demo mode (public, auth-less, AI-rate-limited)
 
+> **ARCHIVED.** `DEMO_MODE` exists only in the Go-server code
+> (`cmd/bot`, `internal/server`, `internal/config`, `internal/mcp`) — there is
+> no reference to it anywhere under `cmd/cloud` or `internal/cloudserver`, so
+> nothing that is built or deployed reads this flag. Kept for history; not
+> normative. The `cmd/seeddemo` / `internal/demotopup` tooling it drove still
+> exists and is documented in [CLAUDE.md](../../CLAUDE.md).
+
 A runtime flag (`DEMO_MODE=1`) that turns the same server binary into a public, browseable demo. The intent is to let visitors poke around with seeded data without an account, while keeping AI-cost endpoints behind tight per-IP rate limits.
 
 Status: shipped. Default off — production deployments see zero behavior change.

@@ -258,7 +258,7 @@ mechanism is a process-wide `ChangeBroker`
    per-handler instrumentation. The `sourceClientID` is the sanitised
    `X-Client-ID` header value (printable ASCII, ≤64 chars) so SSE
    subscribers can recognise echoes of their own writes; see
-   [technical-decisions.md → Source attribution via `X-Client-ID`](../technical-decisions.md#source-attribution-via-x-client-id).
+   [technical-decisions.md → Source attribution via `X-Client-ID`](sse-change-stream.md#source-attribution-via-x-client-id).
    Bridge writes (the MCP executor's
    `/internal/mcp/bridge` path) are inside the wrapped mux, so MCP-driven
    mutations fan out the same way as direct API writes.
@@ -300,8 +300,8 @@ The legacy `GET /api/changes?since=<cursor>` polling endpoint is
 unchanged and remains the fallback when the browser lacks
 `EventSource` or the stream sees 3 consecutive `onerror` events within
 30s (proxy / captive-portal failures). See
-[technical-decisions.md → Why SSE is primary](../technical-decisions.md)
-for the rationale and [sse-traefik.md](../sse-traefik.md) for the required
+[technical-decisions.md → Why SSE is primary](sse-change-stream.md)
+for the rationale and [sse-traefik.md](sse-traefik.md) for the required
 reverse-proxy configuration. Client-side wiring lives in
 `web/static/js/data-store.js` (`startChangeStream`,
 `startChangePolling`) and is documented in

@@ -18,7 +18,7 @@
     'use strict';
 
     // Cloud-only. Bot mode reaches MCP through a separately deployed server
-    // (docs/mcp-deployment.md), not the in-app Connectors page, and never
+    // (docs/archive/mcp-deployment.md), not the in-app Connectors page, and never
     // injects the trial meta tags — so neither blurb has a destination there.
     function _cloud() {
         return !!window.__MEDTRACKER_CLOUD__;

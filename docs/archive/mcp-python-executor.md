@@ -1,5 +1,12 @@
 # MCP Python Executor Decision
 
+> **ARCHIVED.** The architecture decision record for `mcp_execute`, which forks
+> a Python runner **server-side**. That is structurally impossible in cloud
+> mode — the server never sees vault plaintext, so a server-side script runner
+> would have nothing to read — and calling `mcp_execute` against a cloud
+> connector returns an explicit error saying so. Kept for history; not
+> normative. See [docs/cloud-mode.md → MCP](../cloud-mode.md#mcp).
+
 ## Decision
 
 Add a new MCP execution path based on three small tools:

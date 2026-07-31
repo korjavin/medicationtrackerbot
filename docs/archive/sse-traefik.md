@@ -1,5 +1,16 @@
 # SSE behind Traefik — configuration notes
 
+> **ARCHIVED.** Reverse-proxy configuration for `/api/changes/stream`, an
+> endpoint that exists only in the Go-server code. **Cloud mode has no change
+> stream**, so none of this configuration applies to what is deployed. Kept for
+> history; not normative. The companion decisions moved to
+> [sse-change-stream.md](sse-change-stream.md).
+>
+> One thing here does still have a live analogue: the `initData`-in-access-log
+> caveat is the same shape as the hosted-MCP token-in-path caveat, which is
+> current and covered in
+> [cloud-operations-security.md §1.3](../cloud-operations-security.md#13-reverse-proxy-access-logs--required-decision).
+
 `/api/changes/stream` is a Server-Sent Events endpoint. The default Traefik
 configuration that fronts the rest of the API is fine for short-lived
 request/response traffic but mis-handles SSE in two ways:
