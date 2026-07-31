@@ -328,7 +328,11 @@ export function createApiRouter(ctx, {
     if (path === '/api/notes') {
       if (method === 'POST') return notes.create(body);
       if (method === 'GET') {
-        const { limit, offset, take } = pageParams(params, 50);
+        // max 200: the per-op ceiling the catalog advertises for
+        // health.notes.list. Where a route names a smaller max than MAX_LIMIT,
+        // the router must enforce that one or mcp_help is describing a
+        // different API than the one answering.
+        const { limit, offset, take } = pageParams(params, 50, 200);
         return pageOf(await notes.list({
           days: intParam(params, 'days', undefined),
           limit: take,
@@ -739,7 +743,8 @@ export function createApiRouter(ctx, {
     }
 
     if (path === '/api/workout/sessions' && method === 'GET') {
-      const { limit, offset, take } = pageParams(params, 30);
+      // max 500: the per-op ceiling workouts.sessions.list advertises.
+      const { limit, offset, take } = pageParams(params, 30, 500);
       return pageOf(await workout.listSessions(take), limit, offset);
     }
     if (path === '/api/workout/sessions/next' && method === 'GET') return workout.getNext();
