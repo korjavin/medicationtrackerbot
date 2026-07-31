@@ -455,6 +455,26 @@ describe('features/workout/library.js — split-file integration', () => {
         expect(input.value).toBe('Bench day special');
       });
 
+      // The rows are real buttons precisely so keyboard users can reach them;
+      // hiding on any blur would make that impossible.
+      it('stays open while focus moves into the list, and returns focus on pick', async () => {
+        stubCatalogFetch(env.window, { ok: true, status: 200, json: async () => CATALOG });
+        const { document } = env;
+        const { input, mount } = await mountPicker(env, { library: [{ id: 3, name: 'Bench day special' }] });
+
+        input.value = 'bench';
+        await input.oninput();
+        const row = mount.querySelector('.wg-exercise-suggest__row');
+
+        // Tabbing from the input onto a row.
+        input.onblur({ relatedTarget: row });
+        expect(mount.hidden).toBe(false);
+
+        row.click();
+        expect(input.value).toBe('Bench day special');
+        expect(document.activeElement).toBe(input);
+      });
+
       it('blur closes the list, and Escape closes it too', async () => {
         stubCatalogFetch(env.window, { ok: true, status: 200, json: async () => CATALOG });
         const { input, mount } = await mountPicker(env, { library: [{ id: 3, name: 'Bench day special' }] });

@@ -458,8 +458,14 @@ async function bindExercisePicker({ input, mount, withLibrary = true, onPick } =
     };
 
     input.oninput = refresh;
-    input.onblur = hide;
     input.onkeydown = (e) => { if (e.key === 'Escape') hide(); };
+    input.onblur = (e) => {
+        // Tabbing from the input into the list must not tear it down before a
+        // row can take focus — that would make the rows unreachable by
+        // keyboard, which is the whole reason they are real buttons.
+        if (e && e.relatedTarget && mount.contains(e.relatedTarget)) return;
+        hide();
+    };
     // Keep focus on the input while a row is being pressed. Without this the
     // input blurs first, `hide()` tears the row out of the DOM, and the click
     // lands on nothing — the classic hand-rolled-autocomplete failure on
@@ -473,6 +479,9 @@ async function bindExercisePicker({ input, mount, withLibrary = true, onPick } =
         if (!row) return;
         const item = rendered[Number(row.dataset.index)];
         hide();
+        // hide() just removed the row the keyboard was on; put focus back where
+        // the user can keep typing.
+        input.focus();
         if (!item) return;
         input.value = item.name;
         if (onPick) onPick(item);
