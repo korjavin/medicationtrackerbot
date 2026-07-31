@@ -71,7 +71,8 @@ output(result)`,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "Max sessions to return (default 30, max 500)"}
+    "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "Max sessions to return (default 30, max 500). Absent or <= 0 means the default, never 'all sessions'; larger values are clamped to the max. A full page means there may be more."},
+    "offset": {"type": "integer", "minimum": 0, "description": "Sessions to skip before this page (default 0). Walk further back by advancing it one page size at a time until a short or empty page comes back."}
   }
 }`),
 			Description:     "List recent workout sessions. Sessions represent a scheduled or ad-hoc workout that was completed or skipped. Returned sessions span every group; filter client-side on the returned group_id field if needed.",
@@ -377,7 +378,8 @@ output(result)`,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Max workouts to return (default 100)"}
+    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Max workouts to return (default 100, max 1000). Absent or <= 0 means the default, never 'all workouts'; larger values are clamped to the max. A full page means there may be more."},
+    "offset": {"type": "integer", "minimum": 0, "description": "Workouts to skip before this page (default 0). Walk further back by advancing it one page size at a time until a short or empty page comes back."}
   }
 }`),
 			Description:     "List Mi Band workouts (running, cycling, etc. imported from the wearable).",

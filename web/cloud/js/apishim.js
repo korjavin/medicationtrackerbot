@@ -16,6 +16,9 @@ import { createFoodAIDomain } from '../../domain/foodai.js';
 import { createWorkoutDomain } from '../../domain/workout.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
 import { createAnalysis } from '../../domain/analysis.js';
+import {
+  MAX_LIMIT, clampLimit, clampDays, clampOffset, pageOf,
+} from '../../domain/paginate.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
 import { recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from './sync.js';
 import { scheduleReminderRecompute, sendTestPush, cancelMedRefire } from './reminders.js';
@@ -67,6 +70,22 @@ function intParam(params, name, fallback) {
 function positiveIntParam(params, name, fallback) {
   const n = intParam(params, name, fallback);
   return n > 0 ? n : fallback;
+}
+
+// pageParams is the bounded read of `limit`/`offset` for every list route
+// (med-vgw). This router is the boundary the clamp belongs at: the cloud UI and
+// mcp-responder.js both dispatch through it, while the domain list functions
+// keep `limit <= 0 → everything` for their internal callers, which need whole
+// windows to compute correct aggregates. web/domain/paginate.js has the full
+// reasoning.
+//
+// `take` is `offset + limit`, i.e. what to ask the domain for so the page can
+// be sliced out of it — the list functions cap from the top of an ordered list
+// and have no offset of their own.
+function pageParams(params, def, max) {
+  const limit = clampLimit(params.get('limit'), def, max);
+  const offset = clampOffset(params.get('offset'));
+  return { limit, offset, take: offset + limit };
 }
 
 // Mirrors apiCallDirect's error shape (Error with .status) so apiCall's
@@ -274,7 +293,10 @@ export function createApiRouter(ctx, {
 
     if (path === '/api/bp') {
       if (method === 'POST') return bp.create(body);
-      if (method === 'GET') return bp.list({ days: intParam(params, 'days', 30), limit: intParam(params, 'limit', 100) });
+      if (method === 'GET') {
+        const { limit, offset, take } = pageParams(params, 100);
+        return pageOf(await bp.list({ days: intParam(params, 'days', 30), limit: take }), limit, offset);
+      }
     }
     if (method === 'DELETE') {
       const m = /^\/api\/bp\/([^/]+)$/.exec(path);
@@ -285,7 +307,10 @@ export function createApiRouter(ctx, {
 
     if (path === '/api/weight') {
       if (method === 'POST') return weight.create(body, { replacesId: params.get('replaces') || undefined });
-      if (method === 'GET') return weight.list({ days: intParam(params, 'days', 30), limit: intParam(params, 'limit', 100) });
+      if (method === 'GET') {
+        const { limit, offset, take } = pageParams(params, 100);
+        return pageOf(await weight.list({ days: intParam(params, 'days', 30), limit: take }), limit, offset);
+      }
     }
     if (method === 'DELETE') {
       const m = /^\/api\/weight\/([^/]+)$/.exec(path);
@@ -294,17 +319,21 @@ export function createApiRouter(ctx, {
     if (path === '/api/weight/goal' && method === 'GET') return weight.getGoal();
     if (path === '/api/weight/goal' && method === 'POST') return weight.setGoal(body);
     if (path === '/api/weight/goals/history' && method === 'GET') {
-      return { goals: await weight.listGoals(intParam(params, 'limit', 100)) };
+      // max 200: the domain's own append-only-history cap, so a deeper offset
+      // legitimately runs out of rows rather than being an error.
+      const { limit, offset, take } = pageParams(params, 100, 200);
+      return { goals: pageOf(await weight.listGoals(take), limit, offset) };
     }
 
     if (path === '/api/notes') {
       if (method === 'POST') return notes.create(body);
       if (method === 'GET') {
-        return notes.list({
+        const { limit, offset, take } = pageParams(params, 50);
+        return pageOf(await notes.list({
           days: intParam(params, 'days', undefined),
-          limit: intParam(params, 'limit', 50),
+          limit: take,
           beforeId: params.get('before_id') || undefined,
-        });
+        }), limit, offset);
       }
     }
     if (method === 'DELETE') {
@@ -420,12 +449,16 @@ export function createApiRouter(ctx, {
 
     if (path === '/api/health/overview' && method === 'GET') return vitals.overview();
     if (path === '/api/health/sleep' && method === 'GET') {
-      return vitals.sleep({
+      // The route's old default was limit=0, i.e. every sleep session ever
+      // recorded on every call — the one list here that was unbounded by
+      // default rather than only when asked to be.
+      const { limit, offset, take } = pageParams(params, 100);
+      return pageOf(await vitals.sleep({
         from: params.get('from') || undefined,
         to: params.get('to') || undefined,
         days: positiveIntParam(params, 'days', 90),
-        limit: intParam(params, 'limit', 0),
-      });
+        limit: take,
+      }), limit, offset);
     }
 
     // --- Medications + intake state machine (Task 7: C2b shim wiring) ---
@@ -540,7 +573,10 @@ export function createApiRouter(ctx, {
     if (path === '/api/food/log') {
       if (method === 'POST') return food.create(body);
       if (method === 'GET') {
-        return food.listGrouped({ date: params.get('date') || undefined, days: positiveIntParam(params, 'days', 1) });
+        // No limit param: the response is meal groups carrying their logs, so
+        // it grows with the window, not with a row count. `days` is the only
+        // lever, hence the clamp (web/domain/paginate.js MAX_DAYS).
+        return food.listGrouped({ date: params.get('date') || undefined, days: clampDays(params.get('days'), 1) });
       }
     }
     if (method === 'PUT') {
@@ -562,8 +598,10 @@ export function createApiRouter(ctx, {
       return food.listProducts({
         isMeal: isMealParam ? isMealParam === 'true' : undefined,
         q: params.get('q') || undefined,
-        offset: intParam(params, 'offset', 0),
-        limit: intParam(params, 'limit', 100),
+        offset: clampOffset(params.get('offset')),
+        // max 100, matching bot mode exactly: handleGetFoodProducts ignores any
+        // limit above 100 and falls back to its own 100 default.
+        limit: clampLimit(params.get('limit'), 100, 100),
         sort: params.get('sort') || undefined,
       });
     }
@@ -649,7 +687,14 @@ export function createApiRouter(ctx, {
       return true;
     }
 
-    if (path === '/api/workout/exercises/unique' && method === 'GET') return workout.listUniqueExercises();
+    // Library-backed lists: no natural row cap, so they get one. The default is
+    // MAX_LIMIT rather than something smaller because these feed exercise
+    // pickers that expect the whole library — bound the pathological case
+    // without shortening any realistic one.
+    if (path === '/api/workout/exercises/unique' && method === 'GET') {
+      const { limit, offset } = pageParams(params, MAX_LIMIT);
+      return pageOf(await workout.listUniqueExercises(), limit, offset);
+    }
 
     // Progression preview (Phase 4): dry-run the opt-in progression rules over
     // each exercise's latest completed log — read-only, never writes back. This
@@ -677,7 +722,10 @@ export function createApiRouter(ctx, {
       return true;
     }
 
-    if (path === '/api/workout/exercise-library' && method === 'GET') return workout.listLibrary();
+    if (path === '/api/workout/exercise-library' && method === 'GET') {
+      const { limit, offset } = pageParams(params, MAX_LIMIT);
+      return pageOf(await workout.listLibrary(), limit, offset);
+    }
     if (path === '/api/workout/exercise-library/create' && method === 'POST') {
       return workout.createLibraryItem(body);
     }
@@ -691,7 +739,8 @@ export function createApiRouter(ctx, {
     }
 
     if (path === '/api/workout/sessions' && method === 'GET') {
-      return workout.listSessions(intParam(params, 'limit', 30));
+      const { limit, offset, take } = pageParams(params, 30);
+      return pageOf(await workout.listSessions(take), limit, offset);
     }
     if (path === '/api/workout/sessions/next' && method === 'GET') return workout.getNext();
     if (path === '/api/workout/sessions/details' && method === 'GET') {
@@ -759,11 +808,12 @@ export function createApiRouter(ctx, {
     // its session date + per-set array, newest-first. UI read only (no MCP op) —
     // the client folds est-1RM/PRs/series over the sets via workout-analysis.js.
     if (path === '/api/workout/exercises/history' && method === 'GET') {
-      return workout.listExerciseLogsByName(params.get('name') || '', { limit: intParam(params, 'limit', 500) });
+      return workout.listExerciseLogsByName(params.get('name') || '', { limit: clampLimit(params.get('limit'), 500) });
     }
 
     if (path === '/api/workout/miband' && method === 'GET') {
-      return workout.listMiBand(intParam(params, 'limit', 100));
+      const { limit, offset, take } = pageParams(params, 100);
+      return pageOf(await workout.listMiBand(take), limit, offset);
     }
     if (method === 'PATCH') {
       const m = /^\/api\/workout\/miband\/([^/]+)$/.exec(path);

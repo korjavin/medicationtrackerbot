@@ -133,7 +133,8 @@ export const CATALOG = [
         "days": {
           "type": "integer",
           "minimum": 1,
-          "description": "Number of days to include (default 1; capped by MCP_MAX_QUERY_DAYS)"
+          "maximum": 366,
+          "description": "Number of days to include (default 1, max 366; also capped by MCP_MAX_QUERY_DAYS). This response has no row limit — it grows with the window — so the window is the bound. Split a longer span into several calls by moving 'date' back."
         },
         "tz": {
           "type": "string",
@@ -240,7 +241,14 @@ export const CATALOG = [
       "properties": {
         "limit": {
           "type": "integer",
-          "description": "Max products to return (default 10)"
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Max products to return (default and maximum 100). Absent, \u003c= 0 or above the maximum yields 100 — never 'all products'."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Products to skip before this page (default 0)."
         }
       }
     },
@@ -286,14 +294,21 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/food/products",
     "risk": "read",
-    "description": "List the user's saved food products (used as templates when logging).",
+    "description": "List the user's saved food products (used as templates when logging). Page a large catalog with limit/offset.",
     "response_summary": "JSON object with 'products' (array of {id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, is_meal}) and 'total' (int).",
     "params_schema": {
       "type": "object",
       "properties": {
         "limit": {
           "type": "integer",
-          "description": "Max products to return (default 50)"
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Max products to return (default and maximum 100). Absent, \u003c= 0 or above the maximum yields 100 — never 'all products'. A full page means there may be more."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Products to skip before this page (default 0). Walk the whole catalog by advancing it one page size at a time until a short or empty page comes back."
         }
       }
     },
@@ -542,7 +557,7 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/bp",
     "risk": "read",
-    "description": "List blood pressure readings, newest first. Use days/limit to constrain the window.",
+    "description": "List blood pressure readings, newest first. Use days/limit to constrain the window, and limit/offset to page through a long history.",
     "response_summary": "JSON array of BP readings with id, measured_at, systolic, diastolic, pulse, site, position, notes, tag.",
     "params_schema": {
       "type": "object",
@@ -555,8 +570,13 @@ export const CATALOG = [
         "limit": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 5000,
-          "description": "Cap rows returned (default 100, max 5000)"
+          "maximum": 1000,
+          "description": "Max rows to return (default 100, max 1000). Absent or \u003c= 0 means the default, never 'all rows'; larger values are clamped to the max. A full page means there may be more."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Rows to skip before this page (default 0). Walk the history by advancing it one page size at a time until a short or empty page comes back."
         }
       }
     },
@@ -706,11 +726,18 @@ export const CATALOG = [
         },
         "limit": {
           "type": "integer",
-          "description": "Max notes (1..200, default 50)"
+          "minimum": 1,
+          "maximum": 200,
+          "description": "Max notes to return (default 50, max 200). Absent or \u003c= 0 means the default, never 'all notes'; larger values are clamped to the max. A full page means there may be more."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Notes to skip before this page (default 0). Simple alternative to before_id for walking pages; prefer before_id when notes may be written while you page."
         },
         "before_id": {
           "type": "integer",
-          "description": "Pagination cursor: only notes with id \u003c this value"
+          "description": "Pagination cursor: only notes with id \u003c this value. Pass the id of the last note on the previous page."
         }
       }
     },
@@ -753,8 +780,13 @@ export const CATALOG = [
         "limit": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 5000,
-          "description": "Cap rows returned (newest first)."
+          "maximum": 1000,
+          "description": "Max sessions to return, newest first (default 100, max 1000). Absent or \u003c= 0 means the default, never 'all sessions'; larger values are clamped to the max. A full page means there may be more."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sessions to skip before this page (default 0). Walk a long sleep history by advancing it one page size at a time until a short or empty page comes back."
         }
       }
     },
@@ -837,7 +869,12 @@ export const CATALOG = [
           "type": "integer",
           "minimum": 1,
           "maximum": 200,
-          "description": "Cap rows returned (default 100, max 200)"
+          "description": "Max rows to return (default 100, max 200 — the goal history's own cap). Absent or \u003c= 0 means the default, never 'all rows'. A full page means there may be more."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Rows to skip before this page (default 0)."
         }
       }
     },
@@ -859,7 +896,7 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/weight",
     "risk": "read",
-    "description": "List weight log entries, newest first.",
+    "description": "List weight log entries, newest first. Page a long history with limit/offset.",
     "response_summary": "JSON array of weight logs with id, measured_at, weight (kg), weight_trend, body_fat, muscle_mass, notes.",
     "params_schema": {
       "type": "object",
@@ -872,8 +909,13 @@ export const CATALOG = [
         "limit": {
           "type": "integer",
           "minimum": 1,
-          "maximum": 5000,
-          "description": "Cap rows returned (default 100, max 5000)"
+          "maximum": 1000,
+          "description": "Max rows to return (default 100, max 1000). Absent or \u003c= 0 means the default, never 'all rows'; larger values are clamped to the max. A full page means there may be more."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Rows to skip before this page (default 0). Walk the history by advancing it one page size at a time until a short or empty page comes back."
         }
       }
     },
@@ -1968,7 +2010,12 @@ export const CATALOG = [
           "type": "integer",
           "minimum": 1,
           "maximum": 1000,
-          "description": "Max workouts to return (default 100)"
+          "description": "Max workouts to return (default 100, max 1000). Absent or \u003c= 0 means the default, never 'all workouts'; larger values are clamped to the max. A full page means there may be more."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Workouts to skip before this page (default 0). Walk further back by advancing it one page size at a time until a short or empty page comes back."
         }
       }
     },
@@ -2131,7 +2178,12 @@ export const CATALOG = [
           "type": "integer",
           "minimum": 1,
           "maximum": 500,
-          "description": "Max sessions to return (default 30, max 500)"
+          "description": "Max sessions to return (default 30, max 500). Absent or \u003c= 0 means the default, never 'all sessions'; larger values are clamped to the max. A full page means there may be more."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Sessions to skip before this page (default 0). Walk further back by advancing it one page size at a time until a short or empty page comes back."
         }
       }
     },
