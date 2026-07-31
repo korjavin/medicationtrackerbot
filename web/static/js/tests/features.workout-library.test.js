@@ -192,6 +192,41 @@ describe('features/workout/library.js — split-file integration', () => {
       expect(Array.from(datalist.options)).toHaveLength(0);
     });
 
+    // The library half is a local vault read; it must not wait on the 913 KB
+    // catalog asset, or the popup keeps offering rows the user typed past.
+    it('paints the library half before awaiting the catalog fetch', async () => {
+      const { window, document } = env;
+      let releaseCatalog;
+      const gate = new Promise((resolve) => { releaseCatalog = resolve; });
+      window.fetch = vi.fn(async (url) => {
+        if (!String(url).includes('exercises-catalog.json')) return { ok: true, status: 200, json: async () => ({}) };
+        await gate;
+        return { ok: true, status: 200, json: async () => CATALOG };
+      });
+      window.apiCall = vi.fn(async () => ([
+        { id: 7, name: 'My custom bench' },
+        { id: 8, name: 'Bar dip' },
+      ]));
+      const datalist = document.getElementById('exercise-catalog-datalist');
+      const input = document.getElementById('exercise-library-name');
+      input.value = 'b';
+
+      await window.WorkoutLibrary.populatePickerOptions(datalist, input);
+      expect(Array.from(datalist.options).map((o) => o.value)).toEqual(['My custom bench', 'Bar dip']);
+
+      // Second character: the catalog fetch is now in flight...
+      input.value = 'be';
+      const pending = input.oninput();
+
+      // ...and the library half has already narrowed, synchronously.
+      expect(Array.from(datalist.options).map((o) => o.value)).toEqual(['My custom bench']);
+
+      releaseCatalog();
+      await pending;
+      expect(Array.from(datalist.options).map((o) => o.value))
+        .toEqual(['My custom bench', 'Barbell bench press']);
+    });
+
     it('fetches the 913 KB asset only once across repeated refreshes', async () => {
       const { window, document } = env;
       const fetchSpy = stubCatalogFetch(window, { ok: true, status: 200, json: async () => CATALOG });

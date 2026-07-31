@@ -342,40 +342,22 @@ function _buildSuggestionOption(item) {
     return option;
 }
 
-// Rebuild every option of a <datalist> from the typed query.
-let _catalogRefreshSeq = 0; // module-state: last-writer-wins guard for the awaited first fetch
-async function refreshExerciseSuggestions(datalist, query) {
-    if (!datalist) return;
-    const seq = ++_catalogRefreshSeq;
-    const q = (query || '').trim().toLowerCase();
-    // Library first: those options carry the autofill dataset, so when a name
-    // sits in both halves the library one wins the dedupe below.
-    const matches = q
-        ? (_pickerLibraryItems.get(datalist) || []).filter(i => (i.name || '').toLowerCase().includes(q))
-        : [];
-    if (q.length >= EXERCISE_CATALOG_MIN_QUERY && matches.length < EXERCISE_SUGGESTION_LIMIT) {
-        const names = await _loadExerciseCatalogNames();
-        // Only the first refresh actually awaits a network fetch; while it is
-        // in flight the user can type on or delete back below the threshold,
-        // and that later (synchronous) refresh already repainted the datalist.
-        // Drop this stale continuation instead of re-appending its matches.
-        if (seq !== _catalogRefreshSeq) return;
-        for (const name of names) {
-            if (name.toLowerCase().includes(q)) matches.push({ name });
-        }
-    }
+// Replace every option of a <datalist> with the capped, deduped top of
+// `matches` (already in library-then-catalog order).
+function _paintSuggestions(datalist, matches, q) {
     // Hoist an exact match ahead of the cap: onSessionExerciseSelect,
     // saveNewSessionExercise and the exercises.js onchange all re-look-up the
     // picked value in datalist.options, and picking from the native popup
-    // fires `input` (this refresh, with the full picked name as the query)
-    // before `change` (the lookup) — slicing the exact row away would make a
-    // picked name look like an unknown one.
-    const exact = matches.findIndex(m => (m.name || '').toLowerCase() === q);
-    if (exact > 0) matches.unshift(matches.splice(exact, 1)[0]);
+    // fires `input` (a refresh, with the full picked name as the query) before
+    // `change` (the lookup) — slicing the exact row away would make a picked
+    // name look like an unknown one.
+    const ordered = matches.slice();
+    const exact = ordered.findIndex(m => (m.name || '').toLowerCase() === q);
+    if (exact > 0) ordered.unshift(ordered.splice(exact, 1)[0]);
 
     const frag = document.createDocumentFragment();
     const seen = new Set();
-    for (const item of matches) {
+    for (const item of ordered) {
         const key = (item.name || '').toLowerCase();
         if (!key || seen.has(key)) continue;
         seen.add(key);
@@ -384,6 +366,36 @@ async function refreshExerciseSuggestions(datalist, query) {
     }
     datalist.replaceChildren();
     datalist.appendChild(frag);
+}
+
+// Rebuild every option of a <datalist> from the typed query.
+let _catalogRefreshSeq = 0; // module-state: last-writer-wins guard for the awaited first fetch
+async function refreshExerciseSuggestions(datalist, query) {
+    if (!datalist) return;
+    const seq = ++_catalogRefreshSeq;
+    const q = (query || '').trim().toLowerCase();
+    // Library first: those options carry the autofill dataset, so when a name
+    // sits in both halves the library one wins the dedupe.
+    const matches = q
+        ? (_pickerLibraryItems.get(datalist) || []).filter(i => (i.name || '').toLowerCase().includes(q))
+        : [];
+    // Paint the library half NOW: it is a local vault read, while the first
+    // catalog refresh awaits a 913 KB asset. Leaving the previous query's rows
+    // up until that lands would keep offering suggestions the user has already
+    // typed past.
+    _paintSuggestions(datalist, matches, q);
+    if (q.length >= EXERCISE_CATALOG_MIN_QUERY && matches.length < EXERCISE_SUGGESTION_LIMIT) {
+        const names = await _loadExerciseCatalogNames();
+        // Only the first refresh actually awaits a network fetch; while it is
+        // in flight the user can type on or delete back below the threshold,
+        // and that later refresh already repainted the datalist. Drop this
+        // stale continuation instead of re-appending its matches.
+        if (seq !== _catalogRefreshSeq) return;
+        for (const name of names) {
+            if (name.toLowerCase().includes(q)) matches.push({ name });
+        }
+        _paintSuggestions(datalist, matches, q);
+    }
 }
 
 // Wire a name input to its <datalist> so typing refilters the suggestions.
