@@ -237,8 +237,8 @@ describe('workout.js session and stats flows', () => {
       expect(statsContainer.querySelector('.wg-workouts-stats__range')).not.toBeNull();
       expect(statsContainer.querySelector('.wg-workouts-stats__chart-panel')).not.toBeNull();
       expect(statsContainer.innerHTML).toContain('Top Exercises');
-      expect(statsContainer.innerHTML).toContain('Active Weeks');
-      expect(statsContainer.innerHTML).toContain('30-Day Sessions');
+      expect(statsContainer.innerHTML).toContain('Streak');
+      expect(statsContainer.innerHTML).toContain('Sessions');
     } finally {
       cleanup();
     }

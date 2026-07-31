@@ -43,6 +43,44 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         expect(stats.top_exercises).toEqual([
             { exercise_name: 'Squat', session_count: 1, total_volume_kg: 5 * 5 * 80, max_weight_kg: 80 }
         ]);
+        // A session logged today is inside every window, and one trained week
+        // is a one-week streak.
+        expect(stats.range).toBe('30d');
+        expect(stats.current_streak_weeks).toBe(1);
+        const sevenDay = await window.apiCallDirect('/api/workout/stats?range=7d');
+        expect(sevenDay.range).toBe('7d');
+        expect(sevenDay.total_sessions).toBe(1);
+        expect(sevenDay.top_exercises).toHaveLength(1);
+    });
+
+    it('range scopes both the counts and top_exercises off the session date', async () => {
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        const { window } = env;
+        const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Deadlift' });
+        const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: session.id, exercise_id: item.id, exercise_name: item.name, source: 'library',
+            target_sets: 3, target_reps_min: 5, target_weight_kg: 100, status: 'completed'
+        });
+        await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+        // Backdate the session 60 days: inside 90d/all, outside 7d/30d. The
+        // log rides along because top_exercises is scoped by its session date.
+        const backdated = new Date(Date.now() - 60 * 86400000).toISOString();
+        for (const rec of await env.records.list('workoutsession')) {
+            await env.records.put('workoutsession', { ...rec, scheduled_date: backdated });
+        }
+
+        const near = await window.apiCallDirect('/api/workout/stats?range=30d');
+        expect(near.total_sessions).toBe(0);
+        expect(near.top_exercises).toBeNull();
+
+        const far = await window.apiCallDirect('/api/workout/stats?range=90d');
+        expect(far.total_sessions).toBe(1);
+        expect(far.top_exercises).toHaveLength(1);
+
+        const all = await window.apiCallDirect('/api/workout/stats?range=all');
+        expect(all.total_sessions).toBe(1);
     });
 
     it('exercises/history returns completed logs for one exercise with per-set arrays + session dates, newest-first', async () => {

@@ -807,7 +807,7 @@ export function createApiRouter(ctx, {
       return true;
     }
 
-    if (path === '/api/workout/stats' && method === 'GET') return workout.getStats();
+    if (path === '/api/workout/stats' && method === 'GET') return workout.getStats({ range: params.get('range') });
 
     // Per-exercise history (Phase 3): completed logs for one exercise, each with
     // its session date + per-set array, newest-first. UI read only (no MCP op) —
