@@ -1094,6 +1094,25 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(await records.list('workoutsession')).toHaveLength(1);
     });
 
+    // bd med-3q8.2: the drain is idempotent by its deterministic recordId, so it
+    // must not go through createAdHocSession's resume-the-live-session guard —
+    // adopting the app's in-flight session would complete someone's workout out
+    // from under them, and leave the tg-<id> record unwritten (so a re-drain
+    // would log yet another session).
+    it('/workout logs its own session instead of completing one the user has in progress', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const opts = { ...domainsFor(records, now), editReply: vi.fn() };
+        const live = await opts.workout.createAdHocSession();
+
+        await applyTGCommand(commandEvent('/workout legs'), 14, opts);
+
+        const sessions = await records.list('workoutsession');
+        expect(sessions).toHaveLength(2);
+        expect(sessions.find((s) => s.id === live.id).status).toBe('in_progress');
+        expect(sessions.find((s) => s.recordId === 'tg-14')).toMatchObject({ status: 'completed', notes: 'legs' });
+    });
+
     it('/activity parses the description client-side and logs one manual mi-band activity', async () => {
         const records = fakeRecords(seed());
         const now = () => DRAIN_MS;
