@@ -1377,6 +1377,16 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(editReply.mock.calls[1]).toEqual([REPLY_ID, 'Your BP averaged 128/84.']);
     });
 
+    it('a replayed trial-consent refusal keeps its Allow button — the text points at one', async () => {
+        const records = fakeRecords();
+        const editReply = vi.fn();
+        const agent = { run: vi.fn().mockRejectedValue(Object.assign(new Error('consent'), { code: 'trial_consent_required', scope: 'tg' })) };
+        const opts = { agent, records, editReply };
+        await applyTGText(textEvent('hi'), 49, opts);
+        await applyTGText(textEvent('hi'), 49, opts);
+        expect(editReply.mock.calls[1]).toEqual([REPLY_ID, expect.stringMatching(/trial AI/), { trialConsentScope: 'tg' }]);
+    });
+
     it('a run cut short after the marker still answers instead of leaving "Queued" forever', async () => {
         // The marker exists with no stored reply — exactly what a tab closed
         // mid-run leaves behind.

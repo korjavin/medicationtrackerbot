@@ -734,7 +734,14 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
   // modified", telegram.go EditReply). No text means the run never finished.
   const marker = (await records.list(TG_AGENT_MARKER_TYPE)).find((r) => !r.deleted && r.recordId === markerId);
   if (marker) {
-    await reply(marker.reply || '🤖 That message was interrupted before I could answer — send it again.');
+    // replyScope rides along so a replayed trial-consent refusal keeps its
+    // "Allow trial AI" button — the text says "tap below", so re-issuing it
+    // button-less would point at nothing. Absent for every other answer, which
+    // must stay a two-argument edit.
+    await reply(
+      marker.reply || '🤖 That message was interrupted before I could answer — send it again.',
+      ...(marker.replyScope ? [{ trialConsentScope: marker.replyScope }] : []),
+    );
     return;
   }
   await records.put(TG_AGENT_MARKER_TYPE, { recordId: markerId, clientTs: now(), deleted: false });
@@ -742,7 +749,13 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
   // Every terminal answer goes through here so the marker remembers it. Same
   // ...rest passthrough as `reply` — the trial-consent path carries a scope.
   const finalReply = async (text, ...rest) => {
-    await records.put(TG_AGENT_MARKER_TYPE, { recordId: markerId, clientTs: now(), deleted: false, reply: text });
+    await records.put(TG_AGENT_MARKER_TYPE, {
+      recordId: markerId,
+      clientTs: now(),
+      deleted: false,
+      reply: text,
+      replyScope: (rest[0] && rest[0].trialConsentScope) || '',
+    });
     await reply(text, ...rest);
   };
 
