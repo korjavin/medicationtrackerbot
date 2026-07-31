@@ -310,6 +310,48 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(document.getElementById('session-add-exercise-id').value).toBe('');
   });
 
+  // med-3q8.1 — the session picker used to append all 1324 catalog names, so
+  // the native suggestion popup covered the whole screen on mobile.
+  it('the session picker holds only library entries until 2 characters are typed', async () => {
+    const { window, document } = env;
+    window.fetch = vi.fn(async (url) => (
+      String(url).includes('exercises-catalog.json')
+        ? {
+            ok: true,
+            status: 200,
+            json: async () => ({ exercises: [{ name: 'Barbell bench press' }, { name: '3/4 sit-up' }] })
+          }
+        : { ok: true, status: 200, json: async () => ({}) }
+    ));
+    window.apiCall = vi.fn(async (endpoint) => (
+      endpoint === '/api/workout/exercise-library'
+        ? [{ id: 11, name: 'Overhead Press', default_sets: 3, default_reps_min: 8, default_weight_kg: 35 }]
+        : []
+    ));
+    window.WorkoutSessionsState.data = { id: 77, status: 'in_progress', logs: [] };
+
+    const datalist = document.getElementById('unique-exercises-list');
+    await window.showAddExerciseToSessionModal();
+    expect(Array.from(datalist.options).map((o) => o.value)).toEqual(['Overhead Press']);
+
+    const nameInput = document.getElementById('session-add-exercise-name');
+    nameInput.value = 'bench';
+    await nameInput.oninput();
+
+    const values = Array.from(datalist.options).map((o) => o.value);
+    expect(values).toContain('Overhead Press');
+    expect(values).toContain('Barbell bench press');
+    expect(values).not.toContain('3/4 sit-up');
+
+    // The picked catalog name is still findable when `change` fires, and stays
+    // id-less so save routes it through resolveOrCreateLibraryId.
+    nameInput.value = 'Barbell bench press';
+    await nameInput.oninput();
+    window.onSessionExerciseSelect();
+    expect(document.getElementById('session-add-exercise-id').value).toBe('');
+    expect(Array.from(datalist.options).map((o) => o.value)).toContain('Barbell bench press');
+  });
+
   it('saveNewSessionExercise rolls back the optimistic log when the POST returns null', async () => {
     const { window, document } = env;
     installApiCache(window);
