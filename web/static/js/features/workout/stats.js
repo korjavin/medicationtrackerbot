@@ -101,6 +101,7 @@ async function _renderBodyPartSplit(root, topExercises) {
 
 async function loadWorkoutStatsTab() {
     const container = document.getElementById('workout-stats-display');
+    const range = getActiveWorkoutsStatsRange();
     await window.DataStore.loadSWR({
         key: 'workout_stats',
         tags: ['workout'],
@@ -112,9 +113,14 @@ async function loadWorkoutStatsTab() {
         // DOM visible after a successful save followed by a failed refresh.
         fetcher: async () => {
             if (!window.apiCallDirect) throw new Error('apiCallDirect not available');
-            return await window.apiCallDirect('/api/workout/stats');
+            return await window.apiCallDirect(`/api/workout/stats?range=${encodeURIComponent(range)}`);
         },
         onCached: async (cached) => {
+            // One cache key holds whichever range was fetched last. Painting a
+            // different range's numbers under freshly-switched pills reads as a
+            // bug, so skip the cached paint and wait for the fetch (local-first:
+            // it resolves in ms).
+            if (cached && cached.range && cached.range !== range) return;
             _renderWorkoutStats(container, cached);
         },
         onFresh: async (stats) => {
@@ -179,7 +185,11 @@ function _renderWorkoutStats(container, stats) {
                 b.classList.toggle('wg-workouts-stats__range-btn--active', isActive);
                 b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
             });
+            // Chart repaints from the payload we already hold (instant); the
+            // reload swaps in the tiles + Top Exercises for the new window,
+            // which only the domain can compute.
             renderChartInto(range);
+            loadWorkoutStatsTab();
         });
         rangeButtons.set(range, btn);
         rangeStrip.appendChild(btn);
@@ -235,8 +245,11 @@ function _renderWorkoutStats(container, stats) {
     legend.appendChild(legendChip);
     root.appendChild(legend);
 
-    // Stat tiles — 2×2 `.wg-card` grid. Labels mirror the existing API
-    // semantics: Active Weeks / 30-Day Sessions / Done / Skipped.
+    // Stat tiles — 2×2 `.wg-card` grid, consistency-first: Streak / Sessions /
+    // Done / Skipped. Every tile except Streak is scoped to the active range
+    // (the domain computes them from the `range` query param); Streak is
+    // whole-history by design — consecutive weeks holding ≥1 completed
+    // session, so one skipped workout inside a trained week doesn't break it.
     const tiles = document.createElement('div');
     tiles.className = 'wg-workouts-stats__tiles';
     const buildTile = (valueText, labelText) => {
@@ -256,9 +269,9 @@ function _renderWorkoutStats(container, stats) {
         return card;
     };
 
-    tiles.appendChild(buildTile(String(stats.active_weeks || 0), 'Active Weeks'));
-    tiles.appendChild(buildTile(String(stats.total_sessions || 0), '30-Day Sessions'));
-    tiles.appendChild(buildTile(String(stats.completed_sessions || 0), 'Done'));
+    tiles.appendChild(buildTile(`${stats.current_streak_weeks || 0} wk`, 'Streak'));
+    tiles.appendChild(buildTile(String(stats.total_sessions || 0), 'Sessions'));
+    tiles.appendChild(buildTile(`${Math.round(stats.completion_rate || 0)}%`, 'Done'));
     tiles.appendChild(buildTile(String(stats.skipped_sessions || 0), 'Skipped'));
     root.appendChild(tiles);
 

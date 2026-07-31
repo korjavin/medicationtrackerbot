@@ -6,8 +6,8 @@
 //     — active state via `.wg-gloss--sun`, persisted to the
 //     `mt-workouts-stats-range` localStorage key
 //   • `.wg-workouts-stats__chart-panel` hosts the WGWorkoutChart output
-//   • 2×2 `.wg-card` stat-tile grid for Active Weeks / 30-Day Sessions /
-//     Done / Skipped
+//   • 2×2 `.wg-card` stat-tile grid for Streak / Sessions / Done / Skipped,
+//     every tile but Streak scoped to the active range
 //   • Top Exercises section renders as a `.wg-section-label` + list of
 //     `.wg-card` rows when `top_exercises` is non-empty
 //   • Empty-state (`stats === null`) falls back to "No statistics available
@@ -38,7 +38,9 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             weekly_activity.push({ week: ts, completed: 2 + i, skipped: 0 });
         }
         return {
+            range: 'all',
             active_weeks: 5,
+            current_streak_weeks: 4,
             total_sessions: 20,
             completed_sessions: 17,
             skipped_sessions: 3,
@@ -109,9 +111,13 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
         expect(activeBtn.dataset.range).toBe('30d');
     });
 
-    it('clicking a range button persists the choice and re-renders the chart', () => {
+    it('clicking a range button persists the choice, re-renders the chart, and reloads the range-scoped numbers', () => {
         const { document, window } = env;
         const container = document.getElementById('workout-stats-display');
+        // The tiles + Top Exercises are computed by the domain per range, so a
+        // pill tap has to re-fetch — repainting the chart alone was the bug.
+        let reloads = 0;
+        window.loadWorkoutStatsTab = () => { reloads++; return Promise.resolve(); };
         window._renderWorkoutStats(container, populatedStats({ weeks: 12 }));
 
         const buttons = container.querySelectorAll('.wg-workouts-stats__range-btn');
@@ -130,6 +136,22 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
         const chartNode = panel.firstElementChild;
         expect(chartNode).not.toBeNull();
         expect(chartNode.dataset.workoutRange).toBe('7d');
+
+        expect(reloads).toBe(1);
+    });
+
+    it('fetches the persisted range so the tiles cover the selected window', async () => {
+        const { window } = env;
+        const urls = [];
+        window.apiCallDirect = async (url) => {
+            urls.push(url);
+            return populatedStats();
+        };
+        window.localStorage.setItem('mt-workouts-stats-range', '90d');
+
+        await window.loadWorkoutStatsTab();
+
+        expect(urls).toEqual(['/api/workout/stats?range=90d']);
     });
 
     it('renders the chart panel with a WGWorkoutChart output when weekly_activity is present', () => {
@@ -174,12 +196,12 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
         const labels = Array.from(tiles).map((t) =>
             t.querySelector('.wg-workouts-stats__tile-label').textContent
         );
-        expect(labels).toEqual(['Active Weeks', '30-Day Sessions', 'Done', 'Skipped']);
+        expect(labels).toEqual(['Streak', 'Sessions', 'Done', 'Skipped']);
 
         const values = Array.from(tiles).map((t) =>
             t.querySelector('.wg-workouts-stats__tile-value').textContent
         );
-        expect(values).toEqual(['5', '20', '17', '3']);
+        expect(values).toEqual(['4 wk', '20', '85%', '3']);
     });
 
     it('renders the Top Exercises section when top_exercises is non-empty', () => {

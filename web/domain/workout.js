@@ -1984,33 +1984,56 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return monday.toISOString().slice(0, 10);
   }
 
-  // getStats ports GetStats (stats.go:44): 30-day session counts +
-  // completion rate, a 12-week completed/skipped heatmap bucketed by ISO
-  // Monday, and top exercises by aggregate volume. weekly_activity and
-  // top_exercises both stay `null` (never `[]`) when nothing falls in their
-  // window — the Go source declares both with `var` and only appends, so an
-  // empty result marshals to JSON null; that's a real frontend contract
-  // (stats.js reads `Array.isArray(...)` / truthiness), not an oversight.
-  async function getStats() {
-    // The 500-cap mirrors Go's ListHistory(userID, 500) and covers the 30-day +
-    // 12-week windows only. top_exercises below aggregates over the full session
-    // set, matching ListExerciseStats' unbounded JOIN (repo.go:1479).
+  // The Monday one week before `monday` ("YYYY-MM-DD" in, same out).
+  function weekBefore(monday) {
+    return new Date(new Date(`${monday}T00:00:00Z`).getTime() - 7 * 86400000)
+      .toISOString().slice(0, 10);
+  }
+
+  // getStats ports GetStats (stats.go:44): session counts + completion rate,
+  // a completed/skipped heatmap bucketed by ISO Monday, and top exercises by
+  // aggregate volume. weekly_activity and top_exercises both stay `null`
+  // (never `[]`) when nothing falls in their window — the Go source declares
+  // both with `var` and only appends, so an empty result marshals to JSON
+  // null; that's a real frontend contract (stats.js reads `Array.isArray(...)`
+  // / truthiness), not an oversight.
+  //
+  // `range` ('7d' | '30d' | '90d' | 'all', default '30d' = the historical
+  // window) scopes the counts AND top_exercises, so the Stats tab's range
+  // pills move every number on screen instead of only the chart.
+  // current_streak_weeks is deliberately range-independent: a streak is a
+  // property of the whole history, not of the window you happen to be viewing.
+  async function getStats(opts) {
+    const rangeDays = { '7d': 7, '30d': 30, '90d': 90 };
+    const requested = opts && opts.range;
+    const range = (requested === 'all' || rangeDays[requested]) ? requested : '30d';
+    // The 500-cap mirrors Go's ListHistory(userID, 500).
     const allSessions = sortSessions(await activeRecords(WORKOUT_RECORD_TYPES.SESSION));
     const sessions = allSessions.slice(0, 500);
     const nowMs = now();
-    const since30 = nowMs - 30 * 24 * 60 * 60 * 1000;
-    const cutoff12w = nowMs - 84 * 24 * 60 * 60 * 1000;
+    const since30 = range === 'all' ? -Infinity : nowMs - rangeDays[range] * 24 * 60 * 60 * 1000;
+    // The heatmap covers at least 12 weeks (the chart filters down to the
+    // active range itself), and everything we have when the range is 'all' —
+    // otherwise the "All" pill would silently cap the trend at 12 weeks.
+    const cutoff12w = Math.min(nowMs - 84 * 24 * 60 * 60 * 1000, since30);
 
     let totalSessions = 0;
     let completedSessions = 0;
     let skippedSessions = 0;
     const weekMap = new Map();
 
+    // Weeks (ISO Monday) holding at least one completed session, over the whole
+    // history rather than the active range — the streak below walks it.
+    const completedWeeks = new Set();
+
     for (const session of sessions) {
       const schedMs = new Date(session.scheduled_date).getTime();
       if (schedMs >= since30) {
         if (session.status === 'completed') { completedSessions++; totalSessions++; }
         else if (session.status === 'skipped') { skippedSessions++; totalSessions++; }
+      }
+      if (session.status === 'completed' && !Number.isNaN(schedMs)) {
+        completedWeeks.add(mondayOf(String(session.scheduled_date).slice(0, 10)));
       }
       if (schedMs >= cutoff12w) {
         const week = mondayOf(String(session.scheduled_date).slice(0, 10));
@@ -2031,10 +2054,19 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       if (entry.completed > 0) activeWeeks++;
     }
 
-    const sessionIds = new Set(allSessions.map((s) => s.id));
+    // Consecutive weeks with at least one completed session, counting back
+    // from the current week. An untrained current week does not break the
+    // streak (it isn't over yet) — we start the walk one week back instead.
+    let cursor = mondayOf(localDateStr(nowMs, timeZone));
+    if (!completedWeeks.has(cursor)) cursor = weekBefore(cursor);
+    let currentStreakWeeks = 0;
+    while (completedWeeks.has(cursor)) { currentStreakWeeks++; cursor = weekBefore(cursor); }
+
+    const sessionSchedule = new Map(allSessions.map((s) => [s.id, new Date(s.scheduled_date).getTime()]));
     const agg = new Map();
     for (const log of await activeRecords(WORKOUT_RECORD_TYPES.LOG)) {
-      if (log.status !== 'completed' || !sessionIds.has(log.session_id)) continue;
+      const schedMs = sessionSchedule.get(log.session_id);
+      if (log.status !== 'completed' || schedMs === undefined || schedMs < since30) continue;
       let entry = agg.get(log.exercise_name);
       if (!entry) {
         entry = { exercise_name: log.exercise_name, sessionIds: new Set(), total_volume_kg: 0, max_weight_kg: 0 };
@@ -2058,11 +2090,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (topExercises.length === 0) topExercises = null;
 
     return {
+      range,
       total_sessions: totalSessions,
       completed_sessions: completedSessions,
       skipped_sessions: skippedSessions,
       completion_rate: totalSessions > 0 ? (completedSessions / totalSessions) * 100 : 0,
       active_weeks: activeWeeks,
+      current_streak_weeks: currentStreakWeeks,
       top_exercises: topExercises,
       weekly_activity: weeklyActivity,
     };

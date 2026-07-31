@@ -118,11 +118,18 @@ output(result)`,
 			Topic:           "workouts",
 			Method:          "GET",
 			Path:            "/api/workout/stats",
-			Risk:            RiskRead,
-			Description:     "Get aggregated workout statistics: session counts, completion rate, the most-trained exercises, and a per-week activity breakdown. There is no per-group breakdown — filter workouts.sessions.list on group_id for that.",
-			ResponseSummary: "Stats object with total_sessions, completed_sessions, skipped_sessions, completion_rate (percent, 0-100), active_weeks, top_exercises[] and weekly_activity[].",
+			Risk: RiskRead,
+			ParamsSchema: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "range": {"type": "string", "enum": ["7d", "30d", "90d", "all"], "description": "Window the counts and top_exercises cover. Default 30d."}
+  }
+}`),
+			Description:     "Get aggregated workout statistics: session counts, completion rate, the current weekly streak, the most-trained exercises, and a per-week activity breakdown. `range` scopes the counts and top_exercises (default 30d); current_streak_weeks is always whole-history. There is no per-group breakdown — filter workouts.sessions.list on group_id for that.",
+			ResponseSummary: "Stats object with range (the echoed window), total_sessions, completed_sessions, skipped_sessions, completion_rate (percent, 0-100), active_weeks, current_streak_weeks, top_exercises[] and weekly_activity[].",
 			ResponseExample: `{
-  "total_sessions": 48, "completed_sessions": 40, "skipped_sessions": 8, "completion_rate": 83.3, "active_weeks": 12,
+  "range": "30d",
+  "total_sessions": 48, "completed_sessions": 40, "skipped_sessions": 8, "completion_rate": 83.3, "active_weeks": 12, "current_streak_weeks": 4,
   "top_exercises": [
     {"exercise_name": "Bench Press", "session_count": 22, "total_volume_kg": 41800.0, "max_weight_kg": 75.0}
   ],
