@@ -413,21 +413,28 @@ window.MedTrackerCloudReady = (async function boot() {
         //
         // Then drain whatever the relay sealed while we were away: a Confirm
         // tapped in Telegram at 09:00 is applied here, backdated to 09:00, on
-        // the first unlock after it. Key publish must land first — draining
-        // needs the private key it reads from the vault. Reminders are recomputed
-        // afterwards because a confirmed dose removes its own re-reminders.
+        // the first unlock after it. Reminders are recomputed afterwards because
+        // a confirmed dose removes its own re-reminders.
+        //
+        // ORDER (bd med-2yl): the poller and the wake listener go in FIRST, and
+        // the two network steps each carry their OWN catch. They used to be
+        // awaited ahead of both installs under a single shared catch, so one
+        // throw — a key PUT that 500s, a drain fetch on a radio that just came
+        // back — cost the page BOTH the 5s poller and the wake listener for as
+        // long as that page lived, and every later Telegram command sat at
+        // "⏳ Queued" until a reload. Neither install depends on those steps:
+        // drainInbox reads the private key from the vault itself and no-ops when
+        // there is none. ensureInboxKey still runs before the INITIAL drain — on
+        // a first-ever unlock it is what puts that key in the vault — it just no
+        // longer gates anything else.
         import('/js/inbox.js')
             .then(async ({ ensureInboxKey, drainInbox, startInboxPolling }) => {
-                await ensureInboxKey(ctx);
                 const { createInboxApplier } = await import('/js/inbox-apply.js');
                 const apply = createInboxApplier(ctx);
                 const afterApply = async () => {
                     const { scheduleReminderRecompute } = await import('/js/reminders.js');
                     scheduleReminderRecompute(ctx);
                 };
-
-                const result = await drainInbox(ctx, { apply });
-                if (result.applied > 0) await afterApply();
 
                 // Keep draining while the tab is open, so a /bp texted to the
                 // bot lands (and its "Queued" reply becomes "Recorded") within
@@ -456,8 +463,18 @@ window.MedTrackerCloudReady = (async function boot() {
                             .catch((e) => console.error('[cloud-boot] inbox wake drain failed', e));
                     });
                 }
+
+                // Both best-effort, each with its own catch — see the ORDER note
+                // above. A failed key publish means the relay refuses inbound
+                // events, not that the app degrades; a failed initial drain is
+                // just the next poll tick's work.
+                await ensureInboxKey(ctx)
+                    .catch((e) => console.error('[cloud-boot] inbox key publish failed', e));
+                const result = await drainInbox(ctx, { apply })
+                    .catch((e) => { console.error('[cloud-boot] initial inbox drain failed', e); return { applied: 0 }; });
+                if (result.applied > 0) await afterApply();
             })
-            .catch((e) => console.error('[cloud-boot] inbox key publish/drain failed', e));
+            .catch((e) => console.error('[cloud-boot] inbox poller install failed', e));
 
         // Snooze / don't-bug taps from a push notification (med-9b8.3). The
         // service worker has no DEK, so it hands the action here instead of

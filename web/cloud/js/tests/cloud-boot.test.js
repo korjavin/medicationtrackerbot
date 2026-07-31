@@ -267,15 +267,12 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     });
   }
 
-  it('acks on receipt, drains on an inbox-wake message, and ignores every other SW message', async () => {
+  // Boot far enough to reach the post-unlock inbox block, with a fake SW
+  // collecting every `message` listener. `inbox` overrides the inbox.js surface.
+  async function bootInbox(inbox = {}) {
     const handlers = [];
     fakeServiceWorker(handlers);
-    let drains = 0;
-    // The wake drain hangs from the second call on, so the ack assertion below
-    // can only pass if the ack goes out on RECEIPT — acking after the drain
-    // resolved would let a slow drain earn the user a duplicate notification.
-    let drainHangs = false;
-
+    let pollersStarted = 0;
     await runBoot({
       modules: {
         'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
@@ -291,36 +288,89 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
         'mcp-responder.js': { refreshResponder: () => {} },
         'inbox.js': {
           ensureInboxKey: async () => {},
-          drainInbox: () => {
-            drains += 1;
-            return drainHangs ? new Promise(() => {}) : Promise.resolve({ applied: 1 });
-          },
-          startInboxPolling: () => {},
+          drainInbox: async () => ({ applied: 0 }),
+          startInboxPolling: () => { pollersStarted += 1; },
+          ...inbox,
         },
         'inbox-apply.js': { createInboxApplier: () => async () => {} },
         'feedback-config.js': { getFeedbackRecipient: () => '' },
       },
     });
     await flush();
+    const acks = [];
+    const port = { postMessage: (m) => acks.push(m) };
+    return {
+      acks,
+      handlers,
+      pollers: () => pollersStarted,
+      dispatch: (data) => handlers.forEach((h) => h({ data, ports: [port] })),
+    };
+  }
+
+  it('acks on receipt, drains on an inbox-wake message, and ignores every other SW message', async () => {
+    let drains = 0;
+    // The wake drain hangs from the second call on, so the ack assertion below
+    // can only pass if the ack goes out on RECEIPT — acking after the drain
+    // resolved would let a slow drain earn the user a duplicate notification.
+    let drainHangs = false;
+
+    const { acks, dispatch, handlers } = await bootInbox({
+      drainInbox: () => {
+        drains += 1;
+        return drainHangs ? new Promise(() => {}) : Promise.resolve({ applied: 1 });
+      },
+    });
 
     expect(drains).toBe(1); // the boot-time drain
     expect(handlers.length).toBeGreaterThan(0);
 
-    const acks = [];
-    const port = { postMessage: (m) => acks.push(m) };
-    const dispatch = (data, ports) => handlers.forEach((h) => h({ data, ports }));
-
     drainHangs = true;
-    dispatch({ type: 'inbox-wake' }, [port]);
+    dispatch({ type: 'inbox-wake' });
     await flush();
     expect(drains).toBe(2);
     expect(acks).toEqual(['ack']); // answered while the drain is still running
 
-    dispatch({ type: 'reminder-action', route: '/api/bp/reminder/snooze' }, [port]);
-    dispatch({ type: 'inbox_wake' }, [port]);
+    dispatch({ type: 'reminder-action', route: '/api/bp/reminder/snooze' });
+    dispatch({ type: 'inbox_wake' });
     await flush();
     expect(drains).toBe(2);
     expect(acks).toEqual(['ack']); // no other SW message may ack or drain
+  });
+
+  // med-2yl: both network steps used to be awaited AHEAD of the poller and the
+  // wake-listener installs, under one shared catch. So a single throw — a key
+  // PUT that 500s, a drain fetch on a radio that just came back — cost the page
+  // BOTH for as long as that page lived, and every Telegram command after it sat
+  // at "⏳ Queued" until a reload. Neither install may depend on either step.
+  it('still installs the poller and the wake listener when ensureInboxKey rejects', async () => {
+    let drains = 0;
+    const { acks, dispatch, pollers } = await bootInbox({
+      ensureInboxKey: async () => { throw new Error('key publish 500'); },
+      drainInbox: async () => { drains += 1; return { applied: 0 }; },
+    });
+
+    expect(pollers()).toBe(1); // the 5s poller went in before the failing PUT
+    expect(drains).toBe(1);    // ...and the initial drain still ran after it
+
+    dispatch({ type: 'inbox-wake' });
+    await flush();
+    expect(acks).toEqual(['ack']); // the wake listener is live too
+    expect(drains).toBe(2);
+  });
+
+  it('still installs the poller and the wake listener when the initial drain rejects', async () => {
+    let drains = 0;
+    const { acks, dispatch, pollers } = await bootInbox({
+      drainInbox: async () => { drains += 1; throw new Error('radio just came back'); },
+    });
+
+    expect(pollers()).toBe(1);
+    expect(drains).toBe(1); // the boot drain threw...
+
+    dispatch({ type: 'inbox-wake' });
+    await flush();
+    expect(acks).toEqual(['ack']); // ...and the page still takes the next wake
+    expect(drains).toBe(2);
   });
 });
 
