@@ -110,15 +110,30 @@ describe('inbox.js — mailbox transport', () => {
         expect(events[0].event).toEqual(JSON.parse(VECTOR.plaintext));
     });
 
-    it('throws on an event it cannot open rather than silently dropping a real tap', async () => {
+    // med-3q8.3: an un-openable seal is reported PER EVENT and never thrown out
+    // of the page. It used to throw, which killed the whole drain before it
+    // reached the events it could apply — every later Telegram command then sat
+    // at "⏳ Queued" forever. It is still never silently dropped (the caller
+    // leaves it queued, so a device holding the matching key can drain it).
+    it('reports an event it cannot open without dropping it or aborting the page', async () => {
         const priv = await vaultPrivateKey();
         const tampered = fromBase64(VECTOR.sealed_b64);
         tampered[tampered.length - 1] ^= 0x01;
         const fetchImpl = vi.fn(async () => okJson({
-            events: [{ id: 1, created_at_unix: 1, ct: toBase64(tampered) }],
+            events: [
+                { id: 1, created_at_unix: 1, ct: toBase64(tampered) },
+                { id: 2, created_at_unix: 2, ct: VECTOR.sealed_b64 },
+            ],
         }));
 
-        await expect(listInboxEvents(ctx, priv, { fetchImpl })).rejects.toThrow();
+        const events = await listInboxEvents(ctx, priv, { fetchImpl });
+
+        expect(events).toHaveLength(2);
+        expect(events[0]).toMatchObject({ id: 1 });
+        expect(events[0].error).toBeInstanceOf(Error);
+        expect(events[0].event).toBeUndefined();
+        // The good event behind it still came back opened.
+        expect(events[1].event).toEqual(JSON.parse(VECTOR.plaintext));
     });
 
     it('an empty mailbox is not an error', async () => {
@@ -275,6 +290,29 @@ describe('inbox.js — drainInbox', () => {
         warn.mockRestore();
     });
 
+    // med-3q8.3, the reported bug: one permanently un-openable seal (e.g. sealed
+    // to an inbox public key a concurrent device's LWW PUT superseded) used to
+    // throw out of listInboxEvents and abort the whole drain, so every Telegram
+    // command queued behind it stayed "⏳ Queued" while the app was open.
+    it('skips an un-openable event and still applies + acks the ones behind it', async () => {
+        const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const records = await seededRecords();
+        const tampered = fromBase64(VECTOR.sealed_b64);
+        tampered[tampered.length - 1] ^= 0x01;
+        const { fetchImpl, deleted } = mailbox([
+            { id: 7, created_at_unix: 1, ct: toBase64(tampered) },
+            { id: 8, created_at_unix: 2, ct: VECTOR.sealed_b64 },
+        ]);
+        const apply = vi.fn(async () => {});
+
+        const res = await drainInbox(ctx, { apply, records, fetchImpl, flush: async () => true });
+
+        expect(res).toEqual({ applied: 1, failed: 1, unopenable: 1 });
+        expect(apply).toHaveBeenCalledTimes(1);
+        expect(deleted).toEqual([8]); // the good one acked, the poison one kept queued
+        err.mockRestore();
+    });
+
     it('is a no-op when this account has no inbox key yet', async () => {
         const records = fakeRecords();
         const fetchImpl = vi.fn();
@@ -348,6 +386,34 @@ describe('startInboxPolling', () => {
         // Without backoff this would drain on all 6 ticks; the gate throttles it.
         expect(drain.mock.calls.length).toBeGreaterThan(0);
         expect(drain.mock.calls.length).toBeLessThan(6);
+
+        stop();
+        vi.useRealTimers();
+    });
+
+    // med-3q8.3 — the reported bug, at the poller. A permanently un-openable
+    // seal parked in the mailbox is no-progress, but it is NOT the bricked
+    // mailbox med-eas.51 throttles: it is skipped client-side after a fetch the
+    // byte cap already bounds. Throttling on it pinned the poll at ~60s, so a
+    // command texted with the app open sat at "⏳ Queued" for a minute.
+    it('keeps full cadence when the only failures are seals it can never open', async () => {
+        vi.useFakeTimers();
+        const doc = fakeDoc('visible');
+        let report = { applied: 0, failed: 1, unopenable: 1 };
+        const drain = vi.fn(async () => report);
+        const onApplied = vi.fn();
+
+        const stop = startInboxPolling(ctx, { apply: () => {}, intervalMs: 1000, doc, drain, onApplied });
+
+        await vi.advanceTimersByTimeAsync(4000);
+        expect(drain.mock.calls.length).toBe(4); // every tick drained — nothing skipped
+        expect(onApplied).not.toHaveBeenCalled();
+
+        // The user texts the bot: the very next tick applies it, so the "Queued"
+        // placeholder becomes the real answer within one interval.
+        report = { applied: 1, failed: 1, unopenable: 1 };
+        await vi.advanceTimersByTimeAsync(1100);
+        expect(onApplied).toHaveBeenCalledTimes(1);
 
         stop();
         vi.useRealTimers();

@@ -1379,6 +1379,44 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(agent.run).toHaveBeenCalledTimes(1);
     });
 
+    // med-3q8.3: the at-most-once marker is written BEFORE the agent runs, so
+    // the skip branch must still ANSWER. It used to return silently, which left
+    // the user's "⏳ Queued" dangling forever whenever a run was cut short
+    // between the marker and its reply (closed tab, reload, a throw in the
+    // drain) — the next drain then acked the event having said nothing.
+    it('a redelivery re-issues the answer the first run composed', async () => {
+        const records = fakeRecords();
+        const editReply = vi.fn();
+        const agent = { run: vi.fn().mockResolvedValue('Your BP averaged 128/84.') };
+        const opts = { agent, records, editReply };
+        await applyTGText(textEvent('what was my bp'), 47, opts);
+        await applyTGText(textEvent('what was my bp'), 47, opts);
+        expect(agent.run).toHaveBeenCalledTimes(1);
+        expect(editReply).toHaveBeenCalledTimes(2);
+        expect(editReply.mock.calls[1]).toEqual([REPLY_ID, 'Your BP averaged 128/84.']);
+    });
+
+    it('a replayed trial-consent refusal keeps its Allow button — the text points at one', async () => {
+        const records = fakeRecords();
+        const editReply = vi.fn();
+        const agent = { run: vi.fn().mockRejectedValue(Object.assign(new Error('consent'), { code: 'trial_consent_required', scope: 'tg' })) };
+        const opts = { agent, records, editReply };
+        await applyTGText(textEvent('hi'), 49, opts);
+        await applyTGText(textEvent('hi'), 49, opts);
+        expect(editReply.mock.calls[1]).toEqual([REPLY_ID, expect.stringMatching(/trial AI/), { trialConsentScope: 'tg' }]);
+    });
+
+    it('a run cut short after the marker still answers instead of leaving "Queued" forever', async () => {
+        // The marker exists with no stored reply — exactly what a tab closed
+        // mid-run leaves behind.
+        const records = fakeRecords({ tgagentrun: [{ recordId: 'tgtext-48', deleted: false, clientTs: 1 }] });
+        const editReply = vi.fn();
+        const agent = { run: vi.fn() };
+        await applyTGText(textEvent('what was my bp'), 48, { agent, records, editReply });
+        expect(agent.run).not.toHaveBeenCalled(); // still at-most-once, still unbilled
+        expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/interrupted/));
+    });
+
     it('generic verbosity suppresses the answer so no health value crosses Telegram', async () => {
         const editReply = vi.fn();
         const agent = { run: vi.fn().mockResolvedValue('Your BP this week averaged 128/84.') };
