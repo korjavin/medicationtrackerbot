@@ -1,559 +1,374 @@
-# Medication Tracker Bot - Threat Model
+# Threat model
 
-**Repository**: `medicationtrackerbot`
-**Date**: 2026-03-14
-**Scope**: Runtime application (main bot + web server, MCP server)
+**Status:** normative and current. **Scope:** the shipped product — the
+zero-knowledge cloud service (`cmd/cloud`, `internal/cloudserver`,
+`internal/cloudstore`) and the browser PWA it serves (`web/cloud/`,
+`web/domain/`, `web/static/`).
 
----
+**Last verified against the code:** 2026-07-31. Every claim below cites a file
+(and a line where the line is load-bearing). Where something could not be
+verified from the repository, it says so rather than guessing.
 
-## Executive Summary
-
-This medication tracker bot is a single-user, self-hosted health tracking application with Telegram chat and web interfaces. The highest-risk areas are:
-
-1. **MCP Server OAuth Token Validation** - The MCP server exposes read-only health data via OAuth with Pocket-ID; a token validation bypass or audience claim misconfiguration could allow unauthorized data access.
-
-2. **Session Token Secret Management** - The `SESSION_SECRET` signs OIDC session cookies; if leaked or predictable, an attacker could forge sessions and gain full access to the user's health data.
-
-3. **Litestream Backup Credentials** - R2/S3 access keys are stored in environment variables; if compromised, an attacker could exfiltrate the entire SQLite database including all health history.
-
-4. **Telegram WebApp Signature Validation** - The app validates Telegram WebApp init data signatures; a vulnerability here could allow authentication bypass.
-
-5. **SQL Injection via Dynamic Query Construction** - While parameterized queries are used in most places, some dynamic query construction exists in the store layer that warrants review.
-
-The system benefits from single-tenant isolation (no cross-tenant attack surface) and read-only MCP design (no write access via AI). The most likely threat vectors are credential theft (secrets in environment/CI) and OAuth configuration errors.
+Companions, all normative:
+[architecture.md](../architecture.md) (components and data flows),
+[cloud-crypto.md](../cloud-crypto.md) (key formats and ceremonies),
+[cloud-mode.md → Privacy boundary](../cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs)
+(the generated, code-derived enumeration of what leaves the vault),
+[cloud-operations-security.md](../cloud-operations-security.md) (logs,
+retention, deletion, subprocessors, incident response), and
+[release-integrity.md](release-integrity.md) (the client-code boundary).
 
 ---
 
-## Scope and Assumptions
+## 1. The claim being defended
 
-### In-Scope Paths
+> Your vault — every health record you store and sync — is end-to-end
+> encrypted. The keys never leave your devices, and the server holds only
+> ciphertext it cannot open. Optional integrations you turn on reach outside
+> that vault and have separately disclosed boundaries.
 
-- `cmd/bot/` - Main application entry point (bot + web server + scheduler)
-- `cmd/mcptool/` - MCP server entry point
-- `internal/server/` - HTTP handlers and authentication middleware
-- `internal/bot/` - Telegram bot command and callback handlers
-- `internal/mcp/` - MCP server and OAuth token validation
-- `internal/store/` - Database access layer
-- `internal/notifier/` - Notification system (Telegram, WebPush)
-- `web/static/js/` - Frontend JavaScript (offline-capable PWA)
-- Docker deployment and environment configuration
+This threat model exists to say precisely **what that does and does not
+cover**, and what is left over when it is all working as designed.
 
-### Out-of-Scope
+Four promises are deliberately kept apart, because conflating them is the
+failure mode this document is written against:
 
-- `cmd/installer/` - Installation wizard (one-time setup tool, not runtime)
-- `cmd/importer/`, `cmd/bpimporter/` - Data import CLI tools
-- Test files (`*_test.go`, `tests/` directory)
-- CI/CD workflows and build tooling
-- `internal/scheduler/` - Internal scheduling logic (no external inputs)
-- `internal/rxnorm/`, `internal/openfoodfacts_api.go` - External API clients (trusted third parties)
+| # | Promise | Held by |
+|---|---|---|
+| P1 | **Vault confidentiality** — the server cannot read stored or synced health records | Cryptography. Strong. |
+| P2 | **Feature confidentiality** — a feature's data is not readable by the operator or a third party | *Not* universally held. Enumerated carve-outs. |
+| P3 | **Metadata privacy** — nothing sensitive is inferable from timing, sizes, identifiers | *Not* held. Explicitly accepted leakage. |
+| P4 | **Client integrity** — the origin cannot serve code that reads an unlocked vault | *Not* held. The dominant residual risk. |
 
-### Explicit Assumptions
+P1 is cryptographic. P2 is a per-feature product decision. P3 and P4 are
+accepted limitations with no technical fix inside this architecture.
 
-1. **Single-user deployment**: Only one `ALLOWED_USER_ID` is configured; no multi-tenant data access control within the application itself.
-2. **Telegram WebView + Standard Browser**: The web interface is accessed both from Telegram's WebView and regular browsers via OIDC login.
-3. **MCP server actively used**: The MCP server (`mcptool`) is deployed and actively used by Claude and OpenAI for AI-powered health insights.
-4. **Litestream enabled to R2**: Database replication is enabled to Cloudflare R2; R2 access keys are in environment variables.
-5. **No additional WAF**: Deployment is behind Traefik with only the application's built-in rate limiting (`rateLimitMiddleware`).
-6. **External Mi Band webhook disabled**: `EXTERNAL_WORKOUT_API_KEY` is not configured; `/api/workout/external` endpoint returns unauthorized.
-7. **Operator manages secrets**: Secrets are stored in environment variables/Docker compose; no centralized secrets manager.
+## 2. Assets
 
-### Open Questions
+| Asset | Where it lives | Consequence of disclosure |
+|---|---|---|
+| **DEK** (random 256-bit vault root key) | memory of an unlocked tab; on the server only inside AES-GCM envelopes | Total: decrypts every record, past and future. |
+| **Passkey PRF output** | authenticator → client JS only; never transmitted (`docs/cloud-crypto.md` §"The enabling primitive") | Derives a KEK, unwraps the DEK. |
+| **Recovery code** (160-bit, Emergency Kit) | printed/saved by the user; server holds only `SHA-256(verifier)` | Unwraps the DEK from `envelope_rec`. |
+| **LDK** (per-device warm-unlock key) | non-extractable WebCrypto key in IndexedDB | Reopens the vault on that device with no biometric prompt. |
+| **NK** (push payload key) | encrypted vault record + plaintext in device IndexedDB, so the service worker can read it | Reveals reminder text — not vault records (`docs/cloud-crypto.md` §"The push key (NK)"). |
+| **Inbox private key** (X25519) | vault record; only the **public** half is on the server (`internal/cloudserver/inbox.go`) | Opens sealed inbound messages. |
+| **Health records** | ciphertext in the oplog/snapshots; plaintext in an unlocked tab and its IndexedDB mirror | The thing being protected. |
+| **Provider API keys** (OpenAI, ElevenLabs, food DB) | encrypted vault records | Third-party account abuse at the user's expense. |
+| **Session token** | per-device, HMAC over `SESSION_SECRET` (`internal/cloudserver/session.go`) | API access to *ciphertext* and metadata — never plaintext. |
+| **Telegram bot token** | server DB, sealed under a key derived from `SESSION_SECRET` (`internal/cloudserver/tg_token.go`) | Send/receive as that bot. **Not vault-grade** — a server holding `SESSION_SECRET` recovers it. |
+| **Hosted-MCP pairing key + capability token** | server DB while hosted mode is enabled (`internal/cloudserver/mcp_remote.go`) | Read/write the vault *through an unlocked tab*, for as long as one is open. |
+| **Operational metadata** | server DB and logs | See §6 — this is real signal, not noise. |
 
-- **R2 bucket access restrictions**: Are Litestream R2 credentials scoped to a single bucket, or do they have broader access?
-- **Pocket-ID trust model**: Is Pocket-ID a self-hosted instance controlled by the same operator, or a third-party service?
-- **Traefik auth**: Is there any additional authentication at the Traefik level (e.g., Basic Auth) before requests reach the application?
-
----
-
-## System Model
-
-### Primary Components
+## 3. Trust boundaries
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         User Access Layer                              │
-│  ┌─────────────────┐          ┌─────────────────┐                   │
-│  │ Telegram Client │          │ Web Browser     │                   │
-│  │ (Chat + Mini   │          │ (OIDC Login)   │                   │
-│  │   App WebView)  │          │                 │                   │
-│  └────────┬────────┘          └────────┬────────┘                   │
-└───────────┼──────────────────────────┼─────────────────────────────────┘
-            │                          │
-            │  TG API/InitData          │  OIDC Flow
-            │  (Signature Validated)     │  (JWT + Session)
-            │                          │
-            ▼                          ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      Main Application Server                            │
-│  ┌─────────────────────────────────────────────────────────────────────┐  │
-│  │  HTTP Server (mux + middleware stack)                             │  │
-│  │  - AuthMiddleware (Telegram WebApp + OIDC Session)              │  │
-│  │  - rateLimitMiddleware (IP-based, in-memory)                    │  │
-│  │  - securityHeadersMiddleware                                     │  │
-│  └─────────────────────────────────────────────────────────────────────┘  │
-│           │                    │                    │                      │
-│  ┌────────▼────────┐   ┌───▼────────┐   ┌───▼──────────┐        │
-│  │ API Handlers    │   │ Bot Logic  │   │ Scheduler    │        │
-│  │ (Read/Write)   │   │ (Commands  │   │ (Notifications│        │
-│  │                │   │  + Callbacks)│  │  + Reminders) │        │
-│  └────────┬───────┘   └────┬───────┘   └──────┬───────┘        │
-│           │                 │                    │                      │
-│           └─────────────────┴────────────────────┘                      │
-│                              │                                      │
-│                    ┌─────────▼─────────┐                              │
-│                    │  SQLite Database  │                              │
-│                    │  (mediates +     │                              │
-│                    │   migrations)     │                              │
-│                    └───────────────────┘                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-            │
-            │ Litestream Replication (Streaming WAL)
-            ▼
-┌─────────────────────────┐
-│  Cloudflare R2 / S3  │  (Backup + Potential Exfiltration Target)
-└─────────────────────────┘
-
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         MCP Server (mcptool)                            │
-│  ┌─────────────────────────────────────────────────────────────────────┐  │
-│  │  HTTP Server with OAuth Middleware                                  │  │
-│  │  - JWT validation (JWKS from Pocket-ID)                           │  │
-│  │  - Subject allowlist (MCP_ALLOWED_SUBJECT)                          │  │
-│  │  - Audience validation (MCP_SERVER_URL + Client IDs)                │  │
-│  └─────────────────────────────────────────────────────────────────────┘  │
-│           │                                                            │
-│    ┌──────▼────────────────────────────────────────────────┐             │
-│    │  MCP Tools (Read-Only Health Data Access)              │             │
-│    │  - Blood Pressure, Weight, Medication Intake         │             │
-│    │  - Workout History, Sleep Logs, Food Intake           │             │
-│    │  - Vitals (Heart, SpO2, Stress), Step History     │             │
-│    └──────┬────────────────────────────────────────────────┘             │
-│           │                                                            │
-│           ▼                                                            │
-│    ┌──────────────────┐                                                │
-│    │  SQLite DB       │  (Same database as main app, read-only)        │
-│    │  (read-only)     │                                                │
-│    └──────────────────┘                                                │
-└─────────────────────────────────────────────────────────────────────────────┘
+        ┌──────────────────────── TRUSTED ────────────────────────┐
+        │  B1  The unlocked browser tab                            │
+        │      DEK, plaintext records, provider keys, LDK          │
+        │      Trusted because it is the only place that can       │
+        │      decrypt. Compromise here is total.                  │
+        └──────────────────────────┬──────────────────────────────┘
+                                   │  ← B2: the code-delivery boundary
+                                   │     (the operator SERVES this tab)
+        ┌──────────────────────────▼──────────────────────────────┐
+        │  B3  The device / OS                                     │
+        │      IndexedDB plaintext mirror, NK, LDK, passkey        │
+        │      Protected by device unlock + FDE, not by us.        │
+        └──────────────────────────┬──────────────────────────────┘
+                                   │  ← B4: TLS. Bodies are ciphertext
+                                   │     on the vault path.
+        ┌──────────────────────────▼──────────────────────────────┐
+        │  B5  The cloud server — UNTRUSTED for confidentiality    │
+        │      Honest-but-curious AND breachable. Holds            │
+        │      ciphertext, envelopes, verifiers, metadata.         │
+        │      TRUSTED for availability and for serving code (B2). │
+        └──────────────────────────┬──────────────────────────────┘
+                                   │  ← B6: named third parties
+        ┌──────────────────────────▼──────────────────────────────┐
+        │  B7  Subprocessors — push services, Telegram, AI/voice   │
+        │      providers, RxNav, food DB. Each sees only its own   │
+        │      slice (cloud-operations-security.md §5).            │
+        └──────────────────────────────────────────────────────────┘
 ```
 
-### Data Flows and Trust Boundaries
-
-**Internet → Application Server**
-
-- **Data types**: Telegram Bot API updates, HTTP requests (JSON, form data)
-- **Channel**: HTTPS (via Traefik reverse proxy)
-- **Security guarantees**: TLS encryption, TCP connection to Traefik
-- **Validation**: Rate limiting (IP-based, in-memory), request body size limits (1MB max), Telegram WebApp signature validation, OIDC session cookie validation
-
-**Telegram Client → Bot Command/Callback Handlers**
-
-- **Data types**: User messages, callback query data, inline button presses
-- **Channel**: Telegram Bot API (HTTPS)
-- **Security guarantees**: TLS, Telegram platform validation
-- **Validation**: `ALLOWED_USER_ID` check (user ID from Telegram update), command parsing (regex-based), callback data format validation
-- **Evidence**: `internal/bot/bot.go:47-48` (allowedUserID check), `internal/bot/handlers.go`
-
-**Web Browser → API Endpoints**
-
-- **Data types**: JSON payloads (health data, settings), query parameters
-- **Channel**: HTTPS (via Traefik)
-- **Security guarantees**: TLS, same-site cookies
-- **Validation**:
-  - Telegram WebApp: HMAC-SHA256 signature verification (`internal/server/auth.go:40-111`)
-  - OIDC: JWT validation via Pocket-ID JWKS (`internal/mcp/oauth.go:134-215`)
-  - Session cookies: Signed with `SESSION_SECRET`, 30-day expiration
-  - Body size limits: `http.MaxBytesReader(w, r.Body, 1<<20)` (1MB)
-- **Evidence**: `internal/server/auth.go:180-233` (AuthMiddleware), `internal/server/server.go:535-538` (body size limits)
-
-**MCP Client (Claude/OpenAI) → MCP Server**
-
-- **Data types**: Bearer tokens (JWT), MCP protocol messages (JSON-RPC)
-- **Channel**: HTTPS (Streamable HTTP — POST with session headers)
-- **Security guarantees**: TLS, JWT signature validation
-- **Validation**:
-  - JWT signature verification using RSA public keys from JWKS
-  - Audience claim validation (must match `MCP_SERVER_URL` or `POCKET_ID_CLIENT_ID`)
-  - Subject allowlist check (`MCP_ALLOWED_SUBJECT`, optional)
-  - Expiration enforcement (`jwt.WithExpirationRequired()`)
-- **Evidence**: `internal/mcp/oauth.go:76-116` (Middleware), `internal/mcp/oauth.go:184-207` (audience validation)
-
-**Application → SQLite Database**
-
-- **Data types**: Health metrics, medications, workouts, settings
-- **Channel**: Local file system
-- **Security guarantees**: File system permissions (OS-level)
-- **Validation**: Parameterized queries (prepared statements), type safety via Go structs, foreign key constraints
-- **Evidence**: `internal/store/db/db.go` (database initialization, WAL, busy-timeout, max conns)
-
-**Application → Litestream → Cloudflare R2**
-
-- **Data types**: WAL files (SQLite write-ahead logs)
-- **Channel**: HTTPS (S3-compatible API)
-- **Security guarantees**: TLS, S3 signature-based authentication
-- **Validation**: Litestream manages WAL integrity, R2 enforces bucket-level access control
-- **Evidence**: Docker Compose configuration (R2 credentials via environment variables)
-
----
-
-## Assets and Security Objectives
-
-| Asset | Why it matters | Security objective |
-|--------|----------------|-------------------|
-| **Health data database** (SQLite: meds.db) | Contains sensitive personal health information: medications, blood pressure, weight, sleep, food intake, workout history. Potential privacy harm if exfiltrated. | **Confidentiality**: Prevent unauthorized read access.<br>**Integrity**: Prevent tampering with historical health records.<br>**Availability**: Ensure database is accessible for health tracking. |
-| **Telegram Bot Token** (`TELEGRAM_BOT_TOKEN`) | Authenticates the bot to Telegram API. If leaked, attacker could impersonate the bot, read/modify health data via chat commands, and send malicious messages. | **Confidentiality**: Prevent token exposure.<br>**Integrity**: Ensure only the legitimate bot instance uses this token. |
-| **Session Secret** (`SESSION_SECRET`) | Signs OIDC session cookies. If leaked or weak, attacker could forge session tokens and bypass OIDC authentication to access the web interface. | **Confidentiality**: Prevent secret exposure.<br>**Integrity**: Ensure only server-signed sessions are accepted. |
-| **R2/S3 Access Keys** (`LITESTREAM_ACCESS_KEY_ID`, `LITESTREAM_SECRET_ACCESS_KEY`) | Credentials for Cloudflare R2 (or S3) backup storage. If leaked, attacker could exfiltrate the entire database or delete backups. | **Confidentiality**: Prevent credential exposure.<br>**Integrity**: Ensure only Litestream can write/read backups. |
-| **OIDC Client Secret** (`POCKET_ID_CLIENT_SECRET`) | Secret for Pocket-ID OAuth client used by MCP server. If leaked, attacker could obtain tokens for the OAuth client and access MCP server. | **Confidentiality**: Prevent secret exposure.<br>**Integrity**: Ensure only legitimate MCP server uses these credentials. |
-| **External Workout API Key** (`EXTERNAL_WORKOUT_API_KEY`) | Pre-shared key for Mi Band webhook. Currently disabled, but if enabled and leaked, attacker could inject fake workout data. | **Confidentiality**: Prevent key exposure.<br>**Integrity**: Prevent unauthorized workout data injection. |
-| **VAPID Keys** (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`) | Web push notification keys. If private key is leaked, attacker could send malicious push notifications. | **Confidentiality**: Prevent private key exposure.<br>**Integrity**: Ensure only server can sign push payloads. |
-| **MCP Audit Secret** (`MCP_AUDIT_SECRET`) | Shared secret for audit logging between MCP server and main app. If leaked, attacker could forge audit events. | **Confidentiality**: Prevent secret exposure.<br>**Integrity**: Ensure audit log authenticity. |
-| **User session cookies** (`auth_session`) | OIDC session cookies provide web access. If stolen (via XSS or network eavesdropping), attacker gains full access. | **Confidentiality**: Prevent cookie theft.<br>**Integrity**: Ensure cookies are signed and HttpOnly. |
-| **Telegram WebApp init data** (`X-Telegram-Init-Data`) | Contains user ID, auth date, and HMAC signature. If attacker can forge this, they can bypass Telegram authentication. | **Integrity**: Ensure signature validation is correct.<br>**Authenticity**: Prevent init data forgery. |
-
----
-
-## Attacker Model
-
-### Capabilities
-
-**Remote internet attacker** (most realistic threat):
-- Can send arbitrary HTTP requests to the application (internet-exposed via Traefik)
-- Can intercept and modify requests if TLS termination occurs before the application (unlikely with Traefik)
-- Can exploit vulnerabilities in the application code (XSS, auth bypass, SQLi, etc.)
-- Has knowledge of the application's public endpoints and protocol
-- Can obtain leaked secrets from environment variables, logs, or CI/CD
-- Can interact with Telegram Bot API if they have the bot token
-- Can attempt OAuth token theft or reuse
-- Can scan for open ports and common vulnerabilities
-
-**Compromised user device**:
-- Has access to the user's browser storage (IndexedDB, localStorage, cookies)
-- Can execute JavaScript in the Telegram WebView context
-- Can read the user's Telegram WebApp init data
-- Can capture OAuth tokens or session cookies
-- Can modify outgoing requests (via browser extensions or malware)
-
-**Insider/Infrastructure attacker** (lower likelihood but high impact):
-- Has access to the server hosting the application
-- Can read environment variables and files on the server
-- Can access the SQLite database directly (file system)
-- Can intercept network traffic on the server
-- Can modify the application code or database
-
-### Non-Capabilities
-
-**Remote attacker cannot**:
-- Access the SQLite database file directly (file system is not exposed)
-- Access other users' data (single-tenant application)
-- Execute arbitrary code on the server unless there's an RCE vulnerability
-- Access the application without valid Telegram credentials or OIDC token
-- Modify the application code unless they have server access
-
-**Assuming single-user deployment**:
-- Cross-tenant data access is not possible (no multi-tenancy)
-- Horizontal privilege escalation is not applicable
-
----
-
-## Entry Points and Attack Surfaces
-
-| Surface | How reached | Trust boundary | Notes | Evidence |
-|---------|--------------|-----------------|---------|-----------|
-| **Telegram Bot API webhook** | Telegram servers push updates to `/` endpoint (or configured webhook) | Telegram Bot API → Bot Command/Callback Handlers | Validated by `ALLOWED_USER_ID` check. Parses user commands and callback data. | `internal/bot/bot.go:47-48` |
-| **HTTP API endpoints** (`/api/*`) | Web browser or HTTP client via Traefik | Unauthenticated network → Authenticated API middleware | Protected by `AuthMiddleware` (Telegram WebApp or OIDC session). Most endpoints require authentication. | `internal/server/server.go:350-486` |
-| **OIDC login endpoint** (`/auth/oidc/login`) | Web browser → OIDC provider (Pocket-ID) → callback | Browser → OIDC flow → Session cookie | Redirects to Pocket-ID, validates callback, issues session cookie. Rate limited (10 req/min). | `internal/server/server.go:343-344` |
-| **OIDC callback endpoint** (`/auth/oidc/callback`) | OIDC provider (Pocket-ID) | OIDC provider → Application | Validates OAuth state, exchanges code for token, extracts user email, creates session. Rate limited. | `internal/server/server.go:344` |
-| **Telegram Login Widget callback** (`/auth/telegram/callback`) | Web browser via Telegram Login Widget JS | Browser → Telegram signature validation | Validates Telegram Login Widget signature, creates session cookie. Rate limited. | `internal/server/server.go:348`, `internal/server/auth.go:124-178` |
-| **MCP endpoint** (`/mcp`) | Claude Desktop / OpenAI clients via Streamable HTTP | Unauthenticated network → OAuth-validated MCP server | Protected by OAuth JWT validation (Pocket-ID JWKS). Read-only tools only. | `internal/mcp/mcp.go:512-528` |
-| **MCP OAuth metadata** (`/.well-known/oauth-protected-resource`) | MCP client discovery | Public endpoint | Returns OAuth Protected Resource Metadata (RFC 9728). No authentication required. | `internal/mcp/oauth.go:62-74` |
-| **External workout webhook** (`/api/workout/external`) | Mi Notify / external webhook service | External API key → Application | Protected by `EXTERNAL_WORKOUT_API_KEY` Bearer token. Currently disabled in deployment. | `internal/server/external_workout_handlers.go:29-53` |
-| **Static files** (`/static/*`, `/`) | Web browser | Public endpoint | Serves PWA frontend (HTML, JS, CSS). No authentication required for static files. | `internal/server/server.go:318-322` |
-| **Service Worker** (`/static/sw.js`) | Web browser (PWA) | Public endpoint | Service Worker handles offline requests and background sync. | `internal/server/server.go:312` |
-| **Health check** (`/health`) | Monitoring / load balancer | Public endpoint | Returns "ok" for health monitoring. | `internal/mcp/mcp.go:406-411` |
-
----
-
-## Top Abuse Paths
-
-### Abuse Path 1: MCP OAuth Token Bypass → Health Data Exfiltration
-**Attacker goal**: Gain unauthorized read access to health data via MCP server without valid OIDC token.
-**Impact**: Confidentiality breach of all health history (BP, weight, medications, workouts, sleep, food).
-
-**Steps**:
-1. Attacker discovers MCP server endpoint (e.g., `/mcp` or `.well-known/oauth-protected-resource`).
-2. Attacker attempts to bypass JWT validation by finding a vulnerability in `validateToken()` (e.g., JWKS cache poisoning, alg confusion, or audience validation bypass).
-3. Attacker sends malicious JWT or exploits validation bypass to call MCP tools (`get_blood_pressure`, `get_medication_intake`, etc.).
-4. Attacker exfiltrates health data up to 90 days of history (enforced by `MaxQueryDays`).
-5. Attacker gains insight into user's medications, health conditions, and lifestyle patterns.
-
-**Affected assets**: Health data database (SQLite), personal health information.
-
----
-
-### Abuse Path 2: Session Secret Leakage → Web Interface Takeover
-**Attacker goal**: Forge valid session cookies to bypass OIDC authentication and access the web interface.
-**Impact**: Full access to health data via web interface, ability to modify medications, logs, and settings.
-
-**Steps**:
-1. Attacker obtains `SESSION_SECRET` from environment variables (e.g., via compromised server, leaked .env file, or log exposure).
-2. Attacker constructs a forged `auth_session` cookie using the secret and any user email (matching `OIDC_ADMIN_EMAIL` or bypassing if not configured).
-3. Attacker sends requests to `/api/*` endpoints with the forged cookie in `Cookie` header.
-4. `AuthMiddleware` validates the cookie using `verifySessionToken()` (uses HMAC-SHA256 with the secret) and grants access.
-5. Attacker now has full API access: read/write medications, logs, workouts, settings.
-6. Attacker can also use the forged session to access OIDC-protected endpoints if `OIDC_ADMIN_EMAIL` is not enforced.
-
-**Affected assets**: Health data database, user session cookies, web interface.
-
----
-
-### Abuse Path 3: Telegram WebApp Signature Forgery → Chat Interface Access
-**Attacker goal**: Bypass Telegram WebApp authentication by forging valid init data.
-**Impact**: Access to web interface without being the actual Telegram user.
-
-**Steps**:
-1. Attacker obtains `TELEGRAM_BOT_TOKEN` (e.g., from leaked environment variable).
-2. Attacker constructs forged Telegram WebApp init data with any `user.id` (including the legitimate `ALLOWED_USER_ID`).
-3. Attacker calculates the correct HMAC-SHA256 hash using the bot token and the forged data.
-4. Attacker sends requests to `/api/*` with `X-Telegram-Init-Data` header containing the forged payload.
-5. `ValidateWebAppData()` validates the signature using the leaked token and accepts the request.
-6. Attacker gains full API access as the legitimate user.
-
-**Affected assets**: Health data database, Telegram Bot API.
-
----
-
-### Abuse Path 4: Litestream R2 Credential Theft → Database Exfiltration
-**Attacker goal**: Obtain R2/S3 access keys to exfiltrate the entire SQLite database from backups.
-**Impact**: Complete health data history exfiltration, potential availability impact if backups are deleted.
-
-**Steps**:
-1. Attacker obtains `LITESTREAM_ACCESS_KEY_ID` and `LITESTREAM_SECRET_ACCESS_KEY` (e.g., from leaked Docker Compose file or environment variables).
-2. Attacker uses R2/S3 API to list objects in the backup bucket.
-3. Attacker downloads the replicated SQLite WAL files or snapshots.
-4. Attacker reconstructs the database from WAL files or directly accesses downloaded snapshots.
-5. Attacker has complete offline access to all historical health data.
-
-**Affected assets**: Health data database (backups), R2/S3 credentials.
-
----
-
-### Abuse Path 5: XSS in Web Interface → Session Cookie Theft
-**Attacker goal**: Exploit XSS vulnerability to steal the `auth_session` cookie.
-**Impact**: Full web interface takeover via stolen session.
-
-**Steps**:
-1. Attacker discovers XSS vulnerability in the web interface (e.g., in medication names, workout notes, or user-controlled content).
-2. Attacker injects malicious JavaScript that reads `document.cookie` or `localStorage`.
-3. Legitimate user visits the affected page, triggering the malicious script.
-4. Script steals the `auth_session` cookie (if not `HttpOnly`) or `localStorage` data.
-5. Attacker sends the stolen cookie to their server and uses it to authenticate.
-6. Attacker gains full API access as the user.
-
-**Affected assets**: User session cookies, health data database.
-
----
-
-### Abuse Path 6: SQL Injection via Dynamic Queries → Database Compromise
-**Attacker goal**: Inject malicious SQL to read/write arbitrary database data.
-**Impact**: Data exfiltration, integrity compromise (modify health records), potential RCE if SQLite allows it.
-
-**Steps**:
-1. Attacker identifies an API endpoint that constructs dynamic SQL queries (not fully parameterized).
-2. Attacker crafts malicious input that injects SQL syntax (e.g., in search fields, medication names, or other user-controlled parameters).
-3. The vulnerable query executes the injected SQL, allowing the attacker to:
-   - Read other tables (e.g., `push_subscriptions`, settings)
-   - Modify health records (false BP readings, medication logs)
-   - Extract database schema and data
-4. Attacker exfiltrates sensitive data or corrupts the database.
-
-**Affected assets**: Health data database, application integrity.
-
----
-
-### Abuse Path 7: OAuth Audience/Subject Bypass → MCP Access
-**Attacker goal**: Obtain a valid OAuth token from Pocket-ID and access MCP server without being the authorized user.
-**Impact**: Unauthorized read access to health data via MCP tools.
-
-**Steps**:
-1. Attacker registers their own OAuth client with Pocket-ID (if the operator's Pocket-ID allows self-registration or if attacker compromises an existing client).
-2. Attacker obtains a valid JWT token for their client.
-3. Attacker crafts a token where the `aud` claim matches the MCP server's allowed audience (`MCP_SERVER_URL` or `POCKET_ID_CLIENT_ID`).
-4. If `MCP_ALLOWED_SUBJECT` is empty (or attacker's subject matches), the MCP server accepts the token.
-5. Attacker uses the token to call MCP tools and exfiltrate health data.
-
-**Affected assets**: Health data database (via MCP).
-
----
-
-### Abuse Path 8: Rate Limiting Bypass → DoS or Brute Force
-**Attacker goal**: Bypass in-memory rate limiting to perform brute force attacks or DoS.
-**Impact**: Availability impact or credential guessing.
-
-**Steps**:
-1. Attacker spoofs IP addresses via X-Forwarded-For header (since `AUTH_TRUST_PROXY=true` is default).
-2. Attacker bypasses IP-based rate limiting by cycling through fake IPs.
-3. Attacker performs brute force on endpoints (e.g., guessing API keys, OAuth tokens, or session secrets).
-4. Alternatively, attacker floods the application with requests, causing resource exhaustion.
-
-**Affected assets**: Application availability, rate limiting mechanism.
-
----
-
-### Abuse Path 9: Web Push Subscription Hijacking
-**Attacker goal**: Register a malicious push subscription endpoint to intercept push notifications.
-**Impact**: Privacy leak via notification metadata (medication reminders, workout alerts).
-
-**Steps**:
-1. Attacker obtains a valid session cookie (via any of the above methods).
-2. Attacker calls `/api/webpush/subscribe` with a malicious `endpoint` controlled by the attacker.
-3. Server sends push notifications to the attacker's endpoint.
-4. Attacker receives medication reminders, workout notifications, and other health-related alerts.
-5. Attacker infers health patterns from notification content.
-
-**Affected assets**: Web push subscriptions, user privacy.
-
----
-
-### Abuse Path 10: External Workout API Key Theft → Fake Data Injection
-**Attacker goal**: Inject fraudulent workout data by stealing the external API key.
-**Impact**: Data integrity compromise (false health records), misleading statistics.
-
-**Steps**:
-1. Attacker obtains `EXTERNAL_WORKOUT_API_KEY` (e.g., from environment leak).
-2. Attacker sends POST requests to `/api/workout/external` with the Bearer token.
-3. Attacker injects fake workout data (e.g.,伪造的运动记录, calorie counts, GPS data).
-4. Server accepts the data and stores it in the database.
-5. User's health statistics and trends become corrupted.
-
-**Affected assets**: Workout data, database integrity.
-
----
-
-## Threat Model Table
-
-| Threat ID | Threat source | Prerequisites | Threat action | Impact | Impacted assets | Existing controls (evidence) | Gaps | Recommended mitigations | Detection ideas | Likelihood | Impact severity | Priority |
-|-----------|--------------|----------------|----------------|---------|-----------------|-------------------------------|--------|------------------------|-----------------|------------|----------------|------------|
-| **TM-001** | OAuth token validation bypass in MCP server | Vulnerability in JWT validation logic or JWKS cache poisoning | Attacker forges or reuses JWT to bypass MCP OAuth middleware | Health data exfiltration via MCP read-only tools | Health data database | JWT signature validation with RSA public keys (`internal/mcp/oauth.go:155-161`), JWKS caching with TTL, audience validation (`internal/mcp/oauth.go:184-207`), subject allowlist check (`internal/mcp/oauth.go:118-131`), expiration enforcement (`jwt.WithExpirationRequired()`), issuer claim validation (`jwt.WithIssuer`) | JWKS fetch doesn't validate HTTPS certificate chain (uses default HTTP client), no nonce/replay protection | Add explicit HTTPS certificate validation for JWKS fetch, consider adding nonce-based replay protection | Log failed token validations with subject/audience details, alert on repeated JWKS fetch failures | **Low** | **High** | **Medium** |
-| **TM-002** | Session secret leakage or weak secret generation | `SESSION_SECRET` exposed in environment/logs, or secret is predictable/short | Attacker forges session cookie using HMAC-SHA256 with the secret | Web interface takeover, full API access | Session secret, user session cookies, health data database | Session cookies are `HttpOnly`, `Secure`, `SameSite=Lax` (`internal/server/auth.go:791-797`), 30-day expiration (`internal/server/auth.go:794`), session token verified with HMAC (`internal/server/auth.go:187`) | No explicit validation that `SESSION_SECRET` is minimum entropy/length, no rotation mechanism, no audit logging for session creation/validation | Generate `SESSION_SECRET` with minimum 32 bytes of cryptographically secure random data if not provided, implement session rotation (e.g., re-issue on sensitive actions), log all session validation attempts with IP/timestamp | Alert on session validation failures from new IP addresses, monitor for multiple active sessions | **Low** | **High** | **Medium** |
-| **TM-003** | Telegram Bot Token exposure | `TELEGRAM_BOT_TOKEN` leaked or stolen | Attacker uses bot token to impersonate the bot via Telegram Bot API | Chat interface access, message injection, data exfiltration via bot commands | Telegram Bot Token, health data database, Telegram Bot API | Token used for WebApp signature validation (`internal/server/auth.go:71-73`), token used by bot client (`internal/bot/bot.go:48`), `ALLOWED_USER_ID` check (`internal/bot/bot.go:47-48`) | No rate limiting on bot webhook at Telegram level, no additional secret for webhook verification, token not rotated regularly | Rotate bot token periodically, implement Telegram webhook secret verification if supported, add rate limiting per command at bot level | Monitor for unexpected message volumes, alert on commands from non-allowed users (if bypass occurs) | **Low** | **High** | **Medium** |
-| **TM-004** | Litestream R2/S3 credential theft | R2/S3 access keys exposed in environment or backups | Attacker uses credentials to download/delete database backups from R2/S3 | Complete database exfiltration, backup availability compromise | R2/S3 access keys, database backups (WAL files) | Credentials stored in environment variables, not in code, Litestream uses S3 signature-based auth | No explicit credential scoping to single bucket (depends on R2 setup), no MFA on R2 access, no audit logging for R2 access | Scope credentials to single R2 bucket with least privilege, enable R2 access logs/alerting, use temporary credentials if supported, encrypt backups at rest | Alert on unexpected R2 access patterns, monitor for backup deletion, validate backup integrity regularly | **Low** | **High** | **Medium** |
-| **TM-005** | XSS in user-controlled content (medication names, workout notes, etc.) | Application reflects unsanitized user input in HTML/JS context | Attacker injects malicious JavaScript to steal session cookies or IndexedDB data | Session cookie theft, user privacy, health data database | Session cookies, IndexedDB, frontend JavaScript | Content Security Policy with restrictive sources (`internal/server/server.go:303`), no explicit HTML rendering of user input (JSON API), HttpOnly cookies | Potential XSS in medication names/workout notes if displayed without escaping, CSP allows `script-src 'self' https://telegram.org` which could be exploited via Telegram domain, no Content-Security-Policy-Report-Only for testing | Ensure all user-controlled content is HTML-escaped when rendered, tighten CSP to remove `https://telegram.org` if not needed, implement CSP reporting, audit all `innerHTML` usage in frontend | CSP violation reports,异常的HTTP请求模式，前端错误日志 | **Low** | **High** | **Medium** |
-| **TM-006** | SQL injection via dynamic query construction | Parameterized queries not used consistently, string concatenation in SQL | Attacker injects SQL to read/write arbitrary database data | Database compromise, data exfiltration, integrity corruption | Health data database, application integrity | Most queries use parameterized statements via `database/sql`, request body size limits (`internal/server/server.go:535`), input validation for numeric fields | Some dynamic query patterns may exist (need code review), no explicit SQL injection testing in CI, no ORM with built-in sanitization | Audit all SQL query construction for dynamic patterns, enforce use of parameterized queries, add SQL injection testing to test suite | Database query error logs,异常的查询模式，slow query anomalies | **Low** | **High** | **High** |
-| **TM-007** | Telegram WebApp init data forgery | Bot token leaked, or HMAC collision found | Attacker forges init data with valid signature to bypass authentication | Web interface access without being the actual Telegram user | Telegram Bot Token, WebApp init data, health data database | HMAC-SHA256 signature validation (`internal/server/auth.go:75-76`), auth_date expiration (24 hours) (`internal/server/auth.go:99-101`), `ALLOWED_USER_ID` check (`internal/server/auth.go:223-226`) | No additional secret beyond bot token (single secret), no nonce/CSRF token in init data, auth_date only checked for expiration not for replay | Implement additional secret for WebApp validation (e.g., use a different HMAC key), add nonce mechanism, shorten auth_date window, consider adding CSRF tokens | Alert on failed WebApp validations with same user ID from different IPs, monitor for replay attacks | **Low** | **High** | **Medium** |
-| **TM-008** | OAuth audience/subject bypass | Operator explicitly sets `MCP_ALLOWED_SUBJECT=*` (or leaves it empty, the deprecated legacy default), attacker has a valid Pocket-ID token | Attacker uses a legitimate Pocket-ID token (from their own account on the same issuer) to access the MCP server | Unauthorized health data access via MCP | Health data database, MCP OAuth tokens | **Mitigated.** Issuer validation (`jwt.WithIssuer`, `internal/mcp/oauth.go`), audience validation (`isAudienceAllowed`), and a **fail-closed** subject check (`isSubjectAllowed` denies every subject when the allowlist is empty). "Allow any subject" is now an explicit, auditable `MCP_ALLOWED_SUBJECT=*` opt-in, not a missing-config accident | Backward-compat bridge: an empty `MCP_ALLOWED_SUBJECT` is normalized to `*` at startup (with a loud deprecation `slog.Warn`) so the existing fleet keeps working — operators who never set a subject still get allow-any. Audience also accepts `POCKET_ID_CLIENT_ID`, which may be discoverable | Set `MCP_ALLOWED_SUBJECT` to a specific `sub` allowlist in production. Set `MCP_REQUIRE_ALLOWED_SUBJECT=1` to refuse startup when the subject is unset (fail-fast instead of allow-any). Consider client-specific secrets per OAuth client | Log all MCP access with subject/audience (done — `[MCP/OAuth]` logs), alert on access from unexpected subjects | **Low** | **High** | **Low** |
-| **TM-009** | Rate limiting bypass via IP spoofing | `AUTH_TRUST_PROXY=true` default, attacker controls `X-Forwarded-For` header | Attacker bypasses IP-based rate limiting by spoofing IPs | DoS, brute force on auth endpoints, API key guessing | Rate limiting mechanism, application availability | In-memory rate limiter with configurable limits (`internal/server/server.go:72-138`), rate limiting applied to auth endpoints (`internal/server/server.go:340-342`) | Trust proxy by default (`AUTH_TRUST_PROXY=true`), no token-based rate limiting, no CAPTCHA for sensitive endpoints, rate limiter is per-IP (not per-user) | Disable `AUTH_TRUST_PROXY` unless necessary behind trusted proxy, implement token-based rate limiting using session cookies, add CAPTCHA for auth endpoints, consider using Redis for distributed rate limiting | Alert on rate limit violations from single IP, monitor for rapid IP cycling, spike detection | **Medium** | **Medium** | **Medium** |
-| **TM-010** | OIDC session fixation or session hijacking | Attacker steals session cookie or sets a pre-determined session ID | Attacker uses stolen or pre-determined session cookie to authenticate | Web interface takeover, health data access | Session cookies, OIDC session tokens | Session cookies are `HttpOnly` and `Secure` (`internal/server/auth.go:796`), new session issued on callback (`internal/server/auth.go`), 30-day expiration | No explicit session invalidation on password reset (not applicable for OIDC), no session binding to IP/user agent, no concurrent session limit | Implement session binding to IP/User-Agent, limit concurrent sessions, add session invalidation endpoint, consider shortening session duration | Alert on session usage from different IPs/UA than creation, monitor for multiple active sessions | **Low** | **Medium** | **Low** |
-| **TM-011** | Web push subscription hijacking | Attacker has valid session cookie | Attacker registers malicious push endpoint to intercept notifications | Privacy leak via notification metadata, notification content exposure | Web push subscriptions, user privacy | Subscription requires authentication (`internal/server/server.go:826`), push notifications signed with VAPID private key | No validation of push endpoint ownership, no rate limiting on subscription creation, no revocation mechanism | Implement endpoint verification (challenge-response), rate limit subscription creation, add subscription audit log, implement subscription expiration/revocation | Alert on multiple subscriptions for same user, monitor for subscription to suspicious endpoints | **Low** | **Low** | **Low** |
-| **TM-012** | External workout API key theft (if enabled) | `EXTERNAL_WORKOUT_API_KEY` exposed | Attacker injects fake workout data | Data integrity compromise, corrupted health statistics | Workout data, database integrity, external API key | API key authentication with constant-time comparison (`internal/server/external_workout_handlers.go:46`), request body size limits (`internal/server/external_workout_handlers.go:62`), duplicate detection (`internal/server/external_workout_handlers.go:108-124`) | Currently disabled (no mitigation needed), if enabled: no rate limiting on webhook, no signature verification beyond API key, no source validation | If enabling webhook: add rate limiting, implement request signing (e.g., HMAC with shared secret), validate source IP, add audit logging | Alert on webhook errors, monitor for duplicate injection attempts, anomaly detection on workout patterns | **Very Low** | **Medium** | **Low** |
-| **TM-013** | R2 backup deletion or tampering | R2 credentials compromised or misconfigured | Attacker deletes or modifies backup files | Backup availability loss, data recovery failure | R2/S3 access keys, database backups | R2/S3 signature-based authentication | No explicit backup integrity verification, no versioning on R2 objects, no backup deletion alerts | Enable R2 bucket versioning, implement backup integrity checks (hash verification), set up deletion alerts, consider multi-region replication | Alert on backup deletion, monitor for backup size changes, validate backup restoration regularly | **Low** | **High** | **Medium** |
-| **TM-014** | XSS via Telegram Bot messages (markdown/HTML entities) | Bot sends user-controlled content in messages | Attacker injects malicious links/JavaScript in bot messages | User phishing, credential theft, session hijacking | Telegram Bot API, bot message rendering | Telegram Bot API has built-in HTML/Markdown sanitization | Bot may send medication names or notes that contain malicious links, no explicit link sanitization on bot side | Sanitize user-controlled content before sending in bot messages, use safe link rendering, warn users about external links | Monitor for reported malicious bot messages, user feedback on suspicious content | **Very Low** | **Low** | **Low** |
-| **TM-015** | Time-based race condition in medication confirmation | Two concurrent requests to confirm same intake | Double-decrement of inventory or duplicate confirmation | Inventory count corruption, inaccurate medication tracking | Medication inventory, intake logs | SQL `ErrNoRows` check for race condition (`internal/server/server.go:922-923`, `967-970`), inventory decrement only after confirmation | Race condition handled gracefully but not logged as expected, potential for confusing user experience | Log race condition occurrences for monitoring, consider adding idempotency keys for confirmation operations | Monitor for inventory anomalies, alert on negative inventory counts | **Low** | **Medium** | **Low** |
-| **TM-016** | Offline write queue corruption (IndexedDB) | Attacker compromises user device or XSS | Attacker modifies offline write queue in IndexedDB | Data integrity compromise on sync, malicious health data injection | IndexedDB, offline write queue, sync mechanism | Sync validates on server side (schema constraints), offline writes limited to BP/weight/medication confirmation | No integrity validation of IndexedDB data on client side, no rollback mechanism for failed sync, no detection of malicious queue modification | Implement IndexedDB integrity checks, add rollback for failed syncs, validate offline writes on client before queueing | Monitor sync error rates, alert on unexpected data patterns from sync | **Very Low** | **Low** | **Low** |
-
----
-
-## Criticality Calibration
-
-For **this single-user health tracking application**, the severity levels are defined as:
-
-### **Critical**
-- Pre-authentication remote code execution (RCE) in the application server
-- Complete database exfiltration via authentication bypass (e.g., SQL injection, OAuth bypass)
-- Loss of all health data with no recovery (database + backup deletion)
-- Examples:
-  - SQL injection vulnerability allowing arbitrary data exfiltration
-  - MCP OAuth validation bypass granting read access to all health data
-  - R2 backup deletion combined with database compromise
-
-### **High**
-- Authentication bypass allowing access to another user's data (not applicable for single-user, but still applicable for impersonation)
-- Secret exposure leading to full system compromise (e.g., `SESSION_SECRET`, `TELEGRAM_BOT_TOKEN`)
-- OAuth token theft or session hijacking
-- Examples:
-  - Session secret leakage allowing forged session cookies
-  - Telegram Bot Token exposure allowing bot impersonation
-  - Litestream R2 credentials allowing database exfiltration from backups
-
-### **Medium**
-- Partial data exposure (e.g., limited to specific data types or time ranges)
-- Integrity compromise affecting a subset of data (e.g., fake workout data injection)
-- DoS affecting availability of the application
-- Examples:
-  - XSS in web interface leading to session cookie theft
-  - Rate limiting bypass enabling brute force attacks
-  - External API key theft allowing fake data injection
-
-### **Low**
-- Information leaks with minimal privacy impact (e.g., notification metadata)
-- Noisy DoS with easy mitigation (e.g., spam flood from single IP)
-- Low-sensitivity data exposure (e.g., public configuration)
-- Examples:
-  - Web push subscription hijacking revealing notification content
-  - Time-based race conditions in medication confirmation
-  - Offline write queue corruption requiring manual resolution
-
----
-
-## Focus Paths for Security Review
-
-| Path | Why it matters | Related Threat IDs |
-|-------|----------------|---------------------|
-| `internal/server/auth.go` | Contains Telegram WebApp signature validation, OIDC session management, and Telegram Login Widget validation. Critical for authentication security. | TM-003, TM-007, TM-010 |
-| `internal/mcp/oauth.go` | Implements OAuth JWT validation for MCP server. Vulnerabilities here could allow unauthorized health data access via MCP tools. | TM-001, TM-008 |
-| `internal/store/*.go` | Database access layer with SQL queries. SQL injection vulnerabilities would have high impact. | TM-006 |
-| `internal/server/external_workout_handlers.go` | External webhook endpoint (currently disabled). If enabled, needs review for API key validation and input sanitization. | TM-012 |
-| `internal/server/server.go` | HTTP server initialization, middleware stack, and request handling. Security headers and rate limiting are configured here. | TM-005, TM-009 |
-| `web/static/js/core/api.js` | Frontend API client that handles authentication headers and error handling. XSS vulnerabilities in the frontend could expose session data. | TM-005 |
-| `web/static/js/sync.js` | Offline write queue and sync manager. Integrity of offline data is important for data consistency. | TM-016 |
-| `internal/server/oidc_handlers.go` | OIDC login and callback handling. Session creation and OAuth flow security are critical. | TM-002, TM-010 |
-| `internal/bot/bot.go` | Bot command and callback handlers. Validates `ALLOWED_USER_ID` and processes user input. | TM-003, TM-014 |
-| `internal/bot/handlers.go` | Bot command implementations. User-controlled content may be sent in bot messages. | TM-014 |
-| `internal/server/security_headers.go` (if exists) or security headers in `server.go` | Security headers (CSP, HSTS, etc.) mitigate XSS and other web vulnerabilities. | TM-005 |
-| `cmd/bot/main.go` | Application entry point. Environment variable loading and secret initialization happen here. | TM-002, TM-003, TM-004 |
-| `cmd/mcptool/main.go` | MCP server entry point. Configuration loading and OAuth setup are critical. | TM-001, TM-008 |
-| `internal/notifier/webpush.go` | Web push notification implementation. VAPID key management and subscription security are important. | TM-011 |
-| `internal/server/medication_handlers.go` | Medication-related API endpoints. Medication names and notes are user-controlled and may be reflected. | TM-005, TM-015 |
-| `internal/server/workout_handlers.go` | Workout-related API endpoints. Workout data injection and integrity are concerns. | TM-012 |
-| `internal/server/bp_handlers.go` | Blood pressure API endpoints. Health data input validation is critical. | TM-006 |
-| `internal/server/weight_handlers.go` | Weight API endpoints. Health data input validation is critical. | TM-006 |
-| `internal/server/food_handlers.go` | Food intake API endpoints. Data from Open Food Facts API needs validation. | TM-006 |
-| `internal/store/db/db.go` | Database connection initialization (WAL, busy-timeout, max conns). Schema integrity is important. | TM-006 |
-| `internal/store/db/migrations.go` | Goose migration runner. Schema integrity and foreign key enforcement are important. | TM-006 |
-
----
-
-## Notes on Use
-
-### Assumptions Validated by User
-- Single-user deployment (confirmed)
-- External Mi Band webhook disabled (confirmed)
-- MCP server actively used by Claude and OpenAI (confirmed)
-- Litestream enabled to R2 (confirmed)
-- Deployment behind Traefik with no additional WAF (confirmed)
-- Web interface accessed from both Telegram WebView and standard browsers (confirmed)
-
-### Deployment Considerations
-- The application is designed for self-hosted personal use. Multi-tenant deployments would require significant security changes (row-level security, tenant isolation, etc.).
-- The MCP server is read-only by design, which mitigates the impact of OAuth token bypass (attacker cannot modify data, only read).
-- Rate limiting is in-memory and per-IP. For production deployments with Traefik, consider implementing distributed rate limiting (e.g., Redis-based).
-- The use of `AUTH_TRUST_PROXY=true` is necessary behind Traefik but increases the attack surface for IP spoofing. Consider additional measures (token-based rate limiting, CAPTCHA).
-
-### Priority Recommendations (Short-Term)
-1. **Require `MCP_ALLOWED_SUBJECT`**: Ensure the MCP server restricts access to a specific subject. Empty allowlist is insecure for production.
-2. **Audit SQL query construction**: Review all SQL queries in `internal/store/` for dynamic patterns. Ensure parameterized queries are used consistently.
-3. **Implement issuer claim validation**: Add explicit issuer validation in `validateToken()` to prevent token misuse from other OAuth providers.
-4. **Add session monitoring**: Log session creation, validation, and usage with IP and User-Agent. Alert on suspicious patterns.
-
-### Priority Recommendations (Medium-Term)
-1. **Add CSP reporting**: Implement Content-Security-Policy-Report-Only to detect XSS attempts before they become vulnerabilities.
-2. **Implement backup integrity checks**: Verify R2 backup integrity periodically (hash checks, restoration tests).
-3. **Add rate limiting token**: Use session cookies instead of IP for rate limiting to prevent IP spoofing bypass.
-4. **Shorten session duration**: Consider reducing OIDC session duration from 30 days to 7-14 days for better security.
-
-### Priority Recommendations (Long-Term)
-1. **Implement distributed rate limiting**: Use Redis or similar for production-grade rate limiting.
-2. **Add MFA to OIDC**: If Pocket-ID supports it, require MFA for sensitive operations.
-3. **Implement secret rotation**: Automate rotation of `SESSION_SECRET`, `TELEGRAM_BOT_TOKEN`, and other secrets.
-4. **Add audit logging**: Implement comprehensive audit logging for all authentication, data access, and configuration changes.
+**B2 is the boundary that does not close.** The server is untrusted for
+confidentiality *of data* (B5) but is unavoidably trusted to deliver the
+JavaScript that handles the DEK. That contradiction is inherent to
+web-delivered cryptography and is treated as a first-class residual risk in
+§7.1, not a footnote.
+
+## 4. Attacker model
+
+### 4.1 Capabilities assumed
+
+| Actor | Assumed able to |
+|---|---|
+| **A1 — Honest-but-curious operator** | Read every byte of `cloud.db`, every log line, every request in flight at the edge. Correlate timing across accounts. |
+| **A2 — Malicious or coerced operator** | Everything A1 can do, **plus** serve modified JavaScript to everyone or to one targeted account, and add rows to any table. |
+| **A3 — Database / backup thief** | An offline copy of `cloud.db` (and any replica). Unlimited offline compute against it. |
+| **A4 — Network observer** | See DNS queries, TLS SNI, packet sizes and timing. Cannot read TLS payloads. |
+| **A5 — On-origin script (XSS)** | Execute in the account's origin for the life of a page: read the in-memory DEK, use (not export) the LDK, call any same-origin endpoint. |
+| **A6 — Thief of an unlocked device** | Everything the user can do on that device, including the warm-unlock cache. |
+| **A7 — Thief of a locked device** | The browser profile on disk. Needs the OS credential to make it useful. |
+| **A8 — Malicious subprocessor** | Whatever slice was sent to it (§6.4), retained per its own policy. |
+
+### 4.2 Capabilities NOT assumed
+
+Stating these matters as much as the list above — a model that assumes an
+omnipotent adversary makes no useful distinctions.
+
+- **Breaking AES-256-GCM, HKDF-SHA-256, X25519, or P-256.** All constructions
+  are conventional (`docs/cloud-crypto.md` §"Exact formats").
+- **Extracting a passkey's per-credential secret from the authenticator.**
+- **Guessing high-entropy material.** Every wrap key in the system carries
+  ≥160 bits of true entropy; there is no password hash to grind and nothing
+  server-side is offline-crackable (`docs/cloud-crypto.md` R5).
+- **Compromising the user's OS or authenticator hardware.**
+- **Silently and undetectably substituting the served build** — see §7.1: an
+  operator *can* serve modified code, but SLSA provenance and published
+  `SHA256SUMS` make a divergence detectable to anyone who checks
+  ([release-integrity.md](release-integrity.md)).
+
+## 5. What holds, and why
+
+Each row names the mechanism, not just the outcome.
+
+| Threat | Outcome | Mechanism |
+|---|---|---|
+| A3 steals the whole database | Ciphertext, envelopes, `SHA-256(verifier)`, metadata. No offline attack path. | Envelope encryption; every KEK ≥160 bits (`docs/cloud-crypto.md` R5) |
+| A1/A2 reads the sync tables | AES-GCM ciphertext with `account_seq` bound into the AAD | `internal/cloudserver/sync.go`; AAD spec in `docs/cloud-crypto.md` §"Oplog record" |
+| A2 reorders or replays synced ciphertext | Detected at decrypt time | `account_seq` in the record AAD |
+| A2 injects its own credential into an account | Gets a session, which grants ciphertext. Cannot mint a valid envelope (needs the DEK) and cannot forge the envelope-audit MAC (needs `K_mac`) — the device list renders it **unverified — remove?** | `docs/cloud-crypto.md` §"Security analysis"; `web/cloud/js/devices.js` |
+| A2 tampers with a device-transfer slot | AEAD failure under the transfer key `TK`, which never reaches the server → client aborts | `docs/cloud-crypto.md` Path B |
+| A1 reads reminder queue rows | An instant and an opaque blob. Payloads are app-layer encrypted under NK *on top of* RFC 8291 | `internal/cloudserver/push.go`, `relay.go` |
+| Push service (B7) reads a payload | Ciphertext at two layers | as above |
+| A2 misroutes account A's push to account B | Rejected by Apple/Google — subscriptions are bound to the per-account VAPID key used at `subscribe()` time | per-account VAPID keypair, minted at provisioning |
+| Phishing / look-alike origin | Passkeys are origin-bound to the account subdomain; neither an assertion nor a PRF output is obtainable off-origin | `docs/cloud-crypto.md` §"RP ID" |
+| A7 steals a locked device | Passkey needs user verification; the LDK cache needs the unlocked profile. Revocable from any surviving device. | OS boundary + `DELETE /api/devices/{id}` |
+| Clock rollback extends a session | Rejected: verification bounds the timestamp in **both** directions | `internal/cloudserver/session.go:27` (`sessionMaxFutureSkew = 5m`), `:71-72`; `session_test.go:24` |
+| Brute-forcing the recovery code online | 5 attempts per window per account, enforced in SQL against a domain-separated verifier that cannot unwrap anything (a 160-bit code makes this hygiene, not the real defense) | `internal/cloudstore/repo.go:1012` (`recoveryMaxAttempts = 5`), `:1057`; handler `internal/cloudserver/recovery.go:81-84` |
+| Brute-forcing a hosted-MCP capability token | Per-account failed-attempt throttle at 100/min; the token space takes decades at that rate. Wrong/revoked tokens 404 without confirming the account exists. | `internal/cloudserver/mcp_endpoint.go:30` (`mcpEndpointFailLimitMax = 100`) |
+| A5 exfiltrates the DEK to an arbitrary host | Blocked by a per-account `connect-src` allowlist — no document on the origin serves a bare `https:`/`wss:` token | `internal/cloudserver/router.go:295-305`; pinned by `TestRouter_HostVariants` |
+| A2 slips a third-party script onto the DEK page | `script-src 'self'` on every document — no `blob:`, no `data:`, no `unsafe-*`. Voice-SDK worklets are self-hosted. | `internal/cloudserver/router.go:286-288`; pinned by `TestSecurityHeaders_NoBlobOrDataScript` |
+| Server refuses to seal an inbound message it has no key for | Dropped, never stored readable — `SealAndQueue` returns `ErrNoInboxKey` | `internal/cloudserver/inbox.go` |
+| A resource-exhaustion write wedges an account forever | Bounded: 64 KiB per op, 64 MiB per snapshot, 1 MiB / 200 events per inbox drain, and a client-side write-error budget that pauses rather than loops | `internal/cloudserver/sync.go:22,34,35`, `inbox.go:20,26`; `web/cloud/js/sync.js` |
+
+## 6. What leaks by design
+
+Nothing in this section is a bug. Each item is a deliberate trade recorded so
+it can be argued with.
+
+### 6.1 The plaintext record-type channel
+
+Every synced op carries `record_type:record_id` **in the clear** beside its
+ciphertext, so a reading device can bind the AAD without a schema negotiation
+(`web/cloud/js/sync.js`). A record-type histogram plus arrival times is a
+health-inference channel, not neutral plumbing: a BP-heavy, twice-daily
+profile reads as hypertension monitoring, and vitals record ids embed the
+calendar day (`hrsample-2026-07-08`). **No mitigation is implemented** —
+padding or batching would be the fix and neither exists.
+
+### 6.2 Timing, sizes, cadence
+
+Reminder fire times, sync cadence, blob sizes, inbox arrival times, and client
+IPs are all visible to A1 and partly to A4. Together they sketch a routine and
+how much of what a user tracks. Treat them as **potentially sensitive
+metadata**, never as categorically harmless.
+
+### 6.3 Account existence and subdomain
+
+Wildcard DNS and a DNS-01 wildcard certificate keep individual subdomains out
+of zone files and Certificate Transparency logs, but DNS queries and TLS SNI
+still expose the name to A4. **The subdomain is a moat, not authentication**
+(`internal/cloudserver/router.go`).
+
+### 6.4 The integration carve-outs
+
+Several implemented features deliberately move plaintext past the operator.
+They are **not** one uniform "all opt-in" set, and flattening them is itself a
+disclosure defect:
+
+1. **Off until the user turns them on** — Telegram, trial AI, trial voice,
+   hosted MCP (tier 2). The three trial scopes additionally require a durable,
+   revocable consent record where only a literal `true` passes; a missing
+   record refuses (`web/domain/settings.js:56`, `:321-341`;
+   `web/cloud/js/aiclient.js:312-313`). Skipping key setup is not consent.
+2. **No toggle; active whenever the feature is used** — the operator-default
+   food-DB proxy (setting your own endpoint removes the operator from the
+   path) and RxNav drug lookups (**always** proxied; there is no
+   bring-your-own alternative at all).
+3. **Always on, inherent to running the service** — the operational metadata
+   in §6.1–§6.3.
+
+The canonical, code-derived enumeration with per-row evidence is the
+[generated privacy boundary table](../cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs);
+its source of truth is `web/cloud/js/privacy-manifest.js`, and
+`web/cloud/js/tests/architecture.privacy-claims.test.js` fails CI on a new
+egress path that no manifest entry claims. Third-party retention per
+destination is in
+[cloud-operations-security.md §5](../cloud-operations-security.md#5-subprocessors--who-sees-what).
+
+### 6.5 One server-side plaintext parse
+
+A Mi Band `.nxk` backup is written to a temp file and parsed **in plaintext**
+on the server before being sealed to the account's inbox key
+(`internal/cloudserver/vitals_import_api.go`). The parser needs the raw file;
+there is no client-side alternative today. The temp file is removed when the
+request ends, and the upload is refused outright when no unlocked device has
+published an inbox key — so nothing plaintext is ever stored.
+
+## 7. Residual risks
+
+Ranked by what an attacker actually gets.
+
+### 7.1 The operator serves the code that handles the DEK — **dominant**
+
+The vault is end-to-end encrypted; the browser code that reconstructs the key
+and decrypts the records is served by the operator. A malicious or coerced
+operator, or a poisoned CI/deploy path, can ship JavaScript that reads
+everything after unlock. Encryption at rest and in transit does not change
+this, and **nothing in a browser can attest what it ran**.
+
+What narrows it: `script-src 'self'` with zero third-party script, a scoped
+per-account `connect-src`, SLSA build provenance signed to the GitHub Actions
+OIDC identity, and published `SHA256SUMS` over every browser-delivered file —
+which turn an undetectable substitution into a *detectable* one for anyone who
+checks. Full statement, verification commands, and the honest list of what is
+still missing (no reproducible build, no transparency log, no update pinning,
+no independent crypto review): [release-integrity.md](release-integrity.md).
+
+**The removed mobile shell is not a mitigation.** It is not built, not
+shipped, and must never be cited as the answer to this risk.
+
+### 7.2 On-origin XSS is equivalent to a malicious operator, while the page lives
+
+A5 reads the in-memory DEK and drives the non-extractable LDK. Non-extractable
+keys block raw-key export; they do not make the page safe to inject into. The
+`connect-src` allowlist bounds exfiltration, with an honest gap: an XSS with
+persistence can `PUT /api/egress-hosts` to add its own host and force a reload
+to pick up the widened policy (`internal/cloudserver/egress.go`, capped at
+`maxEgressHosts = 8`). That is strictly harder than instant arbitrary-origin
+exfiltration — it needs a write plus a navigation — and it is not a closed
+door.
+
+### 7.3 Device removal is not compromise recovery
+
+`DELETE /api/devices/{credential_id}` deletes the WebAuthn credential and its
+DEK envelope in one transaction and invalidates that credential's sessions
+(`internal/cloudserver/device.go:93`, `:109`). It does **not** rotate the DEK
+or NK. A stolen, already-unlocked device keeps a readable copy of everything
+it had synced. Supportable language today is *retire a device*; fully evicting
+a compromised unlocked device needs the rotation ceremony designed in
+[cloud-key-rotation.md](../cloud-key-rotation.md) — **a proposal, not
+implemented**. Even then, the past cannot be un-leaked.
+
+### 7.4 The local plaintext mirror never auto-locks
+
+Offline rendering requires a decrypted copy on the device, so every synced
+record sits in that browser profile's IndexedDB, alongside a warm-unlock cache
+that reopens the vault with no passkey prompt (`web/cloud/js/sync.js`,
+`web/cloud/js/unlock.js`). **There is no idle auto-lock.** It clears on sign
+out, account deletion, or clearing site data. Protection is the device unlock
+and full-disk encryption — the OS's boundary, not ours. The strict mode that
+would drop the warm cache is designed but not built (`docs/cloud-crypto.md`
+§"Local at-rest posture").
+
+### 7.5 Availability is never zero-knowledge
+
+A2 can withhold, delay, or destroy data it cannot read. Encryption gives no
+integrity-of-service guarantee. Concretely: the recovery envelope lives in the
+same `cloud.db` as everything else, so losing that volume does not merely lose
+the data — it invalidates every recovery code that would have let anyone back
+in ([cloud-deployment.md §6](../cloud-deployment.md#6-backups-and-restore)).
+The user-side answer is the vault export, which is always available and always
+plain
+([vault-format.md](../vault-format.md)).
+
+### 7.6 The Telegram bot token is not vault-grade
+
+It is sealed at rest under a key **derived from `SESSION_SECRET`**
+(`internal/cloudserver/tg_token.go`), so a server holding that secret recovers
+it. Anyone holding the token can send messages as that bot. This is disclosed
+as the one server-visible credential; a chat bot cannot be made end-to-end
+encrypted, and inbound Telegram messages necessarily cross the relay in the
+clear before being sealed.
+
+### 7.7 Hosted MCP (tier 2) terminates the client connection server-side
+
+The operator runs the shim, so query and response content are visible in
+transit (never stored) for as long as the mode is enabled, and the pairing key
+sits at rest in the server DB (`internal/cloudserver/mcp_remote.go`). It is
+off by default, per-account, consent-gated, and torn down on Disconnect. Tier
+1 — a local shim over a blind relay — provides the same capability with no
+such exposure (`internal/cloudserver/mcp_relay.go`).
+
+Known, deliberately-deferred gap in the relay's replay defense: write frames
+are deduped by GCM nonce in a bounded per-pairing, **per-device** ring, so a
+malicious relay can replay a captured write frame to a *second*
+simultaneously-unlocked device whose ring has never seen that nonce. Single-
+device use is fully protected. The durable fix is a counter bound into the
+frame AAD.
+
+### 7.8 Deleted rows are not erased bytes
+
+`DELETE` frees SQLite pages without zeroing them, `secure_delete` is off, and
+no routine `VACUUM` runs. The freed bytes are **ciphertext**, and the
+account's recovery verifier is deleted in the same transaction, so nothing
+that could unwrap them survives. Full semantics — including backup expiry and
+third-party retention — in
+[cloud-operations-security.md §2–§4](../cloud-operations-security.md#2-sqlite-storage-reality--deleting-a-row-is-not-erasing-bytes).
+
+### 7.9 Capability material can enter someone else's logs
+
+The application log is redacted by test-guarded invariants: push endpoints
+become truncated SHA-256 fingerprints (`internal/cloudserver/log_redact.go:20-26`,
+`TestNoRawPushEndpointInLogs`), and the RxNav proxy uses fixed-string logging
+so drug names never appear. **The exposure is the reverse proxy**, which by
+default logs request lines: `/mcp/<token>` carries a live capability in the
+path and `/api/rxnav/*?…` carries a drug name in the query string. Traefik's
+access log is off by default and the stack does not enable it; enabling it
+without dropping `RequestPath` re-opens both
+([cloud-operations-security.md §1.3](../cloud-operations-security.md#13-reverse-proxy-access-logs--required-decision)).
+
+### 7.10 Two blind concurrent writes on skewed clocks are still unordered
+
+Last-writer-wins uses a server-referenced, per-record-monotonic `clientTs`, so
+edit-what-you-can-see always wins and a device more than two minutes out says
+so. Two *blind* concurrent writes from skewed devices remain unordered; a
+hybrid logical clock is deferred behind the envelope's `format_version`.
+
+## 8. Known unknowns
+
+Stated because a threat model that only lists what it checked is misleading.
+
+- **No independent review** of the browser crypto or the WebAuthn ceremonies
+  has been done. The constructions are conventional, which is an argument for
+  plausibility, not a substitute for review.
+- **Live deployment configuration is not verified from this repository.**
+  Whether backups are enabled, what the reverse proxy logs, and what retention
+  the object store enforces are operator facts. The policy they must satisfy
+  is [cloud-operations-security.md](../cloud-operations-security.md); this
+  document does not assert what any particular deployment does.
+- **Real-device WebAuthn PRF behavior across the platform matrix** is
+  feature-detected at runtime, not proven here
+  (`docs/2026-07-13-cloud-prf-compatibility-research.md`).
+- **Subprocessor retention** is each party's own policy and is not verified.
+- **No formal cryptographic proof** of the composed protocol exists.
+
+## 9. Guards that keep this document true
+
+These are executable, not aspirational. A change that invalidates a claim
+above should fail one of them.
+
+| Property | Guard |
+|---|---|
+| No absolute privacy claim on any copy surface; the vault claim is never hedged away; carve-outs stay enumerated | `web/cloud/js/tests/architecture.privacy-claims.test.js` |
+| Every outbound / server-side-plaintext path in `internal/cloudserver` is disclosed by a manifest entry with real evidence | same file, "every egress / plaintext path in the code is disclosed" |
+| The published boundary table equals `renderBoundaryTable()` — the doc cannot drift from the manifest | same file, "the generated boundary table matches the manifest exactly" |
+| No `blob:`/`data:`/`unsafe-*` in any script directive; no foreign host in `script-src` | `TestSecurityHeaders_NoBlobOrDataScript`, `TestRouter_HostVariants` |
+| The app document's `connect-src` reflects only stored egress hosts — never a bare `https:` | `TestRouter_AppDocumentReflectsEgressHosts` |
+| Session timestamps bounded in both directions | `TestVerifySessionToken_FutureSkew` |
+| Raw push endpoints never reach a log line | `TestNoRawPushEndpointInLogs` |
+| Account deletion covers every account-keyed table — discovered from the schema, not from a hand-kept list | `TestDeleteAccount_CoverageMatchesSchema` (`internal/cloudstore/delete_account_test.go:95`) |
+| The sealed-inbox wire format cannot drift between Go and the browser | `internal/cloudserver/testdata/inbox_sealed_vector.json`, decrypted by both suites |

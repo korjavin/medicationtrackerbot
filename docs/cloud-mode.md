@@ -1,14 +1,32 @@
-# E2EE Cloud Mode — zero-knowledge cloud + browser PWA
+# Cloud mode — the zero-knowledge vault and the service around it
 
-**Status: current production baseline.** Cloud mode is no longer just a design proposal: C0 through C2e are implemented in `cmd/cloud`, `internal/cloudstore`, `internal/cloudserver`, `web/cloud/`, and `web/domain/`. New product work should target this mode by default. Bot/server mode is legacy maintenance, and the removed mobile/Capacitor build is frozen on the `mobile` branch.
+**Status: shipped and current.** Everything described here is implemented in
+`cmd/cloud`, `internal/cloudstore`, `internal/cloudserver`, `web/cloud/`, and
+`web/domain/`, except where a section says otherwise in bold.
 
-Implementation history: C0 (service foundation, device lifecycle, encrypted sync, snapshot compaction, blind web-push relay), C1 (BP + weight), C2a (diary/notes, settings, integrations-keys-in-vault, vitals read side), C2b (medications, intake state machine, timezone handling, reminder compute-and-upload), C2c (food logs/products/stats/meals, direct-from-browser AI parsing, food-DB search with operator default), C2d (workouts), and C2e (full-vault export/import) are complete. See [docs/cloud-deployment.md](cloud-deployment.md) for deployment and [docs/cloud-crypto.md](cloud-crypto.md) for the crypto spec.
+## How to read this document
 
-C0a deviations from this spec, discovered during implementation: subdomain and `account_id` are **server-assigned** at invite time, not client-generated at signup — a deliberate clarification, only key material (DEK, KEK, passkey PRF, recovery code) must be client-generated. Registration is invite-only from day one (admin CLI `cloud admin invite`), matching the Onboarding section below.
+This file is long because it is the per-subsystem reference. It has two halves,
+and mixing them up is how a reader ends up believing a design note is a
+contract:
 
-Second install story, alongside server mode (`docs/architecture.md`):
+| Part | Sections | How to treat it |
+|---|---|---|
+| **Normative** — what the system does today | everything not listed in the next row | Current behavior. A contradiction with the code is a bug in this file; report it. |
+| **Implementation record** — how it got here | *Appendix — how the domain layer got here*, *Goja spike*, *C1 / C2a–C2e implementation notes*, *Phasing*, *Open questions* | Historical and forward-looking. Useful rationale; **not** a statement of current behavior, and **not** a roadmap commitment. Each carries its own banner. |
 
-> Visit the signup page → get `https://amber-falcon-8k3q9x.app.<cloud-domain>` → create a passkey (Face ID / fingerprint) → save the Emergency Kit → Add to Home Screen. Done. Reminders fire, data syncs across devices, camera/AI/voice features unlock as the user adds their own provider keys. The cloud operator is *cryptographically unable* to read the vault: the DEK never leaves the browser, and sync and reminder content are stored only as ciphertext.
+For the shorter, higher-altitude view, start at
+[architecture.md](architecture.md). For trust boundaries and residual risks,
+[security/threat-model.md](security/threat-model.md). For key formats and
+ceremonies, [cloud-crypto.md](cloud-crypto.md).
+
+Two things in this file are **generated** and must never be hand-edited: the
+privacy boundary table (source: `web/cloud/js/privacy-manifest.js`, regenerate
+with `pnpm privacy:docs`) and, indirectly, everything it feeds.
+
+## The install story
+
+> Open the claim link → get `https://amber-falcon-8k3q9x.app.<cloud-domain>` → create a passkey (Face ID / fingerprint) → save the Emergency Kit → Add to Home Screen. Done. Reminders fire, data syncs across devices, camera/AI/voice features unlock as the user adds their own provider keys. The operator is *cryptographically unable* to read the vault: the DEK never leaves the browser, and sync and reminder content are stored only as ciphertext.
 
 The vault path is the whole default product: **hosting** (a trusted HTTPS origin per user), **storage** (encrypted blobs), and a **push relay** (a blind alarm clock). All domain logic and all BYO-key provider calls run in the browser. Separate from that path, a handful of **opt-in integrations deliberately leave the vault boundary** — they are enumerated in [Privacy boundary — the vault promise and its carve-outs](#privacy-boundary--the-vault-promise-and-its-carve-outs) and must never be described as end-to-end encrypted.
 
@@ -25,8 +43,8 @@ Goals:
 
 Non-goals:
 
-- Replacing server mode. Self-hosted installs keep Telegram-rich bot UX, server-side MCP, importers.
-- Server-side plaintext on the *vault* path. (This is **not** "no server-side proxying at all": the operator-trial AI/voice proxies, the operator-default food proxy, the Telegram relay, and hosted MCP all handle plaintext by design. Each is opt-in and enumerated under [Privacy boundary](#privacy-boundary--the-vault-promise-and-its-carve-outs).)
+- Server-side plaintext on the *vault* path. (This is **not** "no server-side proxying at all": the operator-trial AI/voice proxies, the operator-default food proxy, the Telegram relay, hosted MCP, and the Mi Band backup parser all handle plaintext by design. They do not share one activation story — see [Privacy boundary](#privacy-boundary--the-vault-promise-and-its-carve-outs).)
+- Server-side domain logic. The server cannot compute a schedule, merge a conflict, or answer a query, because it cannot read the data. Anything that needs to read the vault runs in an unlocked browser tab or does not exist.
 - Multi-user accounts / sharing (future work, needs asymmetric sharing crypto).
 
 ## Architecture
@@ -34,7 +52,7 @@ Non-goals:
 ```
 ┌────────────────────────────── user's devices ─────────────────────────────┐
 │  Installed PWA (per-user origin)                                          │
-│  ├─ existing web/static UI (unchanged, byte-identical to server mode)     │
+│  ├─ web/static UI — talks only to /api/*, which never leaves the tab      │
 │  ├─ /api/* shim → in-browser domain layer (JS port) → Dexie/IndexedDB     │
 │  ├─ WebCrypto vault (DEK; unlocked via passkey PRF envelopes)             │
 │  └─ direct calls: api.openai.com, ElevenLabs, food DB (user's own keys)   │
@@ -165,7 +183,7 @@ The last three rows are the **inbound** posture, decided in `med-eas.29.1` and s
 
 ## Accounts, subdomains, hosting
 
-- Per-user origin: `https://<petname>-<random>.app.<cloud-domain>` (e.g. `amber-falcon-8k3q9x`), generated client-side at signup, ≥ 48 bits of entropy in the random suffix.
+- Per-user origin: `https://<petname>-<random>.app.<cloud-domain>` (e.g. `amber-falcon-8k3q9x`). **The subdomain and the `account_id` are server-assigned at provisioning time**, not client-generated — `randomSubdomain()` and `randomToken(16)` in `internal/cloudserver/provision.go:83,87,159-173`, persisted by `CreateAccount`. Only *key* material (DEK, KEKs, passkey PRF outputs, recovery code) is client-generated; the client reads its server-assigned account id out of the WebAuthn creation options (`web/cloud/js/signup.js:141-144`).
 - **Why per-user subdomains** (not one origin + accounts):
   - Browser storage, service workers, and push subscriptions are *per-origin* — each user's install is fully isolated by the platform, no multi-account state to manage.
   - The unguessable name is a capability-style outer moat (defense in depth — real auth still applies; see key hierarchy).
@@ -226,7 +244,7 @@ account inbox keypair (ECDH) — public half on server, private half in vault
 ## Sync protocol
 
 - **Encrypted oplog**: each write produces `{account_seq, device_id, record_type_tag, nonce, ciphertext}`. Server assigns the monotonic `account_seq`; clients push local ops and pull `since=<cursor>`. This mirrors the existing change-events + download-cursor design (`internal/store/settings`), with ciphertext bodies.
-- **Conflict resolution is client-side** (server can't merge what it can't read): last-writer-wins per record on `clientTs`, same semantics the offline write queue (`SyncManager`) already implements for server mode.
+- **Conflict resolution is client-side** (server can't merge what it can't read): last-writer-wins per record on `clientTs`.
 
   `clientTs` is a **merge token, not a wall clock** (bd med-d5t.6). It used to be the writing device's raw `Date.now()`, which made LWW obey whichever device's clock ran fastest: a phone ten minutes fast would win against a correctly-clocked laptop's *later* edit, and the laptop's fix was dropped silently. On a medication tracker that is the worst failure mode there is — quiet, plausible, and about dosage. Two local guards, neither touching the envelope format nor the server:
 
@@ -251,11 +269,11 @@ The server is a **blind alarm clock**. It cannot compute "when is the next dose"
 
 **Test push is a separate, immediate, this-device-only send** — distinct from the scheduled-reminder path above, which always fans out to every subscribed device. `sendTestPush(ctx)` (`web/cloud/js/reminders.js`) reads the current device's own subscription, encrypts a fixed test payload with the account NK, and `POST`s `{ endpoint, ct }` to `/api/push/test`. The handler (`internal/cloudserver/push.go`) resolves that endpoint to a subscription on the caller's account (404 if none/foreign), loads the account's VAPID keys, and calls `WebPushSender.Send` immediately — no relay tick, no schedule mutation, so it can never clobber the real replace-all reminder schedule. Same blind shape as the relay: the server sees only the endpoint (already-stored routing metadata) and the client-encrypted `ct`, never content.
 
-**Notification actions (Snooze / Don't-bug)** — implemented, bd med-9b8.3. BP and weight reminders carry the same two action buttons bot mode shows. The `kind` that selects them (`bp` / `weight` / `medication`) rides *inside* the NK ciphertext, so the relay never learns what sort of reminder it is forwarding.
+**Notification actions (Snooze / Don't-bug)** — implemented, bd med-9b8.3. BP and weight reminders carry Snooze and Don't-bug action buttons. The `kind` that selects them (`bp` / `weight` / `medication`) rides *inside* the NK ciphertext, so the relay never learns what sort of reminder it is forwarding.
 
-The tap path differs from bot mode by necessity. Bot mode's service worker POSTs `/api/bp/reminder/snooze` straight to the server. The cloud service worker **cannot**: those routes are served by the apishim, which lives in the page and needs the DEK, and a service worker never holds the DEK. So a tap is handed to an unlocked page instead — `postMessage({type:'reminder-action', route})` to a focused tab, or `openWindow('/?reminder_action=<action>')` on a cold start, which `cloud-boot.js` drains *after* the vault opens (and strips from the URL, so a refresh can't replay the mute). `cloud-boot.js` allowlists the four routes it will replay, so a stale or hostile same-origin worker message can't drive arbitrary shim writes.
+**A service worker cannot apply the tap itself.** `/api/bp/reminder/snooze` and friends are served by the apishim, which lives in the page and needs the DEK, and a service worker never holds the DEK. So a tap is handed to an unlocked page instead — `postMessage({type:'reminder-action', route})` to a focused tab, or `openWindow('/?reminder_action=<action>')` on a cold start, which `cloud-boot.js` drains *after* the vault opens (and strips from the URL, so a refresh can't replay the mute). `cloud-boot.js` allowlists the four routes it will replay, so a stale or hostile same-origin worker message can't drive arbitrary shim writes.
 
-Snooze (2h) and don't-bug (24h) are **mute-until instants on the `bpreminderpref` / `weightreminderpref` vault records**, not flags — `enabled` stays true and the schedule resumes on its own, matching `internal/store/{bp,weight}/reminders.go`. Because the horizon is *precomputed and already queued server-side*, muting only takes effect once a horizon omitting the muted targets is re-uploaded; the shim fires that recompute undebounced but does not await it, so a snooze tapped on a flaky connection still succeeds (the next unlock re-uploads anyway). Bot mode's `POST /api/bp/reminder/test` — which fans a card out through every notifier — maps in cloud onto `sendTestPush(ctx)`, the this-device-only encrypted push described above.
+Snooze (2h) and don't-bug (24h) are **mute-until instants on the `bpreminderpref` / `weightreminderpref` vault records**, not flags — `enabled` stays true and the schedule resumes on its own, Because the horizon is *precomputed and already queued server-side*, muting only takes effect once a horizon omitting the muted targets is re-uploaded; the shim fires that recompute undebounced but does not await it, so a snooze tapped on a flaky connection still succeeds (the next unlock re-uploads anyway). The "send a test reminder" affordance is `sendTestPush(ctx)`, the this-device-only encrypted push described above.
 
 **Dry-queue safety net**: if the user doesn't open the app within the horizon, reminders stop — and the server can't extend them. The server *does* know last-sync time (inherent metadata), so it sends a generic escalating warning push ("Open the app to keep reminders running — schedule expires in 5 days") and, if an email is on file, an email fallback. This is the E2EE analogue of the adherence safety net.
 
@@ -318,7 +336,7 @@ Zero-knowledge server vs. a chat bot is a real tension: the bot must exchange pl
 - **Free-text logging works through the same mailbox**: `/bp 120/80`, `/food two eggs`, `/weight 81.5` are sealed as raw text and parsed *client-side at drain time* by the same JS domain layer the app uses — including AI food parsing, since provider keys live in the vault and the drain runs on an unlocked client. The bot's immediate reply is necessarily generic ("saved — recorded next time you open the app"): the server can't confirm what it can't parse. Richer confirmation can arrive after drain, composed by the client (user-chosen verbosity). This is now ratified policy, not just a sketch — see [Inbound plaintext — what the relay may do](#inbound-plaintext--what-the-relay-may-do) for what the relay is and is not permitted to do, and why relay-side parsing was rejected.
 
   **Implemented for commands (`med-eas.29.2`), photos (`med-vcv.1`), and free text (`med-vcv.2`).** `ChildWebhook` answers `/start` and `/help` locally, seals every other `/command` verbatim, seals a photo's `file_id`, and now seals free text too — each replying `⏳ Queued`, which the client later edits into a confirmation. Free text is handed to a drain-time OpenAI tool-calling agent (`web/cloud/js/tg-agent.js`) that runs on the unlocked tab with the user's own key over the MCP catalog, so the model can log or answer. The relay still parses nothing and calls no AI.
-- **Not supported in cloud mode**: conversational queries ("what's my BP trend?") — answering requires reading data, which only clients can do; a live reply would need an online unlocked client anyway, at which point the user has the app open. That stays a server-mode feature.
+- **Not supported in cloud mode**: conversational queries ("what's my BP trend?") — answering requires reading data, which only clients can do; a live reply would need an online unlocked client anyway, at which point the user has the app open.
 
 ### Inbound plaintext — what the relay may do
 
@@ -450,7 +468,7 @@ The metadata ping told the developer *when* to run `feedbackpull` — a chore ne
 All provider keys live as ordinary records inside the encrypted vault (synced across devices, invisible to the cloud). Calls go **directly from the browser** to the provider:
 
 - OpenAI(-compatible) chat + vision endpoints support browser CORS; the existing first-run → integrations flow and `***`-masked settings UX carry over as-is.
-- ElevenLabs conversational voice uses their browser SDK (WebRTC/WS) — replacing the server-side proxy handlers. **A voice agent without data access is useless** — operating on the user's data is its entire purpose. Cloud mode solves this with **SDK client tools**: tools registered at `startSession` execute in the browser session itself, backed by the in-browser domain layer — no MCP relay involved, and the availability constraint is trivially satisfied because the device is online and unlocked during its own call. **Status caveat**: this pattern was designed for server mode in `docs/plans/2026-05-18-elevenlabs-dynamic-mcp-client-tools.md` but **never implemented or verified** — no `clientTools` code exists in the repo; today's server-mode voice runs on a manually dashboard-configured MCP server. Validating client tools end-to-end is a prerequisite spike for cloud voice, ideally proven in server mode first where the plan already exists. ElevenLabs' cloud sees tool names, results, and transcripts — inherent to any cloud voice agent; under BYO keys that's strictly user↔ElevenLabs, the zero-knowledge server sees nothing. Open item: agent provisioning (tool definitions must exist on an agent) — programmatic via the ElevenLabs agents API where it covers tool config, dashboard instructions as fallback.
+- ElevenLabs conversational voice runs **browser-direct** on their SDK (WebRTC/WS). **A voice agent without data access is useless** — operating on the user's data is its entire purpose — so tools registered at `startSession` execute in the browser session itself, backed by the in-browser domain layer. No relay hop, and the availability constraint is trivially satisfied because the device is online and unlocked during its own call. Agent and tool provisioning happen from code against the ElevenLabs Agents API; the user sets only an API key. See [Voice (ElevenLabs)](#voice-elevenlabs) for the shipped detail. ElevenLabs' cloud sees tool names, tool **results**, and transcripts — inherent to any cloud voice agent; with the user's own key that is strictly user↔ElevenLabs and the operator is not in the path.
 - **Food DB is the exception to "bring your own": too niche to ask users about.** The operator hosts an instance and cloud mode points at it silently as the built-in default — no setup step, no wizard mention, no expiring trial, no BYO nagging (it's excluded from the trial-pool CTA mechanics below). The URL stays visible-but-unadvertised in Settings → Integrations for the rare user who wants their own (Open Food Facts and self-hosted instances are CORS-open). Honest note: food/barcode lookups necessarily reveal query terms to whoever hosts the DB — same exposure as public Open Food Facts, no health-record content.
 - **Gamification AI narration (Phase 6, med-z1n.3) is opt-in prose OVER the deterministic engine, same BYO posture as food AI.** The Journey/Atlas screen's "AI Story" card offers per-tap narration (weekly story, chapter recap, experiment suggestion, workout insight). Tapping sends **only already-computed summaries** — the JSON the `/atlas`, `/forecast`, `/experiments`, `/chapter`, `/traits`, `/keystones` read-models return (revealed discoveries, week deltas, verdicts, review lines, workout counts) — to the user's own OpenAI-compatible endpoint via the same `web/cloud/js/aiclient.js` path. **No raw vault records ever leave** (no BP/sleep logs, no diary text). The model returns prose only; every number on screen still comes from the deterministic cards, and the narration is a separate, visually-attributed block — a hallucinated figure can never displace a computed one. No key or any provider error → the narrate route returns `{text:null}` and the deterministic cards render unchanged (narration degrades to nothing).
 - The existing graceful degradation contract is unchanged: no key → feature shows its "configure to enable" empty state; key added → capability appears immediately.
@@ -465,7 +483,7 @@ Design rules:
 
 - **Pool keys never reach the device** (one extraction drains the pool). Two mechanisms instead:
   - **OpenAI-compatible chat/vision: a metered relay** that mimics the OpenAI API surface so the client is unaltered — trial mode is just the default base URL pointing at the relay with session auth; BYO is a settings change to the provider's real URL. Per-account quotas (requests/tokens per day), per-feature budgets, a global circuit breaker — the demo-mode rate-limit pattern this repo already has.
-  - **ElevenLabs: server-minted signed session URLs** (the existing `get_signed_url` pattern from server mode) — the cloud mints the session with the pooled key; audio then flows device↔ElevenLabs directly and never transits our server.
+  - **ElevenLabs: server-minted signed session URLs** — the server mints the session with the pooled key; audio then flows device↔ElevenLabs directly and never transits our server.
 - **The honest carve-out, stated on its own consent screen**: on trial keys, AI request content (food photos, prompts; ElevenLabs conversations under the *operator's* provider account) is visible to the relay in transit and to the provider under the operator's account. Nothing is stored and relay bodies are never logged — but it is a real, explicit downgrade from the BYO posture, and the user chooses it or enters their own keys on day one. The vault stays E2EE regardless; only in-flight AI content is affected.
 - **Sequencing**: the relay ships only when the PWA has AI features to call it — alongside C2 (see phasing), not in C0.
 
@@ -475,9 +493,7 @@ Implementation (med-eas.25): trial keys are `TRIAL_*` envs on `cmd/cloud` (see [
 
 ## MCP
 
-Three tiers, because "MCP" and "server that can't read data" genuinely conflict — the server cannot answer a single registry op. The user's suggestion (server proxies MCP *to client devices*) is the right shape; the question is who can read the frames.
-
-**Tier 0 — MVP: no MCP in cloud mode.** Server-mode installs keep the full registry/executor. Cloud mode ships without it.
+"MCP" and "a server that cannot read the data" genuinely conflict: the server cannot answer a single catalogued operation. The resolution is that the server proxies MCP *to the user's own devices* — the only question left is who can read the frames, and that is what separates the two tiers below.
 
 **Tier 1 — blind relay + local shim (preserves zero knowledge). PoC implemented**, see
 `docs/plans/2026-07-05-cloud-c4-poc-mcp-blind-relay.md`. For Claude Desktop / Claude Code,
@@ -536,11 +552,11 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   `web/cloud/js/mcp-responder.js` — `mcp_help` (discover) and `mcp_call` (executed by the
   in-browser domain layer against local data, same construction path as `apishim`).
 - **Cloud MCP is a two-tool surface — `mcp_help` + `mcp_call` — by design, not by omission.**
-  Bot mode's third tool, `mcp_execute`, forks `python3` subprocesses server-side
-  (`internal/mcp/executor/service.go`). That is structurally impossible here: the cloud server
-  never sees vault plaintext, so a server-side script runner would have nothing to read. Making
-  it work would mean shipping plaintext to the server, which is the one property this whole mode
-  exists to prevent. Calling `mcp_execute` against a cloud connector returns an explicit error
+  A third tool, `mcp_execute`, appears in the shared operation vocabulary but is structurally
+  impossible here: it would fork a script runner server-side, and the server never sees vault
+  plaintext, so that runner would have nothing to read. Making it work would mean shipping
+  plaintext to the server, which is the one property this whole design exists to prevent.
+  Calling `mcp_execute` against a connector returns an explicit error
   saying so (`web/cloud/js/mcp-responder.js`), rather than an opaque "unknown method" an agent
   would retry; `USAGE_PROTOCOL` also states it up front. Multi-step work is done by chaining
   `mcp_call`, one operation per call.
@@ -560,21 +576,23 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   if a concrete agent task emerges that provably can't be expressed as chained `mcp_call`s.
 - **The catalog is generated, not hand-written.** `web/cloud/js/mcp-catalog.generated.js` is
   emitted from `registry.DefaultOperations()` by `cmd/genmcpcatalog` (logic in
-  `internal/mcp/catalogjs`); regenerate with `go run ./cmd/genmcpcatalog`. Nine of the 106
+  `internal/mcp/catalogjs`); regenerate with `go run ./cmd/genmcpcatalog`. **9 of the 106**
   registry ops are excluded, each listed individually with a `Reason` in `catalogjs.Excluded`:
   the 8 **gamification** ops (deferred project-wide, clamped out of `apishim.js`'s `PORTED_SET`)
   and **`workouts.miband.gps`** (cloud vaults carry no GPS tracks — `vaultToRecords` drops
   `workouts.miband[].gps` on import, so the op could only ever return an empty track; see
-  [docs/vault-format.md](vault-format.md)). That leaves **97 ops, every one of them
-  dispatchable**. `internal/mcp/catalogjs/drift_test.go` fails CI when a registry op is neither
-  in the checked-in catalog nor excluded, and when the checked-in file is stale — the same
-  reasoned-exemption shape as `internal/server/mcp_coverage_exempt.go`.
+  [docs/vault-format.md](vault-format.md)). That leaves **97 generated ops, every one of them
+  dispatchable**. The responder then serves **99**: `web/cloud/js/mcp-responder.js:26` is
+  `[...GENERATED, ...CLOUD_EXTRA]`, and `mcp-catalog.cloud-extra.js` adds two composite analyses
+  that exist only here. So "97" is the count of the generated file; "99" is what `mcp_help`
+  lists. `internal/mcp/catalogjs/drift_test.go` fails CI when a registry op is neither in the
+  checked-in catalog nor excluded, and when the checked-in file is stale.
 - **`mcp_help` is compact-by-default because of the 64 KiB relay frame cap.** Full entries for
   all ops are ~106 KB, over `mcp_relay.go`'s `maxRelayFrameBytes`; the compact projection
   (`id/topic/method/risk/description/required`) is ~30 KB. Precedence mirrors
   `internal/mcp/help.go`: `operation_id(s)` → full entries, `query` → compact matches (never
   auto-expanded), `topic`/no-args → compact catalog + `usage_protocol`.
-- **The `mcp_call` envelope matches bot mode** (`internal/mcp/call.go`): `operation_id` (with
+- **The `mcp_call` envelope** (canonical definition: `internal/mcp/call.go`): `operation_id` (with
   `op` kept as a back-compat alias), `params`, `path_params`, `body`, `mode`, `intent`. The three
   definitions that must stay in lockstep are `web/cloud/js/mcp-responder.js`,
   `cmd/mcpshim/main.go`'s `callInput`, and `internal/cloudserver/mcp_endpoint.go`'s
@@ -586,7 +604,7 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   query). Arrays repeat their key (`tags=a&tags=b`), objects encode as JSON — the only lossless
   option a flat querystring affords. Schema mismatches produce warn-only `warnings` on the
   response, exactly as `registry.ValidateInput` does — they never block a call. The success
-  response is bot mode's `CallResponse`
+  response is `CallResponse`
   (`{status, result, api_calls, warnings?}`) unconditionally: the shape must not depend on the
   input, or an agent that learned where `health.bp.list` puts its rows loses them on the one call
   that happened to trip a warning.
@@ -651,15 +669,18 @@ claude.ai / ChatGPT ──https── cloud server ──wss:// ciphertext ─�
 - **Set-up-once-and-forget**: enablement is persisted (`internal/cloudstore` migration adding `mcp_remote`), so the token and connector URL survive process restarts — on startup the server re-registers each enabled account's pairing with the (in-memory) relay and restarts its hosted shim client. The honest cost of this convenience: the pairing key now sits at rest in the server DB while remote mode is enabled, not just in memory during a live relay session.
 - **Token-in-path access-log caveat** (same shape as `initData` in [docs/sse-traefik.md](sse-traefik.md#initdata-exposure-in-traefik-access-logs)): the token travels in the URL path (`/mcp/<token>`), so Traefik's default access log writes it to disk on every request. The leak is bounded by the same throttle that bounds guessing it, but treat Traefik logs as sensitive for this route and consider the same mitigations (drop query/path logging for `/mcp/*`, or a redaction filter) if that's a concern for your deployment.
 
-## The client: porting the domain layer
+## Appendix — how the domain layer got here (historical)
 
-This is the dominant cost of the proposal and it must be stated, not hidden: the Go domain layer (~9.1K lines), store semantics (~9.8K), scheduler (~2.8K), and the validation slice of the HTTP handlers must be reimplemented in JS, and ~33K lines of Go tests re-earned. Two structural decisions keep this tractable and stop the fork from rotting:
+> **Implementation record, not current behavior.** This section and the Goja
+> spike below explain *why* the browser domain layer is shaped the way it is.
+> The work described is done; the design constraints it establishes (§1 and §3)
+> are still enforced by tests. Nothing here is a roadmap commitment.
+
+The domain layer was written in JS from an existing implementation, and the cost of that was the dominant cost of the whole design. Two structural decisions kept it tractable and stopped the result from rotting:
 
 1. **Port behind the `/api/*` contract, keep the UI byte-identical.** The existing frontend already speaks only `/api/*`. Cloud mode inserts a fetch shim (SW or wrapper around `apiCall`) that routes `/api/*` to an in-browser router → JS domain services → Dexie stores. `web/static` feature code, the design system, offline plumbing, and all Vitest feature suites are shared verbatim with server mode. The fork is confined to a `web/static/js/localdomain/` layer; the HTTP contract becomes the enforced seam.
 2. **Cross-implementation contract tests.** A shared fixture corpus (seed ops → API call sequence → expected JSON responses) runs in CI against both the Go server and the JS domain layer. A behavior change that lands in one implementation fails the other's contract run. This is the drift alarm that makes double maintenance survivable; without it, this proposal should be rejected.
-3. **Write the JS layer runtime-agnostic (design constraint for C1, cheap now, expensive to retrofit).** Domain services must depend on injected ports — a storage port (Dexie in the browser; something else elsewhere) and a crypto port — never on browser globals directly. This keeps the **unification endgame** open: the double maintenance is intended as a *migration cost, not a permanent tax*. Once C2 reaches parity, bot mode can host the same JS domain layer server-side — preferred embedding is **goja** (pure-Go JS engine: keeps `CGO_ENABLED=0` and the single binary; Node sidecar as fallback if goja performance disappoints) with a SQLite-backed storage port. The migration proof is **shadow mirroring** (C6): the Go handler serves the response while the JS layer computes it in parallel and divergences are logged; per-domain flips happen only after the diff log stays quiet on real traffic. End state: one domain implementation (JS), Go keeps transport (bot, HTTP, push, scheduler ticks, MCP).
-
-Port order tracks user value: meds + intakes + reminder computation first (C1 below), then the remaining domains.
+3. **The JS layer is runtime-agnostic, and this is still enforced.** Domain services depend on injected ports — a storage port and a clock/timezone port — never on browser globals. `architecture.domain-purity.test.js` fails CI on a `window`/`document`/`fetch`/`indexedDB` reference in `web/domain/`. That constraint is what keeps the layer embeddable outside a browser at all; the goja spike below is the evidence that it works, and is the only place that possibility has been measured.
 
 ### Goja spike (med-07y.1) — measured findings
 
@@ -688,14 +709,15 @@ The C6 unification endgame only holds if goja can actually run the `web/domain/*
 - **ESM-strip loader**: goja has no ESM; `loadModule` (`harness.go`) strips only the leading `export ` (`^export `, multiline regex) on an in-memory copy so `createBPDomain`/`createWeightDomain` become globals — `web/domain/*.js` untouched. Cheap for these files; a real module loader is needed once modules `import` each other.
 - **Records port + Intl shim**: `RecordsPort` (`port.go`) backs the `records.{list,put,del}` contract with a `records(type,id,data JSON)` table, each method returning an already-settled `vm.NewPromise` (DB/JSON errors → rejection, never dropped). `injectIntlShim` (`harness.go`) supplies the one `Intl.DateTimeFormat().formatToParts` primitive the domains need, backed by Go's `time` (same tz DB as the native store). C6's production embedding must provide both.
 
-## Migrating an existing server-mode install
+## No lock-in — full-vault export and import
 
-Migration is a special case of the general **no-lock-in guarantee (C2e)**: one canonical one-user-all-domains JSON format (meds + intake log, BP, weight, food, workouts, vitals, sleep, diary, tz history, settings), exportable **and** importable in **both** modes — a full 2×2 matrix, so any instance pair can migrate in either direction and a plain file on the user's disk is always an exit door.
+A plain file on the user's disk is always an exit door. One canonical one-user-all-domains JSON format (meds + intake log, BP, weight, food, workouts, vitals, sleep, diary, tz history, settings) is both exportable and importable. Format spec: [vault-format.md](vault-format.md).
 
-1. **One shared Settings → Import/Export screen** in `web/static` serves both modes — no CLI. In bot mode, export is `GET /api/export` (plaintext JSON over the authed session) and import is a bulk `POST /api/import`; in cloud mode both sides run entirely client-side against the unlocked vault. The zero-knowledge property forces the cloud arrangement — plaintext can never be uploaded, so data must enter through an unlocked client that encrypts it locally — and bot mode simply reuses the same screen with HTTP instead of the records port.
-2. **Optional password protection via age, browser-side in both modes.** The downloaded file is plaintext JSON, or — if the user supplies a passphrase — an [age](https://age-encryption.org) scrypt-recipient file (`.json.age`, decryptable anywhere with `age -d`). Encryption/decryption happens in the browser via a vendored single-file `typage` build; the server never sees the passphrase or performs any backup crypto in either mode. No custom crypto layer.
-3. **Import flows through the domain services, not raw table writes.** Records enter via the same validation as live writes, so an import can't create states the app couldn't. Cloud-side, bulk lands as **a snapshot, not an op flood**: the importer writes local Dexie state and uploads one encrypted snapshot (the C0c compaction path), then normal op-based sync resumes; reminder schedules recompute client-side from the imported plans.
-4. **Round-trip is the contract.** bot export → cloud import → cloud export → bot import must be identity (modulo id/timestamp normalization); a CI test enforces it so the two implementations of the format can't drift.
+1. **Settings → Import/Export, no CLI.** Both directions run entirely client-side against the unlocked vault. The zero-knowledge property forces this: plaintext can never be uploaded, so data must enter through an unlocked client that encrypts it locally.
+2. **Optional passphrase protection via age, in the browser.** The downloaded file is plaintext JSON, or — if the user supplies a passphrase — an [age](https://age-encryption.org) scrypt-recipient file (`.json.age`, decryptable anywhere with `age -d`). Encryption and decryption happen in the browser via a vendored single-file `typage` build; the server never sees the passphrase and performs no backup crypto. No custom crypto layer.
+3. **Import flows through the domain layer, not raw writes.** Records enter via the same validation as live writes, so an import cannot create states the app could not. Bulk lands as **one snapshot, not an op flood** — `replaceAllRecords` + `forceSnapshot` posts a constant 2 requests regardless of vault size; reminder schedules recompute client-side afterwards.
+4. **Round-trip is the contract.** Export → import → export must be identity, modulo id/timestamp normalization. A golden fixture pins it on both sides of the transform so the format cannot drift.
+5. **Secrets are opt-out.** "Include API keys and external provider settings" is on by default. Off means `integrations` and `api_tokens` are **absent** from the file (not present-and-empty — the two are distinguishable), and on import absent means "leave the target's existing keys alone". It is the only asymmetric path in an otherwise pure-replace format, so a secrets-free backup cannot silently unconfigure the destination.
 
 ## Metadata leakage summary
 
@@ -764,7 +786,17 @@ record-type histogram (`bp`/`weight` — the type tag is plaintext metadata,
 not new leakage), and push queue state. No health data, no keys, no message
 content.
 
-## C1 implementation notes
+## Implementation record — the C1 / C2 slices
+
+> **Historical, not normative.** The six sections that follow (through *C2e*)
+> record how each slice of the browser domain layer was built and why. They are
+> the best available rationale for the record shapes, deterministic ids, and
+> deliberate simplifications the code still relies on — but they describe
+> *decisions made at the time*, not a contract. Where one disagrees with the
+> normative sections above or with the code, the code wins. The *Voice
+> (ElevenLabs)* section that follows them is normative again.
+
+### C1 implementation notes
 
 C1 shipped as **BP + weight through the real `web/static` frontend**, not medications as originally scoped below — a deliberate reorder (see `docs/plans/2026-07-05-cloud-c1-bp-weight-real-frontend.md`) because BP/weight's domain logic (AHA category buckets, EMA trend, daily-weighted stats) is small, pure, and self-contained, making it the cheapest full vertical slice to prove the shim architecture end-to-end.
 
@@ -775,7 +807,7 @@ C1 shipped as **BP + weight through the real `web/static` frontend**, not medica
 - **Serving**: `cmd/cloud` now serves the full `web/static` app (embedded FS reused from `internal/server`) on account subdomains; the unlock/claim/recovery shell moved to `/unlock` (`/claim`, `/recover` still rewrite to `signup.html`).
 - **Contract test strategy**: no new unit tests. The existing BP/weight Vitest feature suites are re-run under a shim-mode harness (in-memory records port, no crypto/IndexedDB) as additive `cloud.shim-contract.*.test.js` files — a divergence there is a Go↔JS drift bug, not a gap needing new test scaffolding.
 
-## C2a implementation notes
+### C2a implementation notes
 
 C2a shipped **diary/notes, settings (incl. the Integrations BYO-provider-keys screen), and the vitals read side** — the three cheapest remaining domains, following the C1 pattern exactly. Plan: `docs/plans/2026-07-05-cloud-c2a-diary-settings-vitals.md`.
 
@@ -787,7 +819,7 @@ C2a shipped **diary/notes, settings (incl. the Integrations BYO-provider-keys sc
 - **Toy notes retired**: the C0c cloud-shell demo screen (`web/cloud/js/notes.js`'s UI, `recordType 'note'` with `{text, deleted}` bodies) is replaced by the real diary feature through `web/static`; `sync.js`'s generic record functions are unchanged and reused.
 - **Contract test strategy**: same as C1 — additive shim-mode Vitest suites (`cloud.shim-contract.notes/settings/vitals.test.js`) re-running the real feature UI paths against an in-memory records port, plus a vitals fixture asserting aggregates match the Go handler semantics for a seeded week of samples.
 
-## C2b implementation notes
+### C2b implementation notes
 
 C2b shipped **medications + the intake state machine + tz handling + reminder compute-and-upload** — the app's core feature and largest hard-logic port, following the C1 pattern. Plan: `docs/plans/2026-07-05-cloud-c2b-medications-tz-reminders.md`.
 
@@ -799,7 +831,7 @@ C2b shipped **medications + the intake state machine + tz handling + reminder co
 - **Shim timers**: due-dose materialization and tz-plan status refresh run once on shim install and then on a 60s interval owned by the shim (not `web/domain/`), matching the plan's "the timer lives in the shim" rule.
 - **Contract test strategy**: same as C1/C2a — additive shim-mode Vitest suites (`cloud.shim-contract.meds/meds-history/tz-plan.test.js`) re-running the real meds/meds-history/tz-banner feature UI paths against an in-memory records port, plus a reminder-horizon test asserting the uploaded schedule shrinks after a confirm.
 
-## C2c implementation notes
+### C2c implementation notes
 
 C2c shipped **food logs + products + stats + meals, direct-from-browser AI parsing (text + photo), and direct-from-browser food-DB search with an operator default** — the first C2 slice where an external provider is called straight from the client. Plan: `docs/plans/2026-07-06-cloud-c2c-food-client-ai.md`.
 
@@ -812,7 +844,7 @@ C2c shipped **food logs + products + stats + meals, direct-from-browser AI parsi
 - **Metadata leakage**: meal descriptions/photos go straight to the user's own AI provider (BYO consent, never proxied); food/barcode search terms go to the operator's food-DB instance by default (same exposure class as the pre-existing Open Food Facts row) — see the leakage table above.
 - **Contract test strategy**: same as C1/C2a/C2b — additive shim-mode Vitest suites re-running the real food/products/AI feature UI paths against an in-memory records port plus a faked provider/food-DB fetch at the boundary (log add/edit/delete + grouping, stats strip, products list/edit/delete + meal-from-logs, search local+remote, description/photo AI happy path + fallback + missing-key hint + oversized-photo rejection), plus a grep-assertion that no shim route response contains a raw stored key.
 
-## C2d implementation notes
+### C2d implementation notes
 
 C2d shipped **workouts** — groups/variants/exercises/exercise-library CRUD, the next-workout resolver + rotation engine, session lifecycle, exercise logs, stats, and the mi-band read/edit side — the most relational port so far (7 entity types, a rotation state machine, lazy session materialization). Plan: `docs/plans/2026-07-06-cloud-c2d-workouts.md`.
 
@@ -828,7 +860,7 @@ C2d shipped **workouts** — groups/variants/exercises/exercise-library CRUD, th
 - **Contract test strategy**: same as C1/C2a/C2b/C2c — additive shim-mode Vitest suites re-running the real workout feature UI paths (groups/variants/exercises/library CRUD, next-card resolution across all three priorities with seeded rotation state, start/snooze/skip/preskip/cancel-preskip/next-variant incl. rotation-cursor assertions, session-detail multi-call save with update-vs-create id gating, ad-hoc flow, stats shapes incl. `weekly_activity: null` when empty, mi-band list/patch/delete) against an in-memory records port, plus a two-domain-instance convergence case: concurrent lazy `getNext` on a shared in-memory store yields one merged session record.
 - **With C2d done, C2e (full-vault export/import, both modes) was the only unported C2 piece** — now implemented (see below), closing C2.
 
-## C2e implementation notes
+### C2e implementation notes
 
 C2e shipped the **no-lock-in guarantee**: one canonical one-user-all-domains JSON format, exportable **and** importable in **both** runtimes (bot export, bot import, cloud export, cloud import — the full 2×2), with optional passphrase encryption. A plain `.json` (or `.json.age`) file on disk is always an exit door. Plan: `docs/plans/2026-07-06-cloud-c2e-vault-export-import.md`. Format spec: `docs/vault-format.md`.
 
@@ -844,7 +876,7 @@ C2e shipped the **no-lock-in guarantee**: one canonical one-user-all-domains JSO
 - **Secrets toggle** — "Include API keys and external provider settings", checked by default. Bot: `GET /api/export?include_secrets=0`; cloud: `CloudVault.exportAll({ includeSecrets: false })`. Off → `settings.integrations` and `api_tokens` are **absent** (not `{}` with empty strings — the two are distinguishable, and only *absent* means "leave alone"). On import, absent → the target's existing keys/tokens survive untouched; present → replaced. The only asymmetric path in an otherwise pure-replace format, so that a secrets-free vault can't silently unconfigure the destination. Cloud's `managedTypesForImport(vault)` narrows `VAULT_MANAGED_TYPES` per file to encode the same rule.
 - **Merge-mode import is a documented non-goal** — v1 is replace-only (deterministic ids make a later merge feasible, but nobody asked). Filed follow-ups: merge mode, scheduled/automatic backups, age identity-file (keypair) recipients.
 
-### Import self-heal (med-0ol.7) + the single-snapshot invariant (med-0ol.8)
+#### Import self-heal (med-0ol.7) + the single-snapshot invariant (med-0ol.8)
 
 A failed/interrupted bulk import must never chronically wedge a real account, and it must not re-download a bloated oplog on every open. Two follow-ups closed the gap.
 
@@ -864,22 +896,27 @@ Cloud mode runs the ElevenLabs conversational agent **browser-direct**, provisio
 - **"Send photo" uploads browser-direct too (bd med-eas.55).** Bot mode POSTs the picked image to the server proxy `POST /api/elevenlabs/upload-file`; cloud has no such route, so the button used to be hidden. `web/cloud/js/elevenlabs-signed-url.js`'s client now also exposes `uploadFile(conversationId, file)` — a multipart `POST https://api.elevenlabs.io/v1/convai/conversations/<id>/files` with the vault `xi-api-key`, returning `file_id`, mirroring `handleElevenLabsUploadFile`. `sendPhoto()` in `elevenlabs-call.js` dispatches to `window.CloudElevenLabs.uploadFile` in cloud mode and the proxy in bot mode, so the control renders in both. The BYO key never crosses `/api`; `api.elevenlabs.io` is already a fixed-allowed CSP connect target. Photo-in-cloud parity closed.
 - **Concrete tools dispatch in-tab, no relay.** At `startSession`, cloud mode registers `clientTools` whose names match the provisioned tools; each callback dispatches into `window.CloudMCPDispatcher.handle(...)` (the `createDispatcher({ router })` catalog the Claude connector uses) — e.g. `log_blood_pressure({systolic,diastolic,pulse})` → `bp.create {measured_at:<now ISO>, ...}`, `get_blood_pressure({days})` → `bp.list`. Writes stamp `measured_at`/timestamps = now client-side to match the catalog op schemas. The generic `mcp_help`/`mcp_call` stay registered too (harmless), but the concrete tools are the used path. No relay hop, no crypto — the tab is both the voice client and the MCP responder host, online + unlocked during its own call. Bot mode passes no `clientTools` (unchanged); nothing goes to the cloud server.
 - **No manual dashboard steps.** The user sets only the ElevenLabs API key in Settings → Integrations (the Agent ID field is optional — blank means the app creates the agent). Leakage note: ElevenLabs' cloud sees tool names, results, and transcripts (inherent to any cloud voice agent); under BYO keys that's strictly user↔ElevenLabs — the zero-knowledge server sees nothing, and the key is used only against `api.elevenlabs.io`, never `/api`.
-- **CSP**: the account-app CSP (`internal/cloudserver/router.go` `setSecurityHeaders`) keeps `script-src 'self'` — **no third-party script executes on the DEK-bearing page**. The `@elevenlabs/client` SDK is vendored (`web/static/vendor/elevenlabs-client.min.js`, re-vendor with `esbuild --bundle --format=esm --minify`) rather than loaded from esm.sh (bd med-7e7.1). `script-src`/`worker-src`/`media-src` still allow `blob:`/`data:` on account subdomains because the SDK builds its AudioWorklets from blob: URLs; those are same-origin-authored blobs, and an attacker able to mint one already has script execution. `TestRouter_HostVariants` asserts no host ever reappears in `script-src`. **No document on the origin serves a wildcard `https:` `connect-src` anymore** (egress-host-csp-allowlist): the app document `/` gets a **per-account** `connect-src` = `'self'` + each stored provider host as `https://<host>` + the fixed `https://api.elevenlabs.io wss://api.elevenlabs.io`, and static/asset paths get `connect-src 'self'`. The client registers its provider **hostnames only** (never keys, never health data) via `PUT /api/egress-hosts` after unlock and on Settings integrations save; the server persists a short hostname list per account (`account_egress_hosts` storage / `EgressHosts`) and `buildConnectSrc` emits the scoped allowlist. Honest residual: an on-origin XSS can call the registration endpoint to add an attacker host and force a reload to pick up the widened CSP — strictly harder than the old instant arbitrary-origin exfil (needs persistence + a navigation), not a total close; the operator also learns which provider hostname each account uses (key + all data stay client-only/encrypted). See [cloud-crypto.md](cloud-crypto.md).
+- **CSP**: the account-app CSP (`internal/cloudserver/router.go:286-288`, `setSecurityHeaders`) is `script-src 'self'` — **no third-party script executes on the DEK-bearing page**. The `@elevenlabs/client` SDK is vendored (`web/static/vendor/elevenlabs-client.min.js`, re-vendor with `esbuild --bundle --format=esm --minify`) rather than loaded from esm.sh (bd med-7e7.1). There is **no `blob:` and no `data:` in any script-ish directive on any document** — the allowance the SDK's AudioWorklets used to force is gone, because the worklets are self-hosted (`web/static/vendor/worklets/*.js`) and handed to the SDK as explicit paths (bd med-yor.8). `TestSecurityHeaders_NoBlobOrDataScript` and `TestRouter_HostVariants` pin both halves. **No document on the origin serves a wildcard `https:` `connect-src` anymore** (egress-host-csp-allowlist): the app document `/` gets a **per-account** `connect-src` = `'self'` + each stored provider host as `https://<host>` + the fixed `https://api.elevenlabs.io wss://api.elevenlabs.io`, and static/asset paths get `connect-src 'self'`. The client registers its provider **hostnames only** (never keys, never health data) via `PUT /api/egress-hosts` after unlock and on Settings integrations save; the server persists a short hostname list per account (`account_egress_hosts` storage / `EgressHosts`) and `buildConnectSrc` emits the scoped allowlist. Honest residual: an on-origin XSS can call the registration endpoint to add an attacker host and force a reload to pick up the widened CSP — strictly harder than the old instant arbitrary-origin exfil (needs persistence + a navigation), not a total close; the operator also learns which provider hostname each account uses (key + all data stay client-only/encrypted). See [cloud-crypto.md](cloud-crypto.md).
 - **Scope**: the *concrete* voice tools stay the 6 flat-param ones (bp/weight/notes list/create) — voice LLMs call those more reliably than a generic `mcp_call`. The generic `mcp_call` the agent may also reach for now dispatches the full 97-op catalog, since med-csu.3 gave the in-tab dispatcher the same router. Server-initiated / off-device voice is the separate med-65c relay path.
 
-## Phasing
+## Phasing (historical)
+
+> **How the work was sequenced, kept for provenance.** Every phase marked
+> *implemented* is shipped and described normatively above; the unshipped ones
+> are ideas, not commitments. Do not read this list as a roadmap.
+
 
 - **C0 — cloud service MVP**: signup + subdomain provisioning, wildcard host, blob sync API (oplog/snapshot/cursors), push relay, Emergency Kit + key hierarchy + unlock UX in the PWA shell. No domain logic yet — validate crypto, sync, and push end-to-end with a toy record type.
   - **C0a (implemented)** — service foundation + passkey signup/unlock: `cloudstore`/`cloudserver` packages, wildcard host routing, admin-invite provisioning, WebAuthn registration/login, envelope API, client crypto module (suite v1), signup wizard + Emergency Kit, cold/warm unlock. See `docs/plans/2026-07-03-cloud-c0a-foundation-passkey-signup.md`.
   - **C0b (implemented)** — device lifecycle: transfer slots + QR/typed-code add-device (Path B), enrollment-token-gated registration, device list + envelope-audit UI, revocation (credential+envelope removal; DEK rotation on theft not yet implemented), recovery redemption + forced rotation. Plan: `docs/plans/2026-07-03-cloud-c0b-device-lifecycle.md`. Entry point: a cloud-only "Devices" row in the real app's Settings screen (`web/static/js/features/settings.js`, gated on `window.__MEDTRACKER_CLOUD__`) links to `/devices`, a dedicated shell page that warm-unlocks silently via the same LDK cache path as `cloud-boot.js` and renders the existing device list — no separate ceremony. No-warm-cache falls back to `/unlock`. Plan: `docs/plans/2026-07-05-cloud-devices-settings-entry.md`.
   - **C0c (implemented)** — sync + push relay: append-only oplog with per-account cursors, snapshot compaction, toy encrypted-notes record type, service worker + NK-decrypted rich push, client-scheduled blind firing loop, hourly stale-sync warning sweep. Plan: `docs/plans/2026-07-03-cloud-c0c-sync-push-relay.md`.
 - **C1 (implemented)** — core loop, BP + weight: `web/domain/` JS modules for BP + weight behind the `/api` shim (`web/cloud/js/apishim.js`), served through the real `web/static` frontend on account subdomains; shim-mode contract runs of the existing Vitest feature suites as the drift alarm. Medications + intake log + reminder computation, originally scoped as C1, are deferred into C2. See "C1 implementation notes" above and `docs/plans/2026-07-05-cloud-c1-bp-weight-real-frontend.md`.
-- **C2 — remaining domains**: medications + intake log + reminder computation, food (incl. direct-from-browser AI/vision/barcode), workouts, vitals, sleep, diary, tz handling. Closes with **C2e — full-vault export/import in both modes** (canonical JSON, Settings → Import/Export UI, optional age encryption, cloud import landing as one encrypted snapshot) — see "Migrating an existing server-mode install".
+- **C2 — remaining domains**: medications + intake log + reminder computation, food (incl. direct-from-browser AI/vision/barcode), workouts, vitals, sleep, diary, tz handling. Closes with **C2e — full-vault export/import** (canonical JSON, Settings → Import/Export UI, optional age encryption, import landing as one encrypted snapshot) — see [No lock-in](#no-lock-in--full-vault-export-and-import).
   - **C2a (implemented)** — diary/notes, settings (incl. integrations BYO-provider-keys in the vault), vitals read side (record shapes + empty-until-import aggregates). See "C2a implementation notes" above and `docs/plans/2026-07-05-cloud-c2a-diary-settings-vitals.md`.
   - **C2b (implemented)** — medications, intake state machine, tz handling (suggestion + one-record plans), reminder compute-and-upload, direct-from-browser RxNorm. See "C2b implementation notes" above and `docs/plans/2026-07-05-cloud-c2b-medications-tz-reminders.md`.
   - **C2c (implemented)** — food logs/products/stats/meals, direct-from-browser AI parsing (text + photo), direct-from-browser food-DB search with an operator default. See "C2c implementation notes" above and `docs/plans/2026-07-06-cloud-c2c-food-client-ai.md`.
   - **C2d (implemented)** — workouts: groups/variants/exercises/library CRUD, next-workout + rotation engine, session lifecycle, exercise logs, stats, mi-band read/edit side. See "C2d implementation notes" above and `docs/plans/2026-07-06-cloud-c2d-workouts.md`.
-  - **C2e (implemented)** — full-vault export/import in both modes: canonical one-user JSON (`docs/vault-format.md`), shared Settings → Import/Export UI, optional age passphrase encryption (browser-only), `GET /api/export` + `POST /api/import` (replace-only) in bot mode, client-side `CloudVault` landing one snapshot in cloud mode. Closes C2. See "C2e implementation notes" above and `docs/plans/2026-07-06-cloud-c2e-vault-export-import.md`.
+  - **C2e (implemented)** — full-vault export/import: canonical one-user JSON (`docs/vault-format.md`), Settings → Import/Export UI, optional age passphrase encryption (browser-only), client-side `CloudVault` landing one snapshot. Closes C2. See "C2e implementation notes" above and `docs/plans/2026-07-06-cloud-c2e-vault-export-import.md`.
 - **C3a — Telegram bot provisioning + onboarding** (plan: `docs/plans/2026-07-04-cloud-c3a-telegram-managed-bot-onboarding.md`; depends on C0a only, parallel-safe with C0b/C0c): Managed-Bots one-tap creation, BYO token fallback, chat linking, consent screen, wizard step 5, test notification.
 - **C3b — Telegram delivery + inbound** (after C0c):
   - **Outbound (implemented, med-76c.1)** — delivery flags on the scheduled queue (`webpush|telegram|both`) with client-composed verbosity (`detailed` default / `generic`), relay-side Telegram sending through the sealed bot token, honest consent copy. Delivery is **at-most-once**: the relay marks a row sent whatever either channel returned, so an unlinked chat or revoked token can never re-fire a reminder forever, and a `both` entry can never double-send its Telegram half. Migration `011_push_delivery.sql`.
@@ -892,6 +929,6 @@ Cloud mode runs the ElevenLabs conversational agent **browser-direct**, provisio
     A tap on an account that has never unlocked a client has no inbox key to seal to; it is **dropped**, never stored readable, and the user is told to open the app once. Free-text commands (`/bp 120/80`, `/food two eggs`) ride the same mailbox and remain future work (med-vcv, med-eas.29).
 - **C4 — MCP tier 1 + tier 2 PoC (implemented)** — tier 1: blind relay (`internal/cloudserver/mcp_relay.go`) + Go shim (`cmd/mcpshim`, crypto/framing in `internal/mcpshim`) + browser responder (`web/cloud/js/mcp-responder.js`), originally with a hardcoded `bp`/`weight`/`notes` catalog (`docs/plans/2026-07-05-cloud-c4-poc-mcp-blind-relay.md`), now serving the 97-op catalog generated from `internal/mcp/registry` by `cmd/genmcpcatalog` (`docs/plans/20260710-cloud-mcp-catalog-codegen.md`), every op of it dispatched through the shared `apishim` router (`docs/plans/20260710-cloud-mcp-dispatcher-wiring.md`). Tier 2: consented hosted-relay mode — persistent `mcp_remote` registry + streamable-HTTP endpoint (`internal/cloudserver/mcp_remote.go`, `mcp_endpoint.go`) + devices-page mode picker (`docs/plans/2026-07-06-cloud-c4-poc-remote-mcp-endpoint.md`). See "MCP" section above. Multi-pairing (remote + local simultaneously), OAuth 2.1 + DCR, `mcp_execute` (no cloud path — med-csu.4), and shim binary distribution are the identified full-C4 follow-ups; go/no-go decided at the PoC's exit review.
 - **C5 — trial provider pool**: metered OpenAI-compatible relay, ElevenLabs signed-URL minting + client-tools voice agent, trial-consent wizard screen, quota admin. Depends on C2 (the PWA needs AI features to call it).
-- **C6 — bot-mode domain unification** (after C2 parity; optional but intended): embed the JS domain layer in the server build (goja preferred, Node sidecar fallback) behind a SQLite storage port; shadow-mirror real traffic (Go serves, JS diffs, divergences logged); flip per-domain when quiet; deprecate the Go domain layer. Ends the double maintenance — see "The client: porting the domain layer" §3.
+- **C6 — server-side embedding of the domain layer** (idea, not committed): host the same `web/domain/*.js` modules outside a browser behind a storage port, with **goja** the preferred engine on the spike's evidence. Nothing depends on this; the purity rule that keeps it possible is enforced regardless. See [the goja spike](#goja-spike-med-07y1--measured-findings).
 
-Open questions: trial VOICE cost bounding (bd med-d5t.5 — the AI chat proxy now carries persisted per-account and global daily budgets, but a minted ElevenLabs signed URL runs browser-to-provider with no server-side lever on call duration; the choice is an operator-side agent limit or BYO-only voice); Managed-Bots empirics (per-manager bot limits, user revocation/takeover semantics, library vs raw Bot API HTTP); end-to-end validation of ElevenLabs SDK client tools (designed in `docs/plans/2026-05-18-elevenlabs-dynamic-mcp-client-tools.md`, never implemented); ElevenLabs agents-API coverage of tool/agent provisioning; oplog schema versioning across client updates; how far to take SW-pinned-code / reproducible-build mitigations for the code-serving caveat.
+Open questions (unresolved, not commitments): trial VOICE cost bounding (bd med-d5t.5 — the AI chat proxy now carries persisted per-account and global daily budgets, but a minted ElevenLabs signed URL runs browser-to-provider with no server-side lever on call duration; the choice is an operator-side agent limit or BYO-only voice); Managed-Bots empirics (per-manager bot limits, user revocation/takeover semantics, library vs raw Bot API HTTP); ElevenLabs agents-API coverage of tool/agent provisioning; oplog schema versioning across client updates; how far to take SW-pinned-code / reproducible-build mitigations for the code-serving caveat.
