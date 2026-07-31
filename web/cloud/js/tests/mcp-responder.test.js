@@ -1080,11 +1080,16 @@ describe('mcp-responder frame size guard', () => {
   it('replaces an over-cap response with an actionable error instead of sending it', async () => {
     allowConsoleNoise(); // sendFrame warns so a user debugging their own device sees it too
 
-    // ~1.5 MB of plausible rows — a few weeks of real readings clears the cap.
+    // Sized off the live cap rather than a fixed row count: this used to be a
+    // hard-coded 20000 rows (~1.5 MB), which quietly stopped exercising the
+    // over-cap path the moment MAX_FRAME_BYTES moved past it. 20% past whatever
+    // the cap currently is keeps the test honest across the next bump too.
+    const row = (i) => ({
+      id: i, systolic: 120, diastolic: 80, measured_at: '2026-07-06T12:00:00.000Z',
+    });
+    const rowBytes = JSON.stringify(row(0)).length + 1; // + the joining comma
     const huge = {
-      readings: Array.from({ length: 20000 }, (_, i) => ({
-        id: i, systolic: 120, diastolic: 80, measured_at: '2026-07-06T12:00:00.000Z',
-      })),
+      readings: Array.from({ length: Math.ceil((MAX_FRAME_BYTES * 1.2) / rowBytes) }, (_, i) => row(i)),
     };
 
     const { sent, body } = await ask(huge);

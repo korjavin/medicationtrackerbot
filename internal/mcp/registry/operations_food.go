@@ -18,7 +18,7 @@ func FoodOperations() []*Operation {
   "type": "object",
   "properties": {
     "date":      {"type": "string", "description": "YYYY-MM-DD; defaults to today in user's timezone"},
-    "days":      {"type": "integer", "minimum": 1, "description": "Number of days to include (default 1; capped by MCP_MAX_QUERY_DAYS)"},
+    "days":      {"type": "integer", "minimum": 1, "maximum": 366, "description": "Number of days to include (default 1, max 366; also capped by MCP_MAX_QUERY_DAYS). This response has no row limit — it grows with the window — so the window is the bound. Split a longer span into several calls by moving 'date' back."},
     "tz":        {"type": "string", "description": "IANA timezone name (e.g. America/Los_Angeles)"},
     "tz_offset": {"type": "integer", "description": "Fallback offset minutes west of UTC"}
   }
@@ -84,10 +84,11 @@ output(result)`,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "limit": {"type": "integer", "description": "Max products to return (default 50)"}
+    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Max products to return (default and maximum 100). Absent, <= 0 or above the maximum yields 100 — never 'all products'. A full page means there may be more."},
+    "offset": {"type": "integer", "minimum": 0, "description": "Products to skip before this page (default 0). Walk the whole catalog by advancing it one page size at a time until a short or empty page comes back."}
   }
 }`),
-			Description:     "List the user's saved food products (used as templates when logging).",
+			Description:     "List the user's saved food products (used as templates when logging). Page a large catalog with limit/offset.",
 			ResponseSummary: "JSON object with 'products' (array of {id, name, barcode, carbs_100g, protein_100g, fat_100g, energy_kcal_100g, is_meal}) and 'total' (int).",
 			ResponseExample: `{
   "products": [
@@ -128,7 +129,8 @@ output(result)`,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "limit": {"type": "integer", "description": "Max products to return (default 10)"}
+    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Max products to return (default and maximum 100). Absent, <= 0 or above the maximum yields 100 — never 'all products'."},
+    "offset": {"type": "integer", "minimum": 0, "description": "Products to skip before this page (default 0)."}
   }
 }`),
 			Description:     "Top-N most frequently logged products for this user (highest usage_count first). Use this to discover canonical names the user has logged before, so reused meals share the same food_product entry.",

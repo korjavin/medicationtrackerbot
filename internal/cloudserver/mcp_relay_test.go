@@ -139,7 +139,8 @@ func TestMCPRelay_FramesPassOpaqueBothWays(t *testing.T) {
 // and unlocked. Production logged `message too big: read limited at 65537
 // bytes` on a loop.
 //
-// 200 KiB: comfortably past the old cap, comfortably inside the new one.
+// 1.5 MiB: past both retired caps (64 KiB, then 1 MiB) so a regression to
+// either fails here, and comfortably inside the current 5 MiB one.
 func TestMCPRelay_LargeResponseFrameSurvives(t *testing.T) {
 	h, host, claimToken := newTestMCPRelayHandler(t)
 	session := registerAndGetSession(t, h, host, claimToken)
@@ -170,7 +171,7 @@ func TestMCPRelay_LargeResponseFrameSurvives(t *testing.T) {
 	defer shimConn.CloseNow()
 	shimConn.SetReadLimit(mcpshim.MaxFrameBytes) // what the real shim does on dial
 
-	want := bytes.Repeat([]byte("x"), 200<<10)
+	want := bytes.Repeat([]byte("x"), 1536<<10)
 	if err := deviceConn.Write(ctx, websocket.MessageBinary, want); err != nil {
 		t.Fatalf("device write (large response): %v", err)
 	}
@@ -200,6 +201,20 @@ func TestRelayFrameCapMatchesShim(t *testing.T) {
 		t.Fatalf("mcpshim.MaxFrameBytes (%d) must be >= maxRelayFrameBytes (%d): the relay would forward "+
 			"a frame the shim's read limit then closes the connection on",
 			mcpshim.MaxFrameBytes, maxRelayFrameBytes)
+	}
+}
+
+// TestDeferredQueueMemoryBounded pins the other half of the frame cap. The
+// deferred queue holds WHOLE frames, so raising maxRelayFrameBytes silently
+// multiplies what one waiting leg can pin in memory — dial, go quiet, flood,
+// and a hosted deployment is out of RAM without a single decrypted byte. The
+// two constants must be raised together or not at all.
+func TestDeferredQueueMemoryBounded(t *testing.T) {
+	const budget = 64 << 20
+	if got := deferredFrameBuffer * maxRelayFrameBytes; got > budget {
+		t.Fatalf("one waiting leg can pin %d bytes (deferredFrameBuffer=%d × maxRelayFrameBytes=%d), "+
+			"budget is %d: shrink the queue when raising the cap",
+			got, deferredFrameBuffer, maxRelayFrameBytes, budget)
 	}
 }
 

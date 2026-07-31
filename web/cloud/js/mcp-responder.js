@@ -15,7 +15,7 @@
 import { openMCPFrame, sealMCPFrame, utf8 } from './crypto.js';
 import { openDb } from './localdb.js';
 import { CATALOG as GENERATED } from './mcp-catalog.generated.js';
-import { CLOUD_EXTRA } from './mcp-catalog.cloud-extra.js';
+import { CLOUD_EXTRA, CLOUD_EXTRA_PARAMS } from './mcp-catalog.cloud-extra.js';
 
 // The generated catalog is produced from internal/mcp/registry by
 // cmd/genmcpcatalog (regenerate with `go run ./cmd/genmcpcatalog`) and is
@@ -23,7 +23,24 @@ import { CLOUD_EXTRA } from './mcp-catalog.cloud-extra.js';
 // live in mcp-catalog.cloud-extra.js and are merged in here, so they surface on
 // every catalog consumer at once (mcp_help, mcp_call, the voice dispatcher, the
 // relay responder, and the tests) without touching the generated file.
-export const CATALOG = [...GENERATED, ...CLOUD_EXTRA];
+// CLOUD_EXTRA_PARAMS adds params the cloud router implements but the shared Go
+// registry must not claim, because the legacy bot handlers ignore them (see
+// mcp-catalog.cloud-extra.js). Applied as a copy: GENERATED is the drift-guarded
+// generated module and must never be mutated in place.
+function withCloudParams(op) {
+  const extra = CLOUD_EXTRA_PARAMS[op.id];
+  if (!extra) return op;
+  const schema = op.params_schema || { type: 'object', properties: {} };
+  return {
+    ...op,
+    params_schema: {
+      ...schema,
+      properties: { ...(schema.properties || {}), ...extra },
+    },
+  };
+}
+
+export const CATALOG = [...GENERATED.map(withCloudParams), ...CLOUD_EXTRA];
 
 const decoder = new TextDecoder();
 
@@ -705,7 +722,7 @@ function isWriteRequest(request) {
 // Mirrors maxRelayFrameBytes in internal/cloudserver/mcp_relay.go (and
 // MaxFrameBytes in internal/mcpshim/shim.go). Must not exceed the relay's cap —
 // see sendFrame for what an over-cap frame costs.
-export const MAX_FRAME_BYTES = 1 << 20;
+export const MAX_FRAME_BYTES = 5 << 20;
 
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;

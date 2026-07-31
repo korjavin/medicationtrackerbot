@@ -25,7 +25,7 @@ import (
 // can pin the pair (TestRelayFrameCapMatchesShim). Kept in lockstep by hand —
 // ponytail: no shared package to import it from, and cloudserver is the wrong
 // dependency direction for the shim.
-const MaxFrameBytes = 1 << 20
+const MaxFrameBytes = 5 << 20
 
 // CallTimeout bounds how long Call waits for a correlated response. There is
 // exactly one reason a call never returns on this transport: no unlocked
