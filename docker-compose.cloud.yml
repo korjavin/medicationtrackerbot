@@ -97,7 +97,7 @@ services:
   # large Mi Band (.nxk) backups can be imported over the cloud child bots.
   # OPT-IN: skipped via clean exit when TELEGRAM_API_ID / TELEGRAM_API_HASH are
   # unset, in which case the cloud app keeps using api.telegram.org exactly as
-  # before. Mirrors the bot stack's service (docker-compose.yml). To use it,
+  # before. To use it,
   # set the two creds AND CLOUD_TG_API_BASE_URL=http://telegram-bot-api:8081 on
   # the cloud service above; the shared telegram_bot_api_data volume lets the
   # app read downloaded files off disk.
@@ -158,8 +158,7 @@ services:
   # *is* the vault: losing the volume loses the data AND every recovery code
   # that would let an account back in. There is no second copy anywhere else.
   #
-  # Mirrors the bot stack's litestream service (docker-compose.yml). Skipped
-  # via clean exit when R2_BUCKET / LITESTREAM_ACCESS_KEY_ID are not set;
+  # Skipped via clean exit when R2_BUCKET / LITESTREAM_ACCESS_KEY_ID are unset;
   # combined with restart: on-failure, a clean exit stays exited.
   # Restore runbook: docs/cloud-deployment.md → Backups and restore.
   litestream:
