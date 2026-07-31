@@ -423,6 +423,29 @@ const ACTION_ROUTES = {
   weight_dontbug: '/api/weight/reminder/dontbug',
 };
 
+// How long a window gets to answer a wake before we assume nobody took it.
+// Generous for a live page (one postMessage round trip), short enough that the
+// user still gets a timely notification when no page can act.
+const WAKE_ACK_TIMEOUT_MS = 1500;
+
+// nudgeWindow posts the wake to one window and resolves whether it answered.
+// The reply rides a per-push MessageChannel rather than a global SW `message`
+// listener: the port IS the correlation, so there is nothing to match up and
+// nothing to clean up but the port itself.
+function nudgeWindow(client) {
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    const finish = (acked) => {
+      clearTimeout(timer);
+      channel.port1.close();
+      resolve(acked);
+    };
+    const timer = setTimeout(() => finish(false), WAKE_ACK_TIMEOUT_MS);
+    channel.port1.onmessage = () => finish(true);
+    client.postMessage({ type: INBOX_WAKE_KIND }, [channel.port2]);
+  });
+}
+
 self.addEventListener('push', (event) => {
   // PushMessageData.arrayBuffer() is synchronous (returns an ArrayBuffer, not a
   // Promise — unlike Response.arrayBuffer()), so wrap the result rather than
@@ -432,17 +455,20 @@ self.addEventListener('push', (event) => {
     Promise.resolve(buf && buf.byteLength ? decodePush(buf) : GENERIC_NOTIFICATION).then(async (n) => {
       if (n.kind === INBOX_WAKE_KIND) {
         // Hand the nudge to every open window — the page holds the DEK, so only
-        // it can drain the mailbox — and stay silent when one takes it. With no
-        // window there is nobody to drain, so the fixed notification is the only
-        // way the user learns their message is still queued.
+        // it can drain the mailbox — and stay silent only if one ACKS. Existence
+        // is the wrong signal: matchAll also returns a window that is frozen,
+        // still loading, or LOCKED, and the ack listener is installed in
+        // cloud-boot's post-unlock path, so a locked window never handles the
+        // wake. That is exactly the case where the notification is the only
+        // thing that gets the event recorded.
         //
         // KNOWN TAX: the subscription is userVisibleOnly (see resubscribeAndUpload),
         // so Chrome tolerates only a bounded number of notification-less pushes
         // before it shows its own "site updated in the background" one. A chatty
         // day in Telegram can therefore surface a notification per burst anyway.
         const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-        for (const client of windows) client.postMessage({ type: INBOX_WAKE_KIND });
-        if (windows.length) return undefined;
+        const acks = await Promise.all(windows.map(nudgeWindow));
+        if (acks.some(Boolean)) return undefined;
       }
       return self.registration.showNotification(n.title, {
         body: n.body,

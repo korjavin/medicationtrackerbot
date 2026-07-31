@@ -267,10 +267,14 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     });
   }
 
-  it('drains on an inbox-wake message and ignores every other SW message', async () => {
+  it('acks on receipt, drains on an inbox-wake message, and ignores every other SW message', async () => {
     const handlers = [];
     fakeServiceWorker(handlers);
     let drains = 0;
+    // The wake drain hangs from the second call on, so the ack assertion below
+    // can only pass if the ack goes out on RECEIPT — acking after the drain
+    // resolved would let a slow drain earn the user a duplicate notification.
+    let drainHangs = false;
 
     await runBoot({
       modules: {
@@ -287,7 +291,10 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
         'mcp-responder.js': { refreshResponder: () => {} },
         'inbox.js': {
           ensureInboxKey: async () => {},
-          drainInbox: async () => { drains += 1; return { applied: 1 }; },
+          drainInbox: () => {
+            drains += 1;
+            return drainHangs ? new Promise(() => {}) : Promise.resolve({ applied: 1 });
+          },
           startInboxPolling: () => {},
         },
         'inbox-apply.js': { createInboxApplier: () => async () => {} },
@@ -299,15 +306,21 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     expect(drains).toBe(1); // the boot-time drain
     expect(handlers.length).toBeGreaterThan(0);
 
-    const dispatch = (data) => handlers.forEach((h) => h({ data }));
-    dispatch({ type: 'inbox-wake' });
-    await flush();
-    expect(drains).toBe(2);
+    const acks = [];
+    const port = { postMessage: (m) => acks.push(m) };
+    const dispatch = (data, ports) => handlers.forEach((h) => h({ data, ports }));
 
-    dispatch({ type: 'reminder-action', route: '/api/bp/reminder/snooze' });
-    dispatch({ type: 'inbox_wake' });
+    drainHangs = true;
+    dispatch({ type: 'inbox-wake' }, [port]);
     await flush();
     expect(drains).toBe(2);
+    expect(acks).toEqual(['ack']); // answered while the drain is still running
+
+    dispatch({ type: 'reminder-action', route: '/api/bp/reminder/snooze' }, [port]);
+    dispatch({ type: 'inbox_wake' }, [port]);
+    await flush();
+    expect(drains).toBe(2);
+    expect(acks).toEqual(['ack']); // no other SW message may ack or drain
   });
 });
 

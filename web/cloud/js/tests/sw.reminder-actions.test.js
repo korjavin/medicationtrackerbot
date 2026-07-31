@@ -114,16 +114,36 @@ describe('cloud sw.js — reminder notification actions', () => {
         return { arrayBuffer: () => bytes.buffer };
     };
 
-    it('an inbox-wake nudges every open window and shows NO notification', async () => {
-        const a = { postMessage: vi.fn() };
-        const b = { postMessage: vi.fn() };
+    // A window that answers on the transferred port — i.e. an unlocked page that
+    // installed cloud-boot's listener and is about to drain.
+    const ackingWindow = () => ({
+        postMessage: vi.fn((_msg, [port]) => port.postMessage('ack')),
+    });
+    // A window that takes the message and never answers: frozen, still loading,
+    // or LOCKED (the ack listener only exists after unlock). Existence is not
+    // acknowledgement — this is the case the fallback notification is FOR.
+    const silentWindow = () => ({ postMessage: vi.fn() });
+
+    it('an inbox-wake nudges every open window and shows NO notification once one acks', async () => {
+        const a = ackingWindow();
+        const b = silentWindow();
         self.clients.matchAll.mockResolvedValue([a, b]);
 
         await firePush(self, listeners, wakePush());
 
-        expect(a.postMessage).toHaveBeenCalledWith({ type: 'inbox-wake' });
-        expect(b.postMessage).toHaveBeenCalledWith({ type: 'inbox-wake' });
+        expect(a.postMessage).toHaveBeenCalledWith({ type: 'inbox-wake' }, [expect.anything()]);
+        expect(b.postMessage).toHaveBeenCalledWith({ type: 'inbox-wake' }, [expect.anything()]);
         expect(self.registration.showNotification).not.toHaveBeenCalled();
+    });
+
+    it('an inbox-wake that NO window acks still notifies (locked / frozen / loading tab)', async () => {
+        self.clients.matchAll.mockResolvedValue([silentWindow(), silentWindow()]);
+
+        await firePush(self, listeners, wakePush());
+
+        const [title, opts] = self.registration.showNotification.mock.calls[0];
+        expect(title).toBe('Med Tracker');
+        expect(opts.body).toBe('Open the app to record what you sent');
     });
 
     it('an inbox-wake with no open window falls back to the FIXED client-side notification', async () => {

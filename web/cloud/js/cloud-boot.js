@@ -445,6 +445,12 @@ window.MedTrackerCloudReady = (async function boot() {
                 if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
                     navigator.serviceWorker.addEventListener('message', (event) => {
                         if (!event.data || event.data.type !== 'inbox-wake') return;
+                        // Ack on RECEIPT, not on drain completion: the SW only
+                        // needs to know a live, unlocked page took the nudge, and
+                        // a slow drain must not earn the user a duplicate
+                        // notification. This listener exists only post-unlock, so
+                        // an ack also means "this window can actually apply it".
+                        if (event.ports && event.ports[0]) event.ports[0].postMessage('ack');
                         drainInbox(ctx, { apply })
                             .then((r) => (r.applied > 0 ? afterApply() : undefined))
                             .catch((e) => console.error('[cloud-boot] inbox wake drain failed', e));
