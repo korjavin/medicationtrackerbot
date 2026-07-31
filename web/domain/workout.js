@@ -1117,17 +1117,28 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // command path relies on — and notes carries the optional workout label.
   async function createAdHocSession({ recordId, notes } = {}) {
     const nowMs = now();
-    // At most one active session at a time: resume an existing active-today
-    // session instead of minting a duplicate. Mirrors service.go's
-    // CreateAdHocSession guard and getNext's PRIORITY-0 filter (notified /
-    // in_progress / pre_skipped, scoped to the local calendar day).
-    const todayStr = localDateStr(nowMs, timeZone);
-    const activeToday = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION))
-      .filter((s) => (s.status === 'notified' || s.status === 'in_progress' || s.status === 'pre_skipped')
-        && localDateStr(new Date(s.scheduled_date).getTime(), timeZone) === todayStr)
-      .sort((a, b) => (a.scheduled_time < b.scheduled_time ? -1 : a.scheduled_time > b.scheduled_time ? 1 : 0));
-    if (activeToday.length > 0) {
-      return toSessionResponse(activeToday[0]);
+    // At most one IN-FLIGHT session at a time: a second Start tap resumes the
+    // session already running today instead of minting a duplicate (bd med-9tx).
+    // Only `in_progress` counts — a `pre_skipped` session was explicitly
+    // declined and a `notified` one merely had its reminder fire, so resuming
+    // either would hand the user the scheduled variant's planned exercises in
+    // what they asked to be a fresh ad-hoc (bd med-3q8.2: the session modal
+    // pre-fills the plan for any session with variant_id > 0). This is
+    // deliberately narrower than getNext's PRIORITY-0 filter, which is about
+    // what to SURFACE next, not what an explicit Start should adopt.
+    //
+    // A caller-supplied recordId (the Telegram drain) skips the guard entirely:
+    // that path is idempotent by recordId — a re-drain overwrites its own
+    // record — and must not adopt, and then complete, the app's live session.
+    if (!recordId) {
+      const todayStr = localDateStr(nowMs, timeZone);
+      const activeToday = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION))
+        .filter((s) => s.status === 'in_progress'
+          && localDateStr(new Date(s.scheduled_date).getTime(), timeZone) === todayStr)
+        .sort((a, b) => (a.scheduled_time < b.scheduled_time ? -1 : a.scheduled_time > b.scheduled_time ? 1 : 0));
+      if (activeToday.length > 0) {
+        return toSessionResponse(activeToday[0]);
+      }
     }
     const record = {
       recordId: recordId || genRecordId('session', nowMs),
@@ -1722,11 +1733,17 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const nowMs = now();
     const todayStr = localDateStr(nowMs, timeZone);
 
-    // PRIORITY 0: active sessions today (notified/in_progress/pre_skipped).
+    // PRIORITY 0: active sessions today (notified/in_progress/pre_skipped),
+    // earliest first — except that a session actually IN PROGRESS outranks one
+    // merely notified or declined, whatever the clock says. Since med-3q8.2 an
+    // ad-hoc started after today's workout was pre-skipped coexists with that
+    // declined row; ordering purely by scheduled_time would point the card at
+    // the workout the user said no to instead of the one they are doing.
     const activeToday = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION))
       .filter((s) => (s.status === 'notified' || s.status === 'in_progress' || s.status === 'pre_skipped')
         && localDateStr(new Date(s.scheduled_date).getTime(), timeZone) === todayStr)
-      .sort((a, b) => (a.scheduled_time < b.scheduled_time ? -1 : a.scheduled_time > b.scheduled_time ? 1 : 0));
+      .sort((a, b) => (a.status === 'in_progress' ? 0 : 1) - (b.status === 'in_progress' ? 0 : 1)
+        || (a.scheduled_time < b.scheduled_time ? -1 : a.scheduled_time > b.scheduled_time ? 1 : 0));
     if (activeToday.length > 0) {
       return buildSessionResponse(activeToday[0], todayStr, !!activeToday[0].snoozed_until);
     }

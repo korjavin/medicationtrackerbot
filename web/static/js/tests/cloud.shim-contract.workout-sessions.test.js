@@ -1126,9 +1126,8 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(view.exercises_count).toBe(1);
     });
 
-    // bd med-9tx: at most one active session at a time. A second ad-hoc Start
-    // while one is already active must resume the existing session, not mint a
-    // duplicate — matching service.go's CreateAdHocSession guard.
+    // bd med-9tx: at most one IN-FLIGHT session at a time. A second ad-hoc Start
+    // while one is already running must resume it, not mint a duplicate.
     it('ad-hoc Start resumes the existing active session instead of creating a duplicate', async () => {
         const { window } = env;
         const first = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
@@ -1140,5 +1139,66 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         const sessions = await window.apiCall('/api/workout/sessions?limit=10');
         const adHoc = sessions.filter((s) => s.session.group_id === -1);
         expect(adHoc).toHaveLength(1);
+    });
+
+    // bd med-3q8.2: the guard above must NOT adopt a session the user declined
+    // (pre_skipped) or merely got a reminder for (notified). Adopting one hands
+    // back a variant-backed session, and the session modal pre-fills the plan
+    // for anything with variant_id > 0 — which is how a "fresh" ad-hoc showed
+    // up carrying the skipped workout's exercises.
+    async function todaysScheduledSession(window) {
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, order_index: 0
+        });
+        return (await window.apiCallDirect('/api/workout/sessions/next')).session;
+    }
+
+    async function expectFreshAdHoc(window, scheduled) {
+        const adhoc = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        expect(adhoc.id).not.toBe(scheduled.id);
+        expect(adhoc.group_id).toBe(-1);
+        expect(adhoc.variant_id).toBe(-1);
+        expect(adhoc.status).toBe('in_progress');
+        const details = await window.apiCall(`/api/workout/sessions/details?id=${adhoc.id}`);
+        expect(details.logs).toEqual([]);
+        return adhoc;
+    }
+
+    it('ad-hoc Start after today\'s session was pre-skipped mints a fresh empty ad-hoc', async () => {
+        const { window } = env;
+        const scheduled = await todaysScheduledSession(window);
+        await window.apiCall(`/api/workout/sessions/${scheduled.id}/preskip`, 'POST');
+
+        await expectFreshAdHoc(window, scheduled);
+
+        // The declined session is untouched — still pre_skipped, not adopted.
+        const sessions = await window.apiCall('/api/workout/sessions?limit=10');
+        expect(sessions.find((s) => s.session.id === scheduled.id).session.status).toBe('pre_skipped');
+    });
+
+    it('the next card follows the freshly started ad-hoc, not the earlier pre-skipped session', async () => {
+        const { window, records } = env;
+        const scheduled = await todaysScheduledSession(window);
+        // Decline it AND move it to the top of the day, so ordering P0 purely by
+        // scheduled_time would put it ahead of an ad-hoc started right now.
+        const stored = (await records.list('workoutsession')).find((s) => s.id === scheduled.id);
+        await records.put('workoutsession', { ...stored, status: 'pre_skipped', scheduled_time: '00:01' });
+
+        const adhoc = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        const next = await window.apiCallDirect('/api/workout/sessions/next');
+        expect(next.session.id).toBe(adhoc.id);
+        expect(next.session.status).toBe('in_progress');
+    });
+
+    it('ad-hoc Start after today\'s reminder fired (notified, never started) mints a fresh empty ad-hoc', async () => {
+        const { window, records } = env;
+        const scheduled = await todaysScheduledSession(window);
+        // `notified` is only reachable through the Telegram reminder drain
+        // (findOrCreateScheduledSession), so seed that state directly.
+        const stored = (await records.list('workoutsession')).find((s) => s.id === scheduled.id);
+        await records.put('workoutsession', { ...stored, status: 'notified' });
+
+        await expectFreshAdHoc(window, scheduled);
     });
 });
