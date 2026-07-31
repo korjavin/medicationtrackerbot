@@ -396,10 +396,16 @@ describe('workout.js session and stats flows', () => {
 
       await window.showAddExerciseToSessionModal();
       expect(document.getElementById('workout-add-exercise-to-session-modal').classList.contains('hidden')).toBe(false);
-      expect(document.getElementById('unique-exercises-list').querySelectorAll('option')).toHaveLength(1);
+      // med-max: suggestions are type-ahead filtered into our own inline list,
+      // so an empty field renders nothing at all.
+      const mount = document.getElementById('session-add-exercise-suggest');
+      expect(mount.hidden).toBe(true);
 
-      document.getElementById('session-add-exercise-name').value = 'Overhead Press';
-      window.onSessionExerciseSelect();
+      const nameInput = document.getElementById('session-add-exercise-name');
+      nameInput.value = 'Overhead';
+      await nameInput.oninput();
+      expect(mount.querySelectorAll('.wg-exercise-suggest__row')).toHaveLength(1);
+      mount.querySelector('.wg-exercise-suggest__row').click();
       expect(document.getElementById('session-add-exercise-id').value).toBe('111');
       expect(document.getElementById('session-add-exercise-sets').value).toBe('3');
       expect(document.getElementById('session-add-exercise-reps').value).toBe('8');

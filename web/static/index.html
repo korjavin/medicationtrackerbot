@@ -1278,8 +1278,9 @@
                 <label for="workout-exercise-name" class="wg-workouts-exercise-modal__label">Name</label>
                 <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
                     <input type="text" id="workout-exercise-name" class="wg-workouts-exercise-modal__input"
-                        placeholder="Barbell Rows">
+                        placeholder="Start typing..." autocomplete="off">
                 </div>
+                <div id="workout-exercise-suggest" class="wg-exercise-suggest" hidden></div>
             </div>
 
             <div class="wg-workouts-exercise-modal__row">
@@ -1381,9 +1382,9 @@
             <div class="wg-workouts-library-modal__field">
                 <label for="exercise-library-name" class="wg-workouts-library-modal__label">Name</label>
                 <div class="wg-gloss--inset wg-workouts-library-modal__input-wrap">
-                    <input type="text" id="exercise-library-name" class="wg-workouts-library-modal__input" list="exercise-catalog-datalist" placeholder="Barbell Rows">
-                    <datalist id="exercise-catalog-datalist"></datalist>
+                    <input type="text" id="exercise-library-name" class="wg-workouts-library-modal__input" placeholder="Start typing..." autocomplete="off">
                 </div>
+                <div id="exercise-library-suggest" class="wg-exercise-suggest" hidden></div>
             </div>
 
             <div class="wg-workouts-library-modal__row">
@@ -1522,9 +1523,9 @@
                 <label for="session-add-exercise-name" class="wg-workouts-log-set-modal__label">Exercise</label>
                 <div class="wg-gloss--inset wg-workouts-log-set-modal__input-wrap">
                     <input type="text" id="session-add-exercise-name" class="wg-workouts-log-set-modal__input"
-                        list="unique-exercises-list" placeholder="Start typing...">
+                        placeholder="Start typing..." autocomplete="off">
                 </div>
-                <datalist id="unique-exercises-list"></datalist>
+                <div id="session-add-exercise-suggest" class="wg-exercise-suggest" hidden></div>
                 <input type="hidden" id="session-add-exercise-id">
             </div>
 

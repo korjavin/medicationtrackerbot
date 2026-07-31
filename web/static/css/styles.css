@@ -667,6 +667,9 @@
     --wg-workouts-modal-input-pad-y: 10px;
     --wg-workouts-modal-input-pad-x: 12px;
     --wg-workouts-modal-label-size: 10.5px;
+    /* ~4.5 rows before the in-flow suggestion list starts scrolling itself, so
+       it never grows tall enough to push the form's Save button off screen. */
+    --wg-exercise-suggest-max-height: 168px;
 
     /* Invite-a-friend modal (med-5h9) — same dual-line header scale as the
        BP / workout modals. */
@@ -8889,6 +8892,64 @@ textarea.wg-input {
 
 .wg-workouts-log-set-modal__input::placeholder {
     color: var(--wg-fg-4);
+}
+
+/* Exercise name suggestions (med-max) — shared by the session add-exercise,
+   plan add-exercise and exercise-library modals.
+
+   Deliberately IN THE DOCUMENT FLOW, not an absolutely-positioned dropdown: a
+   native <datalist> popup (and any overlay we could build) covers the on-screen
+   keyboard on a phone, and .wg-modal is `max-height: 85vh; overflow-y: auto`,
+   so an absolute layer would additionally be clipped by that scroll container.
+   In-flow means the list pushes the rest of the form down instead — it can
+   never hide the field being typed into. Its own max-height keeps it short and
+   scrolling internally. */
+.wg-exercise-suggest {
+    margin-top: var(--space-xs);
+    max-height: var(--wg-exercise-suggest-max-height);
+    overflow-y: auto;
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-gloss);
+    background: var(--wg-gloss-bg-inset);
+}
+
+.wg-exercise-suggest[hidden] {
+    display: none;
+}
+
+.wg-exercise-suggest__list {
+    display: flex;
+    flex-direction: column;
+}
+
+.wg-exercise-suggest__row {
+    display: block;
+    width: 100%;
+    margin: 0;
+    padding: var(--space-sm) var(--wg-workouts-modal-input-pad-x);
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    text-align: left;
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
+    cursor: pointer;
+}
+
+.wg-exercise-suggest__row:not(:last-child) {
+    border-bottom: 1px solid var(--wg-border-hairline);
+}
+
+.wg-exercise-suggest__row:hover,
+.wg-exercise-suggest__row:focus-visible {
+    background: var(--wg-ink-08);
+    outline: none;
+}
+
+.wg-exercise-suggest__row:active {
+    background: var(--wg-ink-15);
 }
 
 .wg-workouts-log-set-modal__header-actions {
