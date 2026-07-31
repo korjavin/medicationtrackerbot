@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"time"
 
@@ -70,7 +69,8 @@ func (a *RecoveryAPI) Recover(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req recoveryVerifierRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxEnvelopeBodyBytes)).Decode(&req); err != nil ||
+	r.Body = http.MaxBytesReader(w, r.Body, maxEnvelopeBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil ||
 		len(req.Verifier) == 0 || len(req.Verifier) > maxVerifierLen {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return

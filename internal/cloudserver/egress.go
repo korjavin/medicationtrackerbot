@@ -3,7 +3,6 @@ package cloudserver
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"strings"
 )
@@ -59,7 +58,8 @@ func (a *EgressAPI) PutEgressHosts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req egressHostsRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxEgressBodyBytes)).Decode(&req); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxEgressBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}

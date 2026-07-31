@@ -181,8 +181,8 @@ describe('cloud-boot feedback launcher mount gate (med-dni.2 Task 3)', () => {
   // navigator.serviceWorker — always present in a browser, absent in this node
   // env — so provide a stub navigator or boot throws before the feedback block.
   let priorNavigator;
-  beforeEach(() => { priorNavigator = globalThis.navigator; globalThis.navigator = {}; });
-  afterEach(() => { globalThis.navigator = priorNavigator; });
+  beforeEach(() => { priorNavigator = globalThis.navigator; Object.defineProperty(globalThis, 'navigator', {value: {}, configurable: true, writable: true}) });
+  afterEach(() => { Object.defineProperty(globalThis, 'navigator', {value: priorNavigator, configurable: true, writable: true}) });
 
   // Everything imported in the post-unlock try before the feedback block must be
   // provided, or the harness's __imp throws and aborts before we reach it.
@@ -409,7 +409,7 @@ describe('cloud-boot early service worker registration (med-gvk.1)', () => {
   // first paint, not only after a fully successful boot. It must never gate the
   // mount (MedTrackerCloudReady).
   let priorNavigator;
-  afterEach(() => { globalThis.navigator = priorNavigator; });
+  afterEach(() => { Object.defineProperty(globalThis, 'navigator', {value: priorNavigator, configurable: true, writable: true}) });
 
   it('registers /sw.js before the unlock gate and does not block MedTrackerCloudReady', async () => {
     priorNavigator = globalThis.navigator;
@@ -421,7 +421,7 @@ describe('cloud-boot early service worker registration (med-gvk.1)', () => {
       // registration is off the critical path.
       return new Promise(() => {});
     };
-    globalThis.navigator = { serviceWorker: { register, controller: null, addEventListener() {} } };
+    Object.defineProperty(globalThis, 'navigator', {value: { serviceWorker: { register, controller: null, addEventListener() {} } }, configurable: true, writable: true})
 
     const { location } = await runBoot({
       modules: {
@@ -474,7 +474,7 @@ describe('cloud-boot early service worker registration (med-gvk.1)', () => {
 
   it('skips registration when serviceWorker is unavailable, and boot still proceeds', async () => {
     priorNavigator = globalThis.navigator;
-    globalThis.navigator = {}; // no serviceWorker
+    Object.defineProperty(globalThis, 'navigator', {value: {}, configurable: true, writable: true}) // no serviceWorker
     const { location } = await runBoot({
       modules: { 'unlock.js': { warmUnlock: async () => null } },
     });

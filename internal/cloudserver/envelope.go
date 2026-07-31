@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"time"
 
@@ -127,7 +126,8 @@ func (a *EnvelopeAPI) PutEnvelope(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req envelopeWire
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxEnvelopeBodyBytes)).Decode(&req); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxEnvelopeBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
@@ -212,7 +212,8 @@ func (a *EnvelopeAPI) PutRecoveryMaterial(w http.ResponseWriter, r *http.Request
 	}
 
 	var req recoveryMaterialRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxEnvelopeBodyBytes)).Decode(&req); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxEnvelopeBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}

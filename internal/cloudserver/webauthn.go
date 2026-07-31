@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -398,7 +397,8 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req registerFinishRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxRegisterFinishBodyBytes)).Decode(&req); err != nil || len(req.Credential) == 0 {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRegisterFinishBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Credential) == 0 {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}

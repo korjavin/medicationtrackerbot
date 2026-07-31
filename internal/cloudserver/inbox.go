@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -76,7 +75,8 @@ func (a *InboxAPI) PutInboxKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req putInboxKeyRequest
-	if err := json.NewDecoder(io.LimitReader(r.Body, maxInboxKeyBodyBytes)).Decode(&req); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxInboxKeyBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
