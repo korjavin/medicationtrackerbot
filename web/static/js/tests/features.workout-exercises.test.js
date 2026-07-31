@@ -135,7 +135,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       const { window, document } = env;
       window.WorkoutEdit.variantForExercise = 1;
       window.apiCall = vi.fn(async () => []);
-      window.WorkoutLibrary = { populatePickerOptions: vi.fn(async () => {}) };
+      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
 
       document.getElementById('workout-exercise-progression').value = 'linear';
       document.getElementById('workout-exercise-progression-increment').value = '10';
@@ -188,7 +188,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       const { window, document } = env;
       seedRoutine('strength');
       window.apiCall = vi.fn(async () => []);
-      window.WorkoutLibrary = { populatePickerOptions: vi.fn(async () => {}) };
+      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
 
       await window.showAddExerciseModal();
 
@@ -202,7 +202,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       const { window, document } = env;
       seedRoutine('strength');
       window.apiCall = vi.fn(async () => []);
-      window.WorkoutLibrary = { populatePickerOptions: vi.fn(async () => {}) };
+      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
       await window.showAddExerciseModal();
 
       const sel = document.getElementById('workout-exercise-goal');
@@ -218,7 +218,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       const { window, document } = env;
       seedRoutine('strength');
       window.apiCall = vi.fn(async () => []);
-      window.WorkoutLibrary = { populatePickerOptions: vi.fn(async () => {}) };
+      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
       await window.showAddExerciseModal();
 
       const sel = document.getElementById('workout-exercise-goal');
@@ -238,7 +238,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       groupModal.classList.remove('hidden');
       document.getElementById('workout-group-goal').value = 'strength';
       window.apiCall = vi.fn(async () => []);
-      window.WorkoutLibrary = { populatePickerOptions: vi.fn(async () => {}) };
+      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
 
       await window.showAddExerciseModal();
 
@@ -274,18 +274,13 @@ describe('features/workout/exercises.js — split-file integration', () => {
     it('a library pick during Edit does not clobber stored reps (Add handler leak)', async () => {
       const { window, document } = env;
       seedRoutine('strength');
-      // Open Add once so its name-input onchange handler + datalist get bound;
-      // that handler persists on the shared name input into the Edit open below.
-      window.apiCall = vi.fn(async () => []);
-      window.WorkoutLibrary = {
-        populatePickerOptions: vi.fn(async (dl) => {
-          const opt = document.createElement('option');
-          opt.value = 'Curl';
-          opt.dataset.repsMin = '12';
-          opt.dataset.repsMax = '15';
-          dl.appendChild(opt);
-        })
-      };
+      // Open Add once so the picker gets bound to the shared name input; it
+      // stays wired into the Edit open below.
+      window.apiCall = vi.fn(async (endpoint) => (
+        endpoint === '/api/workout/exercise-library'
+          ? [{ id: 4, name: 'Curl', default_reps_min: 12, default_reps_max: 15 }]
+          : []
+      ));
       await window.showAddExerciseModal();
 
       // Now edit an existing exercise with the user's own 5–8 rep targets.
@@ -301,11 +296,13 @@ describe('features/workout/exercises.js — split-file integration', () => {
       }]);
       await window.showEditExerciseModal(9);
 
-      // User renames to a library match — the leaked handler must NOT overwrite
+      // User renames to a library match — the leaked picker must NOT overwrite
       // the stored reps in Edit mode.
       const nameInput = document.getElementById('workout-exercise-name');
+      const mount = document.getElementById('workout-exercise-suggest');
       nameInput.value = 'Curl';
-      nameInput.dispatchEvent(new window.Event('change'));
+      await nameInput.oninput();
+      mount.querySelector('.wg-exercise-suggest__row').click();
 
       expect(document.getElementById('workout-exercise-reps-min').value).toBe('5');
       expect(document.getElementById('workout-exercise-reps-max').value).toBe('8');
@@ -330,10 +327,11 @@ describe('features/workout/exercises.js — split-file integration', () => {
     });
   });
 
-  // med-3q8.1 — the plan add-exercise picker used to dump all 1324 catalog
-  // names into #exercise-library-datalist, which mobile renders as a
-  // full-screen suggestion sheet instead of a short list above the keyboard.
-  describe('add-exercise picker type-ahead (med-3q8.1)', () => {
+  // med-3q8.1 / med-max — the plan add-exercise picker used to dump the whole
+  // library plus all 1324 catalog names into a native <datalist>, which mobile
+  // renders as a half-screen sheet over the keyboard. It is now our own inline
+  // list under the field.
+  describe('add-exercise picker (med-3q8.1, med-max)', () => {
     const CATALOG = {
       exercises: [
         { name: 'Barbell bench press' },
@@ -356,60 +354,86 @@ describe('features/workout/exercises.js — split-file integration', () => {
       window.WorkoutEdit.variantForExercise = 1;
     }
 
-    // med-max — the library half is type-ahead filtered too now, so the plan
-    // modal opens with an empty popup instead of the whole library.
-    it('opens with an EMPTY datalist, then filters library-then-catalog as the user types', async () => {
+    function rowsOf(mount) {
+      return Array.from(mount.querySelectorAll('.wg-exercise-suggest__row')).map((b) => b.textContent);
+    }
+
+    it('opens with NO suggestion list, then filters library-then-catalog as the user types', async () => {
       const { window, document } = env;
       stubEnv(window);
 
       await window.showAddExerciseModal();
 
-      const datalist = document.getElementById('exercise-library-datalist');
-      expect(Array.from(datalist.options)).toHaveLength(0);
+      const mount = document.getElementById('workout-exercise-suggest');
+      expect(mount.hidden).toBe(true);
 
       const nameInput = document.getElementById('workout-exercise-name');
       // One character: the library half only — the catalog stays gated at 2.
       nameInput.value = 'l';
       await nameInput.oninput();
-      expect(Array.from(datalist.options).map((o) => o.value)).toEqual(['My custom lift']);
+      expect(rowsOf(mount)).toEqual(['My custom lift']);
 
       nameInput.value = 'bench';
       await nameInput.oninput();
-      const values = Array.from(datalist.options).map((o) => o.value);
-      expect(values).toEqual(['Barbell bench press', 'Dumbbell bench press']);
-      expect(values).not.toContain('3/4 sit-up');
+      expect(rowsOf(mount)).toEqual(['Barbell bench press', 'Dumbbell bench press']);
     });
 
-    it('a catalog-only pick stays re-findable in the datalist and carries no library id', async () => {
+    it('a catalog-only pick fills the name and pre-fills nothing (no library id)', async () => {
       const { window, document } = env;
       stubEnv(window);
       await window.showAddExerciseModal();
 
-      const datalist = document.getElementById('exercise-library-datalist');
+      const mount = document.getElementById('workout-exercise-suggest');
       const nameInput = document.getElementById('workout-exercise-name');
-      // Picking from the native dropdown fires `input` then `change`.
-      nameInput.value = 'Barbell bench press';
+      nameInput.value = 'bench';
       await nameInput.oninput();
-      nameInput.dispatchEvent(new window.Event('change'));
+      mount.querySelector('.wg-exercise-suggest__row').click();
 
-      const picked = Array.from(datalist.options).find((o) => o.value === 'Barbell bench press');
-      expect(picked).toBeDefined();
-      expect(picked.dataset.id).toBeUndefined(); // → routed through resolveOrCreateLibraryId on save
+      expect(nameInput.value).toBe('Barbell bench press');
+      expect(mount.hidden).toBe(true);
+      // No id and no defaults, so save routes it through resolveOrCreateLibraryId.
+      expect(document.getElementById('workout-exercise-sets').value).toBe('');
+      expect(document.getElementById('workout-exercise-weight').value).toBe('');
     });
 
-    it('a library pick still autofills sets/reps/weight after filtering', async () => {
+    it('a library pick fills the name and autofills sets/reps/weight', async () => {
       const { window, document } = env;
       stubEnv(window);
       await window.showAddExerciseModal();
 
+      const mount = document.getElementById('workout-exercise-suggest');
       const nameInput = document.getElementById('workout-exercise-name');
-      nameInput.value = 'My custom lift';
+      nameInput.value = 'custom';
       await nameInput.oninput();
-      nameInput.dispatchEvent(new window.Event('change'));
+      mount.querySelector('.wg-exercise-suggest__row').click();
 
+      expect(nameInput.value).toBe('My custom lift');
       expect(document.getElementById('workout-exercise-sets').value).toBe('4');
       expect(document.getElementById('workout-exercise-reps-min').value).toBe('8');
       expect(document.getElementById('workout-exercise-weight').value).toBe('60');
     });
+
+    it('a free-typed brand-new name (never picked) still saves', async () => {
+      const { window, document } = env;
+      stubEnv(window);
+      await window.showAddExerciseModal();
+      window.invalidateWorkoutCache = vi.fn(async () => {});
+      window.loadExercisesForVariant = vi.fn();
+
+      const nameInput = document.getElementById('workout-exercise-name');
+      nameInput.value = 'Zercher squat';
+      await nameInput.oninput();
+      document.getElementById('workout-exercise-sets').value = '3';
+      document.getElementById('workout-exercise-reps-min').value = '8';
+
+      await window.saveExercise();
+
+      expect(window.apiCall).toHaveBeenCalledWith(
+        '/api/workout/exercises/create',
+        'POST',
+        expect.objectContaining({ exercise_name: 'Zercher squat' })
+      );
+    });
   });
+
 });

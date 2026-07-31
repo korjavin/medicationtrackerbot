@@ -1341,8 +1341,10 @@ async function showAddExerciseToSessionModal() {
     if (!window.WorkoutSessionsState.data) return;
 
     // Reset fields
+    const hiddenId = document.getElementById('session-add-exercise-id');
     document.getElementById('session-add-exercise-name').value = '';
-    document.getElementById('session-add-exercise-id').value = '';
+    hiddenId.value = '';
+    delete hiddenId.dataset.pickedName;
     document.getElementById('session-add-exercise-sets').value = '';
     document.getElementById('session-add-exercise-reps').value = '';
     document.getElementById('session-add-exercise-weight').value = '';
@@ -1351,12 +1353,13 @@ async function showAddExerciseToSessionModal() {
     const titleEl = document.getElementById('workout-add-exercise-to-session-title');
     if (titleEl) titleEl.textContent = 'Add exercise';
 
-    // Load exercises via the shared picker (med-prk.3): library + catalog names.
-    const datalist = document.getElementById('unique-exercises-list');
-    await window.WorkoutLibrary.populatePickerOptions(
-        datalist,
-        document.getElementById('session-add-exercise-name')
-    );
+    // Shared inline suggestion list (med-prk.3, med-max): library + catalog
+    // names, rendered under the field instead of in a native <datalist> popup.
+    await window.WorkoutLibrary.bindExercisePicker({
+        input: document.getElementById('session-add-exercise-name'),
+        mount: document.getElementById('session-add-exercise-suggest'),
+        onPick: onSessionExercisePicked
+    });
 
     window.ModalManager.workoutAddExerciseToSession.open();
 
@@ -1381,32 +1384,44 @@ function closeAddExerciseToSessionModal() {
     };
 }
 
-function onSessionExerciseSelect() {
-    const input = document.getElementById('session-add-exercise-name');
-    const datalist = document.getElementById('unique-exercises-list');
+// A row was tapped in the inline suggestion list. Library items carry an id and
+// the defaults that pre-fill the quick-add fields; catalog-only items carry
+// neither, so the hidden id stays empty and saveNewSessionExercise routes the
+// name through resolveOrCreateLibraryId instead of posting exercise_id
+// "undefined"/NaN (med-prk.3).
+function onSessionExercisePicked(item) {
     const hiddenId = document.getElementById('session-add-exercise-id');
+    hiddenId.value = item.id || '';
+    // Remember which name this id belongs to: picking does not fire `change`,
+    // but the later blur does, and onSessionExerciseSelect must be able to tell
+    // "still the picked name" from "hand-edited since".
+    hiddenId.dataset.pickedName = item.name || '';
 
-    const val = input.value;
-    const option = Array.from(datalist.options).find(o => o.value === val);
+    _setSessionExerciseTitle(item.name || '');
+    if (item.id == null) return;
 
+    // Autofill if empty.
+    const setsEl = document.getElementById('session-add-exercise-sets');
+    const repsEl = document.getElementById('session-add-exercise-reps');
+    const weightEl = document.getElementById('session-add-exercise-weight');
+    if (!setsEl.value && item.default_sets) setsEl.value = item.default_sets;
+    if (!repsEl.value && item.default_reps_min) repsEl.value = item.default_reps_min;
+    if (!weightEl.value && item.default_weight_kg) weightEl.value = item.default_weight_kg;
+}
+
+function _setSessionExerciseTitle(name) {
     const titleEl = document.getElementById('workout-add-exercise-to-session-title');
-    if (titleEl) titleEl.textContent = val ? `Log set · ${val}` : 'Add exercise';
+    if (titleEl) titleEl.textContent = name ? `Log set · ${name}` : 'Add exercise';
+}
 
-    if (option) {
-        // Catalog-only suggestions carry no dataset.id; leave the hidden field
-        // empty so saveNewSessionExercise routes them through resolveOrCreateLibraryId
-        // instead of posting exercise_id "undefined"/NaN (med-prk.3).
-        hiddenId.value = option.dataset.id || '';
-        // Autofill if empty
-        if (!document.getElementById('session-add-exercise-sets').value)
-            document.getElementById('session-add-exercise-sets').value = option.dataset.sets;
-        if (!document.getElementById('session-add-exercise-reps').value)
-            document.getElementById('session-add-exercise-reps').value = option.dataset.repsMin;
-        if (!document.getElementById('session-add-exercise-weight').value && option.dataset.weight)
-            document.getElementById('session-add-exercise-weight').value = option.dataset.weight;
-    } else {
-        hiddenId.value = '';
-    }
+// Bound to the name field's `change`. Keeps the modal title in step with the
+// typed name, and drops a hidden id that no longer belongs to it — the id is
+// only valid for the exact name that was picked from the suggestion list.
+function onSessionExerciseSelect() {
+    const val = document.getElementById('session-add-exercise-name').value;
+    const hiddenId = document.getElementById('session-add-exercise-id');
+    _setSessionExerciseTitle(val);
+    if ((hiddenId.dataset.pickedName || '') !== val) hiddenId.value = '';
 }
 
 async function saveNewSessionExercise() {
@@ -1451,21 +1466,16 @@ async function saveNewSessionExercise() {
     }
 
     if (!exerciseId) {
-        // Try to find in datalist again (autofill may not have fired).
-        const datalist = document.getElementById('unique-exercises-list');
-        const option = Array.from(datalist.options).find(o => o.value === name);
-        if (option && option.dataset.id) {
-            exerciseId = option.dataset.id;
-        } else {
-            // Brand-new name: the shared picker upserts it into the library and
-            // references it by id (med-prk.3) — create-new is now allowed.
-            exerciseId = await window.WorkoutLibrary.resolveOrCreateLibraryId(name, {
-                sets: sets, repsMin: reps, weight: weight
-            });
-            if (!exerciseId) {
-                safeAlert('Failed to add exercise');
-                return;
-            }
+        // Nothing was picked from the suggestion list (free-typed, or the name
+        // was edited after picking). resolveOrCreateLibraryId matches the
+        // library case-insensitively by name first and only INSERTs when the
+        // name is genuinely new (med-prk.3) — create-new is allowed here.
+        exerciseId = await window.WorkoutLibrary.resolveOrCreateLibraryId(name, {
+            sets: sets, repsMin: reps, weight: weight
+        });
+        if (!exerciseId) {
+            safeAlert('Failed to add exercise');
+            return;
         }
     }
 

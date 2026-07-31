@@ -227,41 +227,37 @@ async function showAddExerciseModal() {
     bindGoalCascade();
     applyGoalCascade(routineGoalForExercise());
 
-    // Load exercise library for autocomplete via the shared picker (med-prk.3).
-    let datalist = document.getElementById('exercise-library-datalist');
-    if (!datalist) {
-        datalist = document.createElement('datalist');
-        datalist.id = 'exercise-library-datalist';
-        document.body.appendChild(datalist);
-        document.getElementById('workout-exercise-name').setAttribute('list', 'exercise-library-datalist');
-    }
-    const nameInput = document.getElementById('workout-exercise-name');
-    await window.WorkoutLibrary.populatePickerOptions(datalist, nameInput);
+    // Shared inline suggestion list (med-prk.3, med-max): library + catalog
+    // names under the field, no native <datalist> popup over the keyboard.
+    await window.WorkoutLibrary.bindExercisePicker({
+        input: document.getElementById('workout-exercise-name'),
+        mount: document.getElementById('workout-exercise-suggest'),
+        onPick: onPlanExercisePicked
+    });
+}
 
-    // Add change handler to pre-fill defaults from library
-    nameInput.onchange = function () {
-        const option = Array.from(datalist.options).find(o => o.value === nameInput.value);
-        if (option) {
-            if (!document.getElementById('workout-exercise-sets').value && option.dataset.sets)
-                document.getElementById('workout-exercise-sets').value = option.dataset.sets;
-            // In the Add flow reps are goal-cascade-seeded on open, so a bare
-            // `!value` guard would never let a picked library exercise's own
-            // saved reps through — a named pick is explicit, its reps win over
-            // the seed. This handler is bound only in showAddExerciseModal but
-            // leaks onto the shared name input into a later Edit open, where the
-            // reps fields hold the user's stored targets (no seed); keep the
-            // `!value` guard there so a rename doesn't clobber them.
-            const isAdd = !window.WorkoutEdit.editingExerciseId;
-            const repsMinEl = document.getElementById('workout-exercise-reps-min');
-            const repsMaxEl = document.getElementById('workout-exercise-reps-max');
-            if (option.dataset.repsMin && (isAdd || !repsMinEl.value))
-                repsMinEl.value = option.dataset.repsMin;
-            if (option.dataset.repsMax && (isAdd || !repsMaxEl.value))
-                repsMaxEl.value = option.dataset.repsMax;
-            if (!document.getElementById('workout-exercise-weight').value && option.dataset.weight)
-                document.getElementById('workout-exercise-weight').value = option.dataset.weight;
-        }
-    };
+// A row was tapped in the plan modal's suggestion list. Catalog-only rows carry
+// no id and no defaults, so there is nothing to pre-fill from them.
+function onPlanExercisePicked(item) {
+    if (item.id == null) return;
+    if (!document.getElementById('workout-exercise-sets').value && item.default_sets)
+        document.getElementById('workout-exercise-sets').value = item.default_sets;
+    // In the Add flow reps are goal-cascade-seeded on open, so a bare `!value`
+    // guard would never let a picked library exercise's own saved reps through
+    // — a named pick is explicit, its reps win over the seed. The picker is
+    // bound only in showAddExerciseModal but stays wired to the shared name
+    // input into a later Edit open, where the reps fields hold the user's
+    // stored targets (no seed); keep the `!value` guard there so a rename
+    // doesn't clobber them.
+    const isAdd = !window.WorkoutEdit.editingExerciseId;
+    const repsMinEl = document.getElementById('workout-exercise-reps-min');
+    const repsMaxEl = document.getElementById('workout-exercise-reps-max');
+    if (item.default_reps_min && (isAdd || !repsMinEl.value))
+        repsMinEl.value = item.default_reps_min;
+    if (item.default_reps_max && (isAdd || !repsMaxEl.value))
+        repsMaxEl.value = item.default_reps_max;
+    if (!document.getElementById('workout-exercise-weight').value && item.default_weight_kg)
+        document.getElementById('workout-exercise-weight').value = item.default_weight_kg;
 }
 
 async function showAddExerciseModalFromGroup() {

@@ -77,7 +77,7 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
          'session-add-exercise-weight', 'session-add-exercise-notes',
          'session-add-exercise-cancel-btn', 'session-add-exercise-save-btn',
          'workout-add-exercise-to-session-title',
-         'unique-exercises-list']
+         'session-add-exercise-suggest']
             .forEach((id) => {
                 expect(document.getElementById(id), `expected #${id} to exist`).not.toBeNull();
             });

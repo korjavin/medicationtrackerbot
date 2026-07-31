@@ -291,103 +291,153 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(createdLogPayload.exercise_id).toBe(777);
   });
 
-  // med-prk.3 Task 5 — the shared picker now surfaces catalog-only names in
-  // the session datalist. Those options carry no dataset.id; selecting one must
-  // leave the hidden id empty so save-time resolution creates/matches a library
-  // id, rather than posting exercise_id "undefined"/NaN.
-  it('onSessionExerciseSelect leaves the hidden id empty for a catalog-only option', () => {
-    const { window, document } = env;
-    const datalist = document.getElementById('unique-exercises-list');
-    datalist.replaceChildren();
-    const opt = document.createElement('option');
-    opt.value = 'Farmer Carry'; // catalog-only: no dataset.id
-    datalist.appendChild(opt);
+  // med-3q8.1 / med-max — the session picker used to dump the user's whole
+  // library plus all 1324 catalog names into a native <datalist>, so the popup
+  // covered half the phone screen and buried the keyboard. It is now our own
+  // inline list under the field.
+  describe('session add-exercise picker (med-3q8.1, med-max)', () => {
+    function stubSessionPicker(window) {
+      window.fetch = vi.fn(async (url) => (
+        String(url).includes('exercises-catalog.json')
+          ? {
+              ok: true,
+              status: 200,
+              json: async () => ({ exercises: [{ name: 'Barbell bench press' }, { name: '3/4 sit-up' }] })
+            }
+          : { ok: true, status: 200, json: async () => ({}) }
+      ));
+      window.apiCall = vi.fn(async (endpoint) => (
+        endpoint === '/api/workout/exercise-library'
+          ? [{ id: 11, name: 'Overhead Press', default_sets: 3, default_reps_min: 8, default_weight_kg: 35 }]
+          : []
+      ));
+      window.WorkoutSessionsState.data = { id: 77, status: 'in_progress', logs: [] };
+    }
 
-    document.getElementById('session-add-exercise-name').value = 'Farmer Carry';
-    document.getElementById('session-add-exercise-id').value = 'stale';
-    window.onSessionExerciseSelect();
+    function rowsOf(mount) {
+      return Array.from(mount.querySelectorAll('.wg-exercise-suggest__row')).map((b) => b.textContent);
+    }
 
-    expect(document.getElementById('session-add-exercise-id').value).toBe('');
-  });
+    it('opens with NO suggestion list at all while the name field is empty', async () => {
+      const { window, document } = env;
+      stubSessionPicker(window);
 
-  // med-3q8.1 / med-max — the session picker used to append all 1324 catalog
-  // names AND dump the user's whole library, so the native suggestion popup
-  // covered half the screen and buried the keyboard.
-  function stubSessionPicker(window) {
-    window.fetch = vi.fn(async (url) => (
-      String(url).includes('exercises-catalog.json')
-        ? {
-            ok: true,
-            status: 200,
-            json: async () => ({ exercises: [{ name: 'Barbell bench press' }, { name: '3/4 sit-up' }] })
-          }
-        : { ok: true, status: 200, json: async () => ({}) }
-    ));
-    window.apiCall = vi.fn(async (endpoint) => (
-      endpoint === '/api/workout/exercise-library'
-        ? [{ id: 11, name: 'Overhead Press', default_sets: 3, default_reps_min: 8, default_weight_kg: 35 }]
-        : []
-    ));
-    window.WorkoutSessionsState.data = { id: 77, status: 'in_progress', logs: [] };
-  }
+      await window.showAddExerciseToSessionModal();
 
-  it('the session picker opens with a ZERO-option datalist while the name field is empty', async () => {
-    const { window, document } = env;
-    stubSessionPicker(window);
+      // The exact screenshot case in med-max: empty field, "Start typing..."
+      // placeholder, and nothing covering the keyboard.
+      expect(document.getElementById('session-add-exercise-name').value).toBe('');
+      expect(document.getElementById('session-add-exercise-suggest').hidden).toBe(true);
+    });
 
-    await window.showAddExerciseToSessionModal();
+    it('filters library-then-catalog once the user types', async () => {
+      const { window, document } = env;
+      stubSessionPicker(window);
+      await window.showAddExerciseToSessionModal();
 
-    // The exact screenshot case in med-max: empty field, "Start typing..."
-    // placeholder — and therefore no native popup at all.
-    expect(document.getElementById('session-add-exercise-name').value).toBe('');
-    expect(Array.from(document.getElementById('unique-exercises-list').options)).toHaveLength(0);
-  });
+      const mount = document.getElementById('session-add-exercise-suggest');
+      const nameInput = document.getElementById('session-add-exercise-name');
+      // One character: the library half only — the catalog stays gated at 2.
+      nameInput.value = 'o';
+      await nameInput.oninput();
+      expect(rowsOf(mount)).toEqual(['Overhead Press']);
 
-  it('the session picker filters library-then-catalog, capped, once the user types', async () => {
-    const { window, document } = env;
-    stubSessionPicker(window);
+      nameInput.value = 'bench';
+      await nameInput.oninput();
+      expect(rowsOf(mount)).toEqual(['Barbell bench press']);
+    });
 
-    const datalist = document.getElementById('unique-exercises-list');
-    await window.showAddExerciseToSessionModal();
+    it('tapping a library row autofills sets/reps/weight and sets the exercise id', async () => {
+      const { window, document } = env;
+      stubSessionPicker(window);
+      await window.showAddExerciseToSessionModal();
 
-    const nameInput = document.getElementById('session-add-exercise-name');
-    // One character: the library half only — the catalog stays gated at 2.
-    nameInput.value = 'o';
-    await nameInput.oninput();
-    expect(Array.from(datalist.options).map((o) => o.value)).toEqual(['Overhead Press']);
+      const mount = document.getElementById('session-add-exercise-suggest');
+      const nameInput = document.getElementById('session-add-exercise-name');
+      nameInput.value = 'over';
+      await nameInput.oninput();
+      mount.querySelector('.wg-exercise-suggest__row').click();
 
-    nameInput.value = 'bench';
-    await nameInput.oninput();
-    const values = Array.from(datalist.options).map((o) => o.value);
-    expect(values).toEqual(['Barbell bench press']);
-    expect(values).not.toContain('3/4 sit-up');
+      expect(nameInput.value).toBe('Overhead Press');
+      expect(document.getElementById('session-add-exercise-id').value).toBe('11');
+      expect(document.getElementById('session-add-exercise-sets').value).toBe('3');
+      expect(document.getElementById('session-add-exercise-reps').value).toBe('8');
+      expect(document.getElementById('session-add-exercise-weight').value).toBe('35');
+      expect(document.getElementById('workout-add-exercise-to-session-title').textContent)
+        .toBe('Log set · Overhead Press');
 
-    // The picked catalog name is still findable when `change` fires, and stays
-    // id-less so save routes it through resolveOrCreateLibraryId.
-    nameInput.value = 'Barbell bench press';
-    await nameInput.oninput();
-    window.onSessionExerciseSelect();
-    expect(document.getElementById('session-add-exercise-id').value).toBe('');
-    expect(Array.from(datalist.options).map((o) => o.value)).toContain('Barbell bench press');
-  });
+      // The picked id survives the blur-fired `change`, so save needs no
+      // resolveOrCreateLibraryId round-trip for a name the user picked.
+      window.onSessionExerciseSelect();
+      expect(document.getElementById('session-add-exercise-id').value).toBe('11');
+      expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/exercise-library/create')).toBe(false);
+    });
 
-  it('a library pick still autofills sets/reps/weight and resolves its id without a create round-trip', async () => {
-    const { window, document } = env;
-    stubSessionPicker(window);
+    it('tapping a catalog-only row leaves the id empty so save resolves it by name', async () => {
+      const { window, document } = env;
+      stubSessionPicker(window);
+      await window.showAddExerciseToSessionModal();
 
-    await window.showAddExerciseToSessionModal();
+      const mount = document.getElementById('session-add-exercise-suggest');
+      const nameInput = document.getElementById('session-add-exercise-name');
+      nameInput.value = 'bench';
+      await nameInput.oninput();
+      mount.querySelector('.wg-exercise-suggest__row').click();
 
-    const nameInput = document.getElementById('session-add-exercise-name');
-    // Picking from the native popup fires `input` (our refresh) then `change`.
-    nameInput.value = 'Overhead Press';
-    await nameInput.oninput();
-    window.onSessionExerciseSelect();
+      expect(nameInput.value).toBe('Barbell bench press');
+      expect(document.getElementById('session-add-exercise-id').value).toBe('');
+      expect(mount.hidden).toBe(true);
+    });
 
-    expect(document.getElementById('session-add-exercise-id').value).toBe('11');
-    expect(document.getElementById('session-add-exercise-sets').value).toBe('3');
-    expect(document.getElementById('session-add-exercise-reps').value).toBe('8');
-    expect(document.getElementById('session-add-exercise-weight').value).toBe('35');
-    expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/exercise-library/create')).toBe(false);
+    // The owner's library holds hand-cased variants of catalog names ("Barbell
+    // rows" vs "barbell rows"). With only 6 rows, burning two on the same
+    // exercise is a real defect.
+    it('dedupes a library name against its lowercase catalog twin, library winning', async () => {
+      const { window, document } = env;
+      window.fetch = vi.fn(async (url) => (
+        String(url).includes('exercises-catalog.json')
+          ? { ok: true, status: 200, json: async () => ({ exercises: [{ name: 'barbell rows' }] }) }
+          : { ok: true, status: 200, json: async () => ({}) }
+      ));
+      window.apiCall = vi.fn(async (endpoint) => (
+        endpoint === '/api/workout/exercise-library'
+          ? [{ id: 12, name: 'Barbell rows', default_sets: 4, default_reps_min: 10, default_weight_kg: 50 }]
+          : []
+      ));
+      window.WorkoutSessionsState.data = { id: 77, status: 'in_progress', logs: [] };
+      await window.showAddExerciseToSessionModal();
+
+      const mount = document.getElementById('session-add-exercise-suggest');
+      const nameInput = document.getElementById('session-add-exercise-name');
+      nameInput.value = 'barbell ro';
+      await nameInput.oninput();
+
+      // One row, in the user's own casing.
+      expect(rowsOf(mount)).toEqual(['Barbell rows']);
+
+      mount.querySelector('.wg-exercise-suggest__row').click();
+      expect(document.getElementById('session-add-exercise-id').value).toBe('12');
+      expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/exercise-library/create')).toBe(false);
+    });
+
+    it('hand-editing the name after a pick drops the stale exercise id', async () => {
+      const { window, document } = env;
+      stubSessionPicker(window);
+      await window.showAddExerciseToSessionModal();
+
+      const mount = document.getElementById('session-add-exercise-suggest');
+      const nameInput = document.getElementById('session-add-exercise-name');
+      nameInput.value = 'over';
+      await nameInput.oninput();
+      mount.querySelector('.wg-exercise-suggest__row').click();
+      expect(document.getElementById('session-add-exercise-id').value).toBe('11');
+
+      // The name no longer refers to the picked row.
+      nameInput.value = 'Overhead Press (paused)';
+      window.onSessionExerciseSelect();
+
+      expect(document.getElementById('session-add-exercise-id').value).toBe('');
+    });
   });
 
   it('saveNewSessionExercise rolls back the optimistic log when the POST returns null', async () => {
