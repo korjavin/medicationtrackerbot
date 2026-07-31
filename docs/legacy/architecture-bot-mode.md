@@ -138,7 +138,7 @@ Both are called inside one `db.WithTx` opened by `Repos.ApproveAndMaterialize`. 
 
 ### Adding a new feature
 
-See "Common Tasks → Adding a new health metric" in [CLAUDE.md](../CLAUDE.md). The short version: new migrations go in `internal/store/migrations/`; create a new `internal/store/<feature>/` package with a `Repo` + types + tests; wire it into `store.Repos`. Use the existing `diary/` and `push/` packages as the minimal reference shape.
+See "Common Tasks → Adding a new health metric" in [CLAUDE.md](../../CLAUDE.md) — note that it now describes the browser path; the Go steps below are this file's subject. The short version: new migrations go in `internal/store/migrations/`; create a new `internal/store/<feature>/` package with a `Repo` + types + tests; wire it into `store.Repos`. Use the existing `diary/` and `push/` packages as the minimal reference shape.
 
 ## Authentication
 
@@ -258,7 +258,7 @@ mechanism is a process-wide `ChangeBroker`
    per-handler instrumentation. The `sourceClientID` is the sanitised
    `X-Client-ID` header value (printable ASCII, ≤64 chars) so SSE
    subscribers can recognise echoes of their own writes; see
-   [technical-decisions.md → Source attribution via `X-Client-ID`](technical-decisions.md#source-attribution-via-x-client-id).
+   [technical-decisions.md → Source attribution via `X-Client-ID`](../technical-decisions.md#source-attribution-via-x-client-id).
    Bridge writes (the MCP executor's
    `/internal/mcp/bridge` path) are inside the wrapped mux, so MCP-driven
    mutations fan out the same way as direct API writes.
@@ -300,12 +300,12 @@ The legacy `GET /api/changes?since=<cursor>` polling endpoint is
 unchanged and remains the fallback when the browser lacks
 `EventSource` or the stream sees 3 consecutive `onerror` events within
 30s (proxy / captive-portal failures). See
-[technical-decisions.md → Why SSE is primary](technical-decisions.md)
-for the rationale and [sse-traefik.md](sse-traefik.md) for the required
+[technical-decisions.md → Why SSE is primary](../technical-decisions.md)
+for the rationale and [sse-traefik.md](../sse-traefik.md) for the required
 reverse-proxy configuration. Client-side wiring lives in
 `web/static/js/data-store.js` (`startChangeStream`,
 `startChangePolling`) and is documented in
-[frontend.md → Change Detection](frontend.md#change-detection).
+[frontend.md → Change Detection](../frontend.md#change-detection).
 
 ### TZ suggestion cross-client dismissal
 
