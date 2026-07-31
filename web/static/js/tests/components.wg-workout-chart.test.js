@@ -264,4 +264,70 @@ describe('WGWorkoutChart.render', () => {
         const svg = env.api.render({ sessions: payload, metric: 'est-1rm' });
         expect(svg.classList.contains('wg-workout-chart--empty')).toBe(true);
     });
+
+    // med-zte — bars for discrete buckets (weekly tonnage). The line stays the
+    // default so exercise-detail's est-1RM / top-weight / reps charts are
+    // untouched by the option existing.
+    describe('variant: bars', () => {
+        const weekly = [
+            { week: '2026-04-06T12:00:00Z', volume: 900 },
+            { week: '2026-04-13T12:00:00Z', volume: 0 },
+            { week: '2026-04-20T12:00:00Z', volume: 1400 },
+        ];
+
+        it('emits one rect per bucket and no line or last-point marker', () => {
+            const svg = env.api.render({ sessions: weekly, metric: 'volume', variant: 'bars' });
+            expect(svg.dataset.workoutVariant).toBe('bars');
+            const bars = svg.querySelectorAll('rect.wg-workout-chart__bar');
+            expect(bars).toHaveLength(3);
+            expect(svg.querySelector('path.wg-workout-chart__line')).toBeNull();
+            expect(svg.querySelector('circle.wg-workout-chart__last')).toBeNull();
+            // The zero week is an honest zero-height bar, not a gap.
+            expect(Number(bars[1].getAttribute('height'))).toBe(0);
+            expect(Number(bars[2].getAttribute('height')))
+                .toBeGreaterThan(Number(bars[0].getAttribute('height')));
+        });
+
+        it('keeps the y-axis on a zero baseline so bar heights stay proportional', () => {
+            // With the line variant these values floor to a 900 y-min; a bar
+            // chart on that axis would draw 900 as nothing at all.
+            const svg = env.api.render({ sessions: weekly.slice(0, 1).concat(weekly[2]), metric: 'volume', variant: 'bars' });
+            expect(Number(svg.dataset.workoutYMin)).toBe(0);
+            const line = env.api.render({ sessions: weekly.slice(0, 1).concat(weekly[2]), metric: 'volume' });
+            expect(Number(line.dataset.workoutYMin)).toBe(900);
+        });
+
+        it('keeps every bucket instead of downsampling, and stays inside the plot', () => {
+            const svg = env.api.render({ sessions: makeSessions({ weeks: 120 }), variant: 'bars' });
+            const bars = Array.from(svg.querySelectorAll('rect.wg-workout-chart__bar'));
+            expect(bars).toHaveLength(120);
+            const width = env.api.DEFAULT_WIDTH;
+            bars.forEach((bar) => {
+                const x = Number(bar.getAttribute('x'));
+                const w = Number(bar.getAttribute('width'));
+                expect(x).toBeGreaterThanOrEqual(0);
+                expect(x + w).toBeLessThanOrEqual(width);
+                expect(w).toBeGreaterThan(0);
+            });
+        });
+
+        it('defaults to the line variant, and an unknown variant falls back to it', () => {
+            const dflt = env.api.render({ sessions: weekly, metric: 'volume' });
+            expect(dflt.dataset.workoutVariant).toBe('line');
+            expect(dflt.querySelector('path.wg-workout-chart__line')).not.toBeNull();
+            expect(dflt.querySelector('rect.wg-workout-chart__bar')).toBeNull();
+
+            const bogus = env.api.render({ sessions: weekly, metric: 'volume', variant: 'candles' });
+            expect(bogus.dataset.workoutVariant).toBe('line');
+        });
+
+        it('sets no inline stroke/fill/style on bars', () => {
+            const svg = env.api.render({ sessions: weekly, metric: 'volume', variant: 'bars' });
+            svg.querySelectorAll('rect.wg-workout-chart__bar').forEach((bar) => {
+                expect(bar.getAttribute('fill')).toBeNull();
+                expect(bar.getAttribute('stroke')).toBeNull();
+                expect(bar.getAttribute('style')).toBeNull();
+            });
+        });
+    });
 });

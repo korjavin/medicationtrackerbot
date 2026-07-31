@@ -34,6 +34,13 @@ function populatedStats({ weeks = 8 } = {}) {
         completion_rate: 85,
         top_exercises: [],
         weekly_activity,
+        // The axes + legend live on the Load view's chart since med-zte swapped
+        // Consistency's line for a calendar grid, so the fixture has to carry
+        // the load aggregates that view reads.
+        totals: { volume_kg: 12500, hard_sets: 42, reps: 310, pr_count: 3 },
+        weekly_volume: weekly_activity.map((w, i) => ({
+            week: w.week, volume_kg: 900 + i * 100, hard_sets: 4 + i, reps: 30 + i,
+        })),
     };
 }
 
@@ -193,6 +200,13 @@ describe('Workouts round-2 design parity', () => {
     });
 
     describe('Stats chart axes + legend', () => {
+        // med-zte moved the chart out of Consistency (now a calendar grid) and
+        // into Load, where weekly tonnage renders as bars. The axis + legend
+        // parity rules are unchanged, they just live one pill over.
+        beforeEach(() => {
+            env.window.WorkoutStats.setView('load');
+        });
+
         it('chart SVG carries y-axis numeric tick labels', () => {
             const { document, window } = env;
             const container = document.getElementById('workout-stats-display');

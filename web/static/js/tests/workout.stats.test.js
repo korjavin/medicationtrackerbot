@@ -5,7 +5,9 @@
 //   • `.wg-gloss--inset` range selector with 7d / 30d / 90d / All pills
 //     — active state via `.wg-gloss--sun`, persisted to the
 //     `mt-workouts-stats-range` localStorage key
-//   • `.wg-workouts-stats__chart-panel` hosts the WGWorkoutChart output
+//   • `.wg-workouts-stats__calendar` day grid replaces the sessions-per-week
+//     line in the Consistency view (med-zte); `.wg-workouts-stats__chart-panel`
+//     hosts the WGWorkoutChart output in the Load view
 //   • 2×2 `.wg-card` stat-tile grid for Streak / Sessions / Done / Skipped,
 //     every tile but Streak scoped to the active range
 //   • Top Exercises section renders as a `.wg-section-label` + list of
@@ -29,6 +31,18 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
         env = null;
     });
 
+    // Local "YYYY-MM-DD" for N days ago — the calendar buckets on the local
+    // calendar day, so the fixture has to speak the same dialect.
+    function dayStr(daysAgo) {
+        const d = new Date();
+        d.setDate(d.getDate() - daysAgo);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    function cells(container) {
+        return Array.from(container.querySelectorAll('.wg-workouts-stats__calendar-cell'));
+    }
+
     function populatedStats({ weeks = 6 } = {}) {
         const anchor = Date.now() - 5000;
         const weekMs = 7 * 86400000;
@@ -38,6 +52,11 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             weekly_activity.push({ week: ts, completed: 2 + i, skipped: 0 });
         }
         return {
+            daily_activity: [
+                { date: dayStr(9), completed: 1, skipped: 0 },
+                { date: dayStr(4), completed: 0, skipped: 1 },
+                { date: dayStr(2), completed: 1, skipped: 0 },
+            ],
             range: 'all',
             active_weeks: 5,
             current_streak_weeks: 4,
@@ -111,7 +130,7 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
         expect(activeBtn.dataset.range).toBe('30d');
     });
 
-    it('clicking a range button persists the choice, re-renders the chart, and reloads the range-scoped numbers', () => {
+    it('clicking a range button persists the choice, re-renders the calendar, and reloads the range-scoped numbers', () => {
         const { document, window } = env;
         const container = document.getElementById('workout-stats-display');
         // The tiles + Top Exercises are computed by the domain per range, so a
@@ -130,12 +149,12 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
         const allBtn = Array.from(buttons).find((b) => b.dataset.range === 'all');
         expect(allBtn.classList.contains('wg-gloss--sun')).toBe(false);
 
-        // Chart panel reflects the new range on its rendered child.
-        const panel = container.querySelector('.wg-workouts-stats__chart-panel');
-        expect(panel).not.toBeNull();
-        const chartNode = panel.firstElementChild;
-        expect(chartNode).not.toBeNull();
-        expect(chartNode.dataset.workoutRange).toBe('7d');
+        // The calendar reflects the new range, and 7d spans at most two week
+        // columns (today's week plus whatever spilled into the previous one).
+        const grid = container.querySelector('.wg-workouts-stats__calendar-grid');
+        expect(grid).not.toBeNull();
+        expect(grid.dataset.range).toBe('7d');
+        expect(Number(grid.dataset.weeks)).toBeLessThanOrEqual(2);
 
         expect(reloads).toBe(1);
     });
@@ -154,35 +173,103 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
         expect(urls).toEqual(['/api/workout/stats?range=90d']);
     });
 
-    it('renders the chart panel with a WGWorkoutChart output when weekly_activity is present', () => {
-        const { document, window } = env;
-        const container = document.getElementById('workout-stats-display');
-        window._renderWorkoutStats(container, populatedStats({ weeks: 10 }));
+    // med-zte — the sessions-per-week line is gone from Consistency. A
+    // GitHub-contribution day grid strictly contains what the line showed (a
+    // column read vertically IS the week's session count) and adds which days.
+    describe('activity calendar (med-zte)', () => {
+        it('renders a 7-row day grid with Mon/Wed/Fri labels instead of a line chart', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, populatedStats({ weeks: 10 }));
 
-        const panel = container.querySelector('.wg-workouts-stats__chart-panel');
-        expect(panel).not.toBeNull();
-        const svg = panel.querySelector('svg.wg-workout-chart');
-        expect(svg).not.toBeNull();
-        expect(svg.querySelector('path.wg-workout-chart__line')).not.toBeNull();
-    });
+            const grid = container.querySelector('.wg-workouts-stats__calendar-grid');
+            expect(grid).not.toBeNull();
+            expect(grid.getAttribute('role')).toBe('img');
+            expect(grid.getAttribute('aria-label')).toMatch(/workout calendar/i);
 
-    it('renders the empty-state chart card when weekly_activity is empty', () => {
-        const { document, window } = env;
-        const container = document.getElementById('workout-stats-display');
-        window._renderWorkoutStats(container, {
-            active_weeks: 0,
-            total_sessions: 0,
-            completed_sessions: 0,
-            skipped_sessions: 0,
-            completion_rate: 0,
-            top_exercises: [],
-            weekly_activity: []
+            // 7 rows × N whole week columns, oldest leftmost.
+            const weeks = Number(grid.dataset.weeks);
+            expect(weeks).toBeGreaterThan(0);
+            expect(cells(container).length).toBe(weeks * 7);
+
+            // GitHub's convention: Mon/Wed/Fri labelled, the rest blank, and no
+            // month row at all.
+            const labels = Array.from(container.querySelectorAll('.wg-workouts-stats__calendar-weekday'))
+                .map((n) => n.textContent);
+            expect(labels).toEqual(['Mon', '', 'Wed', '', 'Fri', '', '']);
+
+            // No line chart and no chart legend left in this view.
+            expect(container.querySelector('.wg-workouts-stats__chart-panel')).toBeNull();
+            expect(container.querySelector('path.wg-workout-chart__line')).toBeNull();
+            expect(container.querySelector('.wg-workouts-stats__legend')).toBeNull();
         });
 
-        const panel = container.querySelector('.wg-workouts-stats__chart-panel');
-        const empty = panel.querySelector('.wg-workout-chart--empty');
-        expect(empty).not.toBeNull();
-        expect(empty.textContent).toMatch(/no workout sessions yet/i);
+        it('shades cells by status with three distinct classes and labels each day', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, {
+                ...populatedStats(),
+                daily_activity: [
+                    { date: dayStr(5), completed: 1, skipped: 0 },
+                    { date: dayStr(3), completed: 0, skipped: 2 },
+                    // Both on one day reads as completed — you showed up.
+                    { date: dayStr(1), completed: 1, skipped: 1 },
+                ],
+            });
+
+            const byClass = (mod) => cells(container)
+                .filter((c) => c.classList.contains(`wg-workouts-stats__calendar-cell--${mod}`));
+            expect(byClass('done')).toHaveLength(2);
+            expect(byClass('skipped')).toHaveLength(1);
+            expect(byClass('empty').length).toBeGreaterThan(0);
+            // The three states are genuinely different classes, not one class
+            // shaded by an inline style.
+            expect(new Set(['done', 'skipped', 'empty']).size).toBe(3);
+            cells(container).forEach((c) => expect(c.getAttribute('style')).toBeNull());
+
+            expect(byClass('done')[1].title).toBe(`${dayStr(1)} · completed`);
+            expect(byClass('skipped')[0].title).toBe(`${dayStr(3)} · 2 skipped`);
+            const untrained = byClass('empty').find((c) => c.title);
+            expect(untrained.title).toMatch(/nothing logged$/);
+        });
+
+        it('caps the grid at 53 week columns so range=all on a long history stays readable', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window.localStorage.setItem('mt-workouts-stats-range', 'all');
+            window._renderWorkoutStats(container, {
+                ...populatedStats(),
+                daily_activity: [
+                    { date: dayStr(365 * 4), completed: 1, skipped: 0 },
+                    { date: dayStr(2), completed: 1, skipped: 0 },
+                ],
+            });
+
+            const grid = container.querySelector('.wg-workouts-stats__calendar-grid');
+            expect(Number(grid.dataset.weeks)).toBe(53);
+            expect(cells(container).length).toBe(53 * 7);
+        });
+
+        it('renders an all-empty grid (not a crash) when nothing was logged', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, {
+                active_weeks: 0,
+                total_sessions: 0,
+                completed_sessions: 0,
+                skipped_sessions: 0,
+                completion_rate: 0,
+                top_exercises: [],
+                weekly_activity: [],
+                daily_activity: null,
+            });
+
+            const all = cells(container);
+            expect(all.length).toBeGreaterThan(0);
+            expect(all.every((c) => c.classList.contains('wg-workouts-stats__calendar-cell--empty'))).toBe(true);
+            const grid = container.querySelector('.wg-workouts-stats__calendar-grid');
+            expect(grid.getAttribute('aria-label')).toMatch(/0 days trained, 0 skipped/);
+        });
     });
 
     it('renders the stat-tile grid with the expected four labels', () => {
@@ -382,9 +469,14 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
                 .map((t) => t.textContent);
             expect(values).toEqual(['12.5t', '42', '310', '3']);
 
+            // med-zte — weekly tonnage is a set of discrete buckets, so it
+            // renders as bars, one rect per week, not a spline.
             const svg = container.querySelector('.wg-workouts-stats__chart-panel svg.wg-workout-chart');
             expect(svg).not.toBeNull();
             expect(svg.dataset.workoutMetric).toBe('volume');
+            expect(svg.dataset.workoutVariant).toBe('bars');
+            expect(svg.querySelector('path.wg-workout-chart__line')).toBeNull();
+            expect(svg.querySelectorAll('rect.wg-workout-chart__bar')).toHaveLength(12);
             expect(container.querySelector('.wg-workouts-stats__legend-label').textContent).toBe('Volume · per week');
 
             // Top Exercises comes off exercise_totals so its rows add up to the

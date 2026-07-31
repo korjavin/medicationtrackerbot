@@ -15,11 +15,15 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         env = null;
     });
 
-    it('stats reports weekly_activity: null and top_exercises: null when nothing has happened yet', async () => {
+    it('stats reports weekly_activity: null, daily_activity: null and top_exercises: null when nothing has happened yet', async () => {
         env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
         const stats = await env.window.apiCallDirect('/api/workout/stats');
         expect(stats.total_sessions).toBe(0);
         expect(stats.weekly_activity).toBeNull();
+        // `null`, never `[]` — the Consistency calendar reads it with
+        // Array.isArray-style truthiness, same contract as weekly_activity.
+        expect('daily_activity' in stats).toBe(true);
+        expect(stats.daily_activity).toBeNull();
         expect(stats.top_exercises).toBeNull();
     });
 
@@ -74,13 +78,51 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         const near = await window.apiCallDirect('/api/workout/stats?range=30d');
         expect(near.total_sessions).toBe(0);
         expect(near.top_exercises).toBeNull();
+        // daily_activity is scoped to the ACTIVE range (unlike the 12-week
+        // heatmap span weekly_activity keeps), so the calendar grid covers
+        // exactly the window the range pills claim.
+        expect(near.daily_activity).toBeNull();
 
         const far = await window.apiCallDirect('/api/workout/stats?range=90d');
         expect(far.total_sessions).toBe(1);
         expect(far.top_exercises).toHaveLength(1);
+        expect(far.daily_activity).toEqual([
+            { date: backdated.slice(0, 10), completed: 1, skipped: 0 },
+        ]);
 
         const all = await window.apiCallDirect('/api/workout/stats?range=all');
         expect(all.total_sessions).toBe(1);
+    });
+
+    // med-zte — one entry per LOCAL calendar day that saw a completed or
+    // skipped session, ascending, rest days simply absent.
+    it('daily_activity buckets completed and skipped sessions per local day, ascending', async () => {
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        const { window } = env;
+        // Two sessions today (one completed, one skipped) plus one completed
+        // three days ago — enough to prove per-day buckets and the sort.
+        const first = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        await window.apiCall(`/api/workout/sessions/status?id=${first.id}`, 'PUT', { status: 'completed' });
+        const second = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        await window.apiCall(`/api/workout/sessions/status?id=${second.id}`, 'PUT', { status: 'skipped' });
+
+        const older = new Date(Date.now() - 3 * 86400000).toISOString();
+        const third = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        await window.apiCall(`/api/workout/sessions/status?id=${third.id}`, 'PUT', { status: 'completed' });
+        for (const rec of await env.records.list('workoutsession')) {
+            if (rec.id === third.id) await env.records.put('workoutsession', { ...rec, scheduled_date: older });
+        }
+
+        const stats = await window.apiCallDirect('/api/workout/stats?range=30d');
+        const today = first.scheduled_date.slice(0, 10);
+        expect(stats.daily_activity).toEqual([
+            { date: older.slice(0, 10), completed: 1, skipped: 0 },
+            { date: today, completed: 1, skipped: 1 },
+        ]);
+        // The per-day buckets add up to the range's own counts.
+        const sum = (k) => stats.daily_activity.reduce((n, d) => n + d[k], 0);
+        expect(sum('completed')).toBe(stats.completed_sessions);
+        expect(sum('skipped')).toBe(stats.skipped_sessions);
     });
 
     // med-904.1 — the Load/Balance views read `totals`, `weekly_volume` and

@@ -2097,6 +2097,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // med-904.1 adds `totals`, `weekly_volume` and `exercise_totals` so ONE fetch
   // feeds all three Stats views (Consistency / Load / Balance) and switching
   // views is a client-side re-render, never a refetch.
+  //
+  // med-zte adds `daily_activity` — one entry per LOCAL calendar day inside the
+  // active range that saw a completed or skipped session. Sparse by design (a
+  // rest day is simply absent, exactly like an untrained week in
+  // weekly_activity); the Consistency calendar fills the gaps itself.
   async function getStats(opts) {
     const rangeDays = { '7d': 7, '30d': 30, '90d': 90 };
     const requested = opts && opts.range;
@@ -2115,6 +2120,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     let completedSessions = 0;
     let skippedSessions = 0;
     const weekMap = new Map();
+    // Local calendar day -> { date, completed, skipped }, scoped to the ACTIVE
+    // range (not the wider 12-week heatmap span) so the calendar grid covers
+    // exactly the window the range pills claim.
+    const dayMap = new Map();
     // session id -> its heatmap week, for the log pass below. Only sessions
     // inside the heatmap span get one, so weekly_volume spans exactly the same
     // weeks as weekly_activity.
@@ -2126,9 +2135,15 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
     for (const session of sessions) {
       const schedMs = new Date(session.scheduled_date).getTime();
-      if (schedMs >= since30) {
-        if (session.status === 'completed') { completedSessions++; totalSessions++; }
-        else if (session.status === 'skipped') { skippedSessions++; totalSessions++; }
+      if (schedMs >= since30 && (session.status === 'completed' || session.status === 'skipped')) {
+        totalSessions++;
+        // Same local-date-prefix rule as mondayOf: scheduled_date is an
+        // offset-carrying instant whose "YYYY-MM-DD" prefix IS the local day.
+        const day = String(session.scheduled_date).slice(0, 10);
+        if (!dayMap.has(day)) dayMap.set(day, { date: day, completed: 0, skipped: 0 });
+        const dayEntry = dayMap.get(day);
+        if (session.status === 'completed') { completedSessions++; dayEntry.completed++; }
+        else { skippedSessions++; dayEntry.skipped++; }
       }
       if (session.status === 'completed' && !Number.isNaN(schedMs)) {
         completedWeeks.add(mondayOf(String(session.scheduled_date).slice(0, 10)));
@@ -2272,6 +2287,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
     const weeklyVolume = weekKeys.length ? weekKeys.map((week) => volumeWeeks.get(week)) : null;
 
+    // Ascending by date; `null` (never `[]`) on an empty window, matching the
+    // weekly_activity / top_exercises contract the frontend reads with
+    // Array.isArray(...).
+    const dailyActivity = dayMap.size
+      ? Array.from(dayMap.keys()).sort().map((day) => dayMap.get(day))
+      : null;
+
     return {
       range,
       total_sessions: totalSessions,
@@ -2282,6 +2304,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       current_streak_weeks: currentStreakWeeks,
       top_exercises: topExercises,
       weekly_activity: weeklyActivity,
+      daily_activity: dailyActivity,
       totals: {
         volume_kg: rangeVolume,
         hard_sets: rangeHardSets,
