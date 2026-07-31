@@ -338,9 +338,9 @@ function _buildSessionCard(s) {
 
     const actions = document.createElement('div');
     actions.className = 'wg-workouts-history-row__actions';
-    actions.appendChild(_buildHistoryIconBtn('view', 'View session', 'chevronRight', () => {
-        showWorkoutSessionModal(session.id);
-    }));
+    // Pencil + trash only, matching the Plans and Exercise-library rows. A
+    // chevron here would duplicate the card-body tap below (same modal, bigger
+    // target); the pencil earns its slot by saying the modal is an editor.
     actions.appendChild(_buildHistoryIconBtn('edit', 'Edit session', 'pencil', () => {
         showWorkoutSessionModal(session.id);
     }));
