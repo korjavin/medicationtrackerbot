@@ -78,11 +78,20 @@ export async function ensureInboxKey(ctx, { records: recordsOverride, fetchImpl 
   return privateKey;
 }
 
-// listInboxEvents returns the pending sealed events, oldest first, each already
-// opened into its plaintext object. `createdAtUnix` comes from the sealed
-// payload — never from the clear-text column, which the server could lie about.
-// An event that fails to open is surfaced, not skipped: silently dropping it
-// would lose a Confirm the user actually tapped.
+// listInboxEvents returns the pending sealed events, oldest first. Each entry is
+// either `{id, event}` (opened into its plaintext object) or `{id, error}` when
+// this device cannot open it. `createdAtUnix` comes from the sealed payload —
+// never from the clear-text column, which the server could lie about.
+//
+// An event that fails to open is SURFACED PER EVENT, never silently dropped
+// (that would lose a Confirm the user actually tapped) and never thrown out of
+// here (bd med-3q8.3). Throwing aborted the whole page: one permanently
+// un-openable seal — e.g. sealed to an inbox public key a concurrent device's
+// last-write-wins PUT /api/inbox/key superseded — made every later Telegram
+// command sit at "⏳ Queued" forever, because the drain died before it ever
+// reached the events it COULD apply. The caller leaves an un-openable event
+// queued (never acks it), so a device that still holds the matching private key
+// can drain it.
 export async function listInboxEvents(ctx, privateKey, { fetchImpl = fetch } = {}) {
   const res = await fetchImpl('/api/inbox');
   if (!res.ok) throw new Error(`could not read the inbox (${res.status})`);
@@ -90,8 +99,12 @@ export async function listInboxEvents(ctx, privateKey, { fetchImpl = fetch } = {
 
   const out = [];
   for (const e of events) {
-    const plaintext = await openInboxEvent(privateKey, ctx.accountId, fromBase64(e.ct));
-    out.push({ id: e.id, event: JSON.parse(new TextDecoder().decode(plaintext)) });
+    try {
+      const plaintext = await openInboxEvent(privateKey, ctx.accountId, fromBase64(e.ct));
+      out.push({ id: e.id, event: JSON.parse(new TextDecoder().decode(plaintext)) });
+    } catch (error) {
+      out.push({ id: e.id, error });
+    }
   }
   return out;
 }
@@ -140,7 +153,10 @@ const draining = new Set();
 //      already deleted is a no-op, so nothing here locks across devices.
 //
 // One event's failure must not strand the rest: we log it, skip its ack (so it
-// is retried next drain) and continue. Returns a small report for tests/logs.
+// is retried next drain) and continue. That holds for an event this device
+// cannot even OPEN too (bd med-3q8.3) — it is counted in `unopenable`, left
+// queued, and stepped over, never allowed to abort the page. Returns a small
+// report for tests/logs.
 export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush = flushConfirmed, wedged = isSyncWedged } = {}) {
   const key = (ctx && ctx.accountId) || ctx;
   if (draining.has(key)) return { applied: 0, failed: 0, skipped: true };
@@ -158,13 +174,28 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
     const pending = await listInboxEvents(ctx, privateKey, { fetchImpl });
     if (pending.length === 0) return { applied: 0, failed: 0 };
 
-    // Rule 4. Ties (same second) fall back to arrival order.
-    pending.sort((a, b) => (a.event.at_unix - b.event.at_unix) || (a.id - b.id));
+    // Rule 4. Ties (same second) fall back to arrival order. An un-openable
+    // event carries no sealed instant, so it sorts LAST: the events we can
+    // actually apply go first and a poison seal never delays them (nor trips the
+    // leading-flush-false abort below on their behalf).
+    const atUnix = (p) => (p.event ? p.event.at_unix : Number.MAX_SAFE_INTEGER);
+    pending.sort((a, b) => (atUnix(a) - atUnix(b)) || (a.id - b.id));
 
     let applied = 0;
     let failed = 0;
+    let unopenable = 0;
     let stalled = false;
-    for (const { id, event } of pending) {
+    for (const { id, event, error } of pending) {
+      if (error) {
+        // Left QUEUED (no ack) — another device may still hold the private key
+        // this was sealed to. Counted separately from an apply failure because
+        // it is cheap and permanent for THIS device: the poller must not treat
+        // it as the bricked-mailbox signal (see startInboxPolling).
+        unopenable++;
+        failed++;
+        console.error('[inbox] could not open event, leaving it queued', id, error);
+        continue;
+      }
       try {
         // The event id is passed so appliers can derive a DETERMINISTIC record
         // id from it (drain rule 2): a crash between flush and ack re-applies
@@ -192,7 +223,12 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
         console.error('[inbox] event failed, leaving it queued', id, e);
       }
     }
-    return stalled ? { applied, failed, stalled: true } : { applied, failed };
+    // `unopenable`/`stalled` only appear when they happened — the report is read
+    // by the poller's backoff gate and asserted verbatim by its tests.
+    const report = { applied, failed };
+    if (unopenable) report.unopenable = unopenable;
+    if (stalled) report.stalled = true;
+    return report;
   } finally {
     draining.delete(key);
   }
@@ -256,17 +292,22 @@ export function startInboxPolling(ctx, {
         noProgress = 0;
         skipTicks = 0;
         onApplied(result);
-      } else if (result.wedged || result.stalled || result.failed > 0) {
+      } else if (result.wedged || result.stalled || result.failed > (result.unopenable || 0)) {
         // No progress this tick: wedged, a leading flush-false stall, or every
-        // event failed to apply (a poison event that throws in apply/decode).
-        // Back off on ANY no-progress drain, not just the flush-false one — the
-        // byte cap already bounds each fetch, but a poison event that never
-        // applies would otherwise re-fetch its chunk every interval (med-eas.51).
+        // event failed to APPLY (a poison event that throws in apply). Back off
+        // on ANY such no-progress drain, not just the flush-false one — the byte
+        // cap already bounds each fetch, but a poison event that never applies
+        // would otherwise re-fetch its chunk every interval (med-eas.51).
         noProgress++;
         skipTicks = Math.min(2 ** noProgress, MAX_INBOX_BACKOFF_TICKS);
       } else {
-        // Empty mailbox / no key — healthy idle. Drop any backoff so the next
-        // real event is picked up at the normal interval.
+        // Healthy idle: empty mailbox, no key — or a mailbox holding nothing but
+        // seals THIS device can never open (a superseded inbox key). Those are
+        // deliberately not the bricked-mailbox signal (bd med-3q8.3): they are
+        // skipped client-side after a fetch the byte cap already bounds, so they
+        // cost exactly what an empty poll costs, and throttling on them left the
+        // NEXT real command sitting at "⏳ Queued" for up to a minute. Drop any
+        // backoff so a fresh event is picked up at the normal interval.
         noProgress = 0;
         skipTicks = 0;
       }

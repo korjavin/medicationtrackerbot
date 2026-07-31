@@ -716,29 +716,50 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
     }
   };
 
+  const markerId = `tgtext-${eventId}`;
+
   // At-most-once: if a prior drain already ran the agent for this event (even
-  // one whose ops flush then failed and re-queued the event), skip — re-running
-  // a non-idempotent, billed loop is strictly worse than trusting the pending
-  // ops to flush on their own. The marker is deterministic, so writing it is
-  // itself idempotent, and it rides the same pending batch as the agent's writes.
-  const marked = (await records.list(TG_AGENT_MARKER_TYPE)).some((r) => !r.deleted && r.recordId === `tgtext-${eventId}`);
-  if (marked) return;
-  await records.put(TG_AGENT_MARKER_TYPE, { recordId: `tgtext-${eventId}`, clientTs: now(), deleted: false });
+  // one whose ops flush then failed and re-queued the event), do not run it
+  // again — re-running a non-idempotent, billed loop is strictly worse than
+  // trusting the pending ops to flush on their own. The marker is
+  // deterministic, so writing it is itself idempotent, and it rides the same
+  // pending batch as the agent's writes.
+  //
+  // But the marker is written BEFORE the agent runs, so this branch must still
+  // ANSWER (bd med-3q8.3). Returning silently is what left "⏳ Queued" dangling
+  // forever whenever a run was cut short between the marker and its reply — a
+  // closed tab, a reload, a throw in the drain: the event then acked on the next
+  // drain having said nothing. `marker.reply` is the text the completed run
+  // sent; re-issuing it is a no-op server-side (Telegram's "message is not
+  // modified", telegram.go EditReply). No text means the run never finished.
+  const marker = (await records.list(TG_AGENT_MARKER_TYPE)).find((r) => !r.deleted && r.recordId === markerId);
+  if (marker) {
+    await reply(marker.reply || '🤖 That message was interrupted before I could answer — send it again.');
+    return;
+  }
+  await records.put(TG_AGENT_MARKER_TYPE, { recordId: markerId, clientTs: now(), deleted: false });
+
+  // Every terminal answer goes through here so the marker remembers it. Same
+  // ...rest passthrough as `reply` — the trial-consent path carries a scope.
+  const finalReply = async (text, ...rest) => {
+    await records.put(TG_AGENT_MARKER_TYPE, { recordId: markerId, clientTs: now(), deleted: false, reply: text });
+    await reply(text, ...rest);
+  };
 
   let answer;
   try {
     answer = await agent.run(event.text, event.at_unix ? event.at_unix * 1000 : now());
   } catch (e) {
     if (e && e.code === 'no_api_key') {
-      await reply('🔑 To chat with the assistant, add an OpenAI key in Settings → Integrations (or the trial AI is unavailable right now).');
+      await finalReply('🔑 To chat with the assistant, add an OpenAI key in Settings → Integrations (or the trial AI is unavailable right now).');
       return;
     }
     if (e && e.code === 'trial_consent_required') {
-      await replyTrialConsent(reply, 'Chatting with the assistant', e);
+      await replyTrialConsent(finalReply, 'Chatting with the assistant', e);
       return;
     }
     console.warn('[inbox] free-text agent failed', e && e.code);
-    await reply('🤖 Something went wrong handling that — try again.');
+    await finalReply('🤖 Something went wrong handling that — try again.');
     return;
   }
 
@@ -749,12 +770,12 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
   // ponytail: blanket-suppress under generic rather than scrubbing the answer —
   // safe over clever; a greeting gets a terse "Done." which is harmless.
   if (verbosity === 'generic') {
-    await reply('✅ Done.');
+    await finalReply('✅ Done.');
     return;
   }
 
   const text = (answer || '').trim();
-  await reply(text ? truncateRunes(text, MAX_REPLY_RUNES) : '✅ Done.');
+  await finalReply(text ? truncateRunes(text, MAX_REPLY_RUNES) : '✅ Done.');
 }
 
 // confirmDueIntakes confirms every PENDING dose already due at `atMs` — the
