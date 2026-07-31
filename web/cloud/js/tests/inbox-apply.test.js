@@ -1346,7 +1346,8 @@ describe('inbox-apply.js — a Telegram data command', () => {
         const editReply = vi.fn();
         const agent = { run: vi.fn().mockResolvedValue('Logged 2 eggs (140 kcal).') };
         await applyTGText(textEvent('i ate two eggs'), 40, { agent, records, editReply });
-        expect(agent.run).toHaveBeenCalledWith('i ate two eggs');
+        // 2nd arg: the SENT time, which ages the conversation history (med-48x).
+        expect(agent.run).toHaveBeenCalledWith('i ate two eggs', CMD_UNIX * 1000);
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, 'Logged 2 eggs (140 kcal).');
     });
 
@@ -1485,6 +1486,7 @@ describe('tgcommand.js — parsing', () => {
 // are exercised end-to-end, not mocked. Only the LLM boundary is stubbed.
 describe('inbox-apply.js — self-refining tgprefs (med-vcv.3)', () => {
     const TXT_UNIX = SLOT_UNIX + 3600;
+    const TXT_MS = TXT_UNIX * 1000; // when the message was SENT — 3h before DRAIN_MS
     const REPLY_ID = 4343;
     const now = () => DRAIN_MS;
     const stubDispatcher = { handle: vi.fn() }; // no mcp_* tool is exercised here
@@ -1602,7 +1604,7 @@ describe('inbox-apply.js — self-refining tgprefs (med-vcv.3)', () => {
     });
 
     it('sends at most the last 5 turns even when more are stored', async () => {
-        const turns = Array.from({ length: 7 }, (_, i) => ({ ts: DRAIN_MS - (7 - i) * 60_000, user: `u${i}`, assistant: `a${i}` }));
+        const turns = Array.from({ length: 7 }, (_, i) => ({ ts: TXT_MS - (7 - i) * 60_000, user: `u${i}`, assistant: `a${i}` }));
         const records = fakeRecords({ tgchat: [{ recordId: 'tgchat', deleted: false, turns }] });
         const captured = [];
         const chat = vi.fn(async ({ messages }) => { captured.push(messages); return { content: 'ok' }; });
@@ -1613,9 +1615,12 @@ describe('inbox-apply.js — self-refining tgprefs (med-vcv.3)', () => {
         expect(userTexts(captured[0])).toEqual(['u2', 'u3', 'u4', 'u5', 'u6', 'now what']);
     });
 
+    // Ages by the message's own SENT time, not the drain clock (here 3h later):
+    // drainInbox applies a whole backlog in one loop, so drain-time aging would
+    // make days of queued messages look like one live conversation.
     it('drops a turn older than the 1h window from the prompt AND from the record', async () => {
-        const stale = { ts: DRAIN_MS - 2 * 3600_000, user: 'ancient', assistant: 'ancient answer' };
-        const fresh = { ts: DRAIN_MS - 60_000, user: 'recent', assistant: 'recent answer' };
+        const stale = { ts: TXT_MS - 2 * 3600_000, user: 'ancient', assistant: 'ancient answer' };
+        const fresh = { ts: TXT_MS - 60_000, user: 'recent', assistant: 'recent answer' };
         const records = fakeRecords({ tgchat: [{ recordId: 'tgchat', deleted: false, turns: [stale, fresh] }] });
         const captured = [];
         const chat = vi.fn(async ({ messages }) => { captured.push(messages); return { content: 'ok' }; });

@@ -116,25 +116,27 @@ function pruneTurns(turns, nowMs) {
     .slice(-TG_CHAT_MAX_TURNS);
 }
 
-async function readTGChat(records, now) {
+async function readTGChat(records, atMs) {
   const all = await records.list(TG_CHAT_TYPE);
   const rec = all.find((r) => r.recordId === TG_CHAT_RECORD_ID && !r.deleted);
-  return pruneTurns((rec && Array.isArray(rec.turns)) ? rec.turns : [], now());
+  return pruneTurns((rec && Array.isArray(rec.turns)) ? rec.turns : [], atMs);
 }
 
-async function appendTGChatTurn(records, user, assistant, now) {
-  const at = now();
-  const turns = pruneTurns([...await readTGChat(records, now), { ts: at, user: String(user || ''), assistant: String(assistant || '') }], at);
-  await records.put(TG_CHAT_TYPE, { recordId: TG_CHAT_RECORD_ID, clientTs: at, deleted: false, turns });
+async function appendTGChatTurn(records, user, assistant, atMs) {
+  const turns = pruneTurns([...await readTGChat(records, atMs), { ts: atMs, user: String(user || ''), assistant: String(assistant || '') }], atMs);
+  await records.put(TG_CHAT_TYPE, { recordId: TG_CHAT_RECORD_ID, clientTs: atMs, deleted: false, turns });
 }
 
-// makeTGHistoryPort is the `history` port createTGAgent consumes: get() returns
-// the surviving turns oldest-first for the prompt, append(user, assistant)
-// records one completed exchange.
+// makeTGHistoryPort is the `history` port createTGAgent consumes: get(atMs)
+// returns the surviving turns oldest-first for the prompt, append(user,
+// assistant, atMs) records one completed exchange. atMs is the SENT time of the
+// message being handled (the drain clock only stands in when a caller has none),
+// so a backlog drain ages each turn by when it was written, not by when the tab
+// happened to open.
 export function makeTGHistoryPort(records, now) {
   return {
-    get: () => readTGChat(records, now),
-    append: (user, assistant) => appendTGChatTurn(records, user, assistant, now),
+    get: (atMs) => readTGChat(records, atMs || now()),
+    append: (user, assistant, atMs) => appendTGChatTurn(records, user, assistant, atMs || now()),
   };
 }
 
@@ -725,7 +727,7 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
 
   let answer;
   try {
-    answer = await agent.run(event.text);
+    answer = await agent.run(event.text, event.at_unix ? event.at_unix * 1000 : now());
   } catch (e) {
     if (e && e.code === 'no_api_key') {
       await reply('🔑 To chat with the assistant, add an OpenAI key in Settings → Integrations (or the trial AI is unavailable right now).');

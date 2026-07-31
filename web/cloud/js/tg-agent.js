@@ -119,8 +119,13 @@ export function createTGAgent({ chat, dispatcher, prefs = NOOP_PREFS, history = 
   }
 
   // run drives the conversation and returns the model's final plain-text answer
-  // (may be empty if the model chose to stay silent).
-  async function run(userText) {
+  // (may be empty if the model chose to stay silent). atMs is when the user
+  // SENT the message, not when this drain runs — a backlog drained after the tab
+  // was closed applies days of messages within one second, and aging the history
+  // by the drain clock would make all of them look like one live conversation.
+  // Same convention as every other inbound kind (telegram.go: "AtUnix is the
+  // SERVER's tap timestamp, not the drain's").
+  async function run(userText, atMs) {
     const note = (await prefs.get()) || '';
     const systemContent = note
       ? `${SYSTEM_PROMPT}\n\nWhat you already know about how THIS user talks (apply it when interpreting them):\n${note}`
@@ -128,7 +133,7 @@ export function createTGAgent({ chat, dispatcher, prefs = NOOP_PREFS, history = 
     // Prior turns go in as plain alternating user/assistant messages. Never the
     // tool rounds: an assistant message with tool_calls and no matching
     // role:'tool' replies is a 400 from the provider, i.e. chat breaks outright.
-    const past = (await history.get()) || [];
+    const past = (await history.get(atMs)) || [];
     const messages = [
       { role: 'system', content: systemContent },
       ...past.flatMap((t) => [
@@ -140,7 +145,7 @@ export function createTGAgent({ chat, dispatcher, prefs = NOOP_PREFS, history = 
 
     // A blank answer carries nothing forward, so it is not worth a turn.
     const finish = async (answer) => {
-      if (answer) await history.append(userText, answer);
+      if (answer) await history.append(userText, answer, atMs);
       return answer;
     };
 
