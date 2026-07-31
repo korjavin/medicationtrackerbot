@@ -705,7 +705,7 @@ function isWriteRequest(request) {
 // Mirrors maxRelayFrameBytes in internal/cloudserver/mcp_relay.go (and
 // MaxFrameBytes in internal/mcpshim/shim.go). Must not exceed the relay's cap —
 // see sendFrame for what an over-cap frame costs.
-export const MAX_FRAME_BYTES = 1 << 20;
+export const MAX_FRAME_BYTES = 5 << 20;
 
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;

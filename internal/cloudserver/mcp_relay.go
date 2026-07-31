@@ -38,15 +38,19 @@ const (
 	// 64 KiB was exactly that trap in production — any mcp_call listing real
 	// health data (a few weeks of vitals, a food log, a session history) clears
 	// it easily, and the relay logged `message too big: read limited at 65537
-	// bytes` on a loop with the app open and unlocked the whole time. 1 MiB fits
-	// every list the domain layer can currently produce, and the responder
-	// refuses to send anything larger rather than re-entering that loop
-	// (web/cloud/js/mcp-responder.js's sendFrame).
+	// bytes` on a loop with the app open and unlocked the whole time. 1 MiB
+	// covered the common lists but not the dense ones (Mi Band vitals sampled
+	// every 15 min over a caller-chosen window), so 5 MiB is the headroom that
+	// makes a too-large answer a genuinely exotic case rather than a weekly one.
+	// The responder still refuses to send anything larger rather than
+	// re-entering that loop (web/cloud/js/mcp-responder.js's sendFrame), and the
+	// domain layer now clamps list sizes so it rarely gets close
+	// (web/domain/paginate.js).
 	//
 	// ponytail: worst-case memory is this times deferredFrameBuffer per waiting
-	// leg (~32 MiB). Fine for a self-hosted box; shrink the queue first if a
-	// hosted deployment ever runs many accounts hot.
-	maxRelayFrameBytes = 1 << 20
+	// leg (~40 MiB). Fine for a self-hosted box and survivable for a hosted one;
+	// shrink the queue further if many accounts ever sit hot at once.
+	maxRelayFrameBytes = 5 << 20
 
 	// relayPingEvery/-Timeout keep each leg alive and, more importantly, make a
 	// dead one observable. Neither end of this relay speaks between tool calls,
@@ -443,7 +447,14 @@ func (a *MCPRelayAPI) serveLeg(ctx context.Context, conn *websocket.Conn, record
 // frame expires within relayFrameBudget, so this only fills under a burst far
 // beyond interactive use — and dropping there is the same outcome as expiry:
 // one call reporting the device offline.
-const deferredFrameBuffer = 32
+//
+// It is also the memory multiplier on maxRelayFrameBytes: the queue holds whole
+// frames, so depth × cap is the worst case a single waiting leg can pin. At
+// 5 MiB frames a depth of 32 would be ~160 MiB per leg, which is a cheap
+// remote memory DoS on a hosted deployment (dial, go quiet, flood). 8 keeps it
+// to ~40 MiB and is still far more than one reconnect window needs — the queue
+// only grows while a peer is away, and MCP calls are one-at-a-time.
+const deferredFrameBuffer = 8
 
 // deferredFrame is one frame waiting for the opposite leg, carrying the
 // deadline it was read at so time spent queued cannot extend its budget.

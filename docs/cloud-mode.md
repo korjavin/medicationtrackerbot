@@ -504,7 +504,7 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   opaque binary frames between the shim leg (`GET /api/mcp/relay/shim?pairing=<id>`,
   authenticated by possession of the single-use pairing id) and the device leg
   (`GET /api/mcp/relay/device`, authenticated by the existing session cookie) — no
-  inspection, no buffering beyond one in-flight frame per direction, 64 KiB frame cap,
+  inspection, no buffering beyond one in-flight frame per direction, 5 MiB frame cap,
   closes both ends when either drops. Pairings are in-memory (die with process restart) and
   currently one shim + one device per pairing.
 - **The device leg presents its pairing id** (`?pairing=<id>`) and the relay checks it against the
@@ -569,9 +569,11 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   dispatchable**. `internal/mcp/catalogjs/drift_test.go` fails CI when a registry op is neither
   in the checked-in catalog nor excluded, and when the checked-in file is stale — the same
   reasoned-exemption shape as `internal/server/mcp_coverage_exempt.go`.
-- **`mcp_help` is compact-by-default because of the 64 KiB relay frame cap.** Full entries for
-  all ops are ~106 KB, over `mcp_relay.go`'s `maxRelayFrameBytes`; the compact projection
-  (`id/topic/method/risk/description/required`) is ~30 KB. Precedence mirrors
+- **`mcp_help` is compact-by-default.** Full entries for all ops are ~106 KB; the compact
+  projection (`id/topic/method/risk/description/required`) is ~30 KB. This started as a hard
+  constraint — 106 KB was over the then-64 KiB `maxRelayFrameBytes` — and survives the raise to
+  5 MiB as a context-budget one: the frame now fits, but an agent's window still shouldn't spend
+  100 KB on a catalog it will use five entries of. Precedence mirrors
   `internal/mcp/help.go`: `operation_id(s)` → full entries, `query` → compact matches (never
   auto-expanded), `topic`/no-args → compact catalog + `usage_protocol`.
 - **The `mcp_call` envelope matches bot mode** (`internal/mcp/call.go`): `operation_id` (with
