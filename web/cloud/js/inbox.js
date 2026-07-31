@@ -246,12 +246,11 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
 // roughly one fire per minute on their own, so a backgrounded tab is about one
 // empty GET /api/inbox per minute, not one per 5s.
 //
-// ponytail: a poll, not a push. The alternative — a silent web push waking the
-// service worker to nudge a drain — is lower-latency and lower-traffic, but it
-// needs notification permission, and browsers penalize pushes that show no
-// notification; that wake push is its own bead (med-5fo), not this one.
-// GET /api/inbox on an empty mailbox is one indexed lookup returning
-// `{"events":[]}`. Revisit if the mailbox ever gets chatty.
+// This is the FLOOR, not the only signal: the server also pushes a content-free
+// inbox-wake the instant it seals an event, which cloud-boot.js turns into an
+// immediate drain (bd med-5fo). The poll still matters — a wake needs
+// notification permission and a live subscription — and GET /api/inbox on an
+// empty mailbox is one indexed lookup returning `{"events":[]}`.
 const INBOX_POLL_MS = 5000;
 
 // Backoff ceiling for a wedged/stalled mailbox (med-eas.51). Consecutive

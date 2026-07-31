@@ -196,6 +196,12 @@ type TelegramAPI struct {
 	managerUsername     string // resolved by Bootstrap via getMe
 	claimTTL            time.Duration
 
+	// wake is fired after a seal is durable so the account's devices hear about
+	// the mail immediately instead of at their next poll (bd med-5fo). nil when
+	// unwired (tests, and any deployment without a push relay) — the poller is
+	// still the floor, so a missing wake only costs latency.
+	wake func(ctx context.Context, accountID string)
+
 	// feedbackRecipient is the developer's age X25519 recipient pubkey
 	// (FEEDBACK_AGE_RECIPIENT). "" disables the Telegram feedback channel — no
 	// button offered, a stale tap does nothing. The manager bot only ever holds
@@ -244,6 +250,28 @@ func NewTelegramAPI(store *cloudstore.Repo, sessionSecret, managerToken, baseDom
 // NewTelegramAPI, and because cmd/cloud builds the feedback API before the
 // Telegram one. 0 (unset) leaves the relay off — the default.
 func (t *TelegramAPI) SetFeedbackAdminChat(chatID int64) { t.feedbackAdminChatID = chatID }
+
+// SetInboxWaker installs the post-seal wake (bd med-5fo). A setter for the same
+// reason as SetFeedbackAdminChat: the relay that owns the push fan-out is built
+// after this API. Leave it unset and inbound events are found by polling only.
+func (t *TelegramAPI) SetInboxWaker(wake func(ctx context.Context, accountID string)) {
+	t.wake = wake
+}
+
+// sealAndQueue is the ONLY seal path in this file: SealAndQueue plus the wake
+// that tells the account's devices to drain now. Every inbound Telegram surface
+// (command, photo, free text, .nxk import, callback taps) routes through here so
+// none of them can seal without waking — and a FAILED seal wakes nothing, since
+// there would be nothing to drain.
+func (t *TelegramAPI) sealAndQueue(ctx context.Context, accountID string, plaintext []byte, now time.Time) error {
+	if err := SealAndQueue(ctx, t.store, accountID, plaintext, now); err != nil {
+		return err
+	}
+	if t.wake != nil {
+		t.wake(ctx, accountID)
+	}
+	return nil
+}
 
 // ConfigureProxy scopes the Bot API proxy (bd med-eas.46). When cmd/cloud enables
 // the local proxy (CLOUD_TG_API_BASE_URL), child bots run on it for file_id
@@ -994,7 +1022,7 @@ func (t *TelegramAPI) sealCommand(w http.ResponseWriter, r *http.Request, ref st
 		return
 	}
 
-	switch err := SealAndQueue(r.Context(), t.store, ref, plaintext, now); {
+	switch err := t.sealAndQueue(r.Context(), ref, plaintext, now); {
 	case errors.Is(err, ErrNoInboxKey):
 		// Raced with a key deletion between the check above and here.
 		reply(setupMessage)
@@ -1056,7 +1084,7 @@ func (t *TelegramAPI) sealPhoto(w http.ResponseWriter, r *http.Request, ref stri
 		return
 	}
 
-	switch err := SealAndQueue(r.Context(), t.store, ref, plaintext, now); {
+	switch err := t.sealAndQueue(r.Context(), ref, plaintext, now); {
 	case errors.Is(err, ErrNoInboxKey):
 		reply(setupMessage)
 	case err != nil:
@@ -1114,7 +1142,7 @@ func (t *TelegramAPI) sealText(w http.ResponseWriter, r *http.Request, ref strin
 		return
 	}
 
-	switch err := SealAndQueue(r.Context(), t.store, ref, plaintext, now); {
+	switch err := t.sealAndQueue(r.Context(), ref, plaintext, now); {
 	case errors.Is(err, ErrNoInboxKey):
 		reply(setupMessage)
 	case err != nil:
@@ -1229,7 +1257,7 @@ func (t *TelegramAPI) sealNXKDocument(w http.ResponseWriter, r *http.Request, re
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		switch err := SealAndQueue(r.Context(), t.store, ref, plaintext, now); {
+		switch err := t.sealAndQueue(r.Context(), ref, plaintext, now); {
 		case errors.Is(err, ErrNoInboxKey):
 			// Raced with a key deletion between the check above and here.
 			edit(setupMessage)
@@ -1777,7 +1805,7 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 	}
 
 	// ref IS the account id (see BotByWebhookRef).
-	switch err := SealAndQueue(r.Context(), t.store, ref, plaintext, now); {
+	switch err := t.sealAndQueue(r.Context(), ref, plaintext, now); {
 	case errors.Is(err, ErrNoInboxKey):
 		// The account has never unlocked a client, so there is no key to seal
 		// to. Drop the tap rather than store it readable.
@@ -1900,7 +1928,7 @@ func (t *TelegramAPI) handleWorkoutCallback(w http.ResponseWriter, r *http.Reque
 	}
 
 	// ref IS the account id (see BotByWebhookRef).
-	switch err := SealAndQueue(r.Context(), t.store, ref, plaintext, now); {
+	switch err := t.sealAndQueue(r.Context(), ref, plaintext, now); {
 	case errors.Is(err, ErrNoInboxKey):
 		// No key to seal to (and no client that could ever reconcile the session),
 		// so drop the tap AND schedule no re-fire.
@@ -1994,7 +2022,7 @@ func (t *TelegramAPI) handleMeasureCallback(w http.ResponseWriter, r *http.Reque
 	}
 
 	// ref IS the account id (see BotByWebhookRef).
-	switch err := SealAndQueue(r.Context(), t.store, ref, plaintext, now); {
+	switch err := t.sealAndQueue(r.Context(), ref, plaintext, now); {
 	case errors.Is(err, ErrNoInboxKey):
 		slog.Warn("telegram callback: no inbox key, dropping measure tap", "ref", ref)
 		answer(callbackAckDropped)

@@ -316,6 +316,16 @@ func main() {
 		tgSender = tgAPI
 	}
 	relay := cloudserver.NewRelay(store, webPushSender, tgSender, cfg.dryQueueWarnHours)
+	if tgAPI != nil {
+		// Wake the account's devices the instant a Telegram event is sealed
+		// (bd med-5fo), so a "⏳ Queued" reply becomes "✅ Recorded" without
+		// waiting on the tab's poll. Detached: the webhook must answer Telegram
+		// promptly (a slow push service would otherwise stall the reply into a
+		// redelivery), and the request context dies when the handler returns.
+		tgAPI.SetInboxWaker(func(ctx context.Context, accountID string) {
+			go relay.WakeInbox(context.WithoutCancel(ctx), accountID)
+		})
+	}
 
 	mux := http.NewServeMux()
 	// Liveness: "the process is running". Unconditional on purpose — the
