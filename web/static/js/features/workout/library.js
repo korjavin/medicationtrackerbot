@@ -191,7 +191,10 @@ function showExerciseLibraryModal(id) {
     document.getElementById('exercise-library-weight').value = '';
     document.getElementById('exercise-library-notes').value = '';
 
-    ensureExerciseCatalogSuggestions(document.getElementById('exercise-catalog-datalist'));
+    bindExerciseCatalogTypeahead(
+        document.getElementById('exercise-library-name'),
+        document.getElementById('exercise-catalog-datalist')
+    );
 }
 
 async function showEditExerciseLibraryModal(id) {
@@ -204,14 +207,19 @@ async function showEditExerciseLibraryModal(id) {
     document.getElementById('exercise-library-rename-hint').hidden = false;
     window.ModalManager.exerciseLibrary.open();
 
-    ensureExerciseCatalogSuggestions(document.getElementById('exercise-catalog-datalist'));
-
     document.getElementById('exercise-library-name').value = item.name;
     document.getElementById('exercise-library-sets').value = item.default_sets || '';
     document.getElementById('exercise-library-reps-min').value = item.default_reps_min || '';
     document.getElementById('exercise-library-reps-max').value = item.default_reps_max || '';
     document.getElementById('exercise-library-weight').value = item.default_weight_kg || '';
     document.getElementById('exercise-library-notes').value = item.notes || '';
+
+    // Bound after the name is filled in, so the initial refresh matches the
+    // edited exercise instead of whatever the input held from a previous open.
+    bindExerciseCatalogTypeahead(
+        document.getElementById('exercise-library-name'),
+        document.getElementById('exercise-catalog-datalist')
+    );
 }
 
 function closeExerciseLibraryModal() {
@@ -276,8 +284,9 @@ async function _deleteExerciseLibraryApi(id) {
 // (med-s5m.2). Suggest-only: fills a <datalist> so the name inputs surface
 // canonical names ("Barbell bench press") and cut near-duplicates, without
 // ever constraining free typing. The 913 KB asset is fetched once, lazily
-// (only when a name-entry modal opens); a failed fetch is silent — the inputs
-// just fall back to no catalog suggestions — and is retried on the next open.
+// (only when the user actually types into a name field — see the type-ahead
+// below); a failed fetch is silent — the inputs just fall back to no catalog
+// suggestions — and is retried on the next keystroke.
 let _exerciseCatalogNamesPromise = null; // module-state: single-flight cache for the one-time static exercise-catalog fetch (med-s5m.2)
 function _loadExerciseCatalogNames() {
     if (!_exerciseCatalogNamesPromise) {
@@ -293,31 +302,65 @@ function _loadExerciseCatalogNames() {
     return _exerciseCatalogNamesPromise;
 }
 
-// Append catalog names to a <datalist>, skipping any value already present so
-// user-library options (which carry autofill dataset) win over bare catalog
-// suggestions. Fire-and-forget: modals call this without awaiting.
-async function ensureExerciseCatalogSuggestions(datalist) {
+// Type-ahead over the catalog (med-3q8.1). Dumping all 1324 catalog names into
+// a <datalist> makes mobile browsers render a full-screen suggestion sheet
+// instead of a short list above the keyboard, so the catalog half is rebuilt
+// from what the user typed: nothing under 2 characters, at most
+// EXERCISE_CATALOG_SUGGESTION_LIMIT substring matches otherwise. No debounce — the
+// match runs over an in-memory array.
+const EXERCISE_CATALOG_MIN_QUERY = 2;
+const EXERCISE_CATALOG_SUGGESTION_LIMIT = 15;
+
+// Rebuild ONLY the catalog options (marked `data-catalog`) of a <datalist>.
+// User-library options are left untouched, and a catalog name already present
+// as a library option is skipped so the autofill-carrying one wins.
+async function refreshExerciseCatalogSuggestions(datalist, query) {
     if (!datalist) return;
-    const names = await _loadExerciseCatalogNames();
-    if (!names.length) return;
+    const q = (query || '').trim().toLowerCase();
+    let matches = [];
+    if (q.length >= EXERCISE_CATALOG_MIN_QUERY) {
+        const names = await _loadExerciseCatalogNames();
+        matches = names.filter(n => n.toLowerCase().includes(q));
+        // Keep an exact match inside the cap: onSessionExerciseSelect,
+        // saveNewSessionExercise and the exercises.js onchange all re-look-up
+        // the picked value in datalist.options, and slicing it away would make
+        // a picked catalog name look like an unknown one.
+        const exact = matches.findIndex(n => n.toLowerCase() === q);
+        if (exact > 0) matches.unshift(matches.splice(exact, 1)[0]);
+        matches = matches.slice(0, EXERCISE_CATALOG_SUGGESTION_LIMIT);
+    }
+    Array.from(datalist.options).forEach(o => { if (o.dataset.catalog) o.remove(); });
     const existing = new Set(Array.from(datalist.options).map(o => o.value));
     const frag = document.createDocumentFragment();
-    for (const name of names) {
+    for (const name of matches) {
         if (existing.has(name)) continue;
         existing.add(name);
         const option = document.createElement('option');
         option.value = name;
+        option.dataset.catalog = '1';
         frag.appendChild(option);
     }
     datalist.appendChild(frag);
 }
 
+// Wire a name input to its <datalist> so typing refilters the catalog half.
+// `oninput` assignment (not addEventListener) so reopening a modal cannot
+// stack handlers; the handler returns the refresh promise so callers/tests can
+// await it. Also runs one refresh for the input's current value, which clears
+// catalog options left over from a previous open.
+function bindExerciseCatalogTypeahead(input, datalist) {
+    if (!input || !datalist) return Promise.resolve();
+    input.oninput = () => refreshExerciseCatalogSuggestions(datalist, input.value);
+    return refreshExerciseCatalogSuggestions(datalist, input.value);
+}
+
 // Shared add-exercise picker (med-prk.3): fill a <datalist> from the user's
-// library (value=name + autofill dataset incl. library id) plus canonical
-// catalog names, so plan-editing (exercises.js) and in-session add
+// library (value=name + autofill dataset incl. library id), and wire `input`
+// on the name field so canonical catalog names are type-ahead filtered in on
+// top (med-3q8.1) — plan-editing (exercises.js) and in-session add
 // (sessions.js) search one surface. The session modal's single reps input
 // reads `repsMin` too, so one convention serves both call sites.
-async function populatePickerOptions(datalist) {
+async function populatePickerOptions(datalist, nameInput) {
     if (!datalist) return;
     datalist.replaceChildren();
     try {
@@ -336,7 +379,7 @@ async function populatePickerOptions(datalist) {
         console.error('Error loading exercise library for picker:', error);
     }
     // User-library options (with autofill dataset) win over bare catalog names.
-    await ensureExerciseCatalogSuggestions(datalist);
+    await bindExerciseCatalogTypeahead(nameInput, datalist);
 }
 
 // Create-new half of the shared picker: resolve a typed name to a library
@@ -374,7 +417,8 @@ window.WorkoutLibrary = {
     openEdit: showEditExerciseLibraryModal,
     close: closeExerciseLibraryModal,
     delete: deleteExerciseLibraryItem,
-    ensureCatalogSuggestions: ensureExerciseCatalogSuggestions,
+    bindCatalogTypeahead: bindExerciseCatalogTypeahead,
+    refreshCatalogSuggestions: refreshExerciseCatalogSuggestions,
     populatePickerOptions: populatePickerOptions,
     resolveOrCreateLibraryId: resolveOrCreateLibraryId
 };

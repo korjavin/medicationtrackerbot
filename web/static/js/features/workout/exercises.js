@@ -235,10 +235,10 @@ async function showAddExerciseModal() {
         document.body.appendChild(datalist);
         document.getElementById('workout-exercise-name').setAttribute('list', 'exercise-library-datalist');
     }
-    await window.WorkoutLibrary.populatePickerOptions(datalist);
+    const nameInput = document.getElementById('workout-exercise-name');
+    await window.WorkoutLibrary.populatePickerOptions(datalist, nameInput);
 
     // Add change handler to pre-fill defaults from library
-    const nameInput = document.getElementById('workout-exercise-name');
     nameInput.onchange = function () {
         const option = Array.from(datalist.options).find(o => o.value === nameInput.value);
         if (option) {

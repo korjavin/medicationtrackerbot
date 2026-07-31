@@ -329,4 +329,86 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(apiSpy.mock.calls[0][2].training_goal).toBe('strength');
     });
   });
+
+  // med-3q8.1 — the plan add-exercise picker used to dump all 1324 catalog
+  // names into #exercise-library-datalist, which mobile renders as a
+  // full-screen suggestion sheet instead of a short list above the keyboard.
+  describe('add-exercise picker type-ahead (med-3q8.1)', () => {
+    const CATALOG = {
+      exercises: [
+        { name: 'Barbell bench press' },
+        { name: 'Dumbbell bench press' },
+        { name: '3/4 sit-up' },
+      ],
+    };
+
+    function stubEnv(window) {
+      window.fetch = vi.fn(async (url) => (
+        String(url).includes('exercises-catalog.json')
+          ? { ok: true, status: 200, json: async () => CATALOG }
+          : { ok: true, status: 200, json: async () => ({}) }
+      ));
+      window.apiCall = vi.fn(async (endpoint) => (
+        endpoint === '/api/workout/exercise-library'
+          ? [{ id: 3, name: 'My custom lift', default_sets: 4, default_reps_min: 8, default_weight_kg: 60 }]
+          : []
+      ));
+      window.WorkoutEdit.variantForExercise = 1;
+    }
+
+    it('opens with only the user library, then filters the catalog once the user types', async () => {
+      const { window, document } = env;
+      stubEnv(window);
+
+      await window.showAddExerciseModal();
+
+      const datalist = document.getElementById('exercise-library-datalist');
+      expect(Array.from(datalist.options).map((o) => o.value)).toEqual(['My custom lift']);
+
+      const nameInput = document.getElementById('workout-exercise-name');
+      nameInput.value = 'b';
+      await nameInput.oninput();
+      expect(Array.from(datalist.options).map((o) => o.value)).toEqual(['My custom lift']);
+
+      nameInput.value = 'bench';
+      await nameInput.oninput();
+      const values = Array.from(datalist.options).map((o) => o.value);
+      expect(values).toContain('My custom lift');
+      expect(values).toContain('Barbell bench press');
+      expect(values).toContain('Dumbbell bench press');
+      expect(values).not.toContain('3/4 sit-up');
+    });
+
+    it('a catalog-only pick stays re-findable in the datalist and carries no library id', async () => {
+      const { window, document } = env;
+      stubEnv(window);
+      await window.showAddExerciseModal();
+
+      const datalist = document.getElementById('exercise-library-datalist');
+      const nameInput = document.getElementById('workout-exercise-name');
+      // Picking from the native dropdown fires `input` then `change`.
+      nameInput.value = 'Barbell bench press';
+      await nameInput.oninput();
+      nameInput.dispatchEvent(new window.Event('change'));
+
+      const picked = Array.from(datalist.options).find((o) => o.value === 'Barbell bench press');
+      expect(picked).toBeDefined();
+      expect(picked.dataset.id).toBeUndefined(); // → routed through resolveOrCreateLibraryId on save
+    });
+
+    it('a library pick still autofills sets/reps/weight after filtering', async () => {
+      const { window, document } = env;
+      stubEnv(window);
+      await window.showAddExerciseModal();
+
+      const nameInput = document.getElementById('workout-exercise-name');
+      nameInput.value = 'My custom lift';
+      await nameInput.oninput();
+      nameInput.dispatchEvent(new window.Event('change'));
+
+      expect(document.getElementById('workout-exercise-sets').value).toBe('4');
+      expect(document.getElementById('workout-exercise-reps-min').value).toBe('8');
+      expect(document.getElementById('workout-exercise-weight').value).toBe('60');
+    });
+  });
 });

@@ -1353,7 +1353,10 @@ async function showAddExerciseToSessionModal() {
 
     // Load exercises via the shared picker (med-prk.3): library + catalog names.
     const datalist = document.getElementById('unique-exercises-list');
-    await window.WorkoutLibrary.populatePickerOptions(datalist);
+    await window.WorkoutLibrary.populatePickerOptions(
+        datalist,
+        document.getElementById('session-add-exercise-name')
+    );
 
     window.ModalManager.workoutAddExerciseToSession.open();
 
