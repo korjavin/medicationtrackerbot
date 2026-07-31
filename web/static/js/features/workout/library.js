@@ -191,7 +191,7 @@ function showExerciseLibraryModal(id) {
     document.getElementById('exercise-library-weight').value = '';
     document.getElementById('exercise-library-notes').value = '';
 
-    bindExerciseCatalogTypeahead(
+    bindExerciseTypeahead(
         document.getElementById('exercise-library-name'),
         document.getElementById('exercise-catalog-datalist')
     );
@@ -216,7 +216,7 @@ async function showEditExerciseLibraryModal(id) {
 
     // Bound after the name is filled in, so the initial refresh matches the
     // edited exercise instead of whatever the input held from a previous open.
-    bindExerciseCatalogTypeahead(
+    bindExerciseTypeahead(
         document.getElementById('exercise-library-name'),
         document.getElementById('exercise-catalog-datalist')
     );
@@ -302,91 +302,119 @@ function _loadExerciseCatalogNames() {
     return _exerciseCatalogNamesPromise;
 }
 
-// Type-ahead over the catalog (med-3q8.1). Dumping all 1324 catalog names into
-// a <datalist> makes mobile browsers render a full-screen suggestion sheet
-// instead of a short list above the keyboard, so the catalog half is rebuilt
-// from what the user typed: nothing under 2 characters, at most
-// EXERCISE_CATALOG_SUGGESTION_LIMIT substring matches otherwise. No debounce — the
-// match runs over an in-memory array.
+// Type-ahead over BOTH halves of the add-exercise pickers (med-3q8.1,
+// med-max). Dumping the user's whole library and/or all 1324 catalog names
+// into a <datalist> makes mobile browsers render a half-screen scrolling
+// suggestion sheet that buries the keyboard, so every option is rebuilt from
+// what the user typed: nothing at all until the first character, the user's
+// own library first (it carries the autofill dataset), then catalog names —
+// those still gated at 2 characters so the 913 KB asset is not fetched on the
+// very first keystroke. No debounce: the match runs over in-memory arrays.
+//
+// ponytail: EXERCISE_SUGGESTION_LIMIT is the only lever a native <datalist>
+// gives us — its popup height cannot be capped or styled from CSS. If 6 rows
+// still overlay too much of the screen, the real fix is dropping <datalist>
+// for our own styled suggestion list.
 const EXERCISE_CATALOG_MIN_QUERY = 2;
-const EXERCISE_CATALOG_SUGGESTION_LIMIT = 15;
+const EXERCISE_SUGGESTION_LIMIT = 6;
 
-// Rebuild ONLY the catalog options (marked `data-catalog`) of a <datalist>.
-// User-library options are left untouched, and a catalog name already present
-// as a library option is skipped so the autofill-carrying one wins.
+// The user-library rows backing each picker <datalist>, registered by
+// populatePickerOptions so a refresh can rebuild the library half from the
+// typed query instead of dumping all of it. A datalist with no entry here (the
+// exercise-library modal's) stays catalog-only.
+const _pickerLibraryItems = new WeakMap();
+
+// Library rows carry the autofill dataset the three re-look-up sites read;
+// catalog-only names stay id-less so callers route them through
+// resolveOrCreateLibraryId instead of posting a bogus exercise_id.
+function _buildSuggestionOption(item) {
+    const option = document.createElement('option');
+    option.value = item.name;
+    if (item.id == null) {
+        option.dataset.catalog = '1';
+        return option;
+    }
+    option.dataset.id = item.id;
+    option.dataset.sets = item.default_sets || '';
+    option.dataset.repsMin = item.default_reps_min || '';
+    option.dataset.repsMax = item.default_reps_max || '';
+    option.dataset.weight = item.default_weight_kg || '';
+    return option;
+}
+
+// Rebuild every option of a <datalist> from the typed query.
 let _catalogRefreshSeq = 0; // module-state: last-writer-wins guard for the awaited first fetch
-async function refreshExerciseCatalogSuggestions(datalist, query) {
+async function refreshExerciseSuggestions(datalist, query) {
     if (!datalist) return;
     const seq = ++_catalogRefreshSeq;
     const q = (query || '').trim().toLowerCase();
-    let matches = [];
-    if (q.length >= EXERCISE_CATALOG_MIN_QUERY) {
+    // Library first: those options carry the autofill dataset, so when a name
+    // sits in both halves the library one wins the dedupe below.
+    const matches = q
+        ? (_pickerLibraryItems.get(datalist) || []).filter(i => (i.name || '').toLowerCase().includes(q))
+        : [];
+    if (q.length >= EXERCISE_CATALOG_MIN_QUERY && matches.length < EXERCISE_SUGGESTION_LIMIT) {
         const names = await _loadExerciseCatalogNames();
         // Only the first refresh actually awaits a network fetch; while it is
-        // in flight the user can delete back below the threshold, and that
-        // shorter (synchronous) refresh already repainted the datalist. Drop
-        // this stale continuation instead of re-appending its matches.
+        // in flight the user can type on or delete back below the threshold,
+        // and that later (synchronous) refresh already repainted the datalist.
+        // Drop this stale continuation instead of re-appending its matches.
         if (seq !== _catalogRefreshSeq) return;
-        matches = names.filter(n => n.toLowerCase().includes(q));
-        // Keep an exact match inside the cap: onSessionExerciseSelect,
-        // saveNewSessionExercise and the exercises.js onchange all re-look-up
-        // the picked value in datalist.options, and slicing it away would make
-        // a picked catalog name look like an unknown one.
-        const exact = matches.findIndex(n => n.toLowerCase() === q);
-        if (exact > 0) matches.unshift(matches.splice(exact, 1)[0]);
-        matches = matches.slice(0, EXERCISE_CATALOG_SUGGESTION_LIMIT);
+        for (const name of names) {
+            if (name.toLowerCase().includes(q)) matches.push({ name });
+        }
     }
-    Array.from(datalist.options).forEach(o => { if (o.dataset.catalog) o.remove(); });
-    const existing = new Set(Array.from(datalist.options).map(o => o.value));
+    // Hoist an exact match ahead of the cap: onSessionExerciseSelect,
+    // saveNewSessionExercise and the exercises.js onchange all re-look-up the
+    // picked value in datalist.options, and picking from the native popup
+    // fires `input` (this refresh, with the full picked name as the query)
+    // before `change` (the lookup) — slicing the exact row away would make a
+    // picked name look like an unknown one.
+    const exact = matches.findIndex(m => (m.name || '').toLowerCase() === q);
+    if (exact > 0) matches.unshift(matches.splice(exact, 1)[0]);
+
     const frag = document.createDocumentFragment();
-    for (const name of matches) {
-        if (existing.has(name)) continue;
-        existing.add(name);
-        const option = document.createElement('option');
-        option.value = name;
-        option.dataset.catalog = '1';
-        frag.appendChild(option);
+    const seen = new Set();
+    for (const item of matches) {
+        const key = (item.name || '').toLowerCase();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        frag.appendChild(_buildSuggestionOption(item));
+        if (seen.size >= EXERCISE_SUGGESTION_LIMIT) break;
     }
+    datalist.replaceChildren();
     datalist.appendChild(frag);
 }
 
-// Wire a name input to its <datalist> so typing refilters the catalog half.
+// Wire a name input to its <datalist> so typing refilters the suggestions.
 // `oninput` assignment (not addEventListener) so reopening a modal cannot
 // stack handlers; the handler returns the refresh promise so callers/tests can
 // await it. Also runs one refresh for the input's current value, which clears
-// catalog options left over from a previous open.
-function bindExerciseCatalogTypeahead(input, datalist) {
+// options left over from a previous open.
+function bindExerciseTypeahead(input, datalist) {
     if (!input || !datalist) return Promise.resolve();
-    input.oninput = () => refreshExerciseCatalogSuggestions(datalist, input.value);
-    return refreshExerciseCatalogSuggestions(datalist, input.value);
+    input.oninput = () => refreshExerciseSuggestions(datalist, input.value);
+    return refreshExerciseSuggestions(datalist, input.value);
 }
 
-// Shared add-exercise picker (med-prk.3): fill a <datalist> from the user's
-// library (value=name + autofill dataset incl. library id), and wire `input`
-// on the name field so canonical catalog names are type-ahead filtered in on
-// top (med-3q8.1) — plan-editing (exercises.js) and in-session add
-// (sessions.js) search one surface. The session modal's single reps input
-// reads `repsMin` too, so one convention serves both call sites.
+// Shared add-exercise picker (med-prk.3): register the user's library as the
+// first half of the type-ahead and wire `input` on the name field so both
+// halves refilter as the user types (med-3q8.1, med-max) — plan-editing
+// (exercises.js) and in-session add (sessions.js) search one surface. The
+// session modal's single reps input reads `repsMin` too, so one convention
+// serves both call sites. Nothing is rendered until the user types: dumping
+// the whole library on open is what covered half the phone screen (med-max).
 async function populatePickerOptions(datalist, nameInput) {
     if (!datalist) return;
     datalist.replaceChildren();
+    let items = [];
     try {
-        const items = await apiCall('/api/workout/exercise-library') || [];
-        items.forEach(item => {
-            const option = document.createElement('option');
-            option.value = item.name;
-            option.dataset.id = item.id;
-            option.dataset.sets = item.default_sets || '';
-            option.dataset.repsMin = item.default_reps_min || '';
-            option.dataset.repsMax = item.default_reps_max || '';
-            option.dataset.weight = item.default_weight_kg || '';
-            datalist.appendChild(option);
-        });
+        items = await apiCall('/api/workout/exercise-library') || [];
     } catch (error) {
         console.error('Error loading exercise library for picker:', error);
     }
-    // User-library options (with autofill dataset) win over bare catalog names.
-    await bindExerciseCatalogTypeahead(nameInput, datalist);
+    _pickerLibraryItems.set(datalist, items);
+    await bindExerciseTypeahead(nameInput, datalist);
 }
 
 // Create-new half of the shared picker: resolve a typed name to a library
@@ -424,8 +452,8 @@ window.WorkoutLibrary = {
     openEdit: showEditExerciseLibraryModal,
     close: closeExerciseLibraryModal,
     delete: deleteExerciseLibraryItem,
-    bindCatalogTypeahead: bindExerciseCatalogTypeahead,
-    refreshCatalogSuggestions: refreshExerciseCatalogSuggestions,
+    bindTypeahead: bindExerciseTypeahead,
+    refreshSuggestions: refreshExerciseSuggestions,
     populatePickerOptions: populatePickerOptions,
     resolveOrCreateLibraryId: resolveOrCreateLibraryId
 };

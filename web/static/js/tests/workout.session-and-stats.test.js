@@ -396,9 +396,14 @@ describe('workout.js session and stats flows', () => {
 
       await window.showAddExerciseToSessionModal();
       expect(document.getElementById('workout-add-exercise-to-session-modal').classList.contains('hidden')).toBe(false);
-      expect(document.getElementById('unique-exercises-list').querySelectorAll('option')).toHaveLength(1);
+      // med-max: suggestions are type-ahead filtered, so an empty field means
+      // an empty popup. Picking fires `input` (the refresh) then `change`.
+      expect(document.getElementById('unique-exercises-list').querySelectorAll('option')).toHaveLength(0);
 
-      document.getElementById('session-add-exercise-name').value = 'Overhead Press';
+      const nameInput = document.getElementById('session-add-exercise-name');
+      nameInput.value = 'Overhead Press';
+      await nameInput.oninput();
+      expect(document.getElementById('unique-exercises-list').querySelectorAll('option')).toHaveLength(1);
       window.onSessionExerciseSelect();
       expect(document.getElementById('session-add-exercise-id').value).toBe('111');
       expect(document.getElementById('session-add-exercise-sets').value).toBe('3');

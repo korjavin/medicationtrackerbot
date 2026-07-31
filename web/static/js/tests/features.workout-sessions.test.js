@@ -310,10 +310,10 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(document.getElementById('session-add-exercise-id').value).toBe('');
   });
 
-  // med-3q8.1 — the session picker used to append all 1324 catalog names, so
-  // the native suggestion popup covered the whole screen on mobile.
-  it('the session picker holds only library entries until 2 characters are typed', async () => {
-    const { window, document } = env;
+  // med-3q8.1 / med-max — the session picker used to append all 1324 catalog
+  // names AND dump the user's whole library, so the native suggestion popup
+  // covered half the screen and buried the keyboard.
+  function stubSessionPicker(window) {
     window.fetch = vi.fn(async (url) => (
       String(url).includes('exercises-catalog.json')
         ? {
@@ -329,18 +329,37 @@ describe('features/workout/sessions.js — split-file integration', () => {
         : []
     ));
     window.WorkoutSessionsState.data = { id: 77, status: 'in_progress', logs: [] };
+  }
+
+  it('the session picker opens with a ZERO-option datalist while the name field is empty', async () => {
+    const { window, document } = env;
+    stubSessionPicker(window);
+
+    await window.showAddExerciseToSessionModal();
+
+    // The exact screenshot case in med-max: empty field, "Start typing..."
+    // placeholder — and therefore no native popup at all.
+    expect(document.getElementById('session-add-exercise-name').value).toBe('');
+    expect(Array.from(document.getElementById('unique-exercises-list').options)).toHaveLength(0);
+  });
+
+  it('the session picker filters library-then-catalog, capped, once the user types', async () => {
+    const { window, document } = env;
+    stubSessionPicker(window);
 
     const datalist = document.getElementById('unique-exercises-list');
     await window.showAddExerciseToSessionModal();
-    expect(Array.from(datalist.options).map((o) => o.value)).toEqual(['Overhead Press']);
 
     const nameInput = document.getElementById('session-add-exercise-name');
+    // One character: the library half only — the catalog stays gated at 2.
+    nameInput.value = 'o';
+    await nameInput.oninput();
+    expect(Array.from(datalist.options).map((o) => o.value)).toEqual(['Overhead Press']);
+
     nameInput.value = 'bench';
     await nameInput.oninput();
-
     const values = Array.from(datalist.options).map((o) => o.value);
-    expect(values).toContain('Overhead Press');
-    expect(values).toContain('Barbell bench press');
+    expect(values).toEqual(['Barbell bench press']);
     expect(values).not.toContain('3/4 sit-up');
 
     // The picked catalog name is still findable when `change` fires, and stays
@@ -350,6 +369,25 @@ describe('features/workout/sessions.js — split-file integration', () => {
     window.onSessionExerciseSelect();
     expect(document.getElementById('session-add-exercise-id').value).toBe('');
     expect(Array.from(datalist.options).map((o) => o.value)).toContain('Barbell bench press');
+  });
+
+  it('a library pick still autofills sets/reps/weight and resolves its id without a create round-trip', async () => {
+    const { window, document } = env;
+    stubSessionPicker(window);
+
+    await window.showAddExerciseToSessionModal();
+
+    const nameInput = document.getElementById('session-add-exercise-name');
+    // Picking from the native popup fires `input` (our refresh) then `change`.
+    nameInput.value = 'Overhead Press';
+    await nameInput.oninput();
+    window.onSessionExerciseSelect();
+
+    expect(document.getElementById('session-add-exercise-id').value).toBe('11');
+    expect(document.getElementById('session-add-exercise-sets').value).toBe('3');
+    expect(document.getElementById('session-add-exercise-reps').value).toBe('8');
+    expect(document.getElementById('session-add-exercise-weight').value).toBe('35');
+    expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/exercise-library/create')).toBe(false);
   });
 
   it('saveNewSessionExercise rolls back the optimistic log when the POST returns null', async () => {

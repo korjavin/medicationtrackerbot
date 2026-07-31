@@ -101,7 +101,7 @@ describe('features/workout/library.js — split-file integration', () => {
       const fetchSpy = stubCatalogFetch(window, { ok: true, status: 200, json: async () => CATALOG });
       const datalist = document.getElementById('exercise-catalog-datalist');
 
-      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'b');
+      await window.WorkoutLibrary.refreshSuggestions(datalist, 'b');
 
       expect(Array.from(datalist.options)).toHaveLength(0);
       expect(catalogFetchCount(fetchSpy)).toBe(0);
@@ -112,7 +112,7 @@ describe('features/workout/library.js — split-file integration', () => {
       stubCatalogFetch(window, { ok: true, status: 200, json: async () => CATALOG });
       const datalist = document.getElementById('exercise-catalog-datalist');
 
-      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'BE');
+      await window.WorkoutLibrary.refreshSuggestions(datalist, 'BE');
 
       const values = Array.from(datalist.options).map((o) => o.value);
       expect(values).toContain('Barbell bench press');
@@ -120,15 +120,15 @@ describe('features/workout/library.js — split-file integration', () => {
       expect(values).not.toContain(''); // empty names filtered out
     });
 
-    it('caps the suggestion list at 15 so the dropdown stays a short list', async () => {
+    it('caps the suggestion list at 6 so the dropdown stays a short list', async () => {
       const { window, document } = env;
       const wide = { exercises: Array.from({ length: 40 }, (_, i) => ({ name: `Press variant ${i}` })) };
       stubCatalogFetch(window, { ok: true, status: 200, json: async () => wide });
       const datalist = document.getElementById('exercise-catalog-datalist');
 
-      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'press');
+      await window.WorkoutLibrary.refreshSuggestions(datalist, 'press');
 
-      expect(Array.from(datalist.options)).toHaveLength(15);
+      expect(Array.from(datalist.options)).toHaveLength(6);
     });
 
     it('keeps an exact match inside the cap so a picked name is still re-findable', async () => {
@@ -144,30 +144,31 @@ describe('features/workout/library.js — split-file integration', () => {
       stubCatalogFetch(window, { ok: true, status: 200, json: async () => wide });
       const datalist = document.getElementById('exercise-catalog-datalist');
 
-      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'Press');
+      await window.WorkoutLibrary.refreshSuggestions(datalist, 'Press');
 
       const values = Array.from(datalist.options).map((o) => o.value);
-      expect(values).toHaveLength(15);
+      expect(values).toHaveLength(6);
       expect(values[0]).toBe('Press');
     });
 
-    it('rebuilds only the catalog half, leaving user-library options in place', async () => {
+    // med-max — #739 rebuilt only the catalog half, so the user's own library
+    // (dumped in full by populatePickerOptions) still covered half the screen.
+    it('rebuilds BOTH halves on every keystroke, with no accumulation across queries', async () => {
       const { window, document } = env;
       stubCatalogFetch(window, { ok: true, status: 200, json: async () => CATALOG });
+      window.apiCall = vi.fn(async () => ([{ id: 7, name: 'My custom bench' }]));
       const datalist = document.getElementById('exercise-catalog-datalist');
-      const libraryOption = document.createElement('option');
-      libraryOption.value = 'My custom lift';
-      libraryOption.dataset.id = '7';
-      datalist.appendChild(libraryOption);
+      const input = document.getElementById('exercise-library-name');
+      input.value = 'be';
 
-      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'BE');
-      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'sit');
+      await window.WorkoutLibrary.populatePickerOptions(datalist, input);
+      expect(Array.from(datalist.options).map((o) => o.value))
+        .toEqual(['My custom bench', 'Barbell bench press']);
 
-      const values = Array.from(datalist.options).map((o) => o.value);
-      expect(values).toContain('My custom lift');
-      expect(values).toContain('3/4 sit-up');
-      // Previous query's catalog options are gone — no accumulation across keystrokes.
-      expect(values).not.toContain('Barbell bench press');
+      await window.WorkoutLibrary.refreshSuggestions(datalist, 'sit');
+
+      // The previous query's rows are gone — the library half included.
+      expect(Array.from(datalist.options).map((o) => o.value)).toEqual(['3/4 sit-up']);
     });
 
     it('drops an in-flight refresh once a shorter query has repainted the datalist', async () => {
@@ -182,9 +183,9 @@ describe('features/workout/library.js — split-file integration', () => {
       const datalist = document.getElementById('exercise-catalog-datalist');
 
       // "be" starts the one-and-only catalog fetch...
-      const pending = window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'be');
+      const pending = window.WorkoutLibrary.refreshSuggestions(datalist, 'be');
       // ...the user deletes back to one character before it resolves.
-      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'b');
+      await window.WorkoutLibrary.refreshSuggestions(datalist, 'b');
       releaseCatalog();
       await pending;
 
@@ -196,24 +197,27 @@ describe('features/workout/library.js — split-file integration', () => {
       const fetchSpy = stubCatalogFetch(window, { ok: true, status: 200, json: async () => CATALOG });
       const datalist = document.getElementById('exercise-catalog-datalist');
 
-      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'be');
-      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'ben');
+      await window.WorkoutLibrary.refreshSuggestions(datalist, 'be');
+      await window.WorkoutLibrary.refreshSuggestions(datalist, 'ben');
 
       expect(catalogFetchCount(fetchSpy)).toBe(1);
     });
 
-    it('does not add duplicate options when a name is already present', async () => {
+    it('a library name shadows the identically-named catalog suggestion, case-insensitively', async () => {
       const { window, document } = env;
       stubCatalogFetch(window, { ok: true, status: 200, json: async () => CATALOG });
+      window.apiCall = vi.fn(async () => ([{ id: 7, name: 'Barbell Bench Press', default_sets: 5 }]));
       const datalist = document.getElementById('exercise-catalog-datalist');
-      const pre = document.createElement('option');
-      pre.value = 'Barbell bench press';
-      datalist.appendChild(pre);
+      const input = document.getElementById('exercise-library-name');
+      input.value = 'bench';
 
-      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'bench');
+      await window.WorkoutLibrary.populatePickerOptions(datalist, input);
 
-      const count = Array.from(datalist.options).filter((o) => o.value === 'Barbell bench press').length;
-      expect(count).toBe(1);
+      // One row, and it is the autofill-carrying library one.
+      const options = Array.from(datalist.options);
+      expect(options).toHaveLength(1);
+      expect(options[0].value).toBe('Barbell Bench Press');
+      expect(options[0].dataset.id).toBe('7');
     });
 
     it('a failed catalog fetch is silent, retryable, and leaves the name field freely typable', async () => {
@@ -221,11 +225,11 @@ describe('features/workout/library.js — split-file integration', () => {
       const fetchSpy = stubCatalogFetch(window, { ok: false, status: 500, json: async () => ({}) });
       const datalist = document.getElementById('exercise-catalog-datalist');
 
-      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'bench');
+      await window.WorkoutLibrary.refreshSuggestions(datalist, 'bench');
       expect(Array.from(datalist.options)).toHaveLength(0);
 
       // Retryable: the single-flight cache is cleared on failure.
-      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'bench');
+      await window.WorkoutLibrary.refreshSuggestions(datalist, 'bench');
       expect(catalogFetchCount(fetchSpy)).toBe(2);
 
       // Free typing is unaffected: the input is a plain text field, datalist is suggest-only.
@@ -234,18 +238,18 @@ describe('features/workout/library.js — split-file integration', () => {
       expect(input.value).toBe('My totally custom lift');
     });
 
-    it('bindCatalogTypeahead wires the input event and clears stale options on open', async () => {
+    it('bindTypeahead wires the input event and clears stale options on open', async () => {
       const { window, document } = env;
       stubCatalogFetch(window, { ok: true, status: 200, json: async () => CATALOG });
       const datalist = document.getElementById('exercise-catalog-datalist');
       const input = document.getElementById('exercise-library-name');
 
       // Leftover catalog options from a previous open.
-      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'bench');
+      await window.WorkoutLibrary.refreshSuggestions(datalist, 'bench');
       expect(Array.from(datalist.options).length).toBeGreaterThan(0);
 
       input.value = '';
-      await window.WorkoutLibrary.bindCatalogTypeahead(input, datalist);
+      await window.WorkoutLibrary.bindTypeahead(input, datalist);
       expect(Array.from(datalist.options)).toHaveLength(0);
 
       input.value = 'sit';
@@ -259,7 +263,7 @@ describe('features/workout/library.js — split-file integration', () => {
       const { window, document } = env;
       stubCatalogFetch(window, { ok: true, status: 200, json: async () => CATALOG });
       const datalist = document.getElementById('exercise-catalog-datalist');
-      await window.WorkoutLibrary.refreshCatalogSuggestions(datalist, 'bench');
+      await window.WorkoutLibrary.refreshSuggestions(datalist, 'bench');
 
       window.showExerciseLibraryModal();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -268,11 +272,11 @@ describe('features/workout/library.js — split-file integration', () => {
     });
 
     describe('shared picker (populatePickerOptions)', () => {
-      it('shows only library entries until 2 characters are typed, then adds matches', async () => {
+      it('renders nothing until the user types, then library matches before catalog matches', async () => {
         const { window, document } = env;
         stubCatalogFetch(window, { ok: true, status: 200, json: async () => CATALOG });
         window.apiCall = vi.fn(async () => ([
-          { id: 3, name: 'My custom lift', default_sets: 4, default_reps_min: 8, default_reps_max: 10, default_weight_kg: 60 },
+          { id: 3, name: 'My custom bench', default_sets: 4, default_reps_min: 8, default_reps_max: 10, default_weight_kg: 60 },
         ]));
         const datalist = document.getElementById('exercise-catalog-datalist');
         const input = document.getElementById('exercise-library-name');
@@ -280,40 +284,84 @@ describe('features/workout/library.js — split-file integration', () => {
 
         await window.WorkoutLibrary.populatePickerOptions(datalist, input);
 
-        expect(Array.from(datalist.options).map((o) => o.value)).toEqual(['My custom lift']);
+        // med-max: an empty field means an empty popup, not the whole library.
+        expect(Array.from(datalist.options)).toHaveLength(0);
+
+        // One character opens the library half; the catalog stays gated at 2 so
+        // the 913 KB asset is not fetched on the first keystroke.
+        input.value = 'b';
+        await input.oninput();
+        expect(Array.from(datalist.options).map((o) => o.value)).toEqual(['My custom bench']);
 
         input.value = 'bench';
         await input.oninput();
-
-        const values = Array.from(datalist.options).map((o) => o.value);
-        expect(values).toContain('My custom lift');
-        expect(values).toContain('Barbell bench press');
+        expect(Array.from(datalist.options).map((o) => o.value))
+          .toEqual(['My custom bench', 'Barbell bench press']);
       });
 
       it('a library option keeps its autofill dataset; a catalog-only match carries no id', async () => {
         const { window, document } = env;
         stubCatalogFetch(window, { ok: true, status: 200, json: async () => CATALOG });
         window.apiCall = vi.fn(async () => ([
-          { id: 3, name: 'Barbell bench press', default_sets: 4, default_reps_min: 8, default_reps_max: 10, default_weight_kg: 60 },
+          { id: 3, name: 'Bench day special', default_sets: 4, default_reps_min: 8, default_reps_max: 10, default_weight_kg: 60 },
         ]));
         const datalist = document.getElementById('exercise-catalog-datalist');
         const input = document.getElementById('exercise-library-name');
-        input.value = 'sit';
+        input.value = 'bench';
 
         await window.WorkoutLibrary.populatePickerOptions(datalist, input);
 
         const options = Array.from(datalist.options);
-        // The library entry shadows the identically-named catalog suggestion.
-        const library = options.filter((o) => o.value === 'Barbell bench press');
-        expect(library).toHaveLength(1);
-        expect(library[0].dataset.id).toBe('3');
-        expect(library[0].dataset.sets).toBe('4');
+        expect(options.map((o) => o.value)).toEqual(['Bench day special', 'Barbell bench press']);
+        expect(options[0].dataset.id).toBe('3');
+        expect(options[0].dataset.sets).toBe('4');
+        expect(options[0].dataset.repsMin).toBe('8');
+        expect(options[0].dataset.repsMax).toBe('10');
+        expect(options[0].dataset.weight).toBe('60');
 
         // Catalog-only picks stay id-less so callers route them through
         // resolveOrCreateLibraryId instead of posting a bogus exercise_id.
-        const catalogOnly = options.find((o) => o.value === '3/4 sit-up');
-        expect(catalogOnly).toBeDefined();
-        expect(catalogOnly.dataset.id).toBeUndefined();
+        expect(options[1].dataset.id).toBeUndefined();
+      });
+
+      it('caps the TOTAL at 6 across both halves, and skips the catalog fetch when the library fills it', async () => {
+        const { window, document } = env;
+        const wide = { exercises: Array.from({ length: 20 }, (_, i) => ({ name: `catalog press ${i}` })) };
+        const fetchSpy = stubCatalogFetch(window, { ok: true, status: 200, json: async () => wide });
+        window.apiCall = vi.fn(async () => (
+          Array.from({ length: 20 }, (_, i) => ({ id: i + 1, name: `Library press ${i}` }))
+        ));
+        const datalist = document.getElementById('exercise-catalog-datalist');
+        const input = document.getElementById('exercise-library-name');
+        input.value = 'press';
+
+        await window.WorkoutLibrary.populatePickerOptions(datalist, input);
+
+        const values = Array.from(datalist.options).map((o) => o.value);
+        expect(values).toHaveLength(6);
+        expect(values.every((v) => v.startsWith('Library press'))).toBe(true);
+        expect(catalogFetchCount(fetchSpy)).toBe(0);
+      });
+
+      it('hoists an exact library match past the cap so a picked name is re-findable at `change`', async () => {
+        const { window, document } = env;
+        stubCatalogFetch(window, { ok: true, status: 200, json: async () => ({ exercises: [] }) });
+        window.apiCall = vi.fn(async () => ([
+          ...Array.from({ length: 10 }, (_, i) => ({ id: i + 1, name: `Press variant ${i}` })),
+          { id: 99, name: 'Press', default_sets: 3 },
+        ]));
+        const datalist = document.getElementById('exercise-catalog-datalist');
+        const input = document.getElementById('exercise-library-name');
+        // Picking from the native popup fires `input` with the full name...
+        input.value = 'Press';
+
+        await window.WorkoutLibrary.populatePickerOptions(datalist, input);
+
+        // ...so the `change` handlers' datalist.options lookup still finds it.
+        const options = Array.from(datalist.options);
+        expect(options).toHaveLength(6);
+        expect(options[0].value).toBe('Press');
+        expect(options[0].dataset.id).toBe('99');
       });
     });
   });

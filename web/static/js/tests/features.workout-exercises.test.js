@@ -356,26 +356,27 @@ describe('features/workout/exercises.js — split-file integration', () => {
       window.WorkoutEdit.variantForExercise = 1;
     }
 
-    it('opens with only the user library, then filters the catalog once the user types', async () => {
+    // med-max — the library half is type-ahead filtered too now, so the plan
+    // modal opens with an empty popup instead of the whole library.
+    it('opens with an EMPTY datalist, then filters library-then-catalog as the user types', async () => {
       const { window, document } = env;
       stubEnv(window);
 
       await window.showAddExerciseModal();
 
       const datalist = document.getElementById('exercise-library-datalist');
-      expect(Array.from(datalist.options).map((o) => o.value)).toEqual(['My custom lift']);
+      expect(Array.from(datalist.options)).toHaveLength(0);
 
       const nameInput = document.getElementById('workout-exercise-name');
-      nameInput.value = 'b';
+      // One character: the library half only — the catalog stays gated at 2.
+      nameInput.value = 'l';
       await nameInput.oninput();
       expect(Array.from(datalist.options).map((o) => o.value)).toEqual(['My custom lift']);
 
       nameInput.value = 'bench';
       await nameInput.oninput();
       const values = Array.from(datalist.options).map((o) => o.value);
-      expect(values).toContain('My custom lift');
-      expect(values).toContain('Barbell bench press');
-      expect(values).toContain('Dumbbell bench press');
+      expect(values).toEqual(['Barbell bench press', 'Dumbbell bench press']);
       expect(values).not.toContain('3/4 sit-up');
     });
 
