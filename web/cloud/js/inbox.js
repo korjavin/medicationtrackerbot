@@ -23,6 +23,23 @@ import { recordsPort, flushConfirmed, isSyncWedged } from './sync.js';
 const INBOXKEY_RECORD_TYPE = 'inboxkey';
 const INBOXKEY_RECORD_ID = 'inboxkey';
 
+// Every mailbox request carries a deadline (bd med-2yl). Without one, a fetch
+// that never settles — a phone handing off between networks, a captive portal —
+// parks drainInbox's per-account lock for the LIFE OF THE PAGE: the lock is only
+// released in a `finally` that the hung await never reaches, so every later poll
+// tick and every wake drain silently returns {skipped:true} and "⏳ Queued"
+// stays queued until a reload.
+//
+// This is a stuck-forever guard, not a latency knob — 15s is well past any
+// healthy mailbox call, and the poller retries every 5s anyway. `apply` is
+// deliberately NOT bounded: the tg_text path runs an OpenAI tool loop that
+// legitimately takes tens of seconds.
+const INBOX_FETCH_TIMEOUT_MS = 15000;
+
+// Options for one mailbox fetch. The signal rides in the ordinary options object
+// the real fetch takes, so an injected test fake is free to ignore it.
+const deadline = (opts = {}) => ({ ...opts, signal: AbortSignal.timeout(INBOX_FETCH_TIMEOUT_MS) });
+
 function findSingleton(all, recordId) {
   return all.find((r) => r.recordId === recordId && !r.deleted) || null;
 }
@@ -69,11 +86,11 @@ export async function ensureInboxKey(ctx, { records: recordsOverride, fetchImpl 
     });
   }
 
-  const res = await fetchImpl('/api/inbox/key', {
+  const res = await fetchImpl('/api/inbox/key', deadline({
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ public_key: toBase64(publicKey) }),
-  });
+  }));
   if (!res.ok) throw new Error(`could not publish the inbox key (${res.status})`);
   return privateKey;
 }
@@ -93,7 +110,7 @@ export async function ensureInboxKey(ctx, { records: recordsOverride, fetchImpl 
 // queued (never acks it), so a device that still holds the matching private key
 // can drain it.
 export async function listInboxEvents(ctx, privateKey, { fetchImpl = fetch } = {}) {
-  const res = await fetchImpl('/api/inbox');
+  const res = await fetchImpl('/api/inbox', deadline());
   if (!res.ok) throw new Error(`could not read the inbox (${res.status})`);
   const { events = [] } = await res.json();
 
@@ -114,7 +131,7 @@ export async function listInboxEvents(ctx, privateKey, { fetchImpl = fetch } = {
 // exactly the failure this design exists to prevent: an event marked processed
 // that never reached the vault.
 export async function ackInboxEvent(id, { fetchImpl = fetch } = {}) {
-  const res = await fetchImpl(`/api/inbox/${id}`, { method: 'DELETE' });
+  const res = await fetchImpl(`/api/inbox/${id}`, deadline({ method: 'DELETE' }));
   if (!res.ok) throw new Error(`could not ack inbox event ${id} (${res.status})`);
 }
 
@@ -126,7 +143,7 @@ export async function ackInboxEvent(id, { fetchImpl = fetch } = {}) {
 // drain re-fetches it (up to ~160MB) on the very next poll. Never call this on a
 // healthy account — it throws away real queued Confirms.
 export async function clearInbox({ fetchImpl = fetch } = {}) {
-  const res = await fetchImpl('/api/inbox', { method: 'DELETE' });
+  const res = await fetchImpl('/api/inbox', deadline({ method: 'DELETE' }));
   if (!res.ok) throw new Error(`could not clear the inbox (${res.status})`);
   const { cleared = 0 } = await res.json();
   return cleared;

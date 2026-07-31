@@ -132,6 +132,13 @@ func (a *InboxAPI) ListInbox(w http.ResponseWriter, r *http.Request) {
 		wire = append(wire, inboxEventWire{ID: e.ID, CreatedAtUnix: e.CreatedAt.Unix(), CT: e.CT})
 		bodyBytes += len(e.CT)
 	}
+	// Metadata only, and only when there was something to serve: this is what
+	// distinguishes "the client never polled" (a wedged drain, a dead poller —
+	// med-2yl) from "the client polled and something went wrong after". An empty
+	// mailbox is NOT logged; that would be one line per device per 5s.
+	if len(wire) > 0 {
+		slog.Info("inbox: served", "accountID", session.AccountID, "count", len(wire))
+	}
 	writeJSON(w, http.StatusOK, listInboxResponse{Events: wire})
 }
 
@@ -156,6 +163,9 @@ func (a *InboxAPI) AckInboxEvent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
+	// Pairs with "inbox: served" above: together they show a drain completing,
+	// which is the only server-visible evidence that a client applied an event.
+	slog.Info("inbox: acked", "accountID", session.AccountID, "id", id)
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -145,7 +145,12 @@ describe('inbox.js — mailbox transport', () => {
     it('ack DELETEs the event by id and surfaces a failed ack', async () => {
         const fetchImpl = vi.fn(async () => ({ ok: true, status: 204 }));
         await ackInboxEvent(7, { fetchImpl });
-        expect(fetchImpl).toHaveBeenCalledWith('/api/inbox/7', { method: 'DELETE' });
+        const [url, opts] = fetchImpl.mock.calls[0];
+        expect(url).toBe('/api/inbox/7');
+        expect(opts.method).toBe('DELETE');
+        // med-2yl: every mailbox call carries a deadline, in the ordinary
+        // options object the real fetch takes.
+        expect(opts.signal).toBeInstanceOf(AbortSignal);
 
         const failing = vi.fn(async () => ({ ok: false, status: 500 }));
         await expect(ackInboxEvent(7, { fetchImpl: failing })).rejects.toThrow(/could not ack/);
@@ -319,6 +324,38 @@ describe('inbox.js — drainInbox', () => {
         const res = await drainInbox(ctx, { apply: vi.fn(), records, fetchImpl, flush: async () => true });
         expect(res).toEqual({ applied: 0, failed: 0 });
         expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    // med-2yl, the reported bug: a mailbox fetch that never settles (a phone
+    // handing off networks) used to park the per-account drain lock for the LIFE
+    // OF THE PAGE — drainInbox releases it in a `finally` the hung await never
+    // reaches — so every later poll tick AND every wake drain silently returned
+    // {skipped:true} and "⏳ Queued" only cleared on a reload. The fetches now
+    // carry a deadline, so the hung call rejects and the lock frees.
+    it('does not strand the drain lock on a mailbox fetch that never settles', async () => {
+        // AbortSignal.timeout is scheduled off an internal timer that fake timers
+        // cannot advance, so shorten the REAL deadline rather than fake time.
+        // restoreMocks (vitest.config.mjs) puts it back before the next test.
+        const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+        vi.spyOn(AbortSignal, 'timeout').mockImplementation(() => realTimeout(5));
+
+        const records = await seededRecords();
+        // Settles only when the deadline aborts it — exactly like a real fetch.
+        const hung = vi.fn((url, opts) => new Promise((_, reject) => {
+            opts.signal.addEventListener('abort', () => reject(opts.signal.reason));
+        }));
+        await expect(drainInbox(ctx, {
+            apply: vi.fn(), records, fetchImpl: hung, flush: async () => true,
+        })).rejects.toThrow(/abort/i);
+
+        // The lock is free again: the next drain really runs (pre-fix this came
+        // back {skipped:true}, forever).
+        const { fetchImpl, deleted } = mailbox([{ id: 7, created_at_unix: 1, ct: VECTOR.sealed_b64 }]);
+        const res = await drainInbox(ctx, {
+            apply: vi.fn(async () => {}), records, fetchImpl, flush: async () => true,
+        });
+        expect(res).toEqual({ applied: 1, failed: 0 });
+        expect(deleted).toEqual([7]);
     });
 
     // Rule 3 is handled server-side (delete is idempotent), but a second drain
