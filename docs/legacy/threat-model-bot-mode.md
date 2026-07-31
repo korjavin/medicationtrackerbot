@@ -3,8 +3,8 @@
 > **This is not the threat model.** It predates the cloud product entirely: it
 > never mentions the DEK, passkeys, envelopes, WebAuthn, or the encrypted
 > vault, and its in-scope paths cover none of `internal/cloudserver`,
-> `internal/cloudstore`, or `web/cloud/`. The subject it analyses is not built
-> into the shipped image and is not deployed.
+> `internal/cloudstore`, or `web/cloud/`. The subject it analyses is not
+> deployed and not operated.
 >
 > **The current threat model is [docs/security/threat-model.md](../security/threat-model.md).**
 >

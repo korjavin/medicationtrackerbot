@@ -1,9 +1,11 @@
 # Threat model
 
-**Status:** normative and current. **Scope:** the shipped product — the
-zero-knowledge cloud service (`cmd/cloud`, `internal/cloudserver`,
-`internal/cloudstore`) and the browser PWA it serves (`web/cloud/`,
-`web/domain/`, `web/static/`).
+**Status:** normative and current. **Scope:** the deployed product — the cloud
+service built around a **zero-knowledge vault** (`cmd/cloud`,
+`internal/cloudserver`, `internal/cloudstore`) and the browser PWA it serves
+(`web/cloud/`, `web/domain/`, `web/static/`). Zero-knowledge is a property of
+the vault, not of the whole service; §6.4 enumerates the paths that
+deliberately carry plaintext past the operator.
 
 **Last verified against the code:** 2026-07-31. Every claim below cites a file
 (and a line where the line is load-bearing). Where something could not be

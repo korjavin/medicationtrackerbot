@@ -6,9 +6,9 @@
 > domain-service pattern, the minute-tick scheduler, the SSE change broadcast,
 > and the Telegram callback routing.
 >
-> That subject is **not built into the shipped image and is not deployed**. The
-> source stays in the tree and still compiles under `go build ./...` so it
-> cannot silently rot — but nothing here describes the product.
+> That subject is **not deployed and not operated** — the stack runs `./cloud`.
+> The source stays in the tree and still compiles under `go build ./...` so it
+> cannot silently rot, but nothing here describes the product.
 >
 > **The current architecture is [docs/architecture.md](../architecture.md).**
 >

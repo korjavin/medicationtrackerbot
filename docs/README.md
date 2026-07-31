@@ -73,9 +73,12 @@ Kept for rationale and provenance. **Never cite as current behavior.**
   live in the current docs:
   [architecture-bot-mode.md](legacy/architecture-bot-mode.md),
   [threat-model-bot-mode.md](legacy/threat-model-bot-mode.md), and
-  [cloud-bot-parity.md](legacy/cloud-bot-parity.md). That subject is
-  not built into the shipped image and is not deployed; the source stays in the
-  tree and still compiles so it cannot silently rot.
+  [cloud-bot-parity.md](legacy/cloud-bot-parity.md). **That subject is not
+  deployed and not operated** — the stack runs `./cloud`
+  (`docker-compose.cloud.yml:14`). Its source stays in the tree and still
+  compiles so it cannot silently rot. (`Dockerfile:18,33,59` does still compile
+  a `bot` binary into the image and leave it as the default `CMD`; narrowing
+  the image build is a separate change. Nothing deploys it either way.)
 - **[2026-07-12-gpt-5.6-sol-cloud-privacy-audit.md](2026-07-12-gpt-5.6-sol-cloud-privacy-audit.md)**
   — the external privacy audit that drove most of the normative set above. A
   point-in-time review: several of its findings are now closed. Read it for the
