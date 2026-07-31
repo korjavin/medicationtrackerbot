@@ -3,7 +3,7 @@
 // Exercises the rewritten `_renderWorkoutHistory` path. Each row is a
 // `.wg-card.wg-workouts-history-row` carrying a rotation-slot tag, mono
 // duration, optional volume, and a trailing icon-button cluster
-// (view / edit / delete). Day clusters use `.wg-section-label` for the
+// (edit / delete). Day clusters use `.wg-section-label` for the
 // "Today" / "Yesterday" / explicit-date header. Offline-pending and
 // rejected badges surface as `.wg-tag--mono` variants.
 
@@ -125,7 +125,7 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         expect(volume.textContent).toMatch(/kg/);
     });
 
-    it('renders a view / edit / delete icon-button cluster on each row', () => {
+    it('renders an edit / delete icon-button cluster on each row, with no redundant view chevron', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-history-display');
         window._renderWorkoutHistory(container, [makeSession({ session: { id: 42 } })], [], 'UTC');
@@ -133,22 +133,55 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         const actions = container.querySelector('.wg-workouts-history-row__actions');
         expect(actions).not.toBeNull();
 
-        const viewBtn = actions.querySelector('.wg-workouts-history-row__view');
         const editBtn = actions.querySelector('.wg-workouts-history-row__edit');
         const deleteBtn = actions.querySelector('.wg-workouts-history-row__delete');
-        expect(viewBtn).not.toBeNull();
         expect(editBtn).not.toBeNull();
         expect(deleteBtn).not.toBeNull();
 
-        expect(viewBtn.getAttribute('aria-label')).toBe('View session');
+        // The chevron duplicated the card-body tap, so the row carries exactly
+        // two icons — same as the Plans and Exercise-library rows.
+        expect(actions.querySelector('.wg-workouts-history-row__view')).toBeNull();
+        expect(actions.querySelectorAll('button').length).toBe(2);
+
         expect(editBtn.getAttribute('aria-label')).toBe('Edit session');
         expect(deleteBtn.getAttribute('aria-label')).toBe('Delete session');
 
-        // All three render as .wg-icon-btn with a .wg-gloss inner.
-        [viewBtn, editBtn, deleteBtn].forEach((btn) => {
+        // Both render as .wg-icon-btn with a .wg-gloss inner.
+        [editBtn, deleteBtn].forEach((btn) => {
             expect(btn.classList.contains('wg-icon-btn')).toBe(true);
             expect(btn.querySelector('.wg-gloss')).not.toBeNull();
         });
+    });
+
+    it('keeps the lone chevron on Mi Band cardio rows, which open their own modal', () => {
+        const { window, document } = env;
+        const container = document.getElementById('workout-history-display');
+        const showSpy = vi.fn();
+        window.showMiBandWorkoutModal = showSpy;
+
+        const miband = {
+            id: 7,
+            activity_name: 'outdoor_running',
+            start_time: new Date().toISOString(),
+            distance_m: 5200,
+            duration_sec: 1800,
+            heart_rate_avg: 142
+        };
+        window._renderWorkoutHistory(container, [], [miband], 'UTC');
+
+        // Mi Band rows carry no pencil and no trash (deletion lives inside the
+        // modal), so the chevron is their only affordance — it is NOT the
+        // redundant one that was removed from session rows.
+        const row = container.querySelector('.wg-workouts-history-row--miband');
+        expect(row).not.toBeNull();
+        const viewBtn = row.querySelector('.wg-workouts-history-row__view');
+        expect(viewBtn).not.toBeNull();
+        expect(viewBtn.getAttribute('aria-label')).toBe('View workout');
+        expect(row.querySelector('.wg-workouts-history-row__edit')).toBeNull();
+        expect(row.querySelector('.wg-workouts-history-row__delete')).toBeNull();
+
+        viewBtn.click();
+        expect(showSpy).toHaveBeenCalledTimes(1);
     });
 
     it('clicking the row (not the icon cluster) opens the session-detail modal', () => {
@@ -164,29 +197,19 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         expect(showSpy).toHaveBeenCalledWith(77);
     });
 
-    it('clicking the view icon dispatches showWorkoutSessionModal and stops row propagation', () => {
+    it('clicking the edit icon opens the session modal once and stops row propagation', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-history-display');
         const showSpy = vi.fn();
         window.showWorkoutSessionModal = showSpy;
 
         window._renderWorkoutHistory(container, [makeSession({ session: { id: 88 } })], [], 'UTC');
-        const viewBtn = container.querySelector('.wg-workouts-history-row__view');
-        viewBtn.click();
-        expect(showSpy).toHaveBeenCalledTimes(1);
-        expect(showSpy).toHaveBeenCalledWith(88);
-    });
-
-    it('clicking the edit icon opens the session modal (same as view)', () => {
-        const { window, document } = env;
-        const container = document.getElementById('workout-history-display');
-        const showSpy = vi.fn();
-        window.showWorkoutSessionModal = showSpy;
-
-        window._renderWorkoutHistory(container, [makeSession({ session: { id: 55 } })], [], 'UTC');
         const editBtn = container.querySelector('.wg-workouts-history-row__edit');
         editBtn.click();
-        expect(showSpy).toHaveBeenCalledWith(55);
+        // Once, not twice: the icon's stopPropagation keeps the card-body
+        // handler from firing the same modal a second time.
+        expect(showSpy).toHaveBeenCalledTimes(1);
+        expect(showSpy).toHaveBeenCalledWith(88);
     });
 
     it('clicking the delete icon dispatches deleteWorkoutSessionById with confirm', async () => {
