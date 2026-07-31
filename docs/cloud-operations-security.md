@@ -130,24 +130,43 @@ reclamation (e.g. a contractual erasure SLA), the levers are `PRAGMA
 secure_delete=ON` (write cost) or a post-deletion `VACUUM` — neither is enabled
 today, and neither is required by the current threat model.
 
-## 3. Backups
+## 3. Backups — required deployment decision
 
-**Today: no server-side backups run.** The reference deployment does not
-currently run litestream or any other `cloud.db` replication. (The optional
-litestream setup documented in
-[cloud-deployment.md §6](cloud-deployment.md#6-backups-and-restore) is available
-but not enabled in the current beta.) Consequently there is no backup copy,
-snapshot, or off-box replica of any account's ciphertext.
+**What the repository defines** (verified 2026-07-31): `docker-compose.cloud.yml`
+ships a `litestream` service wired into the stack (`depends_on: cloud`, mounting
+the same `cloud_data` volume) that continuously replicates `cloud.db` to an
+S3-compatible bucket. It is **env-gated, not absent**: with `R2_BUCKET` or
+`LITESTREAM_ACCESS_KEY_ID` unset it prints `skipping` and exits cleanly.
 
-**If backups are ever enabled**, this policy binds them:
+**What the repository cannot tell you** is whether any given deployment sets
+those variables. Backups are therefore an operator fact, and this document does
+not assert one. **Determine it for your deployment before answering a user's
+"is my deleted data gone?" question**, because the answer differs:
+
+- **Litestream not configured** → no backup copy, snapshot, or off-box replica
+  exists, and account deletion is physically immediate (modulo §2's free
+  pages).
+- **Litestream configured** → a replica of the ciphertext exists off-box, and
+  §4's deletion timeline is governed by that replica's expiry.
+
+**If backups are enabled, this policy binds them:**
 
 - **Maximum retention 7 days.** Any backup / replication target must expire
-  every object within 7 days (e.g. an S3/R2 lifecycle rule on the litestream
-  prefix). A backup that outlives 7 days violates this policy.
+  every object within 7 days. A backup that outlives 7 days violates this
+  policy.
+- **⚠️ The shipped defaults do not satisfy that policy.** As written,
+  `docker-compose.cloud.yml` defaults to `LITESTREAM_RETENTION_ENABLED=false`
+  (nothing expires at all) and, when enabled, `LITESTREAM_RETENTION=1680h`
+  (70 days) with `LITESTREAM_SNAPSHOT_INTERVAL=240h`. Enabling litestream
+  without overriding these puts the deployment out of policy on day one.
+  Either set `LITESTREAM_RETENTION_ENABLED=true` with `LITESTREAM_RETENTION`
+  ≤ `168h`, or enforce the bound with an object-store lifecycle rule on the
+  litestream prefix — and prefer the lifecycle rule, since it holds even if the
+  replicator misbehaves.
 - **Ciphertext-only, isolated credentials.** As
   [cloud-deployment.md → Bucket security](cloud-deployment.md#6-backups-and-restore)
-  requires: a private bucket, its own scoped credentials, not shared with the
-  bot stack.
+  requires: a private bucket with its own scoped credentials, not shared with
+  any other stack.
 - **No plaintext, no keys.** A backup holds exactly what `cloud.db` holds —
   ciphertext, wrapped envelopes, verifiers — and never a DEK/NK.
 
@@ -161,15 +180,14 @@ What that means for each place data can live:
 |---|---|
 | **Server database (logical)** | **Immediately.** One transaction removes every account-keyed row; the recovery verifier goes with it. |
 | **Server database (physical bytes)** | **Incrementally.** Freed ciphertext pages are reclaimed by later page reuse, not zeroed on delete (§2). |
-| **Backups** | **Today: N/A — none exist, so deletion is physically immediate.** Once backups are enabled: by **expiry only** (≤ 7 days, §3). There is **no proactive purge** of backups on account deletion — the operator does not reach into a replica to scrub a deleted account; the object simply ages out within the retention window. |
-| **Local device (browser vault)** | Client-side responsibility; the server cannot reach an unlocked tab's IndexedDB/PRF material. Covered by device-side deletion work (med-yor.1 / med-yor.4). |
+| **Backups** | **Depends on your deployment (§3).** Litestream not configured → no replica exists and deletion is physically immediate. Litestream configured → by **expiry only** (policy: ≤ 7 days). There is **no proactive purge** on account deletion — the operator does not reach into a replica to scrub a deleted account; the object ages out within the retention window. |
+| **Local device (browser vault)** | Client-side, and **verified**: `clearLocalVault()` awaits `deleteDatabase` on both the encrypted mirror and the plaintext cache, resolving only on `onsuccess` and surfacing `blocked` as a recoverable "close other tabs" error. It runs **twice** — before `DELETE /api/account`, so a blocked wipe fails while the account is still intact, and after, as the load-bearing erase (`web/cloud/js/account-delete.js:70-77`, `web/static/js/features/settings.js:548-556`). Push unsubscribe and SW unregister are best-effort. |
 | **Third parties (§5)** | Governed by each subprocessor's own retention — the server cannot delete data already transmitted to Telegram, an AI provider, RxNav, a food DB, or a push service. |
 
 The user-facing takeaway the deletion UI must convey: **logical server deletion
-is immediate; backup removal (once backups exist) is by expiry within 7 days;
+is immediate; backup removal, where backups exist, is by expiry within 7 days;
 and data already sent to a third party is retained per that party's policy, not
-ours.** (Exact in-app copy is out of scope here — see the PR handoff to
-med-yor.4 / med-yor.1.)
+ours.**
 
 ## 5. Subprocessors — who sees what
 
@@ -290,8 +308,10 @@ submission.
 ## 7. What this document does not cover
 
 - **In-app deletion copy.** The exact user-facing wording in the deletion /
-  settings UI is owned by med-yor.4 / med-yor.1; this document defines the
-  semantics that copy must reflect (§4).
-- **The full `docs/cloud/` documentation restructure** (audit's recommended
-  doc set) is med-yor.7. This file is the flat-namespace precursor to that
-  set's `operations-security.md` + `deletion.md`.
+  settings UI is not defined here; this document defines the semantics that
+  copy must reflect (§4).
+- **Trust boundaries and residual risk.** That is
+  [security/threat-model.md](security/threat-model.md). This file is the
+  operator-policy half — logs, retention, deletion, subprocessors, incident
+  response — and the two are meant to be read together. The full normative set
+  is indexed in [docs/README.md](README.md).

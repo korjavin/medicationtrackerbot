@@ -66,7 +66,7 @@ func main() {
 	sessionSecret := cfg.SessionSecret
 	// In demo mode the auth flow never reads a session cookie (DemoUserResolver
 	// short-circuits before /auth/* handlers can sign one), so a SESSION_SECRET
-	// from the operator is not required. The runbook in docs/demo-mode.md
+	// from the operator is not required. The runbook in docs/archive/demo-mode.md
 	// deliberately omits it. Auto-generate a strong random secret so the
 	// auth/oidc/telegram handlers (still registered on the mux) won't panic
 	// or sign with a known value if a curious visitor pokes them.

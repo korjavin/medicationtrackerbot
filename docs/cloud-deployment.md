@@ -298,19 +298,25 @@ that would have let anyone back in. There is no second copy anywhere else.
 
 So the `litestream` service in `docker-compose.cloud.yml` is not optional for
 a real deployment. It continuously replicates `cloud.db` to an S3-compatible
-bucket (Cloudflare R2), mirroring the bot stack's setup. Set `R2_BUCKET`,
-`R2_ENDPOINT`, `LITESTREAM_ACCESS_KEY_ID` and `LITESTREAM_SECRET_ACCESS_KEY`
-in `.env`; leaving the first two unset makes the container exit cleanly
-(intended for local dev, **not** for production).
+bucket (Cloudflare R2). Set `R2_BUCKET`, `R2_ENDPOINT`,
+`LITESTREAM_ACCESS_KEY_ID` and `LITESTREAM_SECRET_ACCESS_KEY` in `.env`;
+leaving the first two unset makes the container print `skipping` and exit
+cleanly — intended for local dev, **not** for production. **Whether a given
+deployment has them set is the one thing this repository cannot tell you**, so
+confirm it rather than assuming: `docker compose ps litestream` should show a
+running container, not an exited one.
 
 `LITESTREAM_SYNC_INTERVAL` (default `1h`) is your worst-case data-loss window.
 
-> **Retention/deletion policy.** The reference beta does **not** currently run
-> litestream — so there are no backups today and account deletion is physically
-> immediate. This section is the how-to for when you *do* enable it. Once
-> enabled, the backup target must expire every object within **7 days**, and
-> account deletion propagates to backups by that expiry (no proactive purge).
-> See [cloud-operations-security.md](cloud-operations-security.md) §3–§4.
+> **Retention/deletion policy — the shipped defaults are out of policy.**
+> Backups must expire every object within **7 days**
+> ([cloud-operations-security.md §3](cloud-operations-security.md#3-backups--required-deployment-decision)),
+> and account deletion propagates to them by that expiry only (no proactive
+> purge). But this file's defaults are `LITESTREAM_RETENTION_ENABLED=false`
+> (nothing expires) and `LITESTREAM_RETENTION=1680h` (70 days) once enabled.
+> When you turn litestream on, **also** bound the retention — preferably with
+> an object-store lifecycle rule on the litestream prefix, which holds even if
+> the replicator misbehaves.
 
 Litestream requires WAL journaling. `cloud.db` is opened through
 `internal/store/db`, which sets `PRAGMA journal_mode=WAL` unconditionally, so

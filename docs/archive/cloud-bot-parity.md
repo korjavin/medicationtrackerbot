@@ -1,5 +1,9 @@
 # Legacy bot-mode vs cloud-mode feature parity
 
+> **ARCHIVED.** A living comparison against a product state that no longer
+> exists. Kept for history; not normative, and not a parity target.
+> Current architecture: [docs/architecture.md](../architecture.md).
+
 Cloud mode (`cmd/cloud`, `internal/cloudserver`, `web/cloud`) is the primary production surface; bot/server mode (`cmd/bot`, `internal/server`, `web/static`) is **legacy maintenance**. This matrix is retained as historical audit material and as a reference when a bot feature still needs a deliberate cloud decision. It is not a mandate to keep chasing feature parity.
 
 **Direction is one-way: bot → cloud.** As of 2026-07-17 the goal "bot mode should have everything cloud has" is dropped. We bring bot features into cloud; we do **not** backport cloud-only features into bot. A "reverse gap" (cloud has it, bot doesn't) is therefore **intentional, not a gap to close**. A change that would *force* new bot-server code to land a cloud feature is a red flag (cloud→bot coupling) — prefer a cloud-only path instead.
