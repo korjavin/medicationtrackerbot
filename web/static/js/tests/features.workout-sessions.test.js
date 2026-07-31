@@ -65,7 +65,9 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(window.WorkoutSessions.open).toBeTypeOf('function');
     expect(window.WorkoutSessions.close).toBeTypeOf('function');
     expect(window.WorkoutSessions.save).toBeTypeOf('function');
-    expect(window.WorkoutSessions.delete).toBeTypeOf('function');
+    // bd med-ci6: no `delete` — the modal's Delete button is gone; deleting a
+    // session is the History row's trash icon.
+    expect(window.WorkoutSessions.delete).toBeUndefined();
     expect(window.WorkoutSessions.finish).toBeTypeOf('function');
     expect(window.WorkoutSessions.updateLog).toBeTypeOf('function');
     expect(window.WorkoutSessions.deleteLog).toBeTypeOf('function');
@@ -522,6 +524,94 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(window.WorkoutSessionsState.logs.length).toBe(2);
     expect(window.WorkoutSessionsState.logs[0].exercise_name).toBe('Bench');
     expect(window.WorkoutSessionsState.logs[1].exercise_name).toBe('Overhead');
+  });
+
+  // bd med-plg: on a plan-backed session the local splice is not enough — the
+  // modal re-materializes the plan on every open, so the removal also has to be
+  // recorded on the session snapshot.
+  function planBackedDeleteEnv(window, document) {
+    installApiCache(window);
+    window.safeConfirm = (_msg, cb) => Promise.resolve(cb(true));
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress', variant_id: 7 };
+    window.WorkoutSessionsState.logs = [
+      // Un-logged planned row: synthesized by the prefill, id 0, no backend log.
+      { id: 0, exercise_id: 1, exercise_name: 'Bench', sets_completed: 3, reps_completed: 8, weight_kg: 60, _dirty: false },
+      { id: 6, exercise_id: 2, exercise_name: 'Overhead', sets_completed: 3, reps_completed: 10, weight_kg: 40 }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+  }
+
+  it('deleteExerciseLog persists the removal of an un-logged planned row on a plan-backed session', async () => {
+    const { window, document } = env;
+    planBackedDeleteEnv(window, document);
+
+    const calls = [];
+    window.apiCall = vi.fn(async (endpoint, method, body) => {
+      calls.push({ endpoint, method, body });
+      return true;
+    });
+
+    await window.deleteExerciseLog(0);
+
+    // No log to delete (id 0) — only the session-scoped plan removal.
+    expect(calls.filter((c) => c.endpoint.startsWith('/api/workout/sessions/logs/delete'))).toHaveLength(0);
+    const removal = calls.find((c) => c.endpoint === '/api/workout/sessions/planned-exercise/delete');
+    expect(removal).toBeTruthy();
+    expect(removal.method).toBe('POST');
+    expect(removal.body).toEqual({ session_id: 42, exercise_id: 1, exercise_name: 'Bench' });
+    expect(window.WorkoutSessionsState.logs.map((l) => l.exercise_name)).toEqual(['Overhead']);
+  });
+
+  it('deleteExerciseLog deletes both the log and the plan row for a saved plan-backed exercise', async () => {
+    const { window, document } = env;
+    planBackedDeleteEnv(window, document);
+
+    const calls = [];
+    window.apiCall = vi.fn(async (endpoint, method, body) => {
+      calls.push({ endpoint, method, body });
+      return true;
+    });
+
+    await window.deleteExerciseLog(1);
+
+    expect(calls.some((c) => c.endpoint === '/api/workout/sessions/logs/delete?id=6')).toBe(true);
+    const removal = calls.find((c) => c.endpoint === '/api/workout/sessions/planned-exercise/delete');
+    expect(removal.body).toEqual({ session_id: 42, exercise_id: 2, exercise_name: 'Overhead' });
+    expect(window.WorkoutSessionsState.logs.map((l) => l.exercise_name)).toEqual(['Bench']);
+  });
+
+  it('deleteExerciseLog restores the un-logged planned row when the plan removal returns null', async () => {
+    const { window, document } = env;
+    planBackedDeleteEnv(window, document);
+
+    window.apiCall = vi.fn(async (endpoint) => (
+      endpoint === '/api/workout/sessions/planned-exercise/delete' ? null : true
+    ));
+
+    await window.deleteExerciseLog(0);
+
+    expect(window.WorkoutSessionsState.logs.map((l) => l.exercise_name)).toEqual(['Bench', 'Overhead']);
+    const cards = document.getElementById('workout-session-logs')
+      .querySelectorAll('.wg-workouts-session-exercise');
+    expect(cards.length).toBe(2);
+  });
+
+  it('deleteExerciseLog on an ad-hoc session still splices locally with no network call', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.safeConfirm = (_msg, cb) => Promise.resolve(cb(true));
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress', variant_id: -1 };
+    window.WorkoutSessionsState.logs = [
+      { id: 0, exercise_id: 1, exercise_name: 'Bench', sets_completed: 3, reps_completed: 8, weight_kg: 60 }
+    ];
+    window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
+
+    window.apiCall = vi.fn(async () => true);
+
+    await window.deleteExerciseLog(0);
+
+    expect(window.apiCall).not.toHaveBeenCalled();
+    expect(window.WorkoutSessionsState.logs).toEqual([]);
   });
 
   // ===========================================================================

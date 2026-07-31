@@ -1201,4 +1201,137 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
 
         await expectFreshAdHoc(window, scheduled);
     });
+
+    // bd med-plg: removing an exercise from TODAY's workout has to survive a
+    // modal reopen. The modal re-materializes the plan on every open, so the
+    // removal is recorded on the session's exercise_snapshot — never on the
+    // variant, which every future session still reads.
+    async function twoExerciseSession(window) {
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const variantId = variants[0].id;
+        for (const [i, name] of ['Bench', 'Row'].entries()) {
+            await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variantId, exercise_name: name, target_sets: 3, target_reps_min: 8, order_index: i
+            });
+        }
+        const session = (await window.apiCallDirect('/api/workout/sessions/next')).session;
+        // Start it: the reported bug is about the session currently in progress,
+        // which is the P0 (buildSessionResponse) branch of the next-workout card.
+        await window.apiCall(`/api/workout/sessions/${session.id}/start`, 'POST');
+        const planned = await window.apiCall(`/api/workout/exercises?variant_id=${variantId}`);
+        return { session, variantId, planned };
+    }
+
+    it('planned-exercise/delete drops an un-logged planned exercise from this session only', async () => {
+        const { window } = env;
+        const { session, variantId, planned } = await twoExerciseSession(window);
+        const row = planned.find((e) => e.exercise_name === 'Row');
+
+        await window.apiCall('/api/workout/sessions/planned-exercise/delete', 'POST', {
+            session_id: session.id, exercise_id: row.id, exercise_name: 'Row'
+        });
+
+        // Reopening the modal prefills from the snapshot, which no longer has it.
+        const details = await window.apiCall(`/api/workout/sessions/details?id=${session.id}`);
+        expect(details.session.exercise_snapshot.map((e) => e.exercise_name)).toEqual(['Bench']);
+
+        // The variant is untouched: future sessions still plan both.
+        const stillPlanned = await window.apiCall(`/api/workout/exercises?variant_id=${variantId}`);
+        expect(stillPlanned.map((e) => e.exercise_name)).toEqual(['Bench', 'Row']);
+
+        // ...and the next-workout card counts the session, not the variant.
+        expect((await window.apiCallDirect('/api/workout/sessions/next')).exercises_count).toBe(1);
+    });
+
+    it('planned-exercise/delete keeps a logged exercise gone after its log is deleted', async () => {
+        const { window } = env;
+        const { session, planned } = await twoExerciseSession(window);
+        const row = planned.find((e) => e.exercise_name === 'Row');
+
+        const log = await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: session.id, exercise_id: row.id, exercise_name: 'Row',
+            sets_completed: 3, reps_completed: 8, weight_kg: 50, status: 'completed'
+        });
+        await window.apiCall(`/api/workout/sessions/logs/delete?id=${log.id}`, 'DELETE');
+        await window.apiCall('/api/workout/sessions/planned-exercise/delete', 'POST', {
+            session_id: session.id, exercise_id: row.id, exercise_name: 'Row'
+        });
+
+        const details = await window.apiCall(`/api/workout/sessions/details?id=${session.id}`);
+        expect(details.logs).toEqual([]);
+        // Without the snapshot write it would come back as an un-logged
+        // placeholder carrying the plan targets.
+        expect(details.session.exercise_snapshot.map((e) => e.exercise_name)).toEqual(['Bench']);
+    });
+
+    it('planned-exercise/delete matches legacy id-less snapshot rows by name', async () => {
+        const { window, records } = env;
+        const { session } = await twoExerciseSession(window);
+        const stored = (await records.list('workoutsession')).find((s) => s.id === session.id);
+        await records.put('workoutsession', {
+            ...stored,
+            exercise_snapshot: [{ exercise_name: 'Bench', order_index: 0 }, { exercise_name: 'Row', order_index: 1 }]
+        });
+
+        await window.apiCall('/api/workout/sessions/planned-exercise/delete', 'POST', {
+            session_id: session.id, exercise_id: 0, exercise_name: 'Row'
+        });
+
+        const details = await window.apiCall(`/api/workout/sessions/details?id=${session.id}`);
+        expect(details.session.exercise_snapshot.map((e) => e.exercise_name)).toEqual(['Bench']);
+    });
+
+    // bd med-4ca: re-completing a finished session is not cosmetic — it
+    // re-stamped completed_at (winning LWW on a fresh clientTs) and re-ran the
+    // non-idempotent tryAdvanceRotation, skipping a rotation variant.
+    it('completing an already-completed session is a no-op — one rotation advance, original completed_at', async () => {
+        const { window } = env;
+        const { group, variants } = await makeRotatingGroup(window, ['Push', 'Pull', 'Legs']);
+        const session = (await window.apiCallDirect('/api/workout/sessions/next')).session;
+        await window.apiCall(`/api/workout/sessions/${session.id}/start`, 'POST');
+
+        await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+        const afterFirst = await window.apiCall(`/api/workout/sessions/details?id=${session.id}`);
+        const cursorAfterFirst = await window.apiCall(`/api/workout/rotation/state?group_id=${group.id}`);
+        expect(cursorAfterFirst.current_variant_id).toBe(variants[1].id);
+
+        await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+        const afterSecond = await window.apiCall(`/api/workout/sessions/details?id=${session.id}`);
+        expect(afterSecond.session.completed_at).toBe(afterFirst.session.completed_at);
+        // The part with real data consequences: Push -> Pull, NOT Push -> Legs.
+        const cursorAfterSecond = await window.apiCall(`/api/workout/rotation/state?group_id=${group.id}`);
+        expect(cursorAfterSecond.current_variant_id).toBe(variants[1].id);
+    });
+
+    it('finishing a genuinely in-progress session still completes, advances rotation, and snapshots the plan', async () => {
+        const { window } = env;
+        const { group, variants } = await makeRotatingGroup(window, ['Push', 'Pull']);
+        await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, order_index: 0
+        });
+        const session = (await window.apiCallDirect('/api/workout/sessions/next')).session;
+        await window.apiCall(`/api/workout/sessions/${session.id}/start`, 'POST');
+
+        await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+        const details = await window.apiCall(`/api/workout/sessions/details?id=${session.id}`);
+        expect(details.session.status).toBe('completed');
+        expect(details.session.completed_at).toBeTruthy();
+        expect(details.session.exercise_snapshot.map((e) => e.exercise_name)).toEqual(['Bench']);
+        expect((await window.apiCall(`/api/workout/rotation/state?group_id=${group.id}`)).current_variant_id)
+            .toBe(variants[1].id);
+    });
+
+    it('planned-exercise/delete is a no-op for an ad-hoc session', async () => {
+        const { window } = env;
+        const adhoc = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+
+        await window.apiCall('/api/workout/sessions/planned-exercise/delete', 'POST', {
+            session_id: adhoc.id, exercise_id: 0, exercise_name: 'Bench'
+        });
+
+        const details = await window.apiCall(`/api/workout/sessions/details?id=${adhoc.id}`);
+        expect(details.session.exercise_snapshot).toBeUndefined();
+    });
 });

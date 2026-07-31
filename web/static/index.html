@@ -1479,9 +1479,10 @@
                 <span class="wg-section-label wg-workouts-session-modal__eyebrow">Workout</span>
                 <span class="wg-mono-display wg-workouts-session-modal__title" id="workout-session-modal-title">Workout Details</span>
             </div>
+            <!-- Close only: deleting a session lives on the History row's trash
+                 icon (features/workout/history.js), which is the sole entry
+                 point that can open a completed/skipped session anyway. -->
             <div class="wg-workouts-session-modal__header-actions">
-                <button type="button" id="workout-session-delete-btn"
-                    class="wg-gloss wg-workouts-session-modal__header-btn wg-workouts-session-modal__header-btn--danger">Delete</button>
                 <button type="button" id="workout-session-cancel-btn"
                     class="wg-gloss wg-workouts-session-modal__header-btn">Close</button>
             </div>

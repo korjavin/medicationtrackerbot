@@ -806,6 +806,14 @@ export function createApiRouter(ctx, {
       await workout.deleteLog(intParam(params, 'id', 0));
       return true;
     }
+    // Remove one planned exercise from THIS session only (records it in the
+    // session's exercise_snapshot); the variant keeps it for future sessions.
+    // Cloud-only: no Go route and no registry op, so neither the catalog drift
+    // test nor the internal/server coverage guard applies.
+    if (path === '/api/workout/sessions/planned-exercise/delete' && method === 'POST') {
+      await workout.removePlannedExercise(body);
+      return true;
+    }
 
     if (path === '/api/workout/stats' && method === 'GET') return workout.getStats({ range: params.get('range') });
 

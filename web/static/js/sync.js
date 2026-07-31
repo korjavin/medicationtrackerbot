@@ -459,7 +459,6 @@ const SyncManager = {
             'exercise-library-save-btn',
             'food-modal-save-btn',
             'food-product-save-btn',
-            'workout-session-delete-btn',
             'session-add-exercise-save-btn'
         ];
 

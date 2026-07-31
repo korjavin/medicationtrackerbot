@@ -1416,6 +1416,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   async function completeSession(id) {
     const session = await findSession(id);
     if (!session) return;
+    // Already completed: no-op, mirroring skipSession's guard above. A second
+    // completion is not cosmetic — it re-stamps completed_at with a fresh
+    // clientTs (so the rewrite wins LWW across devices) and re-runs
+    // tryAdvanceRotation, which is NOT idempotent: a rotating group would skip
+    // a variant (Push -> Legs). Only `completed` bails; pending / notified /
+    // pre_skipped / in_progress -> completed all stay live transitions, and so
+    // does skipped -> completed (a genuine correction).
+    if (session.status === 'completed') return;
     const nowMs = now();
     const updated = {
       ...session, status: 'completed', completed_at: new Date(nowMs).toISOString(), clientTs: nowMs,
@@ -1427,18 +1435,67 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // spread into `updated`), a repeat/retry completed-status call must not
     // rebuild it against a now-changed variant.
     if (session.variant_id !== ADHOC_ID && !updated.exercise_snapshot) {
-      updated.exercise_snapshot = (await listExercises(session.variant_id)).map((e) => ({
-        exercise_id: e.id,
-        exercise_name: e.exercise_name,
-        target_sets: e.target_sets,
-        target_reps_min: e.target_reps_min,
-        target_reps_max: e.target_reps_max ?? null,
-        target_weight_kg: e.target_weight_kg ?? null,
-        order_index: e.order_index,
-      }));
+      updated.exercise_snapshot = await buildExerciseSnapshot(session.variant_id);
     }
     await records.put(WORKOUT_RECORD_TYPES.SESSION, updated);
     await tryAdvanceRotation(session);
+  }
+
+  // buildExerciseSnapshot renders a variant's plan into the session's immutable
+  // "plan as performed" shape. Two writers materialize it — completeSession and
+  // removePlannedExercise — so the mapping lives here once; the modal prefill
+  // reads these exact field names.
+  async function buildExerciseSnapshot(variantId) {
+    return (await listExercises(variantId)).map((e) => ({
+      exercise_id: e.id,
+      exercise_name: e.exercise_name,
+      target_sets: e.target_sets,
+      target_reps_min: e.target_reps_min,
+      target_reps_max: e.target_reps_max ?? null,
+      target_weight_kg: e.target_weight_kg ?? null,
+      order_index: e.order_index,
+    }));
+  }
+
+  // removePlannedExercise makes "drop this exercise from TODAY's workout"
+  // durable. Deleting the exercise_log is not enough: the modal re-materializes
+  // the plan on every open, so an un-logged planned row (which never had a log
+  // at all) or a freshly de-logged one comes straight back as a placeholder.
+  // The session's exercise_snapshot is the only per-session copy of the plan, so
+  // the removal is recorded there. The variant is deliberately NOT touched —
+  // that would drop the exercise from every future workout, which is a
+  // different feature (/api/workout/exercises/delete).
+  //
+  // ponytail: materializing the snapshot on the first removal freezes this
+  // session's plan, so later variant edits stop showing up in it. That is
+  // already the rule once a session completes and is the whole point of the
+  // field; it just starts earlier now. Upgrade path if that bites: store a
+  // `removed_exercises` deny-list on the session and keep reading the live
+  // variant through it.
+  async function removePlannedExercise(input) {
+    const session = await findSession(Number(input && input.session_id) || 0);
+    // Ad-hoc sessions (and any session with no variant) render exclusively from
+    // logs — no prefill, nothing to remember.
+    if (!session || !(session.variant_id > 0)) return;
+
+    const exerciseId = Number(input && input.exercise_id) || 0;
+    const exerciseName = (input && input.exercise_name) || '';
+    const snapshot = Array.isArray(session.exercise_snapshot)
+      ? session.exercise_snapshot
+      : await buildExerciseSnapshot(session.variant_id);
+
+    // Mirror the prefill's own dedupe: match on exercise_id when both sides
+    // carry one, else fall back to the name so legacy id-less snapshot rows
+    // (and log rows saved before exercise_id was populated) still match.
+    const next = snapshot.filter((ex) => (exerciseId && ex.exercise_id
+      ? ex.exercise_id !== exerciseId
+      : ex.exercise_name !== exerciseName));
+
+    await records.put(WORKOUT_RECORD_TYPES.SESSION, {
+      ...session,
+      exercise_snapshot: next,
+      clientTs: now(),
+    });
   }
 
   async function preSkipSession(id) {
@@ -1722,7 +1779,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   async function buildSessionResponse(session, todayStr, isSnoozed) {
     const group = await findByNumericId(records, WORKOUT_RECORD_TYPES.GROUP, session.group_id);
     const variant = await findByNumericId(records, WORKOUT_RECORD_TYPES.VARIANT, session.variant_id);
-    const exercises = await listExercises(session.variant_id);
+    // Prefer the session's snapshot (same rule as listSessions) so the
+    // next-workout card stops counting an exercise the user removed from this
+    // session; fall back to the live variant for snapshot-less sessions.
+    const exercises = session.exercise_snapshot || (await listExercises(session.variant_id));
 
     let exerciseCount = exercises.length;
     if (session.group_id === ADHOC_ID) {
@@ -2512,6 +2572,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     createLog,
     updateLog,
     deleteLog,
+    removePlannedExercise,
     listSessions,
     getSessionDetails,
     getStats,

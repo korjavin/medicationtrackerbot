@@ -162,8 +162,17 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         expect(entry.querySelector('.wg-workouts-session-exercise__hint')).toBeNull();
     });
 
+    // renderSessionDetailActions reads the open session's status off
+    // WorkoutSessionsState (showWorkoutSessionModal populates it before
+    // calling), so seed it the way the modal would — bd med-4ca gates Finish
+    // on `in_progress`.
+    function openStatus(window, status) {
+        window.WorkoutSessionsState.data = sessionFixture({ status });
+    }
+
     it('renders Add Exercise + Finish workout in the action cluster (no legacy Log set / Delete)', () => {
         const { window, document } = env;
+        openStatus(window, 'in_progress');
         const actionsContainer = document.getElementById('workout-session-actions');
         const onFinish = vi.fn();
 
@@ -188,8 +197,34 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         expect(finishBtn.textContent).toBe('Finish workout');
     });
 
+    // bd med-4ca: a finished workout must not offer Finish. Re-completing it
+    // re-stamped completed_at and skipped a rotation variant.
+    it('omits Finish workout on a completed session but keeps Add Exercise', () => {
+        const { window, document } = env;
+        openStatus(window, 'completed');
+        const actionsContainer = document.getElementById('workout-session-actions');
+
+        window.renderSessionDetailActions(actionsContainer, { onFinish: vi.fn() });
+
+        expect(actionsContainer.querySelector('.wg-workouts-session-actions__finish')).toBeNull();
+        expect(document.getElementById('workout-session-finish-btn')).toBeNull();
+        // Logging an exercise you forgot on a finished workout stays legitimate.
+        expect(actionsContainer.querySelector('.wg-workouts-session-actions__add')).not.toBeNull();
+    });
+
+    it('omits Finish workout on a skipped session', () => {
+        const { window, document } = env;
+        openStatus(window, 'skipped');
+        const actionsContainer = document.getElementById('workout-session-actions');
+
+        window.renderSessionDetailActions(actionsContainer, { onFinish: vi.fn() });
+
+        expect(actionsContainer.querySelector('.wg-workouts-session-actions__finish')).toBeNull();
+    });
+
     it('clicking the bottom-row Add Exercise opens the add-exercise-to-session modal', () => {
         const { window, document } = env;
+        openStatus(window, 'in_progress');
         const actionsContainer = document.getElementById('workout-session-actions');
         const opened = vi.fn();
         window.showAddExerciseToSessionModal = opened;
@@ -212,6 +247,7 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
 
     it('dispatches the Finish callback', () => {
         const { window, document } = env;
+        openStatus(window, 'in_progress');
         const actionsContainer = document.getElementById('workout-session-actions');
         const onFinish = vi.fn();
         window.renderSessionDetailActions(actionsContainer, { onFinish });
@@ -223,6 +259,7 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
 
     it('tolerates omitted handlers without throwing on click', () => {
         const { window, document } = env;
+        openStatus(window, 'in_progress');
         const actionsContainer = document.getElementById('workout-session-actions');
         window.renderSessionDetailActions(actionsContainer, {});
 
@@ -250,23 +287,18 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         expect(deleteBtn.getAttribute('aria-label')).toBe('Remove exercise');
     });
 
-    // Delete gating (med-eas.71, Task 4): the static header Delete button is
-    // hidden while a session is in_progress (deleting a live session from here
-    // makes no sense) and shown once it's completed/skipped.
-    it('hides the Delete button for an in_progress session', async () => {
-        const { window, document } = env;
-        await openSession(window, [logFixture()], { status: 'in_progress' });
-
-        const deleteBtn = document.getElementById('workout-session-delete-btn');
-        expect(deleteBtn.classList.contains('hidden')).toBe(true);
-    });
-
-    it('shows the Delete button for a completed session', async () => {
+    // bd med-ci6 (replaces the old med-eas.71 Delete-gating pair): the header
+    // carries Close only. Deleting a session is the History row's trash icon,
+    // and every entry point that can open a completed/skipped session is such a
+    // row — so no surface lost the capability.
+    it('renders a header with Close only — no Delete button', async () => {
         const { window, document } = env;
         await openSession(window, [logFixture()], { status: 'completed' });
 
-        const deleteBtn = document.getElementById('workout-session-delete-btn');
-        expect(deleteBtn.classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('workout-session-delete-btn')).toBeNull();
+        const headerBtns = document.querySelectorAll('.wg-workouts-session-modal__header-actions button');
+        expect(headerBtns.length).toBe(1);
+        expect(headerBtns[0].id).toBe('workout-session-cancel-btn');
     });
 
     // Friendly body-part chip (med-mj4): a card whose exercise resolves to a
