@@ -234,15 +234,24 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
   }
 }
 
-// How often a VISIBLE tab checks the mailbox. The relay answers a Telegram
-// command with "⏳ Queued" and only an unlocked client can turn that into
-// "✅ Recorded", so this interval is the latency the user actually feels.
+// How often a tab checks the mailbox — visible or hidden (med-d15). The relay
+// answers a Telegram command with "⏳ Queued" and only an unlocked client can
+// turn that into "✅ Recorded", so this interval is the latency the user
+// actually feels — and while they are typing in Telegram, this tab is by
+// definition hidden. A hidden tab that skipped the timer was a permanently
+// silent mailbox until the user looked at the app.
+//
+// The cost of keeping it running in the background is small because we do not
+// pay this interval there: browsers clamp timers in a backgrounded tab to
+// roughly one fire per minute on their own, so a backgrounded tab is about one
+// empty GET /api/inbox per minute, not one per 5s.
 //
 // ponytail: a poll, not a push. The alternative — a silent web push waking the
 // service worker to nudge a drain — is lower-latency and lower-traffic, but it
 // needs notification permission, and browsers penalize pushes that show no
-// notification. GET /api/inbox on an empty mailbox is one indexed lookup
-// returning `{"events":[]}`. Revisit if the mailbox ever gets chatty.
+// notification; that wake push is its own bead (med-5fo), not this one.
+// GET /api/inbox on an empty mailbox is one indexed lookup returning
+// `{"events":[]}`. Revisit if the mailbox ever gets chatty.
 const INBOX_POLL_MS = 5000;
 
 // Backoff ceiling for a wedged/stalled mailbox (med-eas.51). Consecutive
@@ -251,14 +260,21 @@ const INBOX_POLL_MS = 5000;
 // (a reset that un-wedges) is still noticed within ~a minute at the 5s interval.
 const MAX_INBOX_BACKOFF_TICKS = 12;
 
-// startInboxPolling drains the mailbox on a timer while the tab is visible, and
-// immediately whenever it becomes visible again. Without it a Confirm tapped in
-// Telegram sits unapplied until the next full page load, because nothing else
-// in cloud mode polls (no SSE, no change stream).
+// startInboxPolling drains the mailbox on a timer, and immediately whenever the
+// tab becomes visible again. Without it a Confirm tapped in Telegram sits
+// unapplied until the next full page load, because nothing else in cloud mode
+// polls (no SSE, no change stream).
 //
-// Hidden tabs do not poll: a backgrounded phone browser draining every 5s is
-// pure battery burn, and the drain-on-becoming-visible below covers the gap.
-// Returns a stop() for tests and teardown.
+// Hidden tabs DO poll (med-d15). Skipping them looked like battery thrift but
+// was the bug: the user is in Telegram exactly when this tab is hidden, so the
+// mailbox was silent for the whole time it mattered and the ✅ only ever landed
+// the instant they switched back. Browsers already throttle background timers to
+// roughly one fire per minute, so the real cost is one empty GET /api/inbox per
+// minute per backgrounded tab.
+//
+// The visibilitychange tick below stays: it is the instant-on-focus path and it
+// deliberately bypasses the backoff gate. Returns a stop() for tests and
+// teardown.
 export function startInboxPolling(ctx, {
   apply,
   intervalMs = INBOX_POLL_MS,
@@ -282,7 +298,6 @@ export function startInboxPolling(ctx, {
     if (stopped || !apply) return;
     // drainInbox already no-ops when another drain is in flight for this
     // account, so a slow drain cannot pile up behind the timer.
-    if (doc && doc.visibilityState !== 'visible') return;
     if (!force && skipTicks > 0) { skipTicks--; return; }
     try {
       const result = await drain(ctx, { apply, ...drainOpts });
