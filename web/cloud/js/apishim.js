@@ -134,9 +134,12 @@ export function createApiRouter(ctx, {
   const food = createFoodDomain({
     records, now, timeZone, foodDb,
   });
-  // One aiClient (BYO-key, reads the vault's unmasked openai record) shared by
-  // food AI and the gamification narrator — both send device → the user's own
-  // provider, never through /api.
+  // One aiClient (reads the vault's unmasked openai record) shared by food AI
+  // and the gamification narrator. With a BYO key both send device → the user's
+  // own provider, never through /api; with NO key both fall back to the
+  // operator-proxied trial path (POST /api/trial/openai), gated on an explicit
+  // consent scope — `ai` for food, `tg` for the narrator. See
+  // docs/cloud-mode.md → Privacy boundary (bd med-eas.80).
   const aiClient = createAIClient({ settingsDomain: settings });
   const foodAI = createFoodAIDomain({ aiClient, foodDomain: food, now });
   const workout = createWorkoutDomain({ records, now, timeZone });
