@@ -1,7 +1,13 @@
 # Legacy Server Installation Guide
 
+> **ARCHIVED.** This guide instructs the reader to run `install.sh`, which was
+> **deleted from the repository** along with `scripts/bootstrap.sh` and the
+> installer release workflow. Following it is not possible. Kept for history;
+> not normative.
+> To stand up the service: [docs/cloud-deployment.md](../cloud-deployment.md).
+
 > **Status:** legacy server-mode runbook. Cloud mode is now the default
-> production strategy; start with [Cloud-mode deployment](cloud-deployment.md)
+> production strategy; start with [Cloud-mode deployment](../cloud-deployment.md)
 > for new installs. This guide remains for existing single-user Telegram/server
 > operators.
 

@@ -33,7 +33,7 @@ const sleepBaselineMinNights = 5
 
 // HealthScoreView is the API-shaped Health Score result (Task 8): the 0-100
 // composite plus its named-contributor breakdown, additive to the frozen
-// Summary shape (docs/api.md#gamification). Value is nil ("not enough data")
+// Summary shape (docs/archive/api.md#gamification). Value is nil ("not enough data")
 // below Config.HealthScoreMinContributors present contributors.
 type HealthScoreView struct {
 	Value        *float64                `json:"value"`

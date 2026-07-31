@@ -58,11 +58,9 @@ The hard part of "the server can't read your data" is usually the stuff that *ne
 
 **Delivery & fit-and-finish** — web push · offline-first PWA · deep-link navigation · automatic timezone detection with confirmation.
 
-## Current run modes
+## How it is put together
 
-### Cloud (default) — zero-knowledge vault, passkey, PWA
-
-A self-hosted **encrypted cloud** serves one installable PWA per user (their own subdomain). This is the production baseline and the place new product work lands. All health logic runs in the browser; every record is end-to-end encrypted.
+A self-hosted **encrypted cloud** serves one installable PWA per user, on their own subdomain. All health logic runs in the browser; every vault record is end-to-end encrypted.
 
 - **Passkey-only unlock** — WebAuthn PRF unwraps a random 256-bit data key. No passwords, no server-side secret to crack.
 - **On the vault path, the server sees only ciphertext + timing metadata** — health data, provider keys, and reminder content are all encrypted. Opt-in integrations are the documented exception.
@@ -71,47 +69,40 @@ A self-hosted **encrypted cloud** serves one installable PWA per user (their own
 - **Bring your own keys** — AI, vision, voice, and food-DB keys live inside your vault and are called from your browser.
 - **Optional Telegram** — bring your own bot token; inbound messages land in a sealed mailbox. Off by default.
 
-Registration is invite-only. See [docs/cloud-mode.md](./docs/cloud-mode.md) and [docs/cloud-crypto.md](./docs/cloud-crypto.md).
-
-### Legacy server mode — Telegram-native, MCP
-
-The original mode: a single Go binary running the Telegram bot, web app, scheduler, and an optional OAuth-protected MCP endpoint against a local SQLite file you own outright. It remains documented for existing installs, but it is no longer the product default and should not be used as the baseline for new feature work.
-
-- **Telegram** — the fastest interface for real life. Answer a reminder, log a reading, ask what's due next — in the chat you already have open.
-- **Web app** — trends, history, editing, meal planning, workout design, settings. The shell is cached, feeds refresh in the background, and time-sensitive writes work offline and sync later.
-
-See the [legacy server installation guide](./docs/installer.md).
+Registration is invite-only. See [docs/architecture.md](./docs/architecture.md) for the shape of the system and [docs/cloud-crypto.md](./docs/cloud-crypto.md) for the key management.
 
 ## Your AI, your data
 
 Want your assistant to analyze your blood pressure against your sleep and medications? A fitness summary blending workouts, steps, nutrition, weight, and your own notes?
 
-In **cloud mode**, your AI runs in your browser against your own provider keys (stored inside the encrypted vault) — with your own key, the operator never sees the prompt or the data. If you'd rather not bring a key, a shared trial key is available as an opt-in with its own consent step; on that path your prompt and any meal photo travel through the operator's server to the operator's OpenAI account, so it is explicitly *not* end-to-end encrypted.
+Your AI runs **in your browser**, against your own provider keys stored inside the encrypted vault — with your own key, the operator never sees the prompt or the data. If you'd rather not bring a key, a shared trial key is available as an opt-in with its own consent step; on that path your prompt and any meal photo travel through the operator's server to the operator's OpenAI account, so it is explicitly *not* end-to-end encrypted.
 
-In **server mode**, run the optional MCP server — a separate, OAuth-protected process (Pocket-ID):
+Point **Claude (or any MCP client)** at your vault and it can read and write through the same operation catalog the app itself uses — including composite analyses like `analyze_cardiovascular` (BP + meds + sleep + HR + SpO2 + notes) and `analyze_fitness` (workouts + steps + nutrition + weight + notes). Two ways to connect, and the difference is a trust decision you make explicitly:
 
-- `mcp_help` + `mcp_execute` — the recommended entry point. Discover backend operations, then run sandboxed Python against them, so multi-step analyses are one call.
-- Granular read tools per category (`get_blood_pressure`, `get_weight`, …) and the `workout_log` write tool.
-- Composite analyses: `analyze_cardiovascular` (BP + meds + sleep + HR + SpO2 + notes) and `analyze_fitness` (workouts + steps + nutrition + weight + notes).
+- **Local shim** — a small binary on your own machine talks to an unlocked tab over a *blind* relay. The frames are opaque; the operator sees sizes and timing, never content.
+- **Hosted connector** — for claude.ai / ChatGPT, which cannot run a local shim. The operator runs it for you and therefore sees queries and answers in transit. Off by default, per-account, and clearly labelled as the downgrade it is.
 
-Your diary notes ride along as context so the AI understands *why* a week looked the way it did. Point Claude (or any MCP client) at your endpoint — change models, change vendors, take everything home, whenever you want.
+Either way an unlocked tab of yours is what actually answers — there is no server-side fallback, because the server has nothing to read. Your diary notes ride along as context, so the AI understands *why* a week looked the way it did.
 
 ## Get it running
 
-- **Cloud (encrypted PWA):** **[Cloud deployment →](./docs/cloud-deployment.md)** — the default deployment path. Stand up the zero-knowledge cloud (Traefik + wildcard cert + `cmd/cloud`), then mint an invite. Users open a URL and create a passkey.
-- **Legacy server (Telegram + web + MCP):** **[Installation guide →](./docs/installer.md)** — maintained for existing single-user installs, not the default strategy.
-- Works from a published container image or your own build.
+**[Deployment guide →](./docs/cloud-deployment.md)** — stand up the service (Traefik + a wildcard cert + `cmd/cloud`), then mint an invite. Users open a URL and create a passkey. Works from a published container image or your own build.
 
 ## Security posture
 
-- **Cloud mode is the production baseline:** a zero-knowledge, end-to-end-encrypted vault, passkey-only unlock (WebAuthn PRF over a random 256-bit key), blind push relay, encrypted oplog sync, Emergency Kit recovery, invite-only registration. The opt-in integrations that leave that boundary are enumerated in [docs/cloud-mode.md](docs/cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
-- **Legacy server mode** keeps everything on infrastructure you own: single-user allowlist, Telegram/OIDC auth, OAuth-protected MCP, local SQLite. It is kept working for existing operators but is no longer the default.
+An end-to-end-encrypted vault, passkey-only unlock (WebAuthn PRF over a random 256-bit key), a blind push relay, encrypted oplog sync, Emergency Kit recovery, and invite-only registration. The optional integrations that leave that boundary are enumerated, with code evidence, in the [privacy boundary table](docs/cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
 
-Full trust model, boundaries, and honest caveats: [docs/cloud-mode.md](./docs/cloud-mode.md#trust-model--what-the-server-can-and-cannot-see), [docs/cloud-crypto.md](./docs/cloud-crypto.md), and the [privacy audit](./docs/2026-07-12-gpt-5.6-sol-cloud-privacy-audit.md).
+**The honest version — read this if you are deciding whether to trust it:**
+[docs/security/threat-model.md](./docs/security/threat-model.md) sets out the
+assets, the trust boundaries, what holds, what leaks by design, and the ranked
+residual risks — starting with the big one, that the operator serves the
+JavaScript that handles your key
+([docs/security/release-integrity.md](./docs/security/release-integrity.md)).
+Key formats and ceremonies: [docs/cloud-crypto.md](./docs/cloud-crypto.md).
 
 ---
 
 ## For contributors and operators
 
-- **Contributors**: start with [CLAUDE.md](./CLAUDE.md) — it indexes the architecture, feature, API, frontend, and deployment docs under [docs/](./docs/).
+- **Contributors**: start with [docs/README.md](./docs/README.md) — the documentation map, which says which docs are normative, which are proposals, and which are history. [CLAUDE.md](./CLAUDE.md) carries the repo's working rules.
 - **License**: see [LICENSE](./LICENSE).

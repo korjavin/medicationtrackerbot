@@ -124,7 +124,7 @@ MCP_ADMIN_PORT=8082             # Admin API for long-lived API tokens; bound to 
 
 ### Python executor (`mcp_execute` / `mcp_help`)
 
-These variables tune the sandboxed Python runner that backs `mcp_execute`. Defaults match the limits documented in [mcp-python-executor.md](mcp-python-executor.md#runtime-limits). The same `MCP_AUDIT_SECRET` is reused as the HMAC secret on the internal bridge endpoint — there is no separate runner secret. The runner scrubs this value out of the child env before spawning user scripts, so a script's own `os.environ` does not contain it; in the MVP in-process deployment that scrub is a usability shield rather than an enforced boundary (the child shares UID/PID/namespace with the parent — see the [MVP gap note](mcp-python-executor.md#known-mvp-gap-in-process-executor-isolation)).
+These variables tune the sandboxed Python runner that backs `mcp_execute`. Defaults match the limits documented in [mcp-python-executor.md](archive/mcp-python-executor.md#runtime-limits). The same `MCP_AUDIT_SECRET` is reused as the HMAC secret on the internal bridge endpoint — there is no separate runner secret. The runner scrubs this value out of the child env before spawning user scripts, so a script's own `os.environ` does not contain it; in the MVP in-process deployment that scrub is a usability shield rather than an enforced boundary (the child shares UID/PID/namespace with the parent — see the [MVP gap note](archive/mcp-python-executor.md#known-mvp-gap-in-process-executor-isolation)).
 
 ```bash
 # Caller-provided limits in mcp_execute are capped by these server-side values.
@@ -154,4 +154,4 @@ Variables exposed inside the sandbox (set per run by the executor service, never
 
 The runner image must NOT be configured with `OPENAI_API_KEY`, `MCP_AUDIT_SECRET`, `POCKET_ID_*`, or any other authority-bearing secret. The executor scrubs the env before exec; setting these in `docker-compose.yml` for the runner service would defeat that boundary.
 
-See [mcp-deployment.md](mcp-deployment.md) for full MCP deployment setup.
+See [mcp-deployment.md](archive/mcp-deployment.md) for full MCP deployment setup.

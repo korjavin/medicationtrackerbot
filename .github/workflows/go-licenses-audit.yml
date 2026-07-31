@@ -47,7 +47,10 @@ jobs:
       - name: Generate license report
         id: license-scan
         run: |
-          go-licenses csv github.com/korjavin/medicationtrackerbot/cmd/bot > licenses-report.csv 2>&1 || true
+          # Rooted at the only binary we ship (bd med-cul). cmd/bot still
+          # compiles but is no longer deployed, so its dependency licenses are
+          # not what a user of the service is actually running.
+          go-licenses csv github.com/korjavin/medicationtrackerbot/cmd/cloud > licenses-report.csv 2>&1 || true
           cat licenses-report.csv
 
       - name: Validate licenses

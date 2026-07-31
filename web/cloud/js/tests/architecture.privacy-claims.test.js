@@ -50,6 +50,7 @@ const SURFACES = [
   { file: 'web/cloud/index.html', promise: true },
   { file: 'web/static/index.html', promise: true },
   { file: 'docs/architecture.md', promise: false },
+  { file: 'docs/security/threat-model.md', promise: false },
   { file: 'docs/cloud-operations-security.md', promise: false },
   { file: 'web/cloud/js/signup.js', promise: false },
   { file: 'web/cloud/js/privacy.js', promise: false },

@@ -667,7 +667,7 @@ The Plan 1 service is now exposed over HTTP (plan
 Handlers (`internal/server/gamification_handlers.go`) call **only** the
 `GamificationService` (Critical Rule #1) and pass its snake_case JSON through
 verbatim. The full route table + frozen JSON shapes live in
-[docs/api.md → Gamification](api.md#gamification); in brief:
+[docs/api.md → Gamification](archive/api.md#gamification); in brief:
 
 - **Reads:** `GET /api/gamification/{summary,journey,rings,targets}`.
 - **Write:** `PUT /api/gamification/targets` (validate + persist target overrides;

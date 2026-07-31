@@ -1,8 +1,15 @@
 # MCP Server Deployment
 
+> **ARCHIVED.** A runbook for deploying `cmd/mcptool` behind Pocket-ID OAuth
+> against the Go server — neither of which is built or deployed. Cloud mode's
+> MCP is a blind relay to an unlocked tab, with a different trust model
+> entirely. Kept for history; not normative.
+> Current MCP architecture: [docs/architecture.md §7](../architecture.md#7-mcp)
+> and [docs/cloud-mode.md → MCP](../cloud-mode.md#mcp).
+
 > **Status:** legacy server-mode runbook. Cloud mode is the default product
 > path and has its own relay/in-tab MCP model documented in
-> [cloud-mode.md](cloud-mode.md). Use this guide only for existing `cmd/bot` +
+> [cloud-mode.md](../cloud-mode.md). Use this guide only for existing `cmd/bot` +
 > `cmd/mcptool` deployments.
 
 The legacy MCP connector runs as a separate process (binary: `mcptool`) but shares the same Docker image and database as the main bot. It exposes an HTTP server that Claude connects to via a secure tunnel (handled by your Traefik setup).
@@ -200,7 +207,7 @@ The MCP server-side caps for `mcp_execute` are configured in `docker-compose.yml
 - MCP_EXECUTOR_PROXY_URL=http://127.0.0.1:8090/call   # Loopback URL the runner uses
 ```
 
-The HMAC secret on the bridge endpoint is the existing `MCP_AUDIT_SECRET` — the executor reuses it instead of introducing a parallel secret. See [environment.md](environment.md#python-executor-mcp_execute--mcp_help) for the full table including the per-run env vars (`MEDTRACKER_PROXY_URL`, `MEDTRACKER_RUN_TOKEN`) that the executor sets inside the sandbox.
+The HMAC secret on the bridge endpoint is the existing `MCP_AUDIT_SECRET` — the executor reuses it instead of introducing a parallel secret. See [environment.md](../environment.md#python-executor-mcp_execute--mcp_help) for the full table including the per-run env vars (`MEDTRACKER_PROXY_URL`, `MEDTRACKER_RUN_TOKEN`) that the executor sets inside the sandbox.
 
 ### Local development
 

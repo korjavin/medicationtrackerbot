@@ -1,5 +1,15 @@
 # MCP Coverage Policy
 
+> **ARCHIVED — but the guard it documents is still live.**
+> `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` still runs against
+> `internal/server`, which still compiles, so a new `apiMux.HandleFunc` there
+> will still fail CI and **this file is the explanation**. It is archived
+> because `internal/server` is not built or deployed, not because the policy
+> stopped being enforced. `CLAUDE.md` → *Adding a new HTTP route* points here
+> for exactly that reason.
+> The cloud-side sibling — regenerate-or-exempt for the MCP catalog — is
+> [docs/architecture.md §7](../architecture.md#7-mcp).
+
 Every HTTP route registered on the bot's server must be reachable through the MCP operation registry — or explicitly opted out, with a written reason. A test enforces this on every CI run, so adding a new route without satisfying one of those two paths will fail the build.
 
 The goal is concrete: an agent connected to the MCP server should be able to do anything a human can do in the web UI. If a route exists, the agent must either be able to call it, or there must be a written reason why not.
@@ -85,7 +95,7 @@ The bridge URL-escapes substitution values, so a path-param value of `1/2` is en
 
 ## Cloud mode: a two-tool surface, and a second coverage guard
 
-Everything above describes **bot mode**, where the MCP server runs beside the database and can read it. Cloud mode (`cmd/cloud`, see [cloud-mode.md](cloud-mode.md)) is zero-knowledge: the server never sees vault plaintext. That changes the coverage story in two ways.
+Everything above describes **bot mode**, where the MCP server runs beside the database and can read it. Cloud mode (`cmd/cloud`, see [cloud-mode.md](../cloud-mode.md)) is zero-knowledge: the server never sees vault plaintext. That changes the coverage story in two ways.
 
 **`mcp_execute` has no cloud path, by design.** It forks `python3` subprocesses server-side (`internal/mcp/executor/service.go`). With no readable plaintext there is nothing for a server-side script runner to operate on, and giving it something would mean shipping plaintext to the server — the one property cloud mode exists to prevent. So cloud MCP is `mcp_help` + `mcp_call` only. Calling `mcp_execute` against a cloud connector returns an explicit error naming the reason, not an opaque "unknown method". Multi-step work chains `mcp_call`. Running the sandbox in-browser via Pyodide is the only zero-knowledge-preserving route; the spike (bd med-csu.6) weighed it and decided against building it — a ~10 MB WASM runtime plus `'wasm-unsafe-eval'` on the DEK-bearing page would revert the strict CSP restored by med-7e7.1, for value that `mcp_call` chaining already delivers. See docs/cloud-mode.md (MCP section).
 
