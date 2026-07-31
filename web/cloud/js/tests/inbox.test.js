@@ -437,7 +437,12 @@ describe('startInboxPolling', () => {
         vi.useRealTimers();
     });
 
-    it('does not poll a hidden tab — a backgrounded phone must not drain every 5s', async () => {
+    // med-d15 — the hidden tab IS the case that matters: while the user types in
+    // Telegram, this tab is backgrounded by definition. Skipping the timer there
+    // made the mailbox silent for exactly that window, so the ✅ only ever landed
+    // the moment they switched back. Browsers already clamp background timers to
+    // ~1/min, so the cost is one empty GET per minute, not one per interval.
+    it('polls a hidden tab — the user is in Telegram exactly while this tab is hidden', async () => {
         vi.useFakeTimers();
         const fetchImpl = emptyMailbox();
         const doc = fakeDoc('hidden');
@@ -445,14 +450,16 @@ describe('startInboxPolling', () => {
             apply: vi.fn(), intervalMs: 1000, doc, fetchImpl, records: await pollRecords(),
         });
 
-        await vi.advanceTimersByTimeAsync(5000);
-        expect(fetchImpl).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(3100);
+        expect(fetchImpl).toHaveBeenCalled(); // scheduled ticks drain while hidden
 
-        // ...but drains the moment it comes back, covering the hidden gap.
+        // ...and coming back still drains immediately, without waiting out the
+        // rest of the interval.
+        const whileHidden = fetchImpl.mock.calls.length;
         doc.visibilityState = 'visible';
         doc.fire('visibilitychange');
         await vi.advanceTimersByTimeAsync(200);
-        expect(fetchImpl).toHaveBeenCalled();
+        expect(fetchImpl.mock.calls.length).toBeGreaterThan(whileHidden);
         stop();
         vi.useRealTimers();
     });
