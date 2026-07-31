@@ -177,7 +177,7 @@ jobs:
           name: web-bundle-sha256sums-${{ github.sha }}
           path: /tmp/SHA256SUMS-web.txt
 
-      - name: Update and commit docker-compose.yml
+      - name: Update and commit docker-compose.cloud.yml
         env:
           GITHUB_REPO_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
@@ -187,15 +187,16 @@ jobs:
           git config user.email "actions@github.com"
           git checkout -B deploy
 
-          # Update image tags in docker-compose.yml
+          # Update image tags in docker-compose.cloud.yml — the only deployed
+          # stack. The bot stack's docker-compose.yml is gone (bd med-cul).
           # Replaces :latest (or any tag) with :<sha>
           # Using environment variables prevents template injection attacks
-          
+
           IMAGE_NAME="ghcr.io/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}"
 
-          sed -i "s|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${GITHUB_COMMIT_SHA}|g" docker-compose.yml docker-compose.cloud.yml
+          sed -i "s|image: ${IMAGE_NAME}:.*|image: ${IMAGE_NAME}:${GITHUB_COMMIT_SHA}|g" docker-compose.cloud.yml
 
-          git add docker-compose.yml docker-compose.cloud.yml
+          git add docker-compose.cloud.yml
           git commit -m "ci: Update image tag to ${GITHUB_COMMIT_SHA}" || echo "No changes to commit"
           git push origin deploy --force
 

@@ -11,39 +11,27 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
+# Only ./cloud is shipped. cmd/bot, cmd/mcptool and cmd/seeddemo still exist in
+# the tree and still compile under `go build ./...` in CI — they are simply not
+# deployed anywhere any more, so they are not in the image.
 # CGO_ENABLED=0 for static binary, works with Checkpoint/ModernC SQLite.
 # Only mount the go-build cache here; mounting /go/pkg/mod would shadow the
 # modules baked into the previous layer.
 RUN --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -o bot ./cmd/bot && \
-    CGO_ENABLED=0 GOOS=linux go build -o mcptool ./cmd/mcptool && \
-    CGO_ENABLED=0 GOOS=linux go build -o seeddemo ./cmd/seeddemo && \
     CGO_ENABLED=0 GOOS=linux go build -o cloud ./cmd/cloud
 
 FROM alpine:latest
 WORKDIR /app
 
-# Install dependencies including su-exec for privilege dropping. Python is
-# bundled so the MCP server's in-process executor (internal/mcp/executor)
-# can spawn the sandbox runner from python/runner/runner.py without
-# requiring a side container in MVP deployments.
 RUN apk upgrade --no-cache && \
-    apk add --no-cache tzdata ca-certificates su-exec python3
+    apk add --no-cache tzdata ca-certificates su-exec
 
-COPY --from=builder /app/bot .
-COPY --from=builder /app/mcptool .
-COPY --from=builder /app/seeddemo .
+# cmd/cloud serves the frontend from go:embed (web/static/embed.go,
+# web/cloud/embed.go), so there is no web tree to copy — the bytes are already
+# in the binary. Python is gone with the MCP executor, which only ever ran in
+# the bot / mcptool binaries.
 COPY --from=builder /app/cloud .
-COPY --from=builder /app/web ./web
-# Vendor the Python helper + runner so the executor can spawn it in-process.
-# The helper has no third-party deps (urllib + json from stdlib), which is
-# why we don't need pip in the runtime image.
-COPY --from=builder /app/python ./python
 COPY entrypoint.sh /entrypoint.sh
-
-# Replace TIMESTAMP_PLACEHOLDER with actual build time for cache busting
-RUN BUILD_TIME=$(date +%s) && \
-    sed -i "s/TIMESTAMP_PLACEHOLDER/$BUILD_TIME/g" /app/web/static/index.html
 
 # Make entrypoint executable and create non-root user
 RUN chmod +x /entrypoint.sh && \
@@ -56,4 +44,4 @@ RUN chmod +x /entrypoint.sh && \
 
 EXPOSE 8080
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["./bot"]
+CMD ["./cloud"]
