@@ -20,6 +20,9 @@ import {
 import { createApiRouter } from '../apishim.js';
 import { generateDEK } from '../crypto.js';
 import { ORIGIN_UI } from '../sync.js';
+import { CATALOG } from '../mcp-responder.js';
+import { CATALOG as GENERATED } from '../mcp-catalog.generated.js';
+import { CLOUD_EXTRA_PARAMS } from '../mcp-catalog.cloud-extra.js';
 import {
   MAX_LIMIT, clampDays, clampLimit, clampOffset, pageOf,
 } from '../../../domain/paginate.js';
@@ -165,5 +168,29 @@ describe('paginate clamps (med-vgw)', () => {
     expect(pageOf(rows, 2, 2)).toEqual([3, 4]);
     expect(pageOf(rows, 2, 4)).toEqual([5]);
     expect(pageOf(rows, 2, 9)).toEqual([]);
+  });
+});
+
+// `offset` is implemented by the cloud router only — the legacy bot server's Go
+// handlers for these same routes ignore it. Advertising it in the shared
+// registry would tell a bot-mode agent it can walk a history while it silently
+// re-reads page one, so it is overlaid onto the catalog cloud-side instead.
+describe('the offset param is advertised cloud-side only (med-vgw)', () => {
+  const props = (catalog, id) => catalog.find((op) => op.id === id)?.params_schema?.properties || {};
+
+  Object.keys(CLOUD_EXTRA_PARAMS).forEach((id) => {
+    it(`${id}: offset in the cloud catalog, absent from the generated one`, () => {
+      // A renamed or dropped op must not leave a dangling overlay entry.
+      expect(GENERATED.some((op) => op.id === id)).toBe(true);
+      expect(props(CATALOG, id)).toHaveProperty('offset');
+      expect(props(GENERATED, id)).not.toHaveProperty('offset');
+      // The overlay must not have mutated the shared generated module.
+      expect(props(CATALOG, id).limit).toBeDefined();
+    });
+  });
+
+  it('food products keeps offset in the shared registry — bot mode really parses it', () => {
+    expect(props(GENERATED, 'food.products.list')).toHaveProperty('offset');
+    expect(props(GENERATED, 'food.products.frequent')).toHaveProperty('offset');
   });
 });

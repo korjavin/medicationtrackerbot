@@ -32,11 +32,10 @@ func HealthOperations() []*Operation {
   "type": "object",
   "properties": {
     "days":  {"type": "integer", "minimum": 1, "description": "Look back this many days (default 30; capped by MCP_MAX_QUERY_DAYS)"},
-    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Max rows to return (default 100, max 1000). Absent or <= 0 means the default, never 'all rows'; larger values are clamped to the max. A full page means there may be more."},
-    "offset": {"type": "integer", "minimum": 0, "description": "Rows to skip before this page (default 0). Walk the history by advancing it one page size at a time until a short or empty page comes back."}
+    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Max rows to return (default 100, max 1000). Absent or <= 0 means the default, never 'all rows'; larger values are clamped to the max. A full page means there may be more — narrow days to see the rest."}
   }
 }`),
-			Description:     "List blood pressure readings, newest first. Use days/limit to constrain the window, and limit/offset to page through a long history.",
+			Description:     "List blood pressure readings, newest first. Use days/limit to constrain the window.",
 			ResponseSummary: "JSON array of BP readings with id, measured_at, systolic, diastolic, pulse, site, position, notes, tag.",
 			ResponseExample: `[
   {"id": 412, "measured_at": "2026-04-29T08:00:00Z", "systolic": 122, "diastolic": 78, "pulse": 64, "site": "left_arm", "position": "seated", "notes": "", "tag": "morning"},
@@ -194,11 +193,10 @@ output(result)`,
   "type": "object",
   "properties": {
     "days":  {"type": "integer", "minimum": 1, "description": "Look back this many days (default 30; capped by MCP_MAX_QUERY_DAYS)"},
-    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Max rows to return (default 100, max 1000). Absent or <= 0 means the default, never 'all rows'; larger values are clamped to the max. A full page means there may be more."},
-    "offset": {"type": "integer", "minimum": 0, "description": "Rows to skip before this page (default 0). Walk the history by advancing it one page size at a time until a short or empty page comes back."}
+    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Max rows to return (default 100, max 1000). Absent or <= 0 means the default, never 'all rows'; larger values are clamped to the max. A full page means there may be more — narrow days to see the rest."}
   }
 }`),
-			Description:     "List weight log entries, newest first. Page a long history with limit/offset.",
+			Description:     "List weight log entries, newest first.",
 			ResponseSummary: "JSON array of weight logs with id, measured_at, weight (kg), weight_trend, body_fat, muscle_mass, notes.",
 			ResponseExample: `[
   {"id": 88, "measured_at": "2026-04-29T07:00:00Z", "weight": 78.4, "weight_trend": 78.6, "body_fat": 18.2, "muscle_mass": 36.1, "notes": ""},
@@ -228,8 +226,7 @@ output(result)`,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "limit": {"type": "integer", "minimum": 1, "maximum": 200, "description": "Max rows to return (default 100, max 200 — the goal history's own cap). Absent or <= 0 means the default, never 'all rows'. A full page means there may be more."},
-    "offset": {"type": "integer", "minimum": 0, "description": "Rows to skip before this page (default 0)."}
+    "limit": {"type": "integer", "minimum": 1, "maximum": 200, "description": "Max rows to return (default 100, max 200 — the goal history's own cap). Absent or <= 0 means the default, never 'all rows'."}
   }
 }`),
 			Description:     "List the user's historical weight goals (append-only, sorted newest first). Useful for retrospective analysis of how a user's goals evolved over time — each row captures the goal weight, target date, and the user's weight at the moment the goal was saved.",
@@ -370,8 +367,7 @@ output(result["sleep_stats_30d"])`,
     "days":  {"type": "integer", "minimum": 1, "description": "Look back this many days from now (default 90; ignored when 'from' is set; may be capped by MCP_MAX_QUERY_DAYS)"},
     "from":  {"type": "string", "description": "Lower bound on session start. RFC3339 timestamp or bare YYYY-MM-DD (UTC). Overrides 'days'."},
     "to":    {"type": "string", "description": "Upper bound on session start. RFC3339 timestamp or bare YYYY-MM-DD (UTC)."},
-    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Max sessions to return, newest first (default 100, max 1000). Absent or <= 0 means the default, never 'all sessions'; larger values are clamped to the max. A full page means there may be more."},
-    "offset": {"type": "integer", "minimum": 0, "description": "Sessions to skip before this page (default 0). Walk a long sleep history by advancing it one page size at a time until a short or empty page comes back."}
+    "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Max sessions to return, newest first (default 100, max 1000). Absent or <= 0 means the default, never 'all sessions'; larger values are clamped to the max. A full page means there may be more — narrow the from/to range to see the rest."}
   }
 }`),
 			Description:     "List raw device-imported sleep sessions, newest first, each with full phase breakdown (light/deep/REM/awake minutes), total minutes, turn-over count, and HR/SpO2 averages. This is the detailed, range-queryable sleep source — use it (NOT health.notes.*) for sleep-recovery / phase analysis, and prefer it over health.overview when you need a window other than the trailing 7/30 days (e.g. a past trip). Provide an explicit from/to range or a days look-back. This replaces the older get_sleep_logs endpoint.",
@@ -396,8 +392,7 @@ output(result)`,
   "properties": {
     "days":      {"type": "integer", "minimum": 1, "description": "Look back this many days (default 30; capped by MCP_MAX_QUERY_DAYS)"},
     "limit":     {"type": "integer", "minimum": 1, "maximum": 200, "description": "Max notes to return (default 50, max 200). Absent or <= 0 means the default, never 'all notes'; larger values are clamped to the max. A full page means there may be more."},
-    "offset":    {"type": "integer", "minimum": 0, "description": "Notes to skip before this page (default 0). Simple alternative to before_id for walking pages; prefer before_id when notes may be written while you page."},
-    "before_id": {"type": "integer", "description": "Pagination cursor: only notes with id < this value. Pass the id of the last note on the previous page."}
+    "before_id": {"type": "integer", "description": "Pagination cursor — this is how you page: pass the id of the last note on the previous page to get the next one. A full page means there may be more."}
   }
 }`),
 			Description:     "List MANUAL diary notes (newest first). Each row carries an optional tag: SLEEP, STRESS, HR, SPO2, STEPS, NOTE. NOTE: this returns hand-written journal entries only, NOT device-imported data. For structured sleep phases or wearable HR/SpO2/stress/step time series, use health.overview instead.",

@@ -132,3 +132,35 @@ export const CLOUD_EXTRA = [
     },
   },
 ];
+
+// CLOUD_EXTRA_PARAMS: params that exist ONLY in cloud mode, merged into the
+// generated catalog's schemas at the responder's import site.
+//
+// `offset` is the paging channel for these lists (med-vgw). It is implemented
+// in web/cloud/js/apishim.js's createApiRouter, which is a cloud-mode component
+// — the legacy bot server's Go handlers for the same routes parse `limit` (and
+// notes' before_id cursor) and ignore `offset` entirely. Declaring it in the
+// shared Go registry would therefore advertise a param that silently returns
+// page one forever in bot mode, which is worse for an agent than no paging at
+// all: it looks like it is walking a history while re-reading the same rows.
+// So it lives here, where only cloud consumers see it.
+//
+// food.products.list / .frequent are deliberately absent: handleGetFoodProducts
+// (internal/server/food_handlers.go) really does parse offset, so those two keep
+// it in the shared registry where it is true of both modes.
+const OFFSET_PARAM = (noun, extra = '') => ({
+  type: 'integer',
+  minimum: 0,
+  description: `${noun} to skip before this page (default 0). Walk the whole history by advancing it `
+    + `one page size at a time until a short or empty page comes back.${extra}`,
+});
+
+export const CLOUD_EXTRA_PARAMS = {
+  'health.bp.list': { offset: OFFSET_PARAM('Readings') },
+  'health.weight.list': { offset: OFFSET_PARAM('Entries') },
+  'health.notes.list': { offset: OFFSET_PARAM('Notes', ' Prefer before_id when notes may be written while you page.') },
+  'health.sleep.list': { offset: OFFSET_PARAM('Sessions') },
+  'health.weight.goal.history.list': { offset: OFFSET_PARAM('Goals') },
+  'workouts.sessions.list': { offset: OFFSET_PARAM('Sessions') },
+  'workouts.miband.list': { offset: OFFSET_PARAM('Workouts') },
+};
