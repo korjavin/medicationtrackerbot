@@ -1177,6 +1177,20 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(sessions.find((s) => s.session.id === scheduled.id).session.status).toBe('pre_skipped');
     });
 
+    it('the next card follows the freshly started ad-hoc, not the earlier pre-skipped session', async () => {
+        const { window, records } = env;
+        const scheduled = await todaysScheduledSession(window);
+        // Decline it AND move it to the top of the day, so ordering P0 purely by
+        // scheduled_time would put it ahead of an ad-hoc started right now.
+        const stored = (await records.list('workoutsession')).find((s) => s.id === scheduled.id);
+        await records.put('workoutsession', { ...stored, status: 'pre_skipped', scheduled_time: '00:01' });
+
+        const adhoc = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        const next = await window.apiCallDirect('/api/workout/sessions/next');
+        expect(next.session.id).toBe(adhoc.id);
+        expect(next.session.status).toBe('in_progress');
+    });
+
     it('ad-hoc Start after today\'s reminder fired (notified, never started) mints a fresh empty ad-hoc', async () => {
         const { window, records } = env;
         const scheduled = await todaysScheduledSession(window);

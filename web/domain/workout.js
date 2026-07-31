@@ -1733,11 +1733,17 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const nowMs = now();
     const todayStr = localDateStr(nowMs, timeZone);
 
-    // PRIORITY 0: active sessions today (notified/in_progress/pre_skipped).
+    // PRIORITY 0: active sessions today (notified/in_progress/pre_skipped),
+    // earliest first — except that a session actually IN PROGRESS outranks one
+    // merely notified or declined, whatever the clock says. Since med-3q8.2 an
+    // ad-hoc started after today's workout was pre-skipped coexists with that
+    // declined row; ordering purely by scheduled_time would point the card at
+    // the workout the user said no to instead of the one they are doing.
     const activeToday = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION))
       .filter((s) => (s.status === 'notified' || s.status === 'in_progress' || s.status === 'pre_skipped')
         && localDateStr(new Date(s.scheduled_date).getTime(), timeZone) === todayStr)
-      .sort((a, b) => (a.scheduled_time < b.scheduled_time ? -1 : a.scheduled_time > b.scheduled_time ? 1 : 0));
+      .sort((a, b) => (a.status === 'in_progress' ? 0 : 1) - (b.status === 'in_progress' ? 0 : 1)
+        || (a.scheduled_time < b.scheduled_time ? -1 : a.scheduled_time > b.scheduled_time ? 1 : 0));
     if (activeToday.length > 0) {
       return buildSessionResponse(activeToday[0], todayStr, !!activeToday[0].snoozed_until);
     }
