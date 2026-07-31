@@ -7922,10 +7922,6 @@ textarea.wg-input {
     white-space: nowrap;
 }
 
-.wg-workouts-session-modal__header-btn--danger {
-    color: var(--color-danger);
-}
-
 .wg-workouts-session-modal__header-btn--save {
     flex: 2 1 auto;
 }

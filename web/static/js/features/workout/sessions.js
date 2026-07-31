@@ -206,12 +206,7 @@ function renderWorkoutSessionInfo(infoContainer, session) {
     });
 
     // A status change is a persisted edit — autosave it like set/reps/notes.
-    // Re-gate the Delete button too: the modal stays open across status changes,
-    // so switching to in_progress must hide Delete (and away from it re-show it),
-    // matching the open-time gate in showWorkoutSessionModal.
     select.addEventListener('change', () => {
-        const deleteBtn = document.getElementById('workout-session-delete-btn');
-        if (deleteBtn) deleteBtn.classList.toggle('hidden', select.value === 'in_progress');
         scheduleAutosave();
     });
 
@@ -690,11 +685,6 @@ async function showWorkoutSessionModal(sessionId) {
             }
         }
 
-        // In-progress sessions can't be deleted from here (only completed/skipped
-        // ones); gate the static header button via `.hidden`, no inline .style.
-        const deleteBtn = document.getElementById('workout-session-delete-btn');
-        if (deleteBtn) deleteBtn.classList.toggle('hidden', data.session.status === 'in_progress');
-
         // Clear any stale autosave error from a previously-open session.
         setAutosaveStatus('saved');
 
@@ -755,6 +745,12 @@ async function deleteExerciseLog(index) {
         if (!ok) return;
 
         const logsContainer = document.getElementById('workout-session-logs');
+        const sessionData = window.WorkoutSessionsState.data;
+        // A plan-backed session re-materializes its planned exercises on every
+        // modal open, so deleting the log (or splicing an un-logged planned row)
+        // is not enough — the removal also has to land on the session snapshot.
+        const planBacked = !!(sessionData && sessionData.variant_id > 0);
+        const hadLog = !!(log.id && log.id > 0);
 
         // Optimistic: splice locally and re-render BEFORE awaiting the network
         // call so the row disappears instantly. Snapshot the removed entry so
@@ -762,13 +758,14 @@ async function deleteExerciseLog(index) {
         const removed = logs.splice(index, 1)[0];
         if (logsContainer) renderWorkoutSessionLogs(logsContainer);
 
-        // Unsaved entries (no id) have no backend state to mutate — the local
-        // splice above is the whole operation.
-        if (!log.id || log.id <= 0) return;
+        // An unsaved row in an ad-hoc session has no backend state at all — the
+        // local splice above is the whole operation.
+        if (!hadLog && !planBacked) return;
 
-        // Optimistic cache: drop the matching saved row from `workout_history`'s
+        // Optimistic cache: drop the matching row from `workout_history`'s
         // session counts so the History sub-tab repaints with the new exercise
-        // count before the DELETE round-trip resolves.
+        // count before the round-trip resolves. An un-logged planned row only
+        // ever counted toward exercises_count, never exercises_completed.
         const historyHandle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
             ? await window.DataStore.applyOptimistic('workout_history', (prev) => {
                 if (!prev || !Array.isArray(prev.sessions)) return prev;
@@ -777,7 +774,9 @@ async function deleteExerciseLog(index) {
                 const next = { ...prev };
                 next.sessions = prev.sessions.map((s) => {
                     if (s?.session?.id !== sessionId) return s;
-                    const done = Math.max(0, (s.exercises_completed || 0) - 1);
+                    const done = hadLog
+                        ? Math.max(0, (s.exercises_completed || 0) - 1)
+                        : (s.exercises_completed || 0);
                     const total = Math.max(done, (s.exercises_count || 0) - 1);
                     return { ...s, exercises_completed: done, exercises_count: total };
                 });
@@ -785,43 +784,47 @@ async function deleteExerciseLog(index) {
             }, ['workout'])
             : null;
 
+        const restore = async () => {
+            logs.splice(index, 0, removed);
+            if (logsContainer) renderWorkoutSessionLogs(logsContainer);
+            if (historyHandle) await historyHandle.rollback();
+        };
+
         try {
-            const result = await apiCall(`/api/workout/sessions/logs/delete?id=${log.id}`, 'DELETE');
-            if (result === null) {
+            // Plan removal FIRST, log delete second, so `restore()` stays
+            // truthful on a partial failure: if the plan removal fails nothing
+            // has been written yet, and if it succeeds but the log delete fails
+            // the log still exists — a restored row renders exactly what the
+            // server holds either way. The reverse order could restore a row
+            // whose log was already tombstoned.
+            if (planBacked) {
+                const result = await apiCall('/api/workout/sessions/planned-exercise/delete', 'POST', {
+                    session_id: sessionData.id,
+                    exercise_id: log.exercise_id || 0,
+                    exercise_name: log.exercise_name,
+                });
                 // Network/5xx: restore the local row + cached count.
-                logs.splice(index, 0, removed);
-                if (logsContainer) renderWorkoutSessionLogs(logsContainer);
-                if (historyHandle) await historyHandle.rollback();
-                return;
+                if (result === null) return await restore();
+            }
+            if (hadLog) {
+                const result = await apiCall(`/api/workout/sessions/logs/delete?id=${log.id}`, 'DELETE');
+                if (result === null) return await restore();
             }
             if (historyHandle) await historyHandle.commit(null);
             await invalidateWorkoutCache();
         } catch (error) {
             // Hard failure: restore the local row + cached count, then surface.
-            logs.splice(index, 0, removed);
-            if (logsContainer) renderWorkoutSessionLogs(logsContainer);
-            if (historyHandle) await historyHandle.rollback();
+            await restore();
             console.error('Error deleting exercise log:', error);
             safeAlert('Failed to delete exercise log');
         }
     });
 }
 
-async function deleteWorkoutSession() {
-    const sessionData = window.WorkoutSessionsState.data;
-    if (!sessionData) return;
-    await safeConfirm('Delete this workout session?', async (ok) => {
-        if (ok) {
-            const result = await apiCall(`/api/workout/sessions/delete?id=${sessionData.id}`, 'DELETE');
-            if (result || result === true) {
-                cancelAutosave(); // session is gone; don't flush edits into it
-                await invalidateWorkoutCache();
-                closeWorkoutSessionModal();
-                loadWorkoutHistoryTab();
-            }
-        }
-    });
-}
+// bd med-ci6: the session-detail modal no longer carries its own Delete —
+// deleting a session lives on the History row's trash icon
+// (deleteWorkoutSessionById in features/workout/history.js), and every entry
+// point that can open a completed/skipped session is such a row.
 
 async function finishWorkoutSession() {
     if (!window.WorkoutSessionsState.data) return;
@@ -859,6 +862,16 @@ function renderSessionDetailActions(container, opts) {
         addBtn.setAttribute('data-offline-disabled', 'true');
         addBtn.disabled = true;
     }
+
+    // bd med-4ca: Finish only makes sense while the workout is actually
+    // running. On a finished session a second tap re-stamped completed_at and
+    // skipped a rotation variant; the domain guards that now, but the button
+    // should not offer a no-op either. Reads the status off the state
+    // showWorkoutSessionModal populates right before calling. "Add Exercise"
+    // above deliberately stays — logging an exercise you forgot on a finished
+    // workout is legitimate — and the status select remains the way to change a
+    // finished session's status.
+    if (window.WorkoutSessionsState?.data?.status !== 'in_progress') return;
 
     // `.workout-action-btn` hooks this into sync.js's offline toggling sweep
     // so the button stays disabled/enabled as connectivity changes while the
@@ -1571,7 +1584,6 @@ window.WorkoutSessions = {
     open: showWorkoutSessionModal,
     close: closeWorkoutSessionModal,
     save: saveWorkoutSessionDetails,
-    delete: deleteWorkoutSession,
     finish: finishWorkoutSession,
     renderInfo: renderWorkoutSessionInfo,
     renderLogs: renderWorkoutSessionLogs,
