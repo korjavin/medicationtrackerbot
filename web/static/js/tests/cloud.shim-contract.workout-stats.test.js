@@ -83,6 +83,96 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         expect(all.total_sessions).toBe(1);
     });
 
+    // med-904.1 — the Load/Balance views read `totals`, `weekly_volume` and
+    // `exercise_totals` off the SAME payload the Consistency view already used,
+    // so switching views never refetches.
+    it('totals exclude warm-up sets from volume, hard sets and reps', async () => {
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        const { window } = env;
+        const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Squat' });
+        const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: session.id, exercise_id: item.id, exercise_name: item.name, source: 'library',
+            status: 'completed',
+            sets: [
+                { weight_kg: 40, reps: 10, set_type: 'warmup' },
+                { weight_kg: 100, reps: 5 },
+                { weight_kg: 100, reps: 5 },
+            ],
+        });
+        await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+        const stats = await window.apiCallDirect('/api/workout/stats');
+        // The 40 kg × 10 warm-up contributes nothing: 2 hard sets, 10 reps, 1000 kg.
+        expect(stats.totals).toEqual({ volume_kg: 1000, hard_sets: 2, reps: 10, pr_count: 1 });
+        expect(stats.exercise_totals).toEqual([
+            { exercise_name: 'Squat', session_count: 1, sets: 2, reps: 10, total_volume_kg: 1000, max_weight_kg: 100 },
+        ]);
+        // weekly_volume shares weekly_activity's ISO-Monday buckets exactly.
+        expect(stats.weekly_volume).toHaveLength(stats.weekly_activity.length);
+        expect(stats.weekly_volume.reduce((sum, w) => sum + w.volume_kg, 0)).toBe(1000);
+        expect(stats.weekly_volume.reduce((sum, w) => sum + w.hard_sets, 0)).toBe(2);
+        // top_exercises deliberately keeps its pre-med-904.1 derived-scalar math
+        // (3 stored sets × max 10 reps × max 100 kg) so the MCP contract holds.
+        expect(stats.top_exercises[0].total_volume_kg).toBe(3000);
+    });
+
+    it('range scopes the load aggregates, while weekly_volume keeps the wider heatmap span', async () => {
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        const { window } = env;
+        const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Deadlift' });
+        const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+            session_id: session.id, exercise_id: item.id, exercise_name: item.name, source: 'library',
+            status: 'completed',
+            sets: [{ weight_kg: 120, reps: 3 }, { weight_kg: 120, reps: 3 }],
+        });
+        await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+        // Same 60-day backdate as the counts test above: inside 90d/all, outside 7d/30d.
+        const backdated = new Date(Date.now() - 60 * 86400000).toISOString();
+        for (const rec of await env.records.list('workoutsession')) {
+            await env.records.put('workoutsession', { ...rec, scheduled_date: backdated });
+        }
+
+        const near = await window.apiCallDirect('/api/workout/stats?range=30d');
+        expect(near.totals).toEqual({ volume_kg: 0, hard_sets: 0, reps: 0, pr_count: 0 });
+        expect(near.exercise_totals).toBeNull();
+        // ...but the 12-week heatmap still covers a 60-day-old week, so its
+        // tonnage bucket is present even when the range excludes it from totals.
+        expect(near.weekly_volume.reduce((sum, w) => sum + w.volume_kg, 0)).toBe(720);
+
+        const far = await window.apiCallDirect('/api/workout/stats?range=90d');
+        expect(far.totals).toEqual({ volume_kg: 720, hard_sets: 2, reps: 6, pr_count: 1 });
+        expect(far.exercise_totals).toHaveLength(1);
+        expect(far.exercise_totals[0]).toMatchObject({ exercise_name: 'Deadlift', sets: 2, max_weight_kg: 120 });
+    });
+
+    it('exercise_totals covers every exercise trained, not just the top-8 slice', async () => {
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        const { window } = env;
+        const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        // Nine exercises with strictly descending volume — the ninth cannot make
+        // the top-8 cut, which is exactly what the Balance view needs to see.
+        for (let i = 0; i < 9; i++) {
+            const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: `Move ${i}` });
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: item.id, exercise_name: item.name, source: 'library',
+                status: 'completed', sets: [{ weight_kg: 100 - i, reps: 5 }],
+            });
+        }
+        await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+        const stats = await window.apiCallDirect('/api/workout/stats');
+        expect(stats.top_exercises).toHaveLength(8);
+        expect(stats.exercise_totals).toHaveLength(9);
+        const topNames = stats.top_exercises.map((e) => e.exercise_name);
+        expect(topNames).not.toContain('Move 8');
+        expect(stats.exercise_totals.map((e) => e.exercise_name)).toContain('Move 8');
+        // Every exercise is a first-ever lift, so every one of them is a PR.
+        expect(stats.totals.pr_count).toBe(9);
+    });
+
     it('exercises/history returns completed logs for one exercise with per-set arrays + session dates, newest-first', async () => {
         env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
         const { window } = env;

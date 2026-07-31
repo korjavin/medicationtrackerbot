@@ -394,6 +394,36 @@ function deriveSetScalars(sets) {
   };
 }
 
+// logWorkTotals reduces one completed log to its WORKING (non-warmup) load —
+// the input to every stats aggregate added for the Load/Balance views
+// (med-904.1). Warm-ups are a ramp, not work, so they contribute nothing to
+// volume, hard sets or reps.
+//
+// Per-set logs (Phase 1, epic med-qj4) are the accurate path: Σ weight×reps
+// over the working sets. Flat-scalar logs have no per-set breakdown, so they
+// keep the historical sets×reps×weight math — where reps_completed is the
+// per-set rep count, hence total reps = sets_completed × reps_completed.
+function logWorkTotals(log) {
+  if (Array.isArray(log.sets) && log.sets.length > 0) {
+    const work = log.sets.filter((s) => s && s.set_type !== 'warmup');
+    let volume = 0;
+    let reps = 0;
+    let maxWeight = 0;
+    for (const s of work) {
+      const w = s.weight_kg || 0;
+      const r = s.reps || 0;
+      volume += w * r;
+      reps += r;
+      if (w > maxWeight) maxWeight = w;
+    }
+    return { volume_kg: volume, hard_sets: work.length, reps, max_weight_kg: maxWeight };
+  }
+  const sets = hasValue(log.sets_completed) ? log.sets_completed : 0;
+  const reps = hasValue(log.reps_completed) ? log.reps_completed : 0;
+  const weight = hasValue(log.weight_kg) ? log.weight_kg : 0;
+  return { volume_kg: sets * reps * weight, hard_sets: sets, reps: sets * reps, max_weight_kg: weight };
+}
+
 // workSetStats reduces a completed log to the two numbers the progression
 // rules inspect: the count of work (non-warmup) sets and the *minimum* reps
 // across them ("hit the target on ALL sets" ⟺ min >= target). Prefers the
@@ -2003,6 +2033,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // pills move every number on screen instead of only the chart.
   // current_streak_weeks is deliberately range-independent: a streak is a
   // property of the whole history, not of the window you happen to be viewing.
+  //
+  // med-904.1 adds `totals`, `weekly_volume` and `exercise_totals` so ONE fetch
+  // feeds all three Stats views (Consistency / Load / Balance) and switching
+  // views is a client-side re-render, never a refetch.
   async function getStats(opts) {
     const rangeDays = { '7d': 7, '30d': 30, '90d': 90 };
     const requested = opts && opts.range;
@@ -2021,6 +2055,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     let completedSessions = 0;
     let skippedSessions = 0;
     const weekMap = new Map();
+    // session id -> its heatmap week, for the log pass below. Only sessions
+    // inside the heatmap span get one, so weekly_volume spans exactly the same
+    // weeks as weekly_activity.
+    const sessionWeek = new Map();
 
     // Weeks (ISO Monday) holding at least one completed session, over the whole
     // history rather than the active range — the streak below walks it.
@@ -2041,6 +2079,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         const entry = weekMap.get(week);
         if (session.status === 'completed') entry.completed++;
         else if (session.status === 'skipped') entry.skipped++;
+        sessionWeek.set(session.id, week);
       }
     }
 
@@ -2063,31 +2102,115 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     while (completedWeeks.has(cursor)) { currentStreakWeeks++; cursor = weekBefore(cursor); }
 
     const sessionSchedule = new Map(allSessions.map((s) => [s.id, new Date(s.scheduled_date).getTime()]));
-    const agg = new Map();
+
+    // Completed logs, oldest session first. The PR pass below needs a running
+    // heaviest-per-exercise over the WHOLE history (an in-range log only counts
+    // as a PR if it also beats out-of-range history), so this list is NOT
+    // windowed — the window tests happen per log inside the loop.
+    const completedLogs = [];
     for (const log of await activeRecords(WORKOUT_RECORD_TYPES.LOG)) {
       const schedMs = sessionSchedule.get(log.session_id);
-      if (log.status !== 'completed' || schedMs === undefined || schedMs < since30) continue;
+      if (log.status !== 'completed' || schedMs === undefined) continue;
+      // A corrupt/unparseable scheduled_date sorts to the epoch rather than
+      // poisoning the comparator; the window tests still use the raw value so
+      // NaN keeps failing them exactly as it did before.
+      completedLogs.push({ log, schedMs, sortAt: Number.isFinite(schedMs) ? schedMs : 0, work: logWorkTotals(log) });
+    }
+    completedLogs.sort((a, b) => (a.sortAt - b.sortAt) || (a.log.id - b.log.id));
+
+    // weekly_volume mirrors weekly_activity's buckets exactly — a trained week
+    // with no logged load is a real zero, not a gap in the trend line.
+    const volumeWeeks = new Map();
+    for (const week of weekKeys) volumeWeeks.set(week, { week, volume_kg: 0, hard_sets: 0, reps: 0 });
+
+    const agg = new Map();
+    const heaviestSoFar = new Map(); // exercise_name -> heaviest working set seen
+    let rangeVolume = 0;
+    let rangeHardSets = 0;
+    let rangeReps = 0;
+    let prCount = 0;
+
+    for (const { log, schedMs, work } of completedLogs) {
+      // PR check runs before any window test: "beat every earlier set" spans
+      // the full history, we only *count* the ones landing inside the range.
+      // A zero-weight (bodyweight) log can never set a weight PR.
+      if (work.max_weight_kg > (heaviestSoFar.get(log.exercise_name) || 0)) {
+        heaviestSoFar.set(log.exercise_name, work.max_weight_kg);
+        if (schedMs >= since30) prCount++;
+      }
+
+      const week = sessionWeek.get(log.session_id);
+      const bucket = week !== undefined ? volumeWeeks.get(week) : undefined;
+      if (bucket) {
+        bucket.volume_kg += work.volume_kg;
+        bucket.hard_sets += work.hard_sets;
+        bucket.reps += work.reps;
+      }
+
+      if (schedMs < since30) continue;
+      rangeVolume += work.volume_kg;
+      rangeHardSets += work.hard_sets;
+      rangeReps += work.reps;
+
       let entry = agg.get(log.exercise_name);
       if (!entry) {
-        entry = { exercise_name: log.exercise_name, sessionIds: new Set(), total_volume_kg: 0, max_weight_kg: 0 };
+        entry = {
+          exercise_name: log.exercise_name,
+          sessionIds: new Set(),
+          // legacy_* keep top_exercises byte-identical to what it emitted
+          // before med-904.1 (derived scalars: setCount × maxReps × maxWeight,
+          // warm-ups included). The unprefixed fields are the working-set-
+          // accurate numbers the Load/Balance views read. They only diverge for
+          // per-set logs; see logWorkTotals.
+          legacy_volume_kg: 0,
+          legacy_max_weight_kg: 0,
+          total_volume_kg: 0,
+          sets: 0,
+          reps: 0,
+          max_weight_kg: 0,
+        };
         agg.set(log.exercise_name, entry);
       }
       entry.sessionIds.add(log.session_id);
       if (hasValue(log.sets_completed) && hasValue(log.reps_completed) && hasValue(log.weight_kg)) {
-        entry.total_volume_kg += log.sets_completed * log.reps_completed * log.weight_kg;
+        entry.legacy_volume_kg += log.sets_completed * log.reps_completed * log.weight_kg;
       }
-      if (hasValue(log.weight_kg) && log.weight_kg > entry.max_weight_kg) entry.max_weight_kg = log.weight_kg;
+      if (hasValue(log.weight_kg) && log.weight_kg > entry.legacy_max_weight_kg) {
+        entry.legacy_max_weight_kg = log.weight_kg;
+      }
+      entry.total_volume_kg += work.volume_kg;
+      entry.sets += work.hard_sets;
+      entry.reps += work.reps;
+      if (work.max_weight_kg > entry.max_weight_kg) entry.max_weight_kg = work.max_weight_kg;
     }
+
     let topExercises = Array.from(agg.values())
       .map((entry) => ({
         exercise_name: entry.exercise_name,
         session_count: entry.sessionIds.size,
-        total_volume_kg: entry.total_volume_kg,
-        max_weight_kg: entry.max_weight_kg,
+        total_volume_kg: entry.legacy_volume_kg,
+        max_weight_kg: entry.legacy_max_weight_kg,
       }))
       .sort((a, b) => b.total_volume_kg - a.total_volume_kg)
       .slice(0, 8);
     if (topExercises.length === 0) topExercises = null;
+
+    // Every exercise trained in range (top_exercises is the top-8 slice), which
+    // is what lets the Balance view fold a COMPLETE body-part split instead of
+    // guessing from eight rows.
+    let exerciseTotals = Array.from(agg.values())
+      .map((entry) => ({
+        exercise_name: entry.exercise_name,
+        session_count: entry.sessionIds.size,
+        sets: entry.sets,
+        reps: entry.reps,
+        total_volume_kg: entry.total_volume_kg,
+        max_weight_kg: entry.max_weight_kg,
+      }))
+      .sort((a, b) => b.total_volume_kg - a.total_volume_kg);
+    if (exerciseTotals.length === 0) exerciseTotals = null;
+
+    const weeklyVolume = weekKeys.length ? weekKeys.map((week) => volumeWeeks.get(week)) : null;
 
     return {
       range,
@@ -2099,6 +2222,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       current_streak_weeks: currentStreakWeeks,
       top_exercises: topExercises,
       weekly_activity: weeklyActivity,
+      totals: {
+        volume_kg: rangeVolume,
+        hard_sets: rangeHardSets,
+        reps: rangeReps,
+        pr_count: prCount,
+      },
+      weekly_volume: weeklyVolume,
+      exercise_totals: exerciseTotals,
     };
   }
 
