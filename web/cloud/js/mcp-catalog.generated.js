@@ -2529,8 +2529,8 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/workout/stats",
     "risk": "read",
-    "description": "Get aggregated workout statistics: session counts, completion rate, the current weekly streak, the most-trained exercises, and a per-week activity breakdown. `range` scopes the counts and top_exercises (default 30d); current_streak_weeks is always whole-history. There is no per-group breakdown — filter workouts.sessions.list on group_id for that.",
-    "response_summary": "Stats object with range (the echoed window), total_sessions, completed_sessions, skipped_sessions, completion_rate (percent, 0-100), active_weeks, current_streak_weeks, top_exercises[] and weekly_activity[].",
+    "description": "Get aggregated workout statistics: session counts, completion rate, the current weekly streak, the most-trained exercises, a per-week activity breakdown, and the training-load aggregates (working volume / hard sets / reps / PRs, per-week tonnage, and per-exercise totals for EVERY exercise trained in the window). `range` scopes the counts, totals, top_exercises and exercise_totals (default 30d); current_streak_weeks is always whole-history. Warm-up sets (set_type \"warmup\") are excluded from totals, weekly_volume and exercise_totals — they are not working volume. There is no per-group breakdown — filter workouts.sessions.list on group_id for that.",
+    "response_summary": "Stats object with range (the echoed window), total_sessions, completed_sessions, skipped_sessions, completion_rate (percent, 0-100), active_weeks, current_streak_weeks, top_exercises[], weekly_activity[], totals{volume_kg,hard_sets,reps,pr_count}, weekly_volume[] and exercise_totals[]. top_exercises is the top-8 slice; exercise_totals covers every exercise trained in the window. top_exercises/weekly_activity/weekly_volume/exercise_totals are null (not []) when the window holds nothing.",
     "params_schema": {
       "type": "object",
       "properties": {
@@ -2546,7 +2546,7 @@ export const CATALOG = [
         }
       }
     },
-    "response_example": "{\n  \"range\": \"30d\",\n  \"total_sessions\": 48, \"completed_sessions\": 40, \"skipped_sessions\": 8, \"completion_rate\": 83.3, \"active_weeks\": 12, \"current_streak_weeks\": 4,\n  \"top_exercises\": [\n    {\"exercise_name\": \"Bench Press\", \"session_count\": 22, \"total_volume_kg\": 41800.0, \"max_weight_kg\": 75.0}\n  ],\n  \"weekly_activity\": [\n    {\"week\": \"2026-04-27\", \"completed\": 3, \"skipped\": 1}\n  ]\n}"
+    "response_example": "{\n  \"range\": \"30d\",\n  \"total_sessions\": 48, \"completed_sessions\": 40, \"skipped_sessions\": 8, \"completion_rate\": 83.3, \"active_weeks\": 12, \"current_streak_weeks\": 4,\n  \"top_exercises\": [\n    {\"exercise_name\": \"Bench Press\", \"session_count\": 22, \"total_volume_kg\": 41800.0, \"max_weight_kg\": 75.0}\n  ],\n  \"weekly_activity\": [\n    {\"week\": \"2026-04-27\", \"completed\": 3, \"skipped\": 1}\n  ],\n  \"totals\": {\"volume_kg\": 2200.0, \"hard_sets\": 5, \"reps\": 34, \"pr_count\": 1},\n  \"weekly_volume\": [\n    {\"week\": \"2026-04-27\", \"volume_kg\": 2200.0, \"hard_sets\": 5, \"reps\": 34}\n  ],\n  \"exercise_totals\": [\n    {\"exercise_name\": \"Barbell Row\", \"session_count\": 1, \"sets\": 3, \"reps\": 24, \"total_volume_kg\": 1200.0, \"max_weight_kg\": 50.0},\n    {\"exercise_name\": \"Squat\", \"session_count\": 1, \"sets\": 2, \"reps\": 10, \"total_volume_kg\": 1000.0, \"max_weight_kg\": 100.0}\n  ]\n}"
   },
   {
     "id": "workouts.variants.create",

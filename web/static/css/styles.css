@@ -8986,13 +8986,15 @@ textarea.wg-input {
     gap: var(--space-md);
 }
 
-.wg-workouts-stats__range {
+.wg-workouts-stats__range,
+.wg-workouts-stats__view {
     display: flex;
     gap: var(--space-xs);
     padding: var(--wg-workouts-stats-range-pad);
 }
 
-.wg-workouts-stats__range-btn {
+.wg-workouts-stats__range-btn,
+.wg-workouts-stats__view-btn {
     flex: 1;
     min-height: var(--wg-workouts-stats-range-height);
     font-family: var(--wg-font-mono);
@@ -9108,6 +9110,26 @@ textarea.wg-input {
     text-align: center;
     color: var(--wg-fg-4);
     font-size: var(--font-size-md);
+}
+
+/* Balance view "Not trained" row (med-904.2) — the JEFIT-BodyMap-style
+   what-am-I-missing list. Muted chips, deliberately quieter than the trained
+   body-part bars above them: absence is information, not an alarm. */
+.wg-workouts-stats__untrained {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+}
+
+.wg-workouts-stats__untrained-chip {
+    padding: 2px var(--space-xs);
+    border-radius: var(--radius-sm);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.06em;
+    color: var(--wg-fg-4);
+    background: var(--wg-bg-card-inset);
+    border: 1px solid var(--wg-border-hairline);
 }
 
 /* WGWorkoutChart base shell (Phase 7, Task 7). The SVG carries the shared
