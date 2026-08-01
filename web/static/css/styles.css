@@ -8949,14 +8949,25 @@ textarea.wg-input {
     border-bottom: 1px solid var(--wg-border-hairline);
 }
 
+/* This dropdown sits on --wg-gloss-bg-inset (a dark card), so the affordance
+   has to be a light *lift*. It used --wg-ink-08 — dark teal ink at 7%, a
+   light/paper-surface token — which rendered at effectively zero contrast.
+   (med-wu7 fixed two sibling sites with --wg-mini-bar-track-bg, but those were
+   empty wells wanting a recess; a hover state wants the opposite direction.) */
 .wg-exercise-suggest__row:hover,
 .wg-exercise-suggest__row:focus-visible {
-    background: var(--wg-ink-08);
-    outline: none;
+    background: var(--wg-border-strong);
 }
 
-.wg-exercise-suggest__row:active {
-    background: var(--wg-ink-15);
+/* Keyboard focus needs to stay distinguishable from plain hover, so it gets
+   the background lift above *plus* a ring. The offset is negative on purpose:
+   .wg-exercise-suggest is an `overflow-y: auto` scroller, so an outset ring
+   would be clipped on the first and last rows. Previously this selector shared
+   the rule above and set `outline: none`, which removed the UA focus ring and
+   left keyboard nav with no visible target at all. */
+.wg-exercise-suggest__row:focus-visible {
+    outline: 2px solid var(--wg-toggle-border-focus);
+    outline-offset: -2px;
 }
 
 .wg-workouts-log-set-modal__header-actions {
