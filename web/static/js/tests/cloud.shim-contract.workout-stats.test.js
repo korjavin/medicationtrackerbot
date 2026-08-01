@@ -406,6 +406,167 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         expect(history[0].training_goal).toBe('hypertrophy');
     });
 
+    // med-73o: the exercise editor's weight suggestion. The contract that
+    // matters is not the number in isolation — it is that the number comes from
+    // the SAME progression engine that advances a plan after a session, so the
+    // editor can never prescribe a weight the automatic progression disagrees
+    // with. Every case below drives it through the real shim router.
+    describe('exercises/suggest-target (med-73o)', () => {
+        // One completed library session of `name` with the given per-set array.
+        async function logSession(window, name, sets) {
+            const items = await window.apiCall('/api/workout/exercise-library');
+            const item = (items || []).find((i) => i.name === name)
+                || await window.apiCall('/api/workout/exercise-library/create', 'POST', { name });
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: item.id, exercise_name: name,
+                source: 'library', status: 'completed', sets,
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+            return item;
+        }
+
+        it('returns null for a name with no history at all, so the editor field stays blank', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const suggestion = await env.window.apiCallDirect(
+                '/api/workout/exercises/suggest-target?name=Deadlift&goal=strength');
+            expect(suggestion).toBeNull();
+        });
+
+        it('returns null for an empty name (the Add modal opens before anything is typed)', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            expect(await env.window.apiCallDirect('/api/workout/exercises/suggest-target?name=')).toBeNull();
+        });
+
+        it('bumps the load when the rep target was hit near failure, and carries the RPE evidence', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            // Strength: band 3-6 reps, target_rir 2, linear preset. Two work
+            // sets at the band's ceiling, rated RPE 8 (2 RIR) → gate open.
+            await logSession(window, 'Squat', [
+                { weight_kg: 60, reps: 8, set_type: 'warmup' },
+                { weight_kg: 100, reps: 6, rpe: 8 },
+                { weight_kg: 100, reps: 6, rpe: 8 },
+            ]);
+
+            const s = await window.apiCallDirect(
+                '/api/workout/exercises/suggest-target?name=Squat&goal=strength');
+            // Linear preset, default 2.5 kg step, anchored to the LOGGED weight.
+            expect(s.target_weight_kg).toBe(102.5);
+            expect(s.training_goal).toBe('strength');
+            // Evidence: the max working load and the MINIMUM reps across the
+            // work sets — the numbers the engine actually judged, warm-up excluded.
+            expect(s.last.weight_kg).toBe(100);
+            expect(s.last.reps).toBe(6);
+            expect(s.last.effort).toBe('RPE 8 · 2 RIR');
+            expect(s.last.logged_at).toBeTruthy();
+        });
+
+        it('holds the load when the reps were hit with too much left in reserve (RIR gate)', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            // RPE 6 = 4 RIR, well outside strength's target_rir of 2.
+            await logSession(window, 'Squat', [{ weight_kg: 100, reps: 6, rpe: 6 }]);
+
+            const s = await window.apiCallDirect(
+                '/api/workout/exercises/suggest-target?name=Squat&goal=strength');
+            expect(s.target_weight_kg).toBe(100);
+            expect(s.last.effort).toBe('RPE 6 · 4 RIR');
+        });
+
+        it('still suggests with ZERO effort logged anywhere, and omits the effort entirely', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            // No `rpe` on any set — the common case. The RIR gate has no
+            // opinion, so the progression rule alone decides, which still beats
+            // a blank field. `effort` must be null, never '' or 'RPE null'.
+            await logSession(window, 'Squat', [
+                { weight_kg: 100, reps: 6 },
+                { weight_kg: 100, reps: 6 },
+            ]);
+
+            const s = await window.apiCallDirect(
+                '/api/workout/exercises/suggest-target?name=Squat&goal=strength');
+            expect(s.target_weight_kg).toBe(102.5);
+            expect(s.last.effort).toBeNull();
+        });
+
+        it('reads the NEWEST completed log, not the first one stored', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            await logSession(window, 'Squat', [{ weight_kg: 90, reps: 6, rpe: 9 }]);
+            await logSession(window, 'Squat', [{ weight_kg: 110, reps: 6, rpe: 9 }]);
+
+            const s = await window.apiCallDirect(
+                '/api/workout/exercises/suggest-target?name=Squat&goal=strength');
+            expect(s.last.weight_kg).toBe(110);
+            expect(s.target_weight_kg).toBe(112.5);
+        });
+
+        it('a goal with no progression (general) mirrors the last weight rather than inventing a bump', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            await logSession(window, 'Squat', [{ weight_kg: 100, reps: 12, rpe: 9 }]);
+
+            const s = await window.apiCallDirect(
+                '/api/workout/exercises/suggest-target?name=Squat&goal=general');
+            expect(s.target_weight_kg).toBe(100);
+        });
+
+        it('a bodyweight-only history suggests nothing — there is no load to prescribe', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            await logSession(window, 'Pull-up', [{ weight_kg: 0, reps: 10, rpe: 9 }]);
+
+            expect(await window.apiCallDirect(
+                '/api/workout/exercises/suggest-target?name=Pull-up&goal=hypertrophy')).toBeNull();
+        });
+
+        // THE pin: the suggestion must equal what the progression engine would
+        // prescribe for the same log under the same goal. A second weight model
+        // that drifted from progression_preview would be worse than no
+        // suggestion at all, and only an end-to-end comparison catches that.
+        it('agrees, to the kilo, with what progression-preview proposes for the same log + goal', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            // A real plan whose exercise carries exactly what the editor's goal
+            // cascade seeds for hypertrophy: 8-12 reps, `double`, default step.
+            const group = await window.apiCall('/api/workout/groups/create', 'POST', {
+                name: 'Push', training_goal: 'hypertrophy',
+            });
+            const variant = await window.apiCall('/api/workout/variants/create', 'POST', {
+                group_id: group.id, name: 'A',
+            });
+            const exercise = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variant.id, exercise_name: 'Bench', target_sets: 3,
+                target_reps_min: 8, target_reps_max: 12,
+                progression_rule: { type: 'double' },
+            });
+
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            const sets = [
+                { weight_kg: 70, reps: 12, rpe: 9 },
+                { weight_kg: 70, reps: 12, rpe: 9 },
+                { weight_kg: 70, reps: 12, rpe: 9 },
+            ];
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: exercise.id, exercise_name: 'Bench',
+                source: 'schedule', status: 'completed', sets,
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+            const preview = await window.apiCallDirect('/api/workout/progression-preview');
+            const row = preview.exercises.find((e) => e.exercise_name === 'Bench');
+            const s = await window.apiCallDirect(
+                '/api/workout/exercises/suggest-target?name=Bench&goal=hypertrophy');
+
+            expect(row.proposed.target_weight_kg).toBe(72.5);
+            expect(s.target_weight_kg).toBe(row.proposed.target_weight_kg);
+            // …and they explain themselves with the same effort string.
+            expect(s.last.effort).toBe(row.effort);
+        });
+    });
+
     it('mi-band list respects limit, patch applies diff-semantics over six fields, delete tombstones', async () => {
         const now = Date.now();
         env = loadCloudShimFrontendEnv({
