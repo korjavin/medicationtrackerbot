@@ -89,6 +89,7 @@ function effectiveExerciseGoal() {
 // place in the app where a user's own effort ratings visibly do something.
 // No history, offline, or a bodyweight-only past → null → field stays blank and
 // no hint appears, i.e. exactly the behavior before this existed.
+let weightSuggestionSeq = 0;
 async function applyWeightSuggestion(goal) {
     const nameEl = document.getElementById('workout-exercise-name');
     const weightEl = document.getElementById('workout-exercise-weight');
@@ -101,6 +102,15 @@ async function applyWeightSuggestion(goal) {
     const name = nameEl.value.trim();
     if (!name) return;
 
+    // Every call takes a ticket, and only the newest one may write. The name
+    // input and the goal selector each re-ask, so two reads can be in flight at
+    // once; without this an earlier response landing later would prescribe
+    // Squat's weight (and Squat's evidence line) into a form that now says
+    // Bench. Reads are local and fast, which makes the interleave rare — not
+    // impossible, and a wrong weight is exactly the thing this feature exists
+    // to prevent.
+    const ticket = ++weightSuggestionSeq;
+
     let suggestion = null;
     try {
         suggestion = await apiCall(
@@ -109,6 +119,7 @@ async function applyWeightSuggestion(goal) {
     } catch (error) {
         return; // bot mode 404s this route; a blank field is the old behavior
     }
+    if (ticket !== weightSuggestionSeq) return; // superseded
     if (!suggestion || suggestion.target_weight_kg == null) return;
     // Re-check emptiness: the read is async and the user may have typed a
     // weight (or switched to Edit) while it was in flight.

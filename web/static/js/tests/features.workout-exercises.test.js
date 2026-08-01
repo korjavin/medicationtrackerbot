@@ -481,6 +481,44 @@ describe('features/workout/exercises.js — split-file integration', () => {
         '/api/workout/exercises/suggest-target?name=Squat&goal=hypertrophy');
     });
 
+    it('ignores a slow response for a name the user has already changed away from', async () => {
+      const { window, document } = env;
+      stubSuggest(window, RATED);
+      await window.showAddExerciseModal();
+
+      // Squat's read resolves only after Bench's has already landed — the
+      // interleave a plain `await` would let write Squat's weight into a form
+      // that now says Bench.
+      const gate = {};
+      gate.release = () => {};
+      const pending = new Promise((resolve) => { gate.release = resolve; });
+      window.apiCall = vi.fn(async (url) => {
+        const u = String(url);
+        if (u.includes('suggest-target') && u.includes('Squat')) {
+          await pending;
+          return RATED;
+        }
+        if (u.includes('suggest-target') && u.includes('Bench')) {
+          return {
+            target_weight_kg: 60,
+            training_goal: 'hypertrophy',
+            last: { weight_kg: 57.5, reps: 8, effort: null, logged_at: '2026-07-31T10:00:00Z' },
+          };
+        }
+        return [];
+      });
+
+      const nameEl = document.getElementById('workout-exercise-name');
+      nameEl.value = 'Squat';
+      const stale = nameEl.onchange();
+      await typeName(document, 'Bench Press');
+      gate.release();
+      await stale;
+
+      expect(document.getElementById('workout-exercise-weight').value).toBe('60');
+      expect(hintOf(document).textContent).toBe('Last: 57.5 kg × 8');
+    });
+
     it('leaves the field blank and shows no hint for an exercise with no history', async () => {
       const { window, document } = env;
       stubSuggest(window, null);
