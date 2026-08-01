@@ -824,6 +824,18 @@ export function createApiRouter(ctx, {
       return workout.listExerciseLogsByName(params.get('name') || '', { limit: clampLimit(params.get('limit'), 500) });
     }
 
+    // Editor weight suggestion (med-73o): the next target for an exercise NAME
+    // under a training goal, derived by the progression engine from that name's
+    // most recent completed log. UI read only (no MCP op — an agent gets the
+    // same math, plan-wide, from workouts.progression_preview). null = no
+    // history, and the editor leaves the weight field blank.
+    if (path === '/api/workout/exercises/suggest-target' && method === 'GET') {
+      return workout.suggestExerciseTarget({
+        exercise_name: params.get('name') || '',
+        goal: params.get('goal') || '',
+      });
+    }
+
     if (path === '/api/workout/miband' && method === 'GET') {
       const { limit, offset, take } = pageParams(params, 100);
       return pageOf(await workout.listMiBand(take), limit, offset);

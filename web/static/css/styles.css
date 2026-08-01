@@ -8615,6 +8615,16 @@ textarea.wg-input {
     gap: var(--wg-workouts-modal-row-gap);
 }
 
+/* Weight-suggestion evidence line under the weight field (med-73o):
+   "Last: 80 kg × 5 · RPE 8 · 2 RIR". Same muted secondary voice as the library
+   modal's rename hint. */
+.wg-workouts-exercise-modal__hint {
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+    margin: 0;
+}
+
 .wg-workouts-exercise-modal__label {
     font-size: var(--wg-workouts-modal-label-size);
     letter-spacing: 0.14em;

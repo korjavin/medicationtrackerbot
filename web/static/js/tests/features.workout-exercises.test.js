@@ -436,4 +436,142 @@ describe('features/workout/exercises.js — split-file integration', () => {
     });
   });
 
+  // med-73o. The goal cascade can seed every target on this form except the one
+  // that is not a preference — the weight. That number comes from the user's own
+  // logged history via GET /api/workout/exercises/suggest-target, and it is
+  // fill-only in exactly the sense the rep range already is.
+  describe('weight suggestion from history (med-73o)', () => {
+    const RATED = {
+      target_weight_kg: 102.5,
+      training_goal: 'strength',
+      last: { weight_kg: 100, reps: 6, effort: 'RPE 8 · 2 RIR', logged_at: '2026-07-30T10:00:00Z' },
+    };
+
+    function stubSuggest(window, suggestion, exercises = []) {
+      window.WorkoutEdit.variantForExercise = 1;
+      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
+      window.apiCall = vi.fn(async (url) => {
+        if (String(url).startsWith('/api/workout/exercises/suggest-target')) return suggestion;
+        if (String(url).startsWith('/api/workout/exercises?')) return exercises;
+        return [];
+      });
+    }
+
+    const hintOf = (document) => document.getElementById('workout-exercise-weight-hint');
+
+    async function typeName(document, name) {
+      const nameEl = document.getElementById('workout-exercise-name');
+      nameEl.value = name;
+      await nameEl.onchange();
+    }
+
+    it('fills the empty weight field and shows the source set, RPE included', async () => {
+      const { window, document } = env;
+      stubSuggest(window, RATED);
+      await window.showAddExerciseModal();
+
+      await typeName(document, 'Squat');
+
+      expect(document.getElementById('workout-exercise-weight').value).toBe('102.5');
+      expect(hintOf(document).hidden).toBe(false);
+      expect(hintOf(document).textContent).toBe('Last: 100 kg × 6 · RPE 8 · 2 RIR');
+      // The read carries the name AND the effective goal — the suggestion is
+      // goal-differentiated, so asking without one would answer for hypertrophy.
+      expect(window.apiCall).toHaveBeenCalledWith(
+        '/api/workout/exercises/suggest-target?name=Squat&goal=hypertrophy');
+    });
+
+    it('leaves the field blank and shows no hint for an exercise with no history', async () => {
+      const { window, document } = env;
+      stubSuggest(window, null);
+      await window.showAddExerciseModal();
+
+      await typeName(document, 'Zercher squat');
+
+      expect(document.getElementById('workout-exercise-weight').value).toBe('');
+      expect(hintOf(document).hidden).toBe(true);
+      expect(hintOf(document).textContent).toBe('');
+    });
+
+    it('never overwrites a weight the user typed, but still shows the evidence', async () => {
+      const { window, document } = env;
+      stubSuggest(window, RATED);
+      await window.showAddExerciseModal();
+      document.getElementById('workout-exercise-weight').value = '85';
+
+      await typeName(document, 'Squat');
+
+      expect(document.getElementById('workout-exercise-weight').value).toBe('85');
+      expect(hintOf(document).textContent).toBe('Last: 100 kg × 6 · RPE 8 · 2 RIR');
+    });
+
+    it('omits the effort clause entirely when nothing was rated', async () => {
+      const { window, document } = env;
+      // The common case: RPE is optional and most vaults have none. The gate is
+      // open, so the suggestion still lands — with no effort clause at all,
+      // never "RPE null", never a dangling separator.
+      stubSuggest(window, {
+        target_weight_kg: 102.5,
+        last: { weight_kg: 100, reps: 6, effort: null, logged_at: '2026-07-30T10:00:00Z' },
+      });
+      await window.showAddExerciseModal();
+
+      await typeName(document, 'Squat');
+
+      expect(document.getElementById('workout-exercise-weight').value).toBe('102.5');
+      expect(hintOf(document).textContent).toBe('Last: 100 kg × 6');
+      expect(hintOf(document).textContent).not.toContain('·');
+    });
+
+    it('does not ask at all while the name is still empty (modal just opened)', async () => {
+      const { window, document } = env;
+      stubSuggest(window, RATED);
+
+      await window.showAddExerciseModal();
+
+      expect(document.getElementById('workout-exercise-weight').value).toBe('');
+      expect(hintOf(document).hidden).toBe(true);
+      expect(window.apiCall.mock.calls.map((c) => String(c[0]))
+        .some((u) => u.startsWith('/api/workout/exercises/suggest-target'))).toBe(false);
+    });
+
+    it('never overwrites the stored target when editing an existing exercise', async () => {
+      const { window, document } = env;
+      stubSuggest(window, RATED, [{
+        id: 9, exercise_name: 'Squat', target_sets: 3, target_reps_min: 3, target_reps_max: 6,
+        target_weight_kg: 90, order_index: 0, progression_rule: { type: 'linear', increment_kg: 2.5 },
+      }]);
+
+      await window.showEditExerciseModal(9);
+
+      expect(document.getElementById('workout-exercise-weight').value).toBe('90');
+      // …and the evidence still renders, so Edit explains the plan too.
+      expect(hintOf(document).textContent).toBe('Last: 100 kg × 6 · RPE 8 · 2 RIR');
+    });
+
+    it('re-asks after a suggestion-list pick, which assigns the name with no change event', async () => {
+      const { window, document } = env;
+      stubSuggest(window, RATED);
+      await window.showAddExerciseModal();
+
+      document.getElementById('workout-exercise-name').value = 'Squat';
+      await window.onPlanExercisePicked({ name: 'Squat' }); // catalog-only row: no id
+
+      expect(document.getElementById('workout-exercise-weight').value).toBe('102.5');
+      expect(hintOf(document).textContent).toBe('Last: 100 kg × 6 · RPE 8 · 2 RIR');
+    });
+
+    it('leaves the field blank when the route is unavailable (bot mode 404s it)', async () => {
+      const { window, document } = env;
+      stubSuggest(window, null);
+      window.apiCall = vi.fn(async () => { throw new Error('Not found'); });
+      await window.showAddExerciseModal();
+
+      await typeName(document, 'Squat');
+
+      expect(document.getElementById('workout-exercise-weight').value).toBe('');
+      expect(hintOf(document).hidden).toBe(true);
+    });
+  });
+
 });
