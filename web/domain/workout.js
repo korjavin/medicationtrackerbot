@@ -318,6 +318,11 @@ function normalizeSets(sets) {
 
 const VALID_PROGRESSION_TYPES = new Set(['none', 'linear', 'double']);
 
+// Load step used when a rule carries no explicit one. Same 2.5 kg the exercise
+// editor sends for a blank increment field, and the step suggestExerciseTarget
+// prices a goal preset's bump at for an exercise that has no saved rule yet.
+const DEFAULT_INCREMENT_KG = 2.5;
+
 // normalizeProgressionRule validates the optional opt-in progression rule on a
 // workoutexercise record (Phase 4, epic med-qj4.4.1). Absent/null or
 // {type:'none'} means "mirror last performance" (today's behavior) and returns
@@ -339,7 +344,7 @@ function normalizeProgressionRule(input) {
   if (hasValue(increment) && (increment < 0 || increment > 1000)) {
     throw invalidRequest('increment_kg must be between 0 and 1000');
   }
-  const out = { type, increment_kg: hasValue(increment) ? increment : 2.5 };
+  const out = { type, increment_kg: hasValue(increment) ? increment : DEFAULT_INCREMENT_KG };
   const minReps = numOrNull(input.min_reps, true);
   const maxReps = numOrNull(input.max_reps, true);
   if (hasValue(minReps)) {
@@ -2415,13 +2420,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return { exercises: out };
   }
 
-  // listExerciseLogsByName is the per-exercise history read (Phase 3, epic
-  // med-qj4): all completed LOG records for one exercise_name, each joined to
-  // its session's scheduled_date, newest-first. The per-set `sets` array rides
-  // through untouched — web/domain/workout-analysis.js folds est-1RM/PRs/series
-  // over it on the read side. No storage, no MCP catalog entry (UI read only).
-  async function listExerciseLogsByName(name, opts) {
-    const lim = opts && opts.limit > 0 ? opts.limit : 500;
+  // sortedLogsByName is THE per-exercise-name history scan: every completed LOG
+  // record for one exercise_name whose session still exists, newest-first by the
+  // session's scheduled_date. Two consumers share it so there is exactly one
+  // definition of "the most recent log of this exercise" —
+  // listExerciseLogsByName (the detail view's read) and suggestExerciseTarget
+  // (the editor's weight suggestion).
+  async function sortedLogsByName(name) {
     const sessions = await activeRecords(WORKOUT_RECORD_TYPES.SESSION);
     const dateById = new Map(sessions.map((s) => [s.id, s.scheduled_date]));
     const logs = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
@@ -2434,6 +2439,17 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         // record store happened to return, which the goal resolution below reads.
         return byDate || b.session_id - a.session_id;
       });
+    return { logs, dateById };
+  }
+
+  // listExerciseLogsByName is the per-exercise history read (Phase 3, epic
+  // med-qj4): all completed LOG records for one exercise_name, each joined to
+  // its session's scheduled_date, newest-first. The per-set `sets` array rides
+  // through untouched — web/domain/workout-analysis.js folds est-1RM/PRs/series
+  // over it on the read side. No storage, no MCP catalog entry (UI read only).
+  async function listExerciseLogsByName(name, opts) {
+    const lim = opts && opts.limit > 0 ? opts.limit : 500;
+    const { logs, dateById } = await sortedLogsByName(name);
 
     // The exercise's effective training goal rides along (med-qj4.6.4/.5): the
     // detail view's headline emphasis and near-failure advisory are goal-driven,
@@ -2456,6 +2472,81 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         date: dateById.get(l.session_id), sets: l.sets, session_id: l.session_id, training_goal: goal,
       }))
       .slice(0, lim);
+  }
+
+  // suggestExerciseTarget (med-73o) answers the exercise editor's one open
+  // question when you add a lift you have trained for months: what weight?
+  // The vault already holds every set of it you ever logged, with per-set RPE,
+  // so the field has no business opening blank.
+  //
+  // It runs the SAME progression engine that advances a plan after a session —
+  // progressionPatch, with the goal's rep band and its RIR gate — over the most
+  // recent completed log of that NAME. Reusing it is the whole point: a second
+  // weight model that disagreed with the automatic progression would be worse
+  // than no suggestion at all. The exercise does not exist yet at suggest time,
+  // so the plan handed to the engine is synthesized from the goal defaults the
+  // editor's cascade seeds into the very same form (rep band + progression
+  // preset + the default load step), which makes the suggestion exactly "what
+  // this plan would prescribe next".
+  //
+  // No history → null, and the editor leaves the field blank: a brand-new
+  // exercise behaves precisely as it did before this existed. A bodyweight log
+  // (weight 0 — there is no load to progress) is null for the same reason.
+  //
+  // The evidence rides along in `last`, because the number alone is unarguable
+  // in the wrong direction: seeing "Last: 80 kg × 5 · RPE 8 · 2 RIR" is how a
+  // user finds out their own effort ratings drive something. `effort` is null
+  // when no work set of that log was rated — the caller then omits the clause
+  // entirely rather than printing an empty or placeholder one.
+  async function suggestExerciseTarget(input) {
+    const name = String((input && input.exercise_name) || '').trim();
+    if (!name) return null;
+    const goal = normalizeGoal(input && input.goal);
+    const { logs } = await sortedLogsByName(name);
+    const latest = logs[0];
+    if (!latest) return null;
+
+    // Same effective-scalar collapse propagate and progressionPreview do: a
+    // stored 0 means "not logged", not "zero sets".
+    const sets = latest.sets_completed === 0 ? null : latest.sets_completed;
+    const reps = latest.reps_completed === 0 ? null : latest.reps_completed;
+    const stats = workSetStats(sets, reps, latest.sets);
+    if (!stats) return null;
+
+    const band = defaultsForGoal(goal);
+    const plan = {
+      // target_sets stays null so the set-count gate is open: the editor's sets
+      // field is the user's *intent* for the next session, not a bar the last
+      // log had to clear to earn a suggestion.
+      target_sets: null,
+      target_reps_min: band.reps_min,
+      target_reps_max: band.reps_max,
+      target_weight_kg: null,
+      progression_rule: { type: band.progression, increment_kg: DEFAULT_INCREMENT_KG },
+    };
+    // `general` seeds the 'none' preset, whose patch is mirrorPatch — so an
+    // ungated goal suggests the weight you last lifted. That is the correct
+    // answer for a goal that prescribes no progression, not a missing feature.
+    const patch = progressionPatch(plan, sets, reps, latest.weight_kg, latest.sets, goal);
+    const lastWeight = hasValue(latest.weight_kg) && latest.weight_kg > 0 ? latest.weight_kg : null;
+    // {} means the rule held the plan with no anchor to hold it at; fall back to
+    // the logged weight so "hold" still beats a blank field.
+    const target = hasValue(patch.target_weight_kg) ? patch.target_weight_kg : lastWeight;
+    if (!hasValue(target) || target <= 0) return null;
+
+    return {
+      target_weight_kg: target,
+      training_goal: goal,
+      last: {
+        weight_kg: lastWeight,
+        // The MINIMUM reps across the work sets — the same number the engine
+        // judged, not the best set. Showing the max would explain a suggestion
+        // the engine did not make.
+        reps: stats.minReps,
+        effort: formatEffort(stats.minRpe),
+        logged_at: latest.logged_at || null,
+      },
+    };
   }
 
   // -- Mi-Band (read/edit side only — see plan Task 5: ingestion has no
@@ -2645,6 +2736,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     getStats,
     progressionPreview,
     listExerciseLogsByName,
+    suggestExerciseTarget,
     createMiBand,
     listMiBand,
     updateMiBand,

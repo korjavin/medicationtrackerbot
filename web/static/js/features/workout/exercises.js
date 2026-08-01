@@ -74,20 +74,79 @@ function effectiveExerciseGoal() {
     return document.getElementById('workout-exercise-goal').value || routineGoalForExercise();
 }
 
+// Weight suggestion from the user's own logged history (med-73o). The goal
+// defaults can seed every target on this form except the one that matters most
+// — the weight — because that number is not a preference, it is what you
+// actually lifted. GET /api/workout/exercises/suggest-target runs the same
+// progression engine that advances a plan after a session over the newest
+// completed log of this NAME, so the editor and the automatic progression can
+// never disagree.
+//
+// Fill-only, exactly like the rep range: it writes only into an EMPTY field, so
+// a weight the user typed — and an existing exercise's stored target on Edit —
+// is never overwritten. The evidence line renders whenever there IS history,
+// filled field or not: seeing "Last: 80 kg × 5 · RPE 8 · 2 RIR" is the first
+// place in the app where a user's own effort ratings visibly do something.
+// No history, offline, or a bodyweight-only past → null → field stays blank and
+// no hint appears, i.e. exactly the behavior before this existed.
+async function applyWeightSuggestion(goal) {
+    const nameEl = document.getElementById('workout-exercise-name');
+    const weightEl = document.getElementById('workout-exercise-weight');
+    const hintEl = document.getElementById('workout-exercise-weight-hint');
+    if (!nameEl || !weightEl) return;
+    if (hintEl) {
+        hintEl.textContent = '';
+        hintEl.hidden = true;
+    }
+    const name = nameEl.value.trim();
+    if (!name) return;
+
+    let suggestion = null;
+    try {
+        suggestion = await apiCall(
+            `/api/workout/exercises/suggest-target?name=${encodeURIComponent(name)}&goal=${encodeURIComponent(goal || '')}`
+        );
+    } catch (error) {
+        return; // bot mode 404s this route; a blank field is the old behavior
+    }
+    if (!suggestion || suggestion.target_weight_kg == null) return;
+    // Re-check emptiness: the read is async and the user may have typed a
+    // weight (or switched to Edit) while it was in flight.
+    if (!weightEl.value) weightEl.value = suggestion.target_weight_kg;
+
+    const last = suggestion.last;
+    if (!hintEl || !last || last.weight_kg == null) return;
+    // The effort clause is omitted ENTIRELY when no work set of that log was
+    // rated — never "RPE null", never a placeholder.
+    const parts = [`${last.weight_kg} kg × ${last.reps}`];
+    if (last.effort) parts.push(last.effort);
+    hintEl.textContent = `Last: ${parts.join(' · ')}`;
+    hintEl.hidden = false;
+}
+
 // Fill-only cascade: pre-fill rep-range + progression preset from the goal
-// defaults. Never disables editing; the user can still override every field.
+// defaults, and the weight from history. Never disables editing; the user can
+// still override every field. Returns the suggestion's promise so callers that
+// care about the settled form (and tests) can await it.
 function applyGoalCascade(goal) {
     const d = WORKOUT_GOAL_DEFAULTS[goal] || WORKOUT_GOAL_DEFAULTS.hypertrophy;
     document.getElementById('workout-exercise-reps-min').value = d.reps_min;
     document.getElementById('workout-exercise-reps-max').value = d.reps_max;
     document.getElementById('workout-exercise-progression').value = d.progression;
+    return applyWeightSuggestion(goal);
 }
 
 // Wire the goal selector so changing it re-runs the cascade for the effective
-// goal. Idempotent (assigns onchange, not addEventListener).
+// goal, and the name field so leaving it re-asks for that exercise's history
+// (on open the name is still blank, so the suggestion has nothing to go on).
+// Idempotent (assigns onchange, not addEventListener).
 function bindGoalCascade() {
     const goalSel = document.getElementById('workout-exercise-goal');
     if (goalSel) goalSel.onchange = () => applyGoalCascade(effectiveExerciseGoal());
+    const nameEl = document.getElementById('workout-exercise-name');
+    // `onchange`, not `oninput`: the picker already owns `oninput` for its
+    // suggestion list, and one read per finished name beats one per keystroke.
+    if (nameEl) nameEl.onchange = () => applyWeightSuggestion(effectiveExerciseGoal());
 }
 
 async function loadExercisesForVariant(variantId, containerId = 'workout-exercises-list') {
@@ -225,7 +284,7 @@ async function showAddExerciseModal() {
     // defaults for it (all still editable), and wire the change cascade.
     document.getElementById('workout-exercise-goal').value = '';
     bindGoalCascade();
-    applyGoalCascade(routineGoalForExercise());
+    await applyGoalCascade(routineGoalForExercise());
 
     // Shared inline suggestion list (med-prk.3, med-max): library + catalog
     // names under the field, no native <datalist> popup over the keyboard.
@@ -239,7 +298,12 @@ async function showAddExerciseModal() {
 // A row was tapped in the plan modal's suggestion list. Catalog-only rows carry
 // no id and no defaults, so there is nothing to pre-fill from them.
 function onPlanExercisePicked(item) {
-    if (item.id == null) return;
+    // The picker assigns input.value directly, which fires no `change` event —
+    // so the name-driven weight suggestion has to be re-asked here. Runs for
+    // catalog-only rows too (med-73o): a name with no library row can still
+    // have ad-hoc logs behind it, and that history is the whole point.
+    const suggested = applyWeightSuggestion(effectiveExerciseGoal());
+    if (item.id == null) return suggested;
     if (!document.getElementById('workout-exercise-sets').value && item.default_sets)
         document.getElementById('workout-exercise-sets').value = item.default_sets;
     // In the Add flow reps are goal-cascade-seeded on open, so a bare `!value`
@@ -256,8 +320,11 @@ function onPlanExercisePicked(item) {
         repsMinEl.value = item.default_reps_min;
     if (item.default_reps_max && (isAdd || !repsMaxEl.value))
         repsMaxEl.value = item.default_reps_max;
+    // The library item's own saved default lands first (it is synchronous); the
+    // in-flight suggestion then sees a filled field and only renders its hint.
     if (!document.getElementById('workout-exercise-weight').value && item.default_weight_kg)
         document.getElementById('workout-exercise-weight').value = item.default_weight_kg;
+    return suggested;
 }
 
 async function showAddExerciseModalFromGroup() {
@@ -291,6 +358,11 @@ async function showEditExerciseModal(exerciseId) {
     // progression above are kept as-is — the cascade only fires on a change.
     document.getElementById('workout-exercise-goal').value = exercise.training_goal || '';
     bindGoalCascade();
+    // Not a cascade — the stored rep-range/progression above stay as-is. This
+    // only clears any hint left over from a previous open and re-renders the
+    // "Last: …" evidence for this exercise; the stored target above already
+    // filled the weight field, so the fill-only guard leaves it alone.
+    await applyWeightSuggestion(effectiveExerciseGoal());
 }
 
 function closeExerciseModal() {
