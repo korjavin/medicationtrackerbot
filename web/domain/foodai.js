@@ -92,7 +92,7 @@ export function convertParsedMeal(parsed) {
 }
 
 // createFoodAIDomain builds the food-AI API over the injected ports:
-//   aiClient    — { parseMealFromDescription(text), parseMealFromImage(file) },
+//   aiClient    — { parseMealFromDescription(text), parseMealFromImage(file, caption) },
 //                 both resolving to a ParsedMeal ({items:[...]}); throws with
 //                 .code 'no_api_key' when no provider key is configured (the
 //                 replacement for the server's food_intake_enabled gate) —
@@ -135,8 +135,11 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
     return saveParsedItems(parsed, eatenAt ?? now(), recordIdFor);
   }
 
-  async function parseMealFromPhoto(file, { eatenAt, recordIdFor } = {}) {
-    const parsed = await aiClient.parseMealFromImage(file);
+  // caption — what the user wrote alongside the photo (a Telegram caption).
+  // Passed to the model as a hint, never as a substitute for the image: it is
+  // what makes "300g" beat guessing the portion from pixels.
+  async function parseMealFromPhoto(file, { eatenAt, recordIdFor, caption } = {}) {
+    const parsed = await aiClient.parseMealFromImage(file, (caption || '').trim());
     return saveParsedItems(parsed, eatenAt ?? now(), recordIdFor);
   }
 

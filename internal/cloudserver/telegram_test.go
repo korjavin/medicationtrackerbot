@@ -2307,6 +2307,7 @@ func TestChildWebhook_SealsPhotoFileIDNotBytes(t *testing.T) {
 	secret := childPath[strings.LastIndex(childPath, "/")+1:]
 	// Ascending sizes — the relay must seal the LAST (largest) file_id.
 	body := `{"update_id":9,"message":{"message_id":7,"chat":{"id":12345,"type":"private"},` +
+		`"caption":"chicken salad, 300g",` +
 		`"photo":[{"file_id":"small","file_size":100,"width":90,"height":90},` +
 		`{"file_id":"large","file_size":9000,"width":900,"height":900}]}}`
 	if rec := postWebhook(t, top, childPath, secret, body); rec.Code != http.StatusOK {
@@ -2340,6 +2341,11 @@ func TestChildWebhook_SealsPhotoFileIDNotBytes(t *testing.T) {
 	}
 	if ev.Mime != "image/jpeg" || ev.Size != 9000 {
 		t.Errorf("sealed mime/size = %q/%d, want image/jpeg/9000", ev.Mime, ev.Size)
+	}
+	// The caption rides along verbatim — it is the only place a portion the photo
+	// cannot show ("300g") can come from, and the relay must not parse it.
+	if ev.Caption != "chicken salad, 300g" {
+		t.Errorf("sealed caption = %q, want it verbatim", ev.Caption)
 	}
 	if ev.ReplyMessageID == 0 || ev.AtUnix == 0 {
 		t.Errorf("sealed photo event missing reply id / timestamp: %+v", ev)
