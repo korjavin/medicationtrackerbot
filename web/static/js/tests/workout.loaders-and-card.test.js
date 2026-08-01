@@ -64,6 +64,31 @@ describe('workout.js loaders and next-card behavior', () => {
     }
   });
 
+  // med-2fc: the ad-hoc CTA used to be static markup in index.html, so an
+  // empty next-workout container was harmless. Now Start AdHoc is rendered
+  // only by _renderNextWorkout, and a read failure with nothing cached would
+  // otherwise strip the screen's only way to start a workout.
+  it('loadNextWorkout keeps the Start AdHoc card when the read fails with no cache', async () => {
+    const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
+
+    try {
+      const nextCard = document.getElementById('next-workout-card');
+      nextCard.innerHTML = '<div>stale</div>';
+
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        await options.onError(new Error('offline'), null);
+      });
+
+      await window.loadNextWorkout();
+
+      expect(nextCard.querySelector('.wg-workouts-next-card')).not.toBeNull();
+      expect(nextCard.innerHTML).toContain('Start AdHoc');
+      expect(nextCard.innerHTML).not.toContain('stale');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('nextWorkoutVariant handles success and failure paths', async () => {
     const { window, cleanup } = loadFrontendEnv({ withWorkout: true });
 

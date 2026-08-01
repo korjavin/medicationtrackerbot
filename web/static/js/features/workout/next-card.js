@@ -189,7 +189,11 @@ async function loadNextWorkout() {
         },
         onError: async (error, cached) => {
             console.error('Error loading next workout:', error);
-            if (!cached) container.replaceChildren();
+            // med-2fc: Start AdHoc now lives only inside the card, so a
+            // no-cache read failure must still render the ad-hoc-only card
+            // rather than emptying the container — otherwise a transient
+            // fetch error leaves the screen with no way to start a workout.
+            if (!cached) _renderNextWorkout(container, null);
             await renderWorkoutHistoryStaleBadge();
         }
     });
