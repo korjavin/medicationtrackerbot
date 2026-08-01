@@ -125,13 +125,14 @@ output(result)`,
     "range": {"type": "string", "enum": ["7d", "30d", "90d", "all"], "description": "Window the counts and top_exercises cover. Default 30d."}
   }
 }`),
-			Description:     "Get aggregated workout statistics: session counts, completion rate, the current weekly streak, the most-trained exercises, per-week and per-day activity breakdowns, and the training-load aggregates (working volume / hard sets / reps / PRs, per-week tonnage, and per-exercise totals for EVERY exercise trained in the window). `range` scopes the counts, totals, daily_activity, top_exercises and exercise_totals (default 30d); current_streak_weeks is always whole-history. Warm-up sets (set_type \"warmup\") are excluded from totals, weekly_volume and exercise_totals — they are not working volume. There is no per-group breakdown — filter workouts.sessions.list on group_id for that.",
-			ResponseSummary: "Stats object with range (the echoed window), total_sessions, completed_sessions, skipped_sessions, completion_rate (percent, 0-100), active_weeks, current_streak_weeks, top_exercises[], weekly_activity[], daily_activity[], totals{volume_kg,hard_sets,reps,pr_count}, weekly_volume[] and exercise_totals[]. weekly_activity buckets by ISO Monday; daily_activity is one entry per LOCAL calendar day inside `range` that saw a completed or skipped session (sparse — rest days are simply absent), ascending by date. top_exercises is the top-8 slice; exercise_totals covers every exercise trained in the window. top_exercises/weekly_activity/daily_activity/weekly_volume/exercise_totals are null (not []) when the window holds nothing.",
+			Description:     "Get aggregated workout statistics: session counts, completion rate, the current weekly streak, the most-trained exercises, per-week and per-day activity breakdowns, and the training-load aggregates (working volume / hard sets / reps / PRs, per-week tonnage, and per-exercise totals for EVERY exercise trained in the window). `range` scopes the counts, totals, daily_activity, top_exercises and exercise_totals (default 30d); current_streak_weeks is always whole-history. Warm-up sets (set_type \"warmup\") are excluded from totals, weekly_volume, top_exercises and exercise_totals — they are not working volume. A HARD set is a working set taken near failure: RIR <= 4, i.e. the logged per-set rpe >= 6. Per-set effort is optional, so a working set with no rpe still counts as hard (\"no opinion\", never \"too easy\"); the rated-but-easy sets that were excluded are reported separately as totals.easy_sets. Effort and coverage are separate fields, so read the one you mean: exercise_totals[].sets counts EVERY working set (ungated — this is the one that answers \"did I train this at all\"), while exercise_totals[].hard_sets, totals.hard_sets and weekly_volume[].hard_sets are effort-gated. There is no per-group breakdown — filter workouts.sessions.list on group_id for that.",
+			ResponseSummary: "Stats object with range (the echoed window), total_sessions, completed_sessions, skipped_sessions, completion_rate (percent, 0-100), active_weeks, current_streak_weeks, top_exercises[], weekly_activity[], daily_activity[], totals{volume_kg,hard_sets,easy_sets,reps,pr_count}, weekly_volume[] and exercise_totals[{exercise_name,session_count,sets,hard_sets,reps,total_volume_kg,max_weight_kg}]. weekly_activity buckets by ISO Monday; daily_activity is one entry per LOCAL calendar day inside `range` that saw a completed or skipped session (sparse — rest days are simply absent), ascending by date. top_exercises is the top-8 slice of exercise_totals (same volume math, so the two always agree); exercise_totals covers every exercise trained in the window. top_exercises/weekly_activity/daily_activity/weekly_volume/exercise_totals are null (not []) when the window holds nothing.",
 			ResponseExample: `{
   "range": "30d",
   "total_sessions": 48, "completed_sessions": 40, "skipped_sessions": 8, "completion_rate": 83.3, "active_weeks": 12, "current_streak_weeks": 4,
   "top_exercises": [
-    {"exercise_name": "Bench Press", "session_count": 22, "total_volume_kg": 41800.0, "max_weight_kg": 75.0}
+    {"exercise_name": "Barbell Row", "session_count": 1, "total_volume_kg": 1200.0, "max_weight_kg": 50.0},
+    {"exercise_name": "Squat", "session_count": 1, "total_volume_kg": 1000.0, "max_weight_kg": 100.0}
   ],
   "weekly_activity": [
     {"week": "2026-04-27", "completed": 3, "skipped": 1}
@@ -141,13 +142,13 @@ output(result)`,
     {"date": "2026-04-29", "completed": 1, "skipped": 0},
     {"date": "2026-05-01", "completed": 1, "skipped": 1}
   ],
-  "totals": {"volume_kg": 2200.0, "hard_sets": 5, "reps": 34, "pr_count": 1},
+  "totals": {"volume_kg": 2200.0, "hard_sets": 5, "easy_sets": 1, "reps": 34, "pr_count": 1},
   "weekly_volume": [
     {"week": "2026-04-27", "volume_kg": 2200.0, "hard_sets": 5, "reps": 34}
   ],
   "exercise_totals": [
-    {"exercise_name": "Barbell Row", "session_count": 1, "sets": 3, "reps": 24, "total_volume_kg": 1200.0, "max_weight_kg": 50.0},
-    {"exercise_name": "Squat", "session_count": 1, "sets": 2, "reps": 10, "total_volume_kg": 1000.0, "max_weight_kg": 100.0}
+    {"exercise_name": "Barbell Row", "session_count": 1, "sets": 3, "hard_sets": 3, "reps": 24, "total_volume_kg": 1200.0, "max_weight_kg": 50.0},
+    {"exercise_name": "Squat", "session_count": 1, "sets": 2, "hard_sets": 2, "reps": 10, "total_volume_kg": 1000.0, "max_weight_kg": 100.0}
   ]
 }`,
 			Example: `result = api.call("workouts.stats.read")

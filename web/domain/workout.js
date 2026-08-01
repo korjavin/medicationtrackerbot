@@ -36,6 +36,7 @@ import { localDateParts, localWallToUtcMs } from './medschedule.js';
 import { formatHHMM } from './reminders.js';
 import {
   normalizeGoal, TRAINING_GOALS, defaultsForGoal, rirFromRpe, formatEffort,
+  NEAR_FAILURE_RIR,
 } from './workout-goals.js';
 
 const WORKOUT_RECORD_TYPES = {
@@ -403,25 +404,69 @@ function deriveSetScalars(sets) {
 // over the working sets. Flat-scalar logs have no per-set breakdown, so they
 // keep the historical sets×reps×weight math — where reps_completed is the
 // per-set rep count, hence total reps = sets_completed × reps_completed.
+//
+// `sets` and `hard_sets` are two DIFFERENT questions and both ship:
+//   sets      — coverage. Every working set, ungated. "Did I train legs at all?"
+//   hard_sets — effort. Only the sets taken near enough to failure.
+// Overloading one field on the effort meaning is a bug, not a simplification:
+// the Balance view folds coverage and prints the body parts with zero sets
+// under "Not Trained", so an effort-gated count would tell a user who squatted
+// three honest RPE-5 sets that they never trained legs. Rating honestly must
+// never produce falser data than not rating at all.
+//
+// `hard_sets` counts effort, not sets (med-vov). A working set only counts as
+// HARD when it was taken near enough to failure — RIR <= NEAR_FAILURE_RIR, i.e.
+// RPE >= 6 — because that is what the term means everywhere it is borrowed from
+// (JEFIT's "hard set equivalents"), and a set left 5 reps in reserve is not the
+// same stimulus as one taken to failure.
+//   • An UNRATED work set STILL COUNTS as hard. rpe is optional per set and
+//     rating only the top set is normal practice, so an unrated set means "no
+//     opinion", never "too easy" — the same rule workSetStats already applies to
+//     minRpe below. Anything else would silently zero this number for every user
+//     who doesn't rate every single set (i.e. most of them).
+//   • Flat-scalar logs carry no effort at all, so every set counts, unchanged.
+// `easy_sets` is the honesty counter: the RATED-but-easy working sets this fold
+// excluded, so the UI can say "42 hard · 3 easy" rather than quietly shrinking a
+// number users already saw. Volume and reps are unaffected — an easy set is
+// still work done, it just isn't a hard set.
 function logWorkTotals(log) {
   if (Array.isArray(log.sets) && log.sets.length > 0) {
     const work = log.sets.filter((s) => s && s.set_type !== 'warmup');
     let volume = 0;
     let reps = 0;
     let maxWeight = 0;
+    let hardSets = 0;
+    let easySets = 0;
     for (const s of work) {
       const w = s.weight_kg || 0;
       const r = s.reps || 0;
       volume += w * r;
       reps += r;
       if (w > maxWeight) maxWeight = w;
+      const rir = rirFromRpe(s.rpe);
+      if (rir === null || rir <= NEAR_FAILURE_RIR) hardSets++;
+      else easySets++;
     }
-    return { volume_kg: volume, hard_sets: work.length, reps, max_weight_kg: maxWeight };
+    return {
+      volume_kg: volume,
+      sets: work.length,
+      hard_sets: hardSets,
+      easy_sets: easySets,
+      reps,
+      max_weight_kg: maxWeight,
+    };
   }
   const sets = hasValue(log.sets_completed) ? log.sets_completed : 0;
   const reps = hasValue(log.reps_completed) ? log.reps_completed : 0;
   const weight = hasValue(log.weight_kg) ? log.weight_kg : 0;
-  return { volume_kg: sets * reps * weight, hard_sets: sets, reps: sets * reps, max_weight_kg: weight };
+  return {
+    volume_kg: sets * reps * weight,
+    sets,
+    hard_sets: sets,
+    easy_sets: 0,
+    reps: sets * reps,
+    max_weight_kg: weight,
+  };
 }
 
 // workSetStats reduces a completed log to the two numbers the progression
@@ -2202,6 +2247,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const heaviestSoFar = new Map(); // exercise_name -> heaviest working set seen
     let rangeVolume = 0;
     let rangeHardSets = 0;
+    let rangeEasySets = 0;
     let rangeReps = 0;
     let prCount = 0;
 
@@ -2225,6 +2271,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       if (schedMs < since30) continue;
       rangeVolume += work.volume_kg;
       rangeHardSets += work.hard_sets;
+      rangeEasySets += work.easy_sets;
       rangeReps += work.reps;
 
       let entry = agg.get(log.exercise_name);
@@ -2232,58 +2279,52 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         entry = {
           exercise_name: log.exercise_name,
           sessionIds: new Set(),
-          // legacy_* keep top_exercises byte-identical to what it emitted
-          // before med-904.1 (derived scalars: setCount × maxReps × maxWeight,
-          // warm-ups included). The unprefixed fields are the working-set-
-          // accurate numbers the Load/Balance views read. They only diverge for
-          // per-set logs; see logWorkTotals.
-          legacy_volume_kg: 0,
-          legacy_max_weight_kg: 0,
           total_volume_kg: 0,
           sets: 0,
+          hard_sets: 0,
           reps: 0,
           max_weight_kg: 0,
         };
         agg.set(log.exercise_name, entry);
       }
       entry.sessionIds.add(log.session_id);
-      if (hasValue(log.sets_completed) && hasValue(log.reps_completed) && hasValue(log.weight_kg)) {
-        entry.legacy_volume_kg += log.sets_completed * log.reps_completed * log.weight_kg;
-      }
-      if (hasValue(log.weight_kg) && log.weight_kg > entry.legacy_max_weight_kg) {
-        entry.legacy_max_weight_kg = log.weight_kg;
-      }
       entry.total_volume_kg += work.volume_kg;
-      entry.sets += work.hard_sets;
+      // `sets` is coverage (every working set) and stays ungated — the Balance
+      // view's "Not Trained" list is built from it. `hard_sets` is the effort
+      // twin, alongside rather than instead of it.
+      entry.sets += work.sets;
+      entry.hard_sets += work.hard_sets;
       entry.reps += work.reps;
       if (work.max_weight_kg > entry.max_weight_kg) entry.max_weight_kg = work.max_weight_kg;
     }
 
-    let topExercises = Array.from(agg.values())
-      .map((entry) => ({
-        exercise_name: entry.exercise_name,
-        session_count: entry.sessionIds.size,
-        total_volume_kg: entry.legacy_volume_kg,
-        max_weight_kg: entry.legacy_max_weight_kg,
-      }))
-      .sort((a, b) => b.total_volume_kg - a.total_volume_kg)
-      .slice(0, 8);
-    if (topExercises.length === 0) topExercises = null;
-
-    // Every exercise trained in range (top_exercises is the top-8 slice), which
-    // is what lets the Balance view fold a COMPLETE body-part split instead of
-    // guessing from eight rows.
-    let exerciseTotals = Array.from(agg.values())
+    // Every exercise trained in range, which is what lets the Balance view fold
+    // a COMPLETE body-part split instead of guessing from eight rows.
+    const totalRows = Array.from(agg.values())
       .map((entry) => ({
         exercise_name: entry.exercise_name,
         session_count: entry.sessionIds.size,
         sets: entry.sets,
+        hard_sets: entry.hard_sets,
         reps: entry.reps,
         total_volume_kg: entry.total_volume_kg,
         max_weight_kg: entry.max_weight_kg,
       }))
       .sort((a, b) => b.total_volume_kg - a.total_volume_kg);
-    if (exerciseTotals.length === 0) exerciseTotals = null;
+
+    // top_exercises is now literally the top-8 slice of those same rows
+    // (med-7pq). It used to carry its own pre-per-set math — sets_completed ×
+    // reps_completed × weight_kg off the derived scalars, where reps/weight are
+    // the MAX across the sets and warm-ups were counted as work — so a 40×10
+    // warm-up plus 80×5 and 85×5 reported 3×10×85 = 2550 kg against a true 825.
+    // The same exercise therefore showed two different volumes depending on
+    // which Stats view you were on. One fold, one number.
+    const exerciseTotals = totalRows.length ? totalRows : null;
+    const topExercises = totalRows.length
+      ? totalRows.slice(0, 8).map(({ exercise_name, session_count, total_volume_kg, max_weight_kg }) => ({
+        exercise_name, session_count, total_volume_kg, max_weight_kg,
+      }))
+      : null;
 
     const weeklyVolume = weekKeys.length ? weekKeys.map((week) => volumeWeeks.get(week)) : null;
 
@@ -2308,6 +2349,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       totals: {
         volume_kg: rangeVolume,
         hard_sets: rangeHardSets,
+        // Rated-but-easy working sets excluded from hard_sets — shipped so the
+        // Load view can show the exclusion instead of hiding it (med-vov).
+        easy_sets: rangeEasySets,
         reps: rangeReps,
         pr_count: prCount,
       },

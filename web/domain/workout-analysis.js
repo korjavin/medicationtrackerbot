@@ -10,7 +10,12 @@
 // sets (`set_type==='warmup'`) are excluded from every fold — they aren't
 // strength-signal.
 
-import { normalizeGoal, rirFromRpe } from './workout-goals.js';
+import { normalizeGoal, rirFromRpe, NEAR_FAILURE_RIR } from './workout-goals.js';
+
+// Re-exported for the callers (and tests) that have always read the threshold
+// from here; the definition moved down to workout-goals.js so the stats fold in
+// workout.js can share it without an import cycle (med-vov).
+export { NEAR_FAILURE_RIR };
 
 // Epley: estimated 1-rep max from a weight lifted for `reps`. Rounded to 2dp for
 // display stability. reps/weight ≤ 0 → 0 (not a real working set).
@@ -207,7 +212,8 @@ export function goalHeadline(goal, prs, series) {
 // warm-down from triggering a lecture. Strength/endurance/general goals still
 // get the effort summary but never the advisory: RIR 2-3 is correct programming
 // for strength. Advice, never a gate — nothing here feeds progression.
-export const NEAR_FAILURE_RIR = 4;
+// (NEAR_FAILURE_RIR itself is defined in workout-goals.js and re-exported at the
+// top of this file.)
 export const EFFORT_WINDOW_SETS = 6;
 const MIN_RATED_SETS = 3;
 

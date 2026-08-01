@@ -501,6 +501,39 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
                 .toMatch(/no logged sets in this range/i);
         });
 
+        // med-vov — hard sets are effort-gated, so the sets that were dropped
+        // for being rated easy are shown rather than silently subtracted.
+        it('the load view names the excluded rated-easy sets on the Hard sets tile', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, {
+                ...loadStats(),
+                totals: { volume_kg: 12500, hard_sets: 42, easy_sets: 3, reps: 310, pr_count: 3 }
+            });
+            clickView(container, 'load');
+
+            const labels = Array.from(container.querySelectorAll('.wg-workouts-stats__tile-label'))
+                .map((t) => t.textContent);
+            expect(labels).toEqual(['Volume', 'Hard sets · 3 easy', 'Reps', 'PRs']);
+        });
+
+        it('the load view still renders when every logged set was rated easy', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, {
+                ...loadStats(),
+                totals: { volume_kg: 900, hard_sets: 0, easy_sets: 4, reps: 40, pr_count: 0 }
+            });
+            clickView(container, 'load');
+
+            expect(container.querySelector('.wg-workouts-stats__empty')).toBeNull();
+            const values = Array.from(container.querySelectorAll('.wg-workouts-stats__tile-value'))
+                .map((t) => t.textContent);
+            expect(values[1]).toBe('0');
+            expect(Array.from(container.querySelectorAll('.wg-workouts-stats__tile-label'))
+                .map((t) => t.textContent)[1]).toBe('Hard sets · 4 easy');
+        });
+
         it('the balance view splits sets per body part and lists untrained ones', async () => {
             const { document, window } = env;
             stubCatalog(window, [
@@ -531,6 +564,42 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             const chips = Array.from(container.querySelectorAll('.wg-workouts-stats__untrained-chip'))
                 .map((c) => c.textContent);
             expect(chips).toEqual(['Back', 'Chest']);
+        });
+
+        // med-vov — the Balance view folds COVERAGE (`sets`), never the
+        // effort-gated `hard_sets`. Squatting three honest RPE-5 sets must not
+        // make the app print "Not Trained: Legs" on a day you squatted; rating
+        // honestly can never produce falser data than not rating at all.
+        it('the balance view counts an all-easy exercise as trained, not untrained', async () => {
+            const { document, window } = env;
+            stubCatalog(window, [
+                { name: 'Barbell Squat', body_part: 'upper legs' },
+                { name: 'Bench Press', body_part: 'chest' }
+            ]);
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, {
+                ...loadStats(),
+                // Every working set rated easy: 3 sets of coverage, 0 hard.
+                exercise_totals: [{
+                    exercise_name: 'Barbell Squat', session_count: 1, sets: 3, hard_sets: 0,
+                    reps: 15, total_volume_kg: 1500, max_weight_kg: 100
+                }]
+            });
+            clickView(container, 'balance');
+
+            await vi.waitFor(() => {
+                expect(container.querySelector('.wg-workouts-stats__untrained')).toBeTruthy();
+            });
+
+            const rows = Array.from(container.querySelectorAll('.wg-workouts-stats__body-split .wg-workouts-stats__top-row'));
+            expect(rows).toHaveLength(1);
+            expect(rows[0].textContent).toContain('Legs');
+            expect(rows[0].textContent).toContain('3 sets · 100%');
+
+            const chips = Array.from(container.querySelectorAll('.wg-workouts-stats__untrained-chip'))
+                .map((c) => c.textContent);
+            expect(chips).toEqual(['Chest']);
+            expect(chips).not.toContain('Legs');
         });
 
         it('the balance view says so when the range holds no exercises', () => {
