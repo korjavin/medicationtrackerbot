@@ -1646,12 +1646,14 @@ svg.chart-svg {
    the Today "Next up" card + Meds History next-intake pane — elevated
    teal on the stage, hairline border, --wg-radius-card. The kicker label
    uses the muted-uppercase small caption; the title is display typeface;
-   the subtitle is secondary UI text. Primary action (Start Workout /
+   the subtitle is secondary UI text. Primary action (Start Scheduled /
    View / Cancel Skip) is .wg-toolbar-btn.wg-toolbar-btn--primary —
    yellow filled, matching every other primary CTA across the app.
-   Secondary actions (Skip / Finish / Next Variant) use the shared outline
-   variant .wg-toolbar-btn--secondary added in the same task. No
-   gradients, no accent stripe, no emoji. */
+   Secondary actions (Start AdHoc / Skip / Finish / Next Day) use the
+   shared outline variant .wg-toolbar-btn--secondary added in the same
+   task; med-2fc added the leftmost Start AdHoc, which is the screen's
+   only ad-hoc entry point and the sole content of the card when nothing
+   is scheduled. No gradients, no accent stripe, no emoji. */
 
 .wg-workouts-next-card {
     display: flex;
@@ -7178,8 +7180,8 @@ textarea.wg-input {
    Groups / Exercises / Stats — the active pill carries `.wg-gloss--sun` (plus
    `.wg-workouts-subtabs__btn--active` for tests). The strip is wrapped by a
    `.wg-workouts-subtabs-row` flex container. med-3dk removed the trailing
-   `#start-adhoc-workout-btn` ad-hoc CTA from this row (it now lives in the
-   History pane header, `.wg-workouts-history-header`), so the row holds only
+   ad-hoc Start CTA from this row and med-2fc folded it into the next-workout
+   card's action row (`.wg-workouts-next-card__actions`), so the row holds only
    the pill track. */
 .wg-workouts-subtabs-row {
     display: flex;
@@ -8406,24 +8408,13 @@ textarea.wg-input {
     margin-bottom: var(--space-sm);
 }
 
-/* History pane header (med-3dk). Mirrors the Exercises `+ Add` header, but
-   carries no left label, so the Start CTA right-aligns above the History
-   list — same button sizing as `.wg-workouts-exercises-header__add` below. */
-.wg-workouts-history-header {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    margin-bottom: var(--space-sm);
-}
-
 .wg-workouts-exercises-header__label {
     padding: 0;
     flex: 1;
     min-width: 0;
 }
 
-.wg-workouts-exercises-header__add,
-.wg-workouts-history-header__add {
+.wg-workouts-exercises-header__add {
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
@@ -8438,8 +8429,7 @@ textarea.wg-input {
     cursor: pointer;
 }
 
-.wg-workouts-exercises-header__add-label,
-.wg-workouts-history-header__add-label {
+.wg-workouts-exercises-header__add-label {
     letter-spacing: 0.02em;
 }
 

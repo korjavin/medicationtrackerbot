@@ -235,12 +235,57 @@ async function renderWorkoutHistoryStaleBadge() {
 }
 
 function _renderNextWorkout(container, data) {
-    if (!data || !data.session) {
-        container.replaceChildren();
+    const session = (data && data.session) ? data.session : null;
+
+    const isOffline = window.SyncManager && !window.SyncManager.isOnline;
+    // Round-2 Task 10 (defect #13a): every action button adopts the
+    // shared `.wg-toolbar-btn` sizing with a primary (yellow filled) or
+    // secondary (outline/ghost) variant. No emoji prefixes. The
+    // `workout-action-btn` marker class is preserved so `sync.js`
+    // offline-disabled handler (which scans `.workout-action-btn`) keeps
+    // flipping these buttons when connectivity drops mid-session.
+    const createButton = (label, variant, onClick) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        const variantClass = variant === 'primary'
+            ? 'wg-toolbar-btn--primary'
+            : 'wg-toolbar-btn--secondary';
+        button.className = `wg-toolbar-btn ${variantClass} workout-action-btn`;
+        const labelEl = document.createElement('span');
+        labelEl.className = 'wg-toolbar-btn__label';
+        labelEl.textContent = label;
+        button.appendChild(labelEl);
+        if (isOffline) {
+            button.classList.add('offline-disabled');
+            button.setAttribute('data-offline-disabled', 'true');
+            button.disabled = true;
+        }
+        button.addEventListener('click', () => {
+            onClick(session ? session.id : null);
+        });
+        return button;
+    };
+
+    const card = document.createElement('div');
+    card.className = 'wg-workouts-next-card';
+
+    const actions = document.createElement('div');
+    actions.className = 'wg-workouts-next-card__actions';
+    // med-2fc: Start AdHoc is the leftmost action in every status branch —
+    // it replaced the floating History-header CTA, so this is the only
+    // ad-hoc entry point on the screen. It starts an unplanned session, so
+    // it ignores the session id `createButton` hands its onClick.
+    actions.appendChild(createButton('Start AdHoc', 'secondary', () => window.startAdHocWorkout()));
+
+    // No scheduled session: render the card with Start AdHoc alone (no
+    // kicker/date/title/subtitle, no Skip, no Next Day) so the ad-hoc entry
+    // point stays in the same place on screen.
+    if (!session) {
+        card.appendChild(actions);
+        container.replaceChildren(card);
         return;
     }
 
-    const session = data.session;
     const status = session.status;
     const isSnoozed = session.is_snoozed || false;
 
@@ -280,9 +325,6 @@ function _renderNextWorkout(container, data) {
     const groupId = data.group_id || 0;
     const isRotating = data.is_rotating || false;
 
-    const card = document.createElement('div');
-    card.className = 'wg-workouts-next-card';
-
     const header = document.createElement('div');
     header.className = 'wg-workouts-next-card__header';
 
@@ -315,37 +357,6 @@ function _renderNextWorkout(container, data) {
     info.appendChild(subtitle);
     card.appendChild(info);
 
-    const isOffline = window.SyncManager && !window.SyncManager.isOnline;
-    // Round-2 Task 10 (defect #13a): every action button adopts the
-    // shared `.wg-toolbar-btn` sizing with a primary (yellow filled) or
-    // secondary (outline/ghost) variant. No emoji prefixes. The
-    // `workout-action-btn` marker class is preserved so `sync.js`
-    // offline-disabled handler (which scans `.workout-action-btn`) keeps
-    // flipping these buttons when connectivity drops mid-session.
-    const createButton = (label, variant, onClick) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        const variantClass = variant === 'primary'
-            ? 'wg-toolbar-btn--primary'
-            : 'wg-toolbar-btn--secondary';
-        button.className = `wg-toolbar-btn ${variantClass} workout-action-btn`;
-        const labelEl = document.createElement('span');
-        labelEl.className = 'wg-toolbar-btn__label';
-        labelEl.textContent = label;
-        button.appendChild(labelEl);
-        if (isOffline) {
-            button.classList.add('offline-disabled');
-            button.setAttribute('data-offline-disabled', 'true');
-            button.disabled = true;
-        }
-        button.addEventListener('click', () => {
-            onClick(session.id);
-        });
-        return button;
-    };
-
-    const actions = document.createElement('div');
-    actions.className = 'wg-workouts-next-card__actions';
     if (status === 'in_progress') {
         actions.appendChild(createButton('View', 'primary', showWorkoutSessionModal));
         actions.appendChild(createButton('Finish', 'secondary', completeWorkoutSession));
@@ -355,7 +366,7 @@ function _renderNextWorkout(container, data) {
             actions.appendChild(createButton('Next Day', 'secondary', nextWorkoutVariant));
         }
     } else {
-        actions.appendChild(createButton('Start Workout', 'primary', startWorkoutSession));
+        actions.appendChild(createButton('Start Scheduled', 'primary', startWorkoutSession));
         actions.appendChild(createButton('Skip', 'secondary', preSkipWorkoutSession));
         if (isRotating) {
             actions.appendChild(createButton('Next Day', 'secondary', nextWorkoutVariant));

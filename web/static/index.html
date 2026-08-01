@@ -175,11 +175,11 @@
             <!-- Workout Tabs (Phase 7 / Phase 5 Task 5 rework). The
                  `.wg-workouts-subtabs-row` wraps only the inset 4-pill track
                  (History / Plans / Exercises / Stats). The ad-hoc Start CTA
-                 (`#start-adhoc-workout-btn`) used to trail the pills here, but
-                 med-3dk moved it into the History pane header
-                 (`.wg-workouts-history-header`, mirroring the Exercises
-                 `+ Add`) so it's sized like the other buttons and scoped to
-                 the tab it acts on instead of floating on every sub-tab. -->
+                 used to trail the pills here (later: its own History-pane
+                 header strip), but med-2fc folded it into the next-workout
+                 card's action row as the leftmost `Start AdHoc` button — see
+                 `_renderNextWorkout` in js/features/workout/next-card.js. No
+                 markup for it lives in this document. -->
             <div class="wg-workouts-subtabs-row" id="workouts-subtabs">
                 <div class="wg-gloss--inset wg-workouts-subtabs workout-tabs">
                     <button class="wg-gloss wg-workouts-subtabs__btn wg-gloss--sun wg-workouts-subtabs__btn--active workout-tab active" data-tab="history" aria-pressed="true">History</button>
@@ -191,16 +191,6 @@
 
             <!-- History View -->
             <div id="workout-history-tab" class="workout-tab-content active">
-                <!-- Ad-hoc Start CTA (med-3dk): top-right of the History pane,
-                     mirroring the Exercises `+ Add` header. Same id as before
-                     so index.js bindClick + sync.js offline sweep are unchanged. -->
-                <div class="wg-workouts-history-header">
-                    <button id="start-adhoc-workout-btn" type="button"
-                        class="wg-gloss wg-gloss--sun wg-workouts-history-header__add"
-                        aria-label="Start ad-hoc workout">
-                        <span class="wg-workouts-history-header__add-label">Start</span>
-                    </button>
-                </div>
                 <!-- Stale-data chip (Task 6 of local-first read resilience).
                      Mounted by loadNextWorkout() from the api_cache
                      'workout_next' timestamp; hidden until populated. -->

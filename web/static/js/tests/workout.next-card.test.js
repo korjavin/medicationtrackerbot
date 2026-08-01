@@ -12,10 +12,12 @@
 //     `linear-gradient(` and no raw hex colors in any
 //     `.wg-workouts-next-card*` rule (the legacy `.next-workout-*`
 //     selectors are gone from the stylesheet).
-//   • #13b: `#start-adhoc-workout-btn` DOM-level adoption of
-//     `.wg-toolbar-btn .wg-toolbar-btn--primary` is asserted in
-//     `workout.design-parity.test.js` — this file covers the
-//     "Next workout" card the Start button is sibling to.
+//   • med-2fc: the ad-hoc Start CTA is no longer a separate strip above
+//     the pane — it is the leftmost `Start AdHoc` action of this card's
+//     own action row (secondary variant, so the renamed
+//     `Start Scheduled` stays the visual primary), present in every
+//     status branch and the only content of the card when nothing is
+//     scheduled.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -99,25 +101,26 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
         expect(subtitle.textContent).toBe('Carry & Core · 2 exercises');
     });
 
-    it('#13a: notified status emits primary Start Workout + secondary Skip + secondary Next Variant (no emoji)', () => {
+    it('#13a/med-2fc: notified status emits secondary Start AdHoc + primary Start Scheduled + secondary Skip + secondary Next Variant (no emoji)', () => {
         const { window, document } = env;
         const container = document.getElementById('next-workout-card');
         window._renderNextWorkout(container, baseData());
 
         const actions = container.querySelectorAll('.wg-workouts-next-card__actions > .wg-toolbar-btn');
-        expect(actions.length).toBe(3);
+        expect(actions.length).toBe(4);
 
-        const [startBtn, skipBtn, variantBtn] = actions;
+        const [adhocBtn, startBtn, skipBtn, variantBtn] = actions;
+        expect(adhocBtn.classList.contains('wg-toolbar-btn--secondary')).toBe(true);
         expect(startBtn.classList.contains('wg-toolbar-btn--primary')).toBe(true);
         expect(skipBtn.classList.contains('wg-toolbar-btn--secondary')).toBe(true);
         expect(variantBtn.classList.contains('wg-toolbar-btn--secondary')).toBe(true);
 
-        const labels = [startBtn, skipBtn, variantBtn].map((btn) => {
+        const labels = [adhocBtn, startBtn, skipBtn, variantBtn].map((btn) => {
             const span = btn.querySelector('.wg-toolbar-btn__label');
             expect(span).not.toBeNull();
             return span.textContent;
         });
-        expect(labels).toEqual(['Start Workout', 'Skip', 'Next Day']);
+        expect(labels).toEqual(['Start AdHoc', 'Start Scheduled', 'Skip', 'Next Day']);
 
         // No emoji prefix escaped into any rendered label.
         // Sweep a representative set of the dropped glyphs.
@@ -133,7 +136,7 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
         }
     });
 
-    it('#13a: in_progress status emits View (primary) + Finish (secondary)', () => {
+    it('#13a: in_progress status emits Start AdHoc + View (primary) + Finish (secondary)', () => {
         const { window, document } = env;
         const container = document.getElementById('next-workout-card');
         window._renderNextWorkout(container, baseData({
@@ -144,13 +147,14 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
         }));
 
         const actions = container.querySelectorAll('.wg-workouts-next-card__actions > .wg-toolbar-btn');
-        expect(actions.length).toBe(2);
+        expect(actions.length).toBe(3);
 
         const labels = Array.from(actions).map((btn) => btn.querySelector('.wg-toolbar-btn__label').textContent);
-        expect(labels).toEqual(['View', 'Finish']);
+        expect(labels).toEqual(['Start AdHoc', 'View', 'Finish']);
 
-        expect(actions[0].classList.contains('wg-toolbar-btn--primary')).toBe(true);
-        expect(actions[1].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
+        expect(actions[0].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
+        expect(actions[1].classList.contains('wg-toolbar-btn--primary')).toBe(true);
+        expect(actions[2].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
 
         // Kicker text reflects the in-progress status.
         expect(container.querySelector('.wg-workouts-next-card__kicker').textContent).toBe('In Progress');
@@ -178,9 +182,10 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
         window.loadNextWorkout = vi.fn();
         window.loadWorkoutHistoryTab = vi.fn();
 
+        // [0] is the med-2fc Start AdHoc action, [1] View, [2] Finish.
         const finishBtn = container.querySelectorAll(
             '.wg-workouts-next-card__actions > .wg-toolbar-btn'
-        )[1];
+        )[2];
         finishBtn.click();
         // Drain the microtask queue (safeConfirm → apiCall chain).
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -203,10 +208,11 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
 
         const actions = container.querySelectorAll('.wg-workouts-next-card__actions > .wg-toolbar-btn');
         const labels = Array.from(actions).map((btn) => btn.querySelector('.wg-toolbar-btn__label').textContent);
-        expect(labels).toEqual(['Cancel Skip', 'Next Day']);
+        expect(labels).toEqual(['Start AdHoc', 'Cancel Skip', 'Next Day']);
 
-        expect(actions[0].classList.contains('wg-toolbar-btn--primary')).toBe(true);
-        expect(actions[1].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
+        expect(actions[0].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
+        expect(actions[1].classList.contains('wg-toolbar-btn--primary')).toBe(true);
+        expect(actions[2].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
 
         expect(container.querySelector('.wg-workouts-next-card__kicker').textContent).toBe('To Be Skipped');
     });
@@ -220,7 +226,74 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
         const labels = Array.from(
             container.querySelectorAll('.wg-workouts-next-card__actions > .wg-toolbar-btn')
         ).map((btn) => btn.querySelector('.wg-toolbar-btn__label').textContent);
-        expect(labels).toEqual(['Start Workout', 'Skip']);
+        expect(labels).toEqual(['Start AdHoc', 'Start Scheduled', 'Skip']);
+    });
+
+    // med-2fc: with the floating History-header Start CTA gone, the card is
+    // the only ad-hoc entry point on the screen — so "nothing scheduled" must
+    // still render the card, carrying Start AdHoc alone.
+    it('med-2fc: no session renders the card with Start AdHoc alone (no kicker/date/title/subtitle/Skip/Next Day)', () => {
+        const { window, document } = env;
+        const container = document.getElementById('next-workout-card');
+        window._renderNextWorkout(container, null);
+
+        const card = container.querySelector('.wg-workouts-next-card');
+        expect(card).not.toBeNull();
+        expect(card.querySelector('.wg-workouts-next-card__kicker')).toBeNull();
+        expect(card.querySelector('.wg-workouts-next-card__date')).toBeNull();
+        expect(card.querySelector('.wg-workouts-next-card__title')).toBeNull();
+        expect(card.querySelector('.wg-workouts-next-card__subtitle')).toBeNull();
+        expect(card.querySelector('.wg-workouts-next-card__info')).toBeNull();
+
+        const actions = card.querySelectorAll('.wg-workouts-next-card__actions > .wg-toolbar-btn');
+        expect(actions.length).toBe(1);
+        expect(actions[0].querySelector('.wg-toolbar-btn__label').textContent).toBe('Start AdHoc');
+        expect(actions[0].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
+        expect(actions[0].classList.contains('workout-action-btn')).toBe(true);
+
+        // `{ session: null }` (the shape loadNextWorkout caches for a server
+        // "no next workout") takes the same path.
+        window._renderNextWorkout(container, { session: null });
+        expect(
+            container.querySelectorAll('.wg-workouts-next-card__actions > .wg-toolbar-btn').length
+        ).toBe(1);
+    });
+
+    // The ad-hoc CTA lost its static id (and its entry in sync.js's
+    // `offlineUnsupported` list) when it moved into the card, so the offline
+    // treatment now has to come from the same createButton path as its
+    // siblings — including on the empty card, where it is the only button.
+    it('med-2fc: Start AdHoc gets the offline-disabled treatment when SyncManager reports offline', () => {
+        const { window, document } = env;
+        const container = document.getElementById('next-workout-card');
+        window.SyncManager = { isOnline: false };
+
+        for (const data of [null, baseData()]) {
+            window._renderNextWorkout(container, data);
+            const adhocBtn = container.querySelector('.wg-workouts-next-card__actions > .wg-toolbar-btn');
+            expect(adhocBtn.querySelector('.wg-toolbar-btn__label').textContent).toBe('Start AdHoc');
+            expect(adhocBtn.classList.contains('workout-action-btn')).toBe(true);
+            expect(adhocBtn.classList.contains('offline-disabled')).toBe(true);
+            expect(adhocBtn.getAttribute('data-offline-disabled')).toBe('true');
+            expect(adhocBtn.disabled).toBe(true);
+        }
+    });
+
+    it('med-2fc: Start AdHoc calls window.startAdHocWorkout with no session id, on both the empty and the scheduled card', () => {
+        const { window, document } = env;
+        const container = document.getElementById('next-workout-card');
+        const adhocSpy = vi.fn();
+        window.startAdHocWorkout = adhocSpy;
+
+        window._renderNextWorkout(container, null);
+        container.querySelector('.wg-workouts-next-card__actions > .wg-toolbar-btn').click();
+        expect(adhocSpy).toHaveBeenCalledTimes(1);
+        expect(adhocSpy).toHaveBeenLastCalledWith();
+
+        window._renderNextWorkout(container, baseData());
+        container.querySelector('.wg-workouts-next-card__actions > .wg-toolbar-btn').click();
+        expect(adhocSpy).toHaveBeenCalledTimes(2);
+        expect(adhocSpy).toHaveBeenLastCalledWith();
     });
 
     it('#13a: .wg-workouts-next-card* CSS uses tokens only (no gradient, no hex, no raw rgba literals)', () => {
