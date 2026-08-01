@@ -1,8 +1,14 @@
 // Focused integration tests for the extracted features/workout/library.js
 // sub-file. Covers the WorkoutLibrary public-API surface and the
 // closure-private editingLibraryItemId accessor exposed on WorkoutEdit.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+
+const __dirname_ = path.dirname(fileURLToPath(import.meta.url));
+const CSS_PATH = path.resolve(__dirname_, '../../../../web/static/css/styles.css');
 
 describe('features/workout/library.js — split-file integration', () => {
   let env;
@@ -506,6 +512,36 @@ describe('features/workout/library.js — split-file integration', () => {
         // Visibility is the `hidden` attribute + CSS tokens, never inline style.
         expect(mount.getAttribute('style')).toBeNull();
         expect(row.getAttribute('style')).toBeNull();
+      });
+
+      // Regression (med-hzx): the row's hover/focus affordance used --wg-ink-08
+      // and --wg-ink-15 — dark-teal ink tokens meant for light/paper surfaces —
+      // on a dropdown that sits on a dark card, so it rendered at effectively
+      // zero contrast. `outline: none` then removed the UA focus ring too,
+      // leaving keyboard nav with no visible target at all. jsdom computes
+      // neither cascade nor contrast, so the honest assertions are which tokens
+      // the rules reference and that focus still draws a ring.
+      it('hover/focus affordance uses light-on-dark tokens and keeps a focus ring', () => {
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+        const rules = css.slice(css.indexOf('.wg-exercise-suggest__row:hover'));
+
+        // The light-surface ink tokens must not come back on this component.
+        const suggestRules = rules.slice(0, rules.indexOf('.wg-workouts-log-set-modal'));
+        expect(suggestRules).not.toMatch(/var\(--wg-ink-08\)/);
+        expect(suggestRules).not.toMatch(/var\(--wg-ink-15\)/);
+        expect(suggestRules).toMatch(/var\(--wg-border-strong\)/);
+
+        // Focus keeps a real ring, and it is inset so the `overflow-y: auto`
+        // scroller cannot clip it on the first and last rows. `lastIndexOf`
+        // because the selector also appears as the tail of the hover rule's
+        // selector list above — the dedicated rule is the later one.
+        const focusRule = suggestRules.slice(
+          suggestRules.lastIndexOf('.wg-exercise-suggest__row:focus-visible {'),
+        );
+        const focusBlock = focusRule.slice(0, focusRule.indexOf('}'));
+        expect(focusBlock).toMatch(/outline:\s*2px solid/);
+        expect(focusBlock).not.toMatch(/outline:\s*none/);
+        expect(focusBlock).toMatch(/outline-offset:\s*-/);
       });
     });
   });
