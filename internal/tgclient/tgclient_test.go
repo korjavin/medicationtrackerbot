@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -770,5 +772,41 @@ func TestValidCallbackStemMeasure(t *testing.T) {
 				t.Errorf("accepted stem %q does not round-trip with action %q", stem, action)
 			}
 		}
+	}
+}
+
+// TestDownloadFileLocalAbsolutePath pins the local-Bot-API branch: a server run
+// with --local answers getFile with an absolute path on the shared volume and
+// 404s that same path over /file/..., which is what broke every inbound photo
+// (the drain answered "Couldn't fetch that photo"). Reading it from disk must
+// not touch HTTP at all — the fake below fails the test if it does.
+func TestDownloadFileLocalAbsolutePath(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("local-mode download hit HTTP %s", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "file_0.jpg")
+	if err := os.WriteFile(path, []byte("\xff\xd8jpegbytes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	body, ctype, err := New("123:ABC", srv.URL).DownloadFile(context.Background(), path)
+	if err != nil {
+		t.Fatalf("DownloadFile: %v", err)
+	}
+	defer body.Close()
+	got, _ := io.ReadAll(body)
+	if string(got) != "\xff\xd8jpegbytes" {
+		t.Errorf("bytes = %q", got)
+	}
+	// "" is the documented local-mode content type; callers default it.
+	if ctype != "" {
+		t.Errorf("content type = %q, want empty", ctype)
+	}
+
+	if _, _, err := New("123:ABC", srv.URL).DownloadFile(context.Background(), path+".missing"); err == nil {
+		t.Error("missing local file: want error, got nil")
 	}
 }

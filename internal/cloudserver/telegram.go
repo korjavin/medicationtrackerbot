@@ -1281,10 +1281,9 @@ func (t *TelegramAPI) sealNXKDocument(w http.ResponseWriter, r *http.Request, re
 }
 
 // downloadDocument resolves a document's file_id and writes its bytes to a temp
-// file, mirroring internal/bot/sleep_import.go's local-vs-remote fetch: a local
-// Bot API server hands back an absolute path on a shared volume, otherwise the
-// bytes stream over HTTP. Caller removes the returned path. The extension is
-// preserved so nxk.ValidateImportFile (in parseNXKToVitalsEvents) sees .nxk.
+// file. DownloadFile handles the local-Bot-API-vs-HTTP split. Caller removes the
+// returned path. The extension is preserved so nxk.ValidateImportFile (in
+// parseNXKToVitalsEvents) sees .nxk.
 func (t *TelegramAPI) downloadDocument(ctx context.Context, client *tgclient.Client, doc *tgclient.Document) (string, error) {
 	file, err := client.GetFile(ctx, doc.FileID)
 	if err != nil {
@@ -1301,13 +1300,7 @@ func (t *TelegramAPI) downloadDocument(ctx context.Context, client *tgclient.Cli
 		return "", err
 	}
 
-	var src io.ReadCloser
-	if strings.HasPrefix(file.FilePath, "/") {
-		// Local Bot API mode: the file already lives on a shared volume.
-		src, err = os.Open(file.FilePath) // #nosec G304 -- path is from Telegram getFile, not user input
-	} else {
-		src, _, err = client.DownloadFile(ctx, file.FilePath)
-	}
+	src, _, err := client.DownloadFile(ctx, file.FilePath)
 	if err != nil {
 		return fail(err)
 	}

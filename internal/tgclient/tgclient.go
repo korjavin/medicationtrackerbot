@@ -14,6 +14,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -164,8 +165,22 @@ func (c *Client) GetFile(ctx context.Context, fileID string) (File, error) {
 // lives under a DIFFERENT path prefix than the API methods
 // (/file/bot<token>/<path>, not /bot<token>/<method>), and returns raw bytes,
 // not the {ok,result} envelope. The caller MUST close the returned body. The
-// content type is whatever Telegram serves (image/jpeg for photos).
+// content type is whatever Telegram serves (image/jpeg for photos), and is ""
+// for a local-mode file — callers already default it.
+//
+// A local Bot API server run with --local answers getFile with an ABSOLUTE path
+// on its working volume and does not serve that file over /file/... at all
+// (it 404s). Every caller shares this volume, so open it directly. The branch
+// lives here rather than at the call sites because each caller forgetting it is
+// its own silent "couldn't fetch that photo" bug under the proxy.
 func (c *Client) DownloadFile(ctx context.Context, filePath string) (io.ReadCloser, string, error) {
+	if strings.HasPrefix(filePath, "/") {
+		f, err := os.Open(filePath) // #nosec G304 -- path is from Telegram getFile, not user input
+		if err != nil {
+			return nil, "", c.redact(err)
+		}
+		return f, "", nil
+	}
 	url := fmt.Sprintf("%s/file/bot%s/%s", c.baseURL, c.token, filePath)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
