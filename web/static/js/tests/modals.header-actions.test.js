@@ -100,6 +100,25 @@ const cases = [
         closeBtnId: 'exercise-library-close-btn',
     },
     {
+        name: 'WorkoutMiBandModal',
+        modalId: 'miband-workout-modal',
+        headerActionsClass: 'wg-workouts-miband-modal__header-actions',
+        // The legacy `.modal-header > .actions` block this modal used to carry.
+        legacyActionsSelector: '#miband-workout-modal .actions',
+        cancelBtnId: 'miband-workout-cancel-btn',
+        primaryBtnId: 'miband-workout-save-btn',
+        primaryLabel: 'Save',
+        extraResolvedIds: [
+            'miband-workout-id',
+            'miband-workout-steps',
+            'miband-workout-distance',
+            'miband-workout-duration',
+            'miband-workout-calories',
+            'miband-workout-hr',
+            'miband-workout-spo2',
+        ],
+    },
+    {
         name: 'WorkoutLogSetModal',
         modalId: 'workout-add-exercise-to-session-modal',
         headerActionsClass: 'wg-workouts-log-set-modal__header-actions',

@@ -487,9 +487,15 @@ function _buildMiBandCard(w) {
 
     const actions = document.createElement('div');
     actions.className = 'wg-workouts-history-row__actions';
-    actions.appendChild(_buildHistoryIconBtn('view', 'View workout', 'chevronRight', () => {
+    // Pencil + trash, same cluster as session / plan / exercise-library rows.
+    // The chevron that used to sit here only repeated the card-body tap below,
+    // and the row had no delete at all — deleting meant opening the modal first.
+    actions.appendChild(_buildHistoryIconBtn('edit', 'Edit workout', 'pencil', () => {
         showMiBandWorkoutModal(w);
     }));
+    actions.appendChild(_buildHistoryIconBtn('delete', 'Delete workout', 'trash', () => {
+        deleteMiBandWorkoutById(w.id);
+    }, { isWrite: true }));
     card.appendChild(actions);
 
     card.addEventListener('click', (e) => {

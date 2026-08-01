@@ -78,35 +78,27 @@ async function saveMiBandWorkout() {
     }
 }
 
-async function deleteMiBandWorkout() {
-    if (!window.WorkoutMiBandState.current) return;
+// Deletes by id so the Cardio history row's trash icon can act without first
+// opening the modal (the predecessors read WorkoutMiBandState.current, which
+// only showMiBandWorkoutModal ever sets). Mirrors deleteWorkoutSessionById.
+async function deleteMiBandWorkoutById(id) {
+    if (!id) return;
     await safeConfirm('Delete this workout?', async (ok) => {
-        if (ok) {
-            await _deleteMiBandWorkoutApi();
+        if (!ok) return;
+        try {
+            const result = await apiCall(`/api/workout/miband/${id}`, 'DELETE');
+            if (!(result || result === true)) throw new Error('API returned false/null');
+            await invalidateWorkoutCache();
+            loadWorkoutHistoryTab();
+        } catch (err) {
+            console.error('Error deleting Mi Band workout:', err);
+            safeAlert('Failed to delete workout. Please try again.');
         }
     });
-}
-
-async function _deleteMiBandWorkoutApi() {
-    const current = window.WorkoutMiBandState.current;
-    try {
-        const result = await apiCall(`/api/workout/miband/${current.id}`, 'DELETE');
-        if (result || result === true) {
-            await invalidateWorkoutCache();
-            closeMiBandWorkoutModal();
-            loadWorkoutHistoryTab();
-        } else {
-            throw new Error('API returned false/null');
-        }
-    } catch (err) {
-        console.error('Error deleting Mi Band workout:', err);
-        safeAlert('Failed to delete workout. Please try again.');
-    }
 }
 
 window.WorkoutMiBand = {
     open: showMiBandWorkoutModal,
     close: closeMiBandWorkoutModal,
-    save: saveMiBandWorkout,
-    delete: deleteMiBandWorkout
+    save: saveMiBandWorkout
 };
