@@ -373,6 +373,29 @@ describe('Health Notes composer tag chips (Phase 8, Task 7)', () => {
         expect(stressChip.getAttribute('aria-checked')).toBe('false');
     });
 
+    // Regression: the chips toggled their classes correctly but painted nothing,
+    // because `.wg-tag--sun` and the base `.wg-health-notes-compose__tag` rule
+    // both weigh (0,1,0) and the base one is declared thousands of lines later —
+    // equal specificity, so source order decided and the active look always lost.
+    // jsdom computes no cascade, so asserting the rules merely *exist* is what
+    // let this ship; the load-bearing assertion is that the active rule comes
+    // after the base rule.
+    it('active composer-tag rule is declared after the base rule so it wins the cascade', () => {
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+
+        const baseAt = css.indexOf('.wg-health-notes-compose__tag {');
+        const activeAt = css.indexOf('.wg-health-notes-compose__tag--active {');
+        expect(baseAt, 'base .wg-health-notes-compose__tag rule missing').toBeGreaterThan(-1);
+        expect(activeAt, 'active .wg-health-notes-compose__tag--active rule missing').toBeGreaterThan(-1);
+        expect(activeAt).toBeGreaterThan(baseAt);
+
+        // …and that it actually restyles the chip, rather than being an empty
+        // rule that satisfies the ordering check without repainting anything.
+        const activeBlock = css.slice(activeAt, css.indexOf('}', activeAt));
+        expect(activeBlock).toMatch(/background:/);
+        expect(activeBlock).toMatch(/var\(--wg-tag-high-bg\)/);
+    });
+
     it('textarea input updates the char-count pill and toggles #notes-save-btn disabled', () => {
         const { document, window } = env;
         if (typeof window.bindNotesComposer === 'function') window.bindNotesComposer();
