@@ -5,8 +5,9 @@
 //
 //   1. #workouts-view opts into the shared .wg-screen-stage backdrop so
 //      the view sits directly on the deep-teal palette.
-//   2. The Start button is an inline sun-gloss pill on the subtab row —
-//      never inside a `.wg-title-hero`, never full-width.
+//   2. The ad-hoc Start affordance is the leftmost action of the
+//      next-workout card (med-2fc) — it has no static markup at all, so
+//      it can never come back as a hero block or a floating strip.
 //   3. The Add exercise affordance is the top-right `.wg-workouts-exercises-
 //      header__add` pill, not a sticky bottom CTA.
 //   4. The workouts group / exercise / variant / miband modals all carry
@@ -67,39 +68,53 @@ describe('Workouts round-2 design parity', () => {
     });
 
     describe('Start button placement', () => {
-        // med-3dk: the ad-hoc Start CTA moved out of the global subtabs row
-        // (where it was oversized via `.wg-toolbar-btn--primary` and shown on
-        // every sub-tab) into the History pane header — mirroring the
-        // Exercises `+ Add` pill (`.wg-workouts-*-header__add`). It now shares
-        // the sun-gloss sizing of the `+ Add` button and is scoped to History.
-        it('Start button uses the sun-gloss header-add classes inside the History pane header — not the toolbar-btn sizing, not the subtabs row', () => {
+        // med-2fc: the ad-hoc Start CTA left the document entirely. It used to
+        // be a subtabs-row pill, then (med-3dk) its own `.wg-workouts-history-
+        // header` strip floating above the UPCOMING pane — two "start"
+        // affordances on one screen. It is now the leftmost action of the
+        // next-workout card's own action row, rendered by `_renderNextWorkout`.
+        it('no static ad-hoc Start markup survives in the document (no #start-adhoc-workout-btn, no history-header strip)', () => {
             const { document } = env;
-            const startBtn = document.getElementById('start-adhoc-workout-btn');
-            expect(startBtn).not.toBeNull();
+            expect(document.getElementById('start-adhoc-workout-btn')).toBeNull();
+            expect(document.querySelector('.wg-workouts-history-header')).toBeNull();
+            expect(document.querySelector('.wg-workouts-history-header__add')).toBeNull();
 
-            // Adopts the shared sun-gloss header-add sizing (matches + Add).
-            expect(startBtn.classList.contains('wg-gloss')).toBe(true);
-            expect(startBtn.classList.contains('wg-gloss--sun')).toBe(true);
-            expect(startBtn.classList.contains('wg-workouts-history-header__add')).toBe(true);
-
-            // The oversized toolbar-btn sizing and the old one-off are gone.
-            expect(startBtn.classList.contains('wg-toolbar-btn')).toBe(false);
-            expect(startBtn.classList.contains('wg-toolbar-btn--primary')).toBe(false);
-            expect(startBtn.classList.contains('wg-workouts-subtabs-row__add')).toBe(false);
-
-            // Label text preserved.
-            expect(startBtn.textContent.trim()).toBe('Start');
-
-            // Lives in the History pane header, NOT the global subtabs row.
-            const header = startBtn.closest('.wg-workouts-history-header');
-            expect(header).not.toBeNull();
-            expect(header.parentElement.id).toBe('workout-history-tab');
+            // The subtabs row still holds only the pill track.
             const subtabsRow = document.getElementById('workouts-subtabs');
-            expect(subtabsRow.contains(startBtn)).toBe(false);
+            expect(subtabsRow.querySelectorAll('button').length).toBe(4);
 
-            // Must NOT live inside any `.wg-title-hero` / hero block.
-            expect(startBtn.closest('.wg-title-hero')).toBeNull();
+            // No hero block on this screen at all.
             expect(document.querySelector('.wg-title-hero')).toBeNull();
+        });
+
+        it('Start AdHoc is the leftmost action of the next-workout card, secondary to Start Scheduled', () => {
+            const { window, document } = env;
+            const container = document.getElementById('next-workout-card');
+            window._renderNextWorkout(container, {
+                session: {
+                    id: 42, status: 'notified', scheduled_date: '2026-04-24',
+                    scheduled_time: '09:00', is_today: true
+                },
+                group_name: 'Morning 2',
+                variant_name: 'Carry & Core',
+                exercises_count: 2,
+                variant_id: 7,
+                group_id: 3,
+                is_rotating: false
+            });
+
+            const actions = container.querySelectorAll(
+                '.wg-workouts-next-card__actions > .wg-toolbar-btn'
+            );
+            const labels = Array.from(actions).map(
+                (btn) => btn.querySelector('.wg-toolbar-btn__label').textContent
+            );
+            expect(labels).toEqual(['Start AdHoc', 'Start Scheduled', 'Skip']);
+
+            // Ad-hoc is the secondary variant so the scheduled start stays the
+            // visual primary.
+            expect(actions[0].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
+            expect(actions[1].classList.contains('wg-toolbar-btn--primary')).toBe(true);
         });
     });
 

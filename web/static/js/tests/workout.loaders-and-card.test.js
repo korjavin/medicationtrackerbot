@@ -49,10 +49,41 @@ describe('workout.js loaders and next-card behavior', () => {
         session: { ...nextData.session, status: 'notified' }
       });
       expect(nextCard.innerHTML).toContain('Ready to Start');
-      expect(nextCard.innerHTML).toContain('Start Workout');
+      expect(nextCard.innerHTML).toContain('Start Scheduled');
 
+      // med-2fc: no session no longer empties the container — the card
+      // survives carrying the Start AdHoc action alone, because it is the
+      // only ad-hoc entry point on the Workouts screen.
       window._renderNextWorkout(nextCard, null);
-      expect(nextCard.innerHTML).toBe('');
+      expect(nextCard.querySelector('.wg-workouts-next-card')).not.toBeNull();
+      expect(nextCard.innerHTML).toContain('Start AdHoc');
+      expect(nextCard.innerHTML).not.toContain('Start Scheduled');
+      expect(nextCard.innerHTML).not.toContain('Ready to Start');
+    } finally {
+      cleanup();
+    }
+  });
+
+  // med-2fc: the ad-hoc CTA used to be static markup in index.html, so an
+  // empty next-workout container was harmless. Now Start AdHoc is rendered
+  // only by _renderNextWorkout, and a read failure with nothing cached would
+  // otherwise strip the screen's only way to start a workout.
+  it('loadNextWorkout keeps the Start AdHoc card when the read fails with no cache', async () => {
+    const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
+
+    try {
+      const nextCard = document.getElementById('next-workout-card');
+      nextCard.innerHTML = '<div>stale</div>';
+
+      window.DataStore.loadSWR = vi.fn(async (options) => {
+        await options.onError(new Error('offline'), null);
+      });
+
+      await window.loadNextWorkout();
+
+      expect(nextCard.querySelector('.wg-workouts-next-card')).not.toBeNull();
+      expect(nextCard.innerHTML).toContain('Start AdHoc');
+      expect(nextCard.innerHTML).not.toContain('stale');
     } finally {
       cleanup();
     }

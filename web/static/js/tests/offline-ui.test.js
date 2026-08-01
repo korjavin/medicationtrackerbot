@@ -109,9 +109,9 @@ describe('Offline UI indicators', () => {
         notesBtn.id = 'notes-save-btn';
         container.appendChild(notesBtn);
 
-        const workoutBtn = document.createElement('button');
-        workoutBtn.id = 'start-adhoc-workout-btn';
-        container.appendChild(workoutBtn);
+        const groupBtn = document.createElement('button');
+        groupBtn.id = 'add-workout-group-btn';
+        container.appendChild(groupBtn);
 
         document.body.appendChild(container);
 
@@ -123,7 +123,7 @@ describe('Offline UI indicators', () => {
         expect(foodBtn.classList.contains('offline-disabled')).toBe(true);
         expect(foodBtn.getAttribute('data-offline-disabled')).toBe('true');
         expect(notesBtn.classList.contains('offline-disabled')).toBe(true);
-        expect(workoutBtn.classList.contains('offline-disabled')).toBe(true);
+        expect(groupBtn.classList.contains('offline-disabled')).toBe(true);
 
         // Tooltips should appear
         const tips = container.querySelectorAll('.offline-disabled-tooltip');
@@ -204,6 +204,11 @@ describe('Offline UI indicators', () => {
       }
     });
 
+    // med-2fc: the ad-hoc Start CTA is no longer a static id in the
+    // `offlineUnsupported` list — it is rendered into the next-workout card
+    // as a `.workout-action-btn` and swept here, alongside Start Scheduled /
+    // Skip / Next Day. The rendered-button side is pinned in
+    // workout.next-card.test.js.
     it('disables dynamically-created workout-action-btn elements when offline', () => {
       const { window, document, cleanup } = loadSyncEnv();
       try {

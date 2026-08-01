@@ -118,7 +118,8 @@ function loadWorkouts() {
             if (el) el.addEventListener('click', handler);
         };
 
-        bindClick('start-adhoc-workout-btn', () => startAdHocWorkout());
+        // med-2fc: no static ad-hoc Start button any more — the next-workout
+        // card renders its own `Start AdHoc` action and wires it directly.
         bindClick('add-workout-group-btn', () => showAddWorkoutGroupModal());
         bindClick('add-exercise-library-btn', () => showExerciseLibraryModal());
 

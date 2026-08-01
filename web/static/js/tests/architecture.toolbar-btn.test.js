@@ -50,11 +50,14 @@ const CSS = fs.readFileSync(CSS_PATH, 'utf8');
 // `.wg-meds-schedule-header`. DOM adoption pinned in
 // `meds.schedule-add.test.js` and reasserted below.
 // Round-2 Task 10 (defect #13b): `#start-adhoc-workout-btn` — ADOPTED, then
-// REVERTED by med-3dk: the toolbar-btn sizing read as oversized in the
-// subtabs row, so the button moved into the History pane header and adopted
-// the sun-gloss `.wg-workouts-history-header__add` pill instead. Placement
-// pinned in `workout.design-parity.test.js`; the guard below now asserts it
-// no longer carries toolbar-btn classes (source-level guard on index.html).
+// REVERTED by med-3dk into a sun-gloss `.wg-workouts-history-header__add`
+// pill, then RETIRED entirely by med-2fc: the floating strip was a second
+// "start" affordance stacked above the pane that already had one. The
+// ad-hoc CTA is now the leftmost `Start AdHoc` action inside the
+// next-workout card's action row, so it rejoins the toolbar-btn family as
+// a `--secondary` sibling of `Start Scheduled`. Guard below is source-level
+// on next-card.js (+ absence of the old markup in index.html); DOM-level
+// placement is pinned in `workout.design-parity.test.js`.
 // Round-2 Task 12 (defect #15): `#add-weight-btn` — ADOPTED; the button
 // moved out of the (deleted) `.wg-weight-header-row` into the
 // range-selector row via `buildWeightInlineAddButton`. DOM adoption
@@ -209,28 +212,38 @@ describe('Round-2 Task 2 — shared .wg-toolbar-btn class', () => {
         expect(CSS).not.toMatch(/\.wg-meds-subtabs-row__add-label\s*\{/);
     });
 
-    // med-3dk: Workouts #start-adhoc-workout-btn left the toolbar-btn family.
-    // It moved out of the oversized subtabs-row CTA into the History pane
-    // header, adopting the sun-gloss `.wg-workouts-history-header__add` sizing
-    // shared with the Exercises `+ Add` pill. Source-level guard on
-    // index.html — DOM-level placement test lives in workout.design-parity.
-    it('Workouts #start-adhoc-workout-btn no longer uses .wg-toolbar-btn — now the sun-gloss history-header add pill', () => {
-        const INDEX_HTML_PATH = path.join(REPO_ROOT, 'web/static/index.html');
-        const src = fs.readFileSync(INDEX_HTML_PATH, 'utf8');
-        const match = src.match(/<button\s+id="start-adhoc-workout-btn"[^>]*class="([^"]+)"/);
-        expect(match).not.toBeNull();
-        const classAttr = match[1];
-        expect(classAttr).not.toMatch(/\bwg-toolbar-btn\b/);
-        expect(classAttr).not.toMatch(/\bwg-toolbar-btn--primary\b/);
-        expect(classAttr).not.toMatch(/\bwg-workouts-subtabs-row__add\b/);
-        expect(classAttr).toMatch(/\bwg-gloss\b/);
-        expect(classAttr).toMatch(/\bwg-gloss--sun\b/);
-        expect(classAttr).toMatch(/\bwg-workouts-history-header__add\b/);
+    // med-2fc: the Workouts ad-hoc Start CTA rejoins the toolbar-btn family —
+    // it is now rendered by `_renderNextWorkout` as the leftmost `Start AdHoc`
+    // action, `--secondary` so the renamed `Start Scheduled` stays primary.
+    // Source-level guard on next-card.js; DOM-level placement test lives in
+    // workout.design-parity.
+    it('Workouts Start AdHoc is a .wg-toolbar-btn--secondary action of the next-workout card', () => {
+        const NEXT_CARD_PATH = path.join(REPO_ROOT, 'web/static/js/features/workout/next-card.js');
+        const src = fs.readFileSync(NEXT_CARD_PATH, 'utf8');
+        // Built through the shared createButton helper (which emits
+        // `wg-toolbar-btn wg-toolbar-btn--<variant> workout-action-btn`) with
+        // the secondary variant, and it starts an ad-hoc session.
+        expect(src).toMatch(
+            /createButton\(\s*'Start AdHoc',\s*'secondary',\s*\(\)\s*=>\s*window\.startAdHocWorkout\(\)\s*\)/
+        );
+        expect(src).toMatch(/createButton\(\s*'Start Scheduled',\s*'primary'/);
+        // The old floating-CTA label is gone from the card.
+        expect(src).not.toMatch(/'Start Workout'/);
     });
 
-    it('CSS no longer defines the dead .wg-workouts-subtabs-row__add rule', () => {
+    it('the retired ad-hoc Start markup is gone from index.html', () => {
+        const INDEX_HTML_PATH = path.join(REPO_ROOT, 'web/static/index.html');
+        const src = fs.readFileSync(INDEX_HTML_PATH, 'utf8');
+        expect(src).not.toMatch(/id="start-adhoc-workout-btn"/);
+        expect(src).not.toMatch(/class="wg-workouts-history-header"/);
+    });
+
+    it('CSS no longer defines the dead .wg-workouts-subtabs-row__add / history-header rules', () => {
         expect(CSS).not.toMatch(/\.wg-workouts-subtabs-row__add\s*\{/);
         expect(CSS).not.toMatch(/\.wg-workouts-subtabs-row__add-label\s*\{/);
+        expect(CSS).not.toMatch(/\.wg-workouts-history-header\s*[,{]/);
+        expect(CSS).not.toMatch(/\.wg-workouts-history-header__add\s*[,{]/);
+        expect(CSS).not.toMatch(/\.wg-workouts-history-header__add-label\s*[,{]/);
     });
 
     // Round-2 Task 12 (defect #15): Weight +Log button was lifted out of

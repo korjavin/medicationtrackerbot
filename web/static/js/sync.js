@@ -450,7 +450,9 @@ const SyncManager = {
             'med-modal-save-btn',
             'add-food-inline-btn',
             'notes-save-btn',
-            'start-adhoc-workout-btn',
+            // med-2fc: the ad-hoc Start CTA is no longer a static id — it is
+            // rendered into the next-workout card as a `.workout-action-btn`
+            // and picked up by the dynamic sweep below.
             'add-workout-group-btn',
             'add-exercise-library-btn',
             'workout-group-save-btn',
