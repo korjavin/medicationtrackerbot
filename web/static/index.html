@@ -1474,17 +1474,23 @@
 
     <!-- Modal for Workout Session Details -->
     <mt-modal id="workout-session-modal" class="hidden wg-modal wg-workouts-session-modal">
+        <!-- Pinned header: a session's exercise list rarely fits one screen, so
+             "+ Exercise" and Close stay reachable without scrolling back up.
+             The heading (slot · date · status) is injected by
+             renderWorkoutSessionHeader; the body no longer repeats it, and the
+             old "Workout Details" title is gone — the modal is self-evident.
+             Close only besides Add: deleting a session lives on the History
+             row's trash icon (features/workout/history.js), which is the sole
+             entry point that can open a completed/skipped session anyway. -->
         <div class="wg-workouts-session-modal__header">
-            <div class="wg-workouts-session-modal__heading">
-                <span class="wg-section-label wg-workouts-session-modal__eyebrow">Workout</span>
-                <span class="wg-mono-display wg-workouts-session-modal__title" id="workout-session-modal-title">Workout Details</span>
-            </div>
-            <!-- Close only: deleting a session lives on the History row's trash
-                 icon (features/workout/history.js), which is the sole entry
-                 point that can open a completed/skipped session anyway. -->
+            <div class="wg-workouts-session-modal__heading" id="workout-session-modal-heading"></div>
             <div class="wg-workouts-session-modal__header-actions">
+                <button type="button" id="workout-session-header-add-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-session-modal__header-btn">+ Exercise</button>
                 <button type="button" id="workout-session-cancel-btn"
-                    class="wg-gloss wg-workouts-session-modal__header-btn">Close</button>
+                    class="wg-icon-btn wg-workouts-session-modal__close-btn" aria-label="Close">
+                    <span class="wg-gloss"></span>
+                </button>
             </div>
         </div>
 
