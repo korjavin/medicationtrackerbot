@@ -680,6 +680,7 @@ export async function applyTGPhoto(event, eventId, { foodAI, verbosity = 'detail
   try {
     result = await foodAI.parseMealFromPhoto(blob, {
       eatenAt: atIso,
+      caption: event.caption,
       recordIdFor: (i) => `tg-${eventId}-${i}`,
     });
   } catch (e) {

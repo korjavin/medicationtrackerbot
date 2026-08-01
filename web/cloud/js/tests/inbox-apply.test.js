@@ -1306,6 +1306,21 @@ describe('inbox-apply.js — a Telegram data command', () => {
         expect(editReply).toHaveBeenCalledWith(REPLY_ID, expect.stringMatching(/Logged 1 food item/));
     });
 
+    it('a photo caption reaches the vision model — it is where portions come from', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const parseMealFromImage = vi.fn().mockResolvedValue({ items: TWO_EGGS });
+        const foodAI = createFoodAIDomain({
+            aiClient: { ...stubAIClient(TWO_EGGS), parseMealFromImage },
+            foodDomain: createFoodDomain({ records, now, timeZone: 'UTC' }),
+            now,
+        });
+        const event = { ...photoEvent(), caption: 'chicken salad, 300g' };
+        await applyTGPhoto(event, 34, { foodAI, editReply: vi.fn(), fetchPhoto: okFetchPhoto() });
+
+        expect(parseMealFromImage).toHaveBeenCalledWith(expect.anything(), 'chicken salad, 300g');
+    });
+
     it('re-draining the same photo event overwrites its own rows instead of duplicating', async () => {
         const records = fakeRecords(seed());
         const now = () => DRAIN_MS;
