@@ -9722,6 +9722,18 @@ textarea.wg-input {
     padding: var(--wg-health-notes-compose-tag-pad-y) var(--wg-health-notes-compose-tag-pad-x);
 }
 
+/* Selected composer tag. MUST stay after `.wg-health-notes-compose__tag` above:
+   the `.wg-tag--sun` class the JS also toggles carries the same (0,1,0)
+   specificity and is declared ~5800 lines earlier, so the base rule won on
+   source order and the active palette never painted at all. Keyed on the
+   `--active` class instead (also set by syncNotesComposerTagClasses), reusing
+   the same high/sun tokens `.wg-tag--sun` uses — no new colors. */
+.wg-health-notes-compose__tag--active {
+    background: var(--wg-tag-high-bg);
+    color: var(--wg-tag-high-fg);
+    border-color: var(--wg-tag-high-border);
+}
+
 .wg-health-notes-compose__wrap {
     padding: var(--wg-health-notes-compose-pad-y) var(--wg-health-notes-compose-pad-x);
 }
