@@ -265,6 +265,11 @@ function _buildActivityCalendar(daily, range) {
     grid.className = 'wg-workouts-stats__calendar-grid';
     grid.dataset.range = range || 'all';
     grid.dataset.weeks = String(weekCount);
+    // Cell size is fluid (the grid divides the card's width by the column
+    // count); the stylesheet needs the count to cap that growth. A unitless
+    // custom property is a token, not a style — same sanctioned `setProperty`
+    // escape hatch as `--fill-pct` on the bar rows.
+    grid.style.setProperty('--wg-workouts-calendar-weeks', String(weekCount));
 
     // Cells stream in chronological order; the grid flows column-first over 7
     // rows, so each column is one Mon→Sun week.
