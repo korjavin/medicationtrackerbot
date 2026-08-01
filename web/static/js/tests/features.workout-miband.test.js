@@ -26,10 +26,59 @@ describe('features/workout/miband.js — split-file integration', () => {
     expect(window.WorkoutMiBand.open).toBeTypeOf('function');
     expect(window.WorkoutMiBand.close).toBeTypeOf('function');
     expect(window.WorkoutMiBand.save).toBeTypeOf('function');
-    expect(window.WorkoutMiBand.delete).toBeTypeOf('function');
+    // Deletion moved out of the modal onto the Cardio history row's trash
+    // icon, so the modal-bound `delete` entry (and its Delete button) are gone.
+    expect(window.WorkoutMiBand.delete).toBeUndefined();
+    expect(window.deleteMiBandWorkoutById).toBeTypeOf('function');
 
     expect('current' in window.WorkoutMiBandState).toBe(true);
     expect(window.WorkoutMiBandState.current).toBeNull();
+  });
+
+  it('the modal header carries Cancel + Save only — no Delete button', () => {
+    const { document } = env;
+    expect(document.getElementById('miband-workout-delete-btn')).toBeNull();
+    expect(document.getElementById('miband-workout-cancel-btn')).not.toBeNull();
+    expect(document.getElementById('miband-workout-save-btn')).not.toBeNull();
+  });
+
+  it('deleteMiBandWorkoutById deletes by id without needing the modal open', async () => {
+    const { window } = env;
+    window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
+    const apiCallSpy = vi.fn(async () => true);
+    window.apiCall = apiCallSpy;
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutMiBandState.current = null;
+
+    await window.deleteMiBandWorkoutById(42);
+
+    expect(window.safeConfirm).toHaveBeenCalled();
+    expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/miband/42', 'DELETE');
+    expect(window.loadWorkoutHistoryTab).toHaveBeenCalled();
+  });
+
+  it('deleteMiBandWorkoutById skips the API when the confirm is declined', async () => {
+    const { window } = env;
+    window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(false); });
+    const apiCallSpy = vi.fn();
+    window.apiCall = apiCallSpy;
+
+    await window.deleteMiBandWorkoutById(42);
+
+    expect(apiCallSpy).not.toHaveBeenCalled();
+  });
+
+  it('deleteMiBandWorkoutById alerts instead of throwing when the API rejects', async () => {
+    const { window } = env;
+    window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
+    window.apiCall = vi.fn(async () => { throw new Error('boom'); });
+    window.safeAlert = vi.fn();
+    window.loadWorkoutHistoryTab = vi.fn();
+
+    await window.deleteMiBandWorkoutById(42);
+
+    expect(window.safeAlert).toHaveBeenCalled();
+    expect(window.loadWorkoutHistoryTab).not.toHaveBeenCalled();
   });
 
   it('showMiBandWorkoutModal stores the workout in closure-private state + fills form fields', () => {

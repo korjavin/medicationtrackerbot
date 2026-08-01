@@ -1126,24 +1126,9 @@ h3 {
     z-index: var(--z-overlay);
 }
 
-#miband-workout-modal {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: var(--secondary-bg-color, #fff);
-    padding: var(--space-xl);
-    border-radius: var(--radius-lg);
-    width: 90%;
-    max-width: 320px;
-    max-height: 85vh;
-    overflow-y: auto;
-    z-index: var(--z-modal);
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    box-shadow: var(--shadow-lg);
-    animation: modal-enter 0.2s ease;
-}
-
+/* The Mi-Band modal's paper-white positioning block used to live here; it now
+   rides the generic `.wg-modal` shell like every other workout modal, and an
+   id-level background would have out-specified it. */
 @keyframes modal-enter {
     from {
         opacity: 0;
@@ -1154,11 +1139,6 @@ h3 {
         transform: translate(-50%, -50%);
     }
 }
-
-#miband-workout-modal {
-    max-width: 500px;
-}
-
 
 /* Initial state for modal sections that groups.js / variants.js swap in and out
    with .style.display. Not `.hidden` — that rule is `!important` and the CSSOM
@@ -8447,8 +8427,17 @@ textarea.wg-input {
    shell for positioning/chrome; overlays a mono eyebrow + title header,
    `.wg-gloss--inset` input wraps for name / sets / reps / weight / notes,
    and a Cancel/Save action bar (Save 2× flex per modal-button-order
-   convention). */
-.wg-workouts-library-modal__header {
+   convention).
+
+   The Mi-Band/Cardio modal (med-bzv) is the same form shape, so it rides these
+   rules as a second selector rather than a copied declaration block — only the
+   library-only `__hint` stays single-prefix.
+
+   ponytail: three modals (library, log-set, miband) now render one identical
+   form-modal shape under three BEM prefixes. Extracting a shared
+   `wg-form-modal` block is the real cleanup; out of scope here. */
+.wg-workouts-library-modal__header,
+.wg-workouts-miband-modal__header {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
@@ -8456,14 +8445,16 @@ textarea.wg-input {
     margin-bottom: var(--space-lg);
 }
 
-.wg-workouts-library-modal__heading {
+.wg-workouts-library-modal__heading,
+.wg-workouts-miband-modal__heading {
     display: flex;
     flex-direction: column;
     gap: var(--space-xs);
     min-width: 0;
 }
 
-.wg-workouts-library-modal__eyebrow {
+.wg-workouts-library-modal__eyebrow,
+.wg-workouts-miband-modal__eyebrow {
     padding: 0;
     font-size: var(--wg-workouts-modal-eyebrow-size);
     color: var(--wg-fg-3);
@@ -8471,24 +8462,28 @@ textarea.wg-input {
     text-transform: uppercase;
 }
 
-.wg-workouts-library-modal__eyebrow::before {
+.wg-workouts-library-modal__eyebrow::before,
+.wg-workouts-miband-modal__eyebrow::before {
     content: none;
 }
 
-.wg-workouts-library-modal__title {
+.wg-workouts-library-modal__title,
+.wg-workouts-miband-modal__title {
     font-family: var(--wg-font-mono);
     font-size: var(--wg-workouts-modal-title-size);
     color: var(--wg-fg-1);
     line-height: 1.1;
 }
 
-.wg-workouts-library-modal__body {
+.wg-workouts-library-modal__body,
+.wg-workouts-miband-modal__body {
     display: flex;
     flex-direction: column;
     gap: var(--wg-workouts-modal-section-gap);
 }
 
-.wg-workouts-library-modal__field {
+.wg-workouts-library-modal__field,
+.wg-workouts-miband-modal__field {
     display: flex;
     flex-direction: column;
     gap: var(--space-xs);
@@ -8496,7 +8491,8 @@ textarea.wg-input {
     flex: 1 1 0;
 }
 
-.wg-workouts-library-modal__row {
+.wg-workouts-library-modal__row,
+.wg-workouts-miband-modal__row {
     display: flex;
     gap: var(--wg-workouts-modal-row-gap);
 }
@@ -8508,7 +8504,8 @@ textarea.wg-input {
     margin: var(--space-xs) 0 0;
 }
 
-.wg-workouts-library-modal__label {
+.wg-workouts-library-modal__label,
+.wg-workouts-miband-modal__label {
     font-size: var(--wg-workouts-modal-label-size);
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -8516,14 +8513,16 @@ textarea.wg-input {
     font-weight: var(--font-weight-bold);
 }
 
-.wg-workouts-library-modal__input-wrap {
+.wg-workouts-library-modal__input-wrap,
+.wg-workouts-miband-modal__input-wrap {
     padding: var(--wg-workouts-modal-input-pad-y) var(--wg-workouts-modal-input-pad-x);
     display: flex;
     align-items: center;
     min-width: 0;
 }
 
-.wg-workouts-library-modal__input {
+.wg-workouts-library-modal__input,
+.wg-workouts-miband-modal__input {
     width: 100%;
     margin: 0;
     padding: 0;
@@ -8537,11 +8536,13 @@ textarea.wg-input {
     min-width: 0;
 }
 
-.wg-workouts-library-modal__input::placeholder {
+.wg-workouts-library-modal__input::placeholder,
+.wg-workouts-miband-modal__input::placeholder {
     color: var(--wg-fg-4);
 }
 
-.wg-workouts-library-modal__header-actions {
+.wg-workouts-library-modal__header-actions,
+.wg-workouts-miband-modal__header-actions {
     display: flex;
     gap: var(--space-xs);
     align-items: center;
@@ -8549,7 +8550,8 @@ textarea.wg-input {
     flex-shrink: 0;
 }
 
-.wg-workouts-library-modal__header-btn {
+.wg-workouts-library-modal__header-btn,
+.wg-workouts-miband-modal__header-btn {
     flex: 1 1 auto;
     min-height: 36px;
     padding: var(--space-xs) var(--space-sm);
@@ -8560,7 +8562,8 @@ textarea.wg-input {
     white-space: nowrap;
 }
 
-.wg-workouts-library-modal__header-btn--save {
+.wg-workouts-library-modal__header-btn--save,
+.wg-workouts-miband-modal__header-btn--save {
     flex: 2 1 auto;
 }
 

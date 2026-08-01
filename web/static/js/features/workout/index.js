@@ -145,7 +145,6 @@ function loadWorkouts() {
 
         bindClick('miband-workout-cancel-btn', () => closeMiBandWorkoutModal());
         bindClick('miband-workout-save-btn', () => saveMiBandWorkout());
-        bindClick('miband-workout-delete-btn', () => deleteMiBandWorkout());
 
         const rotatingCheckbox = document.getElementById('workout-group-rotating');
         if (rotatingCheckbox) {

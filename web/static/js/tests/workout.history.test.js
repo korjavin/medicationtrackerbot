@@ -153,11 +153,13 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         });
     });
 
-    it('keeps the lone chevron on Mi Band cardio rows, which open their own modal', () => {
+    it('gives Mi Band cardio rows the same pencil + trash cluster as session rows', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-history-display');
         const showSpy = vi.fn();
+        const deleteSpy = vi.fn();
         window.showMiBandWorkoutModal = showSpy;
+        window.deleteMiBandWorkoutById = deleteSpy;
 
         const miband = {
             id: 7,
@@ -169,18 +171,46 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         };
         window._renderWorkoutHistory(container, [], [miband], 'UTC');
 
-        // Mi Band rows carry no pencil and no trash (deletion lives inside the
-        // modal), so the chevron is their only affordance — it is NOT the
-        // redundant one that was removed from session rows.
+        // Cardio used to be the only list row with a lone chevron that merely
+        // repeated the card-body tap, and with no delete affordance at all.
         const row = container.querySelector('.wg-workouts-history-row--miband');
         expect(row).not.toBeNull();
-        const viewBtn = row.querySelector('.wg-workouts-history-row__view');
-        expect(viewBtn).not.toBeNull();
-        expect(viewBtn.getAttribute('aria-label')).toBe('View workout');
-        expect(row.querySelector('.wg-workouts-history-row__edit')).toBeNull();
-        expect(row.querySelector('.wg-workouts-history-row__delete')).toBeNull();
+        expect(row.querySelector('.wg-workouts-history-row__view')).toBeNull();
 
-        viewBtn.click();
+        const actions = row.querySelector('.wg-workouts-history-row__actions');
+        expect(actions.querySelectorAll('button').length).toBe(2);
+
+        const editBtn = actions.querySelector('.wg-workouts-history-row__edit');
+        const deleteBtn = actions.querySelector('.wg-workouts-history-row__delete');
+        expect(editBtn.getAttribute('aria-label')).toBe('Edit workout');
+        expect(deleteBtn.getAttribute('aria-label')).toBe('Delete workout');
+
+        editBtn.click();
+        expect(showSpy).toHaveBeenCalledTimes(1);
+        expect(showSpy).toHaveBeenCalledWith(miband);
+
+        // Trash deletes straight from the list — no modal open first.
+        deleteBtn.click();
+        expect(deleteSpy).toHaveBeenCalledWith(7);
+        expect(showSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('clicking the Mi Band row body (not the icon cluster) still opens its modal', () => {
+        const { window, document } = env;
+        const container = document.getElementById('workout-history-display');
+        const showSpy = vi.fn();
+        window.showMiBandWorkoutModal = showSpy;
+
+        const miband = {
+            id: 9,
+            activity_name: 'outdoor_running',
+            start_time: new Date().toISOString(),
+            distance_m: 3000,
+            duration_sec: 1200
+        };
+        window._renderWorkoutHistory(container, [], [miband], 'UTC');
+
+        container.querySelector('.wg-workouts-history-row--miband').click();
         expect(showSpy).toHaveBeenCalledTimes(1);
     });
 

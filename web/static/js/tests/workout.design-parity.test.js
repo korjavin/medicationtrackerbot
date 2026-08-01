@@ -9,9 +9,9 @@
 //      never inside a `.wg-title-hero`, never full-width.
 //   3. The Add exercise affordance is the top-right `.wg-workouts-exercises-
 //      header__add` pill, not a sticky bottom CTA.
-//   4. The workouts group / exercise / variant modals all carry `.wg-modal`
-//      so the shared teal-gloss shell (rather than the legacy paper-white
-//      `#workout-*-modal` background block) paints their chrome.
+//   4. The workouts group / exercise / variant / miband modals all carry
+//      `.wg-modal` so the shared teal-gloss shell (rather than the legacy
+//      paper-white `#workout-*-modal` background block) paints their chrome.
 //   5. The Stats tab chart emits numeric y-axis + date x-axis tick labels
 //      and a series legend chip so the SVG is readable on its own.
 
@@ -154,6 +154,46 @@ describe('Workouts round-2 design parity', () => {
             expect(modal).not.toBeNull();
             expect(modal.classList.contains('wg-modal')).toBe(true);
             expect(modal.classList.contains('wg-workouts-exercise-modal')).toBe(true);
+        });
+
+        it('#miband-workout-modal uses the .wg-modal shell with the shared form-modal chrome', () => {
+            const { document } = env;
+            const modal = document.getElementById('miband-workout-modal');
+            expect(modal).not.toBeNull();
+            expect(modal.classList.contains('wg-modal')).toBe(true);
+            expect(modal.classList.contains('wg-workouts-miband-modal')).toBe(true);
+
+            // Same eyebrow + mono-display title as the exercise-library modal
+            // it was restyled from (med-bzv).
+            const eyebrow = modal.querySelector('.wg-workouts-miband-modal__eyebrow');
+            expect(eyebrow).not.toBeNull();
+            expect(eyebrow.classList.contains('wg-section-label')).toBe(true);
+            expect(eyebrow.textContent).toBe('Cardio');
+            const title = modal.querySelector('.wg-workouts-miband-modal__title');
+            expect(title).not.toBeNull();
+            expect(title.classList.contains('wg-mono-display')).toBe(true);
+            expect(title.id).toBe('miband-workout-modal-title');
+
+            // All six numeric inputs sit in .wg-gloss--inset wraps, paired into
+            // __row groups — no legacy .form-row / bare <input> left.
+            const wraps = modal.querySelectorAll('.wg-workouts-miband-modal__input-wrap');
+            expect(wraps.length).toBe(6);
+            wraps.forEach((wrap) => {
+                expect(wrap.classList.contains('wg-gloss--inset')).toBe(true);
+                expect(wrap.querySelector('.wg-workouts-miband-modal__input')).not.toBeNull();
+            });
+            expect(modal.querySelectorAll('.wg-workouts-miband-modal__row').length).toBe(3);
+            expect(modal.querySelector('.form-row')).toBeNull();
+            expect(modal.querySelector('.modal-header')).toBeNull();
+
+            // Save pill is sun-glossed; Cancel is a plain gloss; Delete is gone.
+            const cancel = document.getElementById('miband-workout-cancel-btn');
+            const save = document.getElementById('miband-workout-save-btn');
+            expect(cancel.classList.contains('wg-gloss')).toBe(true);
+            expect(cancel.classList.contains('wg-gloss--sun')).toBe(false);
+            expect(save.classList.contains('wg-gloss')).toBe(true);
+            expect(save.classList.contains('wg-gloss--sun')).toBe(true);
+            expect(document.getElementById('miband-workout-delete-btn')).toBeNull();
         });
 
         it('#workout-variant-modal uses the .wg-modal shell with .wg-workouts-variant-modal variant classes', () => {
