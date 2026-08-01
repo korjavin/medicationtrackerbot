@@ -9176,7 +9176,7 @@ textarea.wg-input {
    • the `minmax()` floor stops a 53-column range=all from shrinking cells to
      nothing — it hits the floor, overflows, and the wrap scrolls instead;
    • max-width re-derives the grid's natural width at -cell-max from the week
-     count the renderer wrote into --wg-workouts-calendar-weeks, capping growth.
+     count the renderer wrote into --calendar-weeks, capping growth.
      Without it a 2-column 7d range would split the whole card between two
      columns, and square cells would make the card ~400px tall.
 
@@ -9190,7 +9190,7 @@ textarea.wg-input {
     gap: var(--wg-workouts-calendar-gap);
     flex-grow: 1;
     max-width: calc(
-        var(--wg-workouts-calendar-weeks, 53) *
+        var(--calendar-weeks, 53) *
         (var(--wg-workouts-calendar-cell-max) + var(--wg-workouts-calendar-gap))
         - var(--wg-workouts-calendar-gap)
     );

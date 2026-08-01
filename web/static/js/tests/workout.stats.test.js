@@ -195,7 +195,7 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             // Cells are fluid, and the stylesheet caps their growth off this
             // count (max-width = weeks × max cell). A wrong or missing value
             // silently un-caps the grid, so pin it to the column count.
-            expect(grid.style.getPropertyValue('--wg-workouts-calendar-weeks'))
+            expect(grid.style.getPropertyValue('--calendar-weeks'))
                 .toBe(String(weeks));
 
             // med-wu7: every row carries an initial (GitHub's Mon/Wed/Fri-only

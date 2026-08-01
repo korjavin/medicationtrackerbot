@@ -266,10 +266,12 @@ function _buildActivityCalendar(daily, range) {
     grid.dataset.range = range || 'all';
     grid.dataset.weeks = String(weekCount);
     // Cell size is fluid (the grid divides the card's width by the column
-    // count); the stylesheet needs the count to cap that growth. A unitless
-    // custom property is a token, not a style — same sanctioned `setProperty`
-    // escape hatch as `--fill-pct` on the bar rows.
-    grid.style.setProperty('--wg-workouts-calendar-weeks', String(weekCount));
+    // count); the stylesheet needs the count to cap that growth. Deliberately
+    // NOT `--wg-`-prefixed: that namespace is design tokens, which
+    // architecture.design-tokens.test.js keeps CSS-only. This is a per-render
+    // structural integer, so it follows `--fill-pct` / `--ring-progress` and
+    // goes out unprefixed through the sanctioned `setProperty` hatch.
+    grid.style.setProperty('--calendar-weeks', String(weekCount));
 
     // Cells stream in chronological order; the grid flows column-first over 7
     // rows, so each column is one Mon→Sun week.
