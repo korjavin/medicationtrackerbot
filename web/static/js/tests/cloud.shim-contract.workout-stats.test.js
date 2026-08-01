@@ -146,17 +146,107 @@ describe('cloud shim contract — workout stats + mi-band', () => {
 
         const stats = await window.apiCallDirect('/api/workout/stats');
         // The 40 kg × 10 warm-up contributes nothing: 2 hard sets, 10 reps, 1000 kg.
-        expect(stats.totals).toEqual({ volume_kg: 1000, hard_sets: 2, reps: 10, pr_count: 1 });
+        expect(stats.totals).toEqual({ volume_kg: 1000, hard_sets: 2, easy_sets: 0, reps: 10, pr_count: 1 });
         expect(stats.exercise_totals).toEqual([
-            { exercise_name: 'Squat', session_count: 1, sets: 2, reps: 10, total_volume_kg: 1000, max_weight_kg: 100 },
+            { exercise_name: 'Squat', session_count: 1, sets: 2, hard_sets: 2, reps: 10, total_volume_kg: 1000, max_weight_kg: 100 },
         ]);
         // weekly_volume shares weekly_activity's ISO-Monday buckets exactly.
         expect(stats.weekly_volume).toHaveLength(stats.weekly_activity.length);
         expect(stats.weekly_volume.reduce((sum, w) => sum + w.volume_kg, 0)).toBe(1000);
         expect(stats.weekly_volume.reduce((sum, w) => sum + w.hard_sets, 0)).toBe(2);
-        // top_exercises deliberately keeps its pre-med-904.1 derived-scalar math
-        // (3 stored sets × max 10 reps × max 100 kg) so the MCP contract holds.
-        expect(stats.top_exercises[0].total_volume_kg).toBe(3000);
+        // med-7pq — top_exercises used to report the derived-scalar product
+        // (3 stored sets × max 10 reps × max 100 kg = 3000 kg, warm-up included).
+        // It is now the top-8 slice of exercise_totals, so both views agree.
+        expect(stats.top_exercises).toEqual([
+            { exercise_name: 'Squat', session_count: 1, total_volume_kg: 1000, max_weight_kg: 100 },
+        ]);
+    });
+
+    // med-vov — `hard_sets` counts effort, not sets: a working set only lands in
+    // it when it was taken near failure (RIR <= 4, i.e. rpe >= 6).
+    describe('hard sets are effort-gated (med-vov)', () => {
+        async function logSets(window, name, sets) {
+            const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name });
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: item.id, exercise_name: item.name,
+                source: 'library', status: 'completed', sets,
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+            return window.apiCallDirect('/api/workout/stats');
+        }
+
+        // THE regression that matters: rpe is optional, and rating only the top
+        // set is normal practice. A vault carrying no effort anywhere has to
+        // produce exactly the numbers it produced before med-vov, or the tile
+        // silently zeroes for most users.
+        it('counts every unrated work set as hard, unchanged', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const stats = await logSets(env.window, 'Squat', [
+                { weight_kg: 40, reps: 10, set_type: 'warmup' },
+                { weight_kg: 100, reps: 5 },
+                { weight_kg: 100, reps: 5 },
+                { weight_kg: 100, reps: 5 },
+            ]);
+            expect(stats.totals.hard_sets).toBe(3);
+            expect(stats.totals.easy_sets).toBe(0);
+            expect(stats.exercise_totals[0]).toMatchObject({ sets: 3, hard_sets: 3 });
+            expect(stats.weekly_volume.reduce((sum, w) => sum + w.hard_sets, 0)).toBe(3);
+        });
+
+        it('drops rated-easy sets (rpe < 6) from hard_sets and reports them as easy_sets', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const stats = await logSets(env.window, 'Bench Press', [
+                { weight_kg: 40, reps: 10, set_type: 'warmup', rpe: 3 },
+                { weight_kg: 60, reps: 5, rpe: 5 },   // RIR 5 — five in reserve, not hard
+                { weight_kg: 80, reps: 5, rpe: 6 },   // RIR 4 — the boundary, hard
+                { weight_kg: 90, reps: 5, rpe: 9 },   // RIR 1 — hard
+                { weight_kg: 90, reps: 5 },           // unrated — no opinion, hard
+            ]);
+            expect(stats.totals.hard_sets).toBe(3);
+            expect(stats.totals.easy_sets).toBe(1);
+            // The rated-easy set is still work: volume and reps keep all four
+            // working sets (60×5 + 80×5 + 90×5 + 90×5), only the hard count drops.
+            expect(stats.totals.volume_kg).toBe(1600);
+            expect(stats.totals.reps).toBe(20);
+            // Every EFFORT surface agrees — range tile, weekly bucket, per-exercise
+            // hard_sets — while per-exercise `sets` keeps counting COVERAGE: all
+            // four working sets, ungated. Two questions, two fields.
+            expect(stats.exercise_totals[0]).toMatchObject({ sets: 4, hard_sets: 3 });
+            expect(stats.weekly_volume.reduce((sum, w) => sum + w.hard_sets, 0)).toBe(3);
+        });
+
+        // The incentive-inverting bug: `exercise_totals[].sets` feeds the Balance
+        // view's body-part split, and any body part folding to zero sets is
+        // printed under "Not Trained". Gating that field on effort would tell a
+        // user who squatted three honest RPE-5 sets that they never trained legs
+        // — while a user who logs no RPE at all keeps getting the truth.
+        it('keeps the full working-set count on exercise_totals when every set was rated easy', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const stats = await logSets(env.window, 'Squat', [
+                { weight_kg: 100, reps: 5, rpe: 5 },
+                { weight_kg: 100, reps: 5, rpe: 4 },
+                { weight_kg: 100, reps: 5, rpe: 3 },
+            ]);
+            expect(stats.exercise_totals[0]).toMatchObject({ exercise_name: 'Squat', sets: 3, hard_sets: 0 });
+            expect(stats.totals).toMatchObject({ hard_sets: 0, easy_sets: 3 });
+        });
+
+        it('counts every set of a flat-scalar log, which carries no effort at all', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Row' });
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: item.id, exercise_name: item.name, source: 'library',
+                target_sets: 4, target_reps_min: 8, target_weight_kg: 50, status: 'completed',
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+            const stats = await window.apiCallDirect('/api/workout/stats');
+            expect(stats.totals.hard_sets).toBe(4);
+            expect(stats.totals.easy_sets).toBe(0);
+        });
     });
 
     it('range scopes the load aggregates, while weekly_volume keeps the wider heatmap span', async () => {
@@ -178,14 +268,14 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         }
 
         const near = await window.apiCallDirect('/api/workout/stats?range=30d');
-        expect(near.totals).toEqual({ volume_kg: 0, hard_sets: 0, reps: 0, pr_count: 0 });
+        expect(near.totals).toEqual({ volume_kg: 0, hard_sets: 0, easy_sets: 0, reps: 0, pr_count: 0 });
         expect(near.exercise_totals).toBeNull();
         // ...but the 12-week heatmap still covers a 60-day-old week, so its
         // tonnage bucket is present even when the range excludes it from totals.
         expect(near.weekly_volume.reduce((sum, w) => sum + w.volume_kg, 0)).toBe(720);
 
         const far = await window.apiCallDirect('/api/workout/stats?range=90d');
-        expect(far.totals).toEqual({ volume_kg: 720, hard_sets: 2, reps: 6, pr_count: 1 });
+        expect(far.totals).toEqual({ volume_kg: 720, hard_sets: 2, easy_sets: 0, reps: 6, pr_count: 1 });
         expect(far.exercise_totals).toHaveLength(1);
         expect(far.exercise_totals[0]).toMatchObject({ exercise_name: 'Deadlift', sets: 2, max_weight_kg: 120 });
     });

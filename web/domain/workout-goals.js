@@ -63,6 +63,21 @@ export function rpeFromRir(rir) {
   return n === null ? null : 10 - n;
 }
 
+// The one near-failure threshold, in RIR. A work set stopped more than this
+// many reps short of failure left most of the stimulus on the table — so
+// "hard" means RIR <= 4, i.e. RPE >= 6. It lives HERE, in the leaf both
+// web/domain/workout.js (hard-set counting in getStats) and
+// web/domain/workout-analysis.js (the effort insight) already import, so there
+// is exactly one number rather than one per consumer; workout.js importing
+// workout-analysis.js would be an import cycle.
+//
+// ponytail: one flat threshold for every exercise. Goal-differentiated
+// proximity (strength programs correctly live at RIR 2-3, endurance at 1) is
+// the upgrade path, but it needs the per-exercise effective goal resolved
+// inside a stats fold that today only sees logs — not worth it until a user
+// asks.
+export const NEAR_FAILURE_RIR = 4;
+
 // Display form of a stored RPE, spelling out both ends so no reader has to do
 // the subtraction: 8 → 'RPE 8 · 2 RIR'. Null for absent/invalid effort.
 export function formatEffort(rpe) {

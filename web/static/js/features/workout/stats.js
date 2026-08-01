@@ -368,7 +368,11 @@ function _renderConsistencyView(section, stats, range) {
 // cross-app table stake (Hevy/JEFIT/Alpha Progression all lead with it).
 function _renderLoadView(section, stats, range) {
     const totals = stats.totals || {};
-    if (!totals.hard_sets) {
+    const easySets = totals.easy_sets || 0;
+    // Guard on "did you log any working set at all", not on hard_sets alone —
+    // since med-vov a range of rated-but-easy sets has hard_sets 0, and telling
+    // that user "no logged sets" would be a lie about work they did log.
+    if (!totals.hard_sets && !easySets) {
         section.appendChild(_buildHint('No logged sets in this range'));
         return;
     }
@@ -389,15 +393,19 @@ function _renderLoadView(section, stats, range) {
 
     section.appendChild(_buildTileGrid([
         [_formatVolume(totals.volume_kg), 'Volume'],
-        [String(totals.hard_sets || 0), 'Hard sets'],
+        // A hard set is one taken near failure (RPE ≥ 6); an unrated set counts
+        // as hard. The excluded rated-easy sets ride in the tile's own label
+        // rather than silently vanishing from a number users already saw.
+        [String(totals.hard_sets || 0), easySets ? `Hard sets · ${easySets} easy` : 'Hard sets'],
         [String(totals.reps || 0), 'Reps'],
         [String(totals.pr_count || 0), 'PRs'],
     ]));
 
     // exercise_totals carries the same per-exercise rows with warm-ups excluded
     // and per-set weights honoured, so the list adds up to the Volume tile above
-    // it. top_exercises (whose math predates per-set logging) is the fallback
-    // for a payload cached before med-904.1.
+    // it. top_exercises is its top-8 slice since med-7pq (before that it carried
+    // the inflated derived-scalar math), so the fallback path only differs for a
+    // payload cached before med-904.1.
     _appendTopExercises(section, (stats.exercise_totals || stats.top_exercises || []).slice(0, 8));
 }
 
