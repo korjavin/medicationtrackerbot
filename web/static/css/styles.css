@@ -9123,6 +9123,17 @@ textarea.wg-input {
    scrolls horizontally on narrow screens rather than shrinking the cells. */
 .wg-workouts-stats__calendar {
     display: flex;
+    /* Centred in the card the same way the Load view's chart is
+       (.wg-workout-chart { margin-inline: auto }) — a short range leaves the
+       grid narrower than the card, and left-aligned it read as a layout bug.
+
+       `safe` is load-bearing, not decoration: plain `center` would push the
+       leading columns past scrollLeft: 0 once the grid outgrows the card
+       (range=all runs to 53 columns), making them permanently unreachable.
+       `safe center` falls back to start alignment exactly in that case. A
+       browser that doesn't know the keyword drops the declaration and gets
+       today's flex-start, so there is no worse-than-current path. */
+    justify-content: safe center;
     gap: var(--space-xs);
     padding: var(--wg-card-pad);
     background: var(--wg-bg-card);
