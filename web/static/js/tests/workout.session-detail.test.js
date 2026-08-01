@@ -6,6 +6,7 @@
 // the Log set / Finish / Delete action cluster rendered by
 // `renderSessionDetailActions`.
 
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
@@ -52,17 +53,20 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         env = null;
     });
 
-    it('renders the mono header with slot tag and a formatted date/weekday', () => {
+    // The session identity moved into the PINNED modal header — the body used
+    // to repeat it above the first exercise card, which cost a screen of
+    // vertical space on a list that never fits one screen anyway.
+    it('renders the pinned header with slot tag, formatted date/weekday and status', () => {
         const { window, document } = env;
-        const infoContainer = document.getElementById('workout-session-info');
-        window.renderWorkoutSessionInfo(infoContainer, sessionFixture());
+        window.renderWorkoutSessionHeader(sessionFixture());
 
-        const slotTag = infoContainer.querySelector('.wg-workouts-slot-tag');
+        const heading = document.getElementById('workout-session-modal-heading');
+        const slotTag = heading.querySelector('.wg-workouts-slot-tag');
         expect(slotTag).not.toBeNull();
         expect(slotTag.textContent).toBe('PUSH');
         expect(slotTag.classList.contains('wg-workouts-slot-tag--push')).toBe(true);
 
-        const title = infoContainer.querySelector('.wg-workouts-session-info__title');
+        const title = heading.querySelector('.wg-workouts-session-modal__title');
         expect(title).not.toBeNull();
         expect(title.classList.contains('wg-mono-display')).toBe(true);
         // "22.04.2026 · Wed" (Europe-style) — assert the mono date + separator
@@ -70,6 +74,24 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         // environments. Year must be present.
         expect(title.textContent).toMatch(/\d{2}[./]\d{2}[./]\d{4}\s*·\s*\S+/);
         expect(title.textContent).toContain('2026');
+
+        expect(heading.querySelector('.wg-workouts-session-modal__status').textContent).toBe('In Progress');
+        // …and the body no longer repeats any of it.
+        const infoContainer = document.getElementById('workout-session-info');
+        window.renderWorkoutSessionInfo(infoContainer, sessionFixture());
+        expect(infoContainer.querySelector('.wg-workouts-slot-tag')).toBeNull();
+    });
+
+    it('keeps the header status in step with the body status select', () => {
+        const { window, document } = env;
+        window.renderWorkoutSessionHeader(sessionFixture());
+        window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), sessionFixture());
+
+        const select = document.getElementById('session-status-select');
+        select.value = 'skipped';
+        select.dispatchEvent(new window.Event('change'));
+
+        expect(document.getElementById('workout-session-modal-status').textContent).toBe('Skipped');
     });
 
     it('surfaces the session status select inside a wg-gloss--inset wrapper', () => {
@@ -170,7 +192,7 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         window.WorkoutSessionsState.data = sessionFixture({ status });
     }
 
-    it('renders Add Exercise + Finish workout in the action cluster (no legacy Log set / Delete)', () => {
+    it('renders Finish workout alone in the action cluster (no Log set / Delete / Add)', () => {
         const { window, document } = env;
         openStatus(window, 'in_progress');
         const actionsContainer = document.getElementById('workout-session-actions');
@@ -186,10 +208,9 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         const deleteBtn = actionsContainer.querySelector('.wg-workouts-session-actions__delete');
         expect(logSetBtn).toBeNull();
         expect(deleteBtn).toBeNull();
-        // Add Exercise now has a second entry point here (next to Finish) so you
-        // don't have to scroll back up to the logs header to add another exercise.
-        expect(addBtn).not.toBeNull();
-        expect(addBtn.textContent).toBe('Add Exercise');
+        // Add Exercise lives in the pinned header now — on screen at every
+        // scroll position, so a bottom copy was a second button for one job.
+        expect(addBtn).toBeNull();
         expect(finishBtn).not.toBeNull();
 
         expect(finishBtn.classList.contains('wg-gloss')).toBe(true);
@@ -199,7 +220,7 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
 
     // bd med-4ca: a finished workout must not offer Finish. Re-completing it
     // re-stamped completed_at and skipped a rotation variant.
-    it('omits Finish workout on a completed session but keeps Add Exercise', () => {
+    it('omits Finish workout on a completed session', () => {
         const { window, document } = env;
         openStatus(window, 'completed');
         const actionsContainer = document.getElementById('workout-session-actions');
@@ -208,8 +229,9 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
 
         expect(actionsContainer.querySelector('.wg-workouts-session-actions__finish')).toBeNull();
         expect(document.getElementById('workout-session-finish-btn')).toBeNull();
-        // Logging an exercise you forgot on a finished workout stays legitimate.
-        expect(actionsContainer.querySelector('.wg-workouts-session-actions__add')).not.toBeNull();
+        // Logging an exercise you forgot on a finished workout stays legitimate
+        // — the header's + Exercise is never status-gated.
+        expect(document.getElementById('workout-session-header-add-btn')).not.toBeNull();
     });
 
     it('omits Finish workout on a skipped session', () => {
@@ -222,27 +244,15 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         expect(actionsContainer.querySelector('.wg-workouts-session-actions__finish')).toBeNull();
     });
 
-    it('clicking the bottom-row Add Exercise opens the add-exercise-to-session modal', () => {
-        const { window, document } = env;
-        openStatus(window, 'in_progress');
-        const actionsContainer = document.getElementById('workout-session-actions');
-        const opened = vi.fn();
-        window.showAddExerciseToSessionModal = opened;
-
-        window.renderSessionDetailActions(actionsContainer, { onFinish: vi.fn() });
-        actionsContainer.querySelector('.wg-workouts-session-actions__add').click();
-
-        expect(opened).toHaveBeenCalledTimes(1);
-    });
-
-    it('has no separate Add Exercise button above the logs list', async () => {
+    it('has no Add Exercise button above the logs list or in the bottom row', async () => {
         const { document } = env;
         await openSession(env.window, [logFixture()]);
 
-        // The Add Exercise button now lives only in the bottom actions row next
-        // to Finish workout — the old logs-header entry point is gone entirely.
+        // The Add Exercise button now lives only in the pinned modal header —
+        // both the old logs-header and bottom-row entry points are gone.
         expect(document.getElementById('workout-session-logs-header')).toBeNull();
         expect(document.getElementById('workout-session-add-exercise-btn')).toBeNull();
+        expect(document.querySelector('.wg-workouts-session-actions__add')).toBeNull();
     });
 
     it('dispatches the Finish callback', () => {
@@ -288,17 +298,39 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
     });
 
     // bd med-ci6 (replaces the old med-eas.71 Delete-gating pair): the header
-    // carries Close only. Deleting a session is the History row's trash icon,
-    // and every entry point that can open a completed/skipped session is such a
-    // row — so no surface lost the capability.
-    it('renders a header with Close only — no Delete button', async () => {
+    // carries + Exercise and an icon Close, nothing else. Deleting a session is
+    // the History row's trash icon, and every entry point that can open a
+    // completed/skipped session is such a row — so no surface lost the
+    // capability.
+    it('renders a header with + Exercise and an icon Close — no Delete button', async () => {
         const { window, document } = env;
         await openSession(window, [logFixture()], { status: 'completed' });
 
         expect(document.getElementById('workout-session-delete-btn')).toBeNull();
         const headerBtns = document.querySelectorAll('.wg-workouts-session-modal__header-actions button');
-        expect(headerBtns.length).toBe(1);
-        expect(headerBtns[0].id).toBe('workout-session-cancel-btn');
+        expect(headerBtns.length).toBe(2);
+        expect(headerBtns[0].id).toBe('workout-session-header-add-btn');
+        expect(headerBtns[0].textContent).toBe('+ Exercise');
+
+        // Close is the compact icon button, not a full-width labelled one — the
+        // old text button ate a whole row of a modal that is already too tall.
+        const close = headerBtns[1];
+        expect(close.id).toBe('workout-session-cancel-btn');
+        expect(close.classList.contains('wg-icon-btn')).toBe(true);
+        expect(close.getAttribute('aria-label')).toBe('Close');
+        expect(close.querySelector('.wg-gloss svg')).not.toBeNull();
+    });
+
+    // The pinned header is what makes a long exercise list workable: the modal
+    // itself is the scroll container, so the strip must stay stuck to its top.
+    it('pins the header to the top of the scrolling modal', () => {
+        const css = readFileSync(new URL('../../css/styles.css', import.meta.url), 'utf8');
+        const rule = css.match(/\.wg-workouts-session-modal__header\s*\{[^}]*\}/);
+        expect(rule).not.toBeNull();
+        expect(rule[0]).toMatch(/position:\s*sticky/);
+        expect(rule[0]).toMatch(/top:/);
+        // Opaque background, or exercise cards would show through as they pass under.
+        expect(rule[0]).toMatch(/background:\s*var\(--wg-bg-card\)/);
     });
 
     // Friendly body-part chip (med-mj4): a card whose exercise resolves to a

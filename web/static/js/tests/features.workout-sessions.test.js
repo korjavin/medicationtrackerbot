@@ -1636,15 +1636,17 @@ describe('features/workout/sessions.js — split-file integration', () => {
 
   // ===========================================================================
   // Save button removed, Cancel relabelled Close, close flushes pending edit
-  // (med-eas.71, Task 3)
+  // (med-eas.71, Task 3). The Close label later became an icon-only button:
+  // the labelled one spanned the header and pushed the exercise list down.
   // ===========================================================================
 
-  it('has no Save button and a Close (not Cancel) header button in the session modal', () => {
+  it('has no Save button and an icon-only Close in the session modal header', () => {
     const { document } = env;
     expect(document.getElementById('workout-session-save-btn')).toBeNull();
     const closeBtn = document.getElementById('workout-session-cancel-btn');
     expect(closeBtn).not.toBeNull();
-    expect(closeBtn.textContent).toBe('Close');
+    expect(closeBtn.getAttribute('aria-label')).toBe('Close');
+    expect(closeBtn.classList.contains('wg-icon-btn')).toBe(true);
   });
 
   it('closing with a pending debounced edit flushes it before dismissing (edit not dropped)', async () => {

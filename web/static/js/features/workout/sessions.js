@@ -120,43 +120,75 @@ function setAutosaveStatus(state, message) {
     }
 }
 
-function renderWorkoutSessionInfo(infoContainer, session) {
-    infoContainer.classList.add('wg-workouts-session-info');
+const SESSION_STATUS_OPTIONS = [
+    { value: 'in_progress', label: 'In Progress' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'skipped', label: 'Skipped' }
+];
 
-    const root = document.createElement('div');
-    root.className = 'wg-workouts-session-info__row';
+function _statusLabel(status) {
+    const match = SESSION_STATUS_OPTIONS.find((o) => o.value === status);
+    return match ? match.label : '';
+}
 
-    const header = document.createElement('div');
-    header.className = 'wg-workouts-session-info__header';
+// renderWorkoutSessionHeader fills the PINNED modal header with the session's
+// identity — slot tag · date · weekday · status. It lives here rather than in
+// the body because the exercise list is usually taller than one screen: the
+// header is the one strip that stays on screen, so it carries both the "what am
+// I looking at" line and the "+ Exercise" / Close controls. The body used to
+// repeat all of this above the first exercise card; it no longer does.
+function renderWorkoutSessionHeader(session) {
+    const heading = document.getElementById('workout-session-modal-heading');
+    if (!heading) return;
 
     const slot = getRotationSlot(session.variant_name || '');
     const slotTag = document.createElement('span');
-    slotTag.className = `wg-workouts-slot-tag wg-workouts-slot-tag--${_slotTagModifier(slot)} wg-workouts-session-info__slot`;
+    slotTag.className = `wg-workouts-slot-tag wg-workouts-slot-tag--${_slotTagModifier(slot)} wg-workouts-session-modal__slot`;
     slotTag.textContent = slot;
-    header.appendChild(slotTag);
 
     const dateParts = (session.scheduled_date || '').split('T')[0].split('-').map(Number);
     const dateObj = dateParts.length === 3
         ? new Date(dateParts[0], dateParts[1] - 1, dateParts[2])
         : new Date();
     const title = document.createElement('span');
-    title.className = 'wg-mono-display wg-workouts-session-info__title';
+    title.className = 'wg-mono-display wg-workouts-session-modal__title';
+    title.id = 'workout-session-modal-title';
     const weekday = dateObj.toLocaleDateString(undefined, { weekday: 'short' });
     const dateStr = dateObj.toLocaleDateString(undefined, {
         day: '2-digit', month: '2-digit', year: 'numeric'
     });
     title.textContent = `${dateStr} · ${weekday}`;
-    header.appendChild(title);
-    // Ad-hoc sessions (group_id === -1, e.g. `/workout walk`) carry their free-text
-    // label in session.notes; the date-based header would otherwise hide it.
+
+    const status = document.createElement('span');
+    status.className = 'wg-workouts-session-modal__status';
+    status.id = 'workout-session-modal-status';
+    status.textContent = _statusLabel(session.status);
+
+    heading.replaceChildren(slotTag, title, status);
+
+    // Ad-hoc sessions (group_id === -1, e.g. `/workout walk`) carry their
+    // free-text label in session.notes; the date-based heading would hide it.
     const adhocLabel = (session.group_id === -1 && session.notes) ? String(session.notes).trim() : '';
     if (adhocLabel) {
         const label = document.createElement('span');
-        label.className = 'wg-mono-display wg-workouts-session-info__title';
+        label.className = 'wg-mono-display wg-workouts-session-modal__title';
         label.textContent = adhocLabel;
-        header.appendChild(label);
+        heading.insertBefore(label, status);
     }
-    root.appendChild(header);
+
+    // The close button is static markup (bound once at boot), so its icon is
+    // mounted on first open rather than at parse time.
+    const closeGloss = document.querySelector('#workout-session-cancel-btn .wg-gloss');
+    if (closeGloss && !closeGloss.firstChild && window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        closeGloss.appendChild(window.WGIcons.iconSvg('close', { size: 16 }));
+    }
+}
+
+function renderWorkoutSessionInfo(infoContainer, session) {
+    infoContainer.classList.add('wg-workouts-session-info');
+
+    const root = document.createElement('div');
+    root.className = 'wg-workouts-session-info__row';
 
     const meta = document.createElement('div');
     meta.className = 'wg-workouts-session-info__meta';
@@ -192,12 +224,7 @@ function renderWorkoutSessionInfo(infoContainer, session) {
     select.id = 'session-status-select';
     select.className = 'wg-workouts-session-info__status-select';
 
-    const statusOptions = [
-        { value: 'in_progress', label: 'In Progress' },
-        { value: 'completed', label: 'Completed' },
-        { value: 'skipped', label: 'Skipped' }
-    ];
-    statusOptions.forEach((opt) => {
+    SESSION_STATUS_OPTIONS.forEach((opt) => {
         const option = document.createElement('option');
         option.value = opt.value;
         option.textContent = opt.label;
@@ -206,7 +233,10 @@ function renderWorkoutSessionInfo(infoContainer, session) {
     });
 
     // A status change is a persisted edit — autosave it like set/reps/notes.
+    // The pinned header shows the same status, so keep it from going stale.
     select.addEventListener('change', () => {
+        const headerStatus = document.getElementById('workout-session-modal-status');
+        if (headerStatus) headerStatus.textContent = _statusLabel(select.value);
         scheduleAutosave();
     });
 
@@ -688,6 +718,7 @@ async function showWorkoutSessionModal(sessionId) {
         // Clear any stale autosave error from a previously-open session.
         setAutosaveStatus('saved');
 
+        renderWorkoutSessionHeader(data.session);
         renderWorkoutSessionInfo(infoContainer, data.session);
         renderWorkoutSessionLogs(logsContainer);
         const actionsContainer = document.getElementById('workout-session-actions');
@@ -848,29 +879,17 @@ function renderSessionDetailActions(container, opts) {
 
     const offline = typeof window !== 'undefined' && window.SyncManager && window.SyncManager.isOnline === false;
 
-    // A second "Add Exercise" entry point in the bottom row (mirrors the one in
-    // the logs header) so you can add another exercise without scrolling back up
-    // past every logged set. Reuses the same handler + offline-disable pattern.
-    const addBtn = document.createElement('button');
-    addBtn.type = 'button';
-    addBtn.className = 'wg-gloss--sun wg-workouts-session-actions__btn wg-workouts-session-actions__add workout-action-btn';
-    addBtn.textContent = 'Add Exercise';
-    addBtn.addEventListener('click', () => showAddExerciseToSessionModal());
-    container.appendChild(addBtn);
-    if (offline) {
-        addBtn.classList.add('offline-disabled');
-        addBtn.setAttribute('data-offline-disabled', 'true');
-        addBtn.disabled = true;
-    }
+    // "Add Exercise" is not here: it lives in the pinned modal header, which is
+    // on screen at every scroll position, so a bottom copy was a second button
+    // for the same job. Adding to a finished workout stays legitimate — the
+    // header button is never status-gated.
 
     // bd med-4ca: Finish only makes sense while the workout is actually
     // running. On a finished session a second tap re-stamped completed_at and
     // skipped a rotation variant; the domain guards that now, but the button
     // should not offer a no-op either. Reads the status off the state
-    // showWorkoutSessionModal populates right before calling. "Add Exercise"
-    // above deliberately stays — logging an exercise you forgot on a finished
-    // workout is legitimate — and the status select remains the way to change a
-    // finished session's status.
+    // showWorkoutSessionModal populates right before calling. The status select
+    // remains the way to change a finished session's status.
     if (window.WorkoutSessionsState?.data?.status !== 'in_progress') return;
 
     // `.workout-action-btn` hooks this into sync.js's offline toggling sweep
@@ -1585,6 +1604,7 @@ window.WorkoutSessions = {
     close: closeWorkoutSessionModal,
     save: saveWorkoutSessionDetails,
     finish: finishWorkoutSession,
+    renderHeader: renderWorkoutSessionHeader,
     renderInfo: renderWorkoutSessionInfo,
     renderLogs: renderWorkoutSessionLogs,
     renderActions: renderSessionDetailActions,
