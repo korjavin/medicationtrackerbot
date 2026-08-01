@@ -657,6 +657,9 @@
     --wg-workouts-stats-legend-swatch-size: 10px;
     --wg-workouts-calendar-cell: 11px;
     --wg-workouts-calendar-gap: 3px;
+    /* Contribution-grid cells are squares. --radius-sm (6px) is more than half
+       an 11px cell, so it rounded every cell into a dot. */
+    --wg-workouts-calendar-radius: 2px;
 
     /* Log-set / edit-exercise / edit-group / edit-library modal tokens
        (Phase 7, Task 8) — mono header, gloss-inset input wraps for name /
@@ -9085,11 +9088,14 @@ textarea.wg-input {
     flex-shrink: 0;
 }
 
+/* Same --wg-ink-08-on-a-dark-card miss as the calendar's empty cell (med-wu7):
+   the unfilled part of the track rendered invisible, so a 20%-of-max bar read
+   as a floating stub with no scale behind it. */
 .wg-workouts-stats__top-row-bar {
     position: relative;
     height: 4px;
     border-radius: var(--radius-pill);
-    background: var(--wg-ink-08);
+    background: var(--wg-mini-bar-track-bg);
     overflow: hidden;
 }
 
@@ -9104,8 +9110,8 @@ textarea.wg-input {
 }
 
 /* Consistency-view activity calendar (med-zte) — GitHub-contribution grid
-   that replaced the sessions-per-week line. A weekday label column (Mon/Wed/Fri
-   only, no month row) sits beside a 7-row × N-column day grid flowing
+   that replaced the sessions-per-week line. A weekday label column (one
+   initial per row, no month row) sits beside a 7-row × N-column day grid flowing
    column-first, so each column is one Mon→Sun week, oldest leftmost. The grid
    scrolls horizontally on narrow screens rather than shrinking the cells. */
 .wg-workouts-stats__calendar {
@@ -9141,13 +9147,23 @@ textarea.wg-input {
 }
 
 /* Three states, shaded by session STATUS and never by volume — a bodyweight
-   session logs zero tonnage and must not read as a rest day. */
+   session logs zero tonnage and must not read as a rest day.
+
+   border-box matters here: --skipped carries a 1px border and the others
+   don't, and there is no global box-sizing reset — content-box would make the
+   outlined cells 2px wider than their 11px track and bulge out of the row. */
 .wg-workouts-stats__calendar-cell {
-    border-radius: var(--radius-sm);
+    box-sizing: border-box;
+    border-radius: var(--wg-workouts-calendar-radius);
 }
 
+/* A rest day is an empty well, not an absence — it has to be visible or the
+   grid reads as scattered dots with holes in it. --wg-ink-08 (med-zte) was a
+   dark-ink token meant for paper surfaces; at 7% on the dark card it rendered
+   at zero contrast. --wg-mini-bar-track-bg is the house token for exactly
+   this: an unfilled track slot on a dark card. */
 .wg-workouts-stats__calendar-cell--empty {
-    background: var(--wg-ink-08);
+    background: var(--wg-mini-bar-track-bg);
 }
 
 .wg-workouts-stats__calendar-cell--done {

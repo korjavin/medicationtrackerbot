@@ -211,8 +211,11 @@ function _buildBarRow({ name, summary, pct, onOpen }) {
 // multi-year wall.
 const CALENDAR_MAX_WEEKS = 53;
 const CALENDAR_RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90 };
-// GitHub's convention: label Mon/Wed/Fri only, no month labels.
-const CALENDAR_WEEKDAYS = ['Mon', '', 'Wed', '', 'Fri', '', ''];
+// One initial per row, no month labels. GitHub labels Mon/Wed/Fri only and
+// lets the reader interpolate, which works on a desktop-width wall; on a phone
+// strip the four blank rows just read as anonymous. Single letters cost the
+// same column width as "Mon" and leave no row unlabelled.
+const CALENDAR_WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const DAY_MS = 86400000;
 
 // Days since the Monday of this day's week (UTC-anchored; getUTCDay 0 = Sun).

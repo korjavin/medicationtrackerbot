@@ -177,7 +177,7 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
     // GitHub-contribution day grid strictly contains what the line showed (a
     // column read vertically IS the week's session count) and adds which days.
     describe('activity calendar (med-zte)', () => {
-        it('renders a 7-row day grid with Mon/Wed/Fri labels instead of a line chart', () => {
+        it('renders a 7-row day grid with every row labelled, instead of a line chart', () => {
             const { document, window } = env;
             const container = document.getElementById('workout-stats-display');
             window._renderWorkoutStats(container, populatedStats({ weeks: 10 }));
@@ -192,11 +192,12 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(weeks).toBeGreaterThan(0);
             expect(cells(container).length).toBe(weeks * 7);
 
-            // GitHub's convention: Mon/Wed/Fri labelled, the rest blank, and no
-            // month row at all.
+            // med-wu7: every row carries an initial (GitHub's Mon/Wed/Fri-only
+            // convention left four anonymous rows at phone width). Still no
+            // month row.
             const labels = Array.from(container.querySelectorAll('.wg-workouts-stats__calendar-weekday'))
                 .map((n) => n.textContent);
-            expect(labels).toEqual(['Mon', '', 'Wed', '', 'Fri', '', '']);
+            expect(labels).toEqual(['M', 'T', 'W', 'T', 'F', 'S', 'S']);
 
             // No line chart and no chart legend left in this view.
             expect(container.querySelector('.wg-workouts-stats__chart-panel')).toBeNull();
