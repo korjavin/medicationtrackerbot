@@ -102,6 +102,10 @@ type tgPhotoEvent struct {
 	Mime   string `json:"mime"`
 	Size   int64  `json:"size"`
 	AtUnix int64  `json:"at_unix"`
+	// Caption is the photo's caption verbatim, sealed like every other inbound
+	// plaintext and never parsed here. The client passes it to the vision model
+	// as a hint ("chicken salad, 300g" beats guessing portions from pixels).
+	Caption string `json:"caption,omitempty"`
 	// ReplyMessageID is the "queued" message the client edits into a confirmation
 	// once the meal is logged. 0 when the reply could not be sent.
 	ReplyMessageID int64 `json:"reply_message_id"`
@@ -1076,6 +1080,7 @@ func (t *TelegramAPI) sealPhoto(w http.ResponseWriter, r *http.Request, ref stri
 		Mime:           "image/jpeg",
 		Size:           photo.FileSize,
 		AtUnix:         now.Unix(),
+		Caption:        msg.Caption,
 		ReplyMessageID: replyID,
 	})
 	if err != nil {
