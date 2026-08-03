@@ -45,6 +45,23 @@ describe('safeConfirm — browser mode (no Telegram context)', () => {
         expect(document.querySelector('.mt-confirm-backdrop')).toBeNull();
     });
 
+    it('renders custom title and button labels when opts are passed', async () => {
+        const { window, document } = env;
+        const promise = window.safeConfirm('This photo was taken on May 30.', null, {
+            title: 'When did you eat this?',
+            cancelLabel: 'Use now',
+            confirmLabel: 'Use photo time',
+        });
+
+        const modal = document.querySelector('mt-modal.mt-confirm-modal');
+        expect(modal.querySelector('.wg-modal__title').textContent).toBe('When did you eat this?');
+        expect(modal.querySelector('.mt-confirm-modal__cancel').textContent).toBe('Use now');
+        expect(modal.querySelector('.mt-confirm-modal__confirm').textContent).toBe('Use photo time');
+
+        modal.querySelector('.mt-confirm-modal__confirm').click();
+        await expect(promise).resolves.toBe(true);
+    });
+
     it('resolves false when Cancel is clicked', async () => {
         const { window, document } = env;
         const promise = window.safeConfirm('Delete this thing?');
@@ -124,6 +141,21 @@ describe('safeConfirm — Telegram mode', () => {
 
         await expect(promise).resolves.toBe(true);
         expect(showConfirmSpy).toHaveBeenCalledWith('TG path', expect.any(Function));
+    });
+
+    it('uses the in-page modal when custom labels are requested (tg popup cannot render them)', async () => {
+        env = loadFrontendEnv({ telegramInitData: 'user=abc' });
+        const { window, document } = env;
+
+        const showConfirmSpy = vi.fn((_msg, cb) => cb(true));
+        window.Telegram.WebApp.showConfirm = showConfirmSpy;
+
+        const promise = window.safeConfirm('Labelled', null, { confirmLabel: 'Use photo time' });
+        const modal = document.querySelector('mt-modal.mt-confirm-modal');
+        expect(modal).not.toBeNull();
+        expect(showConfirmSpy).not.toHaveBeenCalled();
+        modal.querySelector('.mt-confirm-modal__confirm').click();
+        await expect(promise).resolves.toBe(true);
     });
 
     it('falls back to the in-page modal when tg.showConfirm throws', async () => {

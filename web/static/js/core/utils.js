@@ -17,14 +17,18 @@ function safeAlert(msg) {
     alert(msg);
 }
 
-function safeConfirm(msg, callback) {
+// opts (optional): { title, confirmLabel, cancelLabel } — custom wording for
+// the in-page modal. Passing it forces the in-page path, because the
+// messenger-native popup only renders generic Cancel/Confirm buttons.
+function safeConfirm(msg, callback, opts) {
     const adapter = window.MessengerAdapter;
     // Use the messenger-native popup only when an adapter that represents a
     // real messenger host is present AND we have an identity token — only
     // then are messenger-side popups guaranteed to render. Otherwise the
     // in-page modal is the better UX (browser, jsdom, mini-app pre-auth).
     const hasMessengerPopup = !!(
-        adapter
+        !opts
+        && adapter
         && typeof adapter.isPresent === 'function'
         && adapter.isPresent()
         && (
@@ -46,7 +50,7 @@ function safeConfirm(msg, callback) {
         if (hasMessengerPopup) {
             try {
                 Promise.resolve(adapter.confirm(msg)).then(handleResult, () => {
-                    _mountConfirmModal(msg, handleResult);
+                    _mountConfirmModal(msg, handleResult, opts);
                 });
                 return;
             } catch (e) {
@@ -55,7 +59,7 @@ function safeConfirm(msg, callback) {
             }
         }
 
-        _mountConfirmModal(msg, handleResult);
+        _mountConfirmModal(msg, handleResult, opts);
     });
 }
 
@@ -64,7 +68,7 @@ function safeConfirm(msg, callback) {
 // because it renders non-blockingly over the host WebView; this is the
 // fallback for regular browsers and for any messenger environment where
 // the host SDK's confirm rejects.
-function _mountConfirmModal(msg, onResult) {
+function _mountConfirmModal(msg, onResult, opts = {}) {
     const doc = document;
     const backdrop = doc.createElement('div');
     backdrop.className = 'mt-confirm-backdrop';
@@ -76,7 +80,7 @@ function _mountConfirmModal(msg, onResult) {
     header.className = 'wg-modal__header';
     const title = doc.createElement('h3');
     title.className = 'wg-modal__title';
-    title.textContent = 'Confirm';
+    title.textContent = opts.title || 'Confirm';
     header.appendChild(title);
 
     const body = doc.createElement('div');
@@ -91,11 +95,11 @@ function _mountConfirmModal(msg, onResult) {
     const cancelBtn = doc.createElement('button');
     cancelBtn.type = 'button';
     cancelBtn.className = 'wg-gloss mt-confirm-modal__cancel';
-    cancelBtn.textContent = 'Cancel';
+    cancelBtn.textContent = opts.cancelLabel || 'Cancel';
     const confirmBtn = doc.createElement('button');
     confirmBtn.type = 'button';
     confirmBtn.className = 'wg-gloss wg-gloss--sun mt-confirm-modal__confirm';
-    confirmBtn.textContent = 'Confirm';
+    confirmBtn.textContent = opts.confirmLabel || 'Confirm';
     actions.appendChild(cancelBtn);
     actions.appendChild(confirmBtn);
 

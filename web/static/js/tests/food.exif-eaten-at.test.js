@@ -220,6 +220,21 @@ describe('resolveFoodPhotoEatenAt', () => {
         expect(got.getTime()).toBe(photoTime.getTime());
     });
 
+    it('labels the prompt buttons with the actual choice instead of Cancel/Confirm', async () => {
+        const photoTime = new Date('2024-05-30T18:00:00Z');
+        const now = new Date('2024-06-01T12:00:00Z');
+        env.window.readFoodPhotoExifDate = async () => photoTime;
+        let opts = null;
+        env.window.safeConfirm = async (_msg, _cb, o) => { opts = o; return true; };
+
+        await env.window.resolveFoodPhotoEatenAt({}, now);
+        expect(opts).toMatchObject({
+            cancelLabel: 'Use now',
+            confirmLabel: 'Use photo time',
+        });
+        expect(opts.title).toBeTruthy();
+    });
+
     it('returns now when the user declines the photo time prompt', async () => {
         const photoTime = new Date('2024-05-30T18:00:00Z');
         const now = new Date('2024-06-01T12:00:00Z');

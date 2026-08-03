@@ -194,9 +194,15 @@ async function resolveFoodPhotoEatenAt(file, now = new Date()) {
     if (!photoTime) return now;
     const diffMs = Math.abs(photoTime.getTime() - now.getTime());
     if (diffMs <= 60 * 60 * 1000) return photoTime;
-    const photoLabel = photoTime.toLocaleString();
+    const photoLabel = photoTime.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
     const usePhoto = await safeConfirm(
-        `This photo was taken on ${photoLabel}. Use the photo's time? (Cancel = use now)`
+        `This photo was taken on ${photoLabel}.`,
+        null,
+        {
+            title: 'When did you eat this?',
+            cancelLabel: 'Use now',
+            confirmLabel: 'Use photo time',
+        }
     );
     return usePhoto ? photoTime : now;
 }
