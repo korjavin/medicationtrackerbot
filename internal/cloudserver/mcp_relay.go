@@ -150,7 +150,7 @@ func (a *MCPRelayAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/mcp/pairings", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.CreatePairing)))
 	mux.Handle("DELETE /api/mcp/pairings", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.DeletePairing)))
 	mux.Handle("GET /api/mcp/relay/device", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.DeviceSocket)))
-	mux.HandleFunc("GET /api/mcp/relay/shim", a.ShimSocket)
+	mux.HandleFunc("GET /api/mcp/relay/shim", limitByIP(a.limiter, a.ShimSocket))
 }
 
 type createPairingResponse struct {
