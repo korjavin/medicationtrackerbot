@@ -16,10 +16,10 @@ CTA in post 10 only.
 | 4 | Here's the part that should bother you: I still send you the JavaScript that holds your key. | Volunteering the hole before anyone finds it | What narrows it, what doesn't, why I published it |
 | 5 | There is no password in this app. Not one, anywhere. | Passkey as a keyed PRF — nothing to grind, ever | The spec trap: `create()` says enabled, returns nothing |
 | 6 | I built reminders, then realised my server isn't allowed to know what the reminder is for. | Blind alarm clock | Stop opening the app and reminders lapse — by design |
-| 7 | Here is everything that still leaves the vault. I keep the list because burying it is the actual lie. | The carve-outs, three activation classes | Not everything has a toggle, and I say which |
+| 7 | A record someone else can read gets softened, the same way people soften a number for a doctor. So I keep mine where nobody else can read it. Almost. Here is what still can. | The carve-outs, three activation classes | Not everything has a toggle, and I say which |
 | 8 | The AI and my UI run the exact same code path. There is no second copy. | Purity as the enabling constraint | One router, two callers |
 | 9 | "Retire this device" and "my phone was stolen" are different buttons. I've only built one. | Revocation ≠ compromise recovery | Honest copy instead of implied safety |
-| 10 | Seven months ago I couldn't answer a simple question about my own health. | Recap + invite | The only CTA in the series |
+| 10 | What question about your own health can't you answer right now, because the answer is split across five apps that don't talk to each other? | Recap + invite | The only CTA in the series |
 
 ## Second track — engineering notes
 
@@ -37,8 +37,8 @@ Post 7 may link note B as evidence for the carve-out list. That is the only cros
 ## Format
 
 - **LinkedIn** — 400 words, one asset, hook inside the first 210 chars (the "see more" cut).
-- **X** — same beats, 4–7 tweets.
-- One draft per idea, two shapes. Never two different pieces.
+- **X** — deferred (2026-08-06): LinkedIn is the focus; existing threads for 1 and 3 are
+  kept but no new ones are drafted until the series is running.
 - Assets, reuse verbatim: system diagram (`docs/architecture.md` §1), key hierarchy
   (`docs/cloud-crypto.md`), trust boundaries (`docs/security/threat-model.md` §3),
   screenshot of Settings → *What can the operator see?*.

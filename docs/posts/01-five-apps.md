@@ -1,6 +1,6 @@
 # Post 1 — Five apps, no whole picture
 
-**Channel:** LinkedIn (377 words) · X (7 tweets)
+**Channel:** LinkedIn (399 words) · X (7 tweets)
 **Point:** the pitch, delivered as a problem.
 **Ends on:** "That's not an accident."
 **Status:** approved; two tricolons flattened and the softened-log line pulled out as its own paragraph in the 2026-08-06 editor pass — glance over before publish.
@@ -31,6 +31,8 @@ The apps can show me a graph because that keeps me coming back. Handing me the w
 
 That's not an accident.
 
+P.S. Next post: whose machine holds the real copy, and what happens to my record if every server on earth goes dark.
+
 ---
 
 ## X (7 tweets)
@@ -59,7 +61,7 @@ That's not an accident.
 
 | Rule | Result |
 |---|---|
-| ≤400 words | 377 |
+| ≤400 words | 399 (incl. the P.S. tease added in the codex pass) |
 | Hook inside 210 chars | 157 |
 | No jargon (posts 1–4) | clean |
 | No em dashes | 0 |

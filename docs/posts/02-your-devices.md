@@ -1,6 +1,6 @@
 # Post 2 — Your devices hold it, my machine holds noise
 
-**Channel:** LinkedIn (399 words) · X (thread not drafted yet)
+**Channel:** LinkedIn (398 words) · X (deferred series-wide)
 **Point:** local-first ownership. The cloud backup is a convenience, it is scrambled
 before it leaves your phone, and you can self-host it.
 **Ends on:** "Anyone who can hand your record back to you can hand it to somebody else." (a one-line tease for post 3 follows as a P.S.)
@@ -28,7 +28,7 @@ This is how myhealthbot.ai works. There is no password in it for me to reset.
 
 Anyone who can hand your record back to you can hand it to somebody else.
 
-Next post, the payoff: what happens when you point an AI at a record nobody else can read.
+P.S. Next post: what happens when you point an AI at a record nobody else can read.
 
 ---
 
@@ -36,7 +36,7 @@ Next post, the payoff: what happens when you point an AI at a record nobody else
 
 | Rule | Result |
 |---|---|
-| Under 400 words | 399 |
+| Under 400 words | 398 |
 | Hook under 210 chars | 128 |
 | No jargon (posts 1-4) | clean; end-to-end encryption explained in plain words, never named |
 | Em dashes | zero |

@@ -26,7 +26,7 @@ That is myhealthbot.ai. My whole record, one reader at a time, on my terms.
 
 No app open, no answers. I built it that way on purpose.
 
-Next post I'll show you the hole in this story myself, before anyone else finds it.
+P.S. Next post I'll show you the hole in this story myself, before anyone else finds it.
 
 ---
 
@@ -66,7 +66,7 @@ version:
 
 | Rule | Result |
 |---|---|
-| ≤400 words | 395 as drafted; the placeholder swaps for a ~35-word real answer, keeping it ≈400 — recount after it lands |
+| ≤400 words | 396 as drafted; the placeholder swaps for a ~35-word real answer, keeping it ≈400 — recount after it lands |
 | Hook inside 210 chars | 133 |
 | No jargon (posts 1–4) | clean; encryption said as "scrambled", the relay as "the machine in the middle", MCP/scripting language never named — "writes a small program" |
 | Em dashes | 0 |
@@ -110,7 +110,7 @@ version:
 - **Publish gate 2 — the scripting port.** The cloud `mcp_execute` port must be live by
   publish date, or swap in the fallback paragraph above.
 - Recount LinkedIn words after the answer lands; budget is ~35 words.
-- X thread for post 2 is still undrafted (carried over).
+- X deferred series-wide (2026-08-06); the thread above ships only if X is revived.
 
 ## Provenance
 
