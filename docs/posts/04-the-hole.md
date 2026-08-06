@@ -5,13 +5,13 @@
 code that handles the vault key, so a bad operator could serve altered code. What
 narrows that, what doesn't, and why it's in a post instead of the small print.
 **Ends on:** what narrows it, what doesn't, why I published it.
-**Status:** draft; codex-reviewed 2026-08-06, clear-win and formula fixes applied. Hook change ("code" for "JavaScript") suggested by codex, deferred to the author.
+**Status:** draft; codex-reviewed 2026-08-06, clear-win and formula fixes applied. Hook now says "code" for "JavaScript" — codex and agy independently suggested the identical fix.
 
 ---
 
 ## LinkedIn
 
-Here's the part that should bother you: I still send you the JavaScript that holds your key.
+Here's the part that should bother you: I still send you the code that holds your key.
 
 Two posts ago I said the backup on my machine is a block of noise I cannot read. That holds right up to the moment you open the app. The page that unscrambles your record, the page holding your key while you use it, comes from my machine. If I turned bad tomorrow, picking the lock would be the hard way. The easy way would be to change that page without telling you, then take a copy the next time you opened your record. Anyone who seized my machine could do the same.
 
@@ -32,7 +32,7 @@ P.S. Next up: there is no password anywhere in this app, and that turned out to 
 | Rule | Result |
 |---|---|
 | ≤400 words | 399 (awk-measured, includes closer and P.S.) |
-| Hook inside 210 chars | 92 |
+| Hook inside 210 chars | 86 |
 | No jargon (posts 1–4) | clean; "scrambled" register kept ("unscrambles"), CSP said as "a short list of places it is allowed to talk to", provenance/SHA256SUMS said as "a public trail" and "a fingerprint for the files it serves" |
 | Em dashes | 0 |
 | Negative parallelism | none; hard-way/easy-way pair is affirmative on both sides |

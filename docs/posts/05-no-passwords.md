@@ -3,7 +3,7 @@
 **Channel:** LinkedIn only
 **Point:** the passkey is a keyed function, not just a login: the face/fingerprint unlock derives the key material, so there is nothing on the server to grind offline, ever. Includes the spec trap: create() can report the feature enabled and return nothing.
 **Ends on:** a plain declarative sentence (editor pass: no mic-drop fragment on this one), then a P.S. teasing post 6.
-**Status:** draft; codex-reviewed 2026-08-06, formula fixes applied. Codex's suggestion to compress the spec-trap paragraph deferred to the author (it is the plan's designated ending beat).
+**Status:** draft; codex-reviewed 2026-08-06, formula fixes applied. Spec-trap paragraph compressed by half 2026-08-06 after codex and agy independently named it the bail point; the trap itself stays (plan's ending beat). "One extra face-check" softened to "a second check" (unverified cross-platform behavior).
 
 ---
 
@@ -17,7 +17,7 @@ So I refused to build one. When you unlock my app with your face or fingerprint,
 
 This is the passkey standard doing a second job. Most sites use passkeys to sign you in. I also use them as the machine that mints your key.
 
-That second job has a trap I want on record. When the app creates a passkey, the browser can report the key-minting feature as enabled and still hand back nothing, because the standard treats the answer at creation time as optional. So my app never trusts that word. Right after creating a passkey it turns around and asks the fresh passkey for the actual answer, one extra face-check in the same breath. If the answer comes back empty, the app rejects that passkey on the spot and tells you, before a single byte of your record gets locked under a key that could never be derived again. The alternative was discovering that at unlock time, on a device that could no longer open anything.
+That second job has a trap I want on record. The standard lets a device claim the key-minting feature is enabled and still hand back nothing at creation. So my app never takes its word: right after creating a passkey it asks for the real answer, a second check, and rejects the passkey on the spot if that answer is empty, before a single byte of your record is locked under a key that could never be derived again.
 
 That is why myhealthbot.ai has no reset flow, no security questions, and no email loop. The key comes out of the chip in your hand, and my server only ever meets the locked result.
 
@@ -29,7 +29,7 @@ P.S. Still ahead: I built reminders, then realised my server isn't allowed to kn
 
 | Rule | Result |
 |---|---|
-| ≤400 words | 395 (measured with the awk/wc pipeline, includes the P.S.) |
+| ≤400 words | 350 (measured with the awk/wc pipeline, includes the P.S.) |
 | Hook inside 210 chars | 52 |
 | Em dashes | 0 |
 | Negative parallelism | none added; the hook's "Not one, anywhere." is the plan's grandfathered instance |

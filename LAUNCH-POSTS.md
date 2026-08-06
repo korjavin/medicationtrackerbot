@@ -13,11 +13,11 @@ CTA in post 10 only.
 | 1 | My blood pressure got worse over one month last year, and I couldn't tell you why, because the answer was sitting in five apps that don't talk to each other. | The pitch, as a problem | That's not an accident |
 | 2 | The photos on your phone are yours in a plain way that needs nobody's promise. | Your devices hold the real copy; my cloud backup is a scrambled convenience you can self-host | **Anyone who can hand your record back to you can hand it to somebody else** |
 | 3 | I asked an AI what changed in the month before my blood pressure got worse. It read seven months of my data. Nobody else saw a byte. | The payoff, early | Only works while the app is open — no server fallback |
-| 4 | Here's the part that should bother you: I still send you the JavaScript that holds your key. | Volunteering the hole before anyone finds it | What narrows it, what doesn't, why I published it |
+| 4 | Here's the part that should bother you: I still send you the code that holds your key. | Volunteering the hole before anyone finds it | What narrows it, what doesn't, why I published it |
 | 5 | There is no password in this app. Not one, anywhere. | Passkey as a keyed PRF — nothing to grind, ever | The spec trap: `create()` says enabled, returns nothing |
 | 6 | I built reminders, then realised my server isn't allowed to know what the reminder is for. | Blind alarm clock | Stop opening the app and reminders lapse — by design |
 | 7 | A record someone else can read gets softened, the same way people soften a number for a doctor. So I keep mine where nobody else can read it. Almost. Here is what still can. | The carve-outs, three activation classes | Not everything has a toggle, and I say which |
-| 8 | The AI and my UI run the exact same code path. There is no second copy. | Purity as the enabling constraint | One router, two callers |
+| 8 | The AI cannot do anything to my record that my own app cannot do. There is no second door for it to find. | Purity as the enabling constraint | One router, two callers |
 | 9 | "Retire this device" and "my phone was stolen" are different buttons. I've only built one. | Revocation ≠ compromise recovery | Honest copy instead of implied safety |
 | 10 | What question about your own health can't you answer right now, because the answer is split across five apps that don't talk to each other? | Recap + invite | The only CTA in the series |
 

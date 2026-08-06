@@ -28,7 +28,7 @@ The list has three shapes: some of it waits for my yes, some runs the moment I u
 
 Not everything has a toggle, and I said which. Burying the list would be the actual lie.
 
-P.S. Next, the proof: the AI and my UI run the exact same code path. There is no second copy.
+P.S. Next, the proof: the AI cannot do anything to my record that my own app cannot do.
 
 ---
 
@@ -36,7 +36,7 @@ P.S. Next, the proof: the AI and my UI run the exact same code path. There is no
 
 | Rule | Result |
 |---|---|
-| ≤400 words | 400 (measured: `awk '/^## LinkedIn/{f=1;next} /^---$/{if(f)exit} f' docs/posts/07-what-leaves.md \| wc -w`) |
+| ≤400 words | 398 (measured: `awk '/^## LinkedIn/{f=1;next} /^---$/{if(f)exit} f' docs/posts/07-what-leaves.md \| wc -w`) |
 | Hook inside 210 chars | 173 |
 | Em dashes | 0 |
 | Negative parallelism | none |
