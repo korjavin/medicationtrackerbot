@@ -52,6 +52,23 @@ Post 7 may link note B as evidence for the carve-out list. That is the only cros
 - Post 3 needs a **real** answer, run against real data, screenshotted. If the answer is
   boring the post is dead — test this before week 1, not during it.
 
+### From the 2026-08-06 editor pass
+
+- **Every post ends with a one-line tease for the next** — a P.S. after the closer.
+  Not a CTA, no links; it names unfinished business ("I'll show you the hole in this
+  story myself").
+- **The mic-drop fragment closer must not run 10-for-10.** Posts 5 and 8 end on a plain
+  declarative sentence instead; a formula repeated every post becomes a tell of its own.
+- **The "said in the post, not in small print" honesty flex** appears at most once per
+  pair of adjacent posts. Post 4 owns it fully; 2 keeps its instance, 3's was cut.
+- **Post 10's hook flips post 1 to the reader** ("what question can't you answer across
+  your apps?"), never a re-wear of post 1's opener — three posts (1, 3, 10) already
+  lean on the same BP anecdote.
+- **Post 7 hook candidate:** "A log a company can read gets softened the same way"
+  (now a standalone pull-quote line in post 1) — stronger front door than "Here is
+  everything that still leaves the vault", which assumes an already-sold reader.
+- Tricolon budget: max two per post. Post 1 held four; two were flattened.
+
 ## Blocker before post 1
 
 Repo still describes itself as *"A small telegram bot to track medication."* Every link

@@ -12,19 +12,21 @@ capped menu, on-device compute, scripts run where the data is.
 
 I asked an AI what changed in the month before my blood pressure got worse. It read seven months of my data. Nobody else saw a byte.
 
-If you've read the last two posts, you should be suspicious right now. The record lives on my devices. The machine in the middle can't read it. And now an AI has read it? That sounds like the part where the trick is hidden. Here is the trick, in full.
+If you've read the last two posts, you should be suspicious. The record lives on my devices. The machine in the middle can't read it. And now an AI has read it? Here is the trick.
 
-The AI never gets a copy of my record. It gets permission to ask questions. It's the same assistant you have open in another tab; its questions travel scrambled through the machine in the middle, which learns that something passed and how big it was, and they land on my own laptop, where the app is open. The app works out the answer right there, on the device, and sends it back scrambled the same way.
+The AI never gets a copy of my record. It gets permission to ask questions. It's the same assistant you have open in another tab; its questions travel scrambled through the machine in the middle (the one that holds the scrambled backup), which learns that something passed and how big it was, and land on my laptop, where the app is open. The answer is worked out there, on my device, and goes back scrambled the same way.
 
-And it can't just say "send me everything." The questions come off a fixed menu the app publishes, and every item has a ceiling built in. Ask for raw readings and there is a hard cap on how many come back. For the heavy questions, like "line up my sleep against my blood pressure for the spring," the AI goes one better: it writes a small program, my device runs it next to the data, and only the result travels back. Seven months of readings never left my laptop. The one screenful that says what moved, and when, did. The record stays home. Answers travel.
+And it can't just say "send me everything." The questions come off a fixed menu the app publishes, and every item has a ceiling: ask for raw readings and only so many come back. For heavy questions, like "line up my sleep against my blood pressure for the spring," it goes further: the AI writes a small program, my device runs it next to the data, and only the result travels back. Seven months of readings never left my laptop. What made the trip was one screenful: what moved, and when.
 
-So when I asked my question, I watched the AI work. It pulled the dose times, had my device line up the sleep against the readings, checked the weight, and answered in plain sentences with the dates it used. [PLACEHOLDER — the real answer from the real run, two or three sentences, ~40 words: what moved first and in which week. Screenshot attached. The post is dead without it.]
+When I asked mine, I watched it work. It pulled the dose times, had my device line up the sleep against the readings, checked the weight, and answered in plain sentences with the dates it used. [PLACEHOLDER — the real answer from the real run, two or three sentences, ~40 words: what moved first and in which week. Screenshot attached. The post is dead without it.]
 
-One limit, stated where you can see it. This only works while the app is open on one of my devices, because my devices are the only place the answers can be computed. Close every tab and the AI gets silence. There is no copy on a server that could answer in my place, and a server that could answer questions about my health could be asked by someone who is not me.
+One limit. This only works while the app is open on one of my devices. Close every tab and the AI gets silence. There is no copy on a server that could answer in my place, and a server that could answer questions about my health could be asked by someone who is not me.
 
-That is myhealthbot.ai with an AI plugged in. My whole record, one reader at a time, on my terms.
+That is myhealthbot.ai. My whole record, one reader at a time, on my terms.
 
 No app open, no answers. I built it that way on purpose.
+
+Next post I'll show you the hole in this story myself, before anyone else finds it.
 
 ---
 
@@ -36,13 +38,15 @@ No app open, no answers. I built it that way on purpose.
 
 **3/** The AI never gets a copy of my record. It gets permission to ask questions. They travel scrambled through the machine in the middle, which learns only that something passed and how big it was, and land on my own laptop, where the app is open. The answer is computed there and goes back the same way.
 
-**4/** And it can't say "send me everything." Questions come off a fixed menu, every item with a ceiling. For heavy questions the AI writes a small program, my device runs it next to the data, and only the result travels back. Seven months of readings never left my laptop. The screenful that says what moved did.
+**4/** And it can't say "send me everything." Questions come off a fixed menu, every item with a ceiling. For heavy questions the AI writes a small program, my device runs it next to the data, and only the result travels back. Seven months of readings never left my laptop. What made the trip was one screenful: what moved, and when.
 
 **5/** So I watched it work: it pulled the dose times, had my device line up the sleep against the readings, checked the weight, and answered in plain sentences with the dates it used. [PLACEHOLDER — real answer + screenshot.]
 
-**6/** The limit, stated plainly: this only works while the app is open on one of my devices, because my devices are the only place answers can be computed. There is no copy on a server to answer in my place. A server that could answer about my health could be asked by someone who is not me.
+**6/** The limit: this only works while the app is open on one of my devices. There is no copy on a server to answer in my place. A server that could answer about my health could be asked by someone who is not me.
 
 **7/** That is myhealthbot.ai with an AI plugged in. No app open, no answers. I built it that way on purpose.
+
+Next: I'll show you the hole in this story myself, before anyone else finds it.
 
 ---
 
@@ -62,7 +66,7 @@ version:
 
 | Rule | Result |
 |---|---|
-| ≤400 words | ~400 with a ~40-word answer budget for the placeholder; recount after the real answer lands |
+| ≤400 words | 395 as drafted; the placeholder swaps for a ~35-word real answer, keeping it ≈400 — recount after it lands |
 | Hook inside 210 chars | 133 |
 | No jargon (posts 1–4) | clean; encryption said as "scrambled", the relay as "the machine in the middle", MCP/scripting language never named — "writes a small program" |
 | Em dashes | 0 |
@@ -70,7 +74,7 @@ version:
 | Anaphora / tricolon runs | none stacked |
 | No CTA, no link | clean |
 | Product named once, late | once, paragraph 7 |
-| Ends on the no-server-fallback point | yes, phrased as "No app open, no answers." |
+| Ends on the no-server-fallback point | yes, phrased as "No app open, no answers." (post-4 tease follows as a P.S.) |
 
 ## Facts this post rests on (checked against the code)
 
@@ -105,7 +109,7 @@ version:
   answer is boring, the post is dead — test before week 1.
 - **Publish gate 2 — the scripting port.** The cloud `mcp_execute` port must be live by
   publish date, or swap in the fallback paragraph above.
-- Recount LinkedIn words after the answer lands; budget is ~40 words.
+- Recount LinkedIn words after the answer lands; budget is ~35 words.
 - X thread for post 2 is still undrafted (carried over).
 
 ## Provenance

@@ -1,24 +1,24 @@
 # Post 2 — Your devices hold it, my machine holds noise
 
-**Channel:** LinkedIn (395 words) · X (thread not drafted yet)
+**Channel:** LinkedIn (399 words) · X (thread not drafted yet)
 **Point:** local-first ownership. The cloud backup is a convenience, it is scrambled
 before it leaves your phone, and you can self-host it.
-**Ends on:** "Anyone who can hand your record back to you can hand it to somebody else."
-**Status:** approved, ready to publish.
+**Ends on:** "Anyone who can hand your record back to you can hand it to somebody else." (a one-line tease for post 3 follows as a P.S.)
+**Status:** approved; hook swapped and tease added in the 2026-08-06 editor pass — glance over before publish.
 
 ---
 
 ## LinkedIn (395 words)
 
-The photos on your phone are yours in a plain way that needs nobody's promise. They are on the device in your hand, and that is the whole arrangement.
+If every server on earth went dark tonight, I would open my app in the morning and seven months of my life would still be there.
 
-My health record works the same way now. The medications, the readings, the weight, the notes I would not say out loud, all of it sits on my phone and my laptop, and that copy is the real one. If every server on earth went dark tonight, I would open the app in the morning and seven months of my life would still be there.
+The photos on your phone are yours in a plain way that needs nobody's promise. They are on the device in your hand, and that is the whole arrangement. My health record works the same now. The medications, the readings, the weight, the notes I would not say out loud, all of it sits on my phone and my laptop, and that copy is the real one.
 
 There is a backup, because phones get dropped and replaced. It goes to a machine I own. Before any of it leaves your phone it gets scrambled with a key that exists only on your devices, so what lands on my side is a block of noise the size of your record. I can tell that it arrived, and not one thing about what is inside it.
 
-You do not have to use my machine at all. You can run the backup yourself, on your own machine or hosting you pay for, and it is a small job rather than a project. I hope some of you do.
+You do not have to use my machine. You can run the backup yourself, and it is a small job rather than a project. I hope some of you do.
 
-The key that opens any of this lives on your devices and is unlocked by the face or fingerprint you already use. There is no password in the product anywhere. One consequence of that, said here rather than in a support reply: if you lose every device you have set up, and the recovery code you wrote down on your first day, the backup stays noise for good. I cannot open it for you and nobody else can either.
+The key that opens any of this lives on your devices and is unlocked by the face or fingerprint you already use. There is no password in the product anywhere. One consequence of that, said here rather than in a support reply: if you lose every device you have set up, and the recovery code you wrote down on your first day, the backup stays noise for good. I cannot open it for you. Nobody can.
 
 There is nothing on my side to trust me with, and that is the part I am gladdest about. I get to stay a stranger to you, and it changes nothing about how safe your record is.
 
@@ -28,14 +28,16 @@ This is how myhealthbot.ai works. There is no password in it for me to reset.
 
 Anyone who can hand your record back to you can hand it to somebody else.
 
+Next post, the payoff: what happens when you point an AI at a record nobody else can read.
+
 ---
 
 ## Constraints checked
 
 | Rule | Result |
 |---|---|
-| Under 400 words | 395 |
-| Hook under 210 chars | 150 |
+| Under 400 words | 399 |
+| Hook under 210 chars | 128 |
 | No jargon (posts 1-4) | clean; end-to-end encryption explained in plain words, never named |
 | Em dashes | zero |
 | Negative parallelism | none |
