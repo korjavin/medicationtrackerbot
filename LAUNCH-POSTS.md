@@ -10,8 +10,8 @@ CTA in post 10 only.
 
 | # | Hook (first line) | Point | Ends on |
 |---|---|---|---|
-| 1 | Your health data is split across five apps, and the whole picture — the sensitive one — is the part nobody hands back to you. | The pitch, as a problem | That's not an accident |
-| 2 | Every health app promises not to sell your data. I can't verify that. Neither can you. | I didn't ask to be trusted — I built it so I can't read it | I also can't reset your password. **If I could help you, I could read you** |
+| 1 | My blood pressure got worse over one month last year, and I couldn't tell you why, because the answer was sitting in five apps that don't talk to each other. | The pitch, as a problem | That's not an accident |
+| 2 | The photos on your phone are yours in a plain way that needs nobody's promise. | Your devices hold the real copy; my cloud backup is a scrambled convenience you can self-host | **Anyone who can hand your record back to you can hand it to somebody else** |
 | 3 | I asked an AI what changed in the month before my blood pressure got worse. It read seven months of my data. Nobody else saw a byte. | The payoff, early | Only works while the app is open — no server fallback |
 | 4 | Here's the part that should bother you: I still send you the JavaScript that holds your key. | Volunteering the hole before anyone finds it | What narrows it, what doesn't, why I published it |
 | 5 | There is no password in this app. Not one, anywhere. | Passkey as a keyed PRF — nothing to grind, ever | The spec trap: `create()` says enabled, returns nothing |
