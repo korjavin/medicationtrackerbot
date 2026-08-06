@@ -237,7 +237,12 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	// We'll trust this cookie in auth middleware.
 
 	// Just use the email as session value, signed with bot token to prevent tampering
-	sessionValue := createSessionToken(firstNonEmpty(userInfo.Email, subject, userInfo.PreferredUsername), s.sessionSecret)
+	sessionValue, err := createSessionToken(firstNonEmpty(userInfo.Email, subject, userInfo.PreferredUsername), s.sessionSecret)
+	if err != nil {
+		http.Error(w, "internal server error: session creation failed", http.StatusInternalServerError)
+		return
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_session",
 		Value:    sessionValue,
@@ -341,10 +346,12 @@ func firstNonEmpty(values ...string) string {
 	return "oidc-user"
 }
 
-func createSessionToken(email, secret string) string {
+func createSessionToken(email, secret string) (string, error) {
 	// Stateless session rotation: payload is base64url_nopad(email|nonce|timestamp) + "." + hex(hmac(payload, secret))
 	nonce := make([]byte, 12)
-	rand.Read(nonce)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", fmt.Errorf("crypto rand: %w", err)
+	}
 	timestamp := time.Now().Unix()
 	payload := fmt.Sprintf("%s|%s|%d", email, hex.EncodeToString(nonce), timestamp)
 
@@ -352,7 +359,7 @@ func createSessionToken(email, secret string) string {
 	h.Write([]byte(payload))
 	sig := hex.EncodeToString(h.Sum(nil))
 
-	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + sig
+	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + sig, nil
 }
 
 func verifySessionToken(token, secret string) (string, bool) {
