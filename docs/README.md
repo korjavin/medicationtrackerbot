@@ -56,8 +56,9 @@ generated and drift-tested. The old Go-server route table is in
 
 ## Proposals — designed, not built
 
-Each of these is a real design with real reasoning behind it. **None of them is
-implemented.** Do not describe their contents as behavior.
+Each of these is real reasoning about something that does not exist — a design in
+every case but the last, which argues a cost rather than proposing a build.
+**None of them is implemented.** Do not describe their contents as behavior.
 
 | Doc | Status |
 |---|---|
@@ -65,6 +66,7 @@ implemented.** Do not describe their contents as behavior.
 | [onboarding-wizard.md](onboarding-wizard.md) | A vault-backed first-run overlay. **Proposal.** |
 | [gamification.md](gamification.md) | HealthPoints / outcome-in-range scoring. **Proposal.** |
 | [workout-depth.md](workout-depth.md) | Per-set logging → est-1RM/PR → opt-in progression. **Proposal**, phase 1 in progress. |
+| [single-origin-tradeoffs.md](single-origin-tradeoffs.md) | What we lose if `cmd/cloud` drops per-account subdomains for one shared origin. **Analysis, not a design** — a cost inventory for a change we may never make, so it describes neither current nor intended behavior. |
 
 ## Historical
 
