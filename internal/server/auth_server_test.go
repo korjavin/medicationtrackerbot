@@ -91,9 +91,10 @@ func TestAuthStatus(t *testing.T) {
 
 	t.Run("authenticated with valid cookie", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/auth/status", nil)
+		sessionVal, _ := createSessionToken("admin@example.com", srv.sessionSecret)
 		req.AddCookie(&http.Cookie{
 			Name:  "auth_session",
-			Value: createSessionToken("admin@example.com", srv.sessionSecret),
+			Value: sessionVal,
 		})
 		w := httptest.NewRecorder()
 
