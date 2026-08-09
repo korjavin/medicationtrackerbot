@@ -17,6 +17,18 @@
     });
 })();
 
+// Library screen view state (med: searchable library + Mine/All toggle).
+// "Mine" is the user's own library rows; "All" appends the vendored static
+// catalog, so the 1300-odd imported exercises are browsable and not only
+// reachable by typing into a name field. Kept in module state so a keystroke
+// or a toggle repaints from the already-loaded arrays instead of refetching.
+let _libraryItems = []; // module-state: last-loaded library rows, so a keystroke repaints without refetching
+let _libraryQuery = ''; // module-state: current library search text
+let _librarySource = 'mine'; // module-state: current library source — 'mine' | 'all'
+
+// The catalog half is unbounded; painting 1300 rows on a phone is not.
+const EXERCISE_LIBRARY_ROW_CAP = 100;
+
 async function loadExerciseLibrary() {
     const container = document.getElementById('exercise-library-list');
     // Tracks whether any callback (cached / fresh / error) painted the list.
@@ -31,11 +43,13 @@ async function loadExerciseLibrary() {
         fetcher: async () => await apiCall('/api/workout/exercise-library'),
         onCached: async (cached) => {
             renderedSomething = true;
-            _renderExerciseLibrary(container, cached);
+            _libraryItems = Array.isArray(cached) ? cached : [];
+            await _repaintExerciseLibrary();
         },
         onFresh: async (fresh) => {
             renderedSomething = true;
-            _renderExerciseLibrary(container, fresh);
+            _libraryItems = Array.isArray(fresh) ? fresh : [];
+            await _repaintExerciseLibrary();
         },
         onError: async (error, cached) => {
             console.error('Error loading exercise library:', error);
@@ -58,6 +72,55 @@ async function loadExerciseLibrary() {
     }
 }
 
+// Same match rules as the name picker (word-prefix, then substring), applied
+// to a whole list instead of the picker's 6-row shortlist.
+function _filterExercises(items, q) {
+    if (!q) return items;
+    const tokens = q.split(/\s+/).filter(Boolean);
+    return items.filter(item => _exerciseMatchTier(item.name, tokens, q) > 0);
+}
+
+// Repaint from module state — no fetch except the one-time catalog asset, and
+// only when the user actually asks for "All".
+//
+// The first "All" repaint awaits the 913 KB asset, during which the user can
+// type on or switch back to "Mine". Last-writer-wins, same guard the name
+// picker uses: a stale continuation must not paint catalog rows over the newer
+// view.
+let _repaintSeq = 0; // module-state: last-writer-wins guard for the awaited catalog fetch
+async function _repaintExerciseLibrary() {
+    const seq = ++_repaintSeq;
+    const container = document.getElementById('exercise-library-list');
+    if (!container) return;
+    let items = _filterExercises(_libraryItems, _libraryQuery);
+    if (_librarySource === 'all') {
+        const own = new Set(_libraryItems.map(i => (i.name || '').trim().toLowerCase()));
+        const catalog = (await _loadExerciseCatalog())
+            .filter(e => e.name && !own.has(e.name.trim().toLowerCase()))
+            // equipment/target ride the existing `notes` meta slot rather than
+            // growing a second meta renderer for two strings.
+            .map(e => ({ name: e.name, notes: [e.equipment, e.target].filter(Boolean).join(' · ') }));
+        if (seq !== _repaintSeq) return;
+        items = items.concat(_filterExercises(catalog, _libraryQuery));
+    }
+    _renderExerciseLibrary(container, items);
+}
+
+function setExerciseLibraryQuery(value) {
+    _libraryQuery = (value || '').trim().toLowerCase();
+    return _repaintExerciseLibrary();
+}
+
+function setExerciseLibrarySource(source) {
+    _librarySource = source === 'all' ? 'all' : 'mine';
+    document.querySelectorAll('#exercise-library-source [data-source]').forEach((btn) => {
+        const active = btn.dataset.source === _librarySource;
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        btn.classList.toggle('wg-gloss--sun', active);
+    });
+    return _repaintExerciseLibrary();
+}
+
 function _renderExerciseLibrary(container, items) {
     if (!container) return;
     const doc = container.ownerDocument;
@@ -68,7 +131,9 @@ function _renderExerciseLibrary(container, items) {
     if (!items || items.length === 0) {
         const empty = doc.createElement('p');
         empty.className = 'wg-workouts-exercises__empty';
-        empty.textContent = 'No exercises in library yet — tap Add to create one.';
+        empty.textContent = _libraryQuery
+            ? 'No exercises match that search.'
+            : 'No exercises in library yet — tap Add to create one.';
         container.replaceChildren(empty);
         return;
     }
@@ -76,11 +141,18 @@ function _renderExerciseLibrary(container, items) {
     const list = doc.createElement('ul');
     list.className = 'list-reset wg-workouts-exercises__list';
 
-    items.forEach((item) => {
+    items.slice(0, EXERCISE_LIBRARY_ROW_CAP).forEach((item) => {
         list.appendChild(_buildExerciseLibraryRow(doc, item));
     });
 
-    container.replaceChildren(list);
+    const children = [list];
+    if (items.length > EXERCISE_LIBRARY_ROW_CAP) {
+        const hint = doc.createElement('p');
+        hint.className = 'text-hint wg-workouts-exercises__cap-hint';
+        hint.textContent = `Showing ${EXERCISE_LIBRARY_ROW_CAP} of ${items.length} — type to narrow.`;
+        children.push(hint);
+    }
+    container.replaceChildren(...children);
 }
 
 function _buildExerciseLibraryRow(doc, item) {
@@ -142,19 +214,30 @@ function _buildExerciseLibraryRow(doc, item) {
 
     card.appendChild(body);
 
+    // A catalog row (source "All") is not a library row yet — it has no id, so
+    // there is nothing to edit or delete; the one action is "add it to mine",
+    // which is the add modal with the name pre-filled.
+    const isCatalogRow = !item.id;
     const actions = doc.createElement('div');
     actions.className = 'wg-workouts-exercises-row__actions';
-    actions.appendChild(_buildExercisesIconBtn(doc, 'edit', 'Edit exercise', 'pencil', () => {
-        showEditExerciseLibraryModal(item.id);
-    }));
-    actions.appendChild(_buildExercisesIconBtn(doc, 'delete', 'Delete exercise', 'trash', (event) => {
-        deleteExerciseLibraryItem(item.id, event);
-    }));
+    if (isCatalogRow) {
+        actions.appendChild(_buildExercisesIconBtn(doc, 'add', 'Add to my library', 'plus', () => {
+            showExerciseLibraryModal(item.name);
+        }));
+    } else {
+        actions.appendChild(_buildExercisesIconBtn(doc, 'edit', 'Edit exercise', 'pencil', () => {
+            showEditExerciseLibraryModal(item.id);
+        }));
+        actions.appendChild(_buildExercisesIconBtn(doc, 'delete', 'Delete exercise', 'trash', (event) => {
+            deleteExerciseLibraryItem(item.id, event);
+        }));
+    }
     card.appendChild(actions);
 
     card.addEventListener('click', (e) => {
         if (e.target.closest('.wg-workouts-exercises-row__actions')) return;
-        showEditExerciseLibraryModal(item.id);
+        if (isCatalogRow) showExerciseLibraryModal(item.name);
+        else showEditExerciseLibraryModal(item.id);
     });
 
     return card;
@@ -178,13 +261,15 @@ function _buildExercisesIconBtn(doc, kind, ariaLabel, iconName, handler) {
     return btn;
 }
 
-function showExerciseLibraryModal(id) {
+// `presetName` pre-fills the name field — that is how a catalog row from the
+// "All" source becomes a library row of the user's own.
+function showExerciseLibraryModal(presetName) {
     window.WorkoutEdit.editingLibraryItemId = null;
     document.getElementById('exercise-library-modal-title').textContent = 'Add Exercise';
     document.getElementById('exercise-library-rename-hint').hidden = true;
     window.ModalManager.exerciseLibrary.open();
 
-    document.getElementById('exercise-library-name').value = '';
+    document.getElementById('exercise-library-name').value = typeof presetName === 'string' ? presetName : '';
     document.getElementById('exercise-library-sets').value = '';
     document.getElementById('exercise-library-reps-min').value = '';
     document.getElementById('exercise-library-reps-max').value = '';
@@ -291,19 +376,23 @@ async function _deleteExerciseLibraryApi(id) {
 // into a name field — see the picker below); a failed fetch is silent — the
 // inputs just fall back to no catalog suggestions — and is retried on the next
 // keystroke.
-let _exerciseCatalogNamesPromise = null; // module-state: single-flight cache for the one-time static exercise-catalog fetch (med-s5m.2)
-function _loadExerciseCatalogNames() {
-    if (!_exerciseCatalogNamesPromise) {
-        _exerciseCatalogNamesPromise = fetch('/static/data/exercises-catalog.json')
+let _exerciseCatalogPromise = null; // module-state: single-flight cache for the one-time static exercise-catalog fetch (med-s5m.2)
+function _loadExerciseCatalog() {
+    if (!_exerciseCatalogPromise) {
+        _exerciseCatalogPromise = fetch('/static/data/exercises-catalog.json')
             .then(r => (r.ok ? r.json() : Promise.reject(new Error('catalog ' + r.status))))
-            .then(cat => (cat.exercises || []).map(e => e.name).filter(Boolean))
+            .then(cat => (cat.exercises || []).filter(e => e && e.name))
             .catch(err => {
                 console.error('Error loading exercise catalog:', err);
-                _exerciseCatalogNamesPromise = null; // allow a later retry (e.g. offline -> online)
+                _exerciseCatalogPromise = null; // allow a later retry (e.g. offline -> online)
                 return [];
             });
     }
-    return _exerciseCatalogNamesPromise;
+    return _exerciseCatalogPromise;
+}
+
+function _loadExerciseCatalogNames() {
+    return _loadExerciseCatalog().then(list => list.map(e => e.name));
 }
 
 // Exercise-name suggestions (med-s5m.2 -> med-3q8.1 -> med-max): ONE shared
@@ -526,6 +615,8 @@ window.WorkoutLibrary = {
     openEdit: showEditExerciseLibraryModal,
     close: closeExerciseLibraryModal,
     delete: deleteExerciseLibraryItem,
+    setQuery: setExerciseLibraryQuery,
+    setSource: setExerciseLibrarySource,
     bindExercisePicker: bindExercisePicker,
     resolveOrCreateLibraryId: resolveOrCreateLibraryId
 };
