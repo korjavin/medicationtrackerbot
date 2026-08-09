@@ -110,6 +110,9 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
             }
             return true;
         });
+        // A successful save fires an un-awaited list refresh; let it no-op so it
+        // can't outlive the test env and reject during teardown.
+        window.loadExerciseLibrary = vi.fn();
 
         await window.showEditExerciseLibraryModal(1);
         const select = document.getElementById('exercise-library-body-part');
