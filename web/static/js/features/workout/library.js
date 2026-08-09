@@ -22,9 +22,9 @@
 // catalog, so the 1300-odd imported exercises are browsable and not only
 // reachable by typing into a name field. Kept in module state so a keystroke
 // or a toggle repaints from the already-loaded arrays instead of refetching.
-let _libraryItems = [];
-let _libraryQuery = '';
-let _librarySource = 'mine';
+let _libraryItems = []; // module-state: last-loaded library rows, so a keystroke repaints without refetching
+let _libraryQuery = ''; // module-state: current library search text
+let _librarySource = 'mine'; // module-state: current library source — 'mine' | 'all'
 
 // The catalog half is unbounded; painting 1300 rows on a phone is not.
 const EXERCISE_LIBRARY_ROW_CAP = 100;
@@ -87,7 +87,7 @@ function _filterExercises(items, q) {
 // type on or switch back to "Mine". Last-writer-wins, same guard the name
 // picker uses: a stale continuation must not paint catalog rows over the newer
 // view.
-let _repaintSeq = 0;
+let _repaintSeq = 0; // module-state: last-writer-wins guard for the awaited catalog fetch
 async function _repaintExerciseLibrary() {
     const seq = ++_repaintSeq;
     const container = document.getElementById('exercise-library-list');
