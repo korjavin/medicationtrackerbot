@@ -99,5 +99,12 @@
         return FRIENDLY[_norm(bodyPart)] || null;
     }
 
-    window.WorkoutExerciseCatalog = { load, getBodyPart, resolveBodyPart, friendlyBodyPart };
+    // The same dict as a picker-ready list, so the library modal's muscle-group
+    // <select> stays a projection of this one vocabulary instead of a second
+    // hand-maintained copy in index.html.
+    function bodyPartOptions() {
+        return Object.entries(FRIENDLY).map(([value, label]) => ({ value, label }));
+    }
+
+    window.WorkoutExerciseCatalog = { load, getBodyPart, resolveBodyPart, friendlyBodyPart, bodyPartOptions };
 })();
