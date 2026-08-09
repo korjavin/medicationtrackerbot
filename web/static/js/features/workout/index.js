@@ -135,6 +135,18 @@ function loadWorkouts() {
         bindClick('exercise-cancel-btn', () => closeExerciseModal());
         bindClick('exercise-save-btn', () => saveExercise());
 
+        const librarySearch = document.getElementById('exercise-library-search');
+        if (librarySearch) {
+            librarySearch.addEventListener('input', () => setExerciseLibraryQuery(librarySearch.value));
+        }
+        const librarySource = document.getElementById('exercise-library-source');
+        if (librarySource) {
+            librarySource.addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-source]');
+                if (btn) setExerciseLibrarySource(btn.dataset.source);
+            });
+        }
+
         bindClick('exercise-library-cancel-btn', () => closeExerciseLibraryModal());
         bindClick('exercise-library-save-btn', () => saveExerciseLibraryItem());
 

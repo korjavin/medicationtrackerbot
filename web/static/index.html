@@ -231,6 +231,17 @@
                         <span class="wg-workouts-exercises-header__add-label">+ Add</span>
                     </button>
                 </div>
+                <div class="wg-workouts-exercises-controls">
+                    <input type="text" id="exercise-library-search" class="wg-input wg-workouts-exercises-controls__search"
+                        placeholder="Search exercises..." autocomplete="off">
+                    <div class="wg-gloss--inset wg-settings-segmented wg-workouts-exercises-controls__source"
+                        id="exercise-library-source" role="group" aria-label="Exercise source">
+                        <button type="button" class="wg-gloss wg-gloss--sun wg-settings-segmented__btn"
+                            data-source="mine" aria-pressed="true">Mine</button>
+                        <button type="button" class="wg-gloss wg-settings-segmented__btn"
+                            data-source="all" aria-pressed="false">All</button>
+                    </div>
+                </div>
                 <div id="exercise-library-list" class="wg-workouts-exercises">
                     Loading exercise library...
                 </div>
