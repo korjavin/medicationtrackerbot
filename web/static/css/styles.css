@@ -8420,6 +8420,30 @@ textarea.wg-input {
     letter-spacing: 0.02em;
 }
 
+/* Search + Mine/All source toggle above the library list. The segmented
+   control rides the existing `.wg-settings-segmented` rules rather than
+   growing a third copy of the same two-button shape. */
+.wg-workouts-exercises-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
+}
+
+.wg-workouts-exercises-controls__search {
+    flex: 1;
+    min-width: 0;
+}
+
+.wg-workouts-exercises-controls__source {
+    flex-shrink: 0;
+}
+
+.wg-workouts-exercises__cap-hint {
+    margin-top: var(--space-sm);
+    text-align: center;
+}
+
 /* Edit-library-exercise modal (Phase 7, Task 6). Shares the generic `.wg-modal`
    shell for positioning/chrome; overlays a mono eyebrow + title header,
    `.wg-gloss--inset` input wraps for name / sets / reps / weight / notes,
