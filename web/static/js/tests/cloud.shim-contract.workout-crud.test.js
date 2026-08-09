@@ -235,11 +235,17 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
         let list = await window.apiCall('/api/workout/exercise-library');
         expect(list).toHaveLength(1);
 
+        // body_part is omitted from the response until the user sets one — the
+        // library row then carries its own muscle-group tag instead of relying
+        // on the static catalog's guess from the name.
+        expect('body_part' in item).toBe(false);
+
         await window.apiCall(`/api/workout/exercise-library/update?id=${item.id}`, 'PUT', {
-            name: 'Deadlift', default_sets: 5, default_reps_min: 5
+            name: 'Deadlift', default_sets: 5, default_reps_min: 5, body_part: 'upper legs'
         });
         list = await window.apiCall('/api/workout/exercise-library');
         expect(list[0].default_sets).toBe(5);
+        expect(list[0].body_part).toBe('upper legs');
 
         await window.apiCall(`/api/workout/exercise-library/delete?id=${item.id}`, 'DELETE');
         list = await window.apiCall('/api/workout/exercise-library');

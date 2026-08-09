@@ -214,6 +214,9 @@ function toLibraryResponse(record) {
   if (hasValue(record.default_reps_max)) resp.default_reps_max = record.default_reps_max;
   if (hasValue(record.default_weight_kg)) resp.default_weight_kg = record.default_weight_kg;
   if (record.notes) resp.notes = record.notes;
+  // Manual body-part override (med library tags). Omitted when unset, so rows
+  // that never got one keep falling back to the static catalog's classifier.
+  if (record.body_part) resp.body_part = record.body_part;
   return resp;
 }
 
@@ -1005,6 +1008,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       default_reps_max: numOrNull(input && input.default_reps_max, true),
       default_weight_kg: numOrNull(input && input.default_weight_kg),
       notes: (input && input.notes) || '',
+      body_part: ((input && input.body_part) || '').trim(),
       created_at: new Date(nowMs).toISOString(),
       updated_at: new Date(nowMs).toISOString(),
     };
@@ -1062,6 +1066,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       default_reps_max: numOrNull(input && input.default_reps_max, true),
       default_weight_kg: numOrNull(input && input.default_weight_kg),
       notes: (input && input.notes) || '',
+      body_part: ((input && input.body_part) || '').trim(),
       clientTs: nowMs,
       updated_at: new Date(nowMs).toISOString(),
     });
