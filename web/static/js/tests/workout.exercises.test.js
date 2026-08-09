@@ -49,23 +49,24 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
         expect(empty.textContent).toMatch(/No exercises in library yet/);
     });
 
-    it('renders .wg-card exercise rows with slot tag, mono name, and defaults meta', () => {
+    it('renders .wg-card exercise rows with muscle-group tag, mono name, and defaults meta', () => {
         const { window, document } = env;
         const container = document.getElementById('exercise-library-list');
-        window._renderExerciseLibrary(container, [makeExercise()]);
+        window._renderExerciseLibrary(container, [makeExercise({ body_part: 'upper legs' })]);
 
         const row = container.querySelector('.wg-workouts-exercises-row');
         expect(row).not.toBeNull();
         expect(row.classList.contains('wg-card')).toBe(true);
         expect(row.dataset.exerciseId).toBe('1');
-        expect(row.dataset.slot).toBe('PUSH');
+        expect(row.dataset.bodyPart).toBe('upper legs');
 
         const slotTag = row.querySelector('.wg-workouts-exercises-row__slot');
         expect(slotTag).not.toBeNull();
         expect(slotTag.classList.contains('wg-tag')).toBe(true);
         expect(slotTag.classList.contains('wg-tag--mono')).toBe(true);
-        expect(slotTag.classList.contains('wg-workouts-slot-tag--push')).toBe(true);
-        expect(slotTag.textContent).toBe('PUSH');
+        expect(slotTag.classList.contains('wg-workouts-slot-tag--muscle')).toBe(true);
+        // Friendly label for the catalog's medical body_part value.
+        expect(slotTag.textContent).toBe('Legs');
 
         const name = row.querySelector('.wg-workouts-exercises-row__name');
         expect(name).not.toBeNull();
@@ -78,6 +79,51 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
         const weight = row.querySelector('.wg-workouts-exercises-row__weight');
         expect(weight).not.toBeNull();
         expect(weight.textContent).toBe('45kg');
+    });
+
+    // Regression: the row tag used to run the VARIANT-name classifier
+    // (getRotationSlot) over an EXERCISE name, so anything it didn't recognise
+    // — "Bulgarian squat" and most of the library — was labelled "AD-HOC".
+    it('never tags a library row from the rotation-slot classifier', () => {
+        const { window, document } = env;
+        const container = document.getElementById('exercise-library-list');
+        window._renderExerciseLibrary(container, [
+            makeExercise({ name: 'Bulgarian Squat', body_part: '' }),
+            makeExercise({ id: 2, name: 'Push Press', body_part: '' })
+        ]);
+
+        const tags = [...container.querySelectorAll('.wg-workouts-exercises-row__slot')];
+        expect(tags).toHaveLength(2);
+        // Catalog lookup is async (and unavailable in the harness), so the tag
+        // starts as a neutral placeholder rather than a wrong rotation slot.
+        tags.forEach((tag) => {
+            expect(tag.textContent).toBe('—');
+            expect(tag.classList.contains('wg-workouts-slot-tag--push')).toBe(false);
+        });
+    });
+
+    it('round-trips the muscle-group override through the edit modal', async () => {
+        const { window, document } = env;
+        window.apiCall = vi.fn(async (endpoint) => {
+            if (endpoint === '/api/workout/exercise-library') {
+                return [makeExercise({ name: 'Bulgarian Squat', body_part: 'upper legs' })];
+            }
+            return true;
+        });
+        // A successful save fires an un-awaited list refresh; let it no-op so it
+        // can't outlive the test env and reject during teardown.
+        window.loadExerciseLibrary = vi.fn();
+
+        await window.showEditExerciseLibraryModal(1);
+        const select = document.getElementById('exercise-library-body-part');
+        expect(select.value).toBe('upper legs');
+        expect([...select.options].some((o) => o.value === '')).toBe(true);
+
+        select.value = 'chest';
+        await window.saveExerciseLibraryItem();
+
+        const put = window.apiCall.mock.calls.find((c) => c[1] === 'PUT');
+        expect(put[2].body_part).toBe('chest');
     });
 
     it('omits the weight chip when default_weight_kg is missing', () => {

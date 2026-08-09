@@ -99,7 +99,13 @@ async function _repaintExerciseLibrary() {
             .filter(e => e.name && !own.has(e.name.trim().toLowerCase()))
             // equipment/target ride the existing `notes` meta slot rather than
             // growing a second meta renderer for two strings.
-            .map(e => ({ name: e.name, notes: [e.equipment, e.target].filter(Boolean).join(' · ') }));
+            // body_part rides along so a catalog row tags itself on the spot
+            // instead of each of them re-resolving its own name asynchronously.
+            .map(e => ({
+                name: e.name,
+                body_part: e.body_part,
+                notes: [e.equipment, e.target].filter(Boolean).join(' · ')
+            }));
         if (seq !== _repaintSeq) return;
         items = items.concat(_filterExercises(catalog, _libraryQuery));
     }
@@ -155,14 +161,37 @@ function _renderExerciseLibrary(container, items) {
     container.replaceChildren(...children);
 }
 
+// A library row is tagged by the exercise's TARGET MUSCLE GROUP, not by
+// getRotationSlot() — that classifier reads variant names ("Push day"), so on an
+// exercise name it tagged everything it didn't recognise "AD-HOC" ("Bulgarian
+// squat" included). Resolution order: the user's stored override, else the
+// static catalog's body_part for this name (async — the catalog is a lazily
+// fetched asset), else an em dash.
+function _libraryBodyPartLabel(bodyPart) {
+    if (!bodyPart) return '';
+    const friendly = window.WorkoutExerciseCatalog
+        && window.WorkoutExerciseCatalog.friendlyBodyPart(bodyPart);
+    return friendly || (bodyPart.charAt(0).toUpperCase() + bodyPart.slice(1));
+}
+
+async function _fillLibraryBodyPartTag(card, tag, name) {
+    if (!window.WorkoutExerciseCatalog) return;
+    const bodyPart = await window.WorkoutExerciseCatalog.getBodyPart(name);
+    // The list may have been re-rendered while the catalog fetch was in flight.
+    if (!bodyPart || !tag.isConnected) return;
+    tag.textContent = _libraryBodyPartLabel(bodyPart);
+    tag.classList.remove('wg-workouts-slot-tag--adhoc');
+    tag.classList.add('wg-workouts-slot-tag--muscle');
+    card.dataset.bodyPart = bodyPart;
+}
+
 function _buildExerciseLibraryRow(doc, item) {
-    const slot = getRotationSlot(item.name || '');
-    const slotMod = _slotTagModifier(slot);
+    const bodyPart = (item.body_part || '').trim();
 
     const card = doc.createElement('li');
     card.className = 'wg-card wg-workouts-exercises-row';
     card.dataset.exerciseId = String(item.id || '');
-    card.dataset.slot = slot;
+    card.dataset.bodyPart = bodyPart;
 
     const body = doc.createElement('div');
     body.className = 'wg-workouts-exercises-row__body';
@@ -171,9 +200,10 @@ function _buildExerciseLibraryRow(doc, item) {
     title.className = 'wg-workouts-exercises-row__title';
 
     const slotTag = doc.createElement('span');
-    slotTag.className = `wg-tag wg-tag--mono wg-workouts-slot-tag wg-workouts-slot-tag--${slotMod} wg-workouts-exercises-row__slot`;
-    slotTag.textContent = slot;
+    slotTag.className = `wg-tag wg-tag--mono wg-workouts-slot-tag wg-workouts-slot-tag--${bodyPart ? 'muscle' : 'adhoc'} wg-workouts-exercises-row__slot`;
+    slotTag.textContent = _libraryBodyPartLabel(bodyPart) || '—';
     title.appendChild(slotTag);
+    if (!bodyPart) _fillLibraryBodyPartTag(card, slotTag, item.name || '');
 
     const name = doc.createElement('span');
     name.className = 'wg-workouts-exercises-row__name';
@@ -261,6 +291,25 @@ function _buildExercisesIconBtn(doc, kind, ariaLabel, iconName, handler) {
     return btn;
 }
 
+// Fill the muscle-group <select> from the shared catalog vocabulary and select
+// `current`. The blank option is the default: no override, so the row falls back
+// to the catalog's own classification of the name.
+function _syncBodyPartSelect(current) {
+    const select = document.getElementById('exercise-library-body-part');
+    if (!select) return;
+    const options = window.WorkoutExerciseCatalog
+        ? window.WorkoutExerciseCatalog.bodyPartOptions()
+        : [];
+    select.replaceChildren();
+    [{ value: '', label: 'Auto (from exercise name)' }, ...options].forEach(({ value, label }) => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        select.appendChild(opt);
+    });
+    select.value = current || '';
+}
+
 // `presetName` pre-fills the name field — that is how a catalog row from the
 // "All" source becomes a library row of the user's own.
 function showExerciseLibraryModal(presetName) {
@@ -275,6 +324,7 @@ function showExerciseLibraryModal(presetName) {
     document.getElementById('exercise-library-reps-max').value = '';
     document.getElementById('exercise-library-weight').value = '';
     document.getElementById('exercise-library-notes').value = '';
+    _syncBodyPartSelect('');
 
     // Catalog-only: this modal is where library rows get created, so suggesting
     // the library back at the user would just offer duplicates.
@@ -301,6 +351,7 @@ async function showEditExerciseLibraryModal(id) {
     document.getElementById('exercise-library-reps-max').value = item.default_reps_max || '';
     document.getElementById('exercise-library-weight').value = item.default_weight_kg || '';
     document.getElementById('exercise-library-notes').value = item.notes || '';
+    _syncBodyPartSelect(item.body_part || '');
 
     // The picker starts closed, so the stored name is not immediately buried
     // under suggestions for itself; it opens again as soon as the user types.
@@ -325,6 +376,8 @@ async function saveExerciseLibraryItem() {
     const weightRaw = document.getElementById('exercise-library-weight').value;
     const weight = weightRaw !== '' ? parseFloat(weightRaw) : null;
     const notes = document.getElementById('exercise-library-notes').value.trim();
+    const bodyPartEl = document.getElementById('exercise-library-body-part');
+    const bodyPart = bodyPartEl ? bodyPartEl.value : '';
 
     if (!name) {
         safeAlert('Exercise name is required!');
@@ -337,7 +390,8 @@ async function saveExerciseLibraryItem() {
         default_reps_min: repsMin,
         default_reps_max: repsMax,
         default_weight_kg: weight,
-        notes: notes
+        notes: notes,
+        body_part: bodyPart
     };
 
     let result;
