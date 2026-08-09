@@ -82,7 +82,14 @@ function _filterExercises(items, q) {
 
 // Repaint from module state — no fetch except the one-time catalog asset, and
 // only when the user actually asks for "All".
+//
+// The first "All" repaint awaits the 913 KB asset, during which the user can
+// type on or switch back to "Mine". Last-writer-wins, same guard the name
+// picker uses: a stale continuation must not paint catalog rows over the newer
+// view.
+let _repaintSeq = 0;
 async function _repaintExerciseLibrary() {
+    const seq = ++_repaintSeq;
     const container = document.getElementById('exercise-library-list');
     if (!container) return;
     let items = _filterExercises(_libraryItems, _libraryQuery);
@@ -93,6 +100,7 @@ async function _repaintExerciseLibrary() {
             // equipment/target ride the existing `notes` meta slot rather than
             // growing a second meta renderer for two strings.
             .map(e => ({ name: e.name, notes: [e.equipment, e.target].filter(Boolean).join(' · ') }));
+        if (seq !== _repaintSeq) return;
         items = items.concat(_filterExercises(catalog, _libraryQuery));
     }
     _renderExerciseLibrary(container, items);
