@@ -634,6 +634,28 @@ describe('features/workout/library.js — split-file integration', () => {
       expect(window.WorkoutEdit.editingLibraryItemId).toBeNull();
     });
 
+    // The first "All" repaint awaits the 913 KB asset. Switching back to Mine
+    // while it is in flight must win — the stale continuation cannot paint
+    // catalog rows over the newer view.
+    it('drops an in-flight catalog repaint once the source has switched back to Mine', async () => {
+      const { window } = env;
+      const container = await loadLibrary(env);
+
+      let releaseCatalog;
+      window.fetch = vi.fn(async (url) => {
+        if (!String(url).includes('exercises-catalog.json')) return { ok: true, status: 200, json: async () => ({}) };
+        await new Promise((resolve) => { releaseCatalog = resolve; });
+        return { ok: true, status: 200, json: async () => CATALOG };
+      });
+
+      const allRepaint = window.WorkoutLibrary.setSource('all');
+      await window.WorkoutLibrary.setSource('mine');
+      releaseCatalog();
+      await allRepaint;
+
+      expect(namesIn(container)).toEqual(['Deadlift', 'Overhead press']);
+    });
+
     it('toggling the source flips aria-pressed on the segmented control', async () => {
       const { window, document } = env;
       await loadLibrary(env);
