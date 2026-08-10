@@ -1,6 +1,6 @@
 # Post 2 — Your devices hold it, my machine holds noise
 
-**Channel:** LinkedIn (398 words) · X (deferred series-wide)
+**Channel:** LinkedIn only (395 words)
 **Point:** local-first ownership. The cloud backup is a convenience, it is scrambled
 before it leaves your phone, and you can self-host it.
 **Ends on:** "Anyone who can hand your record back to you can hand it to somebody else." (a one-line tease for post 3 follows as a P.S.)
@@ -18,13 +18,13 @@ There is a backup, because phones get dropped and replaced. It goes to a machine
 
 You do not have to use my machine. You can run the backup yourself, and it is a small job rather than a project. I hope some of you do.
 
-The key that opens any of this lives on your devices and is unlocked by the face or fingerprint you already use. There is no password in the product anywhere. One consequence of that, said here rather than in a support reply: if you lose every device you have set up, and the recovery code you wrote down on your first day, the backup stays noise for good. I cannot open it for you. Nobody can.
+The key that opens any of this lives on your devices and is unlocked by the face or fingerprint you already use. One consequence of that, said here rather than in a support reply: if you lose every device you have set up, and the recovery code you wrote down on your first day, the backup stays noise for good. I cannot open it for you. Nobody can.
 
 There is nothing on my side to trust me with, and that is the part I am gladdest about. I get to stay a stranger to you, and it changes nothing about how safe your record is.
 
 Every other app holding this stuff protects it with a privacy policy. You ticked a box once, and every so often an email arrives saying the terms have been updated, often because the company changed hands. Nobody outside the company can check whether the old one was kept.
 
-This is how myhealthbot.ai works. There is no password in it for me to reset.
+This is how myhealthbot.ai works. Lose your devices and that written-down code, and there is nothing for me to reset.
 
 Anyone who can hand your record back to you can hand it to somebody else.
 
@@ -36,7 +36,7 @@ P.S. Next post: what happens when you point an AI at a record nobody else can re
 
 | Rule | Result |
 |---|---|
-| Under 400 words | 398 |
+| Under 400 words | 395 ("no password" reveal removed 2026-08-10 so post 5's hook stays unspoiled; close now leans on the recovery-code consequence) |
 | Hook under 210 chars | 128 |
 | No jargon (posts 1-4) | clean; end-to-end encryption explained in plain words, never named |
 | Em dashes | zero |
@@ -76,6 +76,5 @@ Drafted by both partners, cross-critiqued, converged over four author notes:
 
 ## Open
 
-- X thread not drafted yet.
 - "a small job rather than a project" is the last claim in the post that depends on
   the self-host setup really being low effort.

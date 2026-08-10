@@ -2,8 +2,9 @@
 
 **Channel:** LinkedIn only
 **Point:** the passkey is a keyed function, not just a login: the face/fingerprint unlock derives the key material, so there is nothing on the server to grind offline, ever. Includes the spec trap: create() can report the feature enabled and return nothing.
+**Structure:** motivated derivation (per the 2026-08-10 style decision, modeled on privacypass.github.io/protocol): four numbered attempts, each broken with an explicit "Problem:" beat, arriving at the shipped design; the spec trap is the final break. The repeated "Attempt / Problem:" labels are the style's deliberate scaffold, not a formula violation.
 **Ends on:** a plain declarative sentence (editor pass: no mic-drop fragment on this one), then a P.S. teasing post 6.
-**Status:** draft; codex-reviewed 2026-08-06, formula fixes applied. Spec-trap paragraph compressed by half 2026-08-06 after codex and agy independently named it the bail point; the trap itself stays (plan's ending beat). "One extra face-check" softened to "a second check" (unverified cross-platform behavior).
+**Status:** rewritten 2026-08-10 in the derivation style; hook, ending beat, spec-trap placement, and P.S. unchanged from the codex-reviewed 2026-08-06 draft. "One extra face-check" softened to "a second check" (unverified cross-platform behavior). Revdiff annotations 2026-08-10 addressed: (1) the shipped-design paragraph states explicitly that the passkey is not an entry ticket to a cloud holding the data — it mints the key on-device and nobody ever sees a password, a private key, or the record unlocked; (2) the real task is framed up front, before the ladder — not authenticating a user but minting a key that is too strong to guess yet impossible to lose (reliability is carried by "the same answer every time" in the shipped-design paragraph); attempt four's pivot was trimmed since the intro now owns it; (3) attempt two rephrased for data sovereignty — "your app scrambles the password before sending it", never "I scramble"; (4) attempt three's problem also covers watching/copying the typed secret, not just phishing.
 
 ---
 
@@ -11,15 +12,21 @@
 
 There is no password in this app. Not one, anywhere.
 
-Every password system ends the same way: somewhere there is a list of scrambled passwords, someone steals the list, and a computer in a basement starts guessing. Humans choose guessable secrets, and the machines doing the guessing never sleep. The breach emails you get are the paperwork of that system.
+The task here was never login. Your record is locked on your device before it goes anywhere, and the real task is minting the key that locks it: too strong to guess, yet impossible to lose. Every familiar design fails one of the two. Watch.
 
-So I refused to build one. When you unlock my app with your face or fingerprint, a chip in your device does more than say "yes, that's them." Handed a fixed question, it computes an answer from a secret sealed inside the hardware, the same answer every time, and that answer is the raw material the app turns into the key that opens your record. The secret never leaves the chip. No human chose it, so there is nothing to guess, and nothing you could type into a fake login page. Steal my whole server and there is still nothing to grind offline, because it holds only your record locked under keys it has never seen. Even the recovery code you write down on day one is 160 random bits.
+Attempt one: you pick a password. Problem: humans pick guessable secrets, and the machines doing the guessing never sleep.
 
-This is the passkey standard doing a second job. Most sites use passkeys to sign you in. I also use them as the machine that mints your key.
+Attempt two: your app scrambles the password before sending it; my server keeps only scrambled copies. Problem: someone steals the scrambled list anyway, and a computer in a basement works through it, because a person still chose the thing being guessed. The breach emails you get are the paperwork of this design.
 
-That second job has a trap I want on record. The standard lets a device claim the key-minting feature is enabled and still hand back nothing at creation. So my app never takes its word: right after creating a passkey it asks for the real answer, a second check, and rejects the passkey on the spot if that answer is empty, before a single byte of your record is locked under a key that could never be derived again.
+Attempt three: a password manager picks a long random one for you. Nothing left to guess. Problem: you still type it, so a fake login page dressed up as mine can collect it, and anyone watching your screen can copy it.
 
-That is why myhealthbot.ai has no reset flow, no security questions, and no email loop. The key comes out of the chip in your hand, and my server only ever meets the locked result.
+Attempt four: a passkey, the way most sites use one. A look-alike site gets nothing, because the passkey refuses to speak to the wrong address. Login solved, but the key is still nowhere. If I store one on my server, stealing the server reads your record. Pick a passphrase and we are back at attempt one.
+
+So the shipped design gives the passkey a second job. It is not an entry ticket my cloud inspects before handing your data back; no readable copy exists on my side. When you unlock with your face or fingerprint, the chip in your device takes a fixed question and computes an answer from a secret sealed inside the hardware, the same answer every time. On your device, that answer becomes the key that seals and opens your record. No human chose the secret and nothing gets typed. Nobody, me included, ever sees a password, a private key, or your record unlocked.
+
+One last break, from the standard itself: a device may claim this second job is supported and still hand back nothing at creation. So my app never takes its word: right after creating a passkey it asks for the real answer, a second check, and rejects it if that answer is empty.
+
+The cost is printed on the tin. myhealthbot.ai has no reset flow, no security questions, and no email loop. The only paper in this system is the recovery code from day one: 160 random bits. The key comes out of the chip in your hand, and my server only ever meets the locked result.
 
 P.S. Still ahead: I built reminders, then realised my server isn't allowed to know what the reminder is for.
 
@@ -29,11 +36,11 @@ P.S. Still ahead: I built reminders, then realised my server isn't allowed to kn
 
 | Rule | Result |
 |---|---|
-| ≤400 words | 350 (measured with the awk/wc pipeline, includes the P.S.) |
+| ≤450 words | 449 (measured with the awk/wc pipeline, includes the P.S.) |
 | Hook inside 210 chars | 52 |
 | Em dashes | 0 |
 | Negative parallelism | none added; the hook's "Not one, anywhere." is the plan's grandfathered instance |
-| Tricolons | 2 (list/steal/guess; reset flow/questions/email loop) |
+| Tricolons | 2 (reset flow/questions/email loop; password/private key/record unlocked) |
 | Anaphora runs | none |
 | Banned words | none |
 | Straight quotes | yes |

@@ -15,13 +15,13 @@ declarative sentence per the editor pass; the post-9 tease follows as a P.S.)
 
 The AI cannot do anything to my record that my own app cannot do. There is no second door for it to find.
 
-In post 3 I showed an AI reading seven months of my health record while nobody else saw a byte. The fair follow-up is why that AI can be trusted to behave once it is inside. My answer is structural, because structure survives years of edits.
+In post 3 I showed an AI reading seven months of my health record while the record itself stayed on my devices. The fair follow-up is why that AI can be trusted to behave once it is inside. My answer is structural, because structure survives years of edits.
 
-Everything the app knows how to do, what counts as a dose taken, how a blood pressure average is worked out, when a reminder is due, lives in one layer of plain functions. That layer is forbidden to touch the screen, the network, or the browser's storage. A test runs on every change and fails the build if any file in that layer reaches for one of those. That sounds like purism, but it is plumbing: code that touches nothing can be called from anywhere.
+Everything the app knows how to do, what counts as a dose taken, how a blood pressure average is worked out, when a reminder is due, lives in one layer of plain functions. That layer is forbidden to touch the screen, the network, or the browser's storage. A test runs on every change and fails the build if any file in that layer reaches for one of those. The payoff of that ban is plumbing: code that touches nothing can be called from anywhere.
 
 In front of that layer sits one router. When I tap a button, the tap travels through it. When the AI connector asks for something, it looks the operation up in a published catalog and dispatches to the very address the button uses, through the same router. The connector holds no logic of its own. Whenever I catch myself wanting a special branch on the AI's side, the rule is to push that behavior down into the shared layer instead, where both callers inherit it.
 
-Here is what that buys you as a user. A wider view than the app's would need a second code path to live in, and the tests refuse to let one grow. The read ceilings from that post bind the AI because they sit in the shared layer where every call lands. And when I fix a bug there, the screen and the AI pick up the fix in the same release.
+That discipline buys you something concrete as a user. A wider view than the app's would need a second code path to live in, and the tests refuse to let one grow. The read ceilings from post 3 bind the AI because they sit in the shared layer where every call lands. And when I fix a bug there, the screen and the AI pick up the fix in the same release.
 
 A second test closes the loop from the other side. It takes every operation in the AI's catalog and drives it through the real router, and the build fails if a single one comes back unanswered.
 
@@ -35,7 +35,7 @@ P.S. Then the hard one: "Retire this device" and "my phone was stolen" are diffe
 
 | Rule | Result |
 |---|---|
-| ≤400 words | 396 (measured with the awk pipeline below) |
+| ≤400 words | 397 (measured with the awk pipeline below) |
 | Hook inside 210 chars | 105 |
 | Em dashes | 0 |
 | Negative parallelism | only the grandfathered hook line; "a wider view would need a second code path" is phrased as a positive requirement |
@@ -83,7 +83,7 @@ Word count command:
   (docs/cloud-mode.md notes it serves 100); these are transport-level, not domain
   logic, so the "no logic of its own" claim stands, but the author should confirm
   none of the extras reads or writes health data outside the router.
-- Post 3 must be published first: this post leans on "last post" twice (the AI-read
+- Post 3 must be published first: this post cites it by name twice (the AI-read
   payoff and the read ceilings).
 
 ## Provenance

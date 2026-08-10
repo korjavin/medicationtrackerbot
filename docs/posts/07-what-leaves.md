@@ -22,7 +22,7 @@ An app that never talks to the outside world cannot tell me whether two medicati
 
 When I ask the AI to read a meal photo, the photo and my description go to an AI provider. With my own key they travel straight from my browser to my provider. On the shared trial key they pass through my server first, and only after I agreed to exactly that, a consent I can revoke. Food and barcode searches go through my server to a food database, and there is no switch for that; adding your own database takes my server out of the path. Drug name and interaction checks go to RxNav, run by the US National Institutes of Health; it has no toggle and cannot be pointed anywhere else. Link a Telegram bot and the chat crosses my server in plain text both ways, because a chat bot cannot be sealed end to end. Turn on push reminders and the server learns when one fires, and nothing about what it says.
 
-The whole list lives in the app, on a Settings screen called "What can the operator see?" Nobody writes that screen by hand: it and the public docs table are generated from one file in the source code. Hand-edit the table and the build fails. A check combs the code for ways data can leave and fails on any the list misses. I cannot widen what leaves without the code telling on me first.
+The whole list lives in the app, on a Settings screen called "What can the operator see?" Nobody maintains that list by hand: it is generated from the code itself.
 
 The list has three shapes: some of it waits for my yes, some runs the moment I use the feature, and some I can replace with a provider of my own. Flattening those into one comforting "all opt-in" sentence would read better, and it would be false. myhealthbot.ai says which is which, next to each feature.
 
@@ -36,7 +36,7 @@ P.S. Next, the proof: the AI cannot do anything to my record that my own app can
 
 | Rule | Result |
 |---|---|
-| ≤400 words | 398 (measured: `awk '/^## LinkedIn/{f=1;next} /^---$/{if(f)exit} f' docs/posts/07-what-leaves.md \| wc -w`) |
+| ≤400 words | 354 (measured: `awk '/^## LinkedIn/{f=1;next} /^---$/{if(f)exit} f' docs/posts/07-what-leaves.md \| wc -w`; generated-list paragraph compressed to one sentence 2026-08-10 so second-track note B keeps its thesis) |
 | Hook inside 210 chars | 173 |
 | Em dashes | 0 |
 | Negative parallelism | none |

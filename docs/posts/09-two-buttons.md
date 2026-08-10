@@ -5,8 +5,8 @@
 exists today; truly evicting a compromised device (fresh keys, fresh snapshot,
 everything signed out) is designed but not built, and a stolen unlocked device may
 already hold everything it saw. The product says so in its own copy.
-**Ends on:** honest copy instead of implied safety. (P.S. teases post 10, the recap +
-invite.)
+**Ends on:** a plain declarative sentence: "So the button copy tells the truth, and the
+second button waits until it can too." (P.S. teases post 10, the recap + invite.)
 **Status:** draft; codex-reviewed 2026-08-06, shipped/designed paragraphs split, rotation detail compressed to user cost.
 
 ---
@@ -27,7 +27,7 @@ The stolen-phone screen does not exist yet. When it ships, it is specified to op
 
 The tempting version was one button with soft copy, and I understand why products ship it. But myhealthbot.ai has exactly one pitch, that nobody else can read your record, and that pitch dies the first time the product implies a safety it does not have. So the limitation is stated in the button itself, at full volume, on the day you need it.
 
-Honest copy instead of implied safety.
+So the button copy tells the truth, and the second button waits until it can too.
 
 P.S. Next post is the last one: the whole story in one piece, and the only time in this series I will ask you for anything.
 
@@ -37,19 +37,19 @@ P.S. Next post is the last one: the whole story in one piece, and the only time 
 
 | Rule | Result |
 |---|---|
-| ≤400 words | 375 (measured with the awk pipeline) |
+| ≤400 words | 385 (measured with the awk pipeline) |
 | Hook inside 210 chars | 90 |
 | Em dashes | 0 |
 | Negative parallelism / "Not X. Not Y." | none |
 | Self-answered rhetorical one-liners | none |
-| Tricolons (max 2) | 1 ("mint fresh keys, re-seal the whole record under them, and sign out every device at once") |
+| Tricolons (max 2) | 1 ("new keys, the whole record re-sealed under them, every device signed out at once") |
 | Anaphora runs | none |
 | Banned words | 0 hits |
 | Straight quotes only | yes |
 | Prose paragraphs, no bullets | yes |
 | No CTA, no link | clean |
 | Product named exactly once, late | once, paragraph 6 |
-| Ends on the beat | "Honest copy instead of implied safety." then P.S. tease for post 10 |
+| Ends on the beat | "So the button copy tells the truth, and the second button waits until it can too." — a full declarative closer (breaks the epigram run per the 2026-08-10 pass), then P.S. tease for post 10 |
 
 ## Facts this post rests on
 
@@ -92,9 +92,9 @@ P.S. Next post is the last one: the whole story in one piece, and the only time 
 - Author comfort check: the post states publicly that stolen-device recovery is
   unbuilt. This is already public in the repo docs, but confirm it is a disclosure
   he wants amplified on LinkedIn.
-- "designed in full, down to the database transaction and every way it can fail
-  halfway through" rests on the design doc's crash-point table (§6.4) and
-  acceptance criteria (§9); author to confirm he stands behind "in full".
+- "I have it designed down to the last failure case" rests on the design doc's
+  crash-point table (§6.4) and acceptance criteria (§9); author to confirm he
+  stands behind "the last failure case".
 
 ## Provenance
 

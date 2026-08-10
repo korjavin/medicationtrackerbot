@@ -11,11 +11,11 @@ narrows that, what doesn't, and why it's in a post instead of the small print.
 
 ## LinkedIn
 
-Here's the part that should bother you: I still send you the code that holds your key.
+The part that should bother you: I still send you the code that holds your key.
 
 Two posts ago I said the backup on my machine is a block of noise I cannot read. That holds right up to the moment you open the app. The page that unscrambles your record, the page holding your key while you use it, comes from my machine. If I turned bad tomorrow, picking the lock would be the hard way. The easy way would be to change that page without telling you, then take a copy the next time you opened your record. Anyone who seized my machine could do the same.
 
-You might reasonably ask whether the whole promise rests on me behaving. Partly, yes. Three things make that a smaller trust than it sounds. The page never runs anyone else's code: no ad scripts, no analytics, nothing fetched from another company's machine. It carries a short list of places it is allowed to talk to, so a bad script that got in has almost nowhere to send your key. And every version I ship leaves a public trail, the exact code it was built from and a fingerprint for the files it serves, which an independent technical reader can compare against what my machine hands out.
+You might reasonably ask whether the whole promise rests on me behaving. Partly, yes. Three things make that a smaller trust than it sounds. The page never runs anyone else's code: no ad scripts, nothing fetched from another company's machine. It carries a short list of places it is allowed to talk to, so bad code that got in has almost nowhere to send your key. And every version I ship leaves a public trail, the exact code it was built from and a fingerprint for the files it serves, which an independent technical reader can compare against what my machine hands out.
 
 Now the uncomfortable half. None of that stops me. A page cannot prove to you what it ran; the checking happens outside the page, after the fact. A changed page aimed at one person for one afternoon would likely pass unseen. If that residue is too much, you can run the whole thing on your own machine, and then the person you are trusting is you.
 
@@ -23,7 +23,7 @@ So why write this? Because every product that makes this promise from a web page
 
 The weakest spot in this product is the one you just heard about, from me, first.
 
-P.S. Next up: there is no password anywhere in this app, and that turned out to be the best decision in it.
+P.S. Next up: what replaced the thing every other app makes you type at the door, and why I have never missed it.
 
 ---
 
@@ -31,12 +31,12 @@ P.S. Next up: there is no password anywhere in this app, and that turned out to 
 
 | Rule | Result |
 |---|---|
-| ≤400 words | 399 (awk-measured, includes closer and P.S.) |
-| Hook inside 210 chars | 86 |
+| ≤400 words | 396 (awk-measured, includes closer and P.S.) |
+| Hook inside 210 chars | 79 |
 | No jargon (posts 1–4) | clean; "scrambled" register kept ("unscrambles"), CSP said as "a short list of places it is allowed to talk to", provenance/SHA256SUMS said as "a public trail" and "a fingerprint for the files it serves" |
 | Em dashes | 0 |
 | Negative parallelism | none; hard-way/easy-way pair is affirmative on both sides |
-| Tricolons (max 2) | 2: "no ad scripts, no analytics, nothing fetched"; the three-things enumeration |
+| Tricolons (max 2) | 1: the three-things enumeration (the "no ad scripts…" list trimmed to a two-beat 2026-08-10) |
 | Anaphora runs | none |
 | Self-answered rhetorical fragments | none; "So why write this?" is answered by a full paragraph, and the reader-voiced suspicion ("you might reasonably ask") is the post-3-style allowed move |
 | No CTA, no link | clean |

@@ -1,6 +1,6 @@
 # Launch post series — plan
 
-10 posts · 2/week · 5 weeks · first person · **400 words max, ~2 min read**.
+10 posts · 2/week · 5 weeks · first person · **400–450 words soft limit, ~2 min read**.
 
 Every post: **product consequence → mechanism → what it cost.**
 Never two technical posts in a row without a broad one adjacent.
@@ -11,14 +11,14 @@ CTA in post 10 only.
 | # | Hook (first line) | Point | Ends on |
 |---|---|---|---|
 | 1 | My blood pressure got worse over one month last year, and I couldn't tell you why, because the answer was sitting in five apps that don't talk to each other. | The pitch, as a problem | That's not an accident |
-| 2 | The photos on your phone are yours in a plain way that needs nobody's promise. | Your devices hold the real copy; my cloud backup is a scrambled convenience you can self-host | **Anyone who can hand your record back to you can hand it to somebody else** |
+| 2 | If every server on earth went dark tonight, I would open my app in the morning and seven months of my life would still be there. | Your devices hold the real copy; my cloud backup is a scrambled convenience you can self-host | **Anyone who can hand your record back to you can hand it to somebody else** |
 | 3 | I asked an AI what changed in the month before my blood pressure got worse. It read seven months of my data. Nobody else saw a byte. | The payoff, early | Only works while the app is open — no server fallback |
-| 4 | Here's the part that should bother you: I still send you the code that holds your key. | Volunteering the hole before anyone finds it | What narrows it, what doesn't, why I published it |
-| 5 | There is no password in this app. Not one, anywhere. | Passkey as a keyed PRF — nothing to grind, ever | The spec trap: `create()` says enabled, returns nothing |
+| 4 | The part that should bother you: I still send you the code that holds your key. | Volunteering the hole before anyone finds it | What narrows it, what doesn't, why I published it |
+| 5 | There is no password in this app. Not one, anywhere. | Passkey as a keyed PRF — nothing to grind, ever | No reset flow: the key comes out of the chip in your hand (the spec trap — `create()` says enabled, returns nothing — is a beat inside, not the ending) |
 | 6 | I built reminders, then realised my server isn't allowed to know what the reminder is for. | Blind alarm clock | Stop opening the app and reminders lapse — by design |
 | 7 | A record someone else can read gets softened, the same way people soften a number for a doctor. So I keep mine where nobody else can read it. Almost. Here is what still can. | The carve-outs, three activation classes | Not everything has a toggle, and I say which |
 | 8 | The AI cannot do anything to my record that my own app cannot do. There is no second door for it to find. | Purity as the enabling constraint | One router, two callers |
-| 9 | "Retire this device" and "my phone was stolen" are different buttons. I've only built one. | Revocation ≠ compromise recovery | Honest copy instead of implied safety |
+| 9 | "Retire this device" and "my phone was stolen" are different buttons. I've only built one. | Revocation ≠ compromise recovery | The button copy tells the truth, and the second button waits until it can too |
 | 10 | What question about your own health can't you answer right now, because the answer is split across five apps that don't talk to each other? | Recap + invite | The only CTA in the series |
 
 ## Second track — engineering notes
@@ -36,9 +36,8 @@ Post 7 may link note B as evidence for the carve-out list. That is the only cros
 
 ## Format
 
-- **LinkedIn** — 400 words, one asset, hook inside the first 210 chars (the "see more" cut).
-- **X** — deferred (2026-08-06): LinkedIn is the focus; existing threads for 1 and 3 are
-  kept but no new ones are drafted until the series is running.
+- **LinkedIn** — 400–450 words, one asset, hook inside the first 210 chars (the "see more" cut).
+- **X** — dropped (2026-08-10): LinkedIn only. No new threads.
 - Assets, reuse verbatim: system diagram (`docs/architecture.md` §1), key hierarchy
   (`docs/cloud-crypto.md`), trust boundaries (`docs/security/threat-model.md` §3),
   screenshot of Settings → *What can the operator see?*.
@@ -57,8 +56,9 @@ Post 7 may link note B as evidence for the carve-out list. That is the only cros
 - **Every post ends with a one-line tease for the next** — a P.S. after the closer.
   Not a CTA, no links; it names unfinished business ("I'll show you the hole in this
   story myself").
-- **The mic-drop fragment closer must not run 10-for-10.** Posts 5 and 8 end on a plain
-  declarative sentence instead; a formula repeated every post becomes a tell of its own.
+- **The mic-drop fragment closer must not run 10-for-10.** Posts 5, 8 and 9 end on a
+  plain declarative sentence instead; a formula repeated every post becomes a tell of
+  its own.
 - **The "said in the post, not in small print" honesty flex** appears at most once per
   pair of adjacent posts. Post 4 owns it fully; 2 keeps its instance, 3's was cut.
 - **Post 10's hook flips post 1 to the reader** ("what question can't you answer across
