@@ -71,8 +71,10 @@ Post 7 may link note B as evidence for the carve-out list. That is the only cros
 
 ## Blocker before post 1
 
-Repo still describes itself as *"A small telegram bot to track medication."* Every link
-in the series lands there. Rewrite description + README first.
+~~Repo still describes itself as "A small telegram bot to track medication."~~
+**Done** (verified 2026-08-10): README and the GitHub description are both the
+myhealthbot.ai rewrite on master. Remaining blockers are in the posts themselves:
+post 3's real AI answer (run + screenshot) and post 10's invite-CTA mechanics.
 
 ## Cut
 
