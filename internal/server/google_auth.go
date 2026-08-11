@@ -344,7 +344,9 @@ func firstNonEmpty(values ...string) string {
 func createSessionToken(email, secret string) string {
 	// Stateless session rotation: payload is base64url_nopad(email|nonce|timestamp) + "." + hex(hmac(payload, secret))
 	nonce := make([]byte, 12)
-	rand.Read(nonce)
+	if _, err := rand.Read(nonce); err != nil {
+		panic("crypto/rand failed to provide random bytes: " + err.Error())
+	}
 	timestamp := time.Now().Unix()
 	payload := fmt.Sprintf("%s|%s|%d", email, hex.EncodeToString(nonce), timestamp)
 
