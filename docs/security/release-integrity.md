@@ -101,6 +101,10 @@ A pass means: an image with that digest was built by this repository's workflow,
 from that commit. A failure — or a missing attestation — means the running image
 is not one CI produced, which is exactly the signal worth having.
 
+Caveat: GitHub only persists attestations for public repositories (and paid orgs),
+so while this repo is private the deploy workflow skips the attest step and step 2
+has nothing to check. Step 3 (published bundle hashes) still runs.
+
 **3. Check that the origin serves those bytes.** Download
 `web-bundle-sha256sums-<sha>` from the corresponding workflow run (or regenerate
 it from the tagged commit — the list is reproducible from the tree), then
