@@ -142,7 +142,12 @@ jobs:
       # material to hold, nothing to rotate. Anyone can then check that the image
       # a cloud host is running came from this repository at this commit:
       #   gh attestation verify oci://ghcr.io/<owner>/<repo>:<sha> --repo <owner>/<repo>
+      # Skipped while the repo is private: GitHub refuses to persist attestations
+      # for user-owned private repositories ("Feature not available…"), and a
+      # hard failure here would block the deploy steps below. Re-enables itself
+      # the moment the repo goes public.
       - name: Attest image provenance
+        if: github.event.repository.private == false
         uses: actions/attest-build-provenance@v2
         with:
           subject-name: ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}
