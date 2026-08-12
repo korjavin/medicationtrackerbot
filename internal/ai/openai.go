@@ -241,7 +241,7 @@ func (c *Client) parseMealWithRequest(ctx context.Context, reqBody chatCompletio
 	}
 
 	var completion chatCompletionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&completion); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 5<<20)).Decode(&completion); err != nil {
 		return nil, fmt.Errorf("failed to decode API response: %w", err)
 	}
 
@@ -393,7 +393,7 @@ func (c *Client) parseActivityWithRequest(ctx context.Context, reqBody chatCompl
 	}
 
 	var completion chatCompletionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&completion); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 5<<20)).Decode(&completion); err != nil {
 		return nil, fmt.Errorf("failed to decode API response: %w", err)
 	}
 
@@ -534,7 +534,7 @@ func (c *Client) parseMealVisionRequest(ctx context.Context, reqBody map[string]
 	}
 
 	var completion chatCompletionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&completion); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 5<<20)).Decode(&completion); err != nil {
 		return nil, fmt.Errorf("failed to decode API response: %w", err)
 	}
 

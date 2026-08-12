@@ -72,7 +72,7 @@ func (fw *FoodWriter) LogFood(ctx context.Context, p foodLogPayload) (int64, err
 	var result struct {
 		ID int64 `json:"id"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil {
 		return 0, fmt.Errorf("food_writer: decode response: %w", err)
 	}
 
