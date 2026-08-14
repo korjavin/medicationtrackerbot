@@ -1286,7 +1286,12 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Create session (same as OIDC auth)
-	sessionValue := createSessionToken(firstNonEmpty(user.Username, fmt.Sprintf("tg_%d", user.ID)), s.sessionSecret)
+	sessionValue, err := createSessionToken(firstNonEmpty(user.Username, fmt.Sprintf("tg_%d", user.ID)), s.sessionSecret)
+	if err != nil {
+		slog.Error("Failed to create session token", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth_session",
 		Value:    sessionValue,
