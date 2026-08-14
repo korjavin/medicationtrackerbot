@@ -17,6 +17,18 @@
     });
 })();
 
+// Library screen view state (med: searchable library + Mine/All toggle).
+// "Mine" is the user's own library rows; "All" appends the vendored static
+// catalog, so the 1300-odd imported exercises are browsable and not only
+// reachable by typing into a name field. Kept in module state so a keystroke
+// or a toggle repaints from the already-loaded arrays instead of refetching.
+let _libraryItems = []; // module-state: last-loaded library rows, so a keystroke repaints without refetching
+let _libraryQuery = ''; // module-state: current library search text
+let _librarySource = 'mine'; // module-state: current library source — 'mine' | 'all'
+
+// The catalog half is unbounded; painting 1300 rows on a phone is not.
+const EXERCISE_LIBRARY_ROW_CAP = 100;
+
 async function loadExerciseLibrary() {
     const container = document.getElementById('exercise-library-list');
     // Tracks whether any callback (cached / fresh / error) painted the list.
@@ -31,11 +43,13 @@ async function loadExerciseLibrary() {
         fetcher: async () => await apiCall('/api/workout/exercise-library'),
         onCached: async (cached) => {
             renderedSomething = true;
-            _renderExerciseLibrary(container, cached);
+            _libraryItems = Array.isArray(cached) ? cached : [];
+            await _repaintExerciseLibrary();
         },
         onFresh: async (fresh) => {
             renderedSomething = true;
-            _renderExerciseLibrary(container, fresh);
+            _libraryItems = Array.isArray(fresh) ? fresh : [];
+            await _repaintExerciseLibrary();
         },
         onError: async (error, cached) => {
             console.error('Error loading exercise library:', error);
@@ -58,6 +72,61 @@ async function loadExerciseLibrary() {
     }
 }
 
+// Same match rules as the name picker (word-prefix, then substring), applied
+// to a whole list instead of the picker's 6-row shortlist.
+function _filterExercises(items, q) {
+    if (!q) return items;
+    const tokens = q.split(/\s+/).filter(Boolean);
+    return items.filter(item => _exerciseMatchTier(item.name, tokens, q) > 0);
+}
+
+// Repaint from module state — no fetch except the one-time catalog asset, and
+// only when the user actually asks for "All".
+//
+// The first "All" repaint awaits the 913 KB asset, during which the user can
+// type on or switch back to "Mine". Last-writer-wins, same guard the name
+// picker uses: a stale continuation must not paint catalog rows over the newer
+// view.
+let _repaintSeq = 0; // module-state: last-writer-wins guard for the awaited catalog fetch
+async function _repaintExerciseLibrary() {
+    const seq = ++_repaintSeq;
+    const container = document.getElementById('exercise-library-list');
+    if (!container) return;
+    let items = _filterExercises(_libraryItems, _libraryQuery);
+    if (_librarySource === 'all') {
+        const own = new Set(_libraryItems.map(i => (i.name || '').trim().toLowerCase()));
+        const catalog = (await _loadExerciseCatalog())
+            .filter(e => e.name && !own.has(e.name.trim().toLowerCase()))
+            // equipment/target ride the existing `notes` meta slot rather than
+            // growing a second meta renderer for two strings.
+            // body_part rides along so a catalog row tags itself on the spot
+            // instead of each of them re-resolving its own name asynchronously.
+            .map(e => ({
+                name: e.name,
+                body_part: e.body_part,
+                notes: [e.equipment, e.target].filter(Boolean).join(' · ')
+            }));
+        if (seq !== _repaintSeq) return;
+        items = items.concat(_filterExercises(catalog, _libraryQuery));
+    }
+    _renderExerciseLibrary(container, items);
+}
+
+function setExerciseLibraryQuery(value) {
+    _libraryQuery = (value || '').trim().toLowerCase();
+    return _repaintExerciseLibrary();
+}
+
+function setExerciseLibrarySource(source) {
+    _librarySource = source === 'all' ? 'all' : 'mine';
+    document.querySelectorAll('#exercise-library-source [data-source]').forEach((btn) => {
+        const active = btn.dataset.source === _librarySource;
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        btn.classList.toggle('wg-gloss--sun', active);
+    });
+    return _repaintExerciseLibrary();
+}
+
 function _renderExerciseLibrary(container, items) {
     if (!container) return;
     const doc = container.ownerDocument;
@@ -68,7 +137,9 @@ function _renderExerciseLibrary(container, items) {
     if (!items || items.length === 0) {
         const empty = doc.createElement('p');
         empty.className = 'wg-workouts-exercises__empty';
-        empty.textContent = 'No exercises in library yet — tap Add to create one.';
+        empty.textContent = _libraryQuery
+            ? 'No exercises match that search.'
+            : 'No exercises in library yet — tap Add to create one.';
         container.replaceChildren(empty);
         return;
     }
@@ -76,21 +147,51 @@ function _renderExerciseLibrary(container, items) {
     const list = doc.createElement('ul');
     list.className = 'list-reset wg-workouts-exercises__list';
 
-    items.forEach((item) => {
+    items.slice(0, EXERCISE_LIBRARY_ROW_CAP).forEach((item) => {
         list.appendChild(_buildExerciseLibraryRow(doc, item));
     });
 
-    container.replaceChildren(list);
+    const children = [list];
+    if (items.length > EXERCISE_LIBRARY_ROW_CAP) {
+        const hint = doc.createElement('p');
+        hint.className = 'text-hint wg-workouts-exercises__cap-hint';
+        hint.textContent = `Showing ${EXERCISE_LIBRARY_ROW_CAP} of ${items.length} — type to narrow.`;
+        children.push(hint);
+    }
+    container.replaceChildren(...children);
+}
+
+// A library row is tagged by the exercise's TARGET MUSCLE GROUP, not by
+// getRotationSlot() — that classifier reads variant names ("Push day"), so on an
+// exercise name it tagged everything it didn't recognise "AD-HOC" ("Bulgarian
+// squat" included). Resolution order: the user's stored override, else the
+// static catalog's body_part for this name (async — the catalog is a lazily
+// fetched asset), else an em dash.
+function _libraryBodyPartLabel(bodyPart) {
+    if (!bodyPart) return '';
+    const friendly = window.WorkoutExerciseCatalog
+        && window.WorkoutExerciseCatalog.friendlyBodyPart(bodyPart);
+    return friendly || (bodyPart.charAt(0).toUpperCase() + bodyPart.slice(1));
+}
+
+async function _fillLibraryBodyPartTag(card, tag, name) {
+    if (!window.WorkoutExerciseCatalog) return;
+    const bodyPart = await window.WorkoutExerciseCatalog.getBodyPart(name);
+    // The list may have been re-rendered while the catalog fetch was in flight.
+    if (!bodyPart || !tag.isConnected) return;
+    tag.textContent = _libraryBodyPartLabel(bodyPart);
+    tag.classList.remove('wg-workouts-slot-tag--adhoc');
+    tag.classList.add('wg-workouts-slot-tag--muscle');
+    card.dataset.bodyPart = bodyPart;
 }
 
 function _buildExerciseLibraryRow(doc, item) {
-    const slot = getRotationSlot(item.name || '');
-    const slotMod = _slotTagModifier(slot);
+    const bodyPart = (item.body_part || '').trim();
 
     const card = doc.createElement('li');
     card.className = 'wg-card wg-workouts-exercises-row';
     card.dataset.exerciseId = String(item.id || '');
-    card.dataset.slot = slot;
+    card.dataset.bodyPart = bodyPart;
 
     const body = doc.createElement('div');
     body.className = 'wg-workouts-exercises-row__body';
@@ -99,9 +200,10 @@ function _buildExerciseLibraryRow(doc, item) {
     title.className = 'wg-workouts-exercises-row__title';
 
     const slotTag = doc.createElement('span');
-    slotTag.className = `wg-tag wg-tag--mono wg-workouts-slot-tag wg-workouts-slot-tag--${slotMod} wg-workouts-exercises-row__slot`;
-    slotTag.textContent = slot;
+    slotTag.className = `wg-tag wg-tag--mono wg-workouts-slot-tag wg-workouts-slot-tag--${bodyPart ? 'muscle' : 'adhoc'} wg-workouts-exercises-row__slot`;
+    slotTag.textContent = _libraryBodyPartLabel(bodyPart) || '—';
     title.appendChild(slotTag);
+    if (!bodyPart) _fillLibraryBodyPartTag(card, slotTag, item.name || '');
 
     const name = doc.createElement('span');
     name.className = 'wg-workouts-exercises-row__name';
@@ -142,19 +244,30 @@ function _buildExerciseLibraryRow(doc, item) {
 
     card.appendChild(body);
 
+    // A catalog row (source "All") is not a library row yet — it has no id, so
+    // there is nothing to edit or delete; the one action is "add it to mine",
+    // which is the add modal with the name pre-filled.
+    const isCatalogRow = !item.id;
     const actions = doc.createElement('div');
     actions.className = 'wg-workouts-exercises-row__actions';
-    actions.appendChild(_buildExercisesIconBtn(doc, 'edit', 'Edit exercise', 'pencil', () => {
-        showEditExerciseLibraryModal(item.id);
-    }));
-    actions.appendChild(_buildExercisesIconBtn(doc, 'delete', 'Delete exercise', 'trash', (event) => {
-        deleteExerciseLibraryItem(item.id, event);
-    }));
+    if (isCatalogRow) {
+        actions.appendChild(_buildExercisesIconBtn(doc, 'add', 'Add to my library', 'plus', () => {
+            showExerciseLibraryModal(item.name);
+        }));
+    } else {
+        actions.appendChild(_buildExercisesIconBtn(doc, 'edit', 'Edit exercise', 'pencil', () => {
+            showEditExerciseLibraryModal(item.id);
+        }));
+        actions.appendChild(_buildExercisesIconBtn(doc, 'delete', 'Delete exercise', 'trash', (event) => {
+            deleteExerciseLibraryItem(item.id, event);
+        }));
+    }
     card.appendChild(actions);
 
     card.addEventListener('click', (e) => {
         if (e.target.closest('.wg-workouts-exercises-row__actions')) return;
-        showEditExerciseLibraryModal(item.id);
+        if (isCatalogRow) showExerciseLibraryModal(item.name);
+        else showEditExerciseLibraryModal(item.id);
     });
 
     return card;
@@ -178,18 +291,40 @@ function _buildExercisesIconBtn(doc, kind, ariaLabel, iconName, handler) {
     return btn;
 }
 
-function showExerciseLibraryModal(id) {
+// Fill the muscle-group <select> from the shared catalog vocabulary and select
+// `current`. The blank option is the default: no override, so the row falls back
+// to the catalog's own classification of the name.
+function _syncBodyPartSelect(current) {
+    const select = document.getElementById('exercise-library-body-part');
+    if (!select) return;
+    const options = window.WorkoutExerciseCatalog
+        ? window.WorkoutExerciseCatalog.bodyPartOptions()
+        : [];
+    select.replaceChildren();
+    [{ value: '', label: 'Auto (from exercise name)' }, ...options].forEach(({ value, label }) => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        select.appendChild(opt);
+    });
+    select.value = current || '';
+}
+
+// `presetName` pre-fills the name field — that is how a catalog row from the
+// "All" source becomes a library row of the user's own.
+function showExerciseLibraryModal(presetName) {
     window.WorkoutEdit.editingLibraryItemId = null;
     document.getElementById('exercise-library-modal-title').textContent = 'Add Exercise';
     document.getElementById('exercise-library-rename-hint').hidden = true;
     window.ModalManager.exerciseLibrary.open();
 
-    document.getElementById('exercise-library-name').value = '';
+    document.getElementById('exercise-library-name').value = typeof presetName === 'string' ? presetName : '';
     document.getElementById('exercise-library-sets').value = '';
     document.getElementById('exercise-library-reps-min').value = '';
     document.getElementById('exercise-library-reps-max').value = '';
     document.getElementById('exercise-library-weight').value = '';
     document.getElementById('exercise-library-notes').value = '';
+    _syncBodyPartSelect('');
 
     // Catalog-only: this modal is where library rows get created, so suggesting
     // the library back at the user would just offer duplicates.
@@ -216,6 +351,7 @@ async function showEditExerciseLibraryModal(id) {
     document.getElementById('exercise-library-reps-max').value = item.default_reps_max || '';
     document.getElementById('exercise-library-weight').value = item.default_weight_kg || '';
     document.getElementById('exercise-library-notes').value = item.notes || '';
+    _syncBodyPartSelect(item.body_part || '');
 
     // The picker starts closed, so the stored name is not immediately buried
     // under suggestions for itself; it opens again as soon as the user types.
@@ -240,6 +376,8 @@ async function saveExerciseLibraryItem() {
     const weightRaw = document.getElementById('exercise-library-weight').value;
     const weight = weightRaw !== '' ? parseFloat(weightRaw) : null;
     const notes = document.getElementById('exercise-library-notes').value.trim();
+    const bodyPartEl = document.getElementById('exercise-library-body-part');
+    const bodyPart = bodyPartEl ? bodyPartEl.value : '';
 
     if (!name) {
         safeAlert('Exercise name is required!');
@@ -252,7 +390,8 @@ async function saveExerciseLibraryItem() {
         default_reps_min: repsMin,
         default_reps_max: repsMax,
         default_weight_kg: weight,
-        notes: notes
+        notes: notes,
+        body_part: bodyPart
     };
 
     let result;
@@ -291,19 +430,23 @@ async function _deleteExerciseLibraryApi(id) {
 // into a name field — see the picker below); a failed fetch is silent — the
 // inputs just fall back to no catalog suggestions — and is retried on the next
 // keystroke.
-let _exerciseCatalogNamesPromise = null; // module-state: single-flight cache for the one-time static exercise-catalog fetch (med-s5m.2)
-function _loadExerciseCatalogNames() {
-    if (!_exerciseCatalogNamesPromise) {
-        _exerciseCatalogNamesPromise = fetch('/static/data/exercises-catalog.json')
+let _exerciseCatalogPromise = null; // module-state: single-flight cache for the one-time static exercise-catalog fetch (med-s5m.2)
+function _loadExerciseCatalog() {
+    if (!_exerciseCatalogPromise) {
+        _exerciseCatalogPromise = fetch('/static/data/exercises-catalog.json')
             .then(r => (r.ok ? r.json() : Promise.reject(new Error('catalog ' + r.status))))
-            .then(cat => (cat.exercises || []).map(e => e.name).filter(Boolean))
+            .then(cat => (cat.exercises || []).filter(e => e && e.name))
             .catch(err => {
                 console.error('Error loading exercise catalog:', err);
-                _exerciseCatalogNamesPromise = null; // allow a later retry (e.g. offline -> online)
+                _exerciseCatalogPromise = null; // allow a later retry (e.g. offline -> online)
                 return [];
             });
     }
-    return _exerciseCatalogNamesPromise;
+    return _exerciseCatalogPromise;
+}
+
+function _loadExerciseCatalogNames() {
+    return _loadExerciseCatalog().then(list => list.map(e => e.name));
 }
 
 // Exercise-name suggestions (med-s5m.2 -> med-3q8.1 -> med-max): ONE shared
@@ -526,6 +669,8 @@ window.WorkoutLibrary = {
     openEdit: showEditExerciseLibraryModal,
     close: closeExerciseLibraryModal,
     delete: deleteExerciseLibraryItem,
+    setQuery: setExerciseLibraryQuery,
+    setSource: setExerciseLibrarySource,
     bindExercisePicker: bindExercisePicker,
     resolveOrCreateLibraryId: resolveOrCreateLibraryId
 };

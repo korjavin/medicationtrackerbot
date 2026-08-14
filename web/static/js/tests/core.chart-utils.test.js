@@ -75,6 +75,31 @@ describe('ChartUtils', () => {
             const lCount = (result.match(/ L /g) || []).length;
             expect(lCount).toBeGreaterThanOrEqual(20);
         });
+
+        it('never loops back or overshoots the data (regression: BP spline loops)', () => {
+            // Clustered x with big y jumps — the shape that made uniform
+            // Catmull-Rom double back on itself.
+            const points = [[0, 100], [2, 20], [4, 110], [6, 25], [40, 60], [42, 61], [200, 30]];
+            const d = env.window.ChartUtils.catmullRomSpline(points, 12);
+            const coords = [...d.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)]
+                .map(([, x, y]) => [Number(x), Number(y)]);
+
+            for (let i = 1; i < coords.length; i++) {
+                expect(coords[i][0]).toBeGreaterThanOrEqual(coords[i - 1][0]);
+            }
+            const ys = points.map(p => p[1]);
+            coords.forEach(([, y]) => {
+                expect(y).toBeGreaterThanOrEqual(Math.min(...ys) - 1e-6);
+                expect(y).toBeLessThanOrEqual(Math.max(...ys) + 1e-6);
+            });
+        });
+
+        it('drops same-instant duplicate x instead of producing infinite slope', () => {
+            const d = env.window.ChartUtils.catmullRomSpline([[0, 10], [0, 90], [10, 50]], 4);
+            expect(d.startsWith('M 0,10')).toBe(true);
+            expect(d).not.toContain('NaN');
+            expect(d).not.toContain('Infinity');
+        });
     });
 
     // --- calculateYAxisTicks ---

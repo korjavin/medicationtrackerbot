@@ -6,7 +6,7 @@
 //     comes from a --wg-* token via a class on the SVG child element
 //     (`.wg-bp-chart__sys`, `__dia`, `__band`, `__guide`, `__last`).
 //   • Reuses window.ChartUtils for numerics (aggregation, LTTB
-//     downsampling, Catmull-Rom spline, line animation) — no duplication.
+//     downsampling, monotone spline, line animation) — no duplication.
 //
 // API:
 //   WGBpChart.render({ readings, goal, width, height, range }) → SVGElement | null

@@ -709,6 +709,11 @@
     --wg-workouts-slot-adhoc-bg: var(--wg-tag-normal-bg);
     --wg-workouts-slot-adhoc-fg: var(--wg-tag-normal-fg);
     --wg-workouts-slot-adhoc-border: var(--wg-tag-normal-border);
+    /* Exercise-library rows tag a target muscle group rather than a rotation
+       slot; same sun treatment as a trained slot. */
+    --wg-workouts-slot-muscle-bg: var(--wg-tag-high-bg);
+    --wg-workouts-slot-muscle-fg: var(--wg-tag-high-fg);
+    --wg-workouts-slot-muscle-border: var(--wg-tag-high-border);
 
     /* Wandergeek — Health screen (Phase 8, Task 1). Dimensional tokens for
        the sub-tab strip, summary tile row, range selector, sleep + steps +
@@ -7403,6 +7408,12 @@ textarea.wg-input {
     border-color: var(--wg-workouts-slot-adhoc-border);
 }
 
+.wg-workouts-slot-tag--muscle {
+    background: var(--wg-workouts-slot-muscle-bg);
+    color: var(--wg-workouts-slot-muscle-fg);
+    border-color: var(--wg-workouts-slot-muscle-border);
+}
+
 /* Workouts history sub-tab (Phase 7, Task 4). Day-grouped `.wg-card` rows
    mirror the Meds + Weight history patterns: each row carries a rotation-slot
    tag, mono duration, optional volume, and a trailing icon-button cluster
@@ -8418,6 +8429,30 @@ textarea.wg-input {
 
 .wg-workouts-exercises-header__add-label {
     letter-spacing: 0.02em;
+}
+
+/* Search + Mine/All source toggle above the library list. The segmented
+   control rides the existing `.wg-settings-segmented` rules rather than
+   growing a third copy of the same two-button shape. */
+.wg-workouts-exercises-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
+}
+
+.wg-workouts-exercises-controls__search {
+    flex: 1;
+    min-width: 0;
+}
+
+.wg-workouts-exercises-controls__source {
+    flex-shrink: 0;
+}
+
+.wg-workouts-exercises__cap-hint {
+    margin-top: var(--space-sm);
+    text-align: center;
 }
 
 /* Edit-library-exercise modal (Phase 7, Task 6). Shares the generic `.wg-modal`

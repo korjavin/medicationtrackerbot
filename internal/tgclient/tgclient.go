@@ -99,7 +99,7 @@ func (c *Client) doRequest(ctx context.Context, method string, contentType strin
 			RetryAfter int `json:"retry_after"`
 		} `json:"parameters"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 5<<20)).Decode(&env); err != nil {
 		return fmt.Errorf("decode telegram response: %w", err)
 	}
 	if !env.OK {

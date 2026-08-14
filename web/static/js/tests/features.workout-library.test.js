@@ -546,4 +546,129 @@ describe('features/workout/library.js — split-file integration', () => {
     });
   });
 
+  // Library screen: search box + Mine/All source toggle. "Mine" is the user's
+  // own rows; "All" also lists the vendored static catalog, so the imported
+  // exercises are browsable and not only reachable by typing a name.
+  describe('search + Mine/All source toggle', () => {
+    const CATALOG = {
+      exercises: [
+        { name: 'Barbell bench press', equipment: 'barbell', target: 'pectorals' },
+        { name: 'Deadlift', equipment: 'barbell', target: 'glutes' },
+        { name: 'Bench dip', equipment: 'body weight', target: 'triceps' },
+      ],
+    };
+    const LIBRARY = [
+      { id: 1, name: 'Deadlift', default_sets: 3, default_reps_min: 5 },
+      { id: 2, name: 'Overhead press', default_sets: 4, default_reps_min: 8 },
+    ];
+
+    async function loadLibrary(env, { library = LIBRARY } = {}) {
+      const { window } = env;
+      window.fetch = vi.fn(async (url) => (String(url).includes('exercises-catalog.json')
+        ? { ok: true, status: 200, json: async () => CATALOG }
+        : { ok: true, status: 200, json: async () => ({}) }));
+      window.apiCall = vi.fn(async () => library);
+      await window.loadExerciseLibrary();
+      return env.document.getElementById('exercise-library-list');
+    }
+
+    function namesIn(container) {
+      return Array.from(container.querySelectorAll('.wg-workouts-exercises-row__name'))
+        .map((n) => n.textContent);
+    }
+
+    it('filters the list as the user types, and says so when nothing matches', async () => {
+      const { window } = env;
+      const container = await loadLibrary(env);
+      expect(namesIn(container)).toEqual(['Deadlift', 'Overhead press']);
+
+      await window.WorkoutLibrary.setQuery('over');
+      expect(namesIn(container)).toEqual(['Overhead press']);
+
+      await window.WorkoutLibrary.setQuery('zzz');
+      expect(namesIn(container)).toEqual([]);
+      expect(container.querySelector('.wg-workouts-exercises__empty').textContent)
+        .toMatch(/No exercises match/);
+    });
+
+    it('"All" appends the catalog after the user\'s rows, minus names they already have', async () => {
+      const { window } = env;
+      const container = await loadLibrary(env);
+
+      await window.WorkoutLibrary.setSource('all');
+
+      // Own rows first; the catalog's own "Deadlift" is shadowed by the
+      // library row that carries the user's defaults.
+      expect(namesIn(container)).toEqual([
+        'Deadlift', 'Overhead press', 'Barbell bench press', 'Bench dip',
+      ]);
+
+      // Search spans both halves.
+      await window.WorkoutLibrary.setQuery('bench');
+      expect(namesIn(container)).toEqual(['Barbell bench press', 'Bench dip']);
+
+      // ...and back to Mine hides the catalog again.
+      await window.WorkoutLibrary.setQuery('');
+      await window.WorkoutLibrary.setSource('mine');
+      expect(namesIn(container)).toEqual(['Deadlift', 'Overhead press']);
+    });
+
+    it('a catalog row offers "add to my library" instead of edit/delete, and pre-fills the modal', async () => {
+      const { window, document } = env;
+      const container = await loadLibrary(env);
+      await window.WorkoutLibrary.setSource('all');
+
+      const catalogRow = Array.from(container.querySelectorAll('.wg-workouts-exercises-row'))
+        .find((row) => row.textContent.includes('Bench dip'));
+      expect(catalogRow.querySelector('.wg-workouts-exercises-row__edit')).toBeNull();
+      expect(catalogRow.querySelector('.wg-workouts-exercises-row__delete')).toBeNull();
+      const addBtn = catalogRow.querySelector('.wg-workouts-exercises-row__add');
+      expect(addBtn.getAttribute('aria-label')).toBe('Add to my library');
+      // equipment/target ride the notes meta slot.
+      expect(catalogRow.querySelector('.wg-workouts-exercises-row__notes').textContent)
+        .toBe('body weight · triceps');
+
+      addBtn.click();
+      expect(document.getElementById('exercise-library-modal-title').textContent).toBe('Add Exercise');
+      expect(document.getElementById('exercise-library-name').value).toBe('Bench dip');
+      expect(window.WorkoutEdit.editingLibraryItemId).toBeNull();
+    });
+
+    // The first "All" repaint awaits the 913 KB asset. Switching back to Mine
+    // while it is in flight must win — the stale continuation cannot paint
+    // catalog rows over the newer view.
+    it('drops an in-flight catalog repaint once the source has switched back to Mine', async () => {
+      const { window } = env;
+      const container = await loadLibrary(env);
+
+      let releaseCatalog;
+      window.fetch = vi.fn(async (url) => {
+        if (!String(url).includes('exercises-catalog.json')) return { ok: true, status: 200, json: async () => ({}) };
+        await new Promise((resolve) => { releaseCatalog = resolve; });
+        return { ok: true, status: 200, json: async () => CATALOG };
+      });
+
+      const allRepaint = window.WorkoutLibrary.setSource('all');
+      await window.WorkoutLibrary.setSource('mine');
+      releaseCatalog();
+      await allRepaint;
+
+      expect(namesIn(container)).toEqual(['Deadlift', 'Overhead press']);
+    });
+
+    it('toggling the source flips aria-pressed on the segmented control', async () => {
+      const { window, document } = env;
+      await loadLibrary(env);
+      const [mine, all] = Array.from(document.querySelectorAll('#exercise-library-source [data-source]'));
+
+      await window.WorkoutLibrary.setSource('all');
+      expect(all.getAttribute('aria-pressed')).toBe('true');
+      expect(mine.getAttribute('aria-pressed')).toBe('false');
+
+      await window.WorkoutLibrary.setSource('mine');
+      expect(mine.getAttribute('aria-pressed')).toBe('true');
+      expect(all.getAttribute('aria-pressed')).toBe('false');
+    });
+  });
+
 });
