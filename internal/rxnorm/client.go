@@ -3,6 +3,7 @@ package rxnorm
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -51,7 +52,7 @@ func (c *Client) SearchRxNorm(name string) (string, string, error) {
 	}
 
 	rxcui := ""
-	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err == nil && len(searchResp.IdGroup.RxNormId) > 0 {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&searchResp); err == nil && len(searchResp.IdGroup.RxNormId) > 0 {
 		rxcui = searchResp.IdGroup.RxNormId[0]
 	}
 
@@ -79,7 +80,7 @@ func (c *Client) SearchRxNorm(name string) (string, string, error) {
 			Name string `json:"name"`
 		} `json:"properties"`
 	}
-	if err := json.NewDecoder(respProp.Body).Decode(&propResp); err == nil {
+	if err := json.NewDecoder(io.LimitReader(respProp.Body, 1<<20)).Decode(&propResp); err == nil {
 		return rxcui, propResp.Properties.Name, nil
 	}
 
@@ -108,7 +109,7 @@ func (c *Client) searchApproximate(term string) string {
 		} `json:"approximateGroup"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&approxResp); err == nil && len(approxResp.ApproximateGroup.Candidate) > 0 {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&approxResp); err == nil && len(approxResp.ApproximateGroup.Candidate) > 0 {
 		return approxResp.ApproximateGroup.Candidate[0].Rxcui
 	}
 	return ""
@@ -151,7 +152,7 @@ func (c *Client) CheckInteractions(rxcuis []string) ([]string, error) {
 		} `json:"fullInteractionTypeGroup"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&interactionResp); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&interactionResp); err != nil {
 		return nil, fmt.Errorf("failed to decode interaction response: %w", err)
 	}
 
