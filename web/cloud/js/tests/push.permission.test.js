@@ -100,7 +100,7 @@ describe('requestNotificationPermission (med-1n6)', () => {
 // They live here rather than in a file of their own because push.js is the one
 // module allowed to know what a platform is — everything else imports these.
 describe('platform probes', () => {
-    const setNavigator = (nav) => { globalThis.navigator = nav; };
+    const setNavigator = (nav) => { Object.defineProperty(globalThis, 'navigator', {value: nav, configurable: true, writable: true}); };
     afterEach(() => { delete globalThis.navigator; });
 
     it('detects a stock iPad, which reports a Mac user agent since iPadOS 13', () => {
