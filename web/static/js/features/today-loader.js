@@ -449,7 +449,19 @@ async function _todayRender(foodKey) {
         // with no data yet) still renders the grid.
         state.__firstRun = true;
     }
-    if (window.TodayDashboard.isOfflineStale({ online, cacheTimestamp: latestCacheTimestamp, now: nowMs })) {
+    // `__offline` drives the three offline-framed strings in today.js (the meds
+    // kicker "Next dose data unavailable offline", the "Offline — showing cached
+    // data" banner, and the firstRun "Offline — reconnect to load your day").
+    // All three are BOT-MODE concepts: data fetched from a server can genuinely
+    // go stale behind a dead network. In CLOUD mode reads are served from the
+    // local E2EE vault via web/cloud/js/apishim.js — authoritative and always
+    // current regardless of connectivity — so a flaky-wifi navigator.onLine=false
+    // must not make Today claim the user's own data is stale. Gate centrally
+    // here (the impure loader shell) rather than at each call site, mirroring
+    // how wg-stale-badge.js suppresses the freshness chip in cloud mode; that
+    // keeps today.js a pure, env-free render contract.
+    if (!window.__MEDTRACKER_CLOUD__
+        && window.TodayDashboard.isOfflineStale({ online, cacheTimestamp: latestCacheTimestamp, now: nowMs })) {
         state.__offline = true;
     }
     // The badge tone needs the raw "navigator is offline" signal so an
