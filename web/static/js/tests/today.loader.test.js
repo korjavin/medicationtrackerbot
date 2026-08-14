@@ -147,6 +147,91 @@ describe('Today loader — features/today-loader.js', () => {
             const root = env.document.getElementById('today-content');
             expect(root.querySelector('.today-empty-firstrun')).not.toBeNull();
             expect(root.querySelector('.wg-today-meds')).toBeNull();
+            // Bot mode: no cache + navigator offline is a real "we never fetched
+            // your day" situation, so the offline-framed first-run copy stands.
+            expect(root.querySelector('.today-empty-firstrun').textContent)
+                .toBe('Offline — reconnect to load your day');
+        });
+
+        // med-eas.81 — `state.__offline` (offline AND the Today cache older than
+        // FRESHNESS_MS) is a BOT-MODE concept: data fetched from a server can
+        // genuinely go stale behind a dead network. In CLOUD mode reads are
+        // served from the local E2EE vault (web/cloud/js/apishim.js), which is
+        // authoritative and always current regardless of connectivity — so a
+        // flaky-wifi navigator.onLine=false must not make Today tell the user
+        // their own data is stale. today-loader.js gates the flag centrally on
+        // !window.__MEDTRACKER_CLOUD__, which transitively suppresses all three
+        // of today.js's offline-framed strings without today.js knowing about
+        // cloud mode at all. Sibling of med-eas.68 (the wg-stale-badge chip).
+        it('bot mode renders the offline banner and the "unavailable offline" kicker on a stale cache', async () => {
+            setOnline(window, false);
+            const ts = Date.now() - 2 * 60 * 60 * 1000; // 2h old ⇒ past FRESHNESS_MS (1h)
+            // settings_bundle present (so not firstRun) but next_intake missing
+            // ⇒ the meds cell is `missing` and takes the kicker's offline branch.
+            window.MedTrackerDB = makeApiCache({
+                settings_bundle: {
+                    data: {
+                        featureSettings: { ...FEATURES_MED_ONLY },
+                        foodTargets: { calories: 0, carbs: 0, protein: 0, fat: 0 },
+                        tabOrder: ['today', 'meds'],
+                        weightUnitPreference: 'kg'
+                    },
+                    timestamp: ts
+                }
+            });
+
+            await window.loadToday();
+
+            const root = env.document.getElementById('today-content');
+            expect(root.querySelector('.today-empty-firstrun')).toBeNull();
+            const banner = root.querySelector('.today-offline-banner');
+            expect(banner).not.toBeNull();
+            expect(banner.textContent).toBe('Offline — showing cached data');
+            const kicker = root.querySelector('.wg-today-meds .wg-next-action-card__kicker');
+            expect(kicker).not.toBeNull();
+            expect(kicker.textContent).toBe('Next dose data unavailable offline');
+        });
+
+        it('cloud mode suppresses the offline banner and the "unavailable offline" kicker on a stale cache', async () => {
+            window.__MEDTRACKER_CLOUD__ = true;
+            setOnline(window, false);
+            const ts = Date.now() - 2 * 60 * 60 * 1000; // same stale cache as the bot-mode case
+            window.MedTrackerDB = makeApiCache({
+                settings_bundle: {
+                    data: {
+                        featureSettings: { ...FEATURES_MED_ONLY },
+                        foodTargets: { calories: 0, carbs: 0, protein: 0, fat: 0 },
+                        tabOrder: ['today', 'meds'],
+                        weightUnitPreference: 'kg'
+                    },
+                    timestamp: ts
+                }
+            });
+
+            await window.loadToday();
+
+            const root = env.document.getElementById('today-content');
+            expect(root.querySelector('.today-offline-banner')).toBeNull();
+            const kicker = root.querySelector('.wg-today-meds .wg-next-action-card__kicker');
+            expect(kicker).not.toBeNull();
+            // Normal (non-offline) copy — the vault simply has no scheduled dose.
+            expect(kicker.textContent).toBe('No scheduled doses');
+            expect(root.textContent).not.toContain('Offline —');
+            expect(root.textContent).not.toContain('unavailable offline');
+        });
+
+        it('cloud mode renders the plain first-run copy when offline with no cache at all', async () => {
+            window.__MEDTRACKER_CLOUD__ = true;
+            setOnline(window, false);
+            window.MedTrackerDB = makeApiCache({}); // every key misses
+
+            await window.loadToday();
+
+            const root = env.document.getElementById('today-content');
+            const firstRun = root.querySelector('.today-empty-firstrun');
+            expect(firstRun).not.toBeNull();
+            expect(firstRun.textContent).toBe('Connect to load your day');
+            expect(root.textContent).not.toContain('Offline —');
         });
     });
 
