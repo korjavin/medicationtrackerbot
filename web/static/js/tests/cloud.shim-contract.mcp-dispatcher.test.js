@@ -8,15 +8,23 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 
+function daysAgo(n) {
+    return new Date(Date.now() - n * 86400000).toISOString();
+}
+
 describe('cloud shim contract — in-tab MCP dispatcher (window.CloudMCPDispatcher)', () => {
     let env;
 
     beforeEach(() => {
         env = loadCloudShimFrontendEnv({
             seedRecords: {
+                // Relative to the wall clock, not fixed dates: health.bp.list
+                // defaults to a 30-day window, so hard-coded timestamps silently
+                // aged out of it and the assertion below started failing on every
+                // branch a month after they were written.
                 bp: [
-                    { recordId: 'bp-1', clientTs: 2, deleted: false, measured_at: '2026-07-05T08:00:00.000Z', systolic: 120, diastolic: 80 },
-                    { recordId: 'bp-2', clientTs: 1, deleted: false, measured_at: '2026-07-04T08:00:00.000Z', systolic: 130, diastolic: 85 },
+                    { recordId: 'bp-1', clientTs: 2, deleted: false, measured_at: daysAgo(1), systolic: 120, diastolic: 80 },
+                    { recordId: 'bp-2', clientTs: 1, deleted: false, measured_at: daysAgo(2), systolic: 130, diastolic: 85 },
                 ],
             },
         });

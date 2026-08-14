@@ -38,3 +38,7 @@
 **Vulnerability:** Rate Limiting Bypass / Endpoint Brute-Forcing
 **Learning:** The unauthenticated `GET /api/mcp/relay/shim` endpoint lacked per-IP rate limiting, leaving it exposed to brute-force attacks on pairing IDs or potential DoS via hammering. Unauthenticated browser-hit endpoints should always be protected with rate limiting.
 **Prevention:** Ensure `limitByIP` is consistently applied to all unauthenticated browser-facing routes, particularly those validating dynamic identifiers (like pairing IDs), to prevent brute force and connection exhaustion.
+## 2026-08-11 - Unhandled PRNG Error in Session Token Generation
+**Vulnerability:** Weak Session Token / Predictable Tokens
+**Learning:** Generating nonces for session tokens using `rand.Read(nonce)` without checking the returned error can lead to a silent failure. If the system's entropy pool is depleted or the PRNG fails, the byte slice remains zero-initialized, resulting in predictable session tokens and severely weakened cryptographic strength.
+**Prevention:** Always check the error returned by `crypto/rand.Read`. If it fails to generate random bytes for security-sensitive purposes (like session tokens or encryption keys), fail securely by returning an error or panicking (since a PRNG failure is typically an unrecoverable state).

@@ -169,7 +169,7 @@ func TestBuildHelpText_RendersFromCommandSpecs(t *testing.T) {
 	text := b.buildHelpText(all)
 
 	// Header line preserved.
-	if !strings.Contains(text, "**Medication Tracker Bot**") {
+	if !strings.Contains(text, "**myhealthbot.ai**") {
 		t.Errorf("expected header line in help text, got: %s", text)
 	}
 
@@ -409,7 +409,7 @@ func TestBot_RegisterCommands_FailureDoesNotBlockPolling(t *testing.T) {
 	env.b.handleMessage(msg)
 	select {
 	case body := <-env.messageChan:
-		if !strings.Contains(body, "Medication Tracker Bot") {
+		if !strings.Contains(body, "myhealthbot.ai") {
 			t.Errorf("expected /help response after setMyCommands failure, got: %s", body)
 		}
 	case <-time.After(time.Second):

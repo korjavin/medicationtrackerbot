@@ -12,36 +12,81 @@ window.ChartUtils = (() => {
     'use strict';
 
     /**
-     * Catmull-Rom spline interpolation for smooth SVG curves.
-     * @param {number[][]} points - Array of [x, y] coordinate pairs
-     * @param {number} segments - Interpolation segments between each pair (default 20)
+     * Smooth interpolation for SVG time-series curves.
+     *
+     * Monotone cubic Hermite (Fritsch–Carlson), NOT uniform Catmull-Rom: x is
+     * advanced linearly and the y tangents are clamped to the local secant
+     * slopes, so the curve can never loop, cusp, or overshoot past a reading.
+     * Uniform Catmull-Rom did all three whenever two samples sat close in time
+     * with a big value gap (same-day BP readings) — visible as loops.
+     *
+     * Name kept for call-site compatibility.
+     *
+     * @param {number[][]} points - Array of [x, y] pairs, x ascending
+     * @param {number} segments - Polyline segments between each pair (default 20)
      * @returns {string} SVG path d-attribute string
      */
     function catmullRomSpline(points, segments = 20) {
         if (!points || points.length === 0) return '';
         if (points.length === 1) return `M ${points[0][0]},${points[0][1]}`;
-        if (points.length === 2) return `M ${points[0][0]},${points[0][1]} L ${points[1][0]},${points[1][1]}`;
 
-        let path = `M ${points[0][0]},${points[0][1]}`;
+        // Drop non-advancing x (same-instant samples): they make dy/dx infinite.
+        const pts = [points[0]];
+        for (let i = 1; i < points.length; i++) {
+            if (points[i][0] > pts[pts.length - 1][0]) pts.push(points[i]);
+        }
+        if (pts.length === 1) return `M ${pts[0][0]},${pts[0][1]}`;
+        if (pts.length === 2) return `M ${pts[0][0]},${pts[0][1]} L ${pts[1][0]},${pts[1][1]}`;
 
-        for (let i = 0; i < points.length - 1; i++) {
-            const p0 = points[Math.max(i - 1, 0)];
-            const p1 = points[i];
-            const p2 = points[i + 1];
-            const p3 = points[Math.min(i + 2, points.length - 1)];
+        const n = pts.length;
+        const dx = [];
+        const slope = [];
+        for (let i = 0; i < n - 1; i++) {
+            dx.push(pts[i + 1][0] - pts[i][0]);
+            slope.push((pts[i + 1][1] - pts[i][1]) / dx[i]);
+        }
 
-            for (let t = 0; t <= segments; t++) {
-                const tt = t / segments;
-                const tt2 = tt * tt;
-                const tt3 = tt2 * tt;
+        // Tangents: average of neighbouring secants, endpoints take their own.
+        const m = [slope[0]];
+        for (let i = 1; i < n - 1; i++) m.push((slope[i - 1] + slope[i]) / 2);
+        m.push(slope[n - 2]);
 
-                const q0 = -tt3 + 2 * tt2 - tt;
-                const q1 = 3 * tt3 - 5 * tt2 + 2;
-                const q2 = -3 * tt3 + 4 * tt2 + tt;
-                const q3 = tt3 - tt2;
+        // Fritsch–Carlson clamp — this is what guarantees monotone, loop-free spans.
+        for (let i = 0; i < n - 1; i++) {
+            if (slope[i] === 0) {
+                m[i] = 0;
+                m[i + 1] = 0;
+                continue;
+            }
+            let a = m[i] / slope[i];
+            let b = m[i + 1] / slope[i];
+            // Zero first, then re-read: a stale negative ratio would come back
+            // through the tau rescale below and bend the span the wrong way.
+            if (a < 0) { m[i] = 0; a = 0; }
+            if (b < 0) { m[i + 1] = 0; b = 0; }
+            const s = a * a + b * b;
+            if (s > 9) {
+                const tau = 3 / Math.sqrt(s);
+                m[i] = tau * a * slope[i];
+                m[i + 1] = tau * b * slope[i];
+            }
+        }
 
-                const x = 0.5 * (p0[0] * q0 + p1[0] * q1 + p2[0] * q2 + p3[0] * q3);
-                const y = 0.5 * (p0[1] * q0 + p1[1] * q1 + p2[1] * q2 + p3[1] * q3);
+        let path = `M ${pts[0][0]},${pts[0][1]}`;
+        for (let i = 0; i < n - 1; i++) {
+            for (let t = 1; t <= segments; t++) {
+                const u = t / segments;
+                const u2 = u * u;
+                const u3 = u2 * u;
+
+                const h00 = 2 * u3 - 3 * u2 + 1;
+                const h10 = u3 - 2 * u2 + u;
+                const h01 = -2 * u3 + 3 * u2;
+                const h11 = u3 - u2;
+
+                const x = pts[i][0] + u * dx[i];
+                const y = h00 * pts[i][1] + h10 * dx[i] * m[i]
+                        + h01 * pts[i + 1][1] + h11 * dx[i] * m[i + 1];
 
                 path += ` L ${x},${y}`;
             }

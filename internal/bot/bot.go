@@ -261,7 +261,7 @@ func (b *Bot) loadFeatureFlags(ctx context.Context) (featureFlags, error) {
 
 func (b *Bot) buildHelpText(flags featureFlags) string {
 	var sections []string
-	sections = append(sections, "**Medication Tracker Bot** - configurable tracker for meds, blood pressure, weight, workouts, and food.")
+	sections = append(sections, "**myhealthbot.ai** - configurable tracker for meds, blood pressure, weight, workouts, and food.")
 
 	bySection := map[string][]commandSpec{}
 	for _, s := range enabledSpecs(flags) {
