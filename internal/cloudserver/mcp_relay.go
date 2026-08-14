@@ -423,7 +423,7 @@ func (a *MCPRelayAPI) serveLeg(ctx context.Context, conn *websocket.Conn, record
 		// cached pointer would keep writing the evicted (dead) conn — breaking
 		// the bridge one-way until a full teardown. See join.
 		if peer := record.peerConn(isDevice); peer != nil {
-			wctx, cancel := context.WithDeadline(ctx, deadline)
+			wctx, cancel := peerWriteContext(ctx, deadline)
 			err = peer.Write(wctx, typ, data)
 			cancel()
 			if err == nil {
@@ -440,6 +440,45 @@ func (a *MCPRelayAPI) serveLeg(ctx context.Context, conn *websocket.Conn, record
 				"account_id", record.accountID, "pairing", endpointFingerprint(record.id))
 		}
 	}
+}
+
+// peerWriteContext bounds one write to the OPPOSITE leg by the frame's own
+// budget and by nothing else — in particular not by the writing leg's lifetime.
+//
+// This is not a style preference, it is a correctness requirement of the
+// library. coder/websocket's Write arms a context.AfterFunc for the duration of
+// the write whose action is c.close() on the connection being written to
+// (conn.go's setupWriteTimeout). A cancelled write context therefore does not
+// abort just that write — it CLOSES THE PEER'S CONNECTION. Handing such a write
+// a context derived from the writer (serveLeg's request ctx, deliverDeferred's
+// legCtx) means the writer's own teardown reaches across and kills the leg it
+// was writing to.
+//
+// That is exactly the med-tc1.11 bug. A shim reconnect makes join CloseNow the
+// old shim leg; that leg's serveLeg returns and cancels its legCtx; and if its
+// deferred worker was mid-write to the device (a frame large enough, or a
+// device slow enough, to still be in Flush), the device's connection was closed
+// as collateral. The device leg then dies with "use of closed network
+// connection" while the browser tab is open and unlocked, and — because a write
+// into a dead socket's kernel buffer still succeeds — the next frame is
+// accepted and silently goes nowhere. In CI that surfaced as the reconnect test
+// burning its whole 30s context on a frame nobody relayed; in production it is
+// a tab that goes offline mid-call whenever the shim reconnects at the wrong
+// microsecond.
+//
+// It is also the inverse of the med-8k7 contract one level down: that fix
+// stopped propagating a leg drop to its peer as an explicit close, but the drop
+// was still propagating as a cancelled context that closed the peer anyway.
+//
+// The deadline is kept, and is still the frame's original read-time budget, so
+// the invariant TestRelayFrameBudgetFitsInsideCallTimeout pins — never deliver
+// after the caller has been told the device is offline — is untouched. What is
+// dropped is only the writer's cancellation, so a write already on the wire
+// finishes cleanly instead of tearing down a healthy peer mid-frame. Callers
+// still cancel the returned context as soon as Write returns, so the timeout
+// hook is disarmed promptly and nothing leaks.
+func peerWriteContext(parent context.Context, deadline time.Time) (context.Context, context.CancelFunc) {
+	return context.WithDeadline(context.WithoutCancel(parent), deadline)
 }
 
 // deferredFrameBuffer caps how many frames may be waiting on a reconnecting
@@ -514,7 +553,7 @@ func deliverWhenPeerAttaches(legCtx context.Context, frame deferredFrame, record
 	defer poll.Stop()
 	for {
 		if peer := record.peerConn(isDevice); peer != nil {
-			wctx, cancel := context.WithDeadline(legCtx, frame.deadline)
+			wctx, cancel := peerWriteContext(legCtx, frame.deadline)
 			err := peer.Write(wctx, frame.typ, frame.data)
 			cancel()
 			if err == nil {

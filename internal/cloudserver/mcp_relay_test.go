@@ -304,6 +304,114 @@ func TestMCPRelay_ShimReconnectRebridgesBothWays(t *testing.T) {
 	}
 }
 
+// TestMCPRelay_ShimTeardownMustNotKillTheDeviceLeg pins the fix for med-tc1.11.
+//
+// coder/websocket's Write arms context.AfterFunc(ctx, ...c.close()) on the
+// TARGET connection for the duration of the write (conn.go's setupWriteTimeout):
+// cancelling a write's context does not merely abort that write, it CLOSES the
+// connection being written to. The relay used to hand those writes a context
+// derived from the *writing* leg (serveLeg's request ctx, deliverDeferred's
+// legCtx), so a shim that was evicted mid-write took the DEVICE's connection
+// down with it — collateral damage to the leg that did nothing wrong.
+//
+// That is the inverse of the med-8k7 contract ("a leg drop is NOT propagated to
+// its peer"): the drop was not propagated as a *close call*, but as a cancelled
+// context that closed the peer anyway. In production it means a shim reconnect
+// while a response frame is in flight kills the browser tab's leg, and every
+// call after it reports "no unlocked device is online" until the tab redials.
+// In CI it was the med-tc1.11 flake: the device leg died 1 ms after the
+// reconnect, the test's deviceConn.Write still returned nil (a write into a
+// dead socket's kernel buffer succeeds), and the reconnected shim's read then
+// burned the test's entire 30s context waiting for a frame nobody relayed.
+//
+// The setup below forces the frame down the deferred path (shim attaches with
+// no device, so there is no peer to write to inline) and keeps the device from
+// reading, so the big frame's write is parked in Flush when the eviction lands.
+func TestMCPRelay_ShimTeardownMustNotKillTheDeviceLeg(t *testing.T) {
+	h, host, claimToken := newTestMCPRelayHandler(t)
+	session := registerAndGetSession(t, h, host, claimToken)
+	pairingID := mintPairing(t, h, host, session)
+
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	client := wsClientFor(srv.Listener.Addr().String())
+
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+
+	shimURL := "ws://" + host + "/api/mcp/relay/shim?pairing=" + pairingID
+	shimConn, _, err := websocket.Dial(ctx, shimURL, &websocket.DialOptions{HTTPClient: client})
+	if err != nil {
+		t.Fatalf("dial shim: %v", err)
+	}
+
+	// No device yet, so both frames queue on the shim leg's deferred worker —
+	// the path whose writes ran under the shim's own legCtx.
+	if err := shimConn.Write(ctx, websocket.MessageBinary, []byte("ready")); err != nil {
+		t.Fatalf("shim write (ready): %v", err)
+	}
+	// Comfortably past any socket buffer, and under maxRelayFrameBytes, so the
+	// relay's write to the device cannot complete while the device is not
+	// reading — that parked write is what the eviction used to destroy.
+	big := bytes.Repeat([]byte("x"), 4<<20)
+	if err := shimConn.Write(ctx, websocket.MessageBinary, big); err != nil {
+		t.Fatalf("shim write (big): %v", err)
+	}
+
+	deviceHeader := http.Header{}
+	deviceHeader.Set("Cookie", session.Name+"="+session.Value)
+	deviceConn, _, err := websocket.Dial(ctx, "ws://"+host+"/api/mcp/relay/device?pairing="+pairingID, &websocket.DialOptions{
+		HTTPClient: client,
+		HTTPHeader: deviceHeader,
+	})
+	if err != nil {
+		t.Fatalf("dial device: %v", err)
+	}
+	defer deviceConn.CloseNow()
+	deviceConn.SetReadLimit(mcpshim.MaxFrameBytes)
+
+	// Draining "ready" proves the deferred worker delivered frame 1 and has
+	// moved on to the big one — the queue is ordered and served by one worker,
+	// so this is the happens-before that puts a write in flight, rather than a
+	// sleep hoping one is.
+	if _, got, err := deviceConn.Read(ctx); err != nil || !bytes.Equal(got, []byte("ready")) {
+		t.Fatalf("device read (ready): got %q err %v", got, err)
+	}
+
+	// The shim reconnects. join CloseNow()s the old leg, whose serveLeg then
+	// returns and cancels its legCtx — with the big frame's write still parked.
+	shimConn2, _, err := websocket.Dial(ctx, shimURL, &websocket.DialOptions{HTTPClient: client})
+	if err != nil {
+		t.Fatalf("dial shim (reconnect): %v", err)
+	}
+	defer shimConn2.CloseNow()
+	if _, _, err := shimConn.Read(ctx); err == nil {
+		t.Fatalf("expected the old shim conn to be evicted after reconnect, but its read succeeded")
+	}
+
+	// The device leg must have survived its peer's teardown. Whether the big
+	// frame itself lands is not the contract being pinned here (the evicted
+	// leg's queue may legitimately be abandoned) — the contract is that the
+	// device's connection is still alive and still bridged to the new shim.
+	want := []byte("still-bridged-after-shim-teardown")
+	if err := shimConn2.Write(ctx, websocket.MessageBinary, want); err != nil {
+		t.Fatalf("reconnected shim write: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		_, got, err := deviceConn.Read(ctx)
+		if err != nil {
+			t.Fatalf("device leg died when its peer was evicted mid-write: %v", err)
+		}
+		if bytes.Equal(got, want) {
+			return
+		}
+		if !bytes.Equal(got, big) {
+			t.Fatalf("device got an unexpected frame (%d bytes)", len(got))
+		}
+	}
+	t.Fatalf("reconnected shim's frame never reached the device leg")
+}
+
 func TestMCPRelay_CrossPairingAccessRejected(t *testing.T) {
 	h, host, claimToken := newTestMCPRelayHandler(t)
 	session := registerAndGetSession(t, h, host, claimToken)
