@@ -247,6 +247,13 @@ func (r *Repo) PutSnapshot(ctx context.Context, accountID string, snapshotSeq in
 // from outside the vault, so the warning is bounded instead: a few daily nags
 // after the last reminder, then silence. An account that has been quiet for
 // longer than a full window is not waiting for this push.
+//
+// ponytail: two correlated MAX() subqueries per sync_state row, and
+// scheduled_pushes is indexed on (sent_at_unix, fire_at_unix), not account_id —
+// so this re-scans that table per account. Fine at self-hosted scale on an
+// HOURLY sweep (accounts × a few days of queue); if the sweep ever shows up in
+// a profile, add an idx_scheduled_pushes_account(account_id, fire_at_unix)
+// migration rather than contorting the query.
 func (r *Repo) AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, warnCooldown time.Duration) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT ss.account_id
