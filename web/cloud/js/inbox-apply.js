@@ -34,6 +34,7 @@ import { parseCommand } from '../../domain/tgcommand.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
 import { createApiRouter } from './apishim.js';
+import { cancelMedRefire } from './reminders.js';
 import { createDispatcher } from './mcp-responder.js';
 import { createTGAgent } from './tg-agent.js';
 import { recordsPort, ORIGIN_EXTERNAL } from './sync.js';
@@ -248,7 +249,11 @@ async function getSlotMedicationsSafe(getSlotMeds, slotUnix) {
 // atUnix is the SERVER's timestamp for the tap, so a Confirm tapped at 09:00
 // records taken_at 09:00 even when the app first opens at noon — the backdating
 // rule (docs/cloud-mode.md → drain protocol, rule 4).
-export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, getSlotMeds }) {
+// cancelRefire is injected by createInboxApplier (the only production caller),
+// which passes the real cancelMedRefire. It defaults to a no-op rather than to
+// cancelMedRefire so a direct call — every test in this module's suite — never
+// reaches for an ambient fetch.
+export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, getSlotMeds, cancelRefire = () => {} }) {
   const slotMeds = getSlotMeds
     || ((slotUnix) => createRemindersDomain({ records, now }).getSlotMedications(slotUnix));
   const slotMs = event.slot_unix * 1000;
@@ -266,8 +271,9 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   const intakes = await records.list(INTAKE_RECORD_TYPE);
   const medicationIds = await getSlotMedicationsSafe(slotMeds, event.slot_unix);
 
-  // medById + each med's own drift band (minDoseInterval) are needed by both the
-  // identity selection and the receipt count, so build them once.
+  // medById + each med's own drift band (minDoseInterval) are needed by the
+  // identity selection, the receipt count and the re-fire cancel — all three
+  // only on the identity path — so build them once, there.
   const medById = new Map();
   if (medicationIds) {
     for (const m of await records.list(MEDICATION_RECORD_TYPE)) medById.set(m.recordId, m);
@@ -325,6 +331,36 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
       if (!isAlreadyApplied(e)) throw e;
     }
   }
+
+  // Stop the relay's server-owned re-fire chain for this slot — but only once
+  // NOTHING this reminder covered is left due (bd med-fml). The tap carries no
+  // medication identity, so the SERVER cannot make this call for us: every med
+  // the slot→medIds map did not name, and every named med with no PENDING dose
+  // in band, was silently skipped above, and a slot-wide cancel would leave
+  // those doses PENDING *and* permanently silent. Same rule as the in-app
+  // confirm path (apishim.js, med-eas.74). Snooze never cancels — the relay
+  // just rescheduled the chain +1h, which is the point of the tap.
+  //
+  // "Covered by this reminder" is deliberately narrower than the identity
+  // selection above, or a later dose of an unrelated med would keep the chain
+  // alive forever: an 08:00 confirm must not be blocked by a 20:00 dose that
+  // has its own reminder, even though 12h sits inside a daily med's 14.4h band.
+  if (event.action === 'confirm' && medicationIds) {
+    const named = new Set(medicationIds);
+    const stillDue = (await records.list(INTAKE_RECORD_TYPE)).some((i) => {
+      if (i.deleted || i.status !== 'PENDING') return false;
+      const delta = Math.abs(Date.parse(i.scheduled_at) - slotMs);
+      // On-slot, named or not: this message told the user about that instant.
+      // Plus a NAMED med's drifted dose, which the message named by identity.
+      return delta <= SLOT_DRIFT_BAND_MS
+        || (named.has(i.medication_id) && delta <= medBandMs(i.medication_id));
+    });
+    if (!stillDue) cancelRefire(slotMs);
+  }
+  // No map (a legacy reminder, or one older than the retention window): we
+  // cannot tell which doses this message covered, so we never cancel. The chain
+  // expires on its own at the relay's 6h cap — the pre-med-eas.74 behavior, and
+  // strictly better than silencing a dose that drifted out of the ±band.
 
   // Edit the original reminder message to a receipt and drop its buttons (the
   // edit sends no reply_markup — bug 1). Only when we actually applied something:
@@ -818,7 +854,7 @@ async function confirmDueIntakes({ intake, records, atMs, now }) {
 // decrypted event in, a domain write out. Unknown kinds are ignored rather than
 // thrown — a newer relay may queue kinds this client predates, and stalling the
 // whole drain on one of them would block the events it does understand.
-export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride, history: historyOverride } = {}) {
+export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, cancelRefire = cancelMedRefire, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride, history: historyOverride } = {}) {
   // A Telegram-drained /bp must repaint an open BP screen (med-d5t.10), so this
   // is explicitly external even though that is already the default. deferFlush:
   // an applied event's writes only queue to 'pending'; drainInbox pushes them
@@ -955,6 +991,6 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     // verbosity only affects the cosmetic receipt text — never gate the confirm
     // data-write on this read: a rejected pref read falls back to generic.
     const { verbosity } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic' }));
-    await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply });
+    await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply, cancelRefire });
   };
 }

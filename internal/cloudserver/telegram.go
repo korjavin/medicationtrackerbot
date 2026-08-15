@@ -1830,13 +1830,20 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 		t.editCallbackMessage(r.Context(), bot, ref, messageID, medSnoozeEditText)
 		answer(callbackAckSnooze)
 	default:
-		// A Confirm stops the relay-owned re-fire chain for this slot (mirrors the
-		// workout Skip path). The stem "s:<slotUnix>" is the tapped callback minus
-		// its ":confirm" suffix. Log-and-swallow: a failed cancel never fails the 200.
-		stem := strings.TrimSuffix(cq.Data, ":"+action)
-		if _, err := t.store.CancelRelayRefire(r.Context(), ref, stem); err != nil {
-			slog.Error("telegram callback: cancel med relay refire", "error", err, "ref", ref)
-		}
+		// A Confirm deliberately does NOT cancel the relay-owned re-fire chain here
+		// (bd med-fml). The callback carries only the slot — no medication identity —
+		// so the server cannot know which meds the client will actually confirm when
+		// it drains this event: anything the vault's slot→medIds map does not name,
+		// or that has no PENDING dose within band, is silently skipped there
+		// (web/cloud/js/inbox-apply.js). Killing the slot-wide chain at tap time
+		// would leave those doses PENDING *and* permanently silent — exactly what
+		// the 6h re-fire window exists to prevent. The draining client cancels
+		// instead, once NOTHING is left due for the slot, mirroring the in-app
+		// confirm rule in apishim.js. Cost: the chain stops at drain instead of at
+		// tap; the seal wakes the inbox immediately and the next re-fire is an hour
+		// out, and if no device drains within that hour the dose is recorded nowhere
+		// and one more nag is correct. The buttons still go away right now, so the
+		// user cannot re-tap while the drain is pending.
 		t.editCallbackMessage(r.Context(), bot, ref, messageID, medConfirmEditText)
 		answer(callbackAckConfirm)
 	}
