@@ -208,21 +208,42 @@ func (r *Repo) PutSnapshot(ctx context.Context, accountID string, snapshotSeq in
 }
 
 // AccountsNeedingStaleSyncWarning returns account IDs whose scheduled-push
-// queue is about to run dry (the latest unsent entry fires within
-// dryQueueWithin of now) while the account hasn't synced in staleAfter and
-// hasn't already been warned within warnCooldown (Task 7's dry-queue safety
-// net — docs/cloud-mode.md "Dry-queue safety net").
-func (r *Repo) AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, staleAfter, warnCooldown time.Duration) ([]string, error) {
+// queue has run — or is about to run — dry: the latest UNSENT entry fires
+// within dryQueueWithin of now, and the account hasn't already been warned
+// within warnCooldown (the dry-queue safety net — docs/cloud-mode.md).
+//
+// The horizon is computed in the browser and uploaded as a replace-all batch;
+// the server cannot extend it. Two things follow, both learned the hard way
+// (bd med-2lx, a production account that missed 5 morning doses in silence):
+//
+//  1. An EMPTY queue is the loudest case, not an invisible one. The old query
+//     INNER JOINed a subquery over unsent rows, so an account with zero unsent
+//     rows produced no row to join against and could never be warned — the net
+//     worked only in the narrow band where the queue was nearly-but-not-yet
+//     dry. The MAX() is now a correlated subquery COALESCEd to 0, so "no unsent
+//     rows" collapses to 0 and always trips the dryQueueWithin test.
+//  2. Sync recency is the wrong signal, so it is gone. Every Telegram inbox
+//     drain flushes ops through the sync API, which touches last_sync_unix
+//     (AppendOps/ListOps/GetSnapshot/PutSnapshot above), so an account alive
+//     enough to tap Confirm in Telegram always looks freshly synced while its
+//     reminder horizon rots away to nothing.
+//
+// Because an empty queue now qualifies, the predicate has to exclude accounts
+// that never wanted reminders in the first place — otherwise every account
+// ever created would be nagged. Two EXISTS guards do that: a live
+// (non-disabled) push subscription to warn THROUGH — with none there is no
+// delivery channel anyway — and at least one scheduled push ever queued (a
+// sent row counts) as proof reminders were actually set up.
+func (r *Repo) AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, warnCooldown time.Duration) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT ss.account_id
 		 FROM sync_state ss
-		 JOIN (SELECT account_id, MAX(fire_at_unix) AS latest_fire FROM scheduled_pushes WHERE sent_at_unix IS NULL GROUP BY account_id) sp
-		   ON sp.account_id = ss.account_id
-		 WHERE sp.latest_fire <= ?
-		   AND ss.last_sync_unix IS NOT NULL AND ss.last_sync_unix <= ?
+		 WHERE COALESCE((SELECT MAX(fire_at_unix) FROM scheduled_pushes
+		                 WHERE account_id = ss.account_id AND sent_at_unix IS NULL), 0) <= ?
+		   AND EXISTS (SELECT 1 FROM push_subscriptions WHERE account_id = ss.account_id AND disabled = 0)
+		   AND EXISTS (SELECT 1 FROM scheduled_pushes WHERE account_id = ss.account_id)
 		   AND (ss.last_warned_unix IS NULL OR ss.last_warned_unix <= ?)`,
 		storedb.TimeToUnix(now.Add(dryQueueWithin)),
-		storedb.TimeToUnix(now.Add(-staleAfter)),
 		storedb.TimeToUnix(now.Add(-warnCooldown)))
 	if err != nil {
 		return nil, err

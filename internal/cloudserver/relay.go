@@ -24,13 +24,13 @@ const relaySendTimeout = 10 * time.Second
 // callback (no counter): once now - slot exceeds this, the relay stops chaining.
 const maxMedRefireWindow = 6 * time.Hour
 
-// Task 7's stale-sync sweep cadence and thresholds. The warning fires at most
-// once a day per account (warnCooldown) once the account's scheduled-push
-// queue is close to running dry (dryQueueWarnWithin, default 120h) and it
-// hasn't synced in staleSyncAfter.
+// The dry-queue sweep's cadence and thresholds. The warning fires at most once
+// a day per account (warnCooldown) once the account's scheduled-push queue is
+// close to running dry (dryQueueWarnWithin, default 120h) — or has already run
+// dry. There is deliberately no sync-recency threshold any more: see
+// cloudstore.AccountsNeedingStaleSyncWarning (bd med-2lx).
 const (
 	staleSweepInterval        = time.Hour
-	staleSyncAfter            = 24 * time.Hour
 	warnCooldown              = 24 * time.Hour
 	defaultDryQueueWarnWithin = 120 * time.Hour
 )
@@ -145,7 +145,7 @@ type relayStore interface {
 	MarkPushSent(ctx context.Context, id int64, sentAt time.Time) error
 	List(ctx context.Context, accountID string) ([]cloudstore.PushSubscription, error)
 	Disable(ctx context.Context, endpoint string) error
-	AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, staleAfter, warnCooldown time.Duration) ([]string, error)
+	AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, warnCooldown time.Duration) ([]string, error)
 	MarkStaleSyncWarned(ctx context.Context, accountID string, now time.Time) error
 	AccountVAPIDKeysByID(ctx context.Context, accountID string) (cloudstore.AccountVAPIDKeys, error)
 	RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback string, supersedesMessageID int64) error
@@ -336,13 +336,13 @@ func (rl *Relay) scheduleMedRefire(ctx context.Context, p cloudstore.ScheduledPu
 	}
 }
 
-// StaleSyncSweep sends the generic dry-queue warning (Task 7) to every
-// account whose scheduled-push queue is about to run dry while the account
-// hasn't synced recently, at most once per warnCooldown per account. Exported
-// so tests can drive it without waiting on the hourly ticker.
+// StaleSyncSweep sends the generic dry-queue warning to every account whose
+// scheduled-push queue is about to run dry — or already has — at most once per
+// warnCooldown per account. Exported so tests can drive it without waiting on
+// the hourly ticker.
 func (rl *Relay) StaleSyncSweep(ctx context.Context) {
 	now := time.Now().UTC()
-	accountIDs, err := rl.store.AccountsNeedingStaleSyncWarning(ctx, now, rl.dryQueueWarnWithin, staleSyncAfter, warnCooldown)
+	accountIDs, err := rl.store.AccountsNeedingStaleSyncWarning(ctx, now, rl.dryQueueWarnWithin, warnCooldown)
 	if err != nil {
 		slog.Error("push relay: list stale-sync accounts", "error", err)
 		return
