@@ -268,11 +268,16 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
   }
 
   // Boot far enough to reach the post-unlock inbox block, with a fake SW
-  // collecting every `message` listener. `inbox` overrides the inbox.js surface.
-  async function bootInbox(inbox = {}) {
+  // collecting every `message` listener. `inbox` overrides the inbox.js surface,
+  // `reminders` the reminders.js one.
+  async function bootInbox(inbox = {}, reminders = {}) {
     const handlers = [];
     fakeServiceWorker(handlers);
     let pollersStarted = 0;
+    let pollerOnApplied = null;
+    // med-9y9: the drain path must call the UN-debounced recomputeAndPush.
+    // Count BOTH entry points so a regression back to the timer is visible.
+    const calls = { recompute: 0, debounced: 0 };
     await runBoot({
       modules: {
         'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
@@ -283,13 +288,17 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
           getSyncStatus: async () => ({ authExpired: false }),
           readAllLiveRecords: async () => [],
         },
-        'reminders.js': { scheduleReminderRecompute: () => {} },
+        'reminders.js': {
+          scheduleReminderRecompute: () => { calls.debounced += 1; },
+          recomputeAndPush: async () => { calls.recompute += 1; },
+          ...reminders,
+        },
         'push.js': { ensurePushSubscription: async () => ({}) },
         'mcp-responder.js': { refreshResponder: () => {} },
         'inbox.js': {
           ensureInboxKey: async () => {},
           drainInbox: async () => ({ applied: 0 }),
-          startInboxPolling: () => { pollersStarted += 1; },
+          startInboxPolling: (ctx, opts = {}) => { pollersStarted += 1; pollerOnApplied = opts.onApplied; },
           ...inbox,
         },
         'inbox-apply.js': { createInboxApplier: () => async () => {} },
@@ -301,8 +310,10 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     const port = { postMessage: (m) => acks.push(m) };
     return {
       acks,
+      calls,
       handlers,
       pollers: () => pollersStarted,
+      pollerApplied: () => pollerOnApplied({ applied: 1 }),
       dispatch: (data) => handlers.forEach((h) => h({ data, ports: [port] })),
     };
   }
@@ -371,6 +382,59 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     await flush();
     expect(acks).toEqual(['ack']); // ...and the page still takes the next wake
     expect(drains).toBe(2);
+  });
+
+  // med-9y9: the drain path used to schedule the horizon recompute on a 2s
+  // debounce timer and never look at it again. Wake drains happen in a
+  // BACKGROUNDED tab, which the browser may freeze or discard well inside 2s, so
+  // the timer could simply never fire — and because every applied drain RESET
+  // the debounce, a long ack burst (a .nxk import acking ~100 sealed events over
+  // 25 minutes) could starve it outright. Either way the 7-day horizon quietly
+  // reached its last queued slot and reminders stopped forever. Nothing below
+  // advances a timer: the recompute must have run on its own.
+  it('recomputes the horizon un-debounced on every applied drain (med-9y9)', async () => {
+    const { calls, dispatch, pollerApplied } = await bootInbox({
+      drainInbox: async () => ({ applied: 1 }),
+    });
+
+    const debouncedAtBoot = calls.debounced; // the once-per-unlock self-heal
+    expect(calls.recompute).toBe(1); // the boot drain applied, so it recomputed
+
+    // A burst: three wake drains in a row, each one its own recompute. Under the
+    // debounce these collapsed to a single pending timer at best.
+    for (let i = 0; i < 3; i += 1) {
+      dispatch({ type: 'inbox-wake' });
+      await flush();
+    }
+    expect(calls.recompute).toBe(4);
+
+    // Same for the poller's onApplied hook — the other caller of afterApply.
+    await pollerApplied();
+    expect(calls.recompute).toBe(5);
+
+    // ...and none of it went through the debounced scheduler.
+    expect(calls.debounced).toBe(debouncedAtBoot);
+  });
+
+  // afterApply is called WITHOUT being awaited by the poller, so a rejecting
+  // recompute would be an unhandled rejection — and it must never abort the
+  // drain path that produced it.
+  it('keeps draining when the post-drain recompute rejects (med-9y9)', async () => {
+    let drains = 0;
+    let recomputes = 0;
+    const { acks, dispatch } = await bootInbox(
+      { drainInbox: async () => { drains += 1; return { applied: 1 }; } },
+      { recomputeAndPush: async () => { recomputes += 1; throw new Error('push schedule 500'); } },
+    );
+
+    expect(drains).toBe(1);
+    expect(recomputes).toBe(1);
+
+    dispatch({ type: 'inbox-wake' });
+    await flush();
+    expect(acks).toEqual(['ack']);
+    expect(drains).toBe(2);
+    expect(recomputes).toBe(2);
   });
 });
 

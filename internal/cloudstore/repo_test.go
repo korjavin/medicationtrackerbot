@@ -887,3 +887,148 @@ func TestRelayRefiresClearedOnChatRelink(t *testing.T) {
 		t.Fatalf("UpsertBot relink did not clear pending re-fires: got %d, want 0", got)
 	}
 }
+
+// AccountsNeedingStaleSyncWarning is the ONLY safety net that notices a reminder
+// horizon which stopped being re-uploaded — the server cannot compute a
+// schedule, so once the browser goes quiet reminders stop forever. Its original
+// form could never fire in the state that matters (bd med-2lx):
+//
+//   - it INNER JOINed a subquery over UNSENT scheduled_pushes rows, so an
+//     account whose queue had genuinely run out produced no subquery row and was
+//     dropped from the join entirely; and
+//   - it gated on last_sync_unix, which every inbox drain touches, so an account
+//     alive enough to tap Telegram Confirm buttons always looked freshly synced.
+//
+// Pin the fixed predicate on both halves, plus the anti-spam guard that dropping
+// the sync gate makes necessary.
+func TestAccountsNeedingStaleSyncWarning(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	const (
+		dryWithin = 120 * time.Hour
+		cooldown  = 24 * time.Hour
+	)
+
+	// mkAccount creates an account, gives it a sync_state row stamped at `now`
+	// (so every account here looks FRESHLY SYNCED — the old gate would have
+	// silenced all of them), and optionally an enabled push subscription.
+	mkAccount := func(id, subdomain string, subscribe bool) {
+		t.Helper()
+		if _, err := r.CreateAccount(ctx, id, subdomain, []byte("hash-"+id), now.Add(time.Hour), now, "", "", ""); err != nil {
+			t.Fatalf("CreateAccount(%s): %v", id, err)
+		}
+		if _, err := r.ListOps(ctx, id, 0, 10, now); err != nil {
+			t.Fatalf("ListOps(%s): %v", id, err)
+		}
+		if subscribe {
+			if err := r.UpsertPushSubscription(ctx, id, "https://push.example/"+id, "p256dh", "auth", now); err != nil {
+				t.Fatalf("UpsertPushSubscription(%s): %v", id, err)
+			}
+		}
+	}
+
+	// drainQueue arms one reminder in the past and marks it sent, leaving the
+	// account with ZERO unsent rows — the production shape of jolly-zebra-mkvfmv
+	// after its last queued reminder fired.
+	drainQueue := func(id string) {
+		t.Helper()
+		if err := r.ReplaceSchedule(ctx, id, []ScheduledPushInput{
+			{FireAt: now.Add(-time.Hour), CT: []byte("fired-ct")},
+		}, now); err != nil {
+			t.Fatalf("ReplaceSchedule(%s): %v", id, err)
+		}
+		due, err := r.DueScheduledPushes(ctx, now)
+		if err != nil {
+			t.Fatalf("DueScheduledPushes: %v", err)
+		}
+		for _, p := range due {
+			if p.AccountID != id {
+				continue
+			}
+			if err := r.MarkPushSent(ctx, p.ID, now); err != nil {
+				t.Fatalf("MarkPushSent(%s): %v", id, err)
+			}
+		}
+	}
+
+	warned := func() map[string]bool {
+		t.Helper()
+		ids, err := r.AccountsNeedingStaleSyncWarning(ctx, now, dryWithin, cooldown)
+		if err != nil {
+			t.Fatalf("AccountsNeedingStaleSyncWarning: %v", err)
+		}
+		set := make(map[string]bool, len(ids))
+		for _, id := range ids {
+			set[id] = true
+		}
+		return set
+	}
+
+	// The production failure: subscribed, reminders fired for months, queue now
+	// completely empty. Must be the loudest case, not an invisible one.
+	mkAccount("acc-dry", "jolly-zebra-mkvfmv", true)
+	drainQueue("acc-dry")
+
+	// Healthy: the horizon still reaches well past the warn window.
+	mkAccount("acc-healthy", "calm-otter-aaa111", true)
+	if err := r.ReplaceSchedule(ctx, "acc-healthy", []ScheduledPushInput{
+		{FireAt: now.Add(7 * 24 * time.Hour), CT: []byte("future-ct")},
+	}, now); err != nil {
+		t.Fatalf("ReplaceSchedule(acc-healthy): %v", err)
+	}
+
+	// Nearly dry: last unsent entry fires inside the warn window.
+	mkAccount("acc-soon", "brisk-lynx-bbb222", true)
+	if err := r.ReplaceSchedule(ctx, "acc-soon", []ScheduledPushInput{
+		{FireAt: now.Add(time.Hour), CT: []byte("soon-ct")},
+	}, now); err != nil {
+		t.Fatalf("ReplaceSchedule(acc-soon): %v", err)
+	}
+
+	// Never armed reminders at all. Has the same "empty queue" as acc-dry, and
+	// must NOT be warned — dropping the sync gate would otherwise turn the sweep
+	// into a daily nag for every account that never wanted reminders.
+	mkAccount("acc-never", "quiet-finch-ccc333", true)
+
+	// Dry, but its only subscription is disabled (410 Gone): the warning is
+	// itself a web push, so there is nothing to deliver it over.
+	mkAccount("acc-nosub", "lone-heron-ddd444", true)
+	drainQueue("acc-nosub")
+	if err := r.Disable(ctx, "https://push.example/acc-nosub"); err != nil {
+		t.Fatalf("Disable: %v", err)
+	}
+
+	got := warned()
+	for _, want := range []string{"acc-dry", "acc-soon"} {
+		if !got[want] {
+			t.Errorf("%s not warned; want warned (got %v)", want, got)
+		}
+	}
+	for _, skip := range []string{"acc-healthy", "acc-never", "acc-nosub"} {
+		if got[skip] {
+			t.Errorf("%s warned; want skipped (got %v)", skip, got)
+		}
+	}
+
+	// Cooldown still holds: a warned account goes quiet until warnCooldown.
+	if err := r.MarkStaleSyncWarned(ctx, "acc-dry", now); err != nil {
+		t.Fatalf("MarkStaleSyncWarned: %v", err)
+	}
+	if got := warned(); got["acc-dry"] {
+		t.Errorf("acc-dry re-warned inside the cooldown (got %v)", got)
+	}
+	// ...and comes back once the cooldown has elapsed.
+	ids, err := r.AccountsNeedingStaleSyncWarning(ctx, now.Add(25*time.Hour), dryWithin, cooldown)
+	if err != nil {
+		t.Fatalf("AccountsNeedingStaleSyncWarning (post-cooldown): %v", err)
+	}
+	var found bool
+	for _, id := range ids {
+		found = found || id == "acc-dry"
+	}
+	if !found {
+		t.Errorf("acc-dry not warned after the cooldown elapsed (got %v)", ids)
+	}
+}

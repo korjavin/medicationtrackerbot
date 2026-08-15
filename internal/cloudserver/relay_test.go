@@ -116,9 +116,15 @@ func TestRelay_DueSelection_ReplaceAll_DisablesGone(t *testing.T) {
 	}
 }
 
-// TestRelay_StaleSyncSweep guards Task 7's dry-queue safety net: only an
-// account whose queue is about to run dry AND hasn't synced recently gets
-// warned, and a second sweep within the cooldown doesn't re-warn it.
+// TestRelay_StaleSyncSweep guards Task 7's dry-queue safety net: an account
+// whose queue is about to run dry gets warned, and a second sweep within the
+// cooldown doesn't re-warn it.
+//
+// The account here is synced RIGHT NOW on purpose (bd med-2lx). The sweep used
+// to additionally require last_sync_unix <= now-24h, which every inbox drain
+// pushed forward — so an account tapping Telegram Confirm buttons daily looked
+// permanently fresh while its reminder horizon rotted. Horizon exhaustion is the
+// signal; user absence is not.
 func TestRelay_StaleSyncSweep(t *testing.T) {
 	store := setupStore(t)
 	account, claimToken := setupInvite(t, store)
@@ -143,10 +149,9 @@ func TestRelay_StaleSyncSweep(t *testing.T) {
 		{FireAtUnix: time.Now().Add(time.Hour).Unix(), CT: []byte("soon-ct")},
 	}})
 
-	// Backdate last_sync_unix past staleSyncAfter (24h) via ListOps' now param
-	// — the only way to set it without reaching into cloudstore internals.
-	if _, err := store.ListOps(ctx, account.ID, 0, 100, time.Now().Add(-25*time.Hour)); err != nil {
-		t.Fatalf("ListOps (backdate sync): %v", err)
+	// Freshly synced, on purpose — see the note above.
+	if _, err := store.ListOps(ctx, account.ID, 0, 100, time.Now().UTC()); err != nil {
+		t.Fatalf("ListOps (touch sync): %v", err)
 	}
 
 	sender := &fakeSender{goneFor: map[string]bool{}}
@@ -174,6 +179,64 @@ func TestRelay_StaleSyncSweep(t *testing.T) {
 	relay2.StaleSyncSweep(ctx)
 	if len(sender2.sent) != 0 {
 		t.Fatalf("expected no re-warn within cooldown, got %+v", sender2.sent)
+	}
+}
+
+// TestRelay_StaleSyncSweep_DryQueueVsNeverArmed pins the med-2lx fix at the
+// sweep level, on the two states the old query got exactly backwards.
+//
+// An account whose queue has FULLY drained (every row sent, none pending) is the
+// production failure — reminders have already stopped — and the old INNER JOIN
+// over unsent rows made it literally unreachable: no unsent rows, no join row,
+// no warning, ever. It must now be warned.
+//
+// An account that never armed reminders has the same empty queue, and must NOT
+// be warned, or the fix trades a silent failure for a daily nag to everyone who
+// never asked for reminders.
+func TestRelay_StaleSyncSweep_DryQueueVsNeverArmed(t *testing.T) {
+	store := setupStore(t)
+	dry, dryClaim := setupInvite(t, store)
+	never, neverClaim := setupInvite(t, store)
+
+	webauthnAPI := NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long")
+	pushAPI := NewPushAPI(store, &fakeSender{}, "test-session-secret-at-least-32-bytes-long")
+	mux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(mux)
+	pushAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+
+	dryHost := dry.Subdomain + ".localhost"
+	drySession := registerAndGetSession(t, h, dryHost, dryClaim)
+	registerAndGetSession(t, h, never.Subdomain+".localhost", neverClaim)
+
+	ctx := context.Background()
+	for _, id := range []string{dry.ID, never.ID} {
+		if err := store.UpsertPushSubscription(ctx, id, "https://push.example/"+id, "p256dh", "auth", time.Now().UTC()); err != nil {
+			t.Fatalf("UpsertPushSubscription: %v", err)
+		}
+		// Both accounts are freshly synced. The sweep is keyed off sync_state
+		// (that is where last_warned_unix lives), and any browser that could have
+		// computed a horizon has necessarily read the vault through the sync API.
+		if _, err := store.ListOps(ctx, id, 0, 100, time.Now().UTC()); err != nil {
+			t.Fatalf("ListOps (touch sync): %v", err)
+		}
+	}
+
+	// Drain the one account's queue the way production drained it: its last
+	// queued reminder fires, and the browser never uploads a new horizon.
+	putSchedule(t, h, dryHost, drySession, putScheduleRequest{Entries: []scheduleEntryWire{
+		{FireAtUnix: time.Now().Add(-time.Minute).Unix(), CT: []byte("last-reminder-ct")},
+	}})
+	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, nil, 0).Tick(ctx)
+
+	sender := &fakeSender{goneFor: map[string]bool{}}
+	NewRelay(store, sender, nil, 120*time.Hour).StaleSyncSweep(ctx)
+
+	if len(sender.sent) != 1 {
+		t.Fatalf("expected exactly 1 warning (the drained account), got %d: %+v", len(sender.sent), sender.sent)
+	}
+	if got, want := sender.sent[0].endpoint, "https://push.example/"+dry.ID; got != want {
+		t.Fatalf("warning went to %q, want the drained account's endpoint %q", got, want)
 	}
 }
 

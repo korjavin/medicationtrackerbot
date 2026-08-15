@@ -431,9 +431,31 @@ window.MedTrackerCloudReady = (async function boot() {
             .then(async ({ ensureInboxKey, drainInbox, startInboxPolling }) => {
                 const { createInboxApplier } = await import('/js/inbox-apply.js');
                 const apply = createInboxApplier(ctx);
+                // Recompute the reminder horizon RIGHT NOW, not on a 2s debounce
+                // timer (bd med-9y9). Most drains are triggered by the SW's
+                // inbox-wake push into a BACKGROUNDED tab, and a browser is free
+                // to freeze or discard that tab well inside 2s — the timer never
+                // fires, the horizon is never extended, and nothing surfaces an
+                // error. A long ack burst (a .nxk import acking ~100 sealed
+                // events over 25 minutes) was worse still: every afterApply RESET
+                // the debounce, so the recompute could be starved outright. That
+                // is how a 7-day horizon reached its last queued slot and
+                // reminders stopped forever with no signal.
+                //
+                // Awaited so the drain path holds until the upload lands.
+                // pushSchedule already serializes per account, so overlapping
+                // with a debounced UI-write recompute is safe. The debounce stays
+                // where it belongs: the chatty per-write path in apishim.js.
                 const afterApply = async () => {
-                    const { scheduleReminderRecompute } = await import('/js/reminders.js');
-                    scheduleReminderRecompute(ctx);
+                    try {
+                        const { recomputeAndPush } = await import('/js/reminders.js');
+                        await recomputeAndPush(ctx);
+                    } catch (e) {
+                        // Never rejects: the poller calls this without awaiting
+                        // it, so a throw here would be an unhandled rejection,
+                        // and a failed recompute must not abort the drain.
+                        console.error('[cloud-boot] reminder recompute after drain failed', e);
+                    }
                 };
 
                 // Keep draining while the tab is open, so a /bp texted to the
