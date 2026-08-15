@@ -1375,10 +1375,14 @@ func TestChildWebhook_MedSnoozeSchedulesRelayRefire(t *testing.T) {
 	}
 }
 
-// med-eas.74: a med Confirm tap stops the relay-owned re-fire chain for the slot
-// (mirrors the workout Skip path), so an unconfirmed-then-confirmed dose is not
-// nagged again.
-func TestChildWebhook_MedConfirmCancelsRelayRefire(t *testing.T) {
+// med-fml: a med Confirm tap must NOT cancel the slot's relay-owned re-fire
+// chain. The callback carries only the slot, no medication identity, so the
+// server cannot know which meds the client will actually confirm on drain — a
+// partial confirm would otherwise leave the remaining doses PENDING *and*
+// permanently silent. The client cancels instead (via POST
+// /api/telegram/cancel-refire, TestCancelRefire) once nothing is left due.
+// The tapped message is still rewritten immediately so the buttons go away.
+func TestChildWebhook_MedConfirmLeavesRelayRefireForTheClientToCancel(t *testing.T) {
 	tg := newRecordingTG(t)
 	f := linkedBotTap(t, tg)
 	publishInboxKey(t, f.store, f.accountID)
@@ -1397,8 +1401,18 @@ func TestChildWebhook_MedConfirmCancelsRelayRefire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DueScheduledPushes: %v", err)
 	}
-	if len(due) != 0 {
-		t.Fatalf("confirm left %d pending re-fires, want 0", len(due))
+	if len(due) != 1 || due[0].TGCallback != "s:1767225600" {
+		t.Fatalf("confirm left %d pending re-fires (%+v), want the slot chain intact", len(due), due)
+	}
+
+	// The tap is still acked and the buttons still cleared on the spot.
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.edits) != 1 || !strings.Contains(tg.mu.edits[0], medConfirmEditText) {
+		t.Errorf("edits = %v, want one confirm rewrite %q", tg.mu.edits, medConfirmEditText)
+	}
+	if len(tg.mu.answered) != 1 {
+		t.Errorf("answerCallbackQuery calls = %d, want 1: %v", len(tg.mu.answered), tg.mu.answered)
 	}
 }
 

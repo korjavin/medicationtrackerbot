@@ -449,6 +449,54 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(intakes.find((i) => i.recordId === 'intake-med-a-far').status).toBe('PENDING'); // far dose
     });
 
+    // --- bd med-fml: who cancels the slot's relay re-fire chain ---
+    // The Telegram tap carries only slot_unix, so the SERVER cannot know which
+    // meds this drain will actually confirm — it no longer cancels at tap time.
+    // The drained client does, under the same rule the in-app confirm uses
+    // (apishim.js): cancel only once NOTHING is left due for the slot.
+    const slotDoseFixture = () => fakeRecords({
+        medication: [
+            { recordId: 'med-a', deleted: false, name: 'A', schedule: DAILY, inventory_count: 30 },
+            { recordId: 'med-b', deleted: false, name: 'B', schedule: DAILY, inventory_count: 30 },
+        ],
+        intake: [
+            { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            { recordId: `intake-med-b-${SLOT_UNIX}`, deleted: false, medication_id: 'med-b', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+        ],
+    });
+
+    it('cancels the relay re-fire chain once the tap confirmed everything due at the slot', async () => {
+        const records = slotDoseFixture();
+        const now = () => DRAIN_MS;
+        const cancelRefire = vi.fn();
+        await applyIntakeSlotAction(confirmEvent, {
+            intake: domainFor(records, now), records, now, cancelRefire,
+            getSlotMeds: slotMeds(['med-a', 'med-b']),
+        });
+
+        for (const i of await records.list('intake')) expect(i.status).toBe('TAKEN');
+        expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
+    });
+
+    // The bug: a PARTIAL confirm. med-b is due at the same instant but the map
+    // never named it, so this tap silently skips it (the accepted false-negative
+    // above). Cancelling the slot-wide chain here would leave that dose PENDING
+    // *and* permanently silent — the failure the 6h re-fire window exists for.
+    it('leaves the re-fire chain alive when a dose at the slot is still PENDING', async () => {
+        const records = slotDoseFixture();
+        const now = () => DRAIN_MS;
+        const cancelRefire = vi.fn();
+        await applyIntakeSlotAction(confirmEvent, {
+            intake: domainFor(records, now), records, now, cancelRefire,
+            getSlotMeds: slotMeds(['med-a']),
+        });
+
+        const intakes = await records.list('intake');
+        expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
+        expect(intakes.find((i) => i.recordId === `intake-med-b-${SLOT_UNIX}`).status).toBe('PENDING');
+        expect(cancelRefire).not.toHaveBeenCalled();
+    });
+
     // With no stored map, the identity path is skipped and the fixed ±band match
     // runs exactly as before — the null return the fallback depends on.
     it('falls back to the ±band match when no slot→meds map is stored', async () => {

@@ -34,6 +34,7 @@ import { parseCommand } from '../../domain/tgcommand.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
 import { createApiRouter } from './apishim.js';
+import { cancelMedRefire } from './reminders.js';
 import { createDispatcher } from './mcp-responder.js';
 import { createTGAgent } from './tg-agent.js';
 import { recordsPort, ORIGIN_EXTERNAL } from './sync.js';
@@ -248,7 +249,7 @@ async function getSlotMedicationsSafe(getSlotMeds, slotUnix) {
 // atUnix is the SERVER's timestamp for the tap, so a Confirm tapped at 09:00
 // records taken_at 09:00 even when the app first opens at noon — the backdating
 // rule (docs/cloud-mode.md → drain protocol, rule 4).
-export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, getSlotMeds }) {
+export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, getSlotMeds, cancelRefire = cancelMedRefire }) {
   const slotMeds = getSlotMeds
     || ((slotUnix) => createRemindersDomain({ records, now }).getSlotMedications(slotUnix));
   const slotMs = event.slot_unix * 1000;
@@ -324,6 +325,24 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
     } catch (e) {
       if (!isAlreadyApplied(e)) throw e;
     }
+  }
+
+  // Stop the relay's server-owned re-fire chain for this slot — but only once
+  // NOTHING is left due for it (bd med-fml). The tap carries no medication
+  // identity, so the SERVER cannot make this call for us: every med the
+  // slot→medIds map did not name, and every named med with no PENDING dose in
+  // band, was silently skipped above, and a slot-wide cancel would leave those
+  // doses PENDING *and* permanently silent. Same rule as the in-app confirm
+  // path (apishim.js, med-eas.74). Snooze never cancels — the relay just
+  // rescheduled the chain +1h, which is the point of the tap.
+  if (event.action === 'confirm') {
+    // Band per med where known (medById is populated only on the identity
+    // path), never narrower than the fixed drift band: a wider band only makes
+    // the cancel MORE conservative, and being conservative costs one stray nag.
+    const stillDue = (await records.list(INTAKE_RECORD_TYPE)).some((i) =>
+      !i.deleted && i.status === 'PENDING'
+      && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= Math.max(SLOT_DRIFT_BAND_MS, medBandMs(i.medication_id)));
+    if (!stillDue) cancelRefire(slotMs);
   }
 
   // Edit the original reminder message to a receipt and drop its buttons (the
