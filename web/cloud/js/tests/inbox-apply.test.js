@@ -218,8 +218,9 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const intakes = await records.list('intake');
         expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
         expect(intakes.find((i) => i.recordId === 'intake-med-b-far').status).toBe('PENDING');
-        // ...and that deliberate false-negative must keep the slot's relay re-fire
-        // chain alive, or the re-reminder it relies on never comes (bd med-fml).
+        // ...and with no slot→meds map there is no way to tell which doses this
+        // message covered, so the relay's re-fire chain is left alone rather than
+        // risking silencing that deliberate false-negative (bd med-fml).
         expect(cancelRefire).not.toHaveBeenCalled();
     });
 
@@ -501,6 +502,33 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         expect(cancelRefire).not.toHaveBeenCalled();
     });
 
+    // The opposite error: a med with its OWN reminder later in the day must not
+    // keep this chain alive. A 4h-away dose sits well inside a daily med's 14.4h
+    // band, so scoping "still due" to that band alone would nag the user for the
+    // dose they just confirmed until the relay's 6h cap.
+    it('cancels even though another med has a later dose inside its own interval', async () => {
+        const laterIso = new Date((SLOT_UNIX + 4 * 3600) * 1000).toISOString();
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'Morning', schedule: DAILY, inventory_count: 30 },
+                { recordId: 'med-b', deleted: false, name: 'Afternoon', schedule: '{"type":"daily","times":["04:00"]}', inventory_count: 20 },
+            ],
+            intake: [
+                { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: false, medication_id: 'med-a', scheduled_at: SLOT_ISO, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+                { recordId: 'intake-med-b-later', deleted: false, medication_id: 'med-b', scheduled_at: laterIso, status: 'PENDING', taken_at: null, snoozed_until: null, source: 'schedule' },
+            ],
+        });
+        const now = () => DRAIN_MS;
+        const cancelRefire = vi.fn();
+        await applyIntakeSlotAction(confirmEvent, {
+            intake: domainFor(records, now), records, now, cancelRefire,
+            getSlotMeds: slotMeds(['med-a']),
+        });
+
+        expect((await records.list('intake')).find((i) => i.recordId === 'intake-med-b-later').status).toBe('PENDING');
+        expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
+    });
+
     // With no stored map, the identity path is skipped and the fixed ±band match
     // runs exactly as before — the null return the fallback depends on.
     it('falls back to the ±band match when no slot→meds map is stored', async () => {
@@ -762,7 +790,12 @@ describe('inbox-apply.js — createInboxApplier routing', () => {
     });
 
     it('routes a real intake_slot_action through the domain, and wires the re-fire cancel', async () => {
-        const records = fakeRecords(seed());
+        const records = fakeRecords({
+            ...seed(),
+            // The vault slot→meds map the cancel needs to know what the reminder
+            // covered — written by every pushSchedule in production.
+            slotmeds: [{ recordId: 'slotmeds-current', deleted: false, clientTs: SLOT_UNIX * 1000, slots: { [SLOT_UNIX]: ['med-a', 'med-b'] } }],
+        });
         // cancelRefire is the applier's job to supply (in production, the real
         // cancelMedRefire POST) — applyIntakeSlotAction itself defaults to a
         // no-op, so this asserts the wiring, not the default (bd med-fml).

@@ -272,12 +272,12 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   const medicationIds = await getSlotMedicationsSafe(slotMeds, event.slot_unix);
 
   // medById + each med's own drift band (minDoseInterval) are needed by the
-  // identity selection, the receipt count, AND the re-fire cancel below, so
-  // build them once. Loaded on BOTH paths: the fallback path selects by the
-  // fixed ±band, but a dose drifted past it there is a deliberate false-negative
-  // that stays PENDING — the cancel must still see it as due (med-fml).
+  // identity selection, the receipt count and the re-fire cancel — all three
+  // only on the identity path — so build them once, there.
   const medById = new Map();
-  for (const m of await records.list(MEDICATION_RECORD_TYPE)) medById.set(m.recordId, m);
+  if (medicationIds) {
+    for (const m of await records.list(MEDICATION_RECORD_TYPE)) medById.set(m.recordId, m);
+  }
   const medBandMs = (medId) => {
     const med = medById.get(medId);
     return med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
@@ -333,22 +333,34 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   }
 
   // Stop the relay's server-owned re-fire chain for this slot — but only once
-  // NOTHING is left due for it (bd med-fml). The tap carries no medication
-  // identity, so the SERVER cannot make this call for us: every med the
-  // slot→medIds map did not name, and every named med with no PENDING dose in
-  // band, was silently skipped above, and a slot-wide cancel would leave those
-  // doses PENDING *and* permanently silent. Same rule as the in-app confirm
-  // path (apishim.js, med-eas.74). Snooze never cancels — the relay just
-  // rescheduled the chain +1h, which is the point of the tap.
-  if (event.action === 'confirm') {
-    // Band per med where known (medById is populated only on the identity
-    // path), never narrower than the fixed drift band: a wider band only makes
-    // the cancel MORE conservative, and being conservative costs one stray nag.
-    const stillDue = (await records.list(INTAKE_RECORD_TYPE)).some((i) =>
-      !i.deleted && i.status === 'PENDING'
-      && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= Math.max(SLOT_DRIFT_BAND_MS, medBandMs(i.medication_id)));
+  // NOTHING this reminder covered is left due (bd med-fml). The tap carries no
+  // medication identity, so the SERVER cannot make this call for us: every med
+  // the slot→medIds map did not name, and every named med with no PENDING dose
+  // in band, was silently skipped above, and a slot-wide cancel would leave
+  // those doses PENDING *and* permanently silent. Same rule as the in-app
+  // confirm path (apishim.js, med-eas.74). Snooze never cancels — the relay
+  // just rescheduled the chain +1h, which is the point of the tap.
+  //
+  // "Covered by this reminder" is deliberately narrower than the identity
+  // selection above, or a later dose of an unrelated med would keep the chain
+  // alive forever: an 08:00 confirm must not be blocked by a 20:00 dose that
+  // has its own reminder, even though 12h sits inside a daily med's 14.4h band.
+  if (event.action === 'confirm' && medicationIds) {
+    const named = new Set(medicationIds);
+    const stillDue = (await records.list(INTAKE_RECORD_TYPE)).some((i) => {
+      if (i.deleted || i.status !== 'PENDING') return false;
+      const delta = Math.abs(Date.parse(i.scheduled_at) - slotMs);
+      // On-slot, named or not: this message told the user about that instant.
+      // Plus a NAMED med's drifted dose, which the message named by identity.
+      return delta <= SLOT_DRIFT_BAND_MS
+        || (named.has(i.medication_id) && delta <= medBandMs(i.medication_id));
+    });
     if (!stillDue) cancelRefire(slotMs);
   }
+  // No map (a legacy reminder, or one older than the retention window): we
+  // cannot tell which doses this message covered, so we never cancel. The chain
+  // expires on its own at the relay's 6h cap — the pre-med-eas.74 behavior, and
+  // strictly better than silencing a dose that drifted out of the ±band.
 
   // Edit the original reminder message to a receipt and drop its buttons (the
   // edit sends no reply_markup — bug 1). Only when we actually applied something:
