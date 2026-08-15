@@ -155,7 +155,17 @@ export function createIntakeDomain({ records, now, timeZone }) {
 
       const record = {
         recordId: id,
-        clientTs: nowMs,
+        // DERIVED state, so it takes the LOWEST possible LWW precedence — not
+        // now(). This row is re-derivable from the schedule on every device and
+        // its id is deterministic, so a device whose mirror predates a confirm
+        // (it was closed when the Telegram tap drained elsewhere) re-creates
+        // the very same recordId as PENDING. Stamped with now() that stale
+        // re-creation is the NEWEST write, and LWW erases the real TAKEN — a
+        // confirmed dose silently reverting to Pending hours later, on every
+        // device (bd med-d4w). A floor clientTs makes materialization lose
+        // every merge against a real write, which is exactly its standing: it
+        // only ever needs to win against nothing at all.
+        clientTs: 0,
         deleted: false,
         medication_id: target.medicationId,
         scheduled_at: new Date(target.scheduledAtMs).toISOString(),

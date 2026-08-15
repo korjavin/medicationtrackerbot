@@ -116,6 +116,31 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         for (const i of atSlot) expect(i.status).toBe('TAKEN');
     });
 
+    // The silent-revert regression (bd med-d4w): a device whose mirror predates
+    // the tap re-materializes the SAME deterministic recordId as PENDING on its
+    // next open. Materialization is derived state, so that write must LOSE the
+    // LWW merge (sync.js: `record.clientTs > existing.clientTs`) against the real
+    // TAKEN — otherwise a confirmed dose reverts to Pending on every device.
+    it('re-materializing a slot cannot outrank a confirm that already happened', async () => {
+        const med = { recordId: 'med-a', deleted: false, name: 'Lisinopril', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 30 };
+        const now = () => DRAIN_MS;
+
+        // Device A drained the Telegram tap and holds the confirmed dose.
+        const deviceA = fakeRecords({ medication: [med], intake: [] });
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(deviceA, now), records: deviceA, now });
+        const confirmed = (await deviceA.list('intake')).find((i) => i.scheduled_at === SLOT_ISO);
+        expect(confirmed.status).toBe('TAKEN');
+
+        // Device B was closed through all of it: same med, no intake rows yet.
+        const deviceB = fakeRecords({ medication: [med], intake: [] });
+        await domainFor(deviceB, now).materializeDueDoses();
+        const stale = (await deviceB.list('intake')).find((i) => i.recordId === confirmed.recordId);
+        expect(stale.status).toBe('PENDING');
+
+        // ...and on sync, the merge every device runs must keep the TAKEN.
+        expect(stale.clientTs > confirmed.clientTs).toBe(false);
+    });
+
     // The data-loss regression: the callback slot and the stored intake's
     // scheduled_at are re-derived independently and drift when a dose is clustered
     // (triggerNext/confirmSchedule store it at clusterEarliestMs, up to the 10min
