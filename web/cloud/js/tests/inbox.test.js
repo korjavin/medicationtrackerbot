@@ -456,6 +456,32 @@ describe('startInboxPolling', () => {
         vi.useRealTimers();
     });
 
+    // med-9y9: the tick now AWAITS onApplied — that callback is the reminder
+    // horizon recompute + upload, and detaching it left it running outside the
+    // drain chain in a tab the browser is free to freeze the instant the tick
+    // returns, which is how a 7-day horizon quietly reached its last slot.
+    // Awaiting it also means a rejection lands in the tick's own catch instead
+    // of becoming an unhandled rejection — and must not stop the poller.
+    it('keeps polling when the awaited onApplied rejects (med-9y9)', async () => {
+        vi.useFakeTimers();
+        const doc = fakeDoc('visible');
+        const drain = vi.fn(async () => ({ applied: 1 }));
+        const onApplied = vi.fn(async () => { throw new Error('recompute/push failed'); });
+
+        const stop = startInboxPolling(ctx, { apply: () => {}, intervalMs: 1000, doc, drain, onApplied });
+
+        await vi.advanceTimersByTimeAsync(1100);
+        expect(onApplied).toHaveBeenCalledTimes(1);
+        expect(onApplied).toHaveBeenCalledWith({ applied: 1 });
+
+        // The poller survives it and keeps draining on later ticks.
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(drain.mock.calls.length).toBeGreaterThan(1);
+
+        stop();
+        vi.useRealTimers();
+    });
+
     it('drains on an interval while the tab is visible', async () => {
         vi.useFakeTimers();
         const fetchImpl = emptyMailbox();

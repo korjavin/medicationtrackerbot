@@ -322,7 +322,13 @@ export function startInboxPolling(ctx, {
       } else if (result.applied > 0) {
         noProgress = 0;
         skipTicks = 0;
-        onApplied(result);
+        // Awaited (bd med-9y9): onApplied is the reminder-horizon recompute +
+        // upload, and detaching it here would put it back in exactly the place
+        // the fix took it out of — a hidden tab that the browser is free to
+        // freeze the moment this tick returns. Keeping it inside the tick keeps
+        // it inside the drain chain. drainInbox's own in-flight guard makes the
+        // next tick a no-op if this one is still running, so it cannot pile up.
+        await onApplied(result);
       } else if (result.wedged || result.stalled || result.failed > (result.unopenable || 0)) {
         // No progress this tick: wedged, a leading flush-false stall, or every
         // event failed to APPLY (a poison event that throws in apply). Back off
