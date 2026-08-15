@@ -917,12 +917,13 @@ func TestAccountsNeedingStaleSyncWarning_EmptyQueue(t *testing.T) {
 		}
 		return acc.ID
 	}
-	// drainQueue queues one entry and marks it sent, leaving ZERO unsent rows —
-	// an account that used reminders and whose horizon has now run out.
-	drainQueue := func(accountID string) {
+	// drainQueue queues one entry firing at fireAt and marks it sent, leaving
+	// ZERO unsent rows — an account that used reminders and whose horizon has
+	// run out (recently, or long ago).
+	drainQueue := func(accountID string, fireAt time.Time) {
 		t.Helper()
 		if err := r.ReplaceSchedule(ctx, accountID, []ScheduledPushInput{
-			{FireAt: now.Add(-time.Minute), Delivery: DeliveryTelegram, TGText: "Time to take: X"},
+			{FireAt: fireAt, Delivery: DeliveryTelegram, TGText: "Time to take: X"},
 		}, now); err != nil {
 			t.Fatalf("ReplaceSchedule(%s): %v", accountID, err)
 		}
@@ -941,7 +942,7 @@ func TestAccountsNeedingStaleSyncWarning_EmptyQueue(t *testing.T) {
 	}
 
 	dry := mkAccount("acc-dry", "keen-heron-dry001")
-	drainQueue(dry)
+	drainQueue(dry, now.Add(-time.Minute))
 
 	never := mkAccount("acc-never", "keen-heron-nev002") // never scheduled anything
 
@@ -952,8 +953,14 @@ func TestAccountsNeedingStaleSyncWarning_EmptyQueue(t *testing.T) {
 		t.Fatalf("ReplaceSchedule(live): %v", err)
 	}
 
+	// Reminders switched OFF a month ago: ReplaceSchedule wiped the unsent rows
+	// and left the sent history, which looks identical to a rotted horizon. The
+	// backward window is what stops that account being nagged daily forever.
+	off := mkAccount("acc-off", "keen-heron-off005")
+	drainQueue(off, now.Add(-30*24*time.Hour))
+
 	nosub := mkAccount("acc-nosub", "keen-heron-nos004")
-	drainQueue(nosub)
+	drainQueue(nosub, now.Add(-time.Minute))
 	if err := r.Disable(ctx, "https://push.example/acc-nosub"); err != nil {
 		t.Fatalf("Disable: %v", err)
 	}
@@ -975,7 +982,7 @@ func TestAccountsNeedingStaleSyncWarning_EmptyQueue(t *testing.T) {
 	if !got[dry] {
 		t.Errorf("empty-queue account not warned — the med-2lx regression is back: %v", got)
 	}
-	for _, id := range []string{never, live, nosub} {
+	for _, id := range []string{never, live, off, nosub} {
 		if got[id] {
 			t.Errorf("account %s must not be warned: %v", id, got)
 		}

@@ -229,21 +229,35 @@ func (r *Repo) PutSnapshot(ctx context.Context, accountID string, snapshotSeq in
 //     reminder horizon rots away to nothing.
 //
 // Because an empty queue now qualifies, the predicate has to exclude accounts
-// that never wanted reminders in the first place — otherwise every account
-// ever created would be nagged. Two EXISTS guards do that: a live
-// (non-disabled) push subscription to warn THROUGH — with none there is no
-// delivery channel anyway — and at least one scheduled push ever queued (a
-// sent row counts) as proof reminders were actually set up.
+// that are not waiting on a horizon at all — otherwise every account ever
+// created is nagged, forever. Two guards, and the second is a WINDOW, not an
+// ever-happened test:
+//
+//   - a live (non-disabled) push subscription to warn THROUGH; with none there
+//     is no delivery channel anyway;
+//   - the account's most recent scheduled push, sent or not, fires no longer
+//     than dryQueueWithin BEHIND now. Reminders were live within the last
+//     window, so an exhausted horizon is news. Symmetric with the forward test,
+//     off the same knob (CLOUD_DRY_QUEUE_WARN_HOURS), and NULL — never
+//     scheduled anything — fails it.
+//
+// The window is what keeps this honest for a user who turned reminders off on
+// purpose: ReplaceSchedule deletes the unsent rows but leaves the sent history,
+// which looks exactly like a horizon that rotted. Nobody can tell those apart
+// from outside the vault, so the warning is bounded instead: a few daily nags
+// after the last reminder, then silence. An account that has been quiet for
+// longer than a full window is not waiting for this push.
 func (r *Repo) AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, warnCooldown time.Duration) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT ss.account_id
 		 FROM sync_state ss
 		 WHERE COALESCE((SELECT MAX(fire_at_unix) FROM scheduled_pushes
 		                 WHERE account_id = ss.account_id AND sent_at_unix IS NULL), 0) <= ?
+		   AND (SELECT MAX(fire_at_unix) FROM scheduled_pushes WHERE account_id = ss.account_id) >= ?
 		   AND EXISTS (SELECT 1 FROM push_subscriptions WHERE account_id = ss.account_id AND disabled = 0)
-		   AND EXISTS (SELECT 1 FROM scheduled_pushes WHERE account_id = ss.account_id)
 		   AND (ss.last_warned_unix IS NULL OR ss.last_warned_unix <= ?)`,
 		storedb.TimeToUnix(now.Add(dryQueueWithin)),
+		storedb.TimeToUnix(now.Add(-dryQueueWithin)),
 		storedb.TimeToUnix(now.Add(-warnCooldown)))
 	if err != nil {
 		return nil, err
