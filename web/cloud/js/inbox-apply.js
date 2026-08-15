@@ -249,7 +249,11 @@ async function getSlotMedicationsSafe(getSlotMeds, slotUnix) {
 // atUnix is the SERVER's timestamp for the tap, so a Confirm tapped at 09:00
 // records taken_at 09:00 even when the app first opens at noon — the backdating
 // rule (docs/cloud-mode.md → drain protocol, rule 4).
-export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, getSlotMeds, cancelRefire = cancelMedRefire }) {
+// cancelRefire is injected by createInboxApplier (the only production caller),
+// which passes the real cancelMedRefire. It defaults to a no-op rather than to
+// cancelMedRefire so a direct call — every test in this module's suite — never
+// reaches for an ambient fetch.
+export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, getSlotMeds, cancelRefire = () => {} }) {
   const slotMeds = getSlotMeds
     || ((slotUnix) => createRemindersDomain({ records, now }).getSlotMedications(slotUnix));
   const slotMs = event.slot_unix * 1000;
@@ -267,12 +271,13 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   const intakes = await records.list(INTAKE_RECORD_TYPE);
   const medicationIds = await getSlotMedicationsSafe(slotMeds, event.slot_unix);
 
-  // medById + each med's own drift band (minDoseInterval) are needed by both the
-  // identity selection and the receipt count, so build them once.
+  // medById + each med's own drift band (minDoseInterval) are needed by the
+  // identity selection, the receipt count, AND the re-fire cancel below, so
+  // build them once. Loaded on BOTH paths: the fallback path selects by the
+  // fixed ±band, but a dose drifted past it there is a deliberate false-negative
+  // that stays PENDING — the cancel must still see it as due (med-fml).
   const medById = new Map();
-  if (medicationIds) {
-    for (const m of await records.list(MEDICATION_RECORD_TYPE)) medById.set(m.recordId, m);
-  }
+  for (const m of await records.list(MEDICATION_RECORD_TYPE)) medById.set(m.recordId, m);
   const medBandMs = (medId) => {
     const med = medById.get(medId);
     return med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
@@ -837,7 +842,7 @@ async function confirmDueIntakes({ intake, records, atMs, now }) {
 // decrypted event in, a domain write out. Unknown kinds are ignored rather than
 // thrown — a newer relay may queue kinds this client predates, and stalling the
 // whole drain on one of them would block the events it does understand.
-export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride, history: historyOverride } = {}) {
+export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, cancelRefire = cancelMedRefire, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride, history: historyOverride } = {}) {
   // A Telegram-drained /bp must repaint an open BP screen (med-d5t.10), so this
   // is explicitly external even though that is already the default. deferFlush:
   // an applied event's writes only queue to 'pending'; drainInbox pushes them
@@ -974,6 +979,6 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     // verbosity only affects the cosmetic receipt text — never gate the confirm
     // data-write on this read: a rejected pref read falls back to generic.
     const { verbosity } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic' }));
-    await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply });
+    await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply, cancelRefire });
   };
 }

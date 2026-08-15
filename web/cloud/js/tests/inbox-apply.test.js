@@ -212,11 +212,15 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
             ],
         });
         const now = () => DRAIN_MS;
-        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now });
+        const cancelRefire = vi.fn();
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now, cancelRefire });
 
         const intakes = await records.list('intake');
         expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
         expect(intakes.find((i) => i.recordId === 'intake-med-b-far').status).toBe('PENDING');
+        // ...and that deliberate false-negative must keep the slot's relay re-fire
+        // chain alive, or the re-reminder it relies on never comes (bd med-fml).
+        expect(cancelRefire).not.toHaveBeenCalled();
     });
 
     // Rule 2. The mailbox is at-least-once: a crash between the vault write and
@@ -757,13 +761,18 @@ describe('inbox-apply.js — createInboxApplier routing', () => {
         warn.mockRestore();
     });
 
-    it('routes a real intake_slot_action through the domain', async () => {
+    it('routes a real intake_slot_action through the domain, and wires the re-fire cancel', async () => {
         const records = fakeRecords(seed());
-        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS });
+        // cancelRefire is the applier's job to supply (in production, the real
+        // cancelMedRefire POST) — applyIntakeSlotAction itself defaults to a
+        // no-op, so this asserts the wiring, not the default (bd med-fml).
+        const cancelRefire = vi.fn();
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS, cancelRefire });
         await apply(confirmEvent);
 
         const atSlot = (await records.list('intake')).filter((i) => i.scheduled_at === SLOT_ISO);
         expect(atSlot.every((i) => i.status === 'TAKEN')).toBe(true);
+        expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
     });
 });
 
