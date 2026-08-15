@@ -929,13 +929,13 @@ func TestAccountsNeedingStaleSyncWarning(t *testing.T) {
 		}
 	}
 
-	// drainQueue arms one reminder in the past and marks it sent, leaving the
-	// account with ZERO unsent rows — the production shape of jolly-zebra-mkvfmv
-	// after its last queued reminder fired.
-	drainQueue := func(id string) {
+	// drainQueue arms one reminder `ago` in the past and marks it sent, leaving
+	// the account with ZERO unsent rows — the production shape of
+	// jolly-zebra-mkvfmv after its last queued reminder fired.
+	drainQueue := func(id string, ago time.Duration) {
 		t.Helper()
 		if err := r.ReplaceSchedule(ctx, id, []ScheduledPushInput{
-			{FireAt: now.Add(-time.Hour), CT: []byte("fired-ct")},
+			{FireAt: now.Add(-ago), CT: []byte("fired-ct")},
 		}, now); err != nil {
 			t.Fatalf("ReplaceSchedule(%s): %v", id, err)
 		}
@@ -969,7 +969,7 @@ func TestAccountsNeedingStaleSyncWarning(t *testing.T) {
 	// The production failure: subscribed, reminders fired for months, queue now
 	// completely empty. Must be the loudest case, not an invisible one.
 	mkAccount("acc-dry", "jolly-zebra-mkvfmv", true)
-	drainQueue("acc-dry")
+	drainQueue("acc-dry", time.Hour)
 
 	// Healthy: the horizon still reaches well past the warn window.
 	mkAccount("acc-healthy", "calm-otter-aaa111", true)
@@ -995,10 +995,19 @@ func TestAccountsNeedingStaleSyncWarning(t *testing.T) {
 	// Dry, but its only subscription is disabled (410 Gone): the warning is
 	// itself a web push, so there is nothing to deliver it over.
 	mkAccount("acc-nosub", "lone-heron-ddd444", true)
-	drainQueue("acc-nosub")
+	drainQueue("acc-nosub", time.Hour)
 	if err := r.Disable(ctx, "https://push.example/acc-nosub"); err != nil {
 		t.Fatalf("Disable: %v", err)
 	}
+
+	// Empty for far longer than the warn window: either every reminder was
+	// deliberately switched off (the client PUTs an empty replace-all schedule,
+	// which the server cannot tell from a browser that stopped uploading) or the
+	// account was simply abandoned. Escalate-then-stop: after dryQueueWithin with
+	// nothing in the queue, the warning goes permanently quiet rather than
+	// nagging once a day forever.
+	mkAccount("acc-longgone", "grey-marten-eee555", true)
+	drainQueue("acc-longgone", 10*24*time.Hour)
 
 	got := warned()
 	for _, want := range []string{"acc-dry", "acc-soon"} {
@@ -1006,7 +1015,7 @@ func TestAccountsNeedingStaleSyncWarning(t *testing.T) {
 			t.Errorf("%s not warned; want warned (got %v)", want, got)
 		}
 	}
-	for _, skip := range []string{"acc-healthy", "acc-never", "acc-nosub"} {
+	for _, skip := range []string{"acc-healthy", "acc-never", "acc-nosub", "acc-longgone"} {
 		if got[skip] {
 			t.Errorf("%s warned; want skipped (got %v)", skip, got)
 		}

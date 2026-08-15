@@ -228,15 +228,28 @@ func (r *Repo) PutSnapshot(ctx context.Context, accountID string, snapshotSeq in
 // signal is horizon exhaustion, not user absence.
 //
 // The two EXISTS clauses are the anti-spam guard that dropping the sync gate
-// makes necessary: every account that never set up reminders has an empty queue
-// too. To be warned, an account must
+// makes necessary: every account that never armed reminders, and every account
+// that deliberately switched them all off, has an empty queue too. To be warned,
+// an account must
 //
 //  1. have at least one ENABLED push subscription — the warning is itself a web
 //     push, so this is also a precondition for it being deliverable at all; and
-//  2. have had at least one scheduled push at some point. MarkPushSent blanks a
-//     row's payload but never deletes it, so a queue that fired for months and
-//     then went dry still satisfies this, while an account that never armed
-//     reminders never does.
+//  2. have a scheduled push, in ANY state, that fired (or is due to fire) within
+//     the last dryQueueWithin. MarkPushSent blanks a fired row's payload but
+//     never deletes it, so a queue that ran for months and then dried out still
+//     satisfies this, while an account that never armed reminders never does.
+//
+// Clause 2's RECENCY bound is what keeps this from becoming a permanent nag, and
+// it is the one thing the server cannot decide precisely: an account that turned
+// every reminder off uploads an empty replace-all schedule, which is byte for
+// byte the same end state as an account whose browser stopped re-uploading.
+// Distinguishing them would need the server to remember when the client last PUT
+// a schedule (a sync_state column this fix deliberately does not add). Bounding
+// the window instead makes the warning escalate-then-stop for EVERY class: the
+// real dry-queue case is warned from the first sweep after its last reminder
+// fires (once a day, covering the incident from day one), and any account still
+// empty dryQueueWithin later — deliberately off, or long abandoned — goes
+// permanently quiet instead of being nagged forever.
 //
 // last_warned_unix keeps it to one warning per warnCooldown. The sweep is keyed
 // off sync_state because that is where last_warned_unix lives (MarkStaleSyncWarned
@@ -252,9 +265,10 @@ func (r *Repo) AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Tim
 		 WHERE COALESCE(sp.latest_fire, 0) <= ?
 		   AND (ss.last_warned_unix IS NULL OR ss.last_warned_unix <= ?)
 		   AND EXISTS (SELECT 1 FROM push_subscriptions ps WHERE ps.account_id = ss.account_id AND ps.disabled = 0)
-		   AND EXISTS (SELECT 1 FROM scheduled_pushes ap WHERE ap.account_id = ss.account_id)`,
+		   AND EXISTS (SELECT 1 FROM scheduled_pushes ap WHERE ap.account_id = ss.account_id AND ap.fire_at_unix >= ?)`,
 		storedb.TimeToUnix(now.Add(dryQueueWithin)),
-		storedb.TimeToUnix(now.Add(-warnCooldown)))
+		storedb.TimeToUnix(now.Add(-warnCooldown)),
+		storedb.TimeToUnix(now.Add(-dryQueueWithin)))
 	if err != nil {
 		return nil, err
 	}
