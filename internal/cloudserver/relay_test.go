@@ -116,9 +116,12 @@ func TestRelay_DueSelection_ReplaceAll_DisablesGone(t *testing.T) {
 	}
 }
 
-// TestRelay_StaleSyncSweep guards Task 7's dry-queue safety net: only an
-// account whose queue is about to run dry AND hasn't synced recently gets
-// warned, and a second sweep within the cooldown doesn't re-warn it.
+// TestRelay_StaleSyncSweep guards the dry-queue safety net: an account whose
+// queue has run FULLY dry gets warned even though it synced seconds ago (bd
+// med-2lx — the browser owns the horizon, so "synced recently" says nothing
+// about whether any reminder is still queued), an account that never scheduled
+// a reminder is left alone, and a second sweep within the cooldown doesn't
+// re-warn.
 func TestRelay_StaleSyncSweep(t *testing.T) {
 	store := setupStore(t)
 	account, claimToken := setupInvite(t, store)
@@ -138,23 +141,37 @@ func TestRelay_StaleSyncSweep(t *testing.T) {
 		t.Fatalf("UpsertPushSubscription: %v", err)
 	}
 
-	// Queue's only entry fires soon (within the warn horizon).
+	// The queue's only entry is due, and a tick fires it — leaving the account
+	// with ZERO unsent rows. That is the production failure state: the old
+	// INNER JOIN over unsent rows dropped such an account entirely, so the one
+	// case that most needs the warning was the one case that could never get it.
 	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{
-		{FireAtUnix: time.Now().Add(time.Hour).Unix(), CT: []byte("soon-ct")},
+		{FireAtUnix: time.Now().Add(-time.Minute).Unix(), CT: []byte("last-ct")},
 	}})
+	NewRelay(store, &fakeSender{}, nil, 0).Tick(ctx)
 
-	// Backdate last_sync_unix past staleSyncAfter (24h) via ListOps' now param
-	// — the only way to set it without reaching into cloudstore internals.
-	if _, err := store.ListOps(ctx, account.ID, 0, 100, time.Now().Add(-25*time.Hour)); err != nil {
-		t.Fatalf("ListOps (backdate sync): %v", err)
+	// Sync at NOW, not backdated: an account draining Telegram taps looks
+	// freshly synced while its horizon rots, so recency must not gate the warning.
+	if _, err := store.ListOps(ctx, account.ID, 0, 100, time.Now()); err != nil {
+		t.Fatalf("ListOps (touch sync): %v", err)
+	}
+
+	// A second account that syncs and has a live subscription but never
+	// scheduled a reminder has an "empty queue" too — and must stay silent.
+	other, _ := setupInvite(t, store)
+	if err := store.UpsertPushSubscription(ctx, other.ID, "https://push.example/other", "p256dh", "auth", time.Now().UTC()); err != nil {
+		t.Fatalf("UpsertPushSubscription (other): %v", err)
+	}
+	if _, err := store.ListOps(ctx, other.ID, 0, 100, time.Now()); err != nil {
+		t.Fatalf("ListOps (other): %v", err)
 	}
 
 	sender := &fakeSender{goneFor: map[string]bool{}}
 	relay := NewRelay(store, sender, nil, 120*time.Hour)
 	relay.StaleSyncSweep(ctx)
 
-	if len(sender.sent) != 1 {
-		t.Fatalf("expected 1 warning send, got %d: %+v", len(sender.sent), sender.sent)
+	if len(sender.sent) != 1 || sender.sent[0].endpoint != "https://push.example/ok" {
+		t.Fatalf("expected exactly 1 warning send, to the dry account, got %d: %+v", len(sender.sent), sender.sent)
 	}
 	var payload struct {
 		Kind  string `json:"kind"`

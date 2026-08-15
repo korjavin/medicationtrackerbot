@@ -208,21 +208,63 @@ func (r *Repo) PutSnapshot(ctx context.Context, accountID string, snapshotSeq in
 }
 
 // AccountsNeedingStaleSyncWarning returns account IDs whose scheduled-push
-// queue is about to run dry (the latest unsent entry fires within
-// dryQueueWithin of now) while the account hasn't synced in staleAfter and
-// hasn't already been warned within warnCooldown (Task 7's dry-queue safety
-// net — docs/cloud-mode.md "Dry-queue safety net").
-func (r *Repo) AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, staleAfter, warnCooldown time.Duration) ([]string, error) {
+// queue has run — or is about to run — dry: the latest UNSENT entry fires
+// within dryQueueWithin of now, and the account hasn't already been warned
+// within warnCooldown (the dry-queue safety net — docs/cloud-mode.md).
+//
+// The horizon is computed in the browser and uploaded as a replace-all batch;
+// the server cannot extend it. Two things follow, both learned the hard way
+// (bd med-2lx, a production account that missed 5 morning doses in silence):
+//
+//  1. An EMPTY queue is the loudest case, not an invisible one. The old query
+//     INNER JOINed a subquery over unsent rows, so an account with zero unsent
+//     rows produced no row to join against and could never be warned — the net
+//     worked only in the narrow band where the queue was nearly-but-not-yet
+//     dry. The MAX() is now a correlated subquery COALESCEd to 0, so "no unsent
+//     rows" collapses to 0 and always trips the dryQueueWithin test.
+//  2. Sync recency is the wrong signal, so it is gone. Every Telegram inbox
+//     drain flushes ops through the sync API, which touches last_sync_unix
+//     (AppendOps/ListOps/GetSnapshot/PutSnapshot above), so an account alive
+//     enough to tap Confirm in Telegram always looks freshly synced while its
+//     reminder horizon rots away to nothing.
+//
+// Because an empty queue now qualifies, the predicate has to exclude accounts
+// that are not waiting on a horizon at all — otherwise every account ever
+// created is nagged, forever. Two guards, and the second is a WINDOW, not an
+// ever-happened test:
+//
+//   - a live (non-disabled) push subscription to warn THROUGH; with none there
+//     is no delivery channel anyway;
+//   - the account's most recent scheduled push, sent or not, fires no longer
+//     than dryQueueWithin BEHIND now. Reminders were live within the last
+//     window, so an exhausted horizon is news. Symmetric with the forward test,
+//     off the same knob (CLOUD_DRY_QUEUE_WARN_HOURS), and NULL — never
+//     scheduled anything — fails it.
+//
+// The window is what keeps this honest for a user who turned reminders off on
+// purpose: ReplaceSchedule deletes the unsent rows but leaves the sent history,
+// which looks exactly like a horizon that rotted. Nobody can tell those apart
+// from outside the vault, so the warning is bounded instead: a few daily nags
+// after the last reminder, then silence. An account that has been quiet for
+// longer than a full window is not waiting for this push.
+//
+// ponytail: two correlated MAX() subqueries per sync_state row, and
+// scheduled_pushes is indexed on (sent_at_unix, fire_at_unix), not account_id —
+// so this re-scans that table per account. Fine at self-hosted scale on an
+// HOURLY sweep (accounts × a few days of queue); if the sweep ever shows up in
+// a profile, add an idx_scheduled_pushes_account(account_id, fire_at_unix)
+// migration rather than contorting the query.
+func (r *Repo) AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, warnCooldown time.Duration) ([]string, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT ss.account_id
 		 FROM sync_state ss
-		 JOIN (SELECT account_id, MAX(fire_at_unix) AS latest_fire FROM scheduled_pushes WHERE sent_at_unix IS NULL GROUP BY account_id) sp
-		   ON sp.account_id = ss.account_id
-		 WHERE sp.latest_fire <= ?
-		   AND ss.last_sync_unix IS NOT NULL AND ss.last_sync_unix <= ?
+		 WHERE COALESCE((SELECT MAX(fire_at_unix) FROM scheduled_pushes
+		                 WHERE account_id = ss.account_id AND sent_at_unix IS NULL), 0) <= ?
+		   AND (SELECT MAX(fire_at_unix) FROM scheduled_pushes WHERE account_id = ss.account_id) >= ?
+		   AND EXISTS (SELECT 1 FROM push_subscriptions WHERE account_id = ss.account_id AND disabled = 0)
 		   AND (ss.last_warned_unix IS NULL OR ss.last_warned_unix <= ?)`,
 		storedb.TimeToUnix(now.Add(dryQueueWithin)),
-		storedb.TimeToUnix(now.Add(-staleAfter)),
+		storedb.TimeToUnix(now.Add(-dryQueueWithin)),
 		storedb.TimeToUnix(now.Add(-warnCooldown)))
 	if err != nil {
 		return nil, err

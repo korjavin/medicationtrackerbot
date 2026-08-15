@@ -121,7 +121,7 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
           startReconnectAutoDrain: () => { autoDrainStarted = true; return () => {}; },
           getSyncStatus: async () => ({ authExpired: false }),
         },
-        'reminders.js': { scheduleReminderRecompute: () => {} },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
         'mcp-responder.js': { refreshResponder: () => {} },
       },
     });
@@ -154,7 +154,7 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
           startReconnectAutoDrain: (_ctx, opts) => { drainOpts = opts; return () => {}; },
           getSyncStatus: async () => { statusChecks++; return { authExpired: false }; },
         },
-        'reminders.js': { scheduleReminderRecompute: () => {} },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
         'mcp-responder.js': { refreshResponder: () => {} },
       },
     });
@@ -196,7 +196,7 @@ describe('cloud-boot feedback launcher mount gate (med-dni.2 Task 3)', () => {
         getSyncStatus: async () => ({ authExpired: false }),
         readAllLiveRecords: async () => [],
       },
-      'reminders.js': { scheduleReminderRecompute: () => {} },
+      'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
       'push.js': { ensurePushSubscription: async () => ({}) },
       'mcp-responder.js': { refreshResponder: () => {} },
       'inbox.js': { ensureInboxKey: async () => {}, drainInbox: async () => ({ applied: 0 }), startInboxPolling: () => {} },
@@ -273,6 +273,12 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     const handlers = [];
     fakeServiceWorker(handlers);
     let pollersStarted = 0;
+    let pollerOpts = null;
+    // Reminder-horizon bookkeeping (med-9y9): recomputes counts the UN-debounced
+    // recomputeAndPush calls, debounced counts anything still going through the
+    // 2s scheduler — which, on the boot + drain paths, must stay at zero.
+    let recomputes = 0;
+    let debounced = 0;
     await runBoot({
       modules: {
         'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
@@ -283,13 +289,16 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
           getSyncStatus: async () => ({ authExpired: false }),
           readAllLiveRecords: async () => [],
         },
-        'reminders.js': { scheduleReminderRecompute: () => {} },
+        'reminders.js': {
+          scheduleReminderRecompute: () => { debounced += 1; },
+          recomputeAndPush: async () => { recomputes += 1; },
+        },
         'push.js': { ensurePushSubscription: async () => ({}) },
         'mcp-responder.js': { refreshResponder: () => {} },
         'inbox.js': {
           ensureInboxKey: async () => {},
           drainInbox: async () => ({ applied: 0 }),
-          startInboxPolling: () => { pollersStarted += 1; },
+          startInboxPolling: (_ctx, opts) => { pollersStarted += 1; pollerOpts = opts; },
           ...inbox,
         },
         'inbox-apply.js': { createInboxApplier: () => async () => {} },
@@ -303,6 +312,9 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
       acks,
       handlers,
       pollers: () => pollersStarted,
+      pollerOpts: () => pollerOpts,
+      recomputes: () => recomputes,
+      debounced: () => debounced,
       dispatch: (data) => handlers.forEach((h) => h({ data, ports: [port] })),
     };
   }
@@ -358,6 +370,32 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     expect(drains).toBe(2);
   });
 
+  // med-9y9 — the horizon is computed HERE and nowhere else, so a recompute the
+  // browser drops is reminders stopping forever, silently. The post-drain
+  // recompute used to be a fire-and-forget 2s debounce, in a tab the browser is
+  // free to freeze or discard mid-timer (this path is normally reached from an
+  // inbox-wake push into a BACKGROUNDED tab), and a burst of acks re-armed that
+  // timer on every one. It must run immediately and be awaited.
+  it('recomputes the reminder horizon immediately after an applied drain, never on a debounce', async () => {
+    let applied = 0;
+    const boot = await bootInbox({ drainInbox: async () => ({ applied }) });
+
+    // Nothing applied: only the on-unlock self-heal recompute ran.
+    expect(boot.recomputes()).toBe(1);
+
+    applied = 1;
+    boot.dispatch({ type: 'inbox-wake' });
+    await flush();
+    expect(boot.recomputes()).toBe(2); // the wake drain extended the horizon...
+
+    // ...and so does the poller's own applied drain (afterApply is its onApplied).
+    await boot.pollerOpts().onApplied({ applied: 1 });
+    expect(boot.recomputes()).toBe(3);
+
+    // No path here may leave the horizon sitting behind a droppable timer.
+    expect(boot.debounced()).toBe(0);
+  });
+
   it('still installs the poller and the wake listener when the initial drain rejects', async () => {
     let drains = 0;
     const { acks, dispatch, pollers } = await bootInbox({
@@ -393,7 +431,7 @@ describe('CloudVault.resetLocalSync inbox-clear ordering (med-eas.51)', () => {
           resetLocalSync: resetImpl || (async () => { order.push('reset'); }),
         },
         'inbox.js': { clearInbox: async () => { order.push('clear'); return 0; } },
-        'reminders.js': { scheduleReminderRecompute: () => {} },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
         'mcp-responder.js': { refreshResponder: () => {} },
       },
     });
@@ -419,7 +457,7 @@ describe('CloudVault.resetLocalSync inbox-clear ordering (med-eas.51)', () => {
           resetLocalSync: async () => { order.push('reset'); },
         },
         'inbox.js': { clearInbox: async () => { throw new Error('network down'); } },
-        'reminders.js': { scheduleReminderRecompute: () => {} },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
         'mcp-responder.js': { refreshResponder: () => {} },
       },
     });
@@ -462,7 +500,7 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
         'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
         'sync.js': sync.mod,
         '/domain/vault.js': VAULT_MOD,
-        'reminders.js': { scheduleReminderRecompute: () => {} },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
         'mcp-responder.js': { refreshResponder: () => {} },
       },
     });
@@ -509,7 +547,7 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
           'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
           'sync.js': sync.mod,
           '/domain/vault.js': realVault,
-          'reminders.js': { scheduleReminderRecompute: () => {} },
+          'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
           'mcp-responder.js': { refreshResponder: () => {} },
         },
       });

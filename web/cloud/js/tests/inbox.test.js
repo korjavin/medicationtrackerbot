@@ -456,6 +456,29 @@ describe('startInboxPolling', () => {
         vi.useRealTimers();
     });
 
+    // med-9y9 — onApplied is the reminder-horizon recompute, and the poller now
+    // awaits it so drain and recompute are ordered rather than racing a tab the
+    // browser may freeze between them. Its failure is NOT the drain's failure:
+    // events were applied, so the poll must keep full cadence instead of arming
+    // the no-progress backoff.
+    it('awaits the applied-drain hook and keeps full cadence when it fails', async () => {
+        vi.useFakeTimers();
+        const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const doc = fakeDoc('visible');
+        const drain = vi.fn(async () => ({ applied: 1 }));
+        const onApplied = vi.fn(async () => { throw new Error('schedule PUT failed'); });
+
+        const stop = startInboxPolling(ctx, { apply: () => {}, intervalMs: 1000, doc, drain, onApplied });
+
+        await vi.advanceTimersByTimeAsync(4000);
+        expect(drain.mock.calls.length).toBe(4); // no backoff armed
+        expect(onApplied).toHaveBeenCalledTimes(4);
+
+        stop();
+        err.mockRestore();
+        vi.useRealTimers();
+    });
+
     it('drains on an interval while the tab is visible', async () => {
         vi.useFakeTimers();
         const fetchImpl = emptyMailbox();

@@ -322,7 +322,12 @@ export function startInboxPolling(ctx, {
       } else if (result.applied > 0) {
         noProgress = 0;
         skipTicks = 0;
-        onApplied(result);
+        // Awaited (bd med-9y9): onApplied is the reminder-horizon recompute,
+        // and a floating promise here left the drain and the recompute
+        // unordered — the tab could be frozen between them. Its own rejection
+        // is swallowed rather than falling into the catch below: the drain DID
+        // make progress, so a failed recompute must not arm the poll backoff.
+        await Promise.resolve(onApplied(result)).catch((e) => console.error('[inbox] onApplied failed', e));
       } else if (result.wedged || result.stalled || result.failed > (result.unopenable || 0)) {
         // No progress this tick: wedged, a leading flush-false stall, or every
         // event failed to APPLY (a poison event that throws in apply). Back off

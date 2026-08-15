@@ -887,3 +887,115 @@ func TestRelayRefiresClearedOnChatRelink(t *testing.T) {
 		t.Fatalf("UpsertBot relink did not clear pending re-fires: got %d, want 0", got)
 	}
 }
+
+// TestAccountsNeedingStaleSyncWarning_EmptyQueue pins bd med-2lx: the dry-queue
+// safety net must fire for an account whose queue has gone FULLY dry — the state
+// that stranded a production account for 5 days — while staying quiet for
+// accounts that never asked for reminders, that still have a live horizon, or
+// that have no enabled subscription to warn through. Sync recency is
+// deliberately NOT part of the predicate: every account here synced at `now`.
+func TestAccountsNeedingStaleSyncWarning_EmptyQueue(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	const dryWithin = 120 * time.Hour
+	const cooldown = 24 * time.Hour
+
+	// mkAccount creates an account, gives it a sync_state row dated `now` (so no
+	// stale-sync gate could ever explain a warning), and a push subscription.
+	mkAccount := func(id, subdomain string) string {
+		t.Helper()
+		acc, err := r.CreateAccount(ctx, id, subdomain, []byte("hash"), now.Add(time.Hour), now, "", "", "")
+		if err != nil {
+			t.Fatalf("CreateAccount(%s): %v", id, err)
+		}
+		if _, err := r.ListOps(ctx, acc.ID, 0, 10, now); err != nil {
+			t.Fatalf("ListOps(%s): %v", id, err)
+		}
+		if err := r.UpsertPushSubscription(ctx, acc.ID, "https://push.example/"+id, "p256dh", "auth", now); err != nil {
+			t.Fatalf("UpsertPushSubscription(%s): %v", id, err)
+		}
+		return acc.ID
+	}
+	// drainQueue queues one entry firing at fireAt and marks it sent, leaving
+	// ZERO unsent rows — an account that used reminders and whose horizon has
+	// run out (recently, or long ago).
+	drainQueue := func(accountID string, fireAt time.Time) {
+		t.Helper()
+		if err := r.ReplaceSchedule(ctx, accountID, []ScheduledPushInput{
+			{FireAt: fireAt, Delivery: DeliveryTelegram, TGText: "Time to take: X"},
+		}, now); err != nil {
+			t.Fatalf("ReplaceSchedule(%s): %v", accountID, err)
+		}
+		due, err := r.DueScheduledPushes(ctx, now)
+		if err != nil {
+			t.Fatalf("DueScheduledPushes: %v", err)
+		}
+		for _, p := range due {
+			if p.AccountID != accountID {
+				continue
+			}
+			if err := r.MarkPushSent(ctx, p.ID, now); err != nil {
+				t.Fatalf("MarkPushSent(%s): %v", accountID, err)
+			}
+		}
+	}
+
+	dry := mkAccount("acc-dry", "keen-heron-dry001")
+	drainQueue(dry, now.Add(-time.Minute))
+
+	never := mkAccount("acc-never", "keen-heron-nev002") // never scheduled anything
+
+	live := mkAccount("acc-live", "keen-heron-liv003")
+	if err := r.ReplaceSchedule(ctx, live, []ScheduledPushInput{
+		{FireAt: now.Add(dryWithin + 48*time.Hour), Delivery: DeliveryTelegram, TGText: "Time to take: Y"},
+	}, now); err != nil {
+		t.Fatalf("ReplaceSchedule(live): %v", err)
+	}
+
+	// Reminders switched OFF a month ago: ReplaceSchedule wiped the unsent rows
+	// and left the sent history, which looks identical to a rotted horizon. The
+	// backward window is what stops that account being nagged daily forever.
+	off := mkAccount("acc-off", "keen-heron-off005")
+	drainQueue(off, now.Add(-30*24*time.Hour))
+
+	nosub := mkAccount("acc-nosub", "keen-heron-nos004")
+	drainQueue(nosub, now.Add(-time.Minute))
+	if err := r.Disable(ctx, "https://push.example/acc-nosub"); err != nil {
+		t.Fatalf("Disable: %v", err)
+	}
+
+	warned := func(at time.Time) map[string]bool {
+		t.Helper()
+		ids, err := r.AccountsNeedingStaleSyncWarning(ctx, at, dryWithin, cooldown)
+		if err != nil {
+			t.Fatalf("AccountsNeedingStaleSyncWarning: %v", err)
+		}
+		set := map[string]bool{}
+		for _, id := range ids {
+			set[id] = true
+		}
+		return set
+	}
+
+	got := warned(now)
+	if !got[dry] {
+		t.Errorf("empty-queue account not warned — the med-2lx regression is back: %v", got)
+	}
+	for _, id := range []string{never, live, off, nosub} {
+		if got[id] {
+			t.Errorf("account %s must not be warned: %v", id, got)
+		}
+	}
+
+	// Cooldown still holds: warned once, silent until it elapses.
+	if err := r.MarkStaleSyncWarned(ctx, dry, now); err != nil {
+		t.Fatalf("MarkStaleSyncWarned: %v", err)
+	}
+	if warned(now.Add(time.Hour))[dry] {
+		t.Errorf("re-warned inside the cooldown")
+	}
+	if !warned(now.Add(cooldown + time.Hour))[dry] {
+		t.Errorf("not re-warned after the cooldown elapsed")
+	}
+}

@@ -382,8 +382,15 @@ window.MedTrackerCloudReady = (async function boot() {
         // device that was closed for a while "self-heals" the schedule (see
         // docs/plans/2026-07-05-cloud-c2b-medications-tz-reminders.md Task 5's
         // Reminder fidelity limits note) — best-effort, never blocks boot.
+        //
+        // recomputeAndPush, NOT the debounced scheduler (bd med-9y9): this is
+        // the recovery path the "Open the app to keep reminders running" push
+        // sends the user down, and a 2s timer that a quick close (or a
+        // frozen/discarded background tab) drops would leave the horizon
+        // exactly as empty as it was. Concurrent recomputes are safe —
+        // pushSchedule serializes per account (push.js pushChains).
         import('/js/reminders.js')
-            .then(({ scheduleReminderRecompute }) => scheduleReminderRecompute(ctx))
+            .then(({ recomputeAndPush }) => recomputeAndPush(ctx))
             .catch((e) => console.error('[cloud-boot] reminder recompute failed', e));
         // Safari evicts the push subscription of a PWA left unopened for a few
         // days, and nothing used to notice — reminders stopped forever, with no
@@ -431,9 +438,21 @@ window.MedTrackerCloudReady = (async function boot() {
             .then(async ({ ensureInboxKey, drainInbox, startInboxPolling }) => {
                 const { createInboxApplier } = await import('/js/inbox-apply.js');
                 const apply = createInboxApplier(ctx);
+                // Awaited and UN-debounced on purpose (bd med-9y9). A drain is
+                // usually triggered by the SW's inbox-wake push into a
+                // backgrounded tab, which the browser may freeze or discard
+                // well inside scheduleReminderRecompute's 2s timer — and a
+                // burst (a .nxk import acking ~100 events) re-armed that timer
+                // on every ack, starving it outright. Either way the horizon is
+                // never extended, and since only the browser can extend it,
+                // reminders stop forever with no error surfaced anywhere. The
+                // debounce stays where it earns its keep: apishim's chatty
+                // per-write path. Errors are logged, never rethrown — the
+                // poller must not treat a failed recompute as a failed drain.
                 const afterApply = async () => {
-                    const { scheduleReminderRecompute } = await import('/js/reminders.js');
-                    scheduleReminderRecompute(ctx);
+                    const { recomputeAndPush } = await import('/js/reminders.js');
+                    await recomputeAndPush(ctx)
+                        .catch((e) => console.error('[cloud-boot] post-drain reminder recompute failed', e));
                 };
 
                 // Keep draining while the tab is open, so a /bp texted to the
