@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ackInboxEvent, drainInbox, ensureInboxKey, listInboxEvents, readInboxKey, startInboxPolling } from '../inbox.js';
 import { inboxPublicFromPrivate, fromBase64, toBase64 } from '../crypto.js';
+import { allowConsoleNoise } from '../../../static/js/tests/helpers/setup.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const VECTOR = JSON.parse(fs.readFileSync(
@@ -463,6 +464,7 @@ describe('startInboxPolling', () => {
     // Awaiting it also means a rejection lands in the tick's own catch instead
     // of becoming an unhandled rejection — and must not stop the poller.
     it('keeps polling when the awaited onApplied rejects (med-9y9)', async () => {
+        allowConsoleNoise(); // the tick logs every no-progress drain by design
         vi.useFakeTimers();
         const doc = fakeDoc('visible');
         const drain = vi.fn(async () => ({ applied: 1 }));
