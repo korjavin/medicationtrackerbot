@@ -1,9 +1,21 @@
 // TZ Transition Plan card.
 //
-// Surfaces a pending timezone-change plan that the user has not yet approved
-// or rejected as a Wandergeek card on the Today screen, sitting directly
-// above the medications card. Stays absent from the DOM entirely when no
-// plan is in flight, so users who never travel never see it.
+// Surfaces an in-flight timezone-change plan as a Wandergeek card on the Today
+// screen, sitting directly above the medications card. Stays absent from the
+// DOM entirely when no plan is in flight, so users who never travel never see
+// it. Two modes, one card builder:
+//
+//   PENDING_APPROVAL / NOTIFIED — actionable: Apply / Cancel buttons.
+//   APPROVED                    — read-only "Transition in progress": how many
+//                                 steps are done, the next shifted dose, and
+//                                 the remaining steps. The plan is silently
+//                                 driving dose times at this point, so hiding
+//                                 it is what made the app feel out of control
+//                                 right after Apply (bd med-gut.3).
+//
+// COMPLETED / REJECTED render nothing — web/domain/tzplan.js's
+// refreshPlanStatus flips APPROVED → COMPLETED once every step is past, and
+// the next refresh() drops the card.
 //
 // Lifecycle:
 //   refresh()           — fetches GET /api/tz-plan/current, updates cache,
@@ -14,15 +26,80 @@
 //                         the meds card.
 //
 // Apply / Cancel actions hit the existing approve / reject endpoints, clear
-// the cached plan, and reload the current tab so the card unmounts itself.
+// the cached plan, and reload the current tab so the card re-renders itself.
 
 (function () {
     const ACTIONABLE_STATUSES = new Set(['PENDING_APPROVAL', 'NOTIFIED']);
 
     let cached = { plan: null, steps: [] };
+    // renderKey of the card actually on screen. Recomputing the old key at
+    // refresh time would use the new clock, so a card that went stale purely
+    // because a step fell into the past would compare equal to itself and never
+    // repaint. mountCard is the only thing that paints, so it owns this.
+    let mountedKey = '';
 
     function actionable(plan) {
         return !!(plan && ACTIONABLE_STATUSES.has(plan.status));
+    }
+
+    // An approved plan is read-only but still worth showing: its steps are
+    // actively overriding dose times until the status flips to COMPLETED.
+    function inProgress(plan) {
+        return !!(plan && plan.status === 'APPROVED');
+    }
+
+    function renderable(plan) {
+        return actionable(plan) || inProgress(plan);
+    }
+
+    // Identity of the card mountCard would paint right now, '' for no card.
+    // The in-progress card is step-derived, so its key carries the remaining
+    // count: "K of N done", the next-dose line and the remaining list all move
+    // when a step falls into the past, with no change to the payload. A plan
+    // with nothing left keys to '' because it is finished in everything but
+    // name — the shim's materialization sweep flips it to COMPLETED on its own
+    // clock and nothing tells this module when, so a tab left open through the
+    // final dose must not keep showing an empty in-progress card.
+    function renderKey(plan, steps) {
+        if (!renderable(plan)) return '';
+        const base = `${plan.id}:${plan.status}`;
+        if (!inProgress(plan)) return base;
+        const left = remainingSteps(steps).length;
+        return left === 0 ? '' : `${base}:${left}`;
+    }
+
+    function stepTimeMs(step) {
+        const t = Date.parse(step && step.scheduled_at);
+        return Number.isNaN(t) ? null : t;
+    }
+
+    // Steps still ahead of the user, in chronological order — so remaining[0]
+    // really is the next shifted dose. The Go path
+    // (internal/domain/tzreschedule/engine.go) appends steps per medication and
+    // never sorts across meds, so a multi-med plan arrives grouped, not
+    // time-ordered. A step with an unparseable time counts as remaining rather
+    // than silently vanishing, and sorts last.
+    function remainingSteps(steps) {
+        const nowMs = Date.now();
+        return (Array.isArray(steps) ? steps : [])
+            .filter((s) => {
+                const t = stepTimeMs(s);
+                return t === null || t > nowMs;
+            })
+            .sort((a, b) => (stepTimeMs(a) ?? Infinity) - (stepTimeMs(b) ?? Infinity));
+    }
+
+    function formatStepTime(ms, tz) {
+        const opts = {
+            hourCycle: 'h23', hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric'
+        };
+        try {
+            return new Intl.DateTimeFormat('en-US', { ...opts, timeZone: tz }).format(new Date(ms));
+        } catch (_) {
+            // Unknown/absent zone — fall back to the device zone rather than
+            // dropping the line entirely.
+            return new Intl.DateTimeFormat('en-US', opts).format(new Date(ms));
+        }
     }
 
     function reloadTab() {
@@ -78,8 +155,20 @@
         return seen.size;
     }
 
+    function addDetailLine(text, parent) {
+        const detail = document.createElement('span');
+        detail.className = 'wg-tz-plan-card__detail';
+        detail.textContent = text;
+        parent.appendChild(detail);
+        return detail;
+    }
+
     function buildCard(plan, steps) {
         const d = document;
+        const isPending = actionable(plan);
+        const allSteps = Array.isArray(steps) ? steps : [];
+        const remaining = isPending ? allSteps : remainingSteps(allSteps);
+
         const card = d.createElement('div');
         // Reuse the same visual contract as the meds card. The --plain
         // modifier drops the sun-yellow header so we can compose with the
@@ -100,7 +189,7 @@
 
         const kicker = d.createElement('span');
         kicker.className = 'wg-next-action-card__kicker';
-        kicker.textContent = 'Timezone change pending';
+        kicker.textContent = isPending ? 'Timezone change pending' : 'Transition in progress';
         text.appendChild(kicker);
 
         const value = d.createElement('span');
@@ -110,55 +199,70 @@
         value.textContent = `${plan.old_tz} → ${plan.new_tz}${offsetSuffix}`;
         text.appendChild(value);
 
-        const medCount = countDistinctMeds(steps);
-        if (medCount > 0) {
-            const detail = d.createElement('span');
-            detail.className = 'wg-tz-plan-card__detail';
-            const noun = medCount === 1 ? 'medication' : 'medications';
-            detail.textContent = `${medCount} ${noun} will shift`;
-            text.appendChild(detail);
+        if (isPending) {
+            const medCount = countDistinctMeds(allSteps);
+            if (medCount > 0) {
+                const noun = medCount === 1 ? 'medication' : 'medications';
+                addDetailLine(`${medCount} ${noun} will shift`, text);
+            }
+        } else {
+            const done = allSteps.length - remaining.length;
+            addDetailLine(`${done} of ${allSteps.length} steps done`, text);
+
+            const next = remaining[0];
+            const nextMs = next ? stepTimeMs(next) : null;
+            if (nextMs !== null) {
+                // med_name is cloud-only (web/domain/tzplan.js); the Go wire
+                // shape omits it, so the time stands alone there.
+                const medName = next.med_name ? `  ·  ${next.med_name}` : '';
+                addDetailLine(`Next shifted dose: ${formatStepTime(nextMs, plan.new_tz)}${medName}`, text);
+            }
         }
         head.appendChild(text);
 
-        const actions = d.createElement('div');
-        actions.className = 'wg-tz-plan-card__actions';
+        if (isPending) {
+            const actions = d.createElement('div');
+            actions.className = 'wg-tz-plan-card__actions';
 
-        const applyBtn = d.createElement('button');
-        applyBtn.type = 'button';
-        applyBtn.className = 'wg-toolbar-btn wg-toolbar-btn--primary wg-tz-plan-card__btn';
-        applyBtn.textContent = 'Apply';
-        applyBtn.addEventListener('click', (event) => {
-            event.stopPropagation();
-            onAction(plan.id, 'approve', card);
-        });
-        actions.appendChild(applyBtn);
+            const applyBtn = d.createElement('button');
+            applyBtn.type = 'button';
+            applyBtn.className = 'wg-toolbar-btn wg-toolbar-btn--primary wg-tz-plan-card__btn';
+            applyBtn.textContent = 'Apply';
+            applyBtn.addEventListener('click', (event) => {
+                event.stopPropagation();
+                onAction(plan.id, 'approve', card);
+            });
+            actions.appendChild(applyBtn);
 
-        const cancelBtn = d.createElement('button');
-        cancelBtn.type = 'button';
-        cancelBtn.className = 'wg-toolbar-btn wg-tz-plan-card__btn';
-        cancelBtn.textContent = 'Cancel';
-        cancelBtn.addEventListener('click', (event) => {
-            event.stopPropagation();
-            onAction(plan.id, 'reject', card);
-        });
-        actions.appendChild(cancelBtn);
+            const cancelBtn = d.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.className = 'wg-toolbar-btn wg-tz-plan-card__btn';
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.addEventListener('click', (event) => {
+                event.stopPropagation();
+                onAction(plan.id, 'reject', card);
+            });
+            actions.appendChild(cancelBtn);
 
-        head.appendChild(actions);
+            head.appendChild(actions);
+        }
         card.appendChild(head);
 
-        if (Array.isArray(steps) && steps.length > 0) {
+        if (remaining.length > 0) {
             const detailsWrap = d.createElement('details');
             detailsWrap.className = 'wg-tz-plan-card__details';
 
             const summary = d.createElement('summary');
             summary.className = 'wg-tz-plan-card__details-summary';
-            const stepNoun = steps.length === 1 ? 'transition dose' : 'transition doses';
-            summary.textContent = `${steps.length} ${stepNoun} planned`;
+            const stepNoun = remaining.length === 1 ? 'transition dose' : 'transition doses';
+            summary.textContent = isPending
+                ? `${remaining.length} ${stepNoun} planned`
+                : `${remaining.length} ${stepNoun} left`;
             detailsWrap.appendChild(summary);
 
             const ul = d.createElement('ul');
             ul.className = 'wg-tz-plan-card__details-list';
-            for (const s of steps) {
+            for (const s of remaining) {
                 const li = d.createElement('li');
                 li.textContent = s.note || `step ${s.step_number} at ${s.scheduled_at}`;
                 ul.appendChild(li);
@@ -178,8 +282,14 @@
                 throw new Error('apiCall unavailable');
             }
             await window.apiCall(`/api/tz-plan/${encodeURIComponent(planId)}/${action}`, 'POST');
-            cached = { plan: null, steps: [] };
-            reloadTab();
+            // Re-read rather than blanking the cache: approve lands on the
+            // read-only "Transition in progress" card, reject drops the card
+            // entirely, and either way the plan's render key changed, so
+            // refresh() repaints Today exactly once. refresh() swallows its own
+            // errors (it drops the cached plan and reloads), so a failed re-read
+            // after a successful POST can never land in the catch below and
+            // re-enable buttons for a plan that already moved on.
+            await refresh();
         } catch (e) {
             console.error('tz_plan card action failed', e);
             buttons.forEach((b) => { b.disabled = false; });
@@ -188,7 +298,8 @@
 
     function mountCard(root) {
         if (!root) return null;
-        if (!actionable(cached.plan)) return null;
+        mountedKey = renderKey(cached.plan, cached.steps);
+        if (!mountedKey) return null;
         const card = buildCard(cached.plan, cached.steps);
         root.appendChild(card);
         return card;
@@ -200,21 +311,17 @@
             const result = await window.apiCall('/api/tz-plan/current', 'GET');
             const plan = (result && typeof result === 'object') ? (result.plan || null) : null;
             const steps = (result && Array.isArray(result.steps)) ? result.steps : [];
-            const wasActionable = actionable(cached.plan);
-            const isActionable = actionable(plan);
-            cached = { plan: isActionable ? plan : null, steps: isActionable ? steps : [] };
-            if (wasActionable !== isActionable
-                || (isActionable && plan && cached.plan && plan.id !== cached.plan.id)) {
+            const show = renderable(plan);
+            cached = { plan: show ? plan : null, steps: show ? steps : [] };
+            if (mountedKey !== renderKey(cached.plan, cached.steps)) {
                 reloadTab();
             }
         } catch (e) {
             // Silent failure: a missing endpoint or transient error must not
             // surface as an error — drop any cached plan and move on.
             console.warn('tz_plan card refresh failed', e);
-            if (actionable(cached.plan)) {
-                cached = { plan: null, steps: [] };
-                reloadTab();
-            }
+            cached = { plan: null, steps: [] };
+            if (mountedKey) reloadTab();
         }
     }
 

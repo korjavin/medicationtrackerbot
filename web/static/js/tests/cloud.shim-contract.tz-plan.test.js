@@ -8,7 +8,16 @@ import {
     afterEach, beforeEach, describe, expect, it, vi
 } from 'vitest';
 import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
-import { planDosesWithTzPlan } from '../../../domain/tzplan.js';
+import { createTzPlanDomain, planDosesWithTzPlan } from '../../../domain/tzplan.js';
+
+// Apply/Cancel round-trip twice — the POST, then the re-read refresh() does so
+// the approved card can replace the pending one — so drain the queue instead of
+// counting microtask ticks.
+async function flushAsync() {
+    for (let i = 0; i < 5; i += 1) {
+        await new Promise((resolve) => { setTimeout(resolve, 0); });
+    }
+}
 
 function seedPendingPlan(overrides = {}) {
     return {
@@ -66,14 +75,20 @@ describe('cloud shim contract — TZ plan banner (features/tz-plan-banner.js ove
         const applyBtn = [...card.querySelectorAll('button')].find((b) => b.textContent === 'Apply');
 
         applyBtn.click();
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushAsync();
 
         expect(window.reloadCurrentTab).toHaveBeenCalled();
         const { plan } = await window.apiCall('/api/tz-plan/current');
         expect(plan.status).toBe('APPROVED');
         const settings = await window.apiCall('/api/settings');
         expect(settings.timezone).toBe('Asia/Tokyo');
+
+        // The approved plan takes over the same card slot rather than leaving
+        // an empty Today — the whole point of bd med-gut.3.
+        const afterApply = window.TZPlanBanner.mountCard(document.createElement('div'));
+        expect(afterApply).not.toBeNull();
+        expect(afterApply.querySelector('.wg-next-action-card__kicker').textContent)
+            .toBe('Transition in progress');
     });
 
     it('Cancel rejects the plan and reverts settings.timezone', async () => {
@@ -85,14 +100,140 @@ describe('cloud shim contract — TZ plan banner (features/tz-plan-banner.js ove
         const cancelBtn = [...card.querySelectorAll('button')].find((b) => b.textContent === 'Cancel');
 
         cancelBtn.click();
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushAsync();
 
         expect(window.reloadCurrentTab).toHaveBeenCalled();
         const { plan } = await window.apiCall('/api/tz-plan/current');
         expect(plan.status).toBe('REJECTED');
         const settings = await window.apiCall('/api/settings');
         expect(settings.timezone).toBe('America/New_York');
+
+        // Rejected renders nothing.
+        expect(window.TZPlanBanner.mountCard(document.createElement('div'))).toBeNull();
+    });
+});
+
+// bd med-gut.3 — an APPROVED plan used to vanish from the UI while its steps
+// kept shifting dose times, so the user saw "something happened but what
+// exactly is unclear". The card now stays on Today, read-only, until
+// refreshPlanStatus flips the plan to COMPLETED.
+describe('TZ plan banner — approved plan in progress (bd med-gut.3)', () => {
+    let env;
+
+    // Two meds, seeded grouped-by-medication rather than chronologically —
+    // that is how internal/domain/tzreschedule/engine.go emits StepsJSON (it
+    // appends per med and never sorts across meds), so the banner has to order
+    // them itself before picking "next".
+    function seedApprovedPlan() {
+        const nowMs = Date.now();
+        return seedPendingPlan({
+            status: 'APPROVED',
+            approved_at: new Date(nowMs).toISOString(),
+            steps: [
+                {
+                    medicationId: 1, medName: 'Metformin', stepNumber: 1, totalSteps: 2, scheduledAtMs: nowMs - 3600_000, note: 'Metformin: step 1/2 — already shifted'
+                },
+                {
+                    medicationId: 1, medName: 'Metformin', stepNumber: 2, totalSteps: 2, scheduledAtMs: nowMs + 7200_000, note: 'Metformin: step 2/2 — 09:00 EST old / 23:00 JST new'
+                },
+                {
+                    medicationId: 2, medName: 'Lisinopril', stepNumber: 1, totalSteps: 1, scheduledAtMs: nowMs + 3600_000, note: 'Lisinopril: step 1/1 — 08:00 EST old / 22:00 JST new'
+                }
+            ]
+        });
+    }
+
+    beforeEach(() => {
+        env = loadCloudShimFrontendEnv({ seedRecords: { tzplan: [seedApprovedPlan()] } });
+        env.window.reloadCurrentTab = vi.fn();
+    });
+
+    afterEach(() => {
+        env.cleanup();
+        env = null;
+    });
+
+    it('renders a read-only in-progress card with direction, progress, next dose and remaining steps', async () => {
+        const { window, document } = env;
+
+        await window.TZPlanBanner.refresh();
+        const root = document.createElement('div');
+        const card = window.TZPlanBanner.mountCard(root);
+
+        expect(card).not.toBeNull();
+        expect(card.querySelector('.wg-next-action-card__kicker').textContent).toBe('Transition in progress');
+
+        const value = card.querySelector('.wg-tz-plan-card__value').textContent;
+        expect(value).toContain('America/New_York');
+        expect(value).toContain('Asia/Tokyo');
+
+        const details = [...card.querySelectorAll('.wg-tz-plan-card__detail')].map((el) => el.textContent);
+        expect(details[0]).toBe('1 of 3 steps done');
+        // Soonest remaining step wins, not the first one in the array.
+        expect(details[1]).toContain('Next shifted dose:');
+        expect(details[1]).toContain('Lisinopril');
+
+        // Read-only: no Apply/Cancel on an already-approved plan.
+        expect(card.querySelectorAll('button')).toHaveLength(0);
+
+        // Only the two future steps are "remaining"; the past one is dropped,
+        // and the rest are listed chronologically.
+        expect(card.querySelector('.wg-tz-plan-card__details-summary').textContent)
+            .toBe('2 transition doses left');
+        const notes = [...card.querySelectorAll('.wg-tz-plan-card__details-list li')]
+            .map((li) => li.textContent);
+        expect(notes).toEqual([
+            'Lisinopril: step 1/1 — 08:00 EST old / 22:00 JST new',
+            'Metformin: step 2/2 — 09:00 EST old / 23:00 JST new'
+        ]);
+    });
+
+    it('stops rendering once the last step is past, before the status flip catches up', async () => {
+        const { window, document } = env;
+
+        await window.TZPlanBanner.refresh();
+        expect(window.TZPlanBanner.mountCard(document.createElement('div'))).not.toBeNull();
+
+        // Push every step into the past without touching the status — this is
+        // the window between the final dose and the shim's next materialization
+        // sweep (60s), where a tab left open would otherwise keep showing an
+        // in-progress card with nothing left in it.
+        window.reloadCurrentTab.mockClear();
+        const [rec] = await env.records.list('tzplan');
+        await env.records.put('tzplan', {
+            ...rec,
+            steps: rec.steps.map((s) => ({ ...s, scheduledAtMs: Date.now() - 3600_000 }))
+        });
+
+        await window.TZPlanBanner.refresh();
+        const { plan } = await window.apiCall('/api/tz-plan/current');
+        expect(plan.status).toBe('APPROVED');
+        expect(window.TZPlanBanner.mountCard(document.createElement('div'))).toBeNull();
+        // The step count is part of the render key, so the already-mounted card
+        // gets repainted away rather than lingering until an unrelated render.
+        expect(window.reloadCurrentTab).toHaveBeenCalled();
+    });
+
+    it('drops the card once every step is past and refreshPlanStatus flips the plan to COMPLETED', async () => {
+        const { window, document } = env;
+
+        await window.TZPlanBanner.refresh();
+        expect(window.TZPlanBanner.mountCard(document.createElement('div'))).not.toBeNull();
+        window.reloadCurrentTab.mockClear();
+
+        // Same call the shim's materialization sweep makes, on a clock past the
+        // last step — driven explicitly so the flip is deterministic.
+        const afterAllSteps = Date.now() + 24 * 3600_000;
+        await createTzPlanDomain({
+            records: env.records, now: () => afterAllSteps, timeZone: 'UTC'
+        }).refreshPlanStatus();
+
+        const { plan } = await window.apiCall('/api/tz-plan/current');
+        expect(plan.status).toBe('COMPLETED');
+
+        await window.TZPlanBanner.refresh();
+        expect(window.TZPlanBanner.mountCard(document.createElement('div'))).toBeNull();
+        expect(window.reloadCurrentTab).toHaveBeenCalled();
     });
 });
 
