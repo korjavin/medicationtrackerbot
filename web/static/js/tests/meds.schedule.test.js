@@ -17,16 +17,19 @@ function toLocalTime(date) {
 }
 
 // `upcoming` seeds GET /api/medications/upcoming — the plan-aware forecast the
-// Schedule tab buckets by (bd med-gut.1). Passing null keeps the pre-med-gut
-// behaviour under test: no forecast available, so renderMeds falls back to the
-// device-local computation.
+// Schedule tab buckets by (bd med-gut.1). The default `null` makes the route
+// answer with null, i.e. NO forecast available (offline, or the legacy bot
+// server), which is the path that still falls back to the device-local
+// computation — the behaviour the pre-med-gut cases below were written for.
+// An explicit `[]` is a different thing: a forecast that answered and has
+// nothing upcoming.
 async function seedMedications(window, meds, upcoming = null) {
     window.DataStore.loadSWR = vi.fn(async (options) => {
         await options.onFresh(meds);
     });
     window.apiCall = vi.fn(async (endpoint) => {
         if (typeof endpoint === 'string' && endpoint.startsWith('/api/medications/upcoming')) {
-            return upcoming || [];
+            return upcoming;
         }
         return [];
     });
@@ -346,6 +349,30 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(headers).not.toContain('Scheduled');
     });
 
+    // bd med-gut.1 — a forecast that answered with no row for a medication is
+    // a real answer (course ended, starts past the horizon, every slot inside
+    // it already handled). Recomputing it device-locally would resurrect the
+    // bogus bucket this change removes.
+    it('puts a med the forecast has no dose for in the no-time "Scheduled" group', async () => {
+        const { window, document } = env;
+
+        await seedMedications(window, [
+            {
+                id: 4,
+                name: 'FinishedCourse',
+                dosage: '10mg',
+                schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
+                archived: false
+            }
+        ], []);
+
+        const list = document.getElementById('med-list');
+        const headers = Array.from(list.querySelectorAll('.wg-section-label'))
+            .map((h) => h.textContent.trim());
+        expect(headers).toEqual(['Scheduled']);
+        expect(list.querySelectorAll('.wg-meds-row').length).toBe(1);
+    });
+
     // bd med-gut.1 — a legacy "HH:MM" schedule string used to fail
     // parseMedicationSchedule's bare JSON.parse, so the med lost its next dose
     // and dropped into the no-time "Scheduled" bucket.
@@ -488,7 +515,15 @@ describe('Meds schedule sub-tab — Upcoming forecast (bd med-gut.2)', () => {
 
     it('renders no Upcoming section at all when the forecast is empty', async () => {
         const { window, document } = env;
-        await seedMedications(window, [med]);
+        await seedMedications(window, [med], []);
         expect(document.querySelector('.wg-meds-upcoming')).toBeNull();
+    });
+
+    it('renders no Upcoming section when the forecast route is unavailable', async () => {
+        const { window, document } = env;
+        await seedMedications(window, [med]); // route answers null
+        expect(document.querySelector('.wg-meds-upcoming')).toBeNull();
+        // ...and the hour buckets still paint from the device-local fallback.
+        expect(document.querySelectorAll('#med-list .wg-section-label').length).toBe(1);
     });
 });

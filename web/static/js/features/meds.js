@@ -182,15 +182,20 @@ function _hourKey(date) {
 // the buckets. Kept in module state because renderMeds() is synchronous and is
 // called from four places inside loadMeds().
 const MEDS_UPCOMING_DAYS = 7;
-let _medsUpcomingState = { doses: [] }; // module-state: plan-aware upcoming doses shared by the Schedule hour buckets and the Upcoming list
+let _medsUpcomingState = { doses: [], available: false }; // module-state: plan-aware upcoming doses shared by the Schedule hour buckets and the Upcoming list
 
 async function loadUpcomingDoses() {
     try {
         const res = await apiCall(`/api/medications/upcoming?days=${MEDS_UPCOMING_DAYS}`);
+        // `available` separates "the forecast answered, and this med simply has
+        // no upcoming dose" from "there is no forecast to consult" — only the
+        // latter may fall back to the device-local computation.
+        _medsUpcomingState.available = Array.isArray(res);
         _medsUpcomingState.doses = Array.isArray(res) ? res : [];
     } catch (_) {
         // Offline / route unavailable — renderMeds falls back to the naive
         // device-local next dose so the buckets still paint something.
+        _medsUpcomingState.available = false;
         _medsUpcomingState.doses = [];
     }
     return _medsUpcomingState.doses;
@@ -207,10 +212,10 @@ function _nextDoseByMedId() {
     return byMed;
 }
 
-// Resolves a med's next dose to {at, hourKey, timeLabel}. Prefers the
-// plan-aware forecast; falls back to the device-local computation only when
-// the forecast is unavailable (offline cold start, or the legacy bot server
-// which has no such route).
+// Resolves a med's next dose to {at, hourKey, timeLabel}, or null when it has
+// none. Falls back to the device-local computation only when the forecast is
+// unavailable (offline cold start, or the legacy bot server, which has no such
+// route) — never when the forecast answered.
 function _resolveNextDose(med, schedule, nextDoses, now) {
     const dose = nextDoses.get(String(med.id));
     if (dose && dose.scheduled_at && dose.local_date && dose.local_time) {
@@ -223,6 +228,12 @@ function _resolveNextDose(med, schedule, nextDoses, now) {
             };
         }
     }
+    // A forecast that simply has no row for this medication is a real answer —
+    // the course ended, it starts past the horizon, or every slot inside the
+    // horizon is already taken/skipped. Recomputing it device-locally would
+    // resurrect exactly the wrong bucket this change removes; the med belongs
+    // in the no-next-dose "Scheduled" group instead.
+    if (_medsUpcomingState.available) return null;
     const at = window.MedicationUtils.getNextScheduledDate(schedule, now);
     if (!at) return null;
     return {
