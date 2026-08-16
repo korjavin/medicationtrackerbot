@@ -475,6 +475,11 @@ export function createApiRouter(ctx, {
       }
     }
     if (path === '/api/medications/next-intake' && method === 'GET') return intake.nextIntake();
+    // The Meds → Schedule tab's hour buckets and Upcoming list read this
+    // instead of recomputing doses in the browser's own timezone (bd med-gut).
+    if (path === '/api/medications/upcoming' && method === 'GET') {
+      return intake.upcomingDoses({ days: clampDays(params.get('days'), 7, 30) });
+    }
     if (path === '/api/inventory/low' && method === 'GET') return medications.listLowStock();
     if (path === '/api/history' && method === 'GET') {
       return intake.history({ days: intParam(params, 'days', 3), medId: intParam(params, 'med_id', 0) });

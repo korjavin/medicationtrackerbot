@@ -16,8 +16,8 @@
 // no dupes, no divergence. Manual (log-past) intakes have no natural slot, so
 // they get a random id (same nowMs+random technique as medications.js's
 // nextId / weight.js's genId).
-import { minDoseIntervalMs } from './medschedule.js';
-import { planDosesWithTzPlan } from './tzplan.js';
+import { minDoseIntervalMs, localDateTimeParts } from './medschedule.js';
+import { planDosesWithTzPlan, forecastDosesWithTzPlan } from './tzplan.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
@@ -27,6 +27,12 @@ const TZPLAN_RECORD_ID = 'tzplan-current';
 const NEXT_INTAKE_FORECAST_MS = 12 * 60 * 60 * 1000;
 const CLUSTER_WINDOW_MS = 10 * 60 * 1000;
 const DEFAULT_SNOOZE_MINUTES = 10;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const UPCOMING_FORECAST_DAYS = 7;
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
 
 function slotId(medId, scheduledAtMs) {
   return `intake-${medId}-${Math.floor(scheduledAtMs / 1000)}`;
@@ -468,6 +474,60 @@ export function createIntakeDomain({ records, now, timeZone }) {
     };
   }
 
+  // upcomingDoses is nextIntake's forecast generalized from "the next cluster
+  // in 12h" to "every not-yet-handled dose in the next N days" — the SAME
+  // plan-aware engine, so the Meds → Schedule tab and Home's next-intake card
+  // cannot disagree (bd med-gut.1). Rows carry their wall-clock date/time in
+  // the tracked zone (`local_date`/`local_time`/`day_offset`) because grouping
+  // and formatting are zone math, and the browser only knows the DEVICE zone —
+  // the naive device-local bucketing this replaces is exactly the bug.
+  // tz-plan step rows also carry step_number/total_steps/note so the UI can
+  // label them and show buildNote's explanation (bd med-gut.2).
+  async function upcomingDoses({ days = UPCOMING_FORECAST_DAYS } = {}) {
+    const meds = await loadMeds();
+    const intakes = await loadIntakes();
+    const nowMs = now();
+    const tzPlan = await loadActiveTzPlan();
+
+    const targets = forecastDosesWithTzPlan({
+      medications: meds.map(toMedScheduleShape), timeZone, now: nowMs, days, tzPlan,
+    });
+
+    const byId = new Map(meds.map((m) => [m.recordId, m]));
+    const today = localDateTimeParts(nowMs, timeZone);
+    const todayUtc = Date.UTC(today.year, today.month - 1, today.day);
+
+    const out = [];
+    for (const t of targets) {
+      const med = byId.get(t.medicationId);
+      if (!med) continue;
+      // Same already-handled filter as nextIntake: a confirmed or skipped slot
+      // is not "upcoming" any more.
+      const existing = intakes.find((i) => i.medication_id === t.medicationId
+        && Date.parse(i.scheduled_at) === t.scheduledAtMs);
+      if (existing && (existing.status === 'TAKEN' || existing.status === 'SKIPPED')) continue;
+
+      const p = localDateTimeParts(t.scheduledAtMs, timeZone);
+      const row = {
+        medication_id: t.medicationId,
+        med_name: med.name,
+        dosage: med.dosage || '',
+        scheduled_at: new Date(t.scheduledAtMs).toISOString(),
+        local_date: `${p.year}-${pad2(p.month)}-${pad2(p.day)}`,
+        local_time: `${pad2(p.hour)}:${pad2(p.minute)}`,
+        day_offset: Math.round((Date.UTC(p.year, p.month - 1, p.day) - todayUtc) / DAY_MS),
+        source: t.source === 'tz_step' ? 'tz_step' : 'schedule',
+      };
+      if (t.source === 'tz_step') {
+        row.step_number = t.stepNumber;
+        row.total_steps = t.totalSteps;
+        if (t.note) row.note = t.note;
+      }
+      out.push(row);
+    }
+    return out;
+  }
+
   // Ported from handleListHistory (GET /api/history?days&med_id):
   // newest-first, same row shape, capped at 100.
   async function history({ days = 3, medId = 0 } = {}) {
@@ -522,6 +582,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
     deleteFutureIntakes,
     triggerNextIntake,
     nextIntake,
+    upcomingDoses,
     history,
     listWindow,
   };

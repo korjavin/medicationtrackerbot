@@ -46,6 +46,23 @@ export function localDateParts(ms, timeZone) {
   return { year: +map.year, month: +map.month, day: +map.day };
 }
 
+// localDateParts plus the wall-clock hour/minute (h23). tzplan.js's step math
+// and medintake.js's upcoming-dose forecast both need the full wall-clock
+// breakdown in the tracked zone, so it lives here with the rest of the
+// zone-conversion helpers instead of being redeclared per module.
+export function localDateTimeParts(ms, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).formatToParts(new Date(ms));
+  const map = {};
+  for (const p of parts) map[p.type] = p.value;
+  return {
+    year: +map.year, month: +map.month, day: +map.day, hour: +map.hour, minute: +map.minute,
+  };
+}
+
 // Two-pass refine, same technique as bp.js's dayStartMs: guess the offset,
 // convert, then re-derive the offset at the guessed instant (handles DST
 // transitions landing on the target wall-clock time).
@@ -111,7 +128,15 @@ export function planDoses({ medications = [], timeZone, now, window = 0 }) {
     const createdMs = med.created_at ? Date.parse(med.created_at) : 0;
 
     if (endMs !== null && endMs <= now) continue;
-    if (startMs !== null && startMs > now) continue;
+    // The medication-level start gate has to admit a course that begins
+    // INSIDE the forecast window, not just one already running: with
+    // `startMs > now` a med starting tomorrow morning was skipped outright
+    // by the window that contains its first dose, and the next window began
+    // after that dose — so it silently vanished from the forecast. The
+    // per-target `target < startMs` guard below is what actually enforces the
+    // course start. In fire mode (window === 0) this is `startMs > now`,
+    // exactly as before.
+    if (startMs !== null && startMs > now + window) continue;
 
     for (const target of candidateNormalTargets(cfg, timeZone, now, window)) {
       if (startMs !== null && target < startMs) continue;
