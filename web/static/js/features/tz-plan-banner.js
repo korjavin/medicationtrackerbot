@@ -32,6 +32,11 @@
     const ACTIONABLE_STATUSES = new Set(['PENDING_APPROVAL', 'NOTIFIED']);
 
     let cached = { plan: null, steps: [] };
+    // renderKey of the card actually on screen. Recomputing the old key at
+    // refresh time would use the new clock, so a card that went stale purely
+    // because a step fell into the past would compare equal to itself and never
+    // repaint. mountCard is the only thing that paints, so it owns this.
+    let mountedKey = '';
 
     function actionable(plan) {
         return !!(plan && ACTIONABLE_STATUSES.has(plan.status));
@@ -47,15 +52,20 @@
         return actionable(plan) || inProgress(plan);
     }
 
-    // Identity of what is on screen, so a refresh that changes it repaints
-    // Today: the plan id and status (an approve done on another device leaves
-    // both states renderable), plus — for an in-progress plan, whose card is
-    // step-derived — how many steps are left, which is what "K of N done", the
-    // next-dose line, and mountCard's done-check all read.
+    // Identity of the card mountCard would paint right now, '' for no card.
+    // The in-progress card is step-derived, so its key carries the remaining
+    // count: "K of N done", the next-dose line and the remaining list all move
+    // when a step falls into the past, with no change to the payload. A plan
+    // with nothing left keys to '' because it is finished in everything but
+    // name — the shim's materialization sweep flips it to COMPLETED on its own
+    // clock and nothing tells this module when, so a tab left open through the
+    // final dose must not keep showing an empty in-progress card.
     function renderKey(plan, steps) {
         if (!renderable(plan)) return '';
         const base = `${plan.id}:${plan.status}`;
-        return inProgress(plan) ? `${base}:${remainingSteps(steps).length}` : base;
+        if (!inProgress(plan)) return base;
+        const left = remainingSteps(steps).length;
+        return left === 0 ? '' : `${base}:${left}`;
     }
 
     function stepTimeMs(step) {
@@ -288,14 +298,8 @@
 
     function mountCard(root) {
         if (!root) return null;
-        if (!renderable(cached.plan)) return null;
-        // An approved plan whose last step is past is finished in everything but
-        // name — the shim's materialization sweep flips it to COMPLETED on its
-        // own clock, and nothing tells this module when that happens. Dropping
-        // it here means a tab left open through the final dose stops showing an
-        // in-progress card with nothing left in it, without waiting for a page
-        // reload to re-read the status.
-        if (inProgress(cached.plan) && remainingSteps(cached.steps).length === 0) return null;
+        mountedKey = renderKey(cached.plan, cached.steps);
+        if (!mountedKey) return null;
         const card = buildCard(cached.plan, cached.steps);
         root.appendChild(card);
         return card;
@@ -307,20 +311,17 @@
             const result = await window.apiCall('/api/tz-plan/current', 'GET');
             const plan = (result && typeof result === 'object') ? (result.plan || null) : null;
             const steps = (result && Array.isArray(result.steps)) ? result.steps : [];
-            const prevKey = renderKey(cached.plan, cached.steps);
             const show = renderable(plan);
             cached = { plan: show ? plan : null, steps: show ? steps : [] };
-            if (prevKey !== renderKey(cached.plan, cached.steps)) {
+            if (mountedKey !== renderKey(cached.plan, cached.steps)) {
                 reloadTab();
             }
         } catch (e) {
             // Silent failure: a missing endpoint or transient error must not
             // surface as an error — drop any cached plan and move on.
             console.warn('tz_plan card refresh failed', e);
-            if (renderable(cached.plan)) {
-                cached = { plan: null, steps: [] };
-                reloadTab();
-            }
+            cached = { plan: null, steps: [] };
+            if (mountedKey) reloadTab();
         }
     }
 
