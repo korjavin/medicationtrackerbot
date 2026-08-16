@@ -59,6 +59,22 @@
         return Number.isNaN(t) ? null : t;
     }
 
+    // Steps still ahead of the user, in chronological order — so remaining[0]
+    // really is the next shifted dose. The Go path
+    // (internal/domain/tzreschedule/engine.go) appends steps per medication and
+    // never sorts across meds, so a multi-med plan arrives grouped, not
+    // time-ordered. A step with an unparseable time counts as remaining rather
+    // than silently vanishing, and sorts last.
+    function remainingSteps(steps) {
+        const nowMs = Date.now();
+        return (Array.isArray(steps) ? steps : [])
+            .filter((s) => {
+                const t = stepTimeMs(s);
+                return t === null || t > nowMs;
+            })
+            .sort((a, b) => (stepTimeMs(a) ?? Infinity) - (stepTimeMs(b) ?? Infinity));
+    }
+
     function formatStepTime(ms, tz) {
         const opts = {
             hourCycle: 'h23', hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric'
@@ -137,20 +153,7 @@
         const d = document;
         const isPending = actionable(plan);
         const allSteps = Array.isArray(steps) ? steps : [];
-        // Chronological, so remaining[0] really is the next shifted dose: the
-        // Go path (internal/domain/tzreschedule/engine.go) appends steps per
-        // medication and never sorts across meds, so a multi-med plan arrives
-        // grouped, not time-ordered. A step with an unparseable time counts as
-        // remaining rather than silently vanishing, and sorts last.
-        const nowMs = Date.now();
-        const remaining = isPending
-            ? allSteps
-            : allSteps
-                .filter((s) => {
-                    const t = stepTimeMs(s);
-                    return t === null || t > nowMs;
-                })
-                .sort((a, b) => (stepTimeMs(a) ?? Infinity) - (stepTimeMs(b) ?? Infinity));
+        const remaining = isPending ? allSteps : remainingSteps(allSteps);
 
         const card = d.createElement('div');
         // Reuse the same visual contract as the meds card. The --plain
@@ -268,7 +271,10 @@
             // Re-read rather than blanking the cache: approve lands on the
             // read-only "Transition in progress" card, reject drops the card
             // entirely, and either way the plan's render key changed, so
-            // refresh() repaints Today exactly once.
+            // refresh() repaints Today exactly once. refresh() swallows its own
+            // errors (it drops the cached plan and reloads), so a failed re-read
+            // after a successful POST can never land in the catch below and
+            // re-enable buttons for a plan that already moved on.
             await refresh();
         } catch (e) {
             console.error('tz_plan card action failed', e);
@@ -279,6 +285,13 @@
     function mountCard(root) {
         if (!root) return null;
         if (!renderable(cached.plan)) return null;
+        // An approved plan whose last step is past is finished in everything but
+        // name — the shim's materialization sweep flips it to COMPLETED on its
+        // own clock, and nothing tells this module when that happens. Dropping
+        // it here means a tab left open through the final dose stops showing an
+        // in-progress card with nothing left in it, without waiting for a page
+        // reload to re-read the status.
+        if (inProgress(cached.plan) && remainingSteps(cached.steps).length === 0) return null;
         const card = buildCard(cached.plan, cached.steps);
         root.appendChild(card);
         return card;
