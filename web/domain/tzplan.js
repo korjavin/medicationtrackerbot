@@ -335,6 +335,10 @@ function toStepsResponse(rec) {
   if (!rec || !Array.isArray(rec.steps)) return [];
   return rec.steps.map((s) => ({
     medication_id: s.medicationId,
+    // med_name is additive over the Go wire shape (uiTZPlanStep omits it) and
+    // matches the vault-format field name; the in-progress banner labels the
+    // next shifted dose with it. Consumers must tolerate its absence.
+    med_name: s.medName,
     step_number: s.stepNumber,
     scheduled_at: new Date(s.scheduledAtMs).toISOString(),
     note: s.note,
