@@ -137,16 +137,20 @@
         const d = document;
         const isPending = actionable(plan);
         const allSteps = Array.isArray(steps) ? steps : [];
-        // generatePlan sorts steps by scheduled time, so "remaining" keeps that
-        // order and remaining[0] is the next shifted dose. A step with an
-        // unparseable time counts as remaining rather than silently vanishing.
+        // Chronological, so remaining[0] really is the next shifted dose: the
+        // Go path (internal/domain/tzreschedule/engine.go) appends steps per
+        // medication and never sorts across meds, so a multi-med plan arrives
+        // grouped, not time-ordered. A step with an unparseable time counts as
+        // remaining rather than silently vanishing, and sorts last.
         const nowMs = Date.now();
         const remaining = isPending
             ? allSteps
-            : allSteps.filter((s) => {
-                const t = stepTimeMs(s);
-                return t === null || t > nowMs;
-            });
+            : allSteps
+                .filter((s) => {
+                    const t = stepTimeMs(s);
+                    return t === null || t > nowMs;
+                })
+                .sort((a, b) => (stepTimeMs(a) ?? Infinity) - (stepTimeMs(b) ?? Infinity));
 
         const card = d.createElement('div');
         // Reuse the same visual contract as the meds card. The --plain
@@ -261,8 +265,11 @@
                 throw new Error('apiCall unavailable');
             }
             await window.apiCall(`/api/tz-plan/${encodeURIComponent(planId)}/${action}`, 'POST');
-            cached = { plan: null, steps: [] };
-            reloadTab();
+            // Re-read rather than blanking the cache: approve lands on the
+            // read-only "Transition in progress" card, reject drops the card
+            // entirely, and either way the plan's render key changed, so
+            // refresh() repaints Today exactly once.
+            await refresh();
         } catch (e) {
             console.error('tz_plan card action failed', e);
             buttons.forEach((b) => { b.disabled = false; });

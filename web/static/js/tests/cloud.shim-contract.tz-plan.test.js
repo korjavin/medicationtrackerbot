@@ -10,6 +10,15 @@ import {
 import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { createTzPlanDomain, planDosesWithTzPlan } from '../../../domain/tzplan.js';
 
+// Apply/Cancel round-trip twice — the POST, then the re-read refresh() does so
+// the approved card can replace the pending one — so drain the queue instead of
+// counting microtask ticks.
+async function flushAsync() {
+    for (let i = 0; i < 5; i += 1) {
+        await new Promise((resolve) => { setTimeout(resolve, 0); });
+    }
+}
+
 function seedPendingPlan(overrides = {}) {
     return {
         recordId: 'tzplan-current',
@@ -66,14 +75,20 @@ describe('cloud shim contract — TZ plan banner (features/tz-plan-banner.js ove
         const applyBtn = [...card.querySelectorAll('button')].find((b) => b.textContent === 'Apply');
 
         applyBtn.click();
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushAsync();
 
         expect(window.reloadCurrentTab).toHaveBeenCalled();
         const { plan } = await window.apiCall('/api/tz-plan/current');
         expect(plan.status).toBe('APPROVED');
         const settings = await window.apiCall('/api/settings');
         expect(settings.timezone).toBe('Asia/Tokyo');
+
+        // The approved plan takes over the same card slot rather than leaving
+        // an empty Today — the whole point of bd med-gut.3.
+        const afterApply = window.TZPlanBanner.mountCard(document.createElement('div'));
+        expect(afterApply).not.toBeNull();
+        expect(afterApply.querySelector('.wg-next-action-card__kicker').textContent)
+            .toBe('Transition in progress');
     });
 
     it('Cancel rejects the plan and reverts settings.timezone', async () => {
@@ -85,14 +100,16 @@ describe('cloud shim contract — TZ plan banner (features/tz-plan-banner.js ove
         const cancelBtn = [...card.querySelectorAll('button')].find((b) => b.textContent === 'Cancel');
 
         cancelBtn.click();
-        await Promise.resolve();
-        await Promise.resolve();
+        await flushAsync();
 
         expect(window.reloadCurrentTab).toHaveBeenCalled();
         const { plan } = await window.apiCall('/api/tz-plan/current');
         expect(plan.status).toBe('REJECTED');
         const settings = await window.apiCall('/api/settings');
         expect(settings.timezone).toBe('America/New_York');
+
+        // Rejected renders nothing.
+        expect(window.TZPlanBanner.mountCard(document.createElement('div'))).toBeNull();
     });
 });
 
@@ -103,6 +120,10 @@ describe('cloud shim contract — TZ plan banner (features/tz-plan-banner.js ove
 describe('TZ plan banner — approved plan in progress (bd med-gut.3)', () => {
     let env;
 
+    // Two meds, seeded grouped-by-medication rather than chronologically —
+    // that is how internal/domain/tzreschedule/engine.go emits StepsJSON (it
+    // appends per med and never sorts across meds), so the banner has to order
+    // them itself before picking "next".
     function seedApprovedPlan() {
         const nowMs = Date.now();
         return seedPendingPlan({
@@ -110,13 +131,13 @@ describe('TZ plan banner — approved plan in progress (bd med-gut.3)', () => {
             approved_at: new Date(nowMs).toISOString(),
             steps: [
                 {
-                    medicationId: 1, medName: 'Metformin', stepNumber: 1, totalSteps: 3, scheduledAtMs: nowMs - 3600_000, note: 'Metformin: step 1/3 — done'
+                    medicationId: 1, medName: 'Metformin', stepNumber: 1, totalSteps: 2, scheduledAtMs: nowMs - 3600_000, note: 'Metformin: step 1/2 — already shifted'
                 },
                 {
-                    medicationId: 1, medName: 'Metformin', stepNumber: 2, totalSteps: 3, scheduledAtMs: nowMs + 3600_000, note: 'Metformin: step 2/3 — 08:00 EST old / 22:00 JST new'
+                    medicationId: 1, medName: 'Metformin', stepNumber: 2, totalSteps: 2, scheduledAtMs: nowMs + 7200_000, note: 'Metformin: step 2/2 — 09:00 EST old / 23:00 JST new'
                 },
                 {
-                    medicationId: 1, medName: 'Metformin', stepNumber: 3, totalSteps: 3, scheduledAtMs: nowMs + 7200_000, note: 'Metformin: step 3/3 — 09:00 EST old / 23:00 JST new'
+                    medicationId: 2, medName: 'Lisinopril', stepNumber: 1, totalSteps: 1, scheduledAtMs: nowMs + 3600_000, note: 'Lisinopril: step 1/1 — 08:00 EST old / 22:00 JST new'
                 }
             ]
         });
@@ -148,20 +169,22 @@ describe('TZ plan banner — approved plan in progress (bd med-gut.3)', () => {
 
         const details = [...card.querySelectorAll('.wg-tz-plan-card__detail')].map((el) => el.textContent);
         expect(details[0]).toBe('1 of 3 steps done');
+        // Soonest remaining step wins, not the first one in the array.
         expect(details[1]).toContain('Next shifted dose:');
-        expect(details[1]).toContain('Metformin');
+        expect(details[1]).toContain('Lisinopril');
 
         // Read-only: no Apply/Cancel on an already-approved plan.
         expect(card.querySelectorAll('button')).toHaveLength(0);
 
-        // Only the two future steps are "remaining"; the past one is dropped.
+        // Only the two future steps are "remaining"; the past one is dropped,
+        // and the rest are listed chronologically.
         expect(card.querySelector('.wg-tz-plan-card__details-summary').textContent)
             .toBe('2 transition doses left');
         const notes = [...card.querySelectorAll('.wg-tz-plan-card__details-list li')]
             .map((li) => li.textContent);
         expect(notes).toEqual([
-            'Metformin: step 2/3 — 08:00 EST old / 22:00 JST new',
-            'Metformin: step 3/3 — 09:00 EST old / 23:00 JST new'
+            'Lisinopril: step 1/1 — 08:00 EST old / 22:00 JST new',
+            'Metformin: step 2/2 — 09:00 EST old / 23:00 JST new'
         ]);
     });
 
