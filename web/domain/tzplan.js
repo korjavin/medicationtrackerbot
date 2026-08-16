@@ -280,13 +280,23 @@ export function generatePlan({
 
 // planDosesWithTzPlan composes medschedule.js's planDoses with an APPROVED
 // tz transition plan: unions in the plan's own due/forecast steps and drops
-// a medication's normal-schedule targets only while that med still has a
-// future step — mirroring the server's MedsWithFuturePendingTZStepsForPlan
+// a medication's normal-schedule targets only while that med is still mid-
+// transition — mirroring the server's MedsWithFuturePendingTZStepsForPlan
 // gate. Keying the suppression on every med in the plan instead would keep an
 // early-finishing med's normal doses suppressed until the whole plan flips
 // COMPLETED (the last step of any med), silently dropping that med's doses
 // mid-plan. `tzPlan` is the raw stored record (or null/non-APPROVED, in which
 // case this is a pure passthrough).
+//
+// "Mid-transition" is judged per TARGET, not once against `now`: a target is
+// inside the transition when the med still has a step at or after it. The two
+// rules agree in fire mode (every target is <= now, so any future step covers
+// them all), but in a forecast the once-against-`now` version dropped normal
+// doses that land AFTER the last step — the very doses materializeDueDoses
+// will happily create when that instant arrives, so the forecast under-
+// reported reality and the reminder horizon skipped a real dose. The plan
+// generator's hand-off guard (stepsForMedication → firstNormalDoseAfter) is
+// what keeps the gap between the last step and that resuming dose safe.
 export function planDosesWithTzPlan({
   medications, timeZone, now, window = 0, tzPlan,
 }) {
@@ -297,9 +307,15 @@ export function planDosesWithTzPlan({
     return base;
   }
 
-  const affectedMedIds = new Set(
-    tzPlan.steps.filter((s) => s.scheduledAtMs > now).map((s) => s.medicationId),
-  );
+  // medicationId -> the instant its transition finishes (its last still-future
+  // step). A med whose every step is already behind us is not in the map, so
+  // it is not suppressed at all.
+  const transitionEndsAt = new Map();
+  for (const s of tzPlan.steps) {
+    if (!(s.scheduledAtMs > now)) continue;
+    const prev = transitionEndsAt.get(s.medicationId);
+    if (prev === undefined || s.scheduledAtMs > prev) transitionEndsAt.set(s.medicationId, s.scheduledAtMs);
+  }
   // stepNumber/totalSteps/note ride along so a forecast consumer can say WHICH
   // transition step a dose is and show buildNote's human-readable explanation
   // (medintake.js's upcomingDoses → the Meds Schedule tab's Upcoming list).
@@ -316,7 +332,10 @@ export function planDosesWithTzPlan({
       note: s.note,
     }));
 
-  const merged = base.filter((t) => !affectedMedIds.has(t.medicationId)).concat(stepTargets);
+  const merged = base.filter((t) => {
+    const endsAt = transitionEndsAt.get(t.medicationId);
+    return endsAt === undefined || t.scheduledAtMs > endsAt;
+  }).concat(stepTargets);
   merged.sort((a, b) => (a.scheduledAtMs !== b.scheduledAtMs
     ? a.scheduledAtMs - b.scheduledAtMs
     : a.medicationId - b.medicationId));

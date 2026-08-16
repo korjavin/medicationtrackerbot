@@ -297,8 +297,10 @@ describe('cloud shim contract — plan-aware upcoming doses (web/domain/medintak
                 medName: 'Metformin',
                 stepNumber: 2,
                 totalSteps: 2,
-                scheduledAtMs: NOW + 15 * HOUR,
-                note: 'Metformin (strict — gradual shift): step 2/2 — 02:00 JST old / 00:00 GMT new'
+                // 12:00 Tokyo on Aug 17 — after that day's normal 08:00 slot,
+                // so the transition is still running when it would land.
+                scheduledAtMs: NOW + 27 * HOUR,
+                note: 'Metformin (strict — gradual shift): step 2/2 — 14:00 JST old / 12:00 GMT new'
             }
         ];
         const call = routerWith({
@@ -322,15 +324,20 @@ describe('cloud shim contract — plan-aware upcoming doses (web/domain/medintak
         expect(stepRows[0]).toMatchObject({
             step_number: 1, total_steps: 2, note: steps[0].note, local_time: '12:00'
         });
-        expect(stepRows[1]).toMatchObject({ step_number: 2, total_steps: 2, note: steps[1].note });
+        expect(stepRows[1]).toMatchObject({
+            step_number: 2, total_steps: 2, note: steps[1].note, local_date: '2026-08-17'
+        });
 
-        // While the plan still has a future step the medication's normal
-        // Aug-17 dose is suppressed — the steps replace it...
+        // The Aug-17 08:00 dose lands mid-transition (the last step is at
+        // 12:00 that day), so the steps replace it...
         const dates = doses.filter((d) => d.source === 'schedule').map((d) => d.local_date);
         expect(dates).not.toContain('2026-08-17');
-        // ...and it resumes on its own once every step is behind us, instead of
-        // staying suppressed for the whole horizon.
-        expect(dates).toContain('2026-08-18');
+        // ...and the normal schedule resumes on its own from the day after the
+        // last step, instead of staying suppressed for the whole horizon.
+        expect(dates).toEqual([
+            '2026-08-18', '2026-08-19', '2026-08-20',
+            '2026-08-21', '2026-08-22', '2026-08-23'
+        ]);
     });
 
     it('drops a slot that has already been taken or skipped', async () => {
