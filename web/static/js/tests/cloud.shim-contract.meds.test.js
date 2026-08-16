@@ -8,7 +8,8 @@
 import {
     afterEach, beforeEach, describe, expect, it, vi
 } from 'vitest';
-import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { loadCloudShimFrontendEnv, createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
+import { createApiRouter } from '../../../cloud/js/apishim.js';
 
 // Fake rxnorm port (Task 8: "warning alert (fake rxnorm port)") — the real
 // browser impl does live RxNav fetches (Task 6); tests substitute a
@@ -209,5 +210,158 @@ describe('cloud shim contract — meds CRUD flows (features/meds.js over web/dom
         expect(low[0].name).toBe('Warfarin');
         expect(low[0].days_remaining).toBeDefined();
         expect(low[0].days_remaining).toBeLessThan(7);
+    });
+});
+
+// bd med-gut.1 / med-gut.2 — GET /api/medications/upcoming. Drives the REAL
+// router (the single entry point the cloud UI and mcp-responder share) with an
+// explicit `timeZone` that is NOT the device zone, which is the whole point:
+// the Schedule tab used to bucket doses in the browser's own timezone and so
+// disagreed with Home's next-intake card. `now` is pinned so the assertions
+// are wall-clock independent.
+describe('cloud shim contract — plan-aware upcoming doses (web/domain/medintake.js upcomingDoses)', () => {
+    const TZ = 'Asia/Tokyo'; // UTC+9, no DST
+    // 2026-08-16T00:00Z === 09:00 on 2026-08-16 in Tokyo.
+    const NOW = Date.UTC(2026, 7, 16, 0, 0);
+    const HOUR = 3600_000;
+
+    function seedMed(overrides = {}) {
+        return {
+            recordId: 1,
+            clientTs: NOW,
+            deleted: false,
+            name: 'Metformin',
+            dosage: '500mg',
+            schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
+            archived: false,
+            start_date: null,
+            end_date: null,
+            inventory_count: null,
+            tz_shift_policy: 'strict',
+            created_at: '2026-01-01T00:00:00.000Z',
+            ...overrides
+        };
+    }
+
+    function routerWith(seedRecords) {
+        const records = createInMemoryRecordsPort(seedRecords);
+        return createApiRouter({}, {
+            records, win: {}, now: () => NOW, timeZone: TZ
+        });
+    }
+
+    it('forecasts a full week in the tracked timezone, not the device one', async () => {
+        const call = routerWith({ medication: [seedMed()] });
+
+        const doses = await call('/api/medications/upcoming?days=7', 'GET');
+
+        // 08:00 Tokyo has already passed today (it is 09:00 there), so the
+        // week runs Aug 17..Aug 23 — seven doses, one per day.
+        expect(doses.map((d) => d.local_date)).toEqual([
+            '2026-08-17', '2026-08-18', '2026-08-19',
+            '2026-08-20', '2026-08-21', '2026-08-22', '2026-08-23'
+        ]);
+        expect(doses.every((d) => d.local_time === '08:00')).toBe(true);
+        expect(doses.map((d) => d.day_offset)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+        // 08:00 Tokyo on Aug 17 is 23:00Z on Aug 16 — proof the instant was
+        // computed in Tokyo rather than in whatever zone the runner is in.
+        expect(doses[0].scheduled_at).toBe('2026-08-16T23:00:00.000Z');
+        expect(doses[0]).toMatchObject({
+            medication_id: 1, med_name: 'Metformin', dosage: '500mg', source: 'schedule'
+        });
+        expect(doses[0].step_number).toBeUndefined();
+    });
+
+    it('reads a legacy "HH:MM" schedule string as a daily one-dose schedule', async () => {
+        const call = routerWith({ medication: [seedMed({ schedule: '20:00' })] });
+
+        const doses = await call('/api/medications/upcoming?days=2', 'GET');
+
+        expect(doses).toHaveLength(2);
+        expect(doses[0].local_date).toBe('2026-08-16');
+        expect(doses[0].local_time).toBe('20:00');
+    });
+
+    it('surfaces an approved plan\'s steps with their number and note, then resumes the normal schedule', async () => {
+        const steps = [
+            {
+                medicationId: 1,
+                medName: 'Metformin',
+                stepNumber: 1,
+                totalSteps: 2,
+                scheduledAtMs: NOW + 3 * HOUR,
+                note: 'Metformin (strict — gradual shift): step 1/2 — 14:00 JST old / 12:00 GMT new'
+            },
+            {
+                medicationId: 1,
+                medName: 'Metformin',
+                stepNumber: 2,
+                totalSteps: 2,
+                scheduledAtMs: NOW + 15 * HOUR,
+                note: 'Metformin (strict — gradual shift): step 2/2 — 02:00 JST old / 00:00 GMT new'
+            }
+        ];
+        const call = routerWith({
+            medication: [seedMed()],
+            tzplan: [{
+                recordId: 'tzplan-current',
+                clientTs: NOW,
+                deleted: false,
+                old_tz: 'Asia/Tokyo',
+                new_tz: 'Europe/London',
+                status: 'APPROVED',
+                created_at: '2026-08-15T00:00:00.000Z',
+                steps
+            }]
+        });
+
+        const doses = await call('/api/medications/upcoming?days=7', 'GET');
+
+        const stepRows = doses.filter((d) => d.source === 'tz_step');
+        expect(stepRows).toHaveLength(2);
+        expect(stepRows[0]).toMatchObject({
+            step_number: 1, total_steps: 2, note: steps[0].note, local_time: '12:00'
+        });
+        expect(stepRows[1]).toMatchObject({ step_number: 2, total_steps: 2, note: steps[1].note });
+
+        // While the plan still has a future step the medication's normal
+        // Aug-17 dose is suppressed — the steps replace it...
+        const dates = doses.filter((d) => d.source === 'schedule').map((d) => d.local_date);
+        expect(dates).not.toContain('2026-08-17');
+        // ...and it resumes on its own once every step is behind us, instead of
+        // staying suppressed for the whole horizon.
+        expect(dates).toContain('2026-08-18');
+    });
+
+    it('drops a slot that has already been taken or skipped', async () => {
+        const call = routerWith({
+            medication: [seedMed()],
+            intake: [{
+                recordId: 'intake-1-x',
+                clientTs: NOW,
+                deleted: false,
+                medication_id: 1,
+                // 08:00 Tokyo on Aug 17.
+                scheduled_at: '2026-08-16T23:00:00.000Z',
+                taken_at: '2026-08-16T23:05:00.000Z',
+                status: 'TAKEN',
+                snoozed_until: null,
+                source: 'schedule'
+            }]
+        });
+
+        const doses = await call('/api/medications/upcoming?days=3', 'GET');
+
+        expect(doses.map((d) => d.local_date)).toEqual(['2026-08-18', '2026-08-19']);
+    });
+
+    it('clamps the requested window', async () => {
+        const call = routerWith({ medication: [seedMed()] });
+
+        // days=0 / garbage falls back to the 7-day default rather than
+        // "everything"; an oversized ask is clamped, not honoured.
+        expect(await call('/api/medications/upcoming?days=0', 'GET')).toHaveLength(7);
+        expect(await call('/api/medications/upcoming?days=abc', 'GET')).toHaveLength(7);
+        expect(await call('/api/medications/upcoming?days=999', 'GET')).toHaveLength(30);
     });
 });

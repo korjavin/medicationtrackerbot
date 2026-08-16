@@ -20,6 +20,14 @@
 
 window.MedicationUtils = (function () {
     function parseMedicationSchedule(rawSchedule) {
+        // Legacy "HH:MM" schedule strings are a one-dose daily schedule — the
+        // same shape web/domain/medschedule.js's parseSchedule returns for
+        // them. Bare JSON.parse turned them into null, so every legacy med
+        // silently lost its next dose and fell into the Schedule tab's
+        // no-time "Scheduled" bucket (bd med-gut.1).
+        if (typeof rawSchedule === 'string' && rawSchedule.length === 5 && rawSchedule[2] === ':') {
+            return { type: 'daily', times: [rawSchedule] };
+        }
         try {
             return JSON.parse(rawSchedule);
         } catch (e) {

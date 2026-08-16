@@ -10196,6 +10196,70 @@ textarea.wg-input {
     gap: var(--space-xs);
 }
 
+/* Meds schedule sub-tab — "Upcoming" forecast (bd med-gut.2). Read-only list
+   of the next 7 days of doses, grouped by day in the tracked timezone. Each
+   row is a compact `.wg-card` (mono time gutter + name/dosage), and doses that
+   came from an approved tz transition plan carry a `.wg-tag--mono` step badge
+   plus the plan step's own explanatory note. */
+.wg-meds-upcoming {
+    margin-top: var(--space-lg);
+}
+
+.wg-meds-upcoming__day {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-4);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin: var(--space-md) 0 var(--space-xs);
+}
+
+.wg-meds-upcoming__row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    margin-bottom: var(--space-xs);
+}
+
+.wg-meds-upcoming__time {
+    flex-shrink: 0;
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+}
+
+.wg-meds-upcoming__body {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-meds-upcoming__title {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: var(--space-sm);
+    min-width: 0;
+}
+
+.wg-meds-upcoming__name {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-1);
+}
+
+.wg-meds-upcoming__dosage {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.02em;
+}
+
+.wg-meds-upcoming__note {
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-4);
+}
+
 /* Meds history sub-tab (Phase 5, Task 5). Two `.wg-gloss--inset` select
    wraps sit atop a muted next-intake link row, followed by a day-grouped
    list where each minute-cluster of intakes is a `.wg-card` row. Status

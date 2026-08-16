@@ -46,6 +46,23 @@ export function localDateParts(ms, timeZone) {
   return { year: +map.year, month: +map.month, day: +map.day };
 }
 
+// localDateParts plus the wall-clock hour/minute (h23). tzplan.js's step math
+// and medintake.js's upcoming-dose forecast both need the full wall-clock
+// breakdown in the tracked zone, so it lives here with the rest of the
+// zone-conversion helpers instead of being redeclared per module.
+export function localDateTimeParts(ms, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).formatToParts(new Date(ms));
+  const map = {};
+  for (const p of parts) map[p.type] = p.value;
+  return {
+    year: +map.year, month: +map.month, day: +map.day, hour: +map.hour, minute: +map.minute,
+  };
+}
+
 // Two-pass refine, same technique as bp.js's dayStartMs: guess the offset,
 // convert, then re-derive the offset at the guessed instant (handles DST
 // transitions landing on the target wall-clock time).

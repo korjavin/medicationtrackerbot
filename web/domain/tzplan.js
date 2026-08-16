@@ -26,6 +26,7 @@
 // shape (medication_id, step_number, scheduled_at) — see toStepsResponse.
 import {
   parseSchedule, planDoses, targetInWindow, nominalIntervalHours, minDoseIntervalMs, maxDoseIntervalMs,
+  localDateTimeParts,
 } from './medschedule.js';
 import { offsetMsAt } from './bp.js';
 import { createSettingsDomain } from './settings.js';
@@ -36,6 +37,7 @@ const MEDICATION_RECORD_TYPE = 'medication';
 const INTAKE_RECORD_TYPE = 'intake';
 
 const MAX_SHIFT_PER_DOSE_MS = { strict: 2 * 60 * 60 * 1000, medium: 3 * 60 * 60 * 1000 };
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function notFound(message) {
   const err = new Error(message);
@@ -58,19 +60,6 @@ function lastTakenAtMs(medId, intakes) {
     if (max === null || t > max) max = t;
   }
   return max;
-}
-
-function localDateTimeParts(ms, timeZone) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-  }).formatToParts(new Date(ms));
-  const map = {};
-  for (const p of parts) map[p.type] = p.value;
-  return {
-    year: +map.year, month: +map.month, day: +map.day, hour: +map.hour, minute: +map.minute,
-  };
 }
 
 // Same two-pass DST refine as medschedule.js's localWallToUtcMs.
@@ -311,10 +300,20 @@ export function planDosesWithTzPlan({
   const affectedMedIds = new Set(
     tzPlan.steps.filter((s) => s.scheduledAtMs > now).map((s) => s.medicationId),
   );
+  // stepNumber/totalSteps/note ride along so a forecast consumer can say WHICH
+  // transition step a dose is and show buildNote's human-readable explanation
+  // (medintake.js's upcomingDoses → the Meds Schedule tab's Upcoming list).
+  // Every other consumer reads only medicationId/scheduledAtMs/source.
   const stepTargets = tzPlan.steps
     .filter((s) => targetInWindow(s.scheduledAtMs, now, window))
     .map((s) => ({
-      medicationId: s.medicationId, medName: s.medName, scheduledAtMs: s.scheduledAtMs, source: 'tz_step',
+      medicationId: s.medicationId,
+      medName: s.medName,
+      scheduledAtMs: s.scheduledAtMs,
+      source: 'tz_step',
+      stepNumber: s.stepNumber,
+      totalSteps: s.totalSteps,
+      note: s.note,
     }));
 
   const merged = base.filter((t) => !affectedMedIds.has(t.medicationId)).concat(stepTargets);
@@ -322,6 +321,38 @@ export function planDosesWithTzPlan({
     ? a.scheduledAtMs - b.scheduledAtMs
     : a.medicationId - b.medicationId));
   return merged;
+}
+
+// forecastDosesWithTzPlan is planDosesWithTzPlan over a multi-DAY horizon.
+// Two reasons it walks day-by-day instead of just widening `window`:
+//   1. medschedule.js's candidateNormalTargets (ported from medplan.go) caps
+//      its look-ahead at "today + tomorrow" regardless of the window duration,
+//      so a wide window silently returns <=2 days of normal doses.
+//   2. The tz-plan suppression is keyed on "this med still has a FUTURE step",
+//      evaluated against `now`. Re-evaluating it per day is what lets a
+//      medication resume its normal schedule the day after its last transition
+//      step, instead of staying suppressed for the whole horizon.
+// Day windows are disjoint ((now, now+24h], (now+24h, now+48h], …) so the
+// concatenation is already ascending; the dedupe is a cheap belt-and-braces
+// against a step landing on a boundary twice. Extracted from reminders.js's
+// computeReminderHorizon, which drove the identical loop.
+export function forecastDosesWithTzPlan({
+  medications = [], timeZone, now, days = 7, tzPlan,
+} = {}) {
+  const seen = new Set();
+  const out = [];
+  for (let day = 0; day < days; day++) {
+    const dayTargets = planDosesWithTzPlan({
+      medications, timeZone, now: now + day * DAY_MS, window: DAY_MS, tzPlan,
+    });
+    for (const t of dayTargets) {
+      const key = `${t.medicationId}-${t.scheduledAtMs}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+    }
+  }
+  return out;
 }
 
 function toPlanResponse(rec) {

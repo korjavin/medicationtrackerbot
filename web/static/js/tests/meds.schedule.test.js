@@ -16,12 +16,46 @@ function toLocalTime(date) {
     return `${hh}:${mm}`;
 }
 
-async function seedMedications(window, meds) {
+// `upcoming` seeds GET /api/medications/upcoming — the plan-aware forecast the
+// Schedule tab buckets by (bd med-gut.1). Passing null keeps the pre-med-gut
+// behaviour under test: no forecast available, so renderMeds falls back to the
+// device-local computation.
+async function seedMedications(window, meds, upcoming = null) {
     window.DataStore.loadSWR = vi.fn(async (options) => {
         await options.onFresh(meds);
     });
-    window.apiCall = vi.fn().mockResolvedValue([]);
+    window.apiCall = vi.fn(async (endpoint) => {
+        if (typeof endpoint === 'string' && endpoint.startsWith('/api/medications/upcoming')) {
+            return upcoming || [];
+        }
+        return [];
+    });
     await window.loadMeds();
+}
+
+// Wire shape of one /api/medications/upcoming row (web/domain/medintake.js's
+// upcomingDoses). local_date/local_time/day_offset are computed in the TRACKED
+// timezone by the domain, which is the whole point — the browser only knows
+// the device zone.
+function upcomingDose({
+    id, name, dosage = '', at, localDate, localTime, dayOffset = 0, step = null
+}) {
+    const row = {
+        medication_id: id,
+        med_name: name,
+        dosage,
+        scheduled_at: at.toISOString(),
+        local_date: localDate,
+        local_time: localTime,
+        day_offset: dayOffset,
+        source: step ? 'tz_step' : 'schedule'
+    };
+    if (step) {
+        row.step_number = step.number;
+        row.total_steps = step.total;
+        row.note = step.note;
+    }
+    return row;
 }
 
 describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
@@ -270,6 +304,74 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(label.textContent.trim()).toBe('Add');
     });
 
+    // bd med-gut.1 — the Schedule tab used to bucket by a naive device-local
+    // next-dose (medication-utils.getNextScheduledDate), which ignored the
+    // tracked IANA timezone and any approved tz transition plan, so it
+    // disagreed with Home's next-intake card. It now buckets by
+    // GET /api/medications/upcoming, which runs the same plan-aware engine.
+    it('buckets by the plan-aware forecast rather than the device-local schedule', async () => {
+        const { window, document } = env;
+        // The stored schedule says 08:00; the forecast says 05:30 (an approved
+        // transition plan shifted the dose). The header must follow the
+        // forecast, exactly like Home's next-intake card does.
+        const shifted = new Date(Date.now() + 90 * 60 * 1000);
+
+        await seedMedications(window, [
+            {
+                id: 7,
+                name: 'Metformin',
+                dosage: '500mg',
+                schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
+                archived: false
+            }
+        ], [
+            upcomingDose({
+                id: 7,
+                name: 'Metformin',
+                dosage: '500mg',
+                at: shifted,
+                localDate: '2026-08-16',
+                localTime: '05:30',
+                step: { number: 1, total: 2, note: 'Metformin (strict — gradual shift): step 1/2' }
+            })
+        ]);
+
+        const list = document.getElementById('med-list');
+        const headers = Array.from(list.querySelectorAll('.wg-section-label'))
+            .map((h) => h.textContent.trim());
+        // Bucket header carries the forecast's tracked-timezone clock time,
+        // never the 08:00 written on the medication.
+        expect(headers[0]).toMatch(/^05:30 · in /);
+        expect(headers.some((h) => h.startsWith('08:00'))).toBe(false);
+        expect(headers).not.toContain('Scheduled');
+    });
+
+    // bd med-gut.1 — a legacy "HH:MM" schedule string used to fail
+    // parseMedicationSchedule's bare JSON.parse, so the med lost its next dose
+    // and dropped into the no-time "Scheduled" bucket.
+    it('gives a legacy "HH:MM" schedule string a real hour bucket', async () => {
+        const { window, document } = env;
+
+        await seedMedications(window, [
+            {
+                id: 3,
+                name: 'LegacyMed',
+                dosage: '10mg',
+                schedule: '08:00',
+                archived: false
+            }
+        ]);
+
+        const list = document.getElementById('med-list');
+        const headers = Array.from(list.querySelectorAll('.wg-section-label'))
+            .map((h) => h.textContent.trim());
+        expect(headers).toEqual([expect.stringMatching(/^08:00 · in /)]);
+        expect(headers).not.toContain('Scheduled');
+
+        const row = list.querySelector('.wg-meds-row');
+        expect(row.querySelector('.wg-meds-row__schedule').textContent).toBe('Daily: 08:00');
+    });
+
     it('rendering twice replaces the list cleanly (no duplicate section headers)', async () => {
         const { window, document } = env;
         const now = new Date();
@@ -292,5 +394,101 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(headers.length).toBe(1);
         const rows = list.querySelectorAll('.wg-meds-row');
         expect(rows.length).toBe(1);
+    });
+});
+
+// bd med-gut.2 — read-only "Upcoming" forecast under the hour buckets: the
+// next 7 days of doses grouped by day in the TRACKED timezone, with tz-plan
+// steps labelled and their explanatory note surfaced.
+describe('Meds schedule sub-tab — Upcoming forecast (bd med-gut.2)', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadFrontendEnv();
+    });
+
+    afterEach(() => {
+        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+        env.cleanup();
+        env = null;
+    });
+
+    const med = {
+        id: 1,
+        name: 'Metformin',
+        dosage: '500mg',
+        schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
+        archived: false
+    };
+
+    it('groups the forecast by day using the route\'s tracked-timezone day fields', async () => {
+        const { window, document } = env;
+        const base = Date.now() + 60 * 60 * 1000;
+
+        await seedMedications(window, [med], [
+            upcomingDose({
+                id: 1, name: 'Metformin', dosage: '500mg', at: new Date(base),
+                localDate: '2026-08-16', localTime: '08:00', dayOffset: 0
+            }),
+            upcomingDose({
+                id: 1, name: 'Metformin', dosage: '500mg', at: new Date(base + 24 * 3600_000),
+                localDate: '2026-08-17', localTime: '08:00', dayOffset: 1
+            }),
+            upcomingDose({
+                id: 1, name: 'Metformin', dosage: '500mg', at: new Date(base + 48 * 3600_000),
+                localDate: '2026-08-18', localTime: '08:00', dayOffset: 2
+            })
+        ]);
+
+        const wrap = document.querySelector('.wg-meds-upcoming');
+        expect(wrap).not.toBeNull();
+        const label = wrap.querySelector('.wg-section-label');
+        expect(label.textContent.trim()).toBe('Upcoming');
+
+        const dayLabels = Array.from(wrap.querySelectorAll('.wg-meds-upcoming__day'))
+            .map((el) => el.textContent.trim());
+        expect(dayLabels).toHaveLength(3);
+        // day_offset comes from the domain (tracked zone), so "Today"/"Tomorrow"
+        // stay correct even when the device zone is a different calendar day.
+        expect(dayLabels[0]).toBe('Today');
+        expect(dayLabels[1]).toBe('Tomorrow');
+        expect(dayLabels[2]).not.toBe('Tomorrow');
+
+        const rows = wrap.querySelectorAll('.wg-meds-upcoming__row');
+        expect(rows.length).toBe(3);
+        expect(rows[0].querySelector('.wg-meds-upcoming__time').textContent).toBe('08:00');
+        expect(rows[0].querySelector('.wg-meds-upcoming__name').textContent).toBe('Metformin');
+        expect(rows[0].querySelector('.wg-meds-upcoming__dosage').textContent).toBe('500mg');
+        // Read-only: no take/skip/log affordances in the forecast list.
+        expect(wrap.querySelectorAll('button').length).toBe(0);
+    });
+
+    it('badges a tz-plan step dose and shows the step note', async () => {
+        const { window, document } = env;
+        const at = new Date(Date.now() + 3 * 3600_000);
+        const note = 'Metformin (strict — gradual shift): step 1/2 — 08:00 GMT+3 old / 05:00 GMT new';
+
+        await seedMedications(window, [med], [
+            upcomingDose({
+                id: 1, name: 'Metformin', dosage: '500mg', at,
+                localDate: '2026-08-16', localTime: '05:00', dayOffset: 0,
+                step: { number: 1, total: 2, note }
+            })
+        ]);
+
+        const row = document.querySelector('.wg-meds-upcoming__row');
+        expect(row.classList.contains('wg-meds-upcoming__row--step')).toBe(true);
+        const badge = row.querySelector('.wg-meds-upcoming__badge');
+        expect(badge).not.toBeNull();
+        expect(badge.classList.contains('wg-tag')).toBe(true);
+        expect(badge.classList.contains('wg-tag--mono')).toBe(true);
+        expect(badge.textContent).toBe('transition step 1/2');
+        expect(row.querySelector('.wg-meds-upcoming__note').textContent).toBe(note);
+    });
+
+    it('renders no Upcoming section at all when the forecast is empty', async () => {
+        const { window, document } = env;
+        await seedMedications(window, [med]);
+        expect(document.querySelector('.wg-meds-upcoming')).toBeNull();
     });
 });

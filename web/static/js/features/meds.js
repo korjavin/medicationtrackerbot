@@ -160,17 +160,76 @@ function _formatNextActionRelative(diffMs) {
 // `.btn-sm` classes are preserved on the new nodes so legacy tests
 // that walk the row with those selectors still pass.
 
-function _formatHourHeader(date, now) {
-    const hh = String(date.getHours()).padStart(2, '0');
-    const mm = String(date.getMinutes()).padStart(2, '0');
+function _formatHourHeader(timeLabel, date, now) {
     const rel = _formatNextActionRelative(date.getTime() - now.getTime());
-    return `${hh}:${mm} · ${rel}`;
+    return `${timeLabel} · ${rel}`;
+}
+
+function _pad2(n) {
+    return String(n).padStart(2, '0');
 }
 
 function _hourKey(date) {
     // Calendar-day + hour-of-day key so doses that fall on the next
     // day's 08:00 do not collapse into today's 08:00 group.
     return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}`;
+}
+
+// Plan-aware dose forecast for the Schedule tab (bd med-gut.1/med-gut.2).
+// GET /api/medications/upcoming runs the SAME engine Home's next-intake card
+// uses (web/domain/medintake.js → planDosesWithTzPlan), so an approved tz
+// transition plan, the tracked IANA timezone, and start/end dates all land in
+// the buckets. Kept in module state because renderMeds() is synchronous and is
+// called from four places inside loadMeds().
+const MEDS_UPCOMING_DAYS = 7;
+let _medsUpcomingState = { doses: [] }; // module-state: plan-aware upcoming doses shared by the Schedule hour buckets and the Upcoming list
+
+async function loadUpcomingDoses() {
+    try {
+        const res = await apiCall(`/api/medications/upcoming?days=${MEDS_UPCOMING_DAYS}`);
+        _medsUpcomingState.doses = Array.isArray(res) ? res : [];
+    } catch (_) {
+        // Offline / route unavailable — renderMeds falls back to the naive
+        // device-local next dose so the buckets still paint something.
+        _medsUpcomingState.doses = [];
+    }
+    return _medsUpcomingState.doses;
+}
+
+// The route returns doses ascending by scheduled_at, so the first row per
+// medication is that medication's NEXT dose.
+function _nextDoseByMedId() {
+    const byMed = new Map();
+    (_medsUpcomingState.doses || []).forEach((dose) => {
+        const key = String(dose.medication_id);
+        if (!byMed.has(key)) byMed.set(key, dose);
+    });
+    return byMed;
+}
+
+// Resolves a med's next dose to {at, hourKey, timeLabel}. Prefers the
+// plan-aware forecast; falls back to the device-local computation only when
+// the forecast is unavailable (offline cold start, or the legacy bot server
+// which has no such route).
+function _resolveNextDose(med, schedule, nextDoses, now) {
+    const dose = nextDoses.get(String(med.id));
+    if (dose && dose.scheduled_at && dose.local_date && dose.local_time) {
+        const at = new Date(dose.scheduled_at);
+        if (!Number.isNaN(at.getTime())) {
+            return {
+                at,
+                hourKey: `${dose.local_date}-${String(dose.local_time).slice(0, 2)}`,
+                timeLabel: String(dose.local_time)
+            };
+        }
+    }
+    const at = window.MedicationUtils.getNextScheduledDate(schedule, now);
+    if (!at) return null;
+    return {
+        at,
+        hourKey: _hourKey(at),
+        timeLabel: `${_pad2(at.getHours())}:${_pad2(at.getMinutes())}`
+    };
 }
 
 function _buildMedsSectionLabel(text) {
@@ -295,6 +354,8 @@ function renderMeds() {
     const asNeeded = [];
     const archived = [];
 
+    const nextDoses = _nextDoseByMedId();
+
     medications.forEach((med) => {
         const schedule = window.MedicationUtils.parseMedicationSchedule(med.schedule);
         const scheduleType = schedule?.type || 'daily';
@@ -309,14 +370,20 @@ function renderMeds() {
             return;
         }
 
-        const next = window.MedicationUtils.getNextScheduledDate(schedule, now);
-        scheduledEntries.push({ med, schedule, next });
+        const resolved = _resolveNextDose(med, schedule, nextDoses, now);
+        scheduledEntries.push({
+            med,
+            schedule,
+            next: resolved ? resolved.at : null,
+            hourKey: resolved ? resolved.hourKey : null,
+            timeLabel: resolved ? resolved.timeLabel : null
+        });
     });
 
     // Bucket scheduled entries by hour of next dose. Entries with no
     // computable next dose fall into a generic "Scheduled" bucket at
     // the end of the scheduled section.
-    const hourBuckets = new Map(); // key -> { date, label, entries }
+    const hourBuckets = new Map(); // key -> { earliest, timeLabel, entries }
     const scheduledNoNext = [];
 
     scheduledEntries.forEach((entry) => {
@@ -324,18 +391,18 @@ function renderMeds() {
             scheduledNoNext.push(entry);
             return;
         }
-        const key = _hourKey(entry.next);
-        if (!hourBuckets.has(key)) {
-            const hourStart = new Date(entry.next);
-            hourStart.setMinutes(0, 0, 0);
-            hourBuckets.set(key, {
-                hourStart,
+        if (!hourBuckets.has(entry.hourKey)) {
+            hourBuckets.set(entry.hourKey, {
                 earliest: entry.next,
+                timeLabel: entry.timeLabel,
                 entries: []
             });
         }
-        const bucket = hourBuckets.get(key);
-        if (entry.next < bucket.earliest) bucket.earliest = entry.next;
+        const bucket = hourBuckets.get(entry.hourKey);
+        if (entry.next < bucket.earliest) {
+            bucket.earliest = entry.next;
+            bucket.timeLabel = entry.timeLabel;
+        }
         bucket.entries.push(entry);
     });
 
@@ -346,7 +413,7 @@ function renderMeds() {
 
     sortedBuckets.forEach((bucket) => {
         bucket.entries.sort((a, b) => (a.next || 0) - (b.next || 0));
-        const headerText = _formatHourHeader(bucket.earliest, now);
+        const headerText = _formatHourHeader(bucket.timeLabel, bucket.earliest, now);
         list.appendChild(_buildMedsSectionLabel(headerText));
         bucket.entries.forEach(({ med, schedule }) => {
             list.appendChild(_buildMedsRow(med, schedule));
@@ -376,6 +443,91 @@ function renderMeds() {
             list.appendChild(_buildMedsRow(med, schedule));
         });
     }
+
+    _renderUpcomingDoses(list);
+}
+
+// "Upcoming" forecast (bd med-gut.2): the next 7 days of doses grouped by day
+// in the TRACKED timezone. Read-only — no take/skip actions; the Today screen
+// owns those. Day labels and times come from the route (`day_offset`,
+// `local_date`, `local_time`) so this renderer never touches timezone math.
+function _formatUpcomingDayLabel(dose) {
+    if (dose.day_offset === 0) return 'Today';
+    if (dose.day_offset === 1) return 'Tomorrow';
+    const parts = String(dose.local_date || '').split('-').map(Number);
+    if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return String(dose.local_date || '');
+    // Constructed from wall-clock parts, so this Date is only ever read for its
+    // weekday/day/month names — never as an instant.
+    const d = new Date(parts[0], parts[1] - 1, parts[2]);
+    return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function _buildUpcomingRow(dose) {
+    const row = document.createElement('div');
+    row.className = 'wg-card wg-meds-upcoming__row';
+    row.dataset.medId = String(dose.medication_id);
+    if (dose.source === 'tz_step') row.classList.add('wg-meds-upcoming__row--step');
+
+    const time = document.createElement('span');
+    time.className = 'wg-meds-upcoming__time wg-mono-display';
+    time.textContent = dose.local_time || '';
+    row.appendChild(time);
+
+    const body = document.createElement('div');
+    body.className = 'wg-meds-upcoming__body';
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'wg-meds-upcoming__title';
+    const name = document.createElement('span');
+    name.className = 'wg-meds-upcoming__name';
+    name.textContent = dose.med_name || '';
+    titleRow.appendChild(name);
+    if (dose.dosage) {
+        const dosage = document.createElement('span');
+        dosage.className = 'wg-meds-upcoming__dosage';
+        dosage.textContent = dose.dosage;
+        titleRow.appendChild(dosage);
+    }
+    if (dose.source === 'tz_step' && dose.step_number) {
+        const badge = document.createElement('span');
+        badge.className = 'wg-tag wg-tag--mono wg-meds-upcoming__badge';
+        badge.textContent = `transition step ${dose.step_number}/${dose.total_steps || dose.step_number}`;
+        titleRow.appendChild(badge);
+    }
+    body.appendChild(titleRow);
+
+    if (dose.note) {
+        const note = document.createElement('div');
+        note.className = 'wg-meds-upcoming__note';
+        note.textContent = dose.note;
+        body.appendChild(note);
+    }
+
+    row.appendChild(body);
+    return row;
+}
+
+function _renderUpcomingDoses(list) {
+    const doses = _medsUpcomingState.doses || [];
+    if (doses.length === 0) return;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'wg-meds-upcoming';
+    wrap.appendChild(_buildMedsSectionLabel('Upcoming'));
+
+    let currentDay = null;
+    doses.forEach((dose) => {
+        if (dose.local_date !== currentDay) {
+            currentDay = dose.local_date;
+            const dayLabel = document.createElement('div');
+            dayLabel.className = 'wg-meds-upcoming__day';
+            dayLabel.textContent = _formatUpcomingDayLabel(dose);
+            wrap.appendChild(dayLabel);
+        }
+        wrap.appendChild(_buildUpcomingRow(dose));
+    });
+
+    list.appendChild(wrap);
 }
 
 function logMedicationPast(id, name) {
@@ -876,6 +1028,12 @@ function renderMedsEmptyState() {
 
 // Logic
 async function loadMeds() {
+    // Refresh the plan-aware forecast before any render below reads it. In
+    // cloud mode this is a local shim read (IndexedDB, no network), so it does
+    // not delay the first paint; in the legacy bot server the route is absent
+    // and renderMeds falls back to the device-local computation.
+    await loadUpcomingDoses();
+
     if (initialAuthLoad) {
         initialAuthLoad = false;
         // `medications` already set by applyBootstrapPayload, hydrateMedicationsFromDexie,

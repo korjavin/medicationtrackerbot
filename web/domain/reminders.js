@@ -12,7 +12,7 @@
 // Record type: medreminderpref — a singleton {enabled} toggle (default true,
 // matching the server always reminding while the medication feature is on)
 // gating whether the med portion of the horizon is computed at all.
-import { planDosesWithTzPlan } from './tzplan.js';
+import { forecastDosesWithTzPlan } from './tzplan.js';
 import {
   minDoseIntervalMs, localWallToUtcMs, localDateParts,
   listLowOnStock, getDaysOfStockRemaining,
@@ -39,7 +39,6 @@ const SLOTMEDS_RECORD_ID = 'slotmeds-current';
 export const DELIVERY_CHANNELS = ['webpush', 'telegram', 'both'];
 export const VERBOSITIES = ['detailed', 'generic'];
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const FORECAST_DAYS = 7;
 // ponytail: hard cap far under the relay's 2000-entry/4KB limit; unrealistic
 // to hit with real schedules, guards a pathological edge case only.
@@ -278,33 +277,14 @@ export function computeReminderHorizon({
   const medById = new Map(meds.map((m) => [m.recordId ?? m.id, m]));
   const entries = [];
 
-  // medschedule.js's candidateNormalTargets (ported near-verbatim from
-  // medplan.go, which every other caller only ever drives with a <=12h
-  // window) caps its look-ahead at "today + tomorrow" regardless of the
-  // window's duration — every other call site only ever needs a 12h
-  // forecast, so that cap was never a limitation. A 7-day reminder horizon
-  // needs actual multi-day coverage, so walk one day at a time instead of
-  // widening the window, and dedup by (medicationId, scheduledAtMs) since
-  // consecutive day-windows overlap by design (each call also re-sees
-  // "tomorrow").
+  // A 7-day reminder horizon needs actual multi-day coverage, which
+  // planDosesWithTzPlan alone cannot give (its look-ahead is capped at "today
+  // + tomorrow" regardless of window duration) — forecastDosesWithTzPlan is
+  // the day-by-day walk that does, shared with medintake.js's upcomingDoses.
   const medsShaped = meds.map((m) => ({ ...m, id: m.recordId ?? m.id }));
-  const seenTargets = new Set();
-  const targets = [];
-  for (let day = 0; day < FORECAST_DAYS; day++) {
-    const dayTargets = planDosesWithTzPlan({
-      medications: medsShaped,
-      timeZone,
-      now: now + day * DAY_MS,
-      window: DAY_MS,
-      tzPlan,
-    });
-    for (const t of dayTargets) {
-      const key = `${t.medicationId}-${t.scheduledAtMs}`;
-      if (seenTargets.has(key)) continue;
-      seenTargets.add(key);
-      targets.push(t);
-    }
-  }
+  const targets = forecastDosesWithTzPlan({
+    medications: medsShaped, timeZone, now, days: FORECAST_DAYS, tzPlan,
+  });
   // A dose the user already confirmed early (via trigger-next-intake) or
   // skipped must not resurface as a "Time to take" push. Mirrors the server
   // scheduler's dedup, which skips a normal target already covered by a
