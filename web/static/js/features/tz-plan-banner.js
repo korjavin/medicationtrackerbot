@@ -47,11 +47,15 @@
         return actionable(plan) || inProgress(plan);
     }
 
-    // Identity of what is on screen — a plan id/status change (including an
-    // approve done on another device, where both states are renderable) has to
-    // repaint Today.
-    function renderKey(plan) {
-        return renderable(plan) ? `${plan.id}:${plan.status}` : '';
+    // Identity of what is on screen, so a refresh that changes it repaints
+    // Today: the plan id and status (an approve done on another device leaves
+    // both states renderable), plus — for an in-progress plan, whose card is
+    // step-derived — how many steps are left, which is what "K of N done", the
+    // next-dose line, and mountCard's done-check all read.
+    function renderKey(plan, steps) {
+        if (!renderable(plan)) return '';
+        const base = `${plan.id}:${plan.status}`;
+        return inProgress(plan) ? `${base}:${remainingSteps(steps).length}` : base;
     }
 
     function stepTimeMs(step) {
@@ -303,10 +307,10 @@
             const result = await window.apiCall('/api/tz-plan/current', 'GET');
             const plan = (result && typeof result === 'object') ? (result.plan || null) : null;
             const steps = (result && Array.isArray(result.steps)) ? result.steps : [];
-            const prevKey = renderKey(cached.plan);
+            const prevKey = renderKey(cached.plan, cached.steps);
             const show = renderable(plan);
             cached = { plan: show ? plan : null, steps: show ? steps : [] };
-            if (prevKey !== renderKey(cached.plan)) {
+            if (prevKey !== renderKey(cached.plan, cached.steps)) {
                 reloadTab();
             }
         } catch (e) {

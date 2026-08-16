@@ -198,6 +198,7 @@ describe('TZ plan banner — approved plan in progress (bd med-gut.3)', () => {
         // the window between the final dose and the shim's next materialization
         // sweep (60s), where a tab left open would otherwise keep showing an
         // in-progress card with nothing left in it.
+        window.reloadCurrentTab.mockClear();
         const [rec] = await env.records.list('tzplan');
         await env.records.put('tzplan', {
             ...rec,
@@ -208,6 +209,9 @@ describe('TZ plan banner — approved plan in progress (bd med-gut.3)', () => {
         const { plan } = await window.apiCall('/api/tz-plan/current');
         expect(plan.status).toBe('APPROVED');
         expect(window.TZPlanBanner.mountCard(document.createElement('div'))).toBeNull();
+        // The step count is part of the render key, so the already-mounted card
+        // gets repainted away rather than lingering until an unrelated render.
+        expect(window.reloadCurrentTab).toHaveBeenCalled();
     });
 
     it('drops the card once every step is past and refreshPlanStatus flips the plan to COMPLETED', async () => {
