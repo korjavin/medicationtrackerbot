@@ -355,6 +355,41 @@ describe('cloud shim contract — plan-aware upcoming doses (web/domain/medintak
         expect(doses.map((d) => d.local_date)).toEqual(['2026-08-18', '2026-08-19']);
     });
 
+    // planDoses' medication-level start gate used to be `start_date > now`,
+    // which in a day-by-day forecast walk skipped the med for exactly the
+    // window containing its first dose — the next window then began after that
+    // dose, so a course starting tomorrow silently lost its first day.
+    it('includes a course that starts inside the forecast window, from its start onward', async () => {
+        const call = routerWith({
+            medication: [seedMed({
+                name: 'NewCourse',
+                // Midnight Tokyo on Aug 17 — after `now` (09:00 Tokyo, Aug 16).
+                start_date: '2026-08-16T15:00:00.000Z'
+            })]
+        });
+
+        const doses = await call('/api/medications/upcoming?days=3', 'GET');
+
+        expect(doses.map((d) => d.local_date)).toEqual([
+            '2026-08-17', '2026-08-18', '2026-08-19'
+        ]);
+    });
+
+    it('still excludes doses before the course starts and courses starting past the horizon', async () => {
+        // Course opens 15:00 Tokyo on Aug 17, so that day's 08:00 dose is not
+        // part of it.
+        const midCourse = routerWith({
+            medication: [seedMed({ start_date: '2026-08-17T06:00:00.000Z' })]
+        });
+        expect((await midCourse('/api/medications/upcoming?days=3', 'GET')).map((d) => d.local_date))
+            .toEqual(['2026-08-18', '2026-08-19']);
+
+        const later = routerWith({
+            medication: [seedMed({ start_date: '2026-09-01T00:00:00.000Z' })]
+        });
+        expect(await later('/api/medications/upcoming?days=3', 'GET')).toEqual([]);
+    });
+
     it('clamps the requested window', async () => {
         const call = routerWith({ medication: [seedMed()] });
 
