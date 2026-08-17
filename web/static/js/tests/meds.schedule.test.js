@@ -369,7 +369,9 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         const list = document.getElementById('med-list');
         const headers = Array.from(list.querySelectorAll('.wg-section-label'))
             .map((h) => h.textContent.trim());
-        expect(headers).toEqual(['Scheduled']);
+        // The forecast answered (with nothing), so the Upcoming block renders
+        // its empty state below the buckets — bd med-jr1e.
+        expect(headers).toEqual(['Scheduled', 'Upcoming']);
         expect(list.querySelectorAll('.wg-meds-row').length).toBe(1);
     });
 
@@ -513,10 +515,44 @@ describe('Meds schedule sub-tab — Upcoming forecast (bd med-gut.2)', () => {
         expect(row.querySelector('.wg-meds-upcoming__note').textContent).toBe(note);
     });
 
-    it('renders no Upcoming section at all when the forecast is empty', async () => {
+    // bd med-jr1e: an answered-but-empty forecast used to render nothing, which
+    // was indistinguishable on screen from the feature not shipping at all.
+    it('renders an honest empty state when the forecast answered with no doses', async () => {
         const { window, document } = env;
         await seedMedications(window, [med], []);
-        expect(document.querySelector('.wg-meds-upcoming')).toBeNull();
+
+        const wrap = document.querySelector('.wg-meds-upcoming');
+        expect(wrap).not.toBeNull();
+        expect(wrap.querySelector('.wg-section-label').textContent.trim()).toBe('Upcoming');
+        const empty = wrap.querySelector('.wg-meds-upcoming__empty');
+        expect(empty).not.toBeNull();
+        expect(empty.textContent).toBe('No scheduled doses in the next 7 days.');
+        expect(wrap.querySelectorAll('.wg-meds-upcoming__row').length).toBe(0);
+    });
+
+    // bd med-jr1e: the block used to be appended after "As needed"/"Archived",
+    // which pushed it below the fold on any account with archived meds.
+    it('renders the Upcoming block under the hour buckets, above As needed / Archived', async () => {
+        const { window, document } = env;
+        const at = new Date(Date.now() + 60 * 60 * 1000);
+
+        await seedMedications(window, [
+            { ...med, schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(at)] }) },
+            { id: 2, name: 'PRN Med', dosage: '1 tab', schedule: JSON.stringify({ type: 'as_needed' }), archived: false },
+            { id: 3, name: 'Archived Med', dosage: '2mg', schedule: JSON.stringify({ type: 'daily', times: ['09:00'] }), archived: true }
+        ], [
+            upcomingDose({
+                id: 1, name: 'Metformin', dosage: '500mg', at,
+                localDate: '2026-08-16', localTime: toLocalTime(at), dayOffset: 0
+            })
+        ]);
+
+        const labels = Array.from(document.querySelectorAll('#med-list .wg-section-label'))
+            .map((el) => el.textContent.trim());
+        expect(labels[0]).toMatch(/^\d{2}:\d{2} · in /);
+        expect(labels[1]).toBe('Upcoming');
+        expect(labels[2]).toBe('As needed');
+        expect(labels[3]).toBe('Archived');
     });
 
     it('renders no Upcoming section when the forecast route is unavailable', async () => {

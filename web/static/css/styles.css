@@ -10322,7 +10322,9 @@ textarea.wg-input {
     gap: var(--space-md);
 }
 
-.wg-meds-history__empty {
+/* Shared with `.wg-meds-upcoming__empty` — same muted centered mono line. */
+.wg-meds-history__empty,
+.wg-meds-upcoming__empty {
     color: var(--wg-fg-4);
     text-align: center;
     font-family: var(--wg-font-mono);
