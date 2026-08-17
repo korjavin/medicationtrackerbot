@@ -250,9 +250,14 @@ jobs:
           WANT_BUILD_ID: ${{ steps.stamp.outputs.build_ts }}
         run: |
           if [[ -z "$BASE_DOMAIN" ]]; then
-            echo "::notice::CLOUD_BASE_DOMAIN repo variable is unset — skipping deploy verification. Set it (e.g. cloud.myhealthbot.ai) to arm this check."
+            echo "::notice::CLOUD_BASE_DOMAIN repo variable is unset — skipping deploy verification. Set it to the deployment's base domain to arm this check."
             exit 0
           fi
+          # This repo is public, so its Actions logs are world-readable. The
+          # deployment's domain is deliberately kept out of the tree (bd
+          # med-9qig); masking keeps it out of the logs too, so arming this
+          # check does not undo that. Every later echo prints it as ***.
+          echo "::add-mask::${BASE_DOMAIN}"
           url="https://${BASE_DOMAIN}/api/version"
           echo "Polling ${url} for build_id=${WANT_BUILD_ID} (up to 5 minutes)..."
           deadline=$((SECONDS + 300))
