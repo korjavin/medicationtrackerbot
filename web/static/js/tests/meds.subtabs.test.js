@@ -20,6 +20,7 @@ describe('Meds sub-tab strip (Phase 5, Task 2)', () => {
         // only care about the DOM class toggles + persistence, not data fetch.
         env.window.loadMeds = () => {};
         env.window.loadHistory = () => {};
+        env.window.loadUpcoming = () => {};
     });
 
     afterEach(() => {
@@ -29,18 +30,19 @@ describe('Meds sub-tab strip (Phase 5, Task 2)', () => {
         env = null;
     });
 
-    it('renders the strip as a .wg-gloss--inset container with three .med-tab buttons in history-first order', () => {
+    it('renders the strip as a .wg-gloss--inset container with four .med-tab buttons in history-first order', () => {
         const { document } = env;
         const strip = document.querySelector('.wg-meds-subtabs');
         expect(strip).not.toBeNull();
         expect(strip.classList.contains('wg-gloss--inset')).toBe(true);
 
         const buttons = strip.querySelectorAll('.med-tab');
-        expect(buttons.length).toBe(3);
+        expect(buttons.length).toBe(4);
         const tabs = Array.from(buttons).map((btn) => btn.dataset.tab);
         // Phase 5, Task 5: History is the default landing tab per the
         // Claude Design mockup, so it renders first in the pill strip.
-        expect(tabs).toEqual(['history', 'schedule', 'inventory']);
+        // bd med-4oxj added Upcoming immediately left of Inventory.
+        expect(tabs).toEqual(['history', 'schedule', 'upcoming', 'inventory']);
 
         buttons.forEach((btn) => {
             expect(btn.classList.contains('wg-gloss')).toBe(true);
@@ -99,6 +101,27 @@ describe('Meds sub-tab strip (Phase 5, Task 2)', () => {
         const inventoryBtn = document.querySelector('.med-tab[data-tab="inventory"]');
         expect(inventoryBtn.classList.contains('wg-gloss--sun')).toBe(true);
         expect(inventoryBtn.getAttribute('aria-pressed')).toBe('true');
+    });
+
+    // bd med-4oxj — Upcoming is a first-class sub-tab, not a block inside the
+    // Schedule list.
+    it('switchMedTab activates the upcoming tab content and persists it', () => {
+        const { document, window } = env;
+        window.switchMedTab('upcoming');
+
+        const upcomingContent = document.getElementById('med-upcoming-tab');
+        expect(upcomingContent).not.toBeNull();
+        expect(upcomingContent.classList.contains('active')).toBe(true);
+        expect(document.getElementById('med-schedule-tab').classList.contains('active')).toBe(false);
+        expect(document.getElementById('med-inventory-tab').classList.contains('active')).toBe(false);
+
+        const upcomingBtn = document.querySelector('.med-tab[data-tab="upcoming"]');
+        expect(upcomingBtn.classList.contains('wg-gloss--sun')).toBe(true);
+        expect(upcomingBtn.getAttribute('aria-pressed')).toBe('true');
+
+        // Survives a reload within the session.
+        expect(window.sessionStorage.getItem('mt-meds-subtab')).toBe('upcoming');
+        expect(window.getActiveMedsSubTab()).toBe('upcoming');
     });
 
     it('getActiveMedsSubTab defaults to "history" when no value is stored', () => {

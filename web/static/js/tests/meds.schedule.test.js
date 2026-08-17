@@ -369,9 +369,9 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         const list = document.getElementById('med-list');
         const headers = Array.from(list.querySelectorAll('.wg-section-label'))
             .map((h) => h.textContent.trim());
-        // The forecast answered (with nothing), so the Upcoming block renders
-        // its empty state below the buckets — bd med-jr1e.
-        expect(headers).toEqual(['Scheduled', 'Upcoming']);
+        // The forecast lives in its own sub-tab now (bd med-4oxj), so the
+        // Schedule list carries the no-time group and nothing else.
+        expect(headers).toEqual(['Scheduled']);
         expect(list.querySelectorAll('.wg-meds-row').length).toBe(1);
     });
 
@@ -426,10 +426,14 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
     });
 });
 
-// bd med-gut.2 — read-only "Upcoming" forecast under the hour buckets: the
-// next 7 days of doses grouped by day in the TRACKED timezone, with tz-plan
-// steps labelled and their explanatory note surfaced.
-describe('Meds schedule sub-tab — Upcoming forecast (bd med-gut.2)', () => {
+// bd med-gut.2 — read-only "Upcoming" forecast: the next 7 days of doses
+// grouped by day in the TRACKED timezone, with tz-plan steps labelled and
+// their explanatory note surfaced.
+//
+// bd med-4oxj promoted it out of the Schedule list into its own Meds sub-tab
+// (History | Schedule | Upcoming | Inventory), so these cases now drive
+// switchMedTab('upcoming') and assert against the `#med-upcoming-list` pane.
+describe('Meds Upcoming sub-tab — forecast (bd med-gut.2, bd med-4oxj)', () => {
     let env;
 
     beforeEach(() => {
@@ -438,9 +442,23 @@ describe('Meds schedule sub-tab — Upcoming forecast (bd med-gut.2)', () => {
 
     afterEach(() => {
         try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+        try { env.window.sessionStorage.clear(); } catch (_) { /* ignore */ }
         env.cleanup();
         env = null;
     });
+
+    // Enters the Upcoming sub-tab the way a tap does — switchMedTab activates
+    // the pane and dispatches to loadUpcoming(); the explicit await makes the
+    // dispatch's floating promise deterministic for assertions.
+    async function openUpcomingTab(window, upcoming) {
+        window.apiCall = vi.fn(async (endpoint) => (
+            typeof endpoint === 'string' && endpoint.startsWith('/api/medications/upcoming')
+                ? upcoming
+                : []
+        ));
+        window.switchMedTab('upcoming');
+        await window.loadUpcoming();
+    }
 
     const med = {
         id: 1,
@@ -454,7 +472,7 @@ describe('Meds schedule sub-tab — Upcoming forecast (bd med-gut.2)', () => {
         const { window, document } = env;
         const base = Date.now() + 60 * 60 * 1000;
 
-        await seedMedications(window, [med], [
+        await openUpcomingTab(window, [
             upcomingDose({
                 id: 1, name: 'Metformin', dosage: '500mg', at: new Date(base),
                 localDate: '2026-08-16', localTime: '08:00', dayOffset: 0
@@ -469,10 +487,10 @@ describe('Meds schedule sub-tab — Upcoming forecast (bd med-gut.2)', () => {
             })
         ]);
 
-        const wrap = document.querySelector('.wg-meds-upcoming');
+        const wrap = document.querySelector('#med-upcoming-list .wg-meds-upcoming');
         expect(wrap).not.toBeNull();
-        const label = wrap.querySelector('.wg-section-label');
-        expect(label.textContent.trim()).toBe('Upcoming');
+        // The pill above names the pane — no duplicated section label inside.
+        expect(wrap.querySelector('.wg-section-label')).toBeNull();
 
         const dayLabels = Array.from(wrap.querySelectorAll('.wg-meds-upcoming__day'))
             .map((el) => el.textContent.trim());
@@ -497,7 +515,7 @@ describe('Meds schedule sub-tab — Upcoming forecast (bd med-gut.2)', () => {
         const at = new Date(Date.now() + 3 * 3600_000);
         const note = 'Metformin (strict — gradual shift): step 1/2 — 08:00 GMT+3 old / 05:00 GMT new';
 
-        await seedMedications(window, [med], [
+        await openUpcomingTab(window, [
             upcomingDose({
                 id: 1, name: 'Metformin', dosage: '500mg', at,
                 localDate: '2026-08-16', localTime: '05:00', dayOffset: 0,
@@ -505,7 +523,7 @@ describe('Meds schedule sub-tab — Upcoming forecast (bd med-gut.2)', () => {
             })
         ]);
 
-        const row = document.querySelector('.wg-meds-upcoming__row');
+        const row = document.querySelector('#med-upcoming-list .wg-meds-upcoming__row');
         expect(row.classList.contains('wg-meds-upcoming__row--step')).toBe(true);
         const badge = row.querySelector('.wg-meds-upcoming__badge');
         expect(badge).not.toBeNull();
@@ -516,26 +534,29 @@ describe('Meds schedule sub-tab — Upcoming forecast (bd med-gut.2)', () => {
     });
 
     // bd med-jr1e: an answered-but-empty forecast used to render nothing, which
-    // was indistinguishable on screen from the feature not shipping at all.
+    // was indistinguishable on screen from the feature not shipping at all —
+    // and in a dedicated tab (bd med-4oxj) that would be a blank screen.
     it('renders an honest empty state when the forecast answered with no doses', async () => {
         const { window, document } = env;
-        await seedMedications(window, [med], []);
+        await openUpcomingTab(window, []);
 
-        const wrap = document.querySelector('.wg-meds-upcoming');
+        const wrap = document.querySelector('#med-upcoming-list .wg-meds-upcoming');
         expect(wrap).not.toBeNull();
-        expect(wrap.querySelector('.wg-section-label').textContent.trim()).toBe('Upcoming');
         const empty = wrap.querySelector('.wg-meds-upcoming__empty');
         expect(empty).not.toBeNull();
         expect(empty.textContent).toBe('No scheduled doses in the next 7 days.');
         expect(wrap.querySelectorAll('.wg-meds-upcoming__row').length).toBe(0);
     });
 
-    // bd med-jr1e: the block used to be appended after "As needed"/"Archived",
-    // which pushed it below the fold on any account with archived meds.
-    it('renders the Upcoming block under the hour buckets, above As needed / Archived', async () => {
+    // bd med-4oxj: the forecast used to render inside the Schedule list
+    // (between the `Scheduled` fallback and `As needed`, bd med-jr1e). It now
+    // lives in its own pane, and the Schedule list must not carry it at all.
+    it('keeps the forecast out of the Schedule list and paints it in the Upcoming pane', async () => {
         const { window, document } = env;
         const at = new Date(Date.now() + 60 * 60 * 1000);
 
+        // seedMedications drives loadMeds(), which is the Schedule tab's own
+        // path — and still refreshes the shared forecast state (bd med-gut.1).
         await seedMedications(window, [
             { ...med, schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(at)] }) },
             { id: 2, name: 'PRN Med', dosage: '1 tab', schedule: JSON.stringify({ type: 'as_needed' }), archived: false },
@@ -550,16 +571,24 @@ describe('Meds schedule sub-tab — Upcoming forecast (bd med-gut.2)', () => {
         const labels = Array.from(document.querySelectorAll('#med-list .wg-section-label'))
             .map((el) => el.textContent.trim());
         expect(labels[0]).toMatch(/^\d{2}:\d{2} · in /);
-        expect(labels[1]).toBe('Upcoming');
-        expect(labels[2]).toBe('As needed');
-        expect(labels[3]).toBe('Archived');
+        expect(labels[1]).toBe('As needed');
+        expect(labels[2]).toBe('Archived');
+        expect(document.querySelector('#med-list .wg-meds-upcoming')).toBeNull();
+
+        // The same loadMeds() pass painted the Upcoming pane off the forecast
+        // it already fetched — one request behind both views.
+        const rows = document.querySelectorAll('#med-upcoming-list .wg-meds-upcoming__row');
+        expect(rows.length).toBe(1);
+        expect(rows[0].querySelector('.wg-meds-upcoming__name').textContent).toBe('Metformin');
     });
 
-    it('renders no Upcoming section when the forecast route is unavailable', async () => {
+    it('renders nothing when the forecast route is unavailable', async () => {
         const { window, document } = env;
-        await seedMedications(window, [med]); // route answers null
-        expect(document.querySelector('.wg-meds-upcoming')).toBeNull();
-        // ...and the hour buckets still paint from the device-local fallback.
-        expect(document.querySelectorAll('#med-list .wg-section-label').length).toBe(1);
+        await openUpcomingTab(window, null); // route answers null
+
+        // Offline / legacy server: no forecast to claim anything about, so the
+        // pane stays blank rather than asserting "nothing upcoming".
+        expect(document.querySelector('#med-upcoming-list .wg-meds-upcoming')).toBeNull();
+        expect(document.getElementById('med-upcoming-list').children.length).toBe(0);
     });
 });

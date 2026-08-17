@@ -51,15 +51,18 @@
                  `wg-screen-stage` so the view sits directly on the teal
                  palette; round-2 Task 7 removed the global #add-btn from this
                  row and re-homed it at the top of the Schedule subtab list).
-                 Outer container is a plain flex row holding the inset 3-pill
-                 track (History / Schedule / Inventory — default "history"
-                 matches the mockup). Dual-classed `.med-tabs` +
+                 Outer container is a plain flex row holding the inset pill
+                 track (History / Schedule / Upcoming / Inventory — default
+                 "history" matches the mockup; Upcoming was promoted out of
+                 the Schedule list into its own pill in bd med-4oxj).
+                 Dual-classed `.med-tabs` +
                  `.wg-meds-subtabs` so legacy selectors in existing tests
                  keep working. -->
             <div class="wg-meds-subtabs-row" id="med-subtabs">
                 <div class="wg-gloss--inset wg-meds-subtabs med-tabs">
                     <button class="wg-gloss wg-meds-subtabs__btn wg-gloss--sun wg-meds-subtabs__btn--active med-tab active" data-tab="history" aria-pressed="true">History</button>
                     <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="schedule" aria-pressed="false">Schedule</button>
+                    <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="upcoming" aria-pressed="false">Upcoming</button>
                     <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="inventory" aria-pressed="false">Inventory</button>
                 </div>
             </div>
@@ -122,6 +125,17 @@
                     </label>
                 </div>
                 <div id="history-list" class="wg-meds-history"></div>
+            </div>
+
+            <!-- Upcoming sub-tab (bd med-4oxj): the 7-day plan-aware forecast,
+                 promoted out of the Schedule list into its own pill. The id
+                 must stay `med-upcoming-tab` — switchMedTab() derives the
+                 content id as `med-<tab>-tab`. Painted by
+                 renderUpcomingDoses() in features/meds.js. -->
+            <div id="med-upcoming-tab" class="med-tab-content">
+                <div id="med-upcoming-list">
+                    <!-- Forecast injected here -->
+                </div>
             </div>
 
             <div id="med-inventory-tab" class="med-tab-content">

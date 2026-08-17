@@ -913,6 +913,9 @@ function switchMedTab(tab) {
 
     if (tab === 'schedule') { loadMeds(); }
     else if (tab === 'history') { loadHistory(); }
+    else if (tab === 'upcoming') {
+        if (typeof loadUpcoming === 'function') loadUpcoming();
+    }
     else if (tab === 'inventory') {
         if (typeof loadInventory === 'function') loadInventory();
     }
