@@ -2,7 +2,7 @@
 
 ## Overview
 
-Admin invite links (`https://<account>.cloud.myhealthbot.ai/#claim=<token>`) land on an
+Admin invite links (`https://<account>.cloud.example.com/#claim=<token>`) land on an
 unclaimed account subdomain but show the returning-device **"Unlock with passkey"** screen
 and fail with *"Could not start unlock — no passkey is registered yet."* — instead of the
 signup/claim wizard that registers the account's **first** passkey.

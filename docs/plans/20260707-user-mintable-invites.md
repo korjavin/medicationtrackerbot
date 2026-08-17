@@ -1,7 +1,7 @@
 # User-Mintable Invites for Cloud Mode (med-eas.1)
 
 ## Overview
-- Any signed-in cloud user can mint an invite for a friend from their own account subdomain (e.g. `fuzzy-newt-xi7jqn.cloud.myhealthbot.ai`) — no admin CLI, no visit to the base domain.
+- Any signed-in cloud user can mint an invite for a friend from their own account subdomain (e.g. `fuzzy-newt-xi7jqn.cloud.example.com`) — no admin CLI, no visit to the base domain.
 - New endpoint `POST /api/invite` (session-authed, served on the account subdomain like every other `/api/*` route — no proxying needed, the router already host-routes these).
 - Rate limit: max 100 invites per account per rolling 30 days, enforced by counting rows in the DB (no in-memory limiter — must survive restarts).
 - Settings UI gets a cloud-only "Invite a friend" row that mints and shows the claim URL + QR code + copy button.

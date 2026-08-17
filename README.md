@@ -1,4 +1,4 @@
-# myhealthbot.ai
+# Med Tracker
 
 **Private health tracking that doesn't ask you to give up sync, reminders, chat, or AI to get it.**
 
