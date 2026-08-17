@@ -439,6 +439,11 @@ function renderMeds() {
         });
     }
 
+    // The forecast belongs with the hour buckets it extends (bd med-jr1e) —
+    // appended last, "As needed" + "Archived" push it below the fold and it
+    // reads as missing.
+    _renderUpcomingDoses(list);
+
     if (asNeeded.length > 0) {
         asNeeded.sort(sortByTaken);
         list.appendChild(_buildMedsSectionLabel('As needed'));
@@ -454,8 +459,6 @@ function renderMeds() {
             list.appendChild(_buildMedsRow(med, schedule));
         });
     }
-
-    _renderUpcomingDoses(list);
 }
 
 // "Upcoming" forecast (bd med-gut.2): the next 7 days of doses grouped by day
@@ -520,11 +523,25 @@ function _buildUpcomingRow(dose) {
 
 function _renderUpcomingDoses(list) {
     const doses = _medsUpcomingState.doses || [];
-    if (doses.length === 0) return;
+    // No forecast to show (offline cold start / legacy server): the naive
+    // device-local fallback is driving the hour buckets, so "nothing upcoming"
+    // would be a claim this renderer cannot make. Stay silent.
+    if (!_medsUpcomingState.available) return;
 
     const wrap = document.createElement('div');
     wrap.className = 'wg-meds-upcoming';
     wrap.appendChild(_buildMedsSectionLabel('Upcoming'));
+
+    // The forecast answered with nothing — say so, so an empty window is
+    // distinguishable from the block not being there at all (bd med-jr1e).
+    if (doses.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'wg-meds-upcoming__empty';
+        empty.textContent = `No scheduled doses in the next ${MEDS_UPCOMING_DAYS} days.`;
+        wrap.appendChild(empty);
+        list.appendChild(wrap);
+        return;
+    }
 
     let currentDay = null;
     doses.forEach((dose) => {
