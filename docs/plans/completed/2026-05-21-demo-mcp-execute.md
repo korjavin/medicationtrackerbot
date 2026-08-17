@@ -2,7 +2,7 @@
 
 ## Overview
 
-The ElevenLabs voice agent connects to our MCP server to read user health data. The project has consolidated the MCP tool surface onto `mcp_help` + `mcp_execute` (Python scripts that call `medtracker.api.call(...)` through the bridge). In demo mode we currently hard-refuse to wire `MCP_EXECUTOR_BRIDGE_URL`, which leaves the agent with no usable tools — the demo at `demo.myhealthbot.ai` cannot answer any data question.
+The ElevenLabs voice agent connects to our MCP server to read user health data. The project has consolidated the MCP tool surface onto `mcp_help` + `mcp_execute` (Python scripts that call `medtracker.api.call(...)` through the bridge). In demo mode we currently hard-refuse to wire `MCP_EXECUTOR_BRIDGE_URL`, which leaves the agent with no usable tools — the demo at `demo.example.com` cannot answer any data question.
 
 This plan lifts that hard refusal in favor of a metered posture:
 
@@ -169,7 +169,7 @@ Demo mode remains a runtime flag, not a build tag. The mobile build (`//go:build
 - Optional: override defaults if 5/hour is too tight or too loose: `DEMO_MCP_EXECUTE_PER_HOUR=10`
 
 **Manual verification** after the new image deploys:
-- voice agent on `demo.myhealthbot.ai` connects and answers a "what's my last weight?" question with real seeded data
+- voice agent on `demo.example.com` connects and answers a "what's my last weight?" question with real seeded data
 - 6 rapid `mcp_execute` calls from one browser session → the 6th returns `demo_rate_limit` body (agent should surface a friendly "demo limit reached" message)
 - voice agent calls do not exceed the new per-script caps (script that tries 11 `medtracker.api.call(...)` invocations is cut off after the 10th)
-- `curl https://demo.myhealthbot.ai/api/bootstrap` shows `demo.limits.mcp_execute_per_hour` in the JSON
+- `curl https://demo.example.com/api/bootstrap` shows `demo.limits.mcp_execute_per_hour` in the JSON
