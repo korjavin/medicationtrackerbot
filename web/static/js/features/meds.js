@@ -14,7 +14,7 @@
 // cleared on boot so previously-saved "schedule"/"inventory" choices
 // don't keep overriding the history default.
 const MEDS_SUBTAB_STORAGE_KEY = 'mt-meds-subtab';
-const MEDS_SUBTAB_OPTIONS = ['schedule', 'history', 'inventory'];
+const MEDS_SUBTAB_OPTIONS = ['schedule', 'history', 'upcoming', 'inventory'];
 const MEDS_SUBTAB_DEFAULT = 'history';
 
 function getActiveMedsSubTab() {
@@ -439,11 +439,6 @@ function renderMeds() {
         });
     }
 
-    // The forecast belongs with the hour buckets it extends (bd med-jr1e) —
-    // appended last, "As needed" + "Archived" push it below the fold and it
-    // reads as missing.
-    _renderUpcomingDoses(list);
-
     if (asNeeded.length > 0) {
         asNeeded.sort(sortByTaken);
         list.appendChild(_buildMedsSectionLabel('As needed'));
@@ -465,6 +460,9 @@ function renderMeds() {
 // in the TRACKED timezone. Read-only — no take/skip actions; the Today screen
 // owns those. Day labels and times come from the route (`day_offset`,
 // `local_date`, `local_time`) so this renderer never touches timezone math.
+// bd med-4oxj promoted it out of the Schedule list into its own sub-tab; it
+// still reads the same `_medsUpcomingState` the Schedule hour buckets consume,
+// so there is exactly one fetch behind both views.
 function _formatUpcomingDayLabel(dose) {
     if (dose.day_offset === 0) return 'Today';
     if (dose.day_offset === 1) return 'Tomorrow';
@@ -521,16 +519,24 @@ function _buildUpcomingRow(dose) {
     return row;
 }
 
-function _renderUpcomingDoses(list) {
+// Paints the Upcoming sub-tab pane from module state. Takes no argument and
+// clears the pane itself, so every caller (tab switch, loadMeds refresh) gets
+// a full repaint rather than an append.
+function renderUpcomingDoses() {
+    const list = document.getElementById('med-upcoming-list');
+    if (!list) return;
+    list.replaceChildren();
+
     const doses = _medsUpcomingState.doses || [];
     // No forecast to show (offline cold start / legacy server): the naive
-    // device-local fallback is driving the hour buckets, so "nothing upcoming"
-    // would be a claim this renderer cannot make. Stay silent.
+    // device-local fallback is driving the Schedule hour buckets, so "nothing
+    // upcoming" would be a claim this renderer cannot make. Stay silent.
     if (!_medsUpcomingState.available) return;
 
+    // No section label: the "Upcoming" sub-tab pill above already names the
+    // pane, and repeating it inside is noise (bd med-4oxj).
     const wrap = document.createElement('div');
     wrap.className = 'wg-meds-upcoming';
-    wrap.appendChild(_buildMedsSectionLabel('Upcoming'));
 
     // The forecast answered with nothing — say so, so an empty window is
     // distinguishable from the block not being there at all (bd med-jr1e).
@@ -556,6 +562,14 @@ function _renderUpcomingDoses(list) {
     });
 
     list.appendChild(wrap);
+}
+
+// Upcoming sub-tab loader (switchMedTab dispatch). The forecast rows already
+// carry med_name/dosage, so this pane needs no medication list — just the
+// shared forecast fetch and a repaint.
+async function loadUpcoming() {
+    await loadUpcomingDoses();
+    renderUpcomingDoses();
 }
 
 function logMedicationPast(id, name) {
@@ -1059,8 +1073,15 @@ async function loadMeds() {
     // Refresh the plan-aware forecast before any render below reads it. In
     // cloud mode this is a local shim read (IndexedDB, no network), so it does
     // not delay the first paint; in the legacy bot server the route is absent
-    // and renderMeds falls back to the device-local computation.
+    // and renderMeds falls back to the device-local computation. Do NOT drop
+    // this call when touching the Upcoming sub-tab: the Schedule hour buckets
+    // read the same state (bd med-gut.1), and without it they silently regress
+    // to device-local time math that disagrees with Home's next-intake card.
     await loadUpcomingDoses();
+    // Keeps the Upcoming pane in step with every meds refresh (mutation, SSE
+    // change event, sync) off the fetch we just did. No-op when that pane
+    // isn't in the document.
+    renderUpcomingDoses();
 
     if (initialAuthLoad) {
         initialAuthLoad = false;
