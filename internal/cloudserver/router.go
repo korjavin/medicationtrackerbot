@@ -324,6 +324,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// connect-src 'self' set above stands — the reader makes exactly one
 		// same-origin fetch.
 		switch r.URL.Path {
+		case "/api/version":
+			// Same unauthenticated build id the account subdomains serve below
+			// (and the same value already in the app document's
+			// <meta name="medtracker-build-id">) — no account, no user data.
+			// It lives here too so CI can verify a deploy actually landed
+			// without an account or a Portainer API key: Portainer answers its
+			// redeploy webhook 204 and fetches asynchronously, so the webhook
+			// alone proved nothing for five days of green deploys (bd med-m391).
+			h.serveVersion(w, r)
+			return
 		case feedbackReaderPath:
 			noStore(w)
 			// Decrypted attachments only exist in page memory, so they are shown

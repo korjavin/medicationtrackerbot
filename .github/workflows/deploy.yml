@@ -119,11 +119,17 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Inject Git SHA and Timestamp
+        id: stamp
         run: |
           BUILD_TS="$(date +%Y%m%d-%H%M)"
           sed -i "s|VERSION_PLACEHOLDER|$(git rev-parse --short HEAD)|g" web/static/index.html web/static/wg-primitives.html
           sed -i "s|TIMESTAMP_PLACEHOLDER|${BUILD_TS}|g" web/static/index.html web/static/wg-primitives.html
           sed -i "s|CACHE_VERSION_PLACEHOLDER|v${BUILD_TS}|g" web/static/sw.js web/cloud/sw.js
+          # This timestamp — not the commit SHA — is what the running server
+          # reports at GET /api/version (internal/cloudserver/version.go lifts it
+          # back out of the first `?v=` on a served asset URL). The verification
+          # step at the end of this job compares against it.
+          echo "build_ts=${BUILD_TS}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker image
         id: build-and-push
@@ -222,3 +228,51 @@ jobs:
           for pid in "${pids[@]}"; do
             wait "$pid" || echo "Hook PID $pid exited with error"
           done
+
+      # Portainer answers a redeploy webhook 204 immediately and then does the
+      # git fetch + `docker compose up` asynchronously, so the step above only
+      # proves the hook was accepted. bd med-m391: for five days every Deploy
+      # Application run was green while the stack silently failed to fetch the
+      # repo, and production sat 43 commits behind unnoticed. So: poll the build
+      # id the origin actually serves until it is the one this run built.
+      #
+      # GET /api/version reports the asset fingerprint stamped in "Inject Git SHA
+      # and Timestamp" (the same value as the app document's
+      # <meta name="medtracker-build-id">), NOT the commit SHA — comparing to
+      # github.sha would fail forever. Skips cleanly when the repo variable is
+      # unset so forks and fresh clones still deploy.
+      # ponytail: BUILD_TS has minute resolution, so two deploys landing in the
+      # same wall-clock minute are indistinguishable here. Rare enough to accept;
+      # give buildIDFrom a finer stamp if it ever bites.
+      - name: Verify the deployment actually landed
+        env:
+          BASE_DOMAIN: ${{ vars.CLOUD_BASE_DOMAIN }}
+          WANT_BUILD_ID: ${{ steps.stamp.outputs.build_ts }}
+        run: |
+          if [[ -z "$BASE_DOMAIN" ]]; then
+            echo "::notice::CLOUD_BASE_DOMAIN repo variable is unset — skipping deploy verification. Set it to the deployment's base domain to arm this check."
+            exit 0
+          fi
+          # This repo is public, so its Actions logs are world-readable. The
+          # deployment's domain is deliberately kept out of the tree (bd
+          # med-9qig); masking keeps it out of the logs too, so arming this
+          # check does not undo that. Every later echo prints it as ***.
+          echo "::add-mask::${BASE_DOMAIN}"
+          url="https://${BASE_DOMAIN}/api/version"
+          echo "Polling ${url} for build_id=${WANT_BUILD_ID} (up to 5 minutes)..."
+          deadline=$((SECONDS + 300))
+          got=""
+          while (( SECONDS < deadline )); do
+            # sed, not jq: one always-present tool, and the payload is a
+            # single-key object from Go's json.Encoder. curl -f + pipefail turn
+            # any HTTP or network error into an empty got, i.e. "keep polling".
+            got="$(curl -fsS --max-time 10 "$url" | sed -n 's/.*"build_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')" || got=""
+            if [[ "$got" == "$WANT_BUILD_ID" ]]; then
+              echo "Verified: ${url} reports build_id=${got}"
+              exit 0
+            fi
+            echo "  serving '${got:-<unreachable>}', want '${WANT_BUILD_ID}' — retrying in 10s"
+            sleep 10
+          done
+          echo "::error::Deploy NOT verified after 5 minutes: ${url} reports build_id='${got:-<unreachable>}', expected '${WANT_BUILD_ID}'. The Portainer webhook returned 204 but the stack is still serving the old build — check the stack's git credentials (bd med-m391) and the Portainer container logs."
+          exit 1
