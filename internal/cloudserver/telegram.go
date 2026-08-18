@@ -516,7 +516,7 @@ func (t *TelegramAPI) ManagerWebhook(w http.ResponseWriter, r *http.Request) {
 	// Read the request body once for JSON decoding. Logs must only include
 	// non-sensitive diagnostics such as update_id or decode error. Do not
 	// log the raw payload, as it can contain PII.
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<16))
 	if err != nil {
 		slog.Error("telegram manager webhook: read body", "error", err)
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -871,7 +871,7 @@ func (t *TelegramAPI) ChildWebhook(w http.ResponseWriter, r *http.Request) {
 	// Read the request body once for JSON decoding. Logs must only include
 	// non-sensitive diagnostics such as ref, update_id, and decode error.
 	// Do not log the raw Telegram payload, as it can contain PII.
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<16))
 	if err != nil {
 		slog.Error("telegram child webhook: read body", "error", err, "ref", ref)
 		http.Error(w, "bad request", http.StatusBadRequest)
