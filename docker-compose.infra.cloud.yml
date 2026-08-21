@@ -24,6 +24,10 @@ services:
       - "--certificatesresolvers.wildcard.acme.dnschallenge.provider=${DNS_PROVIDER:-cloudflare}"
       - "--certificatesresolvers.wildcard.acme.email=${ACME_EMAIL}"
       - "--certificatesresolvers.wildcard.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.le.acme.httpchallenge=true"
+      - "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.le.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme-http.json"
     environment:
       # lego (Traefik's ACME client) reads DNS provider credentials from the
       # container env. Swap these two vars to use a different provider.
