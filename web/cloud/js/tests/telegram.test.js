@@ -271,11 +271,30 @@ describe('telegram.js onboarding module', () => {
     await mountTelegram(app, {});
 
     expect(app.querySelector('#tg-bot-username').textContent).toBe('@mt_abc_bot');
+
+    // bd med-tgop: steady-state way back into the bot chat — plain t.me link,
+    // new tab, no ?start= payload.
+    const openBot = app.querySelector('#tg-open-bot');
+    expect(openBot.getAttribute('href')).toBe('https://t.me/mt_abc_bot');
+    expect(openBot.getAttribute('target')).toBe('_blank');
+    expect(openBot.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(openBot.textContent).toBe('Open your bot in Telegram');
+
     app.querySelector('#tg-test').dispatchEvent(new dom.window.Event('click'));
     await vi.waitFor(() => {
       if (!app.querySelector('#tg-test-result').textContent.includes('Sent')) throw new Error('not sent yet');
     });
     expect(fetch).toHaveBeenCalledWith('/api/telegram/test', { method: 'POST' });
+  });
+
+  it('omits the open-bot link when linked without a bot_username (bd med-tgop)', async () => {
+    global.fetch = fetchStub({
+      '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'linked' }) },
+    });
+    await mountTelegram(app, {});
+
+    expect(app.querySelector('#tg-test')).not.toBeNull(); // linked pane did render
+    expect(app.querySelector('#tg-open-bot')).toBeNull();
   });
 
   it('surfaces a failing webhook last_error in the linked state (bd med-eas.48)', async () => {
