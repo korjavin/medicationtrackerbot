@@ -42,3 +42,7 @@
 **Vulnerability:** Weak Session Token / Predictable Tokens
 **Learning:** Generating nonces for session tokens using `rand.Read(nonce)` without checking the returned error can lead to a silent failure. If the system's entropy pool is depleted or the PRNG fails, the byte slice remains zero-initialized, resulting in predictable session tokens and severely weakened cryptographic strength.
 **Prevention:** Always check the error returned by `crypto/rand.Read`. If it fails to generate random bytes for security-sensitive purposes (like session tokens or encryption keys), fail securely by returning an error or panicking (since a PRNG failure is typically an unrecoverable state).
+## 2026-08-11 - Rate Limiting Bypass on Legacy Auth Endpoints
+**Vulnerability:** Rate Limiting Bypass / Brute Force
+**Learning:** In `internal/server/server.go`, the legacy backward-compatibility authentication routes (`/auth/google/login` and `/auth/google/callback`) were configured using `mux.HandleFunc` without the `authLimit` middleware. Because newer routes (`/auth/oidc/login`) were correctly wrapped using `mux.Handle("/...", authLimit(...))`, attackers could bypass the intended rate limits simply by targeting the older, un-wrapped endpoints.
+**Prevention:** When introducing newer, rate-limited aliases for existing endpoints, always ensure that all backward-compatibility paths mapping to the same underlying handler are also wrapped with the exact same rate-limiting middleware to prevent trivial bypasses.

@@ -709,8 +709,8 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("/auth/oidc/login", authLimit(http.HandlerFunc(s.handleOIDCLogin)))
 	mux.Handle("/auth/oidc/callback", authLimit(http.HandlerFunc(s.handleOIDCCallback)))
 	// Backward compatibility for older Google-only URLs
-	mux.HandleFunc("/auth/google/login", s.handleOIDCLogin)
-	mux.HandleFunc("/auth/google/callback", s.handleOIDCCallback)
+	mux.Handle("/auth/google/login", authLimit(http.HandlerFunc(s.handleOIDCLogin)))
+	mux.Handle("/auth/google/callback", authLimit(http.HandlerFunc(s.handleOIDCCallback)))
 	mux.Handle("/auth/telegram/callback", authLimit(http.HandlerFunc(s.handleTelegramCallback)))
 
 	// Demo-mode per-IP rate limiters for AI / cost-sensitive endpoints. The
