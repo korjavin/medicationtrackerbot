@@ -2805,3 +2805,27 @@ func TestDownloadDocumentInvalidFileIDIsClassified(t *testing.T) {
 		t.Fatalf("IsInvalidFileID(%v) = false, want true", err)
 	}
 }
+
+// TestManagerWebhookOversizedBodyRejected pins the http.MaxBytesReader guard
+// (PR #788): a request body over the 64 KiB cap must be rejected with 400.
+// The probe body is valid JSON inside the first 64 KiB with junk after it —
+// the old io.LimitReader silently truncated to a parseable prefix and answered
+// 200, so this fails if anyone reverts to LimitReader. ChildWebhook uses the
+// identical guard on the same read pattern.
+func TestManagerWebhookOversizedBodyRejected(t *testing.T) {
+	store := setupStore(t)
+	tgSrv := fakeTG(t, map[string]string{
+		"getMe": `{"ok":true,"result":{"id":7,"is_bot":true,"username":"mt_manager_bot","can_manage_bots":true}}`,
+	})
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", tgSrv.URL, "", 14*24*time.Hour)
+	top := http.NewServeMux()
+	tgAPI.RegisterWebhookRoutes(top)
+
+	managerSecret := deriveWebhookSecret(tgTestSecret, "mt/tg-manager-webhook/v1")
+	prefix := `{"update_id":1}`
+	body := prefix + strings.Repeat(" ", 1<<16-len(prefix)) + "junk past the cap"
+	rec := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("oversized manager webhook body = %d, want 400", rec.Code)
+	}
+}
