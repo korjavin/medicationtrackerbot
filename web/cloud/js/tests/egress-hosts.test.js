@@ -34,6 +34,23 @@ describe('hostsFromIntegrations', () => {
     expect(hostsFromIntegrations(null)).toEqual([]);
   });
 
+  // aiclient.js defaults a blank openai.url to https://api.openai.com/v1, so
+  // "paste a key, leave the URL on its placeholder" — the commonest setup —
+  // must still put that host in connect-src, or every browser-direct AI call
+  // is CSP-blocked. Regression found by codex review on bd med-byom.
+  it('registers the default OpenAI host when a key is stored and the URL is blank', () => {
+    expect(hostsFromIntegrations({ openai: { api_key: 'sk-x', url: '' } })).toEqual(['api.openai.com']);
+    expect(hostsFromIntegrations({ openai: { api_key: 'sk-x' } })).toEqual(['api.openai.com']);
+    // A vision-only key hits the same fallback through the vision creds.
+    expect(hostsFromIntegrations({ openai: { vision_api_key: 'sk-v' } })).toEqual(['api.openai.com']);
+    // An explicit URL still wins — the default is a fallback, not an addition.
+    expect(hostsFromIntegrations({ openai: { api_key: 'sk-x', url: 'https://proxy.example.com/v1' } }))
+      .toEqual(['proxy.example.com']);
+    // No key means the AI calls go to the same-origin trial proxy instead, so
+    // the host earns no connect-src entry.
+    expect(hostsFromIntegrations({ openai: { api_key: '  ', url: '' } })).toEqual([]);
+  });
+
   it('drops server-unallowlistable hosts but keeps valid ones alongside them', () => {
     // IPv6 literal + underscore host would each be 400-rejected by the server;
     // dropping them client-side keeps the good host from being stranded.
