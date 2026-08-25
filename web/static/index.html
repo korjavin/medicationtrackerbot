@@ -826,8 +826,15 @@
                     <div class="wg-settings-integrations__field">
                         <label for="integrations-openai-model" class="wg-settings-integrations__label">Model</label>
                         <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                            <input type="text" id="integrations-openai-model" class="wg-settings-integrations__input" placeholder="gpt-4o-mini">
+                            <input type="text" id="integrations-openai-model" class="wg-settings-integrations__input" placeholder="gpt-4o-mini" list="integrations-openai-model-options" autocomplete="off">
                         </div>
+                        <!-- Native <datalist>: the field stays a plain text input that
+                             accepts anything; the list is only a dropdown of suggestions
+                             the browser renders for free. Populated on demand by the
+                             button below (bd med-byom) — never on load, never on keystroke. -->
+                        <datalist id="integrations-openai-model-options"></datalist>
+                        <button type="button" id="integrations-openai-model-load" class="wg-gloss">Load models</button>
+                        <p id="integrations-openai-model-note" class="wg-settings-integrations__note" hidden></p>
                     </div>
                     <details class="wg-settings-integrations__details">
                         <summary class="wg-settings-integrations__summary">Vision overrides (optional)</summary>
@@ -846,8 +853,15 @@
                         <div class="wg-settings-integrations__field">
                             <label for="integrations-openai-vision-model" class="wg-settings-integrations__label">Vision Model</label>
                             <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                                <input type="text" id="integrations-openai-vision-model" class="wg-settings-integrations__input">
+                                <input type="text" id="integrations-openai-vision-model" class="wg-settings-integrations__input" list="integrations-openai-vision-model-options" autocomplete="off">
                             </div>
+                            <!-- Independent list: the vision overrides can point at a
+                                 different provider entirely, so its suggestions come from
+                                 its own /models call (falling back to the text creds the
+                                 same way the AI client does). -->
+                            <datalist id="integrations-openai-vision-model-options"></datalist>
+                            <button type="button" id="integrations-openai-vision-model-load" class="wg-gloss">Load models</button>
+                            <p id="integrations-openai-vision-model-note" class="wg-settings-integrations__note" hidden></p>
                         </div>
                     </details>
                 </div>

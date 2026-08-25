@@ -288,6 +288,101 @@
         if (note) note.hidden = appliesLive();
     }
 
+    // Model-id suggestions (bd med-byom). Strictly a typing aid: the inputs stay
+    // free text, and every failure path here ends with the field exactly as
+    // usable as it was before. The fetch runs only on an explicit click and
+    // reads the SAVED vault credentials on the shim side — never these DOM
+    // values — because a URL typed but not yet saved is also a URL the
+    // document's connect-src does not allow yet, and sending an existing key to
+    // a half-typed hostname is exactly the accident worth designing out.
+    const MODEL_LOADERS = [
+        {
+            scope: 'text',
+            button: 'integrations-openai-model-load',
+            list: 'integrations-openai-model-options',
+            note: 'integrations-openai-model-note'
+        },
+        {
+            scope: 'vision',
+            button: 'integrations-openai-vision-model-load',
+            list: 'integrations-openai-vision-model-options',
+            note: 'integrations-openai-vision-model-note'
+        }
+    ];
+    // Sequence guard per scope: a click that lands after a newer one repaints
+    // nothing, so a slow first response can't overwrite a fresh second list.
+    const _modelSeq = { text: 0, vision: 0 };
+
+    function setModelNote(noteId, text) {
+        const note = document.getElementById(noteId);
+        if (!note) return;
+        note.textContent = text || '';
+        note.hidden = !text;
+    }
+
+    function renderModelOptions(listId, models) {
+        const list = document.getElementById(listId);
+        if (!list) return;
+        list.textContent = '';
+        for (const id of models) {
+            const option = document.createElement('option');
+            option.value = id;
+            list.appendChild(option);
+        }
+    }
+
+    // resetModelSuggestions drops a list whose credentials just changed. The
+    // shim's cache keys on base URL + key fingerprint so it re-fetches anyway;
+    // this only stops the stale dropdown from lingering on screen until then.
+    function resetModelSuggestions() {
+        for (const cfg of MODEL_LOADERS) {
+            _modelSeq[cfg.scope] += 1;
+            renderModelOptions(cfg.list, []);
+            setModelNote(cfg.note, '');
+            const btn = document.getElementById(cfg.button);
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Load models';
+                delete btn.dataset.modelsLoaded;
+            }
+        }
+    }
+
+    async function loadModels(cfg) {
+        const btn = document.getElementById(cfg.button);
+        const refresh = !!(btn && btn.dataset.modelsLoaded);
+        const seq = (_modelSeq[cfg.scope] += 1);
+        if (btn) btn.disabled = true;
+        setModelNote(cfg.note, 'Loading models…');
+
+        let res = null;
+        try {
+            res = (typeof apiCall === 'function')
+                ? await apiCall('/api/settings/integrations/models?scope=' + cfg.scope + (refresh ? '&refresh=1' : ''), 'GET')
+                : null;
+        } catch (_) {
+            // The shim answers failures as a payload; a throw here means the
+            // route itself is unreachable (server mode, offline). Same outcome.
+            res = null;
+        }
+        // Superseded: leave the button to the newer call, which owns it now.
+        if (seq !== _modelSeq[cfg.scope]) return;
+        if (btn) btn.disabled = false;
+
+        if (!res || res.error || !Array.isArray(res.models)) {
+            setModelNote(cfg.note, (res && res.error) || "Couldn't load the model list — type the model id instead.");
+            return;
+        }
+        renderModelOptions(cfg.list, res.models);
+        if (btn) {
+            btn.dataset.modelsLoaded = '1';
+            btn.textContent = 'Refresh models';
+        }
+        setModelNote(cfg.note, res.models.length
+            ? res.models.length + ' models available — pick one or type your own'
+            : 'Provider returned no models — type the model id instead.');
+    }
+
     function readDOMIntoPayload() {
         const out = {};
         for (const group of Object.keys(FIELD_IDS)) {
@@ -384,6 +479,9 @@
             fresh = apiOk ? await apiCall('/api/settings/integrations', 'GET') : null;
         } catch (_) { /* fall through with optimistic payload */ }
         if (fresh) applyPayloadToDOM(fresh);
+        // The saved provider may now be a different one, which makes any list
+        // already on screen wrong. Drop it; the next click re-fetches.
+        resetModelSuggestions();
         // Commit the masked server view when the reload succeeded, else the
         // locally-masked payload — never the raw cleartext keys.
         if (handle) { try { await handle.commit(fresh || maskPayload(payload)); } catch (_) { /* best-effort */ } }
@@ -401,6 +499,12 @@
         if (btn && !btn.dataset.integrationsBound) {
             btn.dataset.integrationsBound = '1';
             btn.addEventListener('click', () => { saveIntegrations(); });
+        }
+        for (const cfg of MODEL_LOADERS) {
+            const loadBtn = document.getElementById(cfg.button);
+            if (!loadBtn || loadBtn.dataset.integrationsBound) continue;
+            loadBtn.dataset.integrationsBound = '1';
+            loadBtn.addEventListener('click', () => { loadModels(cfg); });
         }
     }
 
@@ -431,6 +535,9 @@
         _readDOMIntoPayload: readDOMIntoPayload,
         _cacheKey: CACHE_KEY,
         _cacheTags: CACHE_TAGS,
+        // Returns the in-flight promise so tests can await a click's effect
+        // without racing the fire-and-forget listener.
+        _loadModels: (scope) => loadModels(MODEL_LOADERS.find((c) => c.scope === scope)),
         _resetTelegramMounted: () => { _telegramMounted = false; },
         _setTelegramLoader: (loader) => { _telegramModuleLoader = loader; }
     };

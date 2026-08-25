@@ -419,6 +419,24 @@ export function createApiRouter(ctx, {
       if (method === 'PATCH') return settings.patchIntegrations(body);
     }
 
+    // Model-id suggestions for the Settings model combobox (bd med-byom).
+    // Deliberately NOT a catalogued MCP op: it is a typing aid for a human
+    // filling in a form, and it is the one route that makes the browser spend
+    // the user's provider key on a call the user didn't ask an AI feature for.
+    // Failures come back as a payload, never a throw — a missing list must
+    // leave the field working as plain free text, not raise an error alert.
+    if (path === '/api/settings/integrations/models' && method === 'GET') {
+      try {
+        const { models, cached } = await aiClient.listModels({
+          scope: params.get('scope') === 'vision' ? 'vision' : 'text',
+          refresh: params.get('refresh') === '1',
+        });
+        return { models, cached, error: '', code: '' };
+      } catch (err) {
+        return { models: [], cached: false, error: err.message || 'Could not load the model list.', code: err.code || 'failed' };
+      }
+    }
+
     // Trial-provider consent (bd med-yor.2). Deliberately NOT a catalogued
     // MCP op: consent is a human ceremony — an agent must not be able to
     // grant itself access to the operator's trial providers.

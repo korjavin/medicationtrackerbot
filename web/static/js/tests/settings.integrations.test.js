@@ -557,4 +557,185 @@ describe('Settings → Integrations section', () => {
         const cached = await window.DataStore.getCached('settings_integrations');
         expect(cached).toEqual(priorPayload);
     });
+
+    // bd med-byom — the model fields become native comboboxes. Everything here
+    // is about the field staying free text: the datalist is a suggestion
+    // surface, and no failure of it may change what the user can type or save.
+    describe('model-id suggestions', () => {
+        const OPTIONS = {
+            text: 'integrations-openai-model-options',
+            vision: 'integrations-openai-vision-model-options'
+        };
+        const BUTTONS = {
+            text: 'integrations-openai-model-load',
+            vision: 'integrations-openai-vision-model-load'
+        };
+        const NOTES = {
+            text: 'integrations-openai-model-note',
+            vision: 'integrations-openai-vision-model-note'
+        };
+
+        function optionValues(document, scope) {
+            return [...document.getElementById(OPTIONS[scope]).querySelectorAll('option')].map((o) => o.value);
+        }
+
+        it('wires each model input to its own datalist and Load models button', () => {
+            const { document } = env;
+            for (const scope of ['text', 'vision']) {
+                expect(document.getElementById(OPTIONS[scope]), `missing datalist for ${scope}`).not.toBeNull();
+                const button = document.getElementById(BUTTONS[scope]);
+                expect(button, `missing load button for ${scope}`).not.toBeNull();
+                expect(button.textContent).toBe('Load models');
+            }
+            expect(document.getElementById('integrations-openai-model').getAttribute('list')).toBe(OPTIONS.text);
+            expect(document.getElementById('integrations-openai-vision-model').getAttribute('list')).toBe(OPTIONS.vision);
+            // The input itself must stay a plain text field — a <select> or a
+            // pattern here would turn the list into validation.
+            expect(document.getElementById('integrations-openai-model').tagName).toBe('INPUT');
+            expect(document.getElementById('integrations-openai-model').hasAttribute('pattern')).toBe(false);
+        });
+
+        it('nothing is fetched on load() or on typing — only on the explicit click', async () => {
+            const { window, document } = env;
+            const calls = [];
+            window.apiCall = vi.fn(async (url) => {
+                calls.push(url);
+                if (url === '/api/settings/integrations') {
+                    return {
+                        openai: { api_key: '***', url: 'https://p.example.com/v1', model: 'gpt-5', vision_api_key: '', vision_url: '', vision_model: '' },
+                        food: { api_key: '', url: '', domain: '' },
+                        elevenlabs: { api_key: '', agent_id: '' }
+                    };
+                }
+                return { models: ['a'], cached: false, error: '', code: '' };
+            });
+
+            await window.SettingsIntegrations.load();
+            const model = document.getElementById('integrations-openai-model');
+            model.value = 'https://evil.example.com';
+            model.dispatchEvent(new window.Event('input', { bubbles: true }));
+            document.getElementById('integrations-openai-url').value = 'https://evil.example.com/v1';
+            document.getElementById('integrations-openai-url').dispatchEvent(new window.Event('input', { bubbles: true }));
+
+            expect(calls.some((u) => u.includes('/models'))).toBe(false);
+
+            // The click is the only trigger, and it is wired at bind time.
+            expect(document.getElementById(BUTTONS.text).dataset.integrationsBound).toBe('1');
+            await window.SettingsIntegrations._loadModels('text');
+            expect(calls.some((u) => u.includes('/models'))).toBe(true);
+        });
+
+        it('a click populates the datalist from the shim and flips the button to Refresh', async () => {
+            const { window, document } = env;
+            const urls = [];
+            window.apiCall = vi.fn(async (url) => {
+                urls.push(url);
+                return { models: ['gpt-4o', 'gpt-4o-mini'], cached: false, error: '', code: '' };
+            });
+
+            await window.SettingsIntegrations._loadModels('text');
+
+            expect(optionValues(document, 'text')).toEqual(['gpt-4o', 'gpt-4o-mini']);
+            expect(urls[0]).toBe('/api/settings/integrations/models?scope=text');
+            expect(document.getElementById(BUTTONS.text).textContent).toBe('Refresh models');
+            expect(document.getElementById(BUTTONS.text).disabled).toBe(false);
+            expect(document.getElementById(NOTES.text).hidden).toBe(false);
+            expect(document.getElementById(NOTES.text).textContent).toContain('2 models');
+
+            // The second press is a refresh, and says so on the wire so the
+            // shim skips its in-memory cache.
+            await window.SettingsIntegrations._loadModels('text');
+            expect(urls[1]).toBe('/api/settings/integrations/models?scope=text&refresh=1');
+        });
+
+        it('the text and vision lists are independent', async () => {
+            const { window, document } = env;
+            window.apiCall = vi.fn(async (url) => (url.includes('scope=vision')
+                ? { models: ['vision-a'], cached: false, error: '', code: '' }
+                : { models: ['text-a', 'text-b'], cached: false, error: '', code: '' }));
+
+            await window.SettingsIntegrations._loadModels('text');
+            await window.SettingsIntegrations._loadModels('vision');
+
+            expect(optionValues(document, 'text')).toEqual(['text-a', 'text-b']);
+            expect(optionValues(document, 'vision')).toEqual(['vision-a']);
+        });
+
+        it('a failure leaves the field free text with a quiet note and no unhandled rejection', async () => {
+            const { window, document } = env;
+            const rejections = [];
+            const onRejection = (e) => { rejections.push(e); };
+            window.addEventListener('unhandledrejection', onRejection);
+
+            window.apiCall = vi.fn(async () => ({
+                models: [], cached: false, error: "Couldn't reach the provider. If you just saved this URL, reload the app first.", code: 'unreachable'
+            }));
+
+            document.getElementById('integrations-openai-model').value = 'my-custom-model';
+            await window.SettingsIntegrations._loadModels('text');
+
+            expect(optionValues(document, 'text')).toEqual([]);
+            expect(document.getElementById(NOTES.text).textContent).toMatch(/reload the app/i);
+            expect(document.getElementById(NOTES.text).hidden).toBe(false);
+            // Untouched and still saveable — that is the whole contract.
+            expect(document.getElementById('integrations-openai-model').value).toBe('my-custom-model');
+            expect(document.getElementById(BUTTONS.text).disabled).toBe(false);
+            expect(window.SettingsIntegrations._readDOMIntoPayload().openai.model).toBe('my-custom-model');
+
+            window.removeEventListener('unhandledrejection', onRejection);
+            expect(rejections).toEqual([]);
+        });
+
+        it('an unreachable route (server mode / offline) degrades the same way', async () => {
+            const { window, document } = env;
+            window.apiCall = vi.fn(async () => { throw new Error('404 not found'); });
+
+            await window.SettingsIntegrations._loadModels('text');
+
+            expect(optionValues(document, 'text')).toEqual([]);
+            expect(document.getElementById(NOTES.text).textContent).toMatch(/type the model id/i);
+        });
+
+        it('a superseded in-flight load does not overwrite the newer list', async () => {
+            const { window, document } = env;
+            let resolveSlow;
+            let call = 0;
+            window.apiCall = vi.fn(async () => {
+                call += 1;
+                if (call === 1) return new Promise((resolve) => { resolveSlow = resolve; });
+                return { models: ['fresh'], cached: false, error: '', code: '' };
+            });
+
+            const slow = window.SettingsIntegrations._loadModels('text');
+            const fast = window.SettingsIntegrations._loadModels('text');
+            await fast;
+            expect(optionValues(document, 'text')).toEqual(['fresh']);
+
+            resolveSlow({ models: ['stale'], cached: false, error: '', code: '' });
+            await slow;
+            expect(optionValues(document, 'text')).toEqual(['fresh']);
+        });
+
+        it('saving new credentials clears the stale list and resets the button', async () => {
+            const { window, document } = env;
+            window.apiCall = vi.fn(async (url, method) => {
+                if (url.includes('/models')) return { models: ['old-a'], cached: false, error: '', code: '' };
+                if (method === 'PATCH') return { ok: true };
+                return {
+                    openai: { api_key: '***', url: 'https://new.example.com/v1', model: '', vision_api_key: '', vision_url: '', vision_model: '' },
+                    food: { api_key: '', url: '', domain: '' },
+                    elevenlabs: { api_key: '', agent_id: '' }
+                };
+            });
+
+            await window.SettingsIntegrations._loadModels('text');
+            expect(optionValues(document, 'text')).toEqual(['old-a']);
+
+            await window.SettingsIntegrations.save();
+
+            expect(optionValues(document, 'text')).toEqual([]);
+            expect(document.getElementById(BUTTONS.text).textContent).toBe('Load models');
+            expect(document.getElementById(NOTES.text).hidden).toBe(true);
+        });
+    });
 });
