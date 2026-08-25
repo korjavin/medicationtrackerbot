@@ -46,3 +46,8 @@
 **Vulnerability:** Rate Limiting Bypass / Brute Force
 **Learning:** In `internal/server/server.go`, the legacy backward-compatibility authentication routes (`/auth/google/login` and `/auth/google/callback`) were configured using `mux.HandleFunc` without the `authLimit` middleware. Because newer routes (`/auth/oidc/login`) were correctly wrapped using `mux.Handle("/...", authLimit(...))`, attackers could bypass the intended rate limits simply by targeting the older, un-wrapped endpoints.
 **Prevention:** When introducing newer, rate-limited aliases for existing endpoints, always ensure that all backward-compatibility paths mapping to the same underlying handler are also wrapped with the exact same rate-limiting middleware to prevent trivial bypasses.
+
+## 2026-08-18 - Fix DoS vulnerability in Telegram webhook
+**Vulnerability:** Telegram webhook handlers `ManagerWebhook` and `ChildWebhook` in `internal/cloudserver/telegram.go` used `io.LimitReader` directly inside `io.ReadAll` for request bodies. While `io.LimitReader` bounds the read, the HTTP server might still try to consume the remainder of the oversized request body to keep the connection alive, potentially leading to resource exhaustion (DoS).
+**Learning:** `io.LimitReader` silently truncates payloads over the limit, causing downstream parsing errors, but does not explicitly close the connection when the limit is exceeded.
+**Prevention:** Always wrap `r.Body` with `http.MaxBytesReader(w, r.Body, maxBytes)` before reading or decoding the request body in HTTP POST handlers. `MaxBytesReader` explicitly returns an error if the limit is exceeded and signals the server to close the underlying connection, successfully mitigating potential Denial of Service (DoS) attacks via oversized payloads.
