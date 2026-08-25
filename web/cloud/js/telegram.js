@@ -325,7 +325,7 @@ export async function mountTelegram(container, opts = {}) {
         <${h} class="wg-settings-section__title">Open your bot</${h}>
         <p>Your bot is ready. Open it and tap <strong>Start</strong> to connect
            it to your account.</p>
-        <a id="tg-bot-link" class="button wg-gloss wg-gloss--sun wg-settings-action-btn" target="_blank" rel="noopener"></a>
+        <a id="tg-bot-link" class="button wg-gloss wg-gloss--sun wg-settings-action-btn" target="_blank" rel="noopener noreferrer"></a>
         <p class="muted wg-settings-section__desc">Waiting for you to tap Start…</p>
       </section>`;
     const link = container.querySelector('#tg-bot-link');
@@ -341,6 +341,7 @@ export async function mountTelegram(container, opts = {}) {
         <${h} class="wg-settings-section__title">Telegram connected</${h}>
         <p>Your bot <code id="tg-bot-username"></code> is linked. Send yourself
            a test notification to confirm it works.</p>
+        <a id="tg-open-bot" class="button wg-gloss wg-gloss--sun wg-settings-action-btn" target="_blank" rel="noopener noreferrer">Open your bot in Telegram</a>
         <div class="wizard-actions wg-settings-row__control">
           <button id="tg-test" class="wg-gloss wg-settings-action-btn">Send test notification</button>
           <button id="tg-unlink" class="secondary wg-gloss wg-settings-action-btn">Unlink</button>
@@ -350,6 +351,16 @@ export async function mountTelegram(container, opts = {}) {
         ${inWizard ? '<button id="tg-continue" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Continue</button>' : TG_PREFS_SECTION_HTML}
       </section>`;
     container.querySelector('#tg-bot-username').textContent = `@${status.bot_username}`;
+
+    // Steady-state way back into the chat (bd med-tgop): same contract as the
+    // transient bot_created anchor — plain t.me link, no ?start= payload, href
+    // assigned (never innerHTML). No username → no dead link.
+    const openBot = container.querySelector('#tg-open-bot');
+    if (status.bot_username) {
+      openBot.href = `https://t.me/${encodeURIComponent(status.bot_username)}`;
+    } else {
+      openBot.remove();
+    }
 
     // Surface a failing webhook (getWebhookInfo last_error from
     // GET /api/telegram/diag, bd med-eas.46/.48) so a broken delivery path is
