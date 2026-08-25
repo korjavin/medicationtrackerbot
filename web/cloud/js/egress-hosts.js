@@ -12,6 +12,10 @@
 // host, so a single such host would strand every provider's allowlist entry.
 // Drop the unallowlistable one client-side instead; the good hosts still
 // register (the dropped host simply can't be a clean `https://<host>` source).
+// Must stay identical to DEFAULT_URL in aiclient.js — the host the AI client
+// actually contacts when the user leaves the provider URL blank.
+const DEFAULT_OPENAI_URL = 'https://api.openai.com/v1';
+
 function canAllowlist(host) {
   if (!host || host.length > 253) return false;
   if (host.startsWith('.') || host.startsWith('-')
@@ -38,9 +42,23 @@ export function hostsFromIntegrations(integrations) {
     foodDomain = food.domain.trim();
     if (!/^https?:\/\//.test(foodDomain)) foodDomain = `https://${foodDomain}`;
   }
+  // aiclient.js's credentials() resolves a blank openai.url to DEFAULT_URL, so
+  // deriving from the raw stored string alone omitted api.openai.com for the
+  // commonest setup of all — paste a key, leave the URL on its placeholder —
+  // and CSP-blocked every browser-direct AI call for it. Mirror that fallback
+  // here. Gated on a stored key because without one the AI calls go to the
+  // same-origin trial proxy instead and connect-src stays minimal. (Found by
+  // codex review on bd med-byom; it predates the model list, which only made
+  // the breakage visible on a button.) A blank vision_url needs no entry: it
+  // resolves to this same host.
+  const openai = (integrations && integrations.openai) || {};
+  const hasAIKey = !!((typeof openai.api_key === 'string' && openai.api_key.trim())
+    || (typeof openai.vision_api_key === 'string' && openai.vision_api_key.trim()));
+  const openaiURL = (typeof openai.url === 'string' && openai.url.trim())
+    || (hasAIKey ? DEFAULT_OPENAI_URL : '');
   const urls = [
-    integrations && integrations.openai && integrations.openai.url,
-    integrations && integrations.openai && integrations.openai.vision_url,
+    openaiURL,
+    openai.vision_url,
     foodURL,
     foodDomain,
   ];

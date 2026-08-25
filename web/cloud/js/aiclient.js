@@ -91,6 +91,85 @@ function isResponseFormatRejection(err) {
   return !!(err && err.apiError && /response_format/i.test(err.message));
 }
 
+// ---------------------------------------------------------------------------
+// Model-id discovery (bd med-byom) — GET {base}/models against the user's own
+// provider, so Settings can suggest model ids instead of asking the user to
+// remember them. Suggestions only: nothing here ever validates or rewrites
+// what the user typed, and every failure degrades to "no suggestions".
+// ---------------------------------------------------------------------------
+
+const MODELS_TIMEOUT_MS = 15000;
+const MAX_MODELS = 200;
+// A model list is a few KB. Anything past this is not one, so stop before
+// JSON.parse spends the main thread on a hostile/misrouted response.
+const MAX_MODELS_BYTES = 1 << 20;
+
+function modelsError(code, message) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
+}
+
+// keyFingerprint identifies a key well enough to invalidate a cache entry when
+// the user swaps keys, without keeping the key: length plus a cheap hash of the
+// last 6 chars. Never reversible, never rendered.
+export function keyFingerprint(apiKey) {
+  const key = String(apiKey || '');
+  const tail = key.slice(-6);
+  let h = 0;
+  for (let i = 0; i < tail.length; i += 1) h = ((h << 5) - h + tail.charCodeAt(i)) | 0;
+  return `${key.length}:${h}`;
+}
+
+// parseModelList reads ONLY the standard OpenAI shape — {data: [{id}]}. No
+// alternate probing, no vendor-specific fallbacks: an unrecognised body is
+// simply "no list", which is the same outcome as no provider support.
+export function parseModelList(text) {
+  if (typeof text !== 'string' || text.length > MAX_MODELS_BYTES) return null;
+  let parsed;
+  try { parsed = JSON.parse(text); } catch { return null; }
+  if (!parsed || !Array.isArray(parsed.data)) return null;
+  const ids = [...new Set(parsed.data
+    .map((m) => (m && typeof m.id === 'string' ? m.id.trim() : ''))
+    .filter(Boolean))];
+  ids.sort();
+  return ids.slice(0, MAX_MODELS);
+}
+
+async function fetchModelIds(base, apiKey) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), MODELS_TIMEOUT_MS);
+  let res;
+  let text;
+  try {
+    // Authorization header only — never a query param, so the key cannot leak
+    // into the provider's access log or a redirect target. no-referrer keeps
+    // the account subdomain (a stable pseudonymous identifier) out of the
+    // Referer the provider would otherwise see.
+    res = await fetch(`${base}/models`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      referrerPolicy: 'no-referrer',
+      signal: controller.signal,
+    });
+    text = await res.text();
+  } catch {
+    // fetch() rejects identically for a CSP block, a CORS refusal, DNS failure
+    // and our own abort — the browser deliberately refuses to say which. One
+    // message, pointed at the likeliest cause right after a provider save: the
+    // document's connect-src predates the new host until a reload.
+    throw modelsError('unreachable', "Couldn't reach the provider. If you just saved this URL, reload the app first.");
+  } finally {
+    clearTimeout(timer);
+  }
+  // Status only, never the body: a proxy that echoes request headers back in
+  // its error payload would otherwise put the user's key on screen.
+  if (!res.ok) throw modelsError('http', `Provider returned ${res.status} for the model list.`);
+  const ids = parseModelList(text);
+  if (!ids) throw modelsError('parse', "Provider didn't return an OpenAI-style model list.");
+  return ids;
+}
+
 async function postChatCompletion(endpoint, apiKey, body) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -305,6 +384,28 @@ export function createAIClient({ settingsDomain }) {
     };
   }
 
+  // In-memory only, for the life of this client. A model list is derived from
+  // the user's key, so persisting it (api_cache, IndexedDB, localStorage) would
+  // put provider-account facts outside the vault in cleartext. Keyed by base
+  // URL + key fingerprint so swapping either invalidates it for free.
+  const modelsCache = new Map();
+
+  // listModels backs the Settings model combobox. It reads the SAVED vault
+  // credentials — never a DOM field the user is mid-edit on — which is what
+  // keeps an existing key from being sent to a half-typed hostname, and what
+  // guarantees the host is one the document's connect-src already allows.
+  async function listModels({ scope = 'text', refresh = false } = {}) {
+    const creds = await credentials();
+    const provider = scope === 'vision' ? creds.vision : creds.text;
+    if (!provider.apiKey) throw modelsError('no_key', 'Save an API key first, then load the model list.');
+    const base = provider.url.replace(/\/$/, '');
+    const cacheKey = `${base}|${keyFingerprint(provider.apiKey)}`;
+    if (!refresh && modelsCache.has(cacheKey)) return { models: modelsCache.get(cacheKey), cached: true };
+    const models = await fetchModelIds(base, provider.apiKey);
+    modelsCache.set(cacheKey, models);
+    return { models, cached: false };
+  }
+
   // Only a literal `true` passes — null (never asked), false (declined), or a
   // missing record all refuse before any trial transmission. BYO calls never
   // reach this (useTrial is false), so consent is never even read.
@@ -450,5 +551,5 @@ export function createAIClient({ settingsDomain }) {
       : postChatRaw(`${text.url.replace(/\/$/, '')}/chat/completions`, text.apiKey, body);
   }
 
-  return { parseMealFromDescription, parseActivityFromDescription, parseMealFromImage, chat };
+  return { parseMealFromDescription, parseActivityFromDescription, parseMealFromImage, chat, listModels };
 }
