@@ -31,7 +31,7 @@
   - **AI features**: None.
 - **Pricing / sustainability**:
   - **Pricing**: Free and open-source; no ads or paid subscriptions.
-  - **Sustainability**: Highly active repository (`iSoron/uhabits`) with ~10,100+ GitHub stars, >70 contributors, active development and updates throughout 2026.
+  - **Sustainability**: Highly active repository (`iSoron/uhabits`) with ~10,200+ GitHub stars, 57 code contributors (70+ lifetime community translators/contributors), active development and updates throughout 2026.
 - **Sources**:
   - GitHub Repository: https://github.com/iSoron/uhabits (Accessed August 2026)
   - F-Droid Listing: https://f-droid.org/en/packages/org.isoron.uhabits/ (Accessed August 2026)

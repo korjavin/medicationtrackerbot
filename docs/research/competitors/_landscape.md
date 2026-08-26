@@ -12,7 +12,7 @@ Our product occupies a unique position at the intersection of **Zero-Knowledge E
 ```
                       Self-Hosted / Open-Source
                                  ▲
-                                 │   • Fasten Health
+                                 │   • Fasten Health (Archived)
                                  │   • Nightscout
                                  │   • wger
                                  │   • Home Assistant
@@ -40,7 +40,7 @@ Server-Side Plaintext ───────────┼───────�
    - *Key distinction*: They achieve privacy by eliminating network sync entirely. They are single-domain mobile-only apps (e.g., openScale for weight, Waistline for calories) that lack multi-device web access, cloud push notifications, and unified cross-metric tracking.
 2. **Self-Hosted Open Source Platforms (Fasten Health, Nightscout, wger, Home Assistant, GNU Health)**:
    - *Closest in deployment model*: Single-operator self-hosted docker/web servers.
-   - *Key distinction*: None feature **zero-knowledge end-to-end encryption** (the server holds database plaintext). Most are domain-specific (Nightscout for diabetes/CGM, wger for workouts, Fasten for FHIR clinical record aggregation) rather than a unified daily personal health vault.
+   - *Key distinction*: None feature **zero-knowledge end-to-end encryption** (the server holds database plaintext). Most are domain-specific (Nightscout for diabetes/CGM, wger for workouts, Fasten for FHIR clinical record aggregation; Fasten Health was archived in July 2026 due to unfunded maintainer burnout) rather than a unified daily personal health vault.
 3. **Commercial SaaS Platforms (Guava Health, Bearable, Medisafe, Exist.io, Cronometer)**:
    - *Closest in multi-metric feature scope*: Guava and Bearable track meds, vitals, mood, food, and symptoms in one platform.
    - *Key distinction*: Rely entirely on server-side plaintext processing for analytics, lack self-hosting options, charge monthly subscriptions, and expose health data to vendor infrastructure.
@@ -67,6 +67,7 @@ Server-Side Plaintext ───────────┼───────�
 
 | Project / Event | Category | Primary Failure Mode | Lesson for Our Product |
 | :--- | :--- | :--- | :--- |
+| **Fasten Health** | Self-Hosted EMR Aggregator | Unfunded maintainer burnout (archived July 2026 with 217 open issues) | Heavy self-hosted EMR aggregators create unsustainable maintainer burnout. Delivering a zero-knowledge PWA eliminates server infrastructure and deployment friction. |
 | **Round Health** | Med Tracker | Acquired by Alto Pharmacy in August 2017 & abandoned/delisted | Closed-source SaaS apps vanish when acquired. Open architecture and structured data export/import ensure long-term utility regardless of project state. |
 | **Google Fit Web & APIs** | Ecosystem | Deprecated web portal and REST APIs in favor of Android-only Health Connect | Relying on vendor cloud APIs exposes products to sudden platform deprecations. Local-first standards shield users from vendor pivots. |
 | **Legacy Med Trackers (Dosecast, etc.)** | Med Tracker | High lock-in with zero export options | Complete lack of CSV/JSON data export creates user trapped state. Data ownership must be first-class. |
@@ -78,5 +79,5 @@ Server-Side Plaintext ───────────┼───────�
 
 - **Medication Trackers**: Medisafe, MyTherapy, Round Health (abandoned), Dosecast, MedM.
 - **Ecosystems**: Apple Health, Google Health Connect, Samsung Health.
-- **OSS / Self-Hosted**: wger, openScale, Waistline, Gadgetbridge, Loop Habit Tracker, Fasten Health, Nightscout, Drip, GNU Health, Home Assistant Health.
+- **OSS / Self-Hosted**: wger, openScale, Waistline, Gadgetbridge, Loop Habit Tracker, Fasten Health (archived), Nightscout, Drip, GNU Health, Home Assistant Health.
 - **Multi-Metric & Privacy**: Bearable, Guava Health, Exist.io, Cronometer.

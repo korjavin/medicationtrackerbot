@@ -25,7 +25,7 @@
   - **Wearables**: No direct consumer wearable integrations (relies on EHR bridges or manual record imports).
   - **EHR**: Direct integration with over 50,000–70,000 US healthcare institutions using SMART-on-FHIR R4 standards.
   - **AI features**: None natively built-in (strictly focused on standardized clinical record aggregation).
-- **Pricing / sustainability**: 100% Free and open-source for self-hosted Fasten OnPrem; paid enterprise API tier (Fasten Connect) funds ongoing development. Activity level: Active development status, ~3,200 GitHub stars, 25+ contributors, continuous commits/releases on GitHub (`fastenhealth/fasten-onprem`).
+- **Pricing / sustainability**: 100% Free and open-source for self-hosted Fasten OnPrem; paid enterprise API tier (Fasten Connect) attempted. Activity level: Archived / read-only repository on GitHub (`fastenhealth/fasten-onprem` archived July 18, 2026; ~2,800 stars, 16 contributors, 217 open issues left at archival).
 - **Sources**:
   - https://github.com/fastenhealth/fasten-onprem (Accessed August 2026)
   - https://www.fastenhealth.com/ (Accessed August 2026)
