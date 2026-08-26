@@ -293,7 +293,12 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
                 med('med-1', 'Lisinopril', '10mg'),
                 med('med-2', 'Ibuprofen', '200mg', { schedule: JSON.stringify({ type: 'as_needed' }) }),
                 // Unparseable schedule → planDoses skips it → unscheduled too.
-                med('med-3', 'Mystery', '1 tab', { schedule: 'when needed' })
+                med('med-3', 'Mystery', '1 tab', { schedule: 'when needed' }),
+                // Parses fine but can never produce a slot, so planDoses skips
+                // it exactly like an as-needed med.
+                med('med-4', 'Slotless', '5mg', {
+                    schedule: JSON.stringify({ type: 'daily', times: [] })
+                })
             ],
             intake: [
                 intake('i-1', 'med-1', NOW - 2 * DAY, 'TAKEN'),
@@ -303,7 +308,8 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
                 intake('intake-manual-3', 'med-2', NOW - 3 * DAY, 'TAKEN'),
                 intake('intake-manual-4', 'med-2', NOW - 2 * DAY, 'TAKEN'),
                 intake('intake-manual-5', 'med-2', NOW - 1 * DAY, 'TAKEN'),
-                intake('intake-manual-6', 'med-3', NOW - 1 * DAY, 'TAKEN')
+                intake('intake-manual-6', 'med-3', NOW - 1 * DAY, 'TAKEN'),
+                intake('intake-manual-7', 'med-4', NOW - 1 * DAY, 'TAKEN')
             ]
         });
 
@@ -311,12 +317,41 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
         const byName = Object.fromEntries(brief.medications.map((m) => [m.name, m]));
 
         // Still listed — a doctor wants to know the patient takes ibuprofen.
-        expect(Object.keys(byName).sort()).toEqual(['Ibuprofen', 'Lisinopril', 'Mystery']);
+        expect(Object.keys(byName).sort()).toEqual(['Ibuprofen', 'Lisinopril', 'Mystery', 'Slotless']);
         expect(byName.Ibuprofen).toMatchObject({ adherence_pct: null, as_needed: true, times_taken: 5 });
         expect(byName.Mystery).toMatchObject({ adherence_pct: null, as_needed: true, times_taken: 1 });
+        expect(byName.Slotless).toMatchObject({ adherence_pct: null, as_needed: true, times_taken: 1 });
         expect(byName.Lisinopril).toMatchObject({ adherence_pct: 50, as_needed: false, times_taken: 1 });
-        // 1 of 2 scheduled doses. Folding the 6 unscheduled TAKEN rows in would
-        // have reported 7/8 = 87.5%.
+        // 1 of 2 scheduled doses. Folding the 7 unscheduled TAKEN rows in would
+        // have reported 8/9 = 88.9%.
+        expect(brief.overall_adherence_pct).toBe(50);
+    });
+
+    // An archived PRN med keeps its rows in listWindow but drops out of the
+    // active medications list, so a fold that only classifies active meds would
+    // let it go on faking adherence from beyond the grave.
+    it('keeps an archived as-needed medication out of adherence too', async () => {
+        const call = routerWith({
+            medication: [
+                med('med-1', 'Lisinopril', '10mg'),
+                med('med-2', 'Ibuprofen', '200mg', {
+                    archived: true, schedule: JSON.stringify({ type: 'as_needed' })
+                })
+            ],
+            intake: [
+                intake('i-1', 'med-1', NOW - 2 * DAY, 'TAKEN'),
+                intake('i-2', 'med-1', NOW - 1 * DAY, 'SKIPPED'),
+                intake('intake-manual-1', 'med-2', NOW - 5 * DAY, 'TAKEN'),
+                intake('intake-manual-2', 'med-2', NOW - 4 * DAY, 'TAKEN'),
+                intake('intake-manual-3', 'med-2', NOW - 3 * DAY, 'TAKEN')
+            ]
+        });
+
+        const brief = await call('/api/brief?days=30&sections=meds', 'GET');
+
+        // Archived meds stay out of the printed list…
+        expect(brief.medications.map((m) => m.name)).toEqual(['Lisinopril']);
+        // …but their PRN rows must stay out of the number as well: 1 of 2, not 4 of 5.
         expect(brief.overall_adherence_pct).toBe(50);
     });
 

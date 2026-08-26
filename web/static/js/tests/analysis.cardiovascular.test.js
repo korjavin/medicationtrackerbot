@@ -161,6 +161,16 @@ describe('analysis.cardiovascular', () => {
           // Unparseable schedule → planDoses skips it too → unscheduled.
           recordId: 'med-3', deleted: false, archived: false, name: 'Mystery', dosage: '1 tab', schedule: 'when needed',
         },
+        {
+          // Archived PRN: gone from `active`, but listWindow still emits its
+          // rows, so the fold has to classify it from the archived list.
+          recordId: 'med-4',
+          deleted: false,
+          archived: true,
+          name: 'Naproxen',
+          dosage: '250mg',
+          schedule: JSON.stringify({ type: 'as_needed' }),
+        },
       ],
       intake: [
         {
@@ -181,16 +191,22 @@ describe('analysis.cardiovascular', () => {
           recordId: 'intake-manual-9', deleted: false, medication_id: 'med-3', status: 'TAKEN',
           scheduled_at: '2026-07-14T10:00:00Z', taken_at: '2026-07-14T10:00:00Z',
         },
+        {
+          recordId: 'intake-manual-10', deleted: false, medication_id: 'med-4', status: 'TAKEN',
+          scheduled_at: '2026-07-15T10:00:00Z', taken_at: '2026-07-15T10:00:00Z',
+        },
       ],
     };
 
     const resp = await build(seed).cardiovascular({ from: '2026-07-10', to: '2026-07-25' });
 
-    // Aspirin alone: 1 TAKEN of 2 resolved. The four unscheduled rows would
-    // have pushed this to 5/6 = 83.3%.
+    // Aspirin alone: 1 TAKEN of 2 resolved. The five unscheduled rows would
+    // have pushed this to 6/7 = 85.7%.
     expect(resp.medications.adherence_rate).toBe(50);
     // They are still reported — a doctor wants to see the PRN usage.
-    expect(resp.medications.intake_log).toHaveLength(6);
+    expect(resp.medications.intake_log).toHaveLength(7);
+    // …and `active` still lists only the non-archived meds.
+    expect(resp.medications.active.map((m) => m.name)).toEqual(['Aspirin', 'Ibuprofen', 'Mystery']);
 
     // Nothing scheduled at all still reports 0, not null: shipped MCP
     // semantics that brief.js deliberately does NOT share.

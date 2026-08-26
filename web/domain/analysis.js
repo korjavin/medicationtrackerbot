@@ -164,7 +164,14 @@ export function createAnalysis({
     // Medications (gated).
     if (gated(features, 'medication')) {
       await runSection(unavailable, 'medications', async () => {
-        const active = (await medications.list({ archived: false }))
+        // archived:true lists ALL meds; `active` still reports only the active
+        // ones, but the fold needs the archived ones' schedules — listWindow
+        // emits their rows and an unclassified row counts toward adherence.
+        const all = (await medications.list({ archived: true }))
+          .map((m) => ({
+            name: m.name, dosage: m.dosage, schedule: m.schedule, archived: m.archived,
+          }));
+        const active = all.filter((m) => !m.archived)
           .map((m) => ({ name: m.name, dosage: m.dosage, schedule: m.schedule }));
         // Uncapped, windowed intake log — mirrors fetchMedicationsSection's
         // ListIntakesSince (see intake.listWindow); history()'s 100-row cap would
@@ -172,11 +179,12 @@ export function createAnalysis({
         const log = await intake.listWindow({ fromMs, toMs });
         // The shared fold (medintake.js foldAdherence) — future PENDING isn't
         // yet due, every resolved status + overdue PENDING counts, and rows
-        // belonging to an UNSCHEDULED med (as-needed or unparseable schedule)
-        // count for nothing at all: they are manual logs with no missed dose to
-        // compare against, so including them reported fake compliance.
+        // belonging to an UNSCHEDULED med (as-needed, unparseable, or a schedule
+        // that yields no slots) count for nothing at all: they are manual logs
+        // with no missed dose to compare against, so including them reported
+        // fake compliance.
         // Empty window keeps reporting 0, not null — shipped MCP semantics.
-        const { overall } = foldAdherence({ log, meds: active, nowMs: now() });
+        const { overall } = foldAdherence({ log, meds: all, nowMs: now() });
         response.medications = {
           active,
           intake_log: log,

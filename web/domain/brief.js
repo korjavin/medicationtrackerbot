@@ -114,17 +114,22 @@ export function createBriefDomain({
   bp, weight, vitals, notes, medications, intake, food, workout, settings, now,
 }) {
   async function medsSection(fromMs, toMs, nowMs) {
-    const [list, log] = await Promise.all([
-      medications.list({ archived: false }),
+    // archived:true lists ALL meds (medications.js list: `archived || !m.archived`).
+    // The brief still SHOWS only the active ones, but the fold needs the archived
+    // ones' schedules — listWindow keeps emitting their rows, and an unclassified
+    // row counts toward adherence.
+    const [all, log] = await Promise.all([
+      medications.list({ archived: true }),
       intake.listWindow({ fromMs, toMs }),
     ]);
+    const list = all.filter((m) => !m.archived);
     // The shared fold (medintake.js foldAdherence), the same one analysis.js
     // runs over the same rows. It classifies each med as scheduled or not: an
     // as-needed (or unparseably-scheduled) med never gets a materialized dose,
     // so its rows are all manual TAKEN logs and a percentage over them is a
     // fabricated 100%. Those meds report `times_taken` instead — and their rows
     // stay out of the overall number too.
-    const { overall, perMed } = foldAdherence({ log, meds: list, nowMs });
+    const { overall, perMed } = foldAdherence({ log, meds: all, nowMs });
     const empty = { scheduled: true, total: 0, taken: 0, timesTaken: 0 };
     return {
       medications: list.map((m) => {
@@ -137,8 +142,9 @@ export function createBriefDomain({
           // null on an empty window too: "nothing was scheduled" is not "took
           // nothing" (analysis.js deliberately reports 0 there instead).
           adherence_pct: counts.scheduled ? round1(adherencePct(counts, null)) : null,
-          // `as_needed` also covers an unparseable schedule — from the doctor's
-          // side both mean "no schedule to be adherent to".
+          // `as_needed` also covers a schedule that yields no doses at all
+          // (unparseable, or parseable but slotless) — from the doctor's side
+          // they all mean "no schedule to be adherent to".
           as_needed: !counts.scheduled,
           times_taken: counts.timesTaken,
         };

@@ -16,7 +16,7 @@
 // no dupes, no divergence. Manual (log-past) intakes have no natural slot, so
 // they get a random id (same nowMs+random technique as medications.js's
 // nextId / weight.js's genId).
-import { minDoseIntervalMs, localDateTimeParts, parseSchedule } from './medschedule.js';
+import { minDoseIntervalMs, localDateTimeParts, calculateDailyUsage } from './medschedule.js';
 import { planDosesWithTzPlan, forecastDosesWithTzPlan } from './tzplan.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
@@ -93,9 +93,14 @@ function toResponse(intake) {
 // percentage of its own AND its rows are excluded from the overall
 // numerator/denominator. It is still reported (a doctor wants to know the
 // patient takes ibuprofen as needed), as a count of times taken.
+// calculateDailyUsage is the existing "how many doses a day does planDoses
+// produce" helper, and it already returns 0 for every schedule planDoses
+// skips: as-needed, unparseable, an unknown type, and the slotless shapes that
+// parse fine but can never yield a target ({type:'daily',times:[]}, a weekly
+// schedule with no days). Reusing it keeps this definition from drifting away
+// from the planner's.
 export function isScheduledMed(med) {
-  const cfg = parseSchedule(med && med.schedule);
-  return !!cfg && cfg.type !== 'as_needed';
+  return !!med && calculateDailyUsage(med) > 0;
 }
 
 // listWindow denormalizes to medication_name + dosage rather than an id, and
@@ -114,14 +119,25 @@ export function adherenceKey(name, dosage) {
 // A future PENDING dose isn't due yet and counts for nothing; every other row
 // counts, TAKEN is the numerator. `timesTaken` counts TAKEN rows whether or not
 // the med is scheduled — it is what an as-needed med reports instead of a
-// percentage. A row whose med is absent from `meds` (archived, renamed) keeps
-// the pre-fix behaviour of counting as scheduled: its schedule is unknowable
-// from here.
+// percentage.
+//
+// Pass ARCHIVED meds in too (callers list with archived:true and render only
+// the active ones): listWindow still emits an archived med's rows, and a row
+// whose med is missing from `meds` has an unknowable schedule, so it falls back
+// to counting — which would let an archived PRN med go on faking adherence.
+// When two meds collide on name+dosage (the active pair is unique, an archived
+// one can still shadow it) the fold takes the pessimistic reading and calls the
+// key unscheduled: no number beats a number that might be invented.
 export function foldAdherence({ log = [], meds = [], nowMs = 0 } = {}) {
   const perMed = new Map();
   for (const m of meds) {
-    perMed.set(adherenceKey(m.name, m.dosage), {
-      scheduled: isScheduledMed(m), total: 0, taken: 0, timesTaken: 0,
+    const key = adherenceKey(m.name, m.dosage);
+    const prior = perMed.get(key);
+    perMed.set(key, {
+      scheduled: isScheduledMed(m) && (!prior || prior.scheduled),
+      total: 0,
+      taken: 0,
+      timesTaken: 0,
     });
   }
   const overall = { total: 0, taken: 0 };
