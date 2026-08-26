@@ -41,7 +41,7 @@
 ## Phase 2
 
 ### 1. Customer base
-- **Community & Install Signals**: **~5,000+ GitHub stars** / Codeberg repo with **>300 contributors**. Primary distribution via **F-Droid** (estimated **100,000+ active F-Droid users** across Pebble, Amazfit, Mi Band, Garmin, and Galaxy Watch owners) (Source: Codeberg, F-Droid, August 2026).
+- **Community & Install Signals**: **~5,000+ GitHub stars** / Codeberg repo with **>300 contributors**. Primary distribution via **F-Droid** (estimated **100,000+ active F-Droid users** across Pebble, Amazfit, Mi Band, Garmin, and Galaxy Watch owners, inferred from Codeberg/GitHub star ratios and F-Droid category popularity ranking; F-Droid does not publish official download metrics) (Source: Codeberg, F-Droid, August 2026).
 - **Estimated Active Base**: Estimated **100,000–250,000 active privacy-conscious wearable users** globally.
 - **Licensing & Financials**: 100% Free Open Source Software (AGPL-3.0 license). $0 commercial revenue.
 - **Code Signals**: Native Android app intentionally omitting `android.permission.INTERNET`.

@@ -60,7 +60,7 @@
 | Feature / Dimension | MyTherapy | Our Zero-Knowledge PWA |
 | :--- | :--- | :--- |
 | **Corporate Ownership** | Owned by Redcare Pharmacy (online pharmacy corporate giant) | **100% Independent Open Source Project** |
-| **Privacy & Telemetry** | Server-stored unencrypted data; Mobilsicher privacy review noted 3rd-party tracker SDKs | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, zero tracker SDKs) |
+| **Privacy & Telemetry** | Server-stored vendor-readable data (encrypted at rest, but vendor-readable); Mobilsicher privacy review noted 3rd-party tracker SDKs | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, zero tracker SDKs) |
 | **Multi-Device Sync** | Vendor server cloud sync | **Sync Without Trust** (WebAuthn/Passkey authentication + blind push relay) |
 | **Platform Access** | Native store download required (iOS / Android) | **Instant PWA URL access** (Zero-install, works on any browser/OS) |
 

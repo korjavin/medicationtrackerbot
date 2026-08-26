@@ -30,3 +30,31 @@
   - https://github.com/nightscout/cgm-remote-monitor (Accessed August 2026)
   - https://www.nightscout.info/ (Accessed August 2026)
   - https://nightscout.github.io/ (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **Community & Install Signals**: **~2,800+ GitHub stars**, **73,300+ GitHub forks** (high fork ratio due to cloud deployment workflow on Railway/Fly.io/Heroku), and **>1,000,000 Docker pulls** on `nightscout/cgm-remote-monitor` (Source: GitHub, Docker Hub, August 2026).
+- **Estimated Active Base**: Estimated **40,000–60,000 active continuous glucose monitoring setups** globally.
+- **Licensing & Financials**: 100% Free Open Source Software (AGPL-3.0 license). $0 commercial software fees.
+- **Code Signals**: Node.js web server + MongoDB database + WebSockets API.
+
+### 2. Killer features — why customers actually choose it
+- **Real-Time CGM Remote Telemetry**: Streams Continuous Glucose Monitor readings (Dexcom, FreeStyle Libre) in real time to any browser or smartwatch so parents can monitor T1D children overnight.
+- **DIY Closed-Loop Artificial Pancreas Integration**: Bidirectional sync with automated insulin delivery algorithms (OpenAPS, AndroidAPS, iOS Loop) displaying Insulin on Board (IOB) and Carbs on Board (COB) (paraphrased theme from `r/diabetes_t1` & `r/diabetes`).
+- **Grassroots #WeAreNotWaiting Community**: Patient-led open-source movement for diabetes tech.
+
+### 3. Marketing & acquisition — how self-hosters discover it
+- **Channels**: Grassroots **#WeAreNotWaiting** movement, T1D communities (`r/diabetes`, `r/diabetes_t1`), "CGM in the Cloud" Facebook groups, and pediatric endocrinologist referrals.
+- **What we can learn**: **The Power of Emotional Community Advocacy (#WeAreNotWaiting).** Build high-reliability notification features that solve severe daily patient/caregiver anxiety to generate passionate word-of-mouth advocacy.
+
+### 4. Beating them in comparison
+
+| Feature / Dimension | Nightscout | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **Target Scope & Domain** | T1D Diabetes CGMs & artificial pancreas loops only | **Universal Medication Safety, Dosing, & Multi-Metric Health Workbench** |
+| **Server & Database Security** | Server-side plaintext MongoDB database on cloud hosts | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, server holds ciphertext) |
+| **Deployment Complexity** | Node.js + MongoDB cloud setup (73k+ forks to deploy) | **Zero-Setup Instant PWA Access** (Runs in browser with WebAuthn auth) |
+
+- **Winning Angle**: Nightscout is hyper-focused on T1D diabetes CGMs and requires maintaining a Node.js/MongoDB cloud server storing plaintext glucose readings. Our Zero-Knowledge PWA provides browser-managed zero-knowledge encryption, Passkey authentication, and universal medication & health safety tracking without server maintenance or unencrypted cloud databases.
+- **Where we lose & how to neutralize it**: We lose on real-time DIY artificial pancreas insulin loop telemetry. Neutralize by positioning our PWA as the universal medication, vital, and symptom safety tool for all health conditions.

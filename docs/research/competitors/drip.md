@@ -30,3 +30,31 @@
   - https://dripapp.org/ (Accessed August 2026)
   - https://gitlab.com/bloodyhealth/drip (Accessed August 2026)
   - https://f-droid.org/en/packages/com.drip/ (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **Community & Install Signals**: Play Store bracket is **10,000+** downloads (`bloodyhealth.drip`). Primary repository hosted on GitLab (`gitlab.com/bloodyhealth/drip`) with GitHub mirror (21 stars, 3 forks). Distributed on F-Droid, Play Store, and App Store (estimated **30,000–50,000 active users** globally across F-Droid and app stores, inferred from Play Store metrics and privacy portal recommendations; F-Droid does not publish download metrics) (Source: GitLab, Play Store, August 2026).
+- **Estimated Active Base**: Estimated **30,000–50,000 active privacy-focused users**.
+- **Licensing & Financials**: 100% Free Open Source Software (GPL-3.0 license). $0 commercial revenue (funded via non-profit digital rights grants).
+- **Code Signals**: React Native mobile app operating 100% offline.
+
+### 2. Killer features — why customers actually choose it
+- **100% Offline Zero-Server Data Isolation**: All cycle data stays local on device with zero network servers or account requirements.
+- **Transparent Sympto-Thermal Fertility Algorithm**: Open, rule-based fertility calculation based on basal body temperature and cervical mucus without black-box cloud AI (paraphrased theme from `r/privacy` & `r/F_Droid`).
+- **Non-Commercial Gender-Inclusive UI**: Free of ads, subscriptions, or pink/girly tropes.
+
+### 3. Marketing & acquisition — how self-hosters discover it
+- **Channels**: Privacy advocacy recommendations (EFF, Privacy Guides, Mozilla's *Privacy Not Included*, Digitalcourage) following post-Roe v. Wade digital health privacy concerns, F-Droid catalogue, and `r/privacy` discussions.
+- **What we can learn**: **Third-Party Privacy Audits.** Secure independent privacy reviews and listings on privacy directories (Privacy Guides) as a zero-knowledge health vault to earn high-trust organic referrals.
+
+### 4. Beating them in comparison
+
+| Feature / Dimension | Drip | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **Health Domain Scope** | Single-domain menstrual cycle & fertility tracking only | **Full Medication Safety, Dosing, & Clinical Vitals Workbench** |
+| **Multi-Device Sync** | Local-only (single device; data lost if phone breaks) | **Sync Without Trust** (WebAuthn/Passkey auth + browser E2EE + blind push relay) |
+| **Platform Access** | Native mobile app download required | **Instant PWA URL Access** (Zero-install, works on any browser/OS) |
+
+- **Winning Angle**: Drip is limited strictly to single-device local period tracking with no web client or medication schedule engine. Our Zero-Knowledge PWA provides multi-device sync without vendor trust — browser-managed encryption, WebAuthn passkey security, full medication adherence, and universal web browser access across all platforms.
+- **Where we lose & how to neutralize it**: We lose on Drip's sympto-thermal fertility phase calculations. Neutralize by supporting custom cycle symptom tagging in daily health logs.

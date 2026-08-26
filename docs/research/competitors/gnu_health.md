@@ -30,3 +30,31 @@
   - https://www.gnuhealth.org/ (Accessed August 2026)
   - https://savannah.gnu.org/projects/gnuhealth (Accessed August 2026)
   - https://en.wikipedia.org/wiki/GNU_Health (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **Deployments & Institutional Reach**: Official GNU package hosted on Codeberg (`codeberg.org/gnuhealth/his`). Deployed across **hundreds of public hospital facilities, health ministries, and primary care clinics** globally (Jamaica Ministry of Health, Suriname Academic Hospital, Argentina Entre Ríos public health system, Cameroon Bafia Hospital) managing **millions of patient EMRs** (Source: GNU Solidario, UN/WHO DPGA Registry, August 2026).
+- **Estimated Active Base**: Institutional hospital system scale (millions of patients managed by healthcare professionals).
+- **Licensing & Financials**: 100% Free Open Source Software (GPL-3.0+ license). Certified UN Digital Public Good (DPG).
+- **Code Signals**: Python / Tryton ERP framework + PostgreSQL server.
+
+### 2. Killer features — why customers actually choose it
+- **Enterprise Hospital ERP & LIS**: Complete open-source hospital management covering inpatient care, pharmacy, laboratory (LIS), and epidemiology.
+- **Social Determinants of Health (SDoH)**: Prioritizes socio-economic conditions, sanitation, and living environment alongside bio-medical data.
+- **Thalamus Federation Engine**: Multi-node sync between rural health posts and regional hospital servers.
+
+### 3. Marketing & acquisition — how self-hosters discover it
+- **Channels**: GNU Solidario advocacy, UN Digital Public Goods Alliance, WHO partnerships, and international medical informatics conferences (IWEEE, GNUHealthCon).
+- **What we can learn**: **Standardized Clinical Data Models.** Implement open FHIR/CSV data exports to ensure personal vaults can bridge into clinical environments.
+
+### 4. Beating them in comparison
+
+| Feature / Dimension | GNU Health | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **System Complexity** | Heavy enterprise hospital ERP system (requires Python/Tryton/PostgreSQL sysadmin setup) | **Zero-Setup Instant PWA Access** (Runs in any browser; no server installation needed) |
+| **Target User & Scope** | Hospital administrators, doctors, and nurses managing institutional patients | **Individuals & Caregivers** managing personal medication adherence & daily vitals |
+| **Privacy & Keys** | Server-side database access (unencrypted server DB plaintext for medical staff) | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, server holds ciphertext) |
+
+- **Winning Angle**: GNU Health is a heavy multi-user enterprise hospital management ERP system requiring complex server infrastructure; it is not designed for individual personal health/medication self-management. Our PWA provides an instant, zero-setup zero-knowledge vault for personal health and medication management in any web browser.
+- **Where we lose & how to neutralize it**: We lose on hospital-wide inpatient billing and Laboratory Information System (LIS) workflows. Neutralize by maintaining focused individual medication safety and daily vital tracking.

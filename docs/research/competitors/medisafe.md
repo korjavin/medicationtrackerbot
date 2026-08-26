@@ -59,9 +59,9 @@
 | Feature / Dimension | Medisafe | Our Zero-Knowledge PWA |
 | :--- | :--- | :--- |
 | **Pricing & Limits** | Max 2 meds on free tier; $4.99/mo ($39.99/yr) for unlimited | **100% Free, Unlimited medications & tracking forever** |
-| **Data Privacy & Sync** | Mandatory account; unencrypted AWS server storage + pharma telemetry | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, blind push relay) |
+| **Data Privacy & Sync** | Mandatory account; vendor-readable AWS server storage (encrypted at rest, but vendor-readable) + pharma telemetry | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, blind push relay) |
 | **Platform Access** | Native store app download required | **Instant PWA URL access** (Zero-install, works on any browser/OS) |
 | **Offline Capabilities** | Limited; relies on cloud connectivity for sync & ads | **100% offline-first PWA with background sync** |
 
-- **Winning Angle**: Medisafe caps free medications at 2, charges $39.99/year for unlimited meds, stores unencrypted data on AWS servers, and tracks user behavior for pharma networks. Our PWA provides zero-knowledge multi-device sync without vendor trust — browser-managed encryption, WebAuthn authentication, blind push notification relay, and unlimited free medications.
+- **Winning Angle**: Medisafe caps free medications at 2, charges $39.99/year for unlimited meds, stores vendor-readable data on AWS servers, and tracks user behavior for pharma networks. Our PWA provides zero-knowledge multi-device sync without vendor trust — browser-managed encryption, WebAuthn authentication, blind push notification relay, and unlimited free medications.
 - **Where we lose & how to neutralize it**: We lose on server-side SMS caregiver push escalation ("Medfriend"). Neutralize by offering Web Share API / QR code export or optional client-side P2P notification hooks without storing patient records on a central server.

@@ -43,10 +43,10 @@
 
 | Comparison Dimension | Guava Health | Our Zero-Knowledge PWA |
 | :--- | :--- | :--- |
-| **Architecture & Privacy** | Centralized SaaS; server processes unencrypted health records for AI & sync | **Zero-Knowledge Vault** (browser holds keys & plaintext; server stores ciphertext it cannot read + blind push relay) |
+| **Architecture & Privacy** | Centralized SaaS; server processes vendor-readable health records (encrypted at rest, but vendor-readable for AI & sync) | **Zero-Knowledge Vault** (browser holds keys & plaintext; server stores ciphertext it cannot read + blind push relay) |
 | **Multi-Device Sync** | Standard cloud login to vendor server | **Sync Without Trust** (WebAuthn/Passkey key management with encrypted multi-device sync) |
 | **Pricing** | Freemium ($8/mo or $78/yr for Premium AI/lab features) | **100% Free & Open Source** |
 | **Deployment** | Vendor-hosted cloud SaaS only | **Single-Operator Self-Hosted Server** or client PWA |
 
-- **Winning Angle**: Guava processes your unencrypted medical records, lab reports, and symptom histories on central cloud servers for $96/year. Our PWA provides encrypted multi-device sync without vendor trust — browser-managed zero-knowledge encryption, Passkey authentication, blind server notification relay, and zero subscription fee.
+- **Winning Angle**: Guava processes your vendor-readable medical records, lab reports, and symptom histories on central cloud servers for $96/year. Our PWA provides encrypted multi-device sync without vendor trust — browser-managed zero-knowledge encryption, Passkey authentication, blind server notification relay, and zero subscription fee.
 - **Where we lose & how to neutralize it**: We lose on direct cloud OAuth connections to 50,000+ EHR portals (SMART-on-FHIR). Neutralize this by supporting client-side JSON/CSV/HealthKit file imports and running local Web-Worker correlation algorithms directly inside the browser.

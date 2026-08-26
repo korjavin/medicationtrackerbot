@@ -36,3 +36,31 @@
   - GitHub Repository: https://github.com/iSoron/uhabits (Accessed August 2026)
   - F-Droid Listing: https://f-droid.org/en/packages/org.isoron.uhabits/ (Accessed August 2026)
   - Google Play Listing: https://play.google.com/store/apps/details?id=org.isoron.uhabits (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **User Count & Downloads**: Google Play Store bracket is **5,000,000+** downloads (`org.isoron.uhabits`) with ~50,000+ reviews (4.7-star rating). GitHub has **~10,200+ stars** and 57 contributors on `iSoron/uhabits`. Top featured habit app on F-Droid (Source: Google Play Store, GitHub, August 2026).
+- **Estimated Active Base**: Estimated **250,000–500,000 Monthly Active Users (MAU)** globally.
+- **Licensing & Financials**: 100% Free Open Source Software (GPL-3.0 license). $0 commercial revenue.
+- **Code Signals**: Native Android app (Java/Kotlin) operating 100% offline.
+
+### 2. Killer features — why customers actually choose it
+- **Exponential Smoothing Streak Formula ("Habit Strength")**: Calculates habit score (0–100%) using exponential smoothing so missing a single day after months of consistency does not reset progress to zero.
+- **100% Offline Local Zero-Ad FOSS**: Completely free with zero ads, tracking, or account walls (paraphrased theme from `r/QuantifiedSelf` & `r/androidapps`).
+- **Flexible Scheduling & Notification Shade Actions**: Check off or snooze habits directly from Android system notifications.
+
+### 3. Marketing & acquisition — how self-hosters discover it
+- **Channels**: Top F-Droid catalogue recommendations, organic advocacy on `r/QuantifiedSelf`, `r/selfhosted`, `r/F_Droid`, `r/androidapps`, and inclusion in open-source app roundups.
+- **What we can learn**: **Open-Source Directory Listings.** Position as a privacy-respecting, zero-telemetry utility in FOSS catalogues and privacy directories to drive viral word-of-mouth adoption.
+
+### 4. Beating them in comparison
+
+| Feature / Dimension | Loop Habit Tracker | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **Platform Scope** | Android-only local app (No iOS, Web, PWA, or Desktop access) | **Cross-Platform PWA** (Runs on iOS, Android, Windows, Mac, Linux, Web) |
+| **Multi-Device Sync** | Local single-device storage only (no cloud sync mechanism) | **Sync Without Trust** (WebAuthn/Passkey auth + browser E2EE + blind push relay) |
+| **Medication Safety Workflow** | Generic binary habit checklist (no pill doses, refill alerts, interaction warnings) | **Dedicated Medication Safety, Dosing, & Clinical Vitals Workbench** |
+
+- **Winning Angle**: Loop is an Android-only habit app with no multi-device sync, no web interface, and zero medication features. Our Zero-Knowledge PWA provides multi-device sync without vendor trust — WebAuthn passkey security, dedicated medication safety tracking, and universal web browser access across all platforms.
+- **Where we lose & how to neutralize it**: We lose on Loop's Android notification shade quick-check buttons. Neutralize with service worker push notifications and mobile-optimized single-tap logging buttons.

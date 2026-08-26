@@ -59,7 +59,7 @@
 | Feature / Dimension | Round Health | Our Zero-Knowledge PWA |
 | :--- | :--- | :--- |
 | **Availability & Status** | Sunset & Delisted (iOS only, abandonware) | **Active, Cross-Platform Zero-Knowledge PWA** |
-| **Multi-Device Sync** | Server backup to pharmacy cloud (unencrypted) | **Sync Without Trust** (WebAuthn/Passkey auth + browser E2EE + blind push relay) |
+| **Multi-Device Sync** | Server backup to pharmacy cloud (encrypted at rest, but vendor-readable) | **Sync Without Trust** (WebAuthn/Passkey auth + browser E2EE + blind push relay) |
 | **Data Ownership** | Zero export/import features | **Clean 1-Click CSV/JSON Exports** |
 
 - **Winning Angle**: Round Health is dead abandonware that locked users into a pharmacy startup cloud without data exports. Our Zero-Knowledge PWA is actively maintained across all platforms (iOS, Android, Web, Desktop), providing flexible dose windows, WebAuthn passkey authentication, zero-knowledge multi-device sync, and clean CSV exports.

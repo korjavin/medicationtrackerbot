@@ -43,7 +43,7 @@
 
 | Feature / Dimension | Bearable | Our Zero-Knowledge PWA |
 | :--- | :--- | :--- |
-| **Privacy & Storage** | Centralized Google Cloud Firestore (unencrypted server DB) | **Zero-Knowledge Vault** (Browser holds keys & plaintext; server holds ciphertext + blind push relay) |
+| **Privacy & Storage** | Centralized Google Cloud Firestore (encrypted at rest, but vendor-readable — not zero-knowledge) | **Zero-Knowledge Vault** (Browser holds keys & plaintext; server holds ciphertext + blind push relay) |
 | **Multi-Device Sync** | Standard cloud login | **Sync Without Trust** (WebAuthn/Passkey authentication with E2EE sync) |
 | **Pricing & Analytics** | $6.99/mo or $35.99/yr for long-term correlation insights | **100% Free Unlocked Analytics & Correlation Tools** |
 

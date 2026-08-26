@@ -43,7 +43,7 @@
 
 | Feature / Dimension | Exist.io | Our Zero-Knowledge PWA |
 | :--- | :--- | :--- |
-| **Privacy & Data Sovereignty** | Centralized server aggregates unencrypted OAuth data from 15+ services | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, server stores ciphertext) |
+| **Privacy & Data Sovereignty** | Centralized server aggregates vendor-readable OAuth data (encrypted at rest, but vendor-readable) | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, server stores ciphertext) |
 | **Pricing Model** | $6.99/month ($62.90/year) with no permanent free tier | **100% Free Core PWA** |
 | **Medication & Clinical Focus** | No dedicated medication scheduling or clinical vital workflows | **Dedicated Medication Safety, Dosing, & Clinical Vitals Workbench** |
 

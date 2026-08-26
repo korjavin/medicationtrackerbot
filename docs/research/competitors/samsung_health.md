@@ -53,7 +53,7 @@
 | Feature / Dimension | Samsung Health | Our Zero-Knowledge PWA |
 | :--- | :--- | :--- |
 | **Hardware / OS Ecosystem** | Soft-locked to Samsung Galaxy hardware & Android (restricted on non-Samsung/iOS) | **100% Cross-Platform PWA** (Runs on iOS, Android, Windows, Mac, Linux, Web) |
-| **Privacy & Telemetry** | Mandatory Samsung Cloud processing; unencrypted server-side DBs | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, blind push relay) |
+| **Privacy & Telemetry** | Mandatory Samsung Cloud processing; vendor-readable cloud DBs (encrypted at rest, but vendor-readable) | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, blind push relay) |
 | **Web Client Access** | Web portal retired; mobile-only access | **WebAuthn Authenticated Web Interface** |
 
 - **Winning Angle**: Samsung Health locks advanced features into Samsung Galaxy hardware, requires broad cloud data processing terms on Samsung Cloud, and has no web/desktop interface. Our PWA provides zero-knowledge multi-device sync without vendor trust — WebAuthn passkey security, client-side encryption, blind push alerts, and universal browser access on any platform.

@@ -31,3 +31,31 @@
   - https://www.home-assistant.io/integrations/fitbit/ (Accessed August 2026)
   - https://companion.home-assistant.io/docs/core/sensors/#health-connect-sensors (Accessed August 2026)
   - https://github.com/home-assistant/core (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **User Count & Server Base**: **671,689 opted-in active Home Assistant instances** (analytics.home-assistant.io, August 2026; ~33% opt-in rate yields an estimated **>2,000,000 active Home Assistant instances** total). GitHub has **~78,000+ stars** and >4,000 contributors on `home-assistant/core` (Source: Home Assistant Analytics, GitHub, August 2026).
+- **Estimated Active Base**: Estimated **200,000–300,000 active health-tracking smart home setups** (10–15% of HA instances integrating scales, Dexcom, or BLE vitals).
+- **Licensing & Financials**: 100% Free Open Source Software (Apache 2.0 license). Backed by Nabu Casa ($6.50/mo optional cloud subscription).
+- **Code Signals**: Python backend + Lovelace JS frontend.
+
+### 2. Killer features — why customers actually choose it
+- **Local BLE Health Sensor Integration**: Directly pairs with Bluetooth scales, blood pressure cuffs, and ESPHome proxies without cloud vendor accounts.
+- **Unified Smart Home & Health Dashboard**: Places weight, sleep, blood pressure, and glucose charts alongside room controls and light scenes.
+- **Cross-Device Automation Triggers**: Triggers physical home events based on health telemetry (e.g. low Dexcom glucose reading flashes smart lights or speaks audio alert) (paraphrased theme from `r/homeassistant`).
+
+### 3. Marketing & acquisition — how self-hosters discover it
+- **Channels**: Home Assistant Integration Directory (`home-assistant.io/integrations`), HACS, YouTube home automation creators, and `r/homeassistant` (400k+ members).
+- **What we can learn**: **Slick Interactive Health Dashboards & Push Alerts.** Match Home Assistant's dashboard convenience and real-time push alerts without forcing users to manage home automation servers or YAML code.
+
+### 4. Beating them in comparison
+
+| Feature / Dimension | Home Assistant Health | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **Server & Setup Friction** | Requires dedicated hardware (Raspberry Pi/NUC), YAML coding, & reverse proxies | **Zero-Setup Instant PWA Access** (Runs in any browser; zero server installation) |
+| **Database Encryption** | Plaintext local SQLite/MariaDB database on home server | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, server holds ciphertext) |
+| **Medication Safety Scope** | Generic input_boolean entities or custom YAML scripts (no clinical Rx database) | **Dedicated Medication Safety, Dosing, & Clinical Vitals Workbench** |
+
+- **Winning Angle**: Home Assistant Health requires setting up dedicated server hardware (Raspberry Pi/NUC), writing YAML scripts, and storing plaintext health logs in a home database. Our PWA provides zero-knowledge multi-device sync without vendor trust — instant browser access, WebAuthn passkey authentication, dedicated clinical medication safety, and zero hardware requirements.
+- **Where we lose & how to neutralize it**: We lose on physical smart light/speaker automation triggers. Neutralize with browser Web Push alerts and Web Share API exports.

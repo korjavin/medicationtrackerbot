@@ -40,7 +40,7 @@
 ## Phase 2
 
 ### 1. Customer base
-- **Community & Install Signals**: **~2,500+ GitHub stars** and **>220 contributors** on `oliexdev/openScale`. Primary distribution via **F-Droid** (estimated **50,000–100,000 active F-Droid installations**) and Play Store (`openScale sync` ~2,500+ downloads) (Source: GitHub, F-Droid, AppBrain, August 2026).
+- **Community & Install Signals**: **~2,500+ GitHub stars** and **>220 contributors** on `oliexdev/openScale`. Primary distribution via **F-Droid** (estimated **50,000–100,000 active F-Droid installations**, inferred from GitHub star ratios and F-Droid category popularity ranking; F-Droid does not publish official download metrics) and Play Store (`openScale sync` ~2,500+ downloads) (Source: GitHub, F-Droid, AppBrain, August 2026).
 - **Estimated Active Base**: Estimated **50,000–100,000 active privacy-focused users** globally.
 - **Licensing & Financials**: 100% Free Open Source Software (GPL-3.0 license). $0 commercial revenue.
 - **Code Signals**: Native Android app (Kotlin / Jetpack Compose) without `INTERNET` permission.

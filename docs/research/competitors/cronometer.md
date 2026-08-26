@@ -43,9 +43,9 @@
 
 | Feature / Dimension | Cronometer | Our Zero-Knowledge PWA |
 | :--- | :--- | :--- |
-| **Privacy & Storage** | Centralized AWS/Google Cloud storage; unencrypted server food logs | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, blind push relay) |
+| **Privacy & Storage** | Centralized AWS/Google Cloud storage (encrypted at rest, but vendor-readable — not zero-knowledge) | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, blind push relay) |
 | **User Focus & Friction** | Heavy macro/calorie logging interface; overwhelming for med tracking | **Lightweight Adherence & Symptom Safety Workbench** |
 | **Pricing & Ads** | Display ads on free tier; $9.99/mo ($49.99/yr) Gold for timestamped exports | **100% Free, Ad-Free Zero-Knowledge Sync** |
 
-- **Winning Angle**: Cronometer stores unencrypted food logs on central cloud servers, displays ads on the free tier, and locks timestamped exports behind Cronometer Gold ($49.99/yr). Our PWA provides zero-knowledge multi-device sync without vendor trust — WebAuthn passkey security, blind push notification relay, ad-free UI, and dedicated medication/symptom safety tracking.
+- **Winning Angle**: Cronometer stores vendor-readable food logs on central cloud servers, displays ads on the free tier, and locks timestamped exports behind Cronometer Gold ($49.99/yr). Our PWA provides zero-knowledge multi-device sync without vendor trust — WebAuthn passkey security, blind push notification relay, ad-free UI, and dedicated medication/symptom safety tracking.
 - **Where we lose & how to neutralize it**: We lose on Cronometer's 800,000+ food database and 80+ micronutrient NCCDB calculations. Neutralize by positioning our PWA as a specialized medication, supplement, and symptom safety tool that complements food trackers without exposing medical history.
