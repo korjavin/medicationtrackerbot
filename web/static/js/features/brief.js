@@ -56,11 +56,13 @@
         return (typeof v === 'number' && Number.isFinite(v)) ? String(v) : '—';
     }
 
+    // Round the TOTAL before splitting: rounding the remainder alone renders
+    // 119.6 as "1h 60m", because the hour was floored off the unrounded value.
     function fmtDuration(minutes) {
         if (typeof minutes !== 'number' || !Number.isFinite(minutes)) return '—';
-        const h = Math.floor(minutes / 60);
-        const m = Math.round(minutes % 60);
-        return h > 0 ? `${h}h ${m}m` : `${m}m`;
+        const total = Math.round(minutes);
+        const h = Math.floor(total / 60);
+        return h > 0 ? `${h}h ${total % 60}m` : `${total}m`;
     }
 
     function block(title, body) {

@@ -126,6 +126,18 @@ describe('Doctor brief — printable document', () => {
         expect(html).toContain('missed 4, delayed 7, average delay 1h 10m');
     });
 
+    // fmtDuration floored the hour off the raw value and rounded only the
+    // remainder, so a fractional 119.6 printed as "1h 60m". Averages are the
+    // first fractional minute count any caller passes it.
+    it('carries a rounded-up remainder into the hour', () => {
+        const html = build(briefPayload({
+            adherence_detail: { missed: 0, delayed: 3, avg_delay_minutes: 119.6 },
+        }), {});
+
+        expect(html).toContain('average delay 2h 0m');
+        expect(html).not.toContain('60m');
+    });
+
     it('omits the average-delay clause when nothing was late', () => {
         const html = build(briefPayload({
             adherence_detail: { missed: 2, delayed: 0, avg_delay_minutes: null },
