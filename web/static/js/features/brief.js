@@ -16,6 +16,11 @@
 
     const DEFAULT_DAYS = 90;
 
+    // How much of a note the picker shows. Long enough to recognise the entry,
+    // short enough that 50 of them (web/domain/brief.js NOTES_LIMIT) still
+    // scan as a list.
+    const NOTE_PREVIEW_CHARS = 90;
+
     // Mirrors web/domain/brief.js SECTION_ORDER / DEFAULT_SECTIONS. The
     // checkbox defaults live in index.html; this list only fixes doc order.
     const SECTION_ORDER = ['meds', 'bp', 'weight', 'vitals', 'notes', 'food', 'workouts'];
@@ -322,12 +327,101 @@ ${body}
         return out;
     }
 
-    async function generate(days, sections) {
+    async function fetchBrief(days, sections) {
         const qs = `days=${encodeURIComponent(days)}&sections=${encodeURIComponent(sections.join(','))}`;
         const data = await window.apiCall(`/api/brief?${qs}`);
         if (!data || !data.range) throw new Error('brief unavailable');
+        return data;
+    }
+
+    function renderDoc(data) {
         const unit = preferredUnit();
         return buildBriefDocument(data, { unit, charts: renderCharts(data, unit) });
+    }
+
+    async function generate(days, sections) {
+        return renderDoc(await fetchBrief(days, sections));
+    }
+
+    // The brief that is waiting on the note picker. Held here rather than
+    // refetched on confirm: the preview the user ticks and the document that
+    // gets built MUST be the same read, or a note written between the two
+    // clicks prints without ever having been offered (bd med-29gh.5).
+    let _briefPendingNotes = null;
+
+    function noteBoxes(doc) {
+        return Array.from(doc.querySelectorAll('#brief-notes-list input[type="checkbox"]'));
+    }
+
+    function truncateNote(text) {
+        const s = String(text || '').replace(/\s+/g, ' ').trim();
+        return s.length > NOTE_PREVIEW_CHARS ? `${s.slice(0, NOTE_PREVIEW_CHARS)}…` : s;
+    }
+
+    // Rebuilds the list, carrying over the ticks of any note the user has
+    // already seen — pressing Back, changing the range and coming here again
+    // must not silently re-include a note that was deliberately dropped.
+    // Notes never shown before default to CHECKED: the step is the privacy
+    // affordance, and defaulting to none would hand a hurried user an empty
+    // Notes section instead of the one the app has always printed.
+    function showNotesStep(doc, notes) {
+        const list = doc.getElementById('brief-notes-list');
+        const step = doc.getElementById('brief-notes-step');
+        const options = doc.getElementById('brief-options');
+        if (!list || !step || !options) return false;
+
+        const previous = new Map(noteBoxes(doc).map((b) => [b.dataset.noteId, b.checked]));
+        list.textContent = '';
+        notes.forEach((n) => {
+            const id = String(n.id);
+            const label = doc.createElement('label');
+            label.className = 'wg-brief-modal__note';
+            const box = doc.createElement('input');
+            box.type = 'checkbox';
+            box.dataset.noteId = id;
+            box.checked = previous.has(id) ? previous.get(id) : true;
+            const date = doc.createElement('span');
+            date.className = 'wg-brief-modal__note-date';
+            date.textContent = n.date;
+            const text = doc.createElement('span');
+            text.className = 'wg-brief-modal__note-text';
+            text.textContent = truncateNote(n.text);
+            label.appendChild(box);
+            label.appendChild(date);
+            label.appendChild(text);
+            list.appendChild(label);
+        });
+        syncAllToggle(doc);
+        options.classList.add('hidden');
+        step.classList.remove('hidden');
+        const back = doc.getElementById('brief-back-btn');
+        if (back) back.classList.remove('hidden');
+        return true;
+    }
+
+    function hideNotesStep(doc) {
+        _briefPendingNotes = null;
+        const step = doc.getElementById('brief-notes-step');
+        const options = doc.getElementById('brief-options');
+        const back = doc.getElementById('brief-back-btn');
+        if (step) step.classList.add('hidden');
+        if (options) options.classList.remove('hidden');
+        if (back) back.classList.add('hidden');
+    }
+
+    function syncAllToggle(doc) {
+        const all = doc.getElementById('brief-notes-all');
+        if (!all) return;
+        const boxes = noteBoxes(doc);
+        all.checked = boxes.length > 0 && boxes.every((b) => b.checked);
+    }
+
+    // Filters IN PLACE, on the payload the user just previewed. Everything is
+    // local, so this is presentation-only — nothing was ever hidden from a
+    // server, and health.brief keeps handing agents the full set.
+    function applyNoteSelection(doc, data) {
+        const keep = new Set(noteBoxes(doc).filter((b) => b.checked).map((b) => b.dataset.noteId));
+        data.notes = (Array.isArray(data.notes) ? data.notes : []).filter((n) => keep.has(String(n.id)));
     }
 
     function readOptions(doc) {
@@ -344,36 +438,59 @@ ${body}
         if (el) el.textContent = text;
     }
 
+    async function output(doc, mode, html) {
+        const mod = await window.DoctorBrief.loadPrintDoc();
+        if (mode === 'download') {
+            const name = `med-tracker-doctor-brief-${fmtDate(new Date().toISOString())}.html`;
+            if (mod.downloadDoc(doc, html, name)) {
+                setStatus(doc, 'Downloaded.');
+                return;
+            }
+            // In-app browsers refuse Blob downloads — print is the fallback
+            // that still gets the paper into the appointment.
+            mod.printDoc(doc, html, 'wg-brief-print-frame', DOC_CSS);
+            setStatus(doc, 'Download blocked — opened the print dialog instead.');
+            return;
+        }
+        mod.printDoc(doc, html, 'wg-brief-print-frame', DOC_CSS);
+        setStatus(doc, 'Print dialog opened.');
+    }
+
     // `mode` is 'print' or 'download'. An empty selection never reaches the
     // API: GET /api/brief treats an empty `sections` as "the default set"
     // (web/domain/brief.js normalizeSections), so sending it would silently
     // print sections the user just unticked.
+    //
+    // Two-pass when the Notes section is on and the range actually holds
+    // notes: the first press fetches and shows the per-note picker, the second
+    // prints the notes still ticked. No notes (or Notes unticked) is the
+    // one-pass flow this has always had.
     async function run(doc, mode) {
-        const { days, sections } = readOptions(doc);
-        if (sections.length === 0) {
+        const opts = _briefPendingNotes ? null : readOptions(doc);
+        if (opts && opts.sections.length === 0) {
             setStatus(doc, 'Pick at least one section.');
             return;
         }
         setStatus(doc, 'Building brief…');
         try {
-            const html = await generate(days, sections);
-            const mod = await window.DoctorBrief.loadPrintDoc();
-            if (mode === 'download') {
-                const name = `med-tracker-doctor-brief-${fmtDate(new Date().toISOString())}.html`;
-                if (mod.downloadDoc(doc, html, name)) {
-                    setStatus(doc, 'Downloaded.');
+            let data = _briefPendingNotes;
+            if (data) {
+                applyNoteSelection(doc, data);
+            } else {
+                data = await fetchBrief(opts.days, opts.sections);
+                if (opts.sections.indexOf('notes') !== -1
+                    && Array.isArray(data.notes) && data.notes.length > 0
+                    && showNotesStep(doc, data.notes)) {
+                    _briefPendingNotes = data;
+                    setStatus(doc, 'Pick the notes to include, then Print or Download.');
                     return;
                 }
-                // In-app browsers refuse Blob downloads — print is the fallback
-                // that still gets the paper into the appointment.
-                mod.printDoc(doc, html, 'wg-brief-print-frame', DOC_CSS);
-                setStatus(doc, 'Download blocked — opened the print dialog instead.');
-                return;
             }
-            mod.printDoc(doc, html, 'wg-brief-print-frame', DOC_CSS);
-            setStatus(doc, 'Print dialog opened.');
+            await output(doc, mode, renderDoc(data));
+            hideNotesStep(doc);
         } catch (e) {
             console.error('[brief] generate failed', e);
+            hideNotesStep(doc);
             setStatus(doc, 'Could not build the brief. Try again when you are back online.');
         }
     }
@@ -389,6 +506,13 @@ ${body}
 
     function open() {
         const doc = document;
+        hideNotesStep(doc);
+        // Ticks survive Back within a session (showNotesStep carries them), but
+        // not a reopen: every visit starts from the shipped all-checked default
+        // rather than silently withholding a note excluded weeks ago. Also
+        // keeps stale note text out of the DOM between sessions.
+        const list = doc.getElementById('brief-notes-list');
+        if (list) list.textContent = '';
         setStatus(doc, 'Everything is generated on this device.');
         if (window.ModalManager && typeof window.ModalManager.open === 'function') {
             window.ModalManager.open('brief-modal');
@@ -396,6 +520,7 @@ ${body}
     }
 
     function close() {
+        hideNotesStep(document);
         if (window.ModalManager && typeof window.ModalManager.close === 'function') {
             window.ModalManager.close('brief-modal');
         }
@@ -416,6 +541,24 @@ ${body}
         }
         const cancel = doc.getElementById('brief-cancel-btn');
         if (cancel) cancel.addEventListener('click', close);
+        // Back drops the held brief on purpose: the user may now pick a
+        // different range, and reusing the old payload would print a window
+        // they did not ask for. showNotesStep carries the ticks forward.
+        const back = doc.getElementById('brief-back-btn');
+        if (back) {
+            back.addEventListener('click', () => {
+                hideNotesStep(doc);
+                setStatus(doc, 'Everything is generated on this device.');
+            });
+        }
+        const notesAll = doc.getElementById('brief-notes-all');
+        if (notesAll) {
+            notesAll.addEventListener('change', () => {
+                noteBoxes(doc).forEach((b) => { b.checked = notesAll.checked; });
+            });
+        }
+        const notesList = doc.getElementById('brief-notes-list');
+        if (notesList) notesList.addEventListener('change', () => syncAllToggle(doc));
         const download = doc.getElementById('brief-download-btn');
         if (download) {
             download.addEventListener('click', () => {

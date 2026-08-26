@@ -10117,6 +10117,53 @@ textarea.wg-input {
     color: var(--wg-fg-3);
 }
 
+/* The range/section step, wrapped so the note picker can swap the whole thing
+   out. Restates the body's column layout — a bare wrapper would collapse the
+   gap between Range and Sections. */
+.wg-brief-modal__step {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wg-health-modal-section-gap);
+}
+
+/* Per-note include picker (med-29gh.5) — the second step of the brief modal.
+   Capped height so 50 notes (web/domain/brief.js NOTES_LIMIT) scroll inside
+   the modal instead of pushing the header actions off screen. */
+.wg-brief-modal__notes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    max-height: 18rem;
+    overflow-y: auto;
+}
+
+.wg-brief-modal__note {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: baseline;
+    gap: var(--space-xs);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+    cursor: pointer;
+}
+
+.wg-brief-modal__note input[type="checkbox"] {
+    margin: 0;
+    width: auto;
+}
+
+.wg-brief-modal__note-date {
+    color: var(--wg-fg-3);
+    font-variant-numeric: tabular-nums;
+}
+
+.wg-brief-modal__note-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* Offscreen rather than display:none — a hidden iframe does not lay out, and
    the print dialog needs a rendered document. Mirrors `.kit-print-frame` in
    web/cloud/css/cloud.css; both are driven by web/cloud/js/print-doc.js. */

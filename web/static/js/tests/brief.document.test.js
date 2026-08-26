@@ -54,7 +54,11 @@ function briefPayload(overrides) {
             ],
         },
         vitals: { avg_sleep_minutes: 431, resting_hr: 58 },
-        notes: [{ date: '2026-04-02', text: 'Dizzy after the dose <bump>' }],
+        notes: [
+            { id: 'n1', date: '2026-04-02', text: 'Dizzy after the dose <bump>' },
+            { id: 'n2', date: '2026-04-11', text: 'Argument with my sister, slept badly' },
+            { id: 'n3', date: '2026-05-04', text: 'Headache all afternoon' },
+        ],
         ...(overrides || {}),
     };
 }
@@ -255,6 +259,18 @@ describe('Doctor brief — modal + print/download', () => {
     // One event-loop hop drains the whole promise chain (see helpers/settle.js).
     const settle = macrotask;
 
+    // Notes is on by default and the fixture has notes in range, so Print and
+    // Download stop at the per-note picker first (med-29gh.5); the second press
+    // is the confirm. Tests that turn Notes off go straight through.
+    async function generateVia(id) {
+        click(id);
+        await settle();
+        if (!doc.getElementById('brief-notes-step').classList.contains('hidden')) {
+            click(id);
+            await settle();
+        }
+    }
+
     it('opens from the Today shortcut with 90 days and the default section set', () => {
         env.window.DoctorBrief.open();
 
@@ -270,7 +286,9 @@ describe('Doctor brief — modal + print/download', () => {
     it('puts Cancel left of the primary action, both in the header row', () => {
         const actions = Array.from(doc.querySelectorAll('#brief-modal .wg-health-modal__header-actions button'))
             .map((b) => b.id);
-        expect(actions).toEqual(['brief-cancel-btn', 'brief-download-btn', 'brief-print-btn']);
+        expect(actions).toEqual(['brief-back-btn', 'brief-cancel-btn', 'brief-download-btn', 'brief-print-btn']);
+        // Back only exists for the per-note step, and that step is not open yet.
+        expect(doc.getElementById('brief-back-btn').classList.contains('hidden')).toBe(true);
     });
 
     it('Cancel closes the modal without generating anything', () => {
@@ -288,8 +306,7 @@ describe('Doctor brief — modal + print/download', () => {
         doc.querySelector('#brief-sections input[data-section="notes"]').checked = false;
 
         env.window.DoctorBrief.loadPrintDoc = async () => ({ downloadDoc: () => true, printDoc: () => {} });
-        click('brief-print-btn');
-        await settle();
+        await generateVia('brief-print-btn');
 
         expect(requested).toEqual(['/api/brief?days=30&sections=meds%2Cbp%2Cweight%2Cvitals%2Cfood']);
     });
@@ -299,8 +316,7 @@ describe('Doctor brief — modal + print/download', () => {
     it('refuses to generate with no section selected instead of sending an empty list', async () => {
         env.window.DoctorBrief.open();
         doc.querySelectorAll('#brief-sections input').forEach((b) => { b.checked = false; });
-        click('brief-print-btn');
-        await settle();
+        await generateVia('brief-print-btn');
 
         expect(requested).toEqual([]);
         expect(doc.getElementById('brief-status').textContent).toMatch(/at least one section/i);
@@ -313,8 +329,7 @@ describe('Doctor brief — modal + print/download', () => {
             printDoc: (d, html, cls, css) => printed.push({ html, cls, css }),
         });
         env.window.DoctorBrief.open();
-        click('brief-print-btn');
-        await settle();
+        await generateVia('brief-print-btn');
 
         expect(printed.length).toBe(1);
         expect(printed[0].cls).toBe('wg-brief-print-frame');
@@ -347,8 +362,7 @@ describe('Doctor brief — modal + print/download', () => {
 
         env.window.DoctorBrief.loadPrintDoc = async () => ({ downloadDoc, printDoc });
         env.window.DoctorBrief.open();
-        click('brief-download-btn');
-        await settle();
+        await generateVia('brief-download-btn');
 
         expect(urls.length).toBe(1);
         expect(clicks.length).toBe(1);
@@ -366,8 +380,7 @@ describe('Doctor brief — modal + print/download', () => {
             printDoc: (d, html, cls) => printed.push(cls),
         });
         env.window.DoctorBrief.open();
-        click('brief-download-btn');
-        await settle();
+        await generateVia('brief-download-btn');
 
         expect(printed).toEqual(['wg-brief-print-frame']);
         expect(doc.getElementById('brief-status').textContent).toMatch(/print dialog/i);
@@ -384,8 +397,7 @@ describe('Doctor brief — modal + print/download', () => {
             printDoc: () => printed.push(1),
         });
         env.window.DoctorBrief.open();
-        click('brief-print-btn');
-        await settle();
+        await generateVia('brief-print-btn');
 
         expect(printed).toEqual([]);
         expect(doc.getElementById('brief-status').textContent).toMatch(/could not build/i);
@@ -398,8 +410,7 @@ describe('Doctor brief — modal + print/download', () => {
             printDoc: (d, html) => printed.push(html),
         });
         env.window.DoctorBrief.open();
-        click('brief-print-btn');
-        await settle();
+        await generateVia('brief-print-btn');
 
         expect(printed.length).toBe(1);
         expect(printed[0]).toContain('<svg');
@@ -408,5 +419,172 @@ describe('Doctor brief — modal + print/download', () => {
         // The doc restates the chart class contract with a fixed print palette,
         // because --wg-* tokens do not exist outside the app.
         expect(printed[0]).toContain('.wg-bp-chart__sys');
+    });
+});
+
+// bd med-29gh.5 — diary notes are the most personal free text in the vault and
+// the brief is the one artifact handed to another human, so the user gets to
+// say which notes travel. Purely presentational: the filter runs on the brief
+// already fetched, and health.brief still hands agents every note.
+describe('Doctor brief — per-note include picker', () => {
+    let env;
+    let doc;
+    let requested;
+    let printed;
+
+    beforeEach(() => {
+        env = loadFrontendEnv();
+        doc = env.document;
+        requested = [];
+        printed = [];
+        env.window.weightUnitPreference = 'kg';
+        env.window.apiCall = async (url) => {
+            requested.push(url);
+            return briefPayload();
+        };
+        env.window.DoctorBrief.loadPrintDoc = async () => ({
+            downloadDoc: () => true,
+            printDoc: (d, html) => printed.push(html),
+        });
+    });
+
+    afterEach(() => {
+        env?.cleanup();
+        env = null;
+    });
+
+    const settle = macrotask;
+
+    function click(id) {
+        doc.getElementById(id).dispatchEvent(new env.window.Event('click', { bubbles: true }));
+    }
+
+    function boxes() {
+        return Array.from(doc.querySelectorAll('#brief-notes-list input[type="checkbox"]'));
+    }
+
+    function stepOpen() {
+        return !doc.getElementById('brief-notes-step').classList.contains('hidden');
+    }
+
+    async function toPicker() {
+        env.window.DoctorBrief.open();
+        click('brief-print-btn');
+        await settle();
+    }
+
+    it('shows every note ticked, hides the range/section step, and prints nothing yet', async () => {
+        await toPicker();
+
+        expect(stepOpen()).toBe(true);
+        expect(doc.getElementById('brief-options').classList.contains('hidden')).toBe(true);
+        expect(doc.getElementById('brief-back-btn').classList.contains('hidden')).toBe(false);
+        expect(boxes().map((b) => b.dataset.noteId)).toEqual(['n1', 'n2', 'n3']);
+        expect(boxes().every((b) => b.checked)).toBe(true);
+        expect(doc.getElementById('brief-notes-all').checked).toBe(true);
+        // The picker is a preview of a read already made — one fetch, no second
+        // trip, so nothing can change under the user between tick and print.
+        expect(requested.length).toBe(1);
+        expect(printed).toEqual([]);
+    });
+
+    it('keeps only the ticked notes in the printed document', async () => {
+        await toPicker();
+        boxes().find((b) => b.dataset.noteId === 'n2').checked = false;
+
+        click('brief-print-btn');
+        await settle();
+
+        expect(requested.length).toBe(1);
+        expect(printed.length).toBe(1);
+        expect(printed[0]).toContain('Dizzy after the dose');
+        expect(printed[0]).toContain('Headache all afternoon');
+        expect(printed[0]).not.toContain('Argument with my sister');
+    });
+
+    it('drops the Notes section entirely when nothing is ticked', async () => {
+        await toPicker();
+        doc.getElementById('brief-notes-all').checked = false;
+        doc.getElementById('brief-notes-all')
+            .dispatchEvent(new env.window.Event('change', { bubbles: true }));
+
+        expect(boxes().every((b) => !b.checked)).toBe(true);
+
+        click('brief-print-btn');
+        await settle();
+
+        expect(printed[0]).not.toContain('<h2>Notes</h2>');
+        // The rest of the brief is untouched.
+        expect(printed[0]).toContain('Lisinopril');
+    });
+
+    it('re-ticks everything from the All toggle, and unticks the toggle when one note goes', async () => {
+        await toPicker();
+        const all = doc.getElementById('brief-notes-all');
+
+        all.checked = false;
+        all.dispatchEvent(new env.window.Event('change', { bubbles: true }));
+        all.checked = true;
+        all.dispatchEvent(new env.window.Event('change', { bubbles: true }));
+        expect(boxes().every((b) => b.checked)).toBe(true);
+
+        const one = boxes()[0];
+        one.checked = false;
+        one.dispatchEvent(new env.window.Event('change', { bubbles: true }));
+        expect(all.checked).toBe(false);
+    });
+
+    it('Back returns to the range/section step and keeps the ticks for the next pass', async () => {
+        await toPicker();
+        boxes().find((b) => b.dataset.noteId === 'n3').checked = false;
+
+        click('brief-back-btn');
+        expect(stepOpen()).toBe(false);
+        expect(doc.getElementById('brief-options').classList.contains('hidden')).toBe(false);
+        expect(doc.getElementById('brief-back-btn').classList.contains('hidden')).toBe(true);
+
+        // Back drops the held payload, so this re-reads the (possibly re-ranged)
+        // brief — but the note the user dropped stays dropped.
+        click('brief-print-btn');
+        await settle();
+
+        expect(requested.length).toBe(2);
+        expect(stepOpen()).toBe(true);
+        expect(boxes().map((b) => b.checked)).toEqual([true, true, false]);
+    });
+
+    it('skips the step when the range holds no notes', async () => {
+        env.window.apiCall = async (url) => {
+            requested.push(url);
+            return briefPayload({ notes: [] });
+        };
+
+        await toPicker();
+
+        expect(stepOpen()).toBe(false);
+        expect(printed.length).toBe(1);
+    });
+
+    it('skips the step when Notes is not among the selected sections', async () => {
+        env.window.DoctorBrief.open();
+        doc.querySelector('#brief-sections input[data-section="notes"]').checked = false;
+
+        click('brief-print-btn');
+        await settle();
+
+        expect(stepOpen()).toBe(false);
+        expect(printed.length).toBe(1);
+        expect(requested[0]).not.toContain('notes');
+    });
+
+    it('reopening the modal starts back at the range/section step', async () => {
+        await toPicker();
+        expect(stepOpen()).toBe(true);
+
+        env.window.DoctorBrief.close();
+        env.window.DoctorBrief.open();
+
+        expect(stepOpen()).toBe(false);
+        expect(doc.getElementById('brief-options').classList.contains('hidden')).toBe(false);
     });
 });

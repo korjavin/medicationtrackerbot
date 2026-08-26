@@ -2118,6 +2118,8 @@
                 <span class="wg-mono-display wg-health-modal__title">Appointment summary</span>
             </div>
             <div class="wg-health-modal__header-actions">
+                <button type="button" id="brief-back-btn"
+                    class="wg-gloss wg-health-modal__header-btn hidden">Back</button>
                 <button type="button" id="brief-cancel-btn"
                     class="wg-gloss wg-health-modal__header-btn">Cancel</button>
                 <button type="button" id="brief-download-btn"
@@ -2128,52 +2130,63 @@
         </div>
 
         <div class="wg-health-modal__body">
-            <div class="wg-health-modal__field">
-                <span class="wg-health-modal__label">Range</span>
-                <div class="wg-gloss--inset wg-settings-segmented" role="radiogroup" aria-label="Brief range"
-                    id="brief-range">
-                    <button type="button" class="wg-gloss wg-settings-segmented__btn"
-                        data-days="30" aria-pressed="false">30 days</button>
-                    <button type="button"
-                        class="wg-gloss wg-gloss--sun wg-settings-segmented__btn wg-settings-segmented__btn--active"
-                        data-days="90" aria-pressed="true">90 days</button>
-                    <button type="button" class="wg-gloss wg-settings-segmented__btn"
-                        data-days="180" aria-pressed="false">180 days</button>
+            <div class="wg-brief-modal__step" id="brief-options">
+                <div class="wg-health-modal__field">
+                    <span class="wg-health-modal__label">Range</span>
+                    <div class="wg-gloss--inset wg-settings-segmented" role="radiogroup" aria-label="Brief range"
+                        id="brief-range">
+                        <button type="button" class="wg-gloss wg-settings-segmented__btn"
+                            data-days="30" aria-pressed="false">30 days</button>
+                        <button type="button"
+                            class="wg-gloss wg-gloss--sun wg-settings-segmented__btn wg-settings-segmented__btn--active"
+                            data-days="90" aria-pressed="true">90 days</button>
+                        <button type="button" class="wg-gloss wg-settings-segmented__btn"
+                            data-days="180" aria-pressed="false">180 days</button>
+                    </div>
+                </div>
+
+                <div class="wg-health-modal__field">
+                    <span class="wg-health-modal__label">Sections</span>
+                    <div class="wg-brief-modal__sections" id="brief-sections">
+                        <label class="wg-brief-modal__toggle">
+                            <input type="checkbox" data-section="meds" checked>
+                            <span>Meds + adherence</span>
+                        </label>
+                        <label class="wg-brief-modal__toggle">
+                            <input type="checkbox" data-section="bp" checked>
+                            <span>Blood pressure</span>
+                        </label>
+                        <label class="wg-brief-modal__toggle">
+                            <input type="checkbox" data-section="weight" checked>
+                            <span>Weight</span>
+                        </label>
+                        <label class="wg-brief-modal__toggle">
+                            <input type="checkbox" data-section="vitals" checked>
+                            <span>Vitals</span>
+                        </label>
+                        <label class="wg-brief-modal__toggle">
+                            <input type="checkbox" data-section="notes" checked>
+                            <span>Notes</span>
+                        </label>
+                        <label class="wg-brief-modal__toggle">
+                            <input type="checkbox" data-section="food">
+                            <span>Nutrition</span>
+                        </label>
+                        <label class="wg-brief-modal__toggle">
+                            <input type="checkbox" data-section="workouts">
+                            <span>Workouts</span>
+                        </label>
+                    </div>
                 </div>
             </div>
 
-            <div class="wg-health-modal__field">
-                <span class="wg-health-modal__label">Sections</span>
-                <div class="wg-brief-modal__sections" id="brief-sections">
-                    <label class="wg-brief-modal__toggle">
-                        <input type="checkbox" data-section="meds" checked>
-                        <span>Meds + adherence</span>
-                    </label>
-                    <label class="wg-brief-modal__toggle">
-                        <input type="checkbox" data-section="bp" checked>
-                        <span>Blood pressure</span>
-                    </label>
-                    <label class="wg-brief-modal__toggle">
-                        <input type="checkbox" data-section="weight" checked>
-                        <span>Weight</span>
-                    </label>
-                    <label class="wg-brief-modal__toggle">
-                        <input type="checkbox" data-section="vitals" checked>
-                        <span>Vitals</span>
-                    </label>
-                    <label class="wg-brief-modal__toggle">
-                        <input type="checkbox" data-section="notes" checked>
-                        <span>Notes</span>
-                    </label>
-                    <label class="wg-brief-modal__toggle">
-                        <input type="checkbox" data-section="food">
-                        <span>Nutrition</span>
-                    </label>
-                    <label class="wg-brief-modal__toggle">
-                        <input type="checkbox" data-section="workouts">
-                        <span>Workouts</span>
-                    </label>
-                </div>
+            <div class="wg-health-modal__field hidden" id="brief-notes-step">
+                <span class="wg-health-modal__label">Notes to include</span>
+                <label class="wg-brief-modal__toggle">
+                    <input type="checkbox" id="brief-notes-all" checked>
+                    <span>All notes</span>
+                </label>
+                <div class="wg-brief-modal__notes" id="brief-notes-list"></div>
             </div>
 
             <p class="wg-brief-modal__status" id="brief-status">Everything is generated on this device.</p>

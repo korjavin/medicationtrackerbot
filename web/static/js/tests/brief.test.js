@@ -524,12 +524,14 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
         expect(vitals).toEqual({ avg_sleep_minutes: 450, resting_hr: 60 });
     });
 
-    it('lists diary notes as date + text', async () => {
+    // `id` is what the app's per-note include picker (med-29gh.5) ticks against,
+    // so it is part of the wire shape, not an incidental field.
+    it('lists diary notes as id + date + text', async () => {
         const call = routerWith(fullVault());
 
         const { notes } = await call('/api/brief?days=30&sections=notes', 'GET');
 
-        expect(notes).toEqual([{ date: '2026-08-19', text: 'dizzy after the morning dose' }]);
+        expect(notes).toEqual([{ id: '1000', date: '2026-08-19', text: 'dizzy after the morning dose' }]);
     });
 
     it('averages food over the days actually logged, with the stored targets', async () => {
