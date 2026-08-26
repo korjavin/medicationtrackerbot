@@ -23,6 +23,7 @@
 // a sub-day boundary for a second source of truth.
 
 import { parseSchedule } from './medschedule.js';
+import { foldAdherence, adherenceKey, adherencePct } from './medintake.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -91,22 +92,6 @@ function stat(values) {
   };
 }
 
-// The adherence fold, character-for-character the one analysis.js runs over
-// the same intake.listWindow rows (analysis.js medications section): a future
-// PENDING dose isn't due yet, every other row counts, TAKEN is the numerator.
-// Returns null (not 0) on an empty window so "no doses scheduled" is
-// distinguishable from "took nothing".
-function adherencePct(rows, nowMs) {
-  let total = 0;
-  let taken = 0;
-  for (const i of rows) {
-    if (i.status === 'PENDING' && Date.parse(i.scheduled_at) > nowMs) continue;
-    total += 1;
-    if (i.status === 'TAKEN') taken += 1;
-  }
-  return total > 0 ? (taken / total) * 100 : null;
-}
-
 // One human line per medication schedule, from the same parseSchedule the
 // dose planner uses. Unparseable schedules pass through verbatim.
 export function scheduleSummary(schedule) {
@@ -129,29 +114,42 @@ export function createBriefDomain({
   bp, weight, vitals, notes, medications, intake, food, workout, settings, now,
 }) {
   async function medsSection(fromMs, toMs, nowMs) {
-    const [list, log] = await Promise.all([
-      medications.list({ archived: false }),
+    // archived:true lists ALL meds (medications.js list: `archived || !m.archived`).
+    // The brief still SHOWS only the active ones, but the fold needs the archived
+    // ones' schedules — listWindow keeps emitting their rows, and an unclassified
+    // row counts toward adherence.
+    const [all, log] = await Promise.all([
+      medications.list({ archived: true }),
       intake.listWindow({ fromMs, toMs }),
     ]);
-    // listWindow denormalizes to medication_name + dosage rather than an id,
-    // and the medications domain already forbids a duplicate name+dosage pair
-    // (assertNoDuplicate), so that pair is a safe grouping key.
-    const byKey = new Map();
-    for (const row of log) {
-      const key = JSON.stringify([row.medication_name, row.dosage]);
-      const arr = byKey.get(key);
-      if (arr) arr.push(row);
-      else byKey.set(key, [row]);
-    }
+    const list = all.filter((m) => !m.archived);
+    // The shared fold (medintake.js foldAdherence), the same one analysis.js
+    // runs over the same rows. It classifies each med as scheduled or not: an
+    // as-needed (or unparseably-scheduled) med never gets a materialized dose,
+    // so its rows are all manual TAKEN logs and a percentage over them is a
+    // fabricated 100%. Those meds report `times_taken` instead — and their rows
+    // stay out of the overall number too.
+    const { overall, perMed } = foldAdherence({ log, meds: all, nowMs });
+    const empty = { scheduled: true, total: 0, taken: 0, timesTaken: 0 };
     return {
-      medications: list.map((m) => ({
-        name: m.name,
-        dosage: m.dosage,
-        schedule_summary: scheduleSummary(m.schedule),
-        started_at: m.start_date || m.created_at || null,
-        adherence_pct: round1(adherencePct(byKey.get(JSON.stringify([m.name, m.dosage])) || [], nowMs)),
-      })),
-      overall_adherence_pct: round1(adherencePct(log, nowMs)),
+      medications: list.map((m) => {
+        const counts = perMed.get(adherenceKey(m.name, m.dosage)) || empty;
+        return {
+          name: m.name,
+          dosage: m.dosage,
+          schedule_summary: scheduleSummary(m.schedule),
+          started_at: m.start_date || m.created_at || null,
+          // null on an empty window too: "nothing was scheduled" is not "took
+          // nothing" (analysis.js deliberately reports 0 there instead).
+          adherence_pct: counts.scheduled ? round1(adherencePct(counts, null)) : null,
+          // `as_needed` also covers a schedule that yields no doses at all
+          // (unparseable, or parseable but slotless) — from the doctor's side
+          // they all mean "no schedule to be adherent to".
+          as_needed: !counts.scheduled,
+          times_taken: counts.timesTaken,
+        };
+      }),
+      overall_adherence_pct: round1(adherencePct(overall, null)),
     };
   }
 

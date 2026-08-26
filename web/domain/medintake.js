@@ -16,7 +16,7 @@
 // no dupes, no divergence. Manual (log-past) intakes have no natural slot, so
 // they get a random id (same nowMs+random technique as medications.js's
 // nextId / weight.js's genId).
-import { minDoseIntervalMs, localDateTimeParts } from './medschedule.js';
+import { minDoseIntervalMs, localDateTimeParts, scheduleYieldsDoses } from './medschedule.js';
 import { planDosesWithTzPlan, forecastDosesWithTzPlan } from './tzplan.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
@@ -75,6 +75,98 @@ function toResponse(intake) {
   if (intake.taken_at) resp.taken_at = intake.taken_at;
   if (intake.snoozed_until) resp.snoozed_until = intake.snoozed_until;
   return resp;
+}
+
+// ---------------------------------------------------------------------------
+// Adherence fold (bd med-29gh.1) — the ONE place adherence is computed, called
+// by both analysis.js (health.analyze adherence_rate) and brief.js (the
+// doctor-visit brief's per-med + overall percentages). It used to be a
+// character-for-character duplicate in those two files, and both carried the
+// same bug: an as-needed med has no schedule, so planDoses never materializes
+// a dose for it (medschedule.js planDoses skips `!cfg || cfg.type ===
+// 'as_needed'`) and its only rows are manual logPast entries — every one of
+// them TAKEN. That made a PRN med read as 100% adherent and dragged the
+// overall number toward 100. A doctor must never be handed an invented
+// perfect-compliance figure.
+//
+// Definition: a med planDoses would skip is UNSCHEDULED — it gets no adherence
+// percentage of its own AND its rows are excluded from the overall
+// numerator/denominator. It is still reported (a doctor wants to know the
+// patient takes ibuprofen as needed), as a count of times taken.
+// Delegates to the planner (medschedule.js scheduleYieldsDoses) rather than
+// re-reading the schedule here: the definition of "unscheduled" has to be
+// exactly "planDoses would skip it", and a second reading of the schedule
+// string is how that drifts.
+export function isScheduledMed(med) {
+  return !!med && scheduleYieldsDoses(med.schedule);
+}
+
+// listWindow denormalizes to medication_name + dosage rather than an id, and
+// the medications domain forbids a duplicate name+dosage pair
+// (assertNoDuplicate), so that pair is a safe join key between a row and its
+// med.
+export function adherenceKey(name, dosage) {
+  return JSON.stringify([name || '', dosage || '']);
+}
+
+// foldAdherence({ log, meds, nowMs }) -> { overall, perMed }
+//   log     — intake.listWindow rows ({medication_name, dosage, scheduled_at, status})
+//   meds    — medications.list rows ({name, dosage, schedule})
+//   overall — {total, taken} over SCHEDULED meds' due rows only
+//   perMed  — Map(adherenceKey -> {scheduled, total, taken, timesTaken})
+// A future PENDING dose isn't due yet and counts for nothing; every other row
+// counts, TAKEN is the numerator. `timesTaken` counts TAKEN rows whether or not
+// the med is scheduled — it is what an as-needed med reports instead of a
+// percentage.
+//
+// Pass ARCHIVED meds in too (callers list with archived:true and render only
+// the active ones): listWindow still emits an archived med's rows, and a row
+// whose med is missing from `meds` has an unknowable schedule, so it falls back
+// to counting — which would let an archived PRN med go on faking adherence.
+// When two meds collide on name+dosage (the active pair is unique, an archived
+// one can still shadow it) the fold takes the pessimistic reading and calls the
+// key unscheduled: no number beats a number that might be invented.
+export function foldAdherence({ log = [], meds = [], nowMs = 0 } = {}) {
+  const perMed = new Map();
+  for (const m of meds) {
+    const key = adherenceKey(m.name, m.dosage);
+    const prior = perMed.get(key);
+    perMed.set(key, {
+      scheduled: isScheduledMed(m) && (!prior || prior.scheduled),
+      total: 0,
+      taken: 0,
+      timesTaken: 0,
+    });
+  }
+  const overall = { total: 0, taken: 0 };
+  for (const row of log) {
+    const key = adherenceKey(row.medication_name, row.dosage);
+    let entry = perMed.get(key);
+    if (!entry) {
+      entry = { scheduled: true, total: 0, taken: 0, timesTaken: 0 };
+      perMed.set(key, entry);
+    }
+    const isTaken = row.status === 'TAKEN';
+    if (isTaken) entry.timesTaken += 1;
+    if (row.status === 'PENDING' && Date.parse(row.scheduled_at) > nowMs) continue;
+    if (!entry.scheduled) continue;
+    entry.total += 1;
+    overall.total += 1;
+    if (isTaken) {
+      entry.taken += 1;
+      overall.taken += 1;
+    }
+  }
+  return { overall, perMed };
+}
+
+// Percentage from one fold counter. `empty` is the caller's choice for a
+// window with nothing due: brief.js wants null ("nothing was scheduled" is not
+// "took nothing"), analysis.js has always reported 0 and its shipped MCP
+// consumers depend on that — the two are deliberately not unified.
+export function adherencePct(counts, empty = null) {
+  const { total = 0, taken = 0 } = counts || {};
+  return total > 0 ? (taken / total) * 100 : empty;
 }
 
 // createIntakeDomain builds the intake state-machine API over the injected

@@ -12,6 +12,7 @@
 // handlers' per-section `unavailable = append(...)` pattern.
 
 import { localWallToUtcMs } from './medschedule.js';
+import { foldAdherence, adherencePct } from './medintake.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Default + max lookback window, matching Config.MaxQueryDays (90) — the bot's
@@ -163,26 +164,31 @@ export function createAnalysis({
     // Medications (gated).
     if (gated(features, 'medication')) {
       await runSection(unavailable, 'medications', async () => {
-        const active = (await medications.list({ archived: false }))
+        // archived:true lists ALL meds; `active` still reports only the active
+        // ones, but the fold needs the archived ones' schedules — listWindow
+        // emits their rows and an unclassified row counts toward adherence.
+        const all = (await medications.list({ archived: true }))
+          .map((m) => ({
+            name: m.name, dosage: m.dosage, schedule: m.schedule, archived: m.archived,
+          }));
+        const active = all.filter((m) => !m.archived)
           .map((m) => ({ name: m.name, dosage: m.dosage, schedule: m.schedule }));
         // Uncapped, windowed intake log — mirrors fetchMedicationsSection's
         // ListIntakesSince (see intake.listWindow); history()'s 100-row cap would
         // undercount adherence or drop a past-dated window entirely.
         const log = await intake.listWindow({ fromMs, toMs });
-        const nowMs = now();
-        let total = 0;
-        let taken = 0;
-        for (const i of log) {
-          // Future PENDING isn't yet due; every resolved status + overdue PENDING
-          // counts against adherence.
-          if (i.status === 'PENDING' && Date.parse(i.scheduled_at) > nowMs) continue;
-          total += 1;
-          if (i.status === 'TAKEN') taken += 1;
-        }
+        // The shared fold (medintake.js foldAdherence) — future PENDING isn't
+        // yet due, every resolved status + overdue PENDING counts, and rows
+        // belonging to an UNSCHEDULED med (as-needed, unparseable, or a schedule
+        // that yields no slots) count for nothing at all: they are manual logs
+        // with no missed dose to compare against, so including them reported
+        // fake compliance.
+        // Empty window keeps reporting 0, not null — shipped MCP semantics.
+        const { overall } = foldAdherence({ log, meds: all, nowMs: now() });
         response.medications = {
           active,
           intake_log: log,
-          adherence_rate: total > 0 ? (taken / total) * 100 : 0,
+          adherence_rate: adherencePct(overall, 0),
         };
       });
     } else {

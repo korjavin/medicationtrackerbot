@@ -140,6 +140,81 @@ describe('analysis.cardiovascular', () => {
     });
   });
 
+  // bd med-29gh.1: an as-needed med never gets a materialized dose (planDoses
+  // skips it), so every row it has is a manual TAKEN log. Folding those into
+  // adherence reported fabricated compliance and dragged the overall rate up.
+  it('excludes unscheduled medications from adherence — a PRN log is not a kept dose', async () => {
+    const seed = {
+      medication: [
+        {
+          recordId: 'med-1', deleted: false, archived: false, name: 'Aspirin', dosage: '81mg', schedule: '08:00',
+        },
+        {
+          recordId: 'med-2',
+          deleted: false,
+          archived: false,
+          name: 'Ibuprofen',
+          dosage: '200mg',
+          schedule: JSON.stringify({ type: 'as_needed' }),
+        },
+        {
+          // Unparseable schedule → planDoses skips it too → unscheduled.
+          recordId: 'med-3', deleted: false, archived: false, name: 'Mystery', dosage: '1 tab', schedule: 'when needed',
+        },
+        {
+          // Archived PRN: gone from `active`, but listWindow still emits its
+          // rows, so the fold has to classify it from the archived list.
+          recordId: 'med-4',
+          deleted: false,
+          archived: true,
+          name: 'Naproxen',
+          dosage: '250mg',
+          schedule: JSON.stringify({ type: 'as_needed' }),
+        },
+      ],
+      intake: [
+        {
+          recordId: 'i-1', deleted: false, medication_id: 'med-1', status: 'TAKEN',
+          scheduled_at: '2026-07-11T08:00:00Z', taken_at: '2026-07-11T08:05:00Z',
+        },
+        {
+          recordId: 'i-2', deleted: false, medication_id: 'med-1', status: 'SKIPPED',
+          scheduled_at: '2026-07-12T08:00:00Z',
+        },
+        // Three manual PRN logs + one for the unparseable med, all TAKEN, all
+        // scheduled_at == taken_at the way medintake.logPast writes them.
+        ...['2026-07-11T13:00:00Z', '2026-07-12T14:00:00Z', '2026-07-13T15:00:00Z'].map((t, n) => ({
+          recordId: `intake-manual-${n}`, deleted: false, medication_id: 'med-2', status: 'TAKEN',
+          scheduled_at: t, taken_at: t,
+        })),
+        {
+          recordId: 'intake-manual-9', deleted: false, medication_id: 'med-3', status: 'TAKEN',
+          scheduled_at: '2026-07-14T10:00:00Z', taken_at: '2026-07-14T10:00:00Z',
+        },
+        {
+          recordId: 'intake-manual-10', deleted: false, medication_id: 'med-4', status: 'TAKEN',
+          scheduled_at: '2026-07-15T10:00:00Z', taken_at: '2026-07-15T10:00:00Z',
+        },
+      ],
+    };
+
+    const resp = await build(seed).cardiovascular({ from: '2026-07-10', to: '2026-07-25' });
+
+    // Aspirin alone: 1 TAKEN of 2 resolved. The five unscheduled rows would
+    // have pushed this to 6/7 = 85.7%.
+    expect(resp.medications.adherence_rate).toBe(50);
+    // They are still reported — a doctor wants to see the PRN usage.
+    expect(resp.medications.intake_log).toHaveLength(7);
+    // …and `active` still lists only the non-archived meds.
+    expect(resp.medications.active.map((m) => m.name)).toEqual(['Aspirin', 'Ibuprofen', 'Mystery']);
+
+    // Nothing scheduled at all still reports 0, not null: shipped MCP
+    // semantics that brief.js deliberately does NOT share.
+    const prnOnly = { medication: seed.medication.slice(1), intake: seed.intake.slice(2) };
+    const only = await build(prnOnly).cardiovascular({ from: '2026-07-10', to: '2026-07-25' });
+    expect(only.medications.adherence_rate).toBe(0);
+  });
+
   it('degrades a section whose read throws into an unavailable warning', async () => {
     // A failing domain read must not abort the whole analysis — it drops that
     // one section and adds `<label> (query failed)`, mirroring the Go handlers.
