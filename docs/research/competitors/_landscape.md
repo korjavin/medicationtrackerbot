@@ -67,7 +67,7 @@ Server-Side Plaintext ───────────┼───────�
 
 | Project / Event | Category | Primary Failure Mode | Lesson for Our Product |
 | :--- | :--- | :--- | :--- |
-| **Round Health** | Med Tracker | Acquired by Alto Pharmacy (2020) & abandoned/delisted | Closed-source SaaS apps vanish when acquired. Open architecture and structured data export/import ensure long-term utility regardless of project state. |
+| **Round Health** | Med Tracker | Acquired by Alto Pharmacy in August 2017 & abandoned/delisted | Closed-source SaaS apps vanish when acquired. Open architecture and structured data export/import ensure long-term utility regardless of project state. |
 | **Google Fit Web & APIs** | Ecosystem | Deprecated web portal and REST APIs in favor of Android-only Health Connect | Relying on vendor cloud APIs exposes products to sudden platform deprecations. Local-first standards shield users from vendor pivots. |
 | **Legacy Med Trackers (Dosecast, etc.)** | Med Tracker | High lock-in with zero export options | Complete lack of CSV/JSON data export creates user trapped state. Data ownership must be first-class. |
 | **Commercial Period Trackers (e.g. Flo, Clue)** | Health Tracker | Data monetization & FTC regulatory scrutiny over sharing health data with advertisers | Monetizing health data creates severe trust liabilities. Zero-knowledge cryptographic guarantees eliminate vendor liability. |

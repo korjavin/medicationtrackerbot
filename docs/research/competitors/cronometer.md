@@ -26,7 +26,7 @@
 
 ### 1. Customer base
 - **User Count & Downloads**: Google Play Store bracket is **5,000,000+** downloads (`com.cronometer.android.gold`) with ~57,200 reviews (4.6-star rating). Apple App Store has >89,000 ratings (4.8-star rating) (Source: Google Play & App Store listings, August 2026).
-- **Estimated Active Base**: Over 3.5 million registered users total. Estimated **500,000–1,000,000 Monthly Active Users (MAU)**.
+- **Estimated Active Base**: Over 3.5 million registered users total `(unverified claim from Cronometer company blog/press releases)`. Estimated **500,000–1,000,000 Monthly Active Users (MAU)**.
 - **Company & Financials**: Bootstrapped by Cronometer Software Inc. (Revelstoke/Canmore, BC, Canada, founded 2005 by Aaron Davidson). Reported ARR is **~$3.8 Million** with no VC funding raised (Source: Latka, Revelstoke Mountaineer, August 2026).
 - **Code Signals**: Closed-source commercial SaaS with B2B Cronometer Pro clinical platform.
 

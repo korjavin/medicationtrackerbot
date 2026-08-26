@@ -1,6 +1,6 @@
 # Round Health
 
-- **What it is**: Round Health was a minimalist medication reminder app designed by Blythe Medical and later acquired by digital pharmacy startup Alto Pharmacy. It was known for its clean aesthetic and "reminder windows" feature, which allowed users to set flexible time frames for taking medication rather than precise, rigid alarms.
+- **What it is**: Round Health was a minimalist medication reminder app designed by Blythe Medical / Circadian Design and later acquired by digital pharmacy startup Alto Pharmacy. It was known for its clean aesthetic and "reminder windows" feature, which allowed users to set flexible time frames for taking medication rather than precise, rigid alarms.
 - **Platform**: iOS (iPhone) and Apple Watch native application. No Android, web, PWA, or desktop apps were created.
 - **Hosting model**: SaaS (cloud sync via account), though primarily local-first in operation. Closed-source proprietary software.
 - **Feature coverage**:
@@ -31,17 +31,18 @@
   - **AI features**: None.
 - **Pricing / sustainability**:
   - **Pricing**: 100% Free with no in-app purchases.
-  - **Sustainability**: Delisted / abandoned following its acquisition by Alto Pharmacy in 2020. No longer active for new users.
+  - **Sustainability**: Delisted / abandoned following its acquisition by Alto Pharmacy in August 2017. No longer active for new users.
 - **Sources**:
+  - Alto Pharmacy Acquisition Release: https://medcitynews.com/2017/08/alto-buys-round-health/ (Accessed August 2026)
   - Alto Pharmacy Official Site: https://alto.com/ (Accessed August 2026)
   - Cadence Health Review / Round Health: https://cadencehealth.app/ (Accessed August 2026)
 
 ## Phase 2
 
 ### 1. Customer base
-- **User Count & Downloads**: Delisted from App Store (approx. 2021–2023) post-acquisition by Alto Pharmacy (2017). Prior to delisting, maintained ~13,000+ iOS user reviews with a 4.5-star rating (Source: PitchBook, MedCity News, August 2026).
+- **User Count & Downloads**: Delisted from App Store (approx. 2021–2023) post-acquisition by Alto Pharmacy in August 2017. Prior to delisting, maintained ~13,000+ iOS user reviews with a 4.5-star rating (Source: MedCity News August 2017, PitchBook, August 2026).
 - **Estimated Active Base**: Estimated **250,000–600,000 lifetime iOS installs** prior to sunset (estimate derived from 13k+ App Store reviews). Currently abandoned/delisted.
-- **Funding & Acquisition**: Developed by Circadian Design (Stanford Product Design alumni). Acquired in August 2017 by Alto Pharmacy (which raised $500M+ VC funding before acquisition by Paulus Holdings in 2025).
+- **Funding & Acquisition**: Developed by Circadian Design (Stanford Product Design alumni). Acquired in August 2017 by Alto Pharmacy (which raised $500M+ VC funding before merging with LetsGetChecked in 2025 to form Fuze Health) (Source: MedCity News 2017, LetsGetChecked Press Release 2025).
 - **Code Signals**: Closed-source proprietary software; sunset iOS app.
 
 ### 2. Killer features — why customers actually choose it
@@ -50,7 +51,7 @@
 - **Frictionless Onboarding**: Allowed immediate dose logging upon install without mandatory account registration.
 
 ### 3. Marketing & acquisition — how they win customers
-- **Channels**: Design publication showcases (Medium UX breakdowns, Fast Company awards) and organic word-of-mouth on Reddit as the "pretty, non-stressful pill app" before being acquired as a top-of-funnel customer retention tool by Alto Pharmacy.
+- **Channels**: Design publication showcases (Medium UX breakdowns, Fast Company awards) and organic word-of-mouth on Reddit as the "pretty, non-stressful pill app" before being acquired as a top-of-funnel customer retention tool by Alto Pharmacy in 2017.
 - **What we can learn**: **Adopt Flexible Dosing Windows.** Implement flexible dose windows alongside fixed alarms and market directly to neurodivergent (ADHD) and chronic illness communities alongside visual schedule components.
 
 ### 4. Beating them in comparison

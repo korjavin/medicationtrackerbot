@@ -26,7 +26,7 @@
 
 ### 1. Customer base
 - **User Count & Downloads**: Google Play Store bracket is **500,000+** downloads (`com.bearable.app`) with ~10,300 reviews (4.6-star rating). Apple App Store has ~6,200 ratings (4.8-star rating) (Source: Google Play & Apple App Store listings, August 2026).
-- **Estimated Active Base**: Company claims >900,000 registered users total. Estimated **50,000–90,000 Monthly Active Users (MAU)** (estimate derived from 500k+ Play Store installs and ~9k monthly downloads).
+- **Estimated Active Base**: Company claims >900,000 registered users total `(unverified claim from App Store marketing copy)`. Estimated **50,000–90,000 Monthly Active Users (MAU)** (estimate derived from 500k+ Play Store installs and ~9k monthly downloads).
 - **Funding & Financials**: Bootstrapped / minimally funded by Bearable App Ltd (UK, founded 2019 by James S.); raised small grant/seed (~$200k) with no major VC investment. Estimated app store revenue is ~$30,000/month (~$360k ARR) (Source: Sensor Tower / Adapty estimates, August 2026).
 - **Code Signals**: Closed-source proprietary SaaS.
 
