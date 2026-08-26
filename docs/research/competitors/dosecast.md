@@ -36,3 +36,31 @@
   - Montuno Software Official Site: https://www.montunosoftware.com/ (Accessed August 2026)
   - Dosecast Official Site: https://www.dosecast.com/ (Accessed August 2026)
   - Montuno Software Privacy Policy: https://www.montunosoftware.com/privacy/ (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **User Count & Downloads**: Google Play Store bracket is **500,000+** downloads (`com.montuno.dosecast`) with ~5,000+ user reviews (3.8-star rating). Apple App Store has ~4.1-star rating across hundreds of ratings (Source: Google Play & App Store listings, August 2026).
+- **Estimated Active Base**: Estimated **700,000–1,000,000 cumulative downloads** and ~20,000–50,000 active monthly users/subscribers.
+- **Developer Background & Financials**: Developed independently by Montuno Software, LLC (Jason L. Tibbitts, founded 2010). Self-funded via Pro subscriptions ($2.99/mo or $27.99/yr) and B2B clinical trial partnerships.
+- **Code Signals**: Closed-source commercial software.
+
+### 2. Killer features — why customers actually choose it
+- **Rolling Interval Dosing ("X Hours After Last Dose")**: Automatically recalculates the next dose based on when the previous dose was actually taken (e.g. "take 6 hours after last dose"), essential for PRN (as-needed) pain medications where delayed intake shifts subsequent doses.
+- **Persistent Nagging Alarms**: Repeated notifications until confirmed taken or snoozed. Users managing chronic pain choose Dosecast for its rolling interval recalculation on PRN meds (paraphrased theme from `r/ChronicIllness` & `r/ChronicPain`).
+- **Timezone Adjustment Engine**: Adjusts schedules automatically when traveling across timezones.
+
+### 3. Marketing & acquisition — how they win customers
+- **Channels**: Organic ASO for specialized terms ("interval medication reminder", "PRN pill tracker"), doctor referrals via B2B clinical trial partnerships, and chronic pain forum recommendations.
+- **What we can learn**: **Target PRN & Rolling Interval Search Terms.** Build a rolling interval dosing mode and create SEO content for "PRN Medication Interval Tracker".
+
+### 4. Beating them in comparison
+
+| Feature / Dimension | Dosecast | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **Pricing & Multi-Device Sync** | Paywalled Pro Tier ($2.99/mo or $27.99/yr for cloud sync) | **100% Free Zero-Knowledge Sync** (Passkey auth + E2EE + blind push relay) |
+| **UI & Experience** | Outdated 2010s enterprise interface | **Modern Responsive PWA Workbench** |
+| **Data Export** | Paywalled / minimal export capabilities | **Clean 1-Click CSV/JSON Exports** |
+
+- **Winning Angle**: Dosecast locks cloud sync, multi-device access, and adherence logs behind a $2.99/month subscription and uploads plaintext to Montuno servers. Our PWA offers zero-knowledge multi-device sync without vendor trust — browser-managed encryption, Passkey authentication, rolling interval dosing, and clean 1-click CSV exports completely free.
+- **Where we lose & how to neutralize it**: We lose on native Android persistent nagging alarms bypassing system DND. Neutralize with Service Worker Web Push notification snooze/retry actions and client-side audio reminder prompts.

@@ -35,3 +35,31 @@
 - **Sources**:
   - Alto Pharmacy Official Site: https://alto.com/ (Accessed August 2026)
   - Cadence Health Review / Round Health: https://cadencehealth.app/ (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **User Count & Downloads**: Delisted from App Store (approx. 2021–2023) post-acquisition by Alto Pharmacy (2017). Prior to delisting, maintained ~13,000+ iOS user reviews with a 4.5-star rating (Source: PitchBook, MedCity News, August 2026).
+- **Estimated Active Base**: Estimated **250,000–600,000 lifetime iOS installs** prior to sunset (estimate derived from 13k+ App Store reviews). Currently abandoned/delisted.
+- **Funding & Acquisition**: Developed by Circadian Design (Stanford Product Design alumni). Acquired in August 2017 by Alto Pharmacy (which raised $500M+ VC funding before acquisition by Paulus Holdings in 2025).
+- **Code Signals**: Closed-source proprietary software; sunset iOS app.
+
+### 2. Killer features — why customers actually choose it
+- **Flexible "Reminder Windows" (Anti-Alarm Fatigue)**: Instead of rigid alarms at an exact minute, Round configured windows (e.g. 7 AM–9 AM) with subtle notifications, eliminating alarm anxiety and guilt over delayed doses.
+- **Visual Clock Dial UI**: Minimalist circular clock interface visualizing scheduled doses throughout the day (paraphrased theme from `r/iOSSetups` & `r/adhd`).
+- **Frictionless Onboarding**: Allowed immediate dose logging upon install without mandatory account registration.
+
+### 3. Marketing & acquisition — how they win customers
+- **Channels**: Design publication showcases (Medium UX breakdowns, Fast Company awards) and organic word-of-mouth on Reddit as the "pretty, non-stressful pill app" before being acquired as a top-of-funnel customer retention tool by Alto Pharmacy.
+- **What we can learn**: **Adopt Flexible Dosing Windows.** Implement flexible dose windows alongside fixed alarms and market directly to neurodivergent (ADHD) and chronic illness communities alongside visual schedule components.
+
+### 4. Beating them in comparison
+
+| Feature / Dimension | Round Health | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **Availability & Status** | Sunset & Delisted (iOS only, abandonware) | **Active, Cross-Platform Zero-Knowledge PWA** |
+| **Multi-Device Sync** | Server backup to pharmacy cloud (unencrypted) | **Sync Without Trust** (WebAuthn/Passkey auth + browser E2EE + blind push relay) |
+| **Data Ownership** | Zero export/import features | **Clean 1-Click CSV/JSON Exports** |
+
+- **Winning Angle**: Round Health is dead abandonware that locked users into a pharmacy startup cloud without data exports. Our Zero-Knowledge PWA is actively maintained across all platforms (iOS, Android, Web, Desktop), providing flexible dose windows, WebAuthn passkey authentication, zero-knowledge multi-device sync, and clean CSV exports.
+- **Where we lose & how to neutralize it**: We lose on native iOS Metal/Swift clock animations. Neutralize with responsive SVG schedule wheels and fast offline-first PWA animations.

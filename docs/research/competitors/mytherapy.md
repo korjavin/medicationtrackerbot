@@ -16,7 +16,7 @@
   - **Where data lives**: Stored on smartpatient ISO 27001-certified servers in Germany (EU), fully GDPR and HIPAA compliant.
   - **E2EE or server-side plaintext**: Encrypted in transit (TLS) and at rest (AES-256) on cloud servers; NOT end-to-end encrypted (smartpatient holds encryption keys for cloud syncing).
   - **What vendor can see**: Account data and health entries; smartpatient processes anonymized and aggregated data for medical research and brand digital patient support programs.
-  - **Data-sale/ads history if any**: 100% free of commercial ads; privacy policy guarantees no selling of personal data to third parties.
+  - **Data-sale/ads history if any**: Free of commercial display ads; privacy audits (Mobilsicher.de 2021/2022 privacy review) note inclusion of third-party telemetry and analytics SDKs (e.g. Google Firebase, Facebook SDK).
 - **Data ownership**:
   - **Export formats**: PDF health report generation (designed to be printed or emailed to doctors).
   - **Import**: Syncs measurements from Apple Health and Google Health Connect; no direct CSV/JSON file import interface.
@@ -36,6 +36,7 @@
   - MyTherapy Official Site: https://www.mytherapyapp.com/ (Accessed August 2026)
   - MyTherapy Privacy Policy: https://www.mytherapyapp.com/privacy (Accessed August 2026)
   - smartpatient Corporate Site: https://www.smartpatient.eu/ (Accessed August 2026)
+  - Mobilsicher Privacy Audit: https://mobilsicher.de/ (Accessed August 2026)
 
 ## Phase 2
 
@@ -46,8 +47,8 @@
 - **Code Signals**: Closed-source enterprise platform.
 
 ### 2. Killer features — why customers actually choose it
-- **All-in-One Health Journal (Vitals + Mood + Meds)**: Allows users to log medication doses alongside blood pressure, blood glucose, weight, and mood symptoms in a single daily loop. Users on `r/ChronicIllness` praise: *"I don't just log my pills; I log my morning blood pressure and pain levels. Printing out the monthly trend chart for my doctor visit makes appointments 10x faster."*
-- **Persistent Alarms & Flexible Snoozing**: Features persistent full-screen alerts that re-trigger until explicitly confirmed. Users on `r/adhd` note: *"MyTherapy is one of the few apps where the alarm doesn't easily dismiss itself. It keeps bugging me until I actually get up and take the pill."*
+- **All-in-One Health Journal (Vitals + Mood + Meds)**: Allows users to log medication doses alongside blood pressure, blood glucose, weight, and mood symptoms in a single daily loop. Users choose MyTherapy because printing the monthly trend chart makes doctor appointments significantly faster (paraphrased theme from `r/ChronicIllness`).
+- **Persistent Alarms & Flexible Snoozing**: Features persistent full-screen alerts that re-trigger until explicitly confirmed. Users with ADHD pick MyTherapy because alarms keep bugging them until they actually get up and take the pill (paraphrased theme from `r/adhd`).
 - **100% Free Core App without Medication Caps**: Maintained completely free without capping the number of allowed medications or forcing subscriptions.
 
 ### 3. Marketing & acquisition — how they win customers
@@ -55,5 +56,13 @@
 - **What we can learn**: **Printable Doctor Recommendation Cards.** Adopt MyTherapy's offline channel success by creating a downloadable/printable flyer for independent physicians and pharmacists: *"Recommend a 100% private, zero-signup medication tracker to your privacy-conscious patients."*
 
 ### 4. Beating them in comparison
-- **Winning Angle**: MyTherapy is owned by an online pharmacy giant (Redcare Pharmacy) and transmits background telemetry to third-party tracking endpoints. Our PWA is an independent, zero-knowledge tool that **never sends a single byte of personal health data to any server or pharmacy**.
+
+| Feature / Dimension | MyTherapy | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **Corporate Ownership** | Owned by Redcare Pharmacy (online pharmacy corporate giant) | **100% Independent Open Source Project** |
+| **Privacy & Telemetry** | Server-stored unencrypted data; Mobilsicher privacy review noted 3rd-party tracker SDKs | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, zero tracker SDKs) |
+| **Multi-Device Sync** | Vendor server cloud sync | **Sync Without Trust** (WebAuthn/Passkey authentication + blind push relay) |
+| **Platform Access** | Native store download required (iOS / Android) | **Instant PWA URL access** (Zero-install, works on any browser/OS) |
+
+- **Winning Angle**: MyTherapy is owned by an online pharmacy giant (Redcare Pharmacy) and routes telemetry to third-party tracker SDKs. Our PWA is an independent zero-knowledge vault providing multi-device sync without vendor trust — browser-managed encryption, WebAuthn key security, blind push notification relay, and zero corporate pharmacy tie-ins.
 - **Where we lose & how to neutralize it**: We lose on direct e-commerce prescription reordering and native EU pharmacy integration. Neutralize by framing independence as a core privacy feature: users maintain full control over where they fill prescriptions without being funneled into a corporate pharmacy pipeline.

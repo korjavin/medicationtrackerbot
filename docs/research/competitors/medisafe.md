@@ -46,14 +46,22 @@
 - **Code Signals**: Closed-source proprietary software; B2B enterprise platform "Medisafe Maestro" and "Medisafe Care".
 
 ### 2. Killer features — why customers actually choose it
-- **"Medfriend" Caregiver Escalation**: Sends automated push/SMS alerts to designated family members if a user misses a dose window. Users on `r/ElderCare` and `r/ChronicIllness` highlight: *"Medisafe gives my family peace of mind—if I miss my morning dose because of illness, my son gets an alert within 30 minutes."*
-- **Automated Refill Reminders & Inventory Tracking**: Automatically decrements pill inventory upon logging and alerts users days before running out. Users on `r/adhd` state: *"The refill tracker alerts me 5 days before I run out so I actually have time to call the pharmacy before ADHD brain leaves me unmedicated."*
+- **"Medfriend" Caregiver Escalation**: Sends automated push/SMS alerts to designated family members if a user misses a dose window. Users pick Medisafe because if they miss a morning dose due to illness, designated family members receive a alert within 30 minutes (paraphrased theme from `r/ElderCare` & `r/ChronicIllness`).
+- **Automated Refill Reminders & Inventory Tracking**: Automatically decrements pill inventory upon logging and alerts users days before running out. Users with ADHD pick Medisafe because the 5-day refill alert gives them time to call the pharmacy before running out (paraphrased theme from `r/adhd`).
 - **Visual Pill Box Customization**: Offers customizable pill shapes, colors, and textures to mirror real-life pill organizer boxes.
 
 ### 3. Marketing & acquisition — how they win customers
 - **Channels**: Pharma-sponsored companion app programs ("Medisafe Maestro" with Sanofi, Merck, Pfizer), physician recommendation pads in clinics ("Medisafe Care"), and aggressive App Store Optimization (ASO) for terms like *"pill reminder"*.
-- **What we can learn**: **Target Medisafe's Free-Tier Paywall Backlash.** Medisafe instituted a strict **2-medication cap on the free tier**, forcing users into a $39.99/year subscription. Build targeted landing copy for *"Medisafe Free Alternative"* emphasizing **"100% Free Unlimited Medications, No Subscription, No Account, 100% Private."**
+- **What we can learn**: **Target Medisafe's Free-Tier Paywall Backlash.** Medisafe instituted a strict **2-medication cap on the free tier**, forcing users into a $39.99/year subscription. Build targeted landing copy for *"Medisafe Free Alternative"* emphasizing **"100% Free Unlimited Medications, No Subscription, No Account Wall, 100% Zero-Knowledge Sync."**
 
 ### 4. Beating them in comparison
-- **Winning Angle**: Medisafe caps free medications at 2, charges $39.99/year for unlimited meds, requires cloud account creation, and shares telemetry with pharma networks. Our PWA provides **100% free unlimited medications**, zero subscriptions, zero accounts, and 100% zero-knowledge local storage.
-- **Where we lose & how to neutralize it**: We lose on server-side SMS caregiver push escalation ("Medfriend"). Neutralize by offering Web Share API / QR code export or optional client-side P2P notification hooks without storing records on a central server.
+
+| Feature / Dimension | Medisafe | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **Pricing & Limits** | Max 2 meds on free tier; $4.99/mo ($39.99/yr) for unlimited | **100% Free, Unlimited medications & tracking forever** |
+| **Data Privacy & Sync** | Mandatory account; unencrypted AWS server storage + pharma telemetry | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, blind push relay) |
+| **Platform Access** | Native store app download required | **Instant PWA URL access** (Zero-install, works on any browser/OS) |
+| **Offline Capabilities** | Limited; relies on cloud connectivity for sync & ads | **100% offline-first PWA with background sync** |
+
+- **Winning Angle**: Medisafe caps free medications at 2, charges $39.99/year for unlimited meds, stores unencrypted data on AWS servers, and tracks user behavior for pharma networks. Our PWA provides zero-knowledge multi-device sync without vendor trust — browser-managed encryption, WebAuthn authentication, blind push notification relay, and unlimited free medications.
+- **Where we lose & how to neutralize it**: We lose on server-side SMS caregiver push escalation ("Medfriend"). Neutralize by offering Web Share API / QR code export or optional client-side P2P notification hooks without storing patient records on a central server.

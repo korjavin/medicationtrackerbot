@@ -31,7 +31,7 @@
 - **Code Signals**: Closed-source proprietary SaaS (React/Web + Native wrappers); registered in SMART App Gallery.
 
 ### 2. Killer features — why customers actually choose it
-- **SMART-on-FHIR Patient Portal Aggregation**: Connects directly with 100,000+ clinical portals (Epic, Cerner, MyChart) alongside 20+ fitness wearables (Apple Health, Fitbit, Garmin, Oura, Dexcom). Users on `r/ChronicIllness` and `r/GuavaHealth` state they chose Guava because *"it automatically pulls my lab work from MyChart and syncs my Garmin HRV so I don't have to spend 20 minutes tapping buttons during a flare-up."*
+- **SMART-on-FHIR Patient Portal Aggregation**: Connects directly with 50,000+ clinical portals (Epic, Cerner, MyChart) alongside 20+ fitness wearables (Apple Health, Fitbit, Garmin, Oura, Dexcom). Users choose Guava because it automatically pulls lab work from MyChart and syncs HRV telemetry without manual button taps during flare-ups (paraphrased theme from `r/ChronicIllness` & `r/GuavaHealth`).
 - **AI Correlation Discovery & Doctor Briefs**: Automatically calculates statistical correlations between daily logged symptoms, lifestyle factors, and lab values, generating provider-ready PDF summaries for 15-minute appointments.
 - **Low-Cognitive-Load UX for Chronic Illness**: Designed specifically for users managing complex conditions (POTS, MCAS, Long COVID, Endometriosis) where daily manual logging induces cognitive fatigue ("brain fog").
 
@@ -40,5 +40,13 @@
 - **What we can learn**: **The "Doctor Visit Summary PDF" Hook.** Build a single-click local PDF export generator optimized for 15-minute doctor appointments. Position our zero-knowledge PWA as the privacy-safe tool that converts offline symptom/medication logs into clean clinical briefs without cloud server processing.
 
 ### 4. Beating them in comparison
-- **Winning Angle**: Guava hosts intimate medical records, lab reports, and symptom histories on central cloud servers for $96/year ($8/mo Premium). Our PWA gives users complete offline symptom and medication tracking with **100% Zero-Knowledge local encryption** — completely free with zero account or login required.
-- **Where we lose & how to neutralize it**: We lose on direct cloud OAuth connections to 100,000+ EHR portals (SMART-on-FHIR). Neutralize this by supporting client-side JSON/CSV/HealthKit file imports and running local Web-Worker correlation algorithms directly inside the browser.
+
+| Comparison Dimension | Guava Health | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **Architecture & Privacy** | Centralized SaaS; server processes unencrypted health records for AI & sync | **Zero-Knowledge Vault** (browser holds keys & plaintext; server stores ciphertext it cannot read + blind push relay) |
+| **Multi-Device Sync** | Standard cloud login to vendor server | **Sync Without Trust** (WebAuthn/Passkey key management with encrypted multi-device sync) |
+| **Pricing** | Freemium ($8/mo or $78/yr for Premium AI/lab features) | **100% Free & Open Source** |
+| **Deployment** | Vendor-hosted cloud SaaS only | **Single-Operator Self-Hosted Server** or client PWA |
+
+- **Winning Angle**: Guava processes your unencrypted medical records, lab reports, and symptom histories on central cloud servers for $96/year. Our PWA provides encrypted multi-device sync without vendor trust — browser-managed zero-knowledge encryption, Passkey authentication, blind server notification relay, and zero subscription fee.
+- **Where we lose & how to neutralize it**: We lose on direct cloud OAuth connections to 50,000+ EHR portals (SMART-on-FHIR). Neutralize this by supporting client-side JSON/CSV/HealthKit file imports and running local Web-Worker correlation algorithms directly inside the browser.

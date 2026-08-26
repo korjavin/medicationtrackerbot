@@ -21,3 +21,31 @@
   - Bearable Official Website & Features: https://bearable.app/ (Accessed August 2026)
   - Bearable Privacy Policy: https://bearable.app/privacy-policy/ (Accessed August 2026)
   - Bearable Support / Knowledge Base: https://bearable.app/support/ (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **User Count & Downloads**: Google Play Store bracket is **500,000+** downloads (`com.bearable.app`) with ~10,300 reviews (4.6-star rating). Apple App Store has ~6,200 ratings (4.8-star rating) (Source: Google Play & Apple App Store listings, August 2026).
+- **Estimated Active Base**: Company claims >900,000 registered users total. Estimated **50,000–90,000 Monthly Active Users (MAU)** (estimate derived from 500k+ Play Store installs and ~9k monthly downloads).
+- **Funding & Financials**: Bootstrapped / minimally funded by Bearable App Ltd (UK, founded 2019 by James S.); raised small grant/seed (~$200k) with no major VC investment. Estimated app store revenue is ~$30,000/month (~$360k ARR) (Source: Sensor Tower / Adapty estimates, August 2026).
+- **Code Signals**: Closed-source proprietary SaaS.
+
+### 2. Killer features — why customers actually choose it
+- **Deep Customization for Chronic Illness**: Allows creation of custom symptom categories, severity ratings (1–5 scale), and daily lifestyle factors (weather, sleep quality, foods).
+- **Visual Factor & Symptom Correlation Grid**: Plots symptom flare-ups against habits, meds, or environmental factors. Users choose Bearable to print visual evidence for doctors managing complex conditions like ME/CFS, POTS, Long COVID, and Fibromyalgia (paraphrased theme from `r/ChronicIllness` & `r/Bearable`).
+- **Low-Brain-Fog Timestamped Logging**: Fast logging for preventative and PRN emergency relief meds during symptom flare-ups.
+
+### 3. Marketing & acquisition — how they win customers
+- **Channels**: Founder-led community building in subreddits (`r/Bearable`, `r/cfs`, `r/longcovid`, `r/POTS`), open user-voted feature roadmaps (FeatureUpvote/Trello), and chronic illness social media advocates.
+- **What we can learn**: **Founder-Led Subreddit Community Building.** Engage chronic illness and neurodivergent subreddits by highlighting a zero-knowledge privacy guarantee (protecting sensitive medical data from cloud leaks) while allowing community input into feature priorities.
+
+### 4. Beating them in comparison
+
+| Feature / Dimension | Bearable | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **Privacy & Storage** | Centralized Google Cloud Firestore (unencrypted server DB) | **Zero-Knowledge Vault** (Browser holds keys & plaintext; server holds ciphertext + blind push relay) |
+| **Multi-Device Sync** | Standard cloud login | **Sync Without Trust** (WebAuthn/Passkey authentication with E2EE sync) |
+| **Pricing & Analytics** | $6.99/mo or $35.99/yr for long-term correlation insights | **100% Free Unlocked Analytics & Correlation Tools** |
+
+- **Winning Angle**: Bearable stores sensitive health histories on central cloud servers and paywalls long-term correlation analytics behind Bearable Premium ($35.99/yr). Our PWA provides zero-knowledge multi-device sync without vendor trust — browser-managed encryption, Passkey authentication, and full correlation analytics completely free.
+- **Where we lose & how to neutralize it**: We lose on Bearable's visual correlation UI polish. Neutralize by focusing on fast medication adherence, supplement logging, and client-side correlation tools.
