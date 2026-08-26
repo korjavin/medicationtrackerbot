@@ -788,6 +788,23 @@
         }
         if (vitalsAdded > 0) rows.push(vitalsRow);
 
+        // Doctor brief (med-5k6t.2) — its own row because it is a document
+        // action, not a quick-log. Shown whenever anything at all is tracked
+        // (a meds-only vault still goes to appointments, and it has no BP or
+        // food quick-log row to ride on); suppressed only in the every-feature-
+        // off state, where there is nothing to brief and Today shows its empty
+        // placeholder instead.
+        const medsCell = state && state.nextMed;
+        if (rows.length > 0 || (medsCell && medsCell.status !== 'disabled')) {
+            const briefRow = d.createElement('div');
+            briefRow.className = 'wg-today-shortcuts wg-today-shortcuts--brief';
+            briefRow.setAttribute('data-section', 'shortcuts-brief');
+            briefRow.appendChild(renderShortcutTile('chart', 'Doctor brief', () => {
+                if (typeof handlers.onDoctorBrief === 'function') handlers.onDoctorBrief();
+            }));
+            rows.push(briefRow);
+        }
+
         return rows.length > 0 ? rows : null;
     }
 
@@ -1291,6 +1308,13 @@
                 window.FoodActions.triggerPhotoPicker();
             }
         });
+        const onDoctorBrief = opts.onDoctorBrief || (() => {
+            if (typeof window !== 'undefined'
+                && window.DoctorBrief
+                && typeof window.DoctorBrief.open === 'function') {
+                window.DoctorBrief.open();
+            }
+        });
         const onScanFood = opts.onScanFood || (() => {
             if (typeof window === 'undefined') return;
             if (window.FoodLog && typeof window.FoodLog.openAdd === 'function') {
@@ -1365,7 +1389,7 @@
         }
 
         const shortcutRows = renderShortcutRow(state, {
-            onLogFood, onScanFood, onPhotoMeal, onAddBp, onAddWeight
+            onLogFood, onScanFood, onPhotoMeal, onAddBp, onAddWeight, onDoctorBrief
         });
         if (shortcutRows) {
             shortcutRows.forEach((r) => root.appendChild(r));

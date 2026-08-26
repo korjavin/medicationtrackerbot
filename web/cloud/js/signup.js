@@ -18,6 +18,7 @@ import {
 } from './crypto.js';
 import { establishLdkCache } from './unlock.js';
 import { isIOS, isMobile, isStandalone, iosInstallStepsHtml } from './push.js';
+import { downloadDoc, printDoc } from './print-doc.js';
 
 const EXPIRED_LINK_MESSAGE = 'Could not start passkey registration — the invite link may be expired.';
 
@@ -425,43 +426,17 @@ becomes worthless, so replace it.</p>
 </html>`;
 }
 
-// Returns false when the browser refuses the download, so the caller can fall
-// back to print. The recovery code lives in the Blob's *contents*; a blob: URL
-// is an opaque UUID, so it never lands in a URL, a request, or a log.
+// The blob download + offscreen-iframe print live in print-doc.js — the
+// doctor-visit brief (med-5k6t.2) needs the identical pair. Returns false when
+// the browser refuses the download, so the caller can fall back to print. The
+// recovery code lives in the Blob's *contents*; a blob: URL is an opaque UUID,
+// so it never lands in a URL, a request, or a log.
 function downloadKit(docHtml, accountId) {
-  try {
-    const url = URL.createObjectURL(new Blob([docHtml], { type: 'text/html' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `med-tracker-emergency-kit-${accountId}.html`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    // Deferred: revoking synchronously can cancel the download in Safari.
-    setTimeout(() => URL.revokeObjectURL(url), 30000);
-    return true;
-  } catch (e) {
-    console.error('[signup] emergency kit download failed');
-    return false;
-  }
+  return downloadDoc(document, docHtml, `med-tracker-emergency-kit-${accountId}.html`);
 }
 
-// An offscreen iframe rather than window.print(): it prints the kit document
-// itself, identically to the downloaded file, instead of the wizard chrome.
 function printKit(docHtml) {
-  const frame = document.createElement('iframe');
-  frame.className = 'kit-print-frame';
-  frame.setAttribute('aria-hidden', 'true');
-  frame.srcdoc = docHtml;
-  frame.addEventListener('load', () => {
-    try {
-      frame.contentWindow.focus();
-      frame.contentWindow.print();
-    } catch (e) {
-      console.error('[signup] emergency kit print failed');
-    }
-  });
-  document.body.appendChild(frame);
+  printDoc(document, docHtml, 'kit-print-frame');
 }
 
 // Wizard step 5: optional Telegram linking. mountTelegram self-gates on the

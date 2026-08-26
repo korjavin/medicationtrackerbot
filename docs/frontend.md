@@ -266,6 +266,7 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.SettingsView` | `features/settings.js` | app.js `switchTab()` / `reloadCurrentTab()` (`loadSettings`), feature-toggle change handlers, `features/auth-bootstrap.js` (`updateFeatureTabVisibility`) |
 | `window.WorkoutModals` | `features/workout/modals.js` | app.js notification bindings (arrow wrappers) + `handlePushAction` (workout-start modal flow) |
 | `window.Gamification` | `features/journey.js` | app.js `switchTab()` / `reloadCurrentTab()` (Journey screen loader + renderer for the `gamification` feature) |
+| `window.DoctorBrief` | `features/brief.js` | `features/today.js` (Doctor brief shortcut tile → `open()`); builds the standalone printable document from `GET /api/brief` and hands it to `web/cloud/js/print-doc.js` (`downloadDoc` / `printDoc`, shared with the signup Emergency Kit). Nothing is uploaded — no privacy-manifest entry |
 | `window.AppBackButton` | `features/back-button.js` | features/bootstrap.js |
 | `window.WGIcons` | `components/wg-icons.js` | `wg-bottom-nav.js`, `features/today.js` (tile icons) |
 | `window.WGBottomNav` | `components/wg-bottom-nav.js` | `features/bootstrap.js` (`mountCanonicalBottomNav`) |
