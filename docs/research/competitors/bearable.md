@@ -1,0 +1,23 @@
+# Bearable
+
+- **What it is**: Bearable is a comprehensive health and symptom-tracking mobile application designed to help individuals managing chronic illnesses, complex health conditions, or unexplained symptoms. It enables users to log daily health metrics, habits, and symptoms to discover correlations between treatments, environmental factors, and overall well-being.
+- **Platform**: iOS and Android (native mobile applications); macOS (via Apple Silicon / Mac App Store running the mobile app). No web app, PWA, or dedicated desktop version available.
+- **Hosting model**: Closed-source SaaS (managed cloud service by Bearable App Ltd, UK). Proprietary license; not open-source or self-hostable.
+- **Feature coverage**:
+  - **Medications**: Partial — supports scheduling, custom dosage, dose logging, and time-based reminders, but does not offer pill inventory or supply tracking.
+  - **BP**: Yes — logs systolic and diastolic blood pressure within the customizable Health Measurements section.
+  - **Weight**: Yes — logs weight entries manually or auto-syncs via Apple Health, Google Health Connect, or Fitbit.
+  - **Workouts**: Yes — tracks exercise type, duration, and intensity alongside health correlation analytics.
+  - **Sleep**: Yes — records sleep quantity, quality, and sleep factors manually or imports from wearable integrations.
+  - **Vitals/wearables**: Yes — imports heart rate, resting heart rate, HRV, steps, and body temperature via one-way sync from Apple Health, Google Health Connect, and Fitbit.
+  - **Food/nutrition**: Partial — includes a basic food/drink entry diary and water tracker, but lacks a full micronutrient database or barcode scanner.
+  - **Diary/notes**: Yes — features daily notes, mood tracking, emotion logs, symptom severity ratings, and gratitude journaling.
+- **Privacy & encryption**: Data is stored on Google Cloud Platform (Cloud Firestore) servers located in the EU. Data is encrypted in transit using TLS/HTTPS, client-side encrypted before cloud transmission using 256-bit AES, and encrypted at rest on Google Cloud. However, it is not zero-knowledge E2EE, as Bearable manages the cloud architecture and encryption infrastructure. The vendor collects user email addresses linked to an anonymized user ID and states that personnel cannot view user health entries except during user-consented debugging. Bearable has a strict policy against selling user data or using data for targeted advertising.
+- **Data ownership**: Export available in CSV format containing all logged entries and symptom scores. No native CSV import tool exists to bring historical data into Bearable. No public/consumer API is provided (API access is restricted to research and clinical partners). Moderate lock-in due to lack of import options.
+- **Reminders/notifications**: Delivered via native local push notifications on iOS and Android for meds, symptoms, habits, and check-ins. Supports full offline functionality with local device storage, syncing to Google Cloud once an internet connection is established.
+- **Integrations**: Integrates with Apple Health, Google Health Connect, and Fitbit for one-way metric reading. No direct EHR/patient portal integration. AI features include an automated statistical correlation engine (calculating percentage correlations between factors and symptoms), but no generative LLM chat assistant.
+- **Pricing / sustainability**: Freemium model. Free version includes core logging features; Premium subscription (~$6.99/month or ~$34.99/year) unlocks advanced correlation reports, custom factor charts, and passcode lock. A subscription sponsorship program exists for users facing financial hardship. Active commercial software with regular app updates by Bearable App Ltd.
+- **Sources**:
+  - Bearable Official Website & Features: https://bearable.app/ (Accessed August 2026)
+  - Bearable Privacy Policy: https://bearable.app/privacy-policy/ (Accessed August 2026)
+  - Bearable Support / Knowledge Base: https://bearable.app/support/ (Accessed August 2026)

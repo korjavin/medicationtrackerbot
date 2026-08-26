@@ -1,0 +1,38 @@
+# Waistline
+
+- **What it is**: Waistline is a privacy-focused, open-source calorie counter and weight tracker application for Android. It enables users to manage a daily food diary, track macronutrients, scan food barcodes via Open Food Facts, and monitor body weight completely offline.
+- **Platform**: Android (Hybrid mobile application built using Apache Cordova and Framework7 with JavaScript; available on Google Play, F-Droid, and GitHub). No native iOS app.
+- **Hosting model**: Local-only (stores all food database and user logs locally on the device with no cloud server). Open source licensed under GPL-3.0.
+- **Feature coverage**:
+  - **Medications**: No — contains no medication management features.
+  - **BP**: No — does not track blood pressure.
+  - **Weight**: Yes — logs body weight over time with interactive graphs and target weight lines.
+  - **Workouts**: Partial — allows logging exercise entries to calculate net daily calories burned, but lacks workout routine tracking.
+  - **Sleep**: No — does not track sleep logs.
+  - **Vitals/wearables**: No — no wearable sensors or heart rate monitor integrations.
+  - **Food/nutrition**: Yes — comprehensive food diary with barcode scanner, macro breakdown (carbs, protein, fat, fiber), custom recipe builder, and Open Food Facts integration.
+  - **Diary/notes**: Yes — daily food log serves as a meal diary with custom note support.
+- **Privacy & encryption**:
+  - **Where data lives**: Stored strictly on local Android device storage within the app's internal database.
+  - **E2EE or server-side plaintext**: Stored in unencrypted local application storage; network requests are made only to fetch barcode data from public Open Food Facts API endpoints over HTTPS.
+  - **What vendor can see**: Vendor sees zero data; no central accounts, telemetry, or analytics servers exist.
+  - **Data-sale/ads history if any**: Ad-free, no telemetry, no tracking, zero history of selling data.
+- **Data ownership**:
+  - **Export formats**: Export user data, food logs, and custom recipes to JSON and CSV formats.
+  - **Import**: Import food databases, custom recipes, and log history from JSON files.
+  - **API**: No REST API; local file import/export and community tools (e.g. `waistline-api`).
+  - **Lock-in**: Minimal (full JSON/CSV export allows migrating food logs and recipes to other tools).
+- **Reminders/notifications**:
+  - **How delivered**: Basic local Android push notifications for meal logging reminders.
+  - **Does it work offline**: Operates fully offline (uses a local food database; network connectivity is required only when querying unknown barcodes).
+- **Integrations**:
+  - **Wearables**: None.
+  - **EHR**: None.
+  - **AI features**: None.
+- **Pricing / sustainability**:
+  - **Pricing**: Free and open-source.
+  - **Sustainability**: Maintained repository (`davidhealey/waistline`) with ~700+ GitHub stars, >20 contributors, with regular maintenance updates in 2026.
+- **Sources**:
+  - GitHub Repository: https://github.com/davidhealey/waistline (Accessed August 2026)
+  - F-Droid Listing: https://f-droid.org/en/packages/com.waist.line/ (Accessed August 2026)
+  - Official Website: https://waist-line.com (Accessed August 2026)

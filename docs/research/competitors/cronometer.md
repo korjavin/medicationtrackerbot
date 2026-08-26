@@ -1,0 +1,23 @@
+# Cronometer
+
+- **What it is**: Cronometer is a high-precision nutrition, dietary, and biometric tracking application designed to monitor macronutrients, micronutrients, biometrics, and physical activity. It is widely used by health-conscious individuals, athletes, dietitians, and medical researchers to track detailed nutritional intake and overall physical health.
+- **Platform**: iOS and Android (native mobile applications) and web (full-featured browser-based desktop application).
+- **Hosting model**: Closed-source SaaS (managed cloud service by Cronometer Software Inc., Canada). Proprietary license; not open-source or self-hostable.
+- **Feature coverage**:
+  - **Medications**: Partial — no dedicated pharmacy medication module or prescription reminder workflow, but users can create custom foods/supplements for dosage or record intake in diary notes.
+  - **BP**: Yes — logs systolic and diastolic blood pressure within the dedicated biometrics module.
+  - **Weight**: Yes — logs body weight, body fat %, BMI, and body measurements manually or via smart scale sync.
+  - **Workouts**: Yes — records exercise duration, activity type, and calories burned using an internal exercise database or connected fitness apps.
+  - **Sleep**: Yes — logs sleep duration and sleep quality metrics imported from connected wearables (Oura, Fitbit, Apple Health, Garmin, Whoop).
+  - **Vitals/wearables**: Yes — logs biometrics including blood pressure, blood glucose, heart rate, body temperature, SpO2, ketones, and GKI manually or via device sync.
+  - **Food/nutrition**: Yes — industry-leading food/nutrition coverage featuring verified lab databases (NCCDB, USDA), tracking for 80+ micronutrients, barcode scanning, recipe importer, custom food builder, and intermittent fasting timers.
+  - **Diary/notes**: Yes — daily food and biometric diary supporting timestamped entries, notes, photo attachments, and custom diary group categories.
+- **Privacy & encryption**: Stored in secure cloud infrastructure (AWS/Google Cloud) in North America. Self-certified HIPAA compliant for Cronometer Pro accounts. Encrypted in transit via TLS/HTTPS and at rest using AES-256 encryption. Server-side plaintext processing (not zero-knowledge E2EE) is required to parse nutrient calculations, execute recipe analysis, and generate reports. Cronometer explicitly pledges not to sell personal user data. The free plan displays third-party advertisement banners; Gold and Pro tiers are completely ad-free.
+- **Data ownership**: Export available in CSV format via the web interface (includes raw daily food servings, daily nutrition summaries, exercise logs, biometric records, and diary notes). Imports custom foods, recipes, and device biometrics. No public/consumer REST API available for individual users (API access is restricted to enterprise/clinical B2B partners like Practice Better, Kalix, and Everfit). Moderate lock-in due to lack of a consumer API, offset by comprehensive CSV export capabilities.
+- **Reminders/notifications**: Delivered via native mobile push notifications for meal logging, logging targets, and fasting timer start/stop alerts. Mobile app supports offline entry and cached diary logging, which automatically syncs to cloud servers once network access is restored.
+- **Integrations**: Integrates with major wearables and health apps (Apple Health, Google Health Connect, Fitbit, Garmin, Oura, Whoop, Withings, Dexcom, Suunto, Polar, Strava). Provides clinical EHR and practitioner integration via Cronometer Pro / B2B partner portals with signable HIPAA Business Associate Agreements (BAAs). AI features include AI-powered photo food logging, voice meal entry, AI web recipe importer, and the "Nutrient Oracle" recommendation engine.
+- **Pricing / sustainability**: Freemium model. Free plan includes core nutrition, barcode scanning, and biometric logging with ads. Cronometer Gold ($9.99/month or $49.99/year) provides an ad-free experience, timestamped entries, custom charts, fasting timer, AI features, and advanced reports. Cronometer Pro for healthcare practitioners starts at $29–$49+/month. Active commercial software with continuous database updates by Cronometer Software Inc.
+- **Sources**:
+  - Cronometer Official Website & Pricing: https://cronometer.com/ (Accessed August 2026)
+  - Cronometer Privacy Policy & Security: https://cronometer.com/privacy/ (Accessed August 2026)
+  - Cronometer Support & Data Export Documentation: https://support.cronometer.com/ (Accessed August 2026)

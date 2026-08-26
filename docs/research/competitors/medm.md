@@ -1,0 +1,38 @@
+# MedM (MedM Health / MedM Diabetes / MedM Care)
+
+- **What it is**: MedM is a comprehensive suite of digital health monitoring platforms developed by MedM Inc., consisting of consumer health diary apps (MedM Health, MedM Diabetes) and a cloud-based remote patient monitoring platform (MedM Care). It enables automated data collection from over 750 Bluetooth medical devices alongside medication reminder tracking.
+- **Platform**: iOS, Android, Windows (Microsoft Store), macOS (via Apple Silicon / iPad app), and Web (MedM Health Cloud portal). Native mobile/desktop apps plus web platform.
+- **Hosting model**: SaaS (MedM Health Cloud hosted on AWS / HIPAA-compliant infrastructure) with full Local-only offline operating mode. Closed-source proprietary software.
+- **Feature coverage**:
+  - **Medications**: Yes — includes medication intake scheduling, dosage tracking, pill reminders, and refill notifications.
+  - **BP**: Yes — full blood pressure and heart rate monitoring with automatic Bluetooth device sync and trend analysis.
+  - **Weight**: Yes — tracks weight, BMI, body fat percentage, and syncs with smart scales.
+  - **Workouts**: Yes — syncs physical activity, step counts, and exercise data via Garmin, Fitbit, Apple Health, and Google Health Connect.
+  - **Sleep**: Yes — tracks sleep duration and sleep quality metrics via connected sensors and health platforms.
+  - **Vitals/wearables**: Yes — extensive vital tracking (blood glucose, SpO2, ECG, body temp, spirometry) connecting over 750 Bluetooth medical devices and wearables.
+  - **Food/nutrition**: Partial — includes blood glucose meal tags (pre-prandial / post-prandial) and notes, but not full meal calorie tracking.
+  - **Diary/notes**: Yes — supports health journal entry notes, symptom logging, and historical record tagging.
+- **Privacy & encryption**:
+  - **Where data lives**: Stored locally on device in offline mode, or hosted in MedM Health Cloud (AWS servers in U.S. or EU).
+  - **E2EE or server-side plaintext**: Encrypted in transit (HTTPS/TLS) and encrypted at rest (AES-256) on cloud servers; NOT end-to-end encrypted (cloud holds keys to facilitate doctor/caregiver data sharing).
+  - **What vendor can see**: User profile info, connected sensor measurement data, medication logs, and shared report histories (accessible to authorized caregivers/clinicians).
+  - **Data-sale/ads history if any**: 100% ad-free; privacy policy guarantees personal health data is never sold or monetized for advertising.
+- **Data ownership**:
+  - **Export formats**: PDF and XLSX (Excel) reports for Premium users; CSV export available; offline raw database backup.
+  - **Import**: Supports CSV file import for importing historical health metric records into MedM Cloud.
+  - **API**: MedM Cloud API and Device Connectivity SDK available for enterprise/RPM integrations.
+  - **Lock-in**: Low lock-in due to robust CSV/XLSX export and CSV import capabilities.
+- **Reminders/notifications**:
+  - **How delivered**: Native push notifications and local device alerts for medication schedules, missed measurement reminders, and threshold warnings.
+  - **Does it work offline**: Yes — the app and local database operate fully offline without requiring account registration or internet access.
+- **Integrations**:
+  - **Wearables**: 750+ Bluetooth medical sensors (Omron, A&D, Roche, Beurer, etc.) and wearables; syncs with Apple Health, Google Health Connect, Fitbit, Garmin, and Samsung Health.
+  - **EHR**: MedM Care RPM platform integrates with hospital EHR systems via HL7, FHIR, and REST APIs.
+  - **AI features**: Automated threshold monitoring and trend detection rules; no generative AI LLM features.
+- **Pricing / sustainability**:
+  - **Pricing**: Freemium for consumer apps (MedM Health / MedM Diabetes: Free offline and basic logging; MedM Premium subscription costs ~$0.99–$4.99/month or ~$9.99–$29.99/year for cloud sync, PDF/XLSX export, and caregiver sharing). MedM Care is a B2B SaaS priced per patient/month.
+  - **Sustainability**: Proprietary commercial software suite operated and maintained by MedM Inc.
+- **Sources**:
+  - MedM Official Website: https://www.medm.com/ (Accessed August 2026)
+  - MedM Privacy Policy: https://www.medm.com/privacy-policy.html (Accessed August 2026)
+  - MedM Health Cloud Portal: https://health.medm.com/ (Accessed August 2026)

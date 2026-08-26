@@ -1,0 +1,38 @@
+# Medisafe
+
+- **What it is**: Medisafe is a consumer medication management and pill reminder mobile application developed by Medisafe Inc. It helps individuals and caregivers manage complex medication regimens through customized schedule alerts, dose logging, refill reminders, and caregiver escalation. The platform also offers health measurement logging and adherence reporting for medical appointments.
+- **Platform**: iOS, Android, Wear OS, Apple Watch. Native mobile and wearable applications. No standalone consumer web app or PWA (web portals are restricted for enterprise/healthcare provider programs).
+- **Hosting model**: SaaS (cloud-backed via Medisafe AWS infrastructure). Proprietary closed-source software.
+- **Feature coverage**:
+  - **Medications**: Yes — offers flexible intake schedules, time/dosage alerts, pill inventory tracking, and low-refill notifications.
+  - **BP**: Yes — allows manual logging of blood pressure readings and target ranges.
+  - **Weight**: Yes — supports manual weight logging with historical trend graphs.
+  - **Workouts**: No — does not include native exercise or workout tracking capabilities.
+  - **Sleep**: No — does not provide native sleep tracking features.
+  - **Vitals/wearables**: Yes — tracks blood glucose, pulse, and temperature, and syncs vital measurements via Apple Health and Google Fit.
+  - **Food/nutrition**: No — does not feature meal, calorie, or nutrition logging.
+  - **Diary/notes**: Yes — supports adding text notes, symptom notes, and mood tracking to dose entries.
+- **Privacy & encryption**:
+  - **Where data lives**: Stored locally on the mobile device and backed up to Medisafe AWS cloud servers (US/EU).
+  - **E2EE or server-side plaintext**: Server-side encryption (256-bit AES encryption in transit and at rest); NOT end-to-end encrypted (Medisafe servers maintain decryption keys).
+  - **What vendor can see**: Medisafe can access account information, medication schedules, and aggregated/anonymized health data used for analytics and operational services.
+  - **Data-sale/ads history if any**: Privacy policy states personal data is not sold; however, the free tier displays third-party advertisements and integrates analytics tracking SDKs (e.g. Meta/Google).
+- **Data ownership**:
+  - **Export formats**: Excel (.xlsx) and CSV for medication histories; PDF format for doctor status reports.
+  - **Import**: Can import health records via Apple Health on iOS; no direct CSV/JSON file import mechanism.
+  - **API**: No public developer/consumer API.
+  - **Lock-in**: Moderate lock-in; exports exist (CSV/PDF) but lack full structured database export/import for easy migration.
+- **Reminders/notifications**:
+  - **How delivered**: Delivered via native device local push notifications with custom sound effects, with optional escalation push alerts to designated "Medfriend" caregivers if a dose is missed.
+  - **Does it work offline**: Yes — core scheduled alarms are registered locally with the mobile operating system and fire without an active internet connection.
+- **Integrations**:
+  - **Wearables**: Apple Watch and Wear OS smartwatches (native companion app and mirrored alerts).
+  - **EHR**: Syncs with U.S. Health Records via Apple Health to import prescription lists.
+  - **AI features**: Rule-based drug interaction checker and schedule optimization insights; no LLM generative AI features.
+- **Pricing / sustainability**:
+  - **Pricing**: Freemium model. Free tier limits users to 2 medications and includes ads; Medisafe Premium costs ~$4.99/month or ~$39.99/year to unlock unlimited medications, unlimited Medfriends, custom themes, and ad-free usage.
+  - **Sustainability**: Commercial closed-source product maintained by Medisafe Inc.
+- **Sources**:
+  - Medisafe Official Website: https://medisafeapp.com/ (Accessed August 2026)
+  - Medisafe Privacy Policy: https://medisafeapp.com/privacy-policy/ (Accessed August 2026)
+  - Medisafe Terms of Service: https://medisafeapp.com/terms-of-service/ (Accessed August 2026)

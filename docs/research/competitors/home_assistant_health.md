@@ -1,0 +1,33 @@
+# Home Assistant Health Integrations
+
+- **What it is**: Home Assistant Health Integrations encompass the native integration components, HACS custom repositories, and local BLE proxy sensors within the open-source Home Assistant smart home ecosystem. They aggregate personal health telemetry — such as body weight, blood pressure, sleep cycles, activity levels, and bed presence — into Home Assistant entities for visualization and home automation routines.
+- **Platform**: Web dashboard (Lovelace UI), native iOS app (Home Assistant Companion), Android app (Home Assistant Companion with Health Connect integration), and desktop browsers.
+- **Hosting model**: Self-hosted on local hardware (Raspberry Pi, x86 NUC, Docker, Home Assistant OS); Open source under the Apache License 2.0 (Home Assistant Core).
+- **Feature coverage**:
+  - **Medications**: Partial — managed via custom entities, input_booleans, local scripts, and HACS components (e.g. `lovelace-medication-tracker`) for dashboard reminder popups and adherence logging, but no native clinical Rx database.
+  - **BP**: Yes — reads blood pressure metrics (systolic, diastolic, pulse) via cloud integrations (Withings, Omron) or local Bluetooth sensors.
+  - **Weight**: Yes — tracks body weight, body fat %, muscle mass, and BMI history via smart scales (Withings, Xiaomi Scale, Eufy, ESPHome BLE proxies).
+  - **Workouts**: Partial — imports workout sessions, daily steps, active calories, and exercise duration from Fitbit, Google Fit, Apple Health, or Garmin.
+  - **Sleep**: Yes — monitors sleep duration, sleep stages, and real-time bed presence using Withings Sleep Analyzer mats or Apple Health/Fitbit sleep sensors.
+  - **Vitals/wearables**: Yes — captures real-time heart rate, blood oxygen (SpO2), body temperature, blood glucose (via native Nightscout HA integration), and step count from connected wearables and smart sensors.
+  - **Food/nutrition**: Partial — imports daily water intake, calorie consumption, and macronutrient totals from Google Fit or custom REST endpoints.
+  - **Diary/notes**: Partial — supports persistent text inputs, todo lists, and logbook history entries tied to person entities and timestamps.
+- **Privacy & encryption**: Data is stored locally in Home Assistant's SQLite/MariaDB database on the home server; local BLE proxies process data without leaving the LAN. Cloud integrations store data on respective vendor clouds (Withings, Google, Fitbit). Encrypted local communication via TLS/HTTPS, and encrypted cloud remote connection via Nabu Casa. Zero vendor access for local Home Assistant Core data; cloud integrations depend on vendor privacy policies.
+- **Data ownership**: 
+  - **Export formats**: SQLite/MariaDB database export, CSV exports via History page, InfluxDB / Prometheus long-term storage integration, and REST/WebSocket API endpoints.
+  - **Import**: Native integration webhooks, REST API (`/api/states`), Android Health Connect sync, and HACS components.
+  - **API**: Comprehensive REST API and WebSocket API.
+  - **Lock-in**: Zero lock-in; open-source state engine allowing raw database extraction or live streaming to open TSDBs.
+- **Reminders/notifications**: 
+  - **How delivered**: Delivered via Home Assistant Companion App (iOS/Android push notifications with actionable buttons), local smart speaker announcements (TTS via Sonos/Alexa/Google Home), persistent dashboard popups, Telegram, or Matrix messages.
+  - **Does it work offline**: Local BLE sensors, ESPHome proxies, and local automations work 100% offline without internet; cloud vendor integrations (Fitbit, Withings Cloud API) require active internet connectivity.
+- **Integrations**: 
+  - **Wearables**: Fitbit (native), Withings (native), Apple Health (via bridge apps like Health Auto Export), Google Fit / Health Connect (native Companion app), Garmin (HACS), Nightscout (native HA integration).
+  - **EHR**: Indirect via Nightscout or custom REST/FHIR bridge sensors; not a native clinical EHR.
+  - **AI features**: Supports local AI LLM integrations (Home Assistant Assist with Ollama, LocalAI, or OpenAI API) for natural language querying of health state history.
+- **Pricing / sustainability**: 100% Free and open-source core; optional $6.50/mo Nabu Casa cloud subscription for remote access and voice assistant support. Activity level: Extremely high activity, #1 most active open-source Python project on GitHub, ~78,000+ GitHub stars, 4,000+ contributors, bi-weekly major releases, backed by Nabu Casa company.
+- **Sources**:
+  - https://www.home-assistant.io/integrations/withings/ (Accessed August 2026)
+  - https://www.home-assistant.io/integrations/fitbit/ (Accessed August 2026)
+  - https://companion.home-assistant.io/docs/core/sensors/#health-connect-sensors (Accessed August 2026)
+  - https://github.com/home-assistant/core (Accessed August 2026)

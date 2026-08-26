@@ -1,0 +1,23 @@
+# Guava Health (Guava)
+
+- **What it is**: Guava Health is an all-in-one personal health management platform that aggregates patient portal medical records, lab results, wearable metrics, and lifestyle tracking into a single hub. It uses statistical models and AI to analyze health trends, generate provider-ready summaries, and detect correlations between medications, lifestyle habits, and symptoms.
+- **Platform**: iOS and Android (native mobile apps) and web (full-featured browser-based web application accessible on desktop).
+- **Hosting model**: Closed-source SaaS (managed cloud service by Guava Health, Inc.). Proprietary license; not open-source or self-hostable.
+- **Feature coverage**:
+  - **Medications**: Yes — offers comprehensive scheduled and as-needed medication tracking, dosage logs, refill notifications, pill inventory/count tracking, and drug interaction checks.
+  - **BP**: Yes — logs blood pressure (systolic/diastolic) manually or auto-synced from connected blood pressure monitors and health apps.
+  - **Weight**: Yes — logs weight and body composition manually or via connected smart scale integrations.
+  - **Workouts**: Yes — records workouts, active calories, and duration synced from wearables or logged manually.
+  - **Sleep**: Yes — tracks sleep duration, sleep stages (light, deep, REM), and sleep efficiency imported from connected devices or logged manually.
+  - **Vitals/wearables**: Yes — tracks vitals including heart rate, HRV, SpO2, blood glucose, temperature, and respiration rate across 30+ hardware and software integrations.
+  - **Food/nutrition**: Yes — features food logging supported by AI photo nutrient detection and macronutrient tracking.
+  - **Diary/notes**: Yes — supports daily qualitative notes, symptom body heatmaps, visit preparation summaries, and document attachment notes.
+- **Privacy & encryption**: Data is hosted in HIPAA-compliant US cloud infrastructure. Data is encrypted using AES-256 at rest and TLS 1.3/1.2 in transit. Server-side plaintext processing is utilized rather than zero-knowledge E2EE to enable AI document extraction, patient portal aggregation, and cross-metric analytics. Guava maintains HIPAA compliance (signing BAAs with healthcare providers), explicitly refrains from selling personal data, and does not run third-party advertising.
+- **Data ownership**: Export available in CSV format for log metrics and daily entries, as well as original PDF downloads for imported medical records and lab documents. High interoperability via direct patient portal import (Epic, Cerner, etc.), C-CDA file uploads, DICOM imaging, PDF lab extraction, and device sync. Offers a Developer API (early access/beta) utilizing HL7 FHIR, C-CDA, OAuth 2.1, and REST JSON. Extremely low lock-in due to FHIR support and comprehensive export capabilities.
+- **Reminders/notifications**: Delivered via push notifications on mobile devices and browser notifications on web for medication schedules, refill alerts, log prompts, and provider visit prep. Basic offline logging is supported on mobile apps, though network connectivity is required for patient portal sync, lab parsing, and AI features.
+- **Integrations**: Integrates with 30+ wearable and device platforms (Apple Health, Google Health Connect, Fitbit, Oura, Garmin, Withings, Dexcom, Whoop, Strava). Directly connects to 50,000+ U.S. health systems and patient portals via SMART on FHIR. AI features include "Guava Assistant" (an LLM health assistant), automatic PDF lab report data extraction, voice/photo meal logging, and automated correlation discovery engines.
+- **Pricing / sustainability**: Freemium model. Free plan includes core medical record sync, wearable integrations, and basic symptom/medication tracking. Premium plan ($8/month or $78/year) unlocks the AI assistant, automated lab data extraction, Guava Emergency Card, and caregiver profile management. Provider Dashboard plans start at $60/month for up to 10 patients. Active commercial development by Guava Health, Inc.
+- **Sources**:
+  - Guava Health Official Website: https://guavahealth.com/ (Accessed August 2026)
+  - Guava Health Privacy Policy: https://guavahealth.com/privacy (Accessed August 2026)
+  - Guava Developer API & FHIR Documentation: https://guavahealth.com/developer (Accessed August 2026)

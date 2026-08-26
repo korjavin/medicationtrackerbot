@@ -1,0 +1,32 @@
+# Samsung Health
+
+- **What it is**: Samsung Health is a health and wellness application and platform ecosystem developed by Samsung for Galaxy smartphones, smartwatches, and companion mobile devices. It provides fitness tracking, sleep coaching, body composition analysis, vital monitoring, and a dedicated Medications tracking feature. It integrates tightly with Samsung Galaxy hardware while offering cloud sync via Samsung Cloud.
+- **Platform**: Android (full native feature set on Galaxy and non-Samsung Android devices), Wear OS / Tizen (Galaxy Watch series), and iOS (limited companion app feature set). Native mobile app; no web or desktop platform available.
+- **Hosting model**: Hybrid — local on-device encrypted storage combined with cloud backup and multi-device sync via Samsung Cloud. Proprietary (closed source).
+- **Feature coverage**:
+  - **Medications**: Yes — features a dedicated Medications tracker allowing users to log schedules, set custom alerts, record pill appearance (shape/color), review drug-to-drug and drug-to-food interaction warnings (US/select markets), and log side effects; lacks automated physical stock depletion management.
+  - **BP**: Yes — supports cuffless blood pressure monitoring via Galaxy Watch optical sensors (requires periodic cuff calibration) and manual entry.
+  - **Weight**: Yes — logs weight and body fat percentage via manual entry, smart scales, and Galaxy Watch BIA sensors.
+  - **Workouts**: Yes — automatically detects and tracks over 90 workout types with real-time statistics, heart rate zones, and GPS routing.
+  - **Sleep**: Yes — delivers sleep stage tracking (Awake, Light, Deep, REM), blood oxygen monitoring during sleep, snoring detection, and personalized sleep coaching programs.
+  - **Vitals/wearables**: Yes — monitors ECG, heart rate, HRV, SpO2, skin temperature, continuous stress, and body composition (BIA) via Galaxy Watch and Galaxy Ring.
+  - **Food/nutrition**: Yes — features a native food logging diary with a searchable food database for calorie, macronutrient, and hydration tracking.
+  - **Diary/notes**: Partial — supports stress/mood entries, symptom logs, and note fields on medication logs, but lacks a standalone freeform daily journal app.
+- **Privacy & encryption**: Local data on Samsung Galaxy hardware is protected using hardware-backed encryption via the Samsung Knox security platform (including Knox TIMA KeyStore). Cloud backup on Samsung Cloud is encrypted in transit and at rest. Samsung privacy policies commit to not selling personal health data to third-party advertisers.
+- **Data ownership**:
+  - **Export formats**: Personal data download available as a `.zip` archive (containing JSON and HTML files) via the Samsung Account privacy portal or app settings.
+  - **Import**: Syncs data from connected apps via Google Health Connect or the Samsung Health Partner SDK.
+  - **API**: Samsung Health Data SDK for Android and Wear OS SDK.
+  - **Lock-in**: High ecosystem lock-in for advanced medical features (e.g., ECG, BP calibration, and full Galaxy AI health insights require a paired Samsung Galaxy smartphone).
+- **Reminders/notifications**: Delivered via Android system notifications and synced to Galaxy Watch wrist alerts; medication and lifestyle reminders execute locally on device and function offline without an internet connection.
+- **Integrations**:
+  - **Wearables**: Samsung Galaxy Watch series, Galaxy Ring, and compatible Bluetooth sensors (heart rate straps, smart scales).
+  - **EHR**: Integrates with clinical record providers and Samsung Wallet in select regions for prescription management and health passes.
+  - **AI features**: Galaxy AI health features including Energy Score, personalized wellness tips, AI sleep coaching, and adaptive workout insights.
+- **Pricing / sustainability**: Free application and cloud sync service for Android and iOS users; proprietary software funded by Samsung hardware and Galaxy device sales.
+- **Sources**:
+  - Samsung Health Official Overview: https://www.samsung.com/us/apps/samsung-health/ (Accessed August 2026)
+  - Samsung Newsroom - Samsung Health Medications Tracking Feature: https://news.samsung.com/global/samsung-health-introduces-new-medications-tracking-feature-to-help-users-manage-their-health-more-comprehensively (Accessed August 2026)
+  - Samsung Developer Program - Samsung Health: https://developer.samsung.com/health (Accessed August 2026)
+  - Samsung Knox Security Platform: https://security.samsungmobile.com/ (Accessed August 2026)
+  - Samsung Knox Security Solutions: https://www.samsungknox.com/en/solutions/knox-platform-for-enterprise (Accessed August 2026)

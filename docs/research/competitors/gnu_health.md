@@ -1,0 +1,32 @@
+# GNU Health
+
+- **What it is**: GNU Health is a free, open-source Libre Health and Hospital Information System (HIS / EMR / LIS) backed by GNU Solidario. Designed for public health organizations, hospitals, clinics, and health professionals, it offers comprehensive clinical, administrative, epidemiological, and genetic record management. It also features MyGNUHealth, a companion personal health record (PHR) application for individuals.
+- **Platform**: Multi-platform ecosystem — GNU Health Server (Python/Tryton framework on Linux/BSD), GNU Health Desktop Client (GTK/Tryton desktop client for Linux, Windows, macOS), Web Client (gnuhealth-web), and MyGNUHealth Mobile/Desktop app (Qt/KDE Plasma/Kirigami for Linux mobile, Android, and Desktop).
+- **Hosting model**: Self-hosted on dedicated servers or local infrastructure; Open source under the GNU General Public License v3.0 or later (GPL-3.0+).
+- **Feature coverage**:
+  - **Medications**: Yes — complete clinical pharmacy management including prescriptions, drug interactions, inventory control, dosage schedules, administration logs, and pharmacy tracking.
+  - **BP**: Yes — full blood pressure charting, vital sign monitoring, and historical medical charting.
+  - **Weight**: Yes — tracks body weight, height, BMI calculations, and pediatric growth charts.
+  - **Workouts**: Partial — MyGNUHealth tracks physical activity levels and lifestyle habits within its bio-psycho-social sphere model.
+  - **Sleep**: Partial — MyGNUHealth logs sleep duration and subjective sleep quality metrics.
+  - **Vitals/wearables**: Yes/Partial — tracks all clinical vitals (heart rate, BP, SpO2, respiratory rate, temperature); MyGNUHealth logs personal vitals, though consumer wearable auto-sync requires custom bridge scripts.
+  - **Food/nutrition**: Yes — clinical dietetics, nutritional evaluations, eating habits, and hospital meal planning modules.
+  - **Diary/notes**: Yes — clinical progress notes, consultation logs, psychological assessments, patient diary entries, and bio-psycho-social evaluations.
+- **Privacy & encryption**: Data lives in self-hosted PostgreSQL database servers managed by the institution or individual; MyGNUHealth stores personal data on-device. Encrypted connections via SSL/TLS; Thalamus federation server uses secure REST/JSON APIs; PostgreSQL supports encryption at rest; GNU Project guidelines guarantee zero commercial tracking or telemetry. Zero vendor access or data-sale history.
+- **Data ownership**: 
+  - **Export formats**: Standard CSV, XML, JSON, PDF medical reports, and PostgreSQL database dumps (`pg_dump`).
+  - **Import**: CSV and XML import wizards via Tryton framework, HL7 / FHIR data mapping via Thalamus federation hub.
+  - **API**: RESTful API hub via the Thalamus federation module.
+  - **Lock-in**: Zero lock-in due to open SQL database schema and standard open formats.
+- **Reminders/notifications**: 
+  - **How delivered**: Institutional desktop alerts, appointment calendars, medication dosage schedules, and email/SMS triggers via server plugins; MyGNUHealth uses local mobile/system notifications.
+  - **Does it work offline**: MyGNUHealth operates offline locally; desktop clients require network connection to the self-hosted GNU Health server, which can run on an isolated local LAN without internet.
+- **Integrations**: 
+  - **Wearables**: Integrates via Thalamus REST API gateway; custom telemetry bridge scripts can feed data into patient records.
+  - **EHR**: Native, end-to-end EMR/HIS/LIS system with HL7 FHIR and DICOM medical imaging compatibility capabilities.
+  - **AI features**: Built-in statistical epidemiology tools, bio-informatics, and medical genetics analysis (no external proprietary AI required).
+- **Pricing / sustainability**: 100% Free and open-source (official GNU Project package). Activity level: Highly sustainable 15+ year project funded by GNU Solidario non-profit, active major releases (GNU Health 4.x series), international deployments worldwide, active developer mailing lists and Savannah/GitLab repositories.
+- **Sources**:
+  - https://www.gnuhealth.org/ (Accessed August 2026)
+  - https://savannah.gnu.org/projects/gnuhealth (Accessed August 2026)
+  - https://en.wikipedia.org/wiki/GNU_Health (Accessed August 2026)

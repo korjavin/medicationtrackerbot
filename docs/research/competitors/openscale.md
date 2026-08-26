@@ -1,0 +1,38 @@
+# openScale
+
+- **What it is**: openScale is an open-source Android application that connects directly to Bluetooth smart scales to record body weight and body composition metrics. It provides offline tracking, trend analysis, and synchronization capabilities without requiring proprietary vendor cloud backends or account registration.
+- **Platform**: Android (Native application built with Kotlin and Jetpack Compose; available on Google Play, F-Droid, and GitHub). No iOS, Web, PWA, or Desktop versions.
+- **Hosting model**: Local-only (standalone mobile application with optional companion app `openScale-sync` for remote server syncing). Open source licensed under GPL-3.0-only.
+- **Feature coverage**:
+  - **Medications**: No — contains no medication tracking functionality.
+  - **BP**: Partial — permits manually logging blood pressure (systolic/diastolic/pulse) and body temperature alongside weight entries.
+  - **Weight**: Yes — extensive tracking of weight, BMI, body fat %, muscle mass, water %, bone mass, and visceral fat from Bluetooth scales or manual entries.
+  - **Workouts**: No — does not track exercises or workout routines.
+  - **Sleep**: No — does not track sleep durations or sleep quality.
+  - **Vitals/wearables**: Partial — pairs directly via Bluetooth LE with over 50 smart scale models (Xiaomi, Beurer, Sanitas, Yunmai, etc.) and records weight/fat/BP, but does not pair with smartwatches.
+  - **Food/nutrition**: No — does not log food intake or calories.
+  - **Diary/notes**: Yes — supports attaching custom comments/notes to individual measurement entries.
+- **Privacy & encryption**:
+  - **Where data lives**: Stored entirely on-device inside a local SQLite database.
+  - **E2EE or server-side plaintext**: Stored in a local plaintext SQLite database; no vendor cloud backend exists.
+  - **What vendor can see**: Vendor sees zero data (the core openScale app does not request Android `INTERNET` permission).
+  - **Data-sale/ads history if any**: Completely ad-free, no telemetry, no tracking, zero history of selling data.
+- **Data ownership**:
+  - **Export formats**: CSV file export (weight and body metrics history) and full SQLite database backup.
+  - **Import**: CSV import with customizable column mapping (supports importing from other commercial scale apps).
+  - **API**: Inter-process integration via `openScale-sync` companion app, Android intents, and direct sync with MQTT, InfluxDB, Webhooks, Google Fit, wger, and Health Connect.
+  - **Lock-in**: Zero (full CSV export/import and direct SQLite database access).
+- **Reminders/notifications**:
+  - **How delivered**: Local Android push notifications for daily or custom measurement reminders.
+  - **Does it work offline**: Operates 100% offline; Bluetooth scale reading and notification reminders function without internet connectivity.
+- **Integrations**:
+  - **Wearables**: Pairs via Bluetooth LE with smart scales; syncs metrics to Android Health Connect, Google Fit, MQTT, and InfluxDB via `openScale-sync`.
+  - **EHR**: None.
+  - **AI features**: None.
+- **Pricing / sustainability**:
+  - **Pricing**: Free and open-source (no ads, in-app purchases, or subscriptions).
+  - **Sustainability**: Active development (`oliexdev/openScale`) with ~2,500+ GitHub stars, >220 contributors, major v3.0 Kotlin/Jetpack Compose rewrite in late 2025 and active release cycle (v3.1+) in 2026.
+- **Sources**:
+  - GitHub Main Repository: https://github.com/oliexdev/openScale (Accessed August 2026)
+  - GitHub Sync Companion Repo: https://github.com/oliexdev/openScale-sync (Accessed August 2026)
+  - F-Droid Listing: https://f-droid.org/en/packages/com.health.openscale/ (Accessed August 2026)

@@ -1,0 +1,32 @@
+# Fasten Health
+
+- **What it is**: Fasten Health is an open-source personal health record (PHR) and electronic medical record (EMR) aggregator designed to consolidate individual and family medical records across healthcare systems. It allows users to connect with tens of thousands of healthcare institutions via FHIR standards or manually upload clinical files into a unified personal dashboard. The platform empowers individuals to maintain full control over their historical health records.
+- **Platform**: Web (Docker-based self-hosted server with web frontend UI) and Desktop (cross-platform native desktop apps for macOS, Windows, and Linux via Tauri/Electron); web-based UI (not a native mobile app or standalone PWA).
+- **Hosting model**: Self-hosted (Fasten OnPrem via Docker container or desktop installer) with an optional commercial B2B API service (Fasten Connect); Open source under the GNU General Public License v3.0 (GPL-3.0).
+- **Feature coverage**:
+  - **Medications**: Yes — tracks active and historical medication lists, prescriptions, dosages, and prescribing clinicians aggregated via FHIR records or manual entry, though lacking inventory level tracking or scheduled dosage alarms.
+  - **BP**: Yes — records blood pressure readings (systolic/diastolic) pulled from provider clinical observations or logged manually.
+  - **Weight**: Yes — logs body weight metrics and trends over time as standard vital sign observations.
+  - **Workouts**: No — does not track exercise routines, fitness workouts, or physical activity logs.
+  - **Sleep**: No — lacks native sleep duration or sleep stage tracking.
+  - **Vitals/wearables**: Partial — consolidates clinical vitals (heart rate, body temperature, pulse oximetry, blood pressure) from EHR provider systems or manual logs, but lacks direct real-time wearable device auto-sync.
+  - **Food/nutrition**: No — does not support dietary logging, calorie counting, or macronutrient tracking.
+  - **Diary/notes**: Partial — renders clinician progress notes, diagnostic imaging reports, and medical attachments, but offers limited personal diary journaling.
+- **Privacy & encryption**: Data lives locally on the user's home server or desktop database (SQLite/PostgreSQL). Database encryption at rest is supported, and all network communications use TLS/HTTPS encryption. Vendor cannot see any personal health data in self-hosted mode; zero data sales or advertising history.
+- **Data ownership**: 
+  - **Export formats**: FHIR R4 JSON bundles, SQL database dumps, and EHI export formats.
+  - **Import**: FHIR R4 JSON files, SMART-on-FHIR provider OAuth connections, and manual entry.
+  - **API**: Internal REST / FHIR API endpoints.
+  - **Lock-in**: Zero lock-in due to open source code and standardized FHIR data formats.
+- **Reminders/notifications**: 
+  - **How delivered**: Fasten Health is an EMR aggregator and does not include active personal notification/reminder push services for medication schedules or appointments.
+  - **Does it work offline**: Fasten OnPrem operates completely offline once installed locally.
+- **Integrations**: 
+  - **Wearables**: No direct consumer wearable integrations (relies on EHR bridges or manual record imports).
+  - **EHR**: Direct integration with over 50,000–70,000 US healthcare institutions using SMART-on-FHIR R4 standards.
+  - **AI features**: None natively built-in (strictly focused on standardized clinical record aggregation).
+- **Pricing / sustainability**: 100% Free and open-source for self-hosted Fasten OnPrem; paid enterprise API tier (Fasten Connect) funds ongoing development. Activity level: Active development status, ~3,200 GitHub stars, 25+ contributors, continuous commits/releases on GitHub (`fastenhealth/fasten-onprem`).
+- **Sources**:
+  - https://github.com/fastenhealth/fasten-onprem (Accessed August 2026)
+  - https://www.fastenhealth.com/ (Accessed August 2026)
+  - https://smarthealthit.org/ (Accessed August 2026)

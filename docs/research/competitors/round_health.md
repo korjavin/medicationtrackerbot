@@ -1,0 +1,37 @@
+# Round Health
+
+- **What it is**: Round Health was a minimalist medication reminder app designed by Blythe Medical and later acquired by digital pharmacy startup Alto Pharmacy. It was known for its clean aesthetic and "reminder windows" feature, which allowed users to set flexible time frames for taking medication rather than precise, rigid alarms.
+- **Platform**: iOS (iPhone) and Apple Watch native application. No Android, web, PWA, or desktop apps were created.
+- **Hosting model**: SaaS (cloud sync via account), though primarily local-first in operation. Closed-source proprietary software.
+- **Feature coverage**:
+  - **Medications**: Yes — offered flexible schedule windows, persistent push notifications, dose logging history, and pill refill counts.
+  - **BP**: No — did not track blood pressure.
+  - **Weight**: No — did not track weight.
+  - **Workouts**: No — did not track workouts or physical activity.
+  - **Sleep**: No — did not include sleep tracking.
+  - **Vitals/wearables**: Partial — synced basic pill intake history with Apple Health, but lacked vital measurement inputs.
+  - **Food/nutrition**: No — did not track food or nutrition.
+  - **Diary/notes**: No — lacked a symptom diary or general health notes feature.
+- **Privacy & encryption**:
+  - **Where data lives**: Stored locally on iOS device with optional cloud backup to Alto Pharmacy servers.
+  - **E2EE or server-side plaintext**: Standard TLS in transit and server-side encryption at rest; NOT end-to-end encrypted.
+  - **What vendor can see**: Account email, device identifiers, and logged medication schedules under Alto Pharmacy's privacy terms.
+  - **Data-sale/ads history if any**: Ad-free interface; no record of selling personal user data.
+- **Data ownership**:
+  - **Export formats**: None (did not provide CSV, PDF, or file export features).
+  - **Import**: None.
+  - **API**: None.
+  - **Lock-in**: High lock-in due to complete lack of data export capabilities.
+- **Reminders/notifications**:
+  - **How delivered**: iOS local push notifications with persistent nudges throughout the configured time window, mirrored to Apple Watch.
+  - **Does it work offline**: Yes — reminder windows were handled via local iOS notification scheduling and functioned offline.
+- **Integrations**:
+  - **Wearables**: Apple Watch native app and notifications.
+  - **EHR**: No EHR integration.
+  - **AI features**: None.
+- **Pricing / sustainability**:
+  - **Pricing**: 100% Free with no in-app purchases.
+  - **Sustainability**: Delisted / abandoned following its acquisition by Alto Pharmacy in 2020. No longer active for new users.
+- **Sources**:
+  - Alto Pharmacy Official Site: https://alto.com/ (Accessed August 2026)
+  - Cadence Health Review / Round Health: https://cadencehealth.app/ (Accessed August 2026)

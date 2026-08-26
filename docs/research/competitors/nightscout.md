@@ -1,0 +1,32 @@
+# Nightscout (cgm-remote-monitor)
+
+- **What it is**: Nightscout (`cgm-remote-monitor`) is a community-created open-source web application designed to monitor and display Continuous Glucose Monitor (CGM) and insulin pump data in real time. Born out of the `#WeAreNotWaiting` movement, it enables patients with diabetes and their caregivers to remotely view real-time blood glucose trends, treatments, and alarms from any web browser or connected device.
+- **Platform**: Web app / PWA, accessible on iOS, Android, desktop browsers, smartwatches (Apple Watch, Wear OS, Pebble), and custom display hardware.
+- **Hosting model**: Self-hosted (Node.js web application deployed via Docker, Heroku, Railway, Fly.io, or home servers) connecting to a MongoDB database; Open source under the GNU Affero General Public License v3.0 (AGPL-3.0).
+- **Feature coverage**:
+  - **Medications**: Yes — logs insulin bolus and basal dosages, carb ratios, and custom medication administration events with precise timestamps.
+  - **BP**: No — does not log or chart blood pressure data.
+  - **Weight**: No — body weight tracking is not included.
+  - **Workouts**: Partial — allows logging physical exercise duration and intensity markers to provide context for glucose fluctuations.
+  - **Sleep**: No — does not track sleep stages or duration (though overnight glucose curves are visible continuously).
+  - **Vitals/wearables**: Partial — highly specialized vital tracking for real-time continuous blood glucose telemetry, trend arrows, delta values, and sensor diagnostic data from CGMs and closed-loop pumps.
+  - **Food/nutrition**: Partial — logs carbohydrate intake grams and meal timestamps specifically for insulin calculation and postprandial glucose tracking.
+  - **Diary/notes**: Yes — supports custom treatment notes, sensor/cannula insertion site changes, and event annotations.
+- **Privacy & encryption**: Data lives in a self-managed MongoDB instance (e.g. MongoDB Atlas or local MongoDB) and the self-hosted Node.js server. Data in transit is secured via HTTPS/TLS, while API secret tokens restrict endpoint access; database storage relies on MongoDB access controls (server-side plaintext within DB). Zero vendor access or advertising/data-selling history.
+- **Data ownership**: 
+  - **Export formats**: CSV, JSON via REST API, reporting tool PDFs (Nightscout Reports), and raw database exports (`mongodump`).
+  - **Import**: REST API endpoints (`/api/v1/entries`, `/api/v1/treatments`), xDrip+, Loop, AndroidAPS, OpenAPS, Nightscout Connect, and Dexcom Share bridge.
+  - **API**: Comprehensive REST API and real-time WebSocket feeds.
+  - **Lock-in**: Zero lock-in; open data model with raw database access.
+- **Reminders/notifications**: 
+  - **How delivered**: High/low blood glucose alarms, urgent glucose drop sirens, sensor expiry alerts, and missed reading warnings delivered via web push notifications, Pushover, Pushbullet, Telegram, IFTTT, and smartwatch apps.
+  - **Does it work offline**: Browser UI caches recent data offline, but real-time telemetry updates require network connection between CGM uploader and Nightscout server.
+- **Integrations**: 
+  - **Wearables**: Integrates with Dexcom G4/G5/G6/G7, FreeStyle Libre 1/2/3, Medtronic Enlite/Guardian, Apple Watch, Garmin, and Wear OS.
+  - **EHR**: Connects directly with DIY Automated Insulin Delivery (AID) systems (Loop, AndroidAPS, OpenAPS); limited direct hospital EHR sync.
+  - **AI features**: Built-in deterministic predictive algorithms (Autotune, COB/IOB decay curves, and glucose trend forecasting).
+- **Pricing / sustainability**: 100% Free and open-source software; hosting costs depend on deployment choice (free self-hosted locally, or low-cost cloud hosting on Railway/MongoDB Atlas). Activity level: Extremely active development, ~2,600+ GitHub stars, 150+ contributors, active v15.0.x release series (e.g., v15.0.7), maintained by global volunteer community.
+- **Sources**:
+  - https://github.com/nightscout/cgm-remote-monitor (Accessed August 2026)
+  - https://www.nightscout.info/ (Accessed August 2026)
+  - https://nightscout.github.io/ (Accessed August 2026)

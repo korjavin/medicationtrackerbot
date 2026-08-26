@@ -1,0 +1,23 @@
+# Exist.io (Exist)
+
+- **What it is**: Exist.io is a personal data aggregation and analytics platform designed to unify metrics from fitness trackers, software services, and manual inputs to uncover unexpected correlations in daily life. Developed by Hello Code, it helps users analyze how factors like sleep, exercise, location, weather, and productivity impact mood and overall well-being.
+- **Platform**: Web (full-featured desktop web application) and native mobile companion applications for iOS and Android.
+- **Hosting model**: Closed-source SaaS (managed cloud service by Hello Code Pty Ltd, Australia). Proprietary license; not open-source or self-hostable.
+- **Feature coverage**:
+  - **Medications**: Partial — no dedicated pharmacy or prescription management module, but custom numeric/boolean attributes can be created to track medication compliance or dosage.
+  - **BP**: Partial — lacks a specialized clinical BP dashboard, but blood pressure (systolic/diastolic) can be tracked via custom numerical user attributes.
+  - **Weight**: Yes — logs weight and body fat percentage manually or via auto-sync from Apple Health, Fitbit, or Withings.
+  - **Workouts**: Yes — aggregates steps, active time, calories, and exercise sessions from connected fitness platforms (Strava, Apple Health, Fitbit, Garmin).
+  - **Sleep**: Yes — tracks sleep duration, time in bed, and sleep stages (light, deep, REM) synced from connected sleep trackers.
+  - **Vitals/wearables**: Yes — logs resting heart rate, heart rate variability (HRV), max heart rate, and steps imported from Apple Health, Google Fit, Oura, Fitbit, and Garmin.
+  - **Food/nutrition**: Partial — syncs calorie intake, caffeine, water, and macro totals from connected third-party services (e.g., Apple Health/Fitbit), but lacks a built-in food database or meal logger.
+  - **Diary/notes**: Yes — features daily qualitative notes, custom tag tracking, daily mood ratings (1–9 scale), and evening reflection prompts.
+- **Privacy & encryption**: Data is stored on secure cloud servers operated by Hello Code in Australia/US. All network traffic is encrypted via TLS/HTTPS, with data encrypted at rest. Server-side plaintext processing (not zero-knowledge E2EE) is used to perform cross-service statistical correlation calculations. Hello Code enforces a strict business model funded solely by user subscriptions, with an explicit policy never to sell user data, serve third-party ads, or include third-party tracking scripts in mobile apps.
+- **Data ownership**: Export available via complete account JSON download, quantitative attribute CSV export, and PDF summary reports. Supports data import via API integrations (Fitbit, Apple Health, Strava, RescueTime, Todoist, Toggl, GitHub, Weather, etc.) and manual attribute entry. Features a public, well-documented REST API (v2) supporting full read/write access to user metrics and custom attributes via JSON payloads over OAuth2. Zero lock-in due to open REST API and full JSON/CSV export capabilities.
+- **Reminders/notifications**: Delivered via native mobile push notifications and email prompts to log daily mood ratings, custom attribute values, and notes. Requires internet connectivity for sync and calculation of correlations, with temporary offline queueing for mobile entry.
+- **Integrations**: Syncs with major wearables and fitness platforms (Apple Health, Google Fit/Health Connect, Fitbit, Oura, Garmin, Withings) as well as digital productivity and lifestyle tools (RescueTime, Todoist, Toggl, GitHub, Pocket, Spotify, OpenWeatherMap). No direct EHR/patient portal integration. AI features include an automated statistical correlation engine (calculating Pearson correlation coefficients and p-values between attributes), but no generative LLM AI assistant.
+- **Pricing / sustainability**: Subscription-only model. Offers a 30-day free trial, then costs $6.99/month or $62.90/year. No permanent free tier. Commercial closed-source SaaS actively maintained by Hello Code Pty Ltd.
+- **Sources**:
+  - Exist.io Official Website & Overview: https://exist.io/ (Accessed August 2026)
+  - Exist.io Privacy Policy & Data Philosophy: https://exist.io/privacy/ (Accessed August 2026)
+  - Exist Developer API (v2) Documentation: https://developer.exist.io/ (Accessed August 2026)

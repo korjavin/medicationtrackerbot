@@ -1,0 +1,38 @@
+# wger (wger Workout Manager)
+
+- **What it is**: wger (Workout Manager) is a free, open-source web and mobile application designed to manage personal fitness routines, body measurements, and dietary intake. It features an extensive exercise database, a workout planner with set/rep tracking, a meal plan creator, and progress visualization.
+- **Platform**: Web (Python/Django responsive web application), Mobile (Android via F-Droid/Google Play and iOS via App Store, built with Flutter).
+- **Hosting model**: Self-hosted (Docker container or manual Django server setup) with an optional hosted SaaS instance at `wger.de`. Open source licensed under AGPL-3.0-or-later.
+- **Feature coverage**:
+  - **Medications**: No — wger focuses strictly on fitness and nutrition and has no medication tracking features.
+  - **BP**: Partial — allows logging generic body measurements, but lacks dedicated blood pressure tracking fields (systolic/diastolic).
+  - **Weight**: Yes — logs body weight over time with interactive trend charts and CSV import/export.
+  - **Workouts**: Yes — comprehensive workout routine management, set/rep/weight logging, exercise wiki/diagrams, and rest timers.
+  - **Sleep**: No — does not track sleep hours or sleep quality.
+  - **Vitals/wearables**: No — no direct integration with wearable heart rate monitors or clinical vital signs.
+  - **Food/nutrition**: Yes — meal planning and daily food log with calorie/macro breakdown integrated with the Open Food Facts database.
+  - **Diary/notes**: Yes — supports adding free-form notes to workout sessions and day entries.
+- **Privacy & encryption**:
+  - **Where data lives**: Stored in a relational database (SQLite/PostgreSQL) on the user's self-hosted server or on `wger.de` servers if using the public instance.
+  - **E2EE or server-side plaintext**: Server-side plaintext stored in standard database tables; syncs over HTTPS/TLS using REST API JWT tokens; no end-to-end encryption (E2EE).
+  - **What vendor can see**: Zero visibility on self-hosted instances; for `wger.de` hosted accounts, instance administrators have server-side access to database records.
+  - **Data-sale/ads history if any**: Ad-free, non-commercial, no history of selling user data.
+- **Data ownership**:
+  - **Export formats**: CSV (for weight and measurement logs) and JSON (via REST API endpoints and database fixtures/dumps).
+  - **Import**: CSV import for body weight entries; JSON fixtures for exercise/food data.
+  - **API**: Full REST API with API token / JWT authentication.
+  - **Lock-in**: Minimal (open database schema, standard REST API, and full export capabilities).
+- **Reminders/notifications**:
+  - **How delivered**: Rest timer alerts and workout schedule notifications via mobile app local notifications.
+  - **Does it work offline**: Mobile app supports offline logging (with local caching via PowerSync/Flutter local storage) which syncs when connected to the server.
+- **Integrations**:
+  - **Wearables**: None natively.
+  - **EHR**: None natively.
+  - **AI features**: None.
+- **Pricing / sustainability**:
+  - **Pricing**: Free and open-source; public `wger.de` instance is free to use (supported by donations/sponsors).
+  - **Sustainability**: Highly active repository (`wger-project/wger`) with ~6,700+ GitHub stars, >100 contributors, active 2026 development (v2.6+ series with PowerSync offline sync).
+- **Sources**:
+  - GitHub Repository: https://github.com/wger-project/wger (Accessed August 2026)
+  - Documentation: https://wger.readthedocs.io/ (Accessed August 2026)
+  - Official Web Portal: https://wger.de (Accessed August 2026)

@@ -1,0 +1,38 @@
+# Dosecast
+
+- **What it is**: Dosecast is a standalone medication management application developed by Montuno Software, LLC. It provides flexible medication scheduling algorithms (such as fixed intervals or schedules calculated from the time of the last taken dose), dose tracking, and multi-device synchronization.
+- **Platform**: iOS (iPhone/iPad), Android, Amazon Fire OS. Native mobile applications. No web, PWA, or desktop applications exist.
+- **Hosting model**: Local-only by default in the Free edition; SaaS in the Pro edition via Montuno CloudSync servers. Proprietary closed-source software.
+- **Feature coverage**:
+  - **Medications**: Yes — offers advanced flexible scheduling, dosage tracking, pill quantities, adherence recording, and refill alerts.
+  - **BP**: No — does not support blood pressure tracking.
+  - **Weight**: No — does not support weight logging.
+  - **Workouts**: No — does not include workout or exercise tracking.
+  - **Sleep**: No — does not support sleep logging.
+  - **Vitals/wearables**: No — does not track vital signs or integrate with biometric wearables.
+  - **Food/nutrition**: No — does not log food/calories (only displays "take with food/water" instructional tags).
+  - **Diary/notes**: Partial — allows attaching custom notes, instructions, and doctor contacts to specific medication profiles.
+- **Privacy & encryption**:
+  - **Where data lives**: Stored locally on the user device in the Free edition; synced to Montuno cloud servers if using Pro CloudSync.
+  - **E2EE or server-side plaintext**: Encrypted in transit (SSL/TLS) and encrypted at rest; NOT end-to-end encrypted.
+  - **What vendor can see**: Montuno Software states no personally identifiable information (PII) is collected; server logs retain de-identified aggregate usage statistics.
+  - **Data-sale/ads history if any**: 100% ad-free; no history of selling user data to third parties.
+- **Data ownership**:
+  - **Export formats**: None directly built-in (no automated CSV/PDF report generation; manual SD card database backup available on Android).
+  - **Import**: Local database restore between devices; no generic CSV/health data import tool.
+  - **API**: No public consumer API.
+  - **Lock-in**: High lock-in due to the absence of standard CSV/PDF export options.
+- **Reminders/notifications**:
+  - **How delivered**: Native iOS/Android local notifications with custom alerts, smart silencing, intelligent snooze, and automatic timezone adjustments.
+  - **Does it work offline**: Yes — core local alarms trigger offline without an internet connection.
+- **Integrations**:
+  - **Wearables**: Wear OS / Android Wear smartwatch notification support.
+  - **EHR**: No EHR integration.
+  - **AI features**: None (rule-based interval scheduling and timezone engine).
+- **Pricing / sustainability**:
+  - **Pricing**: Freemium. Free Edition includes core local reminders; Pro Edition with CloudSync costs ~$2.99/month or ~$19.99/year via in-app subscription.
+  - **Sustainability**: Proprietary commercial software actively maintained by Montuno Software, LLC.
+- **Sources**:
+  - Montuno Software Official Site: https://www.montunosoftware.com/ (Accessed August 2026)
+  - Dosecast Official Site: https://www.dosecast.com/ (Accessed August 2026)
+  - Montuno Software Privacy Policy: https://www.montunosoftware.com/privacy/ (Accessed August 2026)
