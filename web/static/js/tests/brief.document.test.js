@@ -338,12 +338,14 @@ describe('Doctor brief — printable document', () => {
     // nuisance on a screen and misinformation in a document handed to a doctor.
     it('never prints a per-exercise weight or volume', () => {
         // Workouts alone, so the weight section's own kilograms cannot mask a
-        // leak here.
+        // leak here — and from <body> on, because DOC_CSS's `background:`
+        // contains a "kg" that has nothing to do with kilograms.
         const html = build({ range: briefPayload().range, workouts: workoutsPayload() }, {});
+        const body = html.slice(html.indexOf('<body>'));
 
-        expect(html).toContain('Most trained: Squat');
-        expect(html).not.toContain('kg');
-        expect(html).not.toContain('12400');
+        expect(body).toContain('Most trained: Squat');
+        expect(body).not.toContain('kg');
+        expect(body).not.toContain('12400');
     });
 
     it('prints the workout numbers without a chart when the window has no weekly activity', () => {
