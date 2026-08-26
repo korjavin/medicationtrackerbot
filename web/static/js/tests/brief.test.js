@@ -1,0 +1,403 @@
+// brief.test.js — bd med-5k6t.1, the doctor-visit brief's data half.
+//
+// Drives the REAL router (web/cloud/js/apishim.js createApiRouter — the single
+// entry point the cloud UI and mcp-responder.js share) over an in-memory
+// records port, exactly like cloud.shim-contract.meds.test.js. So these fail
+// if GET /api/brief stops being routable, if a section stops folding out of
+// its owning domain, or if an unselected section starts costing a read.
+//
+// `now` and `timeZone` are pinned, so every window boundary here is wall-clock
+// independent.
+import { describe, expect, it } from 'vitest';
+import { createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
+import { createApiRouter } from '../../../cloud/js/apishim.js';
+import { createBPDomain } from '../../../domain/bp.js';
+import { createVitalsDomain } from '../../../domain/vitals.js';
+import { createNotesDomain } from '../../../domain/notes.js';
+import { createMedicationsDomain } from '../../../domain/medications.js';
+import { createIntakeDomain } from '../../../domain/medintake.js';
+import { createAnalysis } from '../../../domain/analysis.js';
+
+const TZ = 'UTC';
+const NOW = Date.UTC(2026, 7, 20, 12, 0); // 2026-08-20T12:00:00Z
+const DAY = 24 * 60 * 60 * 1000;
+
+const iso = (ms) => new Date(ms).toISOString();
+
+// A records port that remembers which record types were read, so a test can
+// assert that an UNSELECTED section costs no read at all (the bead's
+// "only compute selected — do not compute-then-drop").
+function spyingPort(seed) {
+    const inner = createInMemoryRecordsPort(seed);
+    const listed = [];
+    return {
+        listed,
+        port: {
+            async list(type) { listed.push(type); return inner.list(type); },
+            async listRange(type, from, to) { listed.push(type); return inner.listRange(type, from, to); },
+            async put(type, record) { return inner.put(type, record); },
+            async del(type, id) { return inner.del(type, id); }
+        }
+    };
+}
+
+function routerWith(seed, records) {
+    return createApiRouter({}, {
+        records: records || createInMemoryRecordsPort(seed),
+        win: {},
+        now: () => NOW,
+        timeZone: TZ
+    });
+}
+
+function med(recordId, name, dosage, extra = {}) {
+    return {
+        recordId,
+        deleted: false,
+        archived: false,
+        name,
+        dosage,
+        schedule: JSON.stringify({ type: 'daily', times: ['08:00', '20:00'] }),
+        start_date: null,
+        end_date: null,
+        tz_shift_policy: 'flexible',
+        created_at: '2026-01-05T00:00:00.000Z',
+        ...extra
+    };
+}
+
+function intake(recordId, medicationId, scheduledAtMs, status) {
+    return {
+        recordId,
+        deleted: false,
+        medication_id: medicationId,
+        scheduled_at: iso(scheduledAtMs),
+        status,
+        source: 'schedule'
+    };
+}
+
+function bpReading(recordId, measuredAt, systolic, diastolic, pulse) {
+    const r = {
+        recordId, deleted: false, measured_at: measuredAt, systolic, diastolic, ignore_calc: false
+    };
+    if (pulse !== undefined) r.pulse = pulse;
+    return r;
+}
+
+function session(id, scheduledDate, status) {
+    return {
+        recordId: `session-${id}`, deleted: false, id, group_id: 1, variant_id: 1,
+        scheduled_date: scheduledDate, scheduled_time: '09:00', status, snooze_count: 0
+    };
+}
+
+function foodLog(recordId, eatenAt, m) {
+    return {
+        recordId, deleted: false, eaten_at: eatenAt, name: 'Meal', weight: 300,
+        calories: m.calories, protein: m.protein, carbs: m.carbs, fat: m.fat
+    };
+}
+
+// A vault with something in every section. Adherence over the window:
+// Metformin 3 TAKEN / 1 SKIPPED = 75%, Lisinopril 1 TAKEN / 1 SKIPPED = 50%,
+// overall 4/6 = 66.7%.
+function fullVault() {
+    return {
+        medication: [
+            med('med-1', 'Metformin', '500mg'),
+            med('med-2', 'Lisinopril', '10mg', {
+                schedule: JSON.stringify({ type: 'weekly', days: [1, 4], times: ['09:00'] }),
+                start_date: '2026-02-01T00:00:00.000Z'
+            })
+        ],
+        intake: [
+            intake('i-1', 'med-1', NOW - 4 * DAY, 'TAKEN'),
+            intake('i-2', 'med-1', NOW - 3 * DAY, 'TAKEN'),
+            intake('i-3', 'med-1', NOW - 2 * DAY, 'TAKEN'),
+            intake('i-4', 'med-1', NOW - 1 * DAY, 'SKIPPED'),
+            intake('i-5', 'med-2', NOW - 3 * DAY, 'TAKEN'),
+            intake('i-6', 'med-2', NOW - 2 * DAY, 'SKIPPED'),
+            // Not yet due — must not count against adherence (analysis.js's rule).
+            intake('i-7', 'med-1', NOW + 2 * DAY, 'PENDING')
+        ],
+        bp: [
+            bpReading('bp-1', '2026-08-18T09:00:00Z', 120, 80, 60),
+            bpReading('bp-2', '2026-08-19T09:00:00Z', 140, 90, 70),
+            bpReading('bp-3', '2026-08-20T09:00:00Z', 130, 85)
+        ],
+        bpgoal: [{
+            recordId: 'bpgoal', deleted: false, clientTs: NOW, target_systolic: 130, target_diastolic: 85
+        }],
+        weight: [
+            { recordId: 'w-1', deleted: false, measured_at: iso(NOW - 10 * DAY), weight: 82.0 },
+            { recordId: 'w-2', deleted: false, measured_at: iso(NOW - 1 * DAY), weight: 80.5 }
+        ],
+        sleep: [
+            {
+                recordId: 'sleep-1', deleted: false, day: '2026-08-18',
+                start_time: '2026-08-17T23:00:00Z', end_time: '2026-08-18T06:00:00Z',
+                total_minutes: 420, heart_rate_avg: 58
+            },
+            {
+                recordId: 'sleep-2', deleted: false, day: '2026-08-19',
+                start_time: '2026-08-18T23:00:00Z', end_time: '2026-08-19T07:00:00Z',
+                total_minutes: 480, heart_rate_avg: 62
+            }
+        ],
+        note: [{
+            recordId: '1000', deleted: false, content: 'dizzy after the morning dose',
+            created_at: '2026-08-19T10:00:00Z'
+        }],
+        foodlog: [
+            foodLog('f-1', '2026-08-18T12:00:00Z', {
+                calories: 400, protein: 30, carbs: 40, fat: 10
+            }),
+            foodLog('f-2', '2026-08-19T12:00:00Z', {
+                calories: 600, protein: 50, carbs: 60, fat: 20
+            })
+        ],
+        workoutsession: [
+            session(1, iso(NOW - 5 * DAY), 'completed'),
+            session(2, iso(NOW - 10 * DAY), 'completed'),
+            session(3, iso(NOW - 100 * DAY), 'completed'),
+            session(4, iso(NOW - 3 * DAY), 'skipped')
+        ]
+    };
+}
+
+describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
+    it('defaults to a 90-day window and the five clinical sections', async () => {
+        const call = routerWith(fullVault());
+
+        const brief = await call('/api/brief', 'GET');
+
+        expect(brief.range).toEqual({
+            days: 90,
+            from: iso(NOW - 90 * DAY),
+            to: iso(NOW),
+            generated_at: iso(NOW)
+        });
+        expect(Object.keys(brief).sort()).toEqual([
+            'bp', 'medications', 'notes', 'overall_adherence_pct', 'range', 'vitals', 'weight'
+        ]);
+        // Food and workouts are opt-in.
+        expect(brief.food).toBeUndefined();
+        expect(brief.workouts).toBeUndefined();
+    });
+
+    it.each([30, 90, 180])('honors days=%i', async (days) => {
+        const call = routerWith(fullVault());
+
+        const brief = await call(`/api/brief?days=${days}`, 'GET');
+
+        expect(brief.range.days).toBe(days);
+        expect(brief.range.from).toBe(iso(NOW - days * DAY));
+    });
+
+    it('falls back to 90 days for an unsupported or garbage days value', async () => {
+        const call = routerWith(fullVault());
+
+        expect((await call('/api/brief?days=45', 'GET')).range.days).toBe(90);
+        expect((await call('/api/brief?days=banana', 'GET')).range.days).toBe(90);
+        // A whole-value parse: parseInt would have honored both of these as 30.
+        expect((await call('/api/brief?days=30junk', 'GET')).range.days).toBe(90);
+        expect((await call('/api/brief?days=30.5', 'GET')).range.days).toBe(90);
+    });
+
+    it('returns only the selected sections, opt-ins included', async () => {
+        const call = routerWith(fullVault());
+
+        const brief = await call('/api/brief?days=30&sections=meds,food,workouts', 'GET');
+
+        expect(Object.keys(brief).sort()).toEqual([
+            'food', 'medications', 'overall_adherence_pct', 'range', 'workouts'
+        ]);
+    });
+
+    it('ignores unknown section names', async () => {
+        const call = routerWith(fullVault());
+
+        const brief = await call('/api/brief?sections=bp,telepathy', 'GET');
+
+        expect(Object.keys(brief).sort()).toEqual(['bp', 'range']);
+    });
+
+    it('never reads a domain whose section was not selected', async () => {
+        const { port, listed } = spyingPort(fullVault());
+        const call = routerWith(null, port);
+
+        await call('/api/brief?sections=bp', 'GET');
+
+        expect(listed).toContain('bp');
+        for (const unselected of ['weight', 'sleep', 'note', 'intake', 'foodlog', 'workoutsession']) {
+            expect(listed).not.toContain(unselected);
+        }
+    });
+
+    it('folds medications with per-med and overall adherence', async () => {
+        const call = routerWith(fullVault());
+
+        const brief = await call('/api/brief?days=30&sections=meds', 'GET');
+
+        expect(brief.medications).toEqual([
+            {
+                name: 'Lisinopril',
+                dosage: '10mg',
+                schedule_summary: 'Mon, Thu at 09:00',
+                started_at: '2026-02-01T00:00:00.000Z',
+                adherence_pct: 50
+            },
+            {
+                name: 'Metformin',
+                dosage: '500mg',
+                schedule_summary: 'daily at 08:00, 20:00',
+                started_at: '2026-01-05T00:00:00.000Z',
+                adherence_pct: 75
+            }
+        ]);
+        expect(brief.overall_adherence_pct).toBe(66.7);
+    });
+
+    // The acceptance pin: the brief must never disagree with the composite
+    // analysis about the same window, because it folds the same rows the same
+    // way (analysis.js's medications section) rather than re-deriving them.
+    it('reports the adherence analysis.js reports for the same window', async () => {
+        const seed = fullVault();
+        const call = routerWith(seed);
+        const records = createInMemoryRecordsPort(seed);
+        const now = () => NOW;
+        const analysis = createAnalysis({
+            bp: createBPDomain({ records, now, timeZone: TZ }),
+            vitals: createVitalsDomain({ records, now, timeZone: TZ }),
+            notes: createNotesDomain({ records, now }),
+            medications: createMedicationsDomain({
+                records, now, timeZone: TZ, rxnorm: { normalize: async () => null }
+            }),
+            intake: createIntakeDomain({ records, now, timeZone: TZ }),
+            now,
+            timeZone: TZ
+        });
+
+        const brief = await call('/api/brief?days=30&sections=meds', 'GET');
+        const composite = await analysis.cardiovascular({ days: 30 });
+
+        const rate = composite.medications.adherence_rate;
+        expect(brief.overall_adherence_pct).toBe(Math.round(rate * 10) / 10);
+    });
+
+    it('folds BP into avg/min/max plus the chart series and the goal', async () => {
+        const call = routerWith(fullVault());
+
+        const { bp } = await call('/api/brief?days=30&sections=bp', 'GET');
+
+        expect(bp.count).toBe(3);
+        expect(bp.systolic).toEqual({ avg: 130, min: 120, max: 140 });
+        expect(bp.diastolic).toEqual({ avg: 85, min: 80, max: 90 });
+        expect(bp.pulse).toEqual({ avg: 65, min: 60, max: 70 });
+        expect(bp.goal).toEqual({ target_systolic: 130, target_diastolic: 85 });
+        // Oldest first — the printed chart reads left-to-right.
+        expect(bp.readings.map((r) => r.measured_at)).toEqual([
+            '2026-08-18T09:00:00Z', '2026-08-19T09:00:00Z', '2026-08-20T09:00:00Z'
+        ]);
+        expect(bp.readings[2].pulse).toBeNull();
+    });
+
+    // The vault stores kilograms and every other surface converts at render
+    // time (core/utils.js formatWeight), so the brief ships kg and lets the doc
+    // builder do the one conversion — a second KG_PER_LB down here would drift.
+    it('folds weight into start/end/delta plus the chart series, in stored kg', async () => {
+        const call = routerWith(fullVault());
+
+        const { weight } = await call('/api/brief?days=30&sections=weight', 'GET');
+
+        expect(weight).toEqual({
+            start: 82.0,
+            end: 80.5,
+            delta: -1.5,
+            unit: 'kg',
+            points: [
+                { measured_at: iso(NOW - 10 * DAY), weight: 82.0 },
+                { measured_at: iso(NOW - 1 * DAY), weight: 80.5 }
+            ]
+        });
+    });
+
+    it('folds vitals into average sleep and a resting-HR proxy', async () => {
+        const call = routerWith(fullVault());
+
+        const { vitals } = await call('/api/brief?days=30&sections=vitals', 'GET');
+
+        expect(vitals).toEqual({ avg_sleep_minutes: 450, resting_hr: 60 });
+    });
+
+    it('lists diary notes as date + text', async () => {
+        const call = routerWith(fullVault());
+
+        const { notes } = await call('/api/brief?days=30&sections=notes', 'GET');
+
+        expect(notes).toEqual([{ date: '2026-08-19', text: 'dizzy after the morning dose' }]);
+    });
+
+    it('averages food over the days actually logged, with the stored targets', async () => {
+        const call = routerWith(fullVault());
+
+        const { food } = await call('/api/brief?days=30&sections=food', 'GET');
+
+        expect(food).toEqual({
+            days_logged: 2,
+            avg_kcal: 500,
+            avg_protein: 40,
+            avg_carbs: 50,
+            avg_fat: 15,
+            targets: { calories: 0, carbs: 0, protein: 0, fat: 0 }
+        });
+    });
+
+    it('counts completed workouts over the requested window, 180 days included', async () => {
+        const call = routerWith(fullVault());
+
+        // 2 completed in the last 30 days (the third is 100 days back, the
+        // fourth was skipped).
+        expect((await call('/api/brief?days=30&sections=workouts', 'GET')).workouts)
+            .toEqual({ session_count: 2, per_week: 0.5 });
+        // 180 must not silently fall back to the 30-day range — it would still
+        // say 2 if it did.
+        expect((await call('/api/brief?days=180&sections=workouts', 'GET')).workouts)
+            .toEqual({ session_count: 3, per_week: 0.1 });
+    });
+
+    it('degrades an empty section to null/empty instead of throwing', async () => {
+        // A vault with meds + BP only: no weight, notes, sleep, food or workouts.
+        const call = routerWith({
+            medication: [med('med-1', 'Metformin', '500mg')],
+            bp: [bpReading('bp-1', '2026-08-18T09:00:00Z', 120, 80, 60)]
+        });
+
+        const brief = await call('/api/brief?sections=meds,bp,weight,vitals,notes,food,workouts', 'GET');
+
+        expect(brief.weight).toEqual({
+            start: null, end: null, delta: null, unit: 'kg', points: []
+        });
+        expect(brief.vitals).toEqual({ avg_sleep_minutes: null, resting_hr: null });
+        expect(brief.notes).toEqual([]);
+        expect(brief.food.days_logged).toBe(0);
+        expect(brief.food.avg_kcal).toBeNull();
+        expect(brief.workouts).toEqual({ session_count: 0, per_week: 0 });
+        // No intakes at all — "nothing scheduled" is null, not 0% adherence.
+        expect(brief.medications[0].adherence_pct).toBeNull();
+        expect(brief.overall_adherence_pct).toBeNull();
+        expect(brief.bp.count).toBe(1);
+        expect(brief.bp.pulse).toEqual({ avg: 60, min: 60, max: 60 });
+    });
+
+    it('reports an empty BP window without inventing statistics', async () => {
+        const call = routerWith({ medication: [med('med-1', 'Metformin', '500mg')] });
+
+        const { bp } = await call('/api/brief?sections=bp', 'GET');
+
+        expect(bp).toEqual({
+            count: 0, systolic: null, diastolic: null, pulse: null, goal: {}, readings: []
+        });
+    });
+});

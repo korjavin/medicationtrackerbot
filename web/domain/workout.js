@@ -2158,7 +2158,12 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // rest day is simply absent, exactly like an untrained week in
   // weekly_activity); the Consistency calendar fills the gaps itself.
   async function getStats(opts) {
-    const rangeDays = { '7d': 7, '30d': 30, '90d': 90 };
+    // '180d' has no range pill in the Stats view — it exists because the
+    // doctor-visit brief (brief.js) offers a 180-day window and folds its
+    // workout counts out of this same op instead of re-deriving them.
+    const rangeDays = {
+      '7d': 7, '30d': 30, '90d': 90, '180d': 180,
+    };
     const requested = opts && opts.range;
     const range = (requested === 'all' || rangeDays[requested]) ? requested : '30d';
     // The 500-cap mirrors Go's ListHistory(userID, 500).

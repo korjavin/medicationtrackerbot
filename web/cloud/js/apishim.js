@@ -16,6 +16,7 @@ import { createFoodAIDomain } from '../../domain/foodai.js';
 import { createWorkoutDomain } from '../../domain/workout.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
 import { createAnalysis } from '../../domain/analysis.js';
+import { createBriefDomain } from '../../domain/brief.js';
 import {
   MAX_LIMIT, clampLimit, clampDays, clampOffset, pageOf,
 } from '../../domain/paginate.js';
@@ -205,6 +206,12 @@ export function createApiRouter(ctx, {
   async function writeWeightUnit(unit) {
     await records.put(UNIT_RECORD_TYPE, { recordId: 'weight-unit', clientTs: now(), deleted: false, unit });
   }
+
+  // Doctor-visit brief (med-5k6t.1) — a printable summary folded from the
+  // domains above, nothing of its own.
+  const brief = createBriefDomain({
+    bp, weight, vitals, notes, medications, intake, food, workout, settings, now,
+  });
 
   // settingsResponse builds the {settings, features} subset shared by
   // GET /api/settings and the bootstrap payload — the settings-only reads,
@@ -467,6 +474,13 @@ export function createApiRouter(ctx, {
       };
       return path.endsWith('cardiovascular-analysis')
         ? analysis.cardiovascular(opts) : analysis.fitness(opts);
+    }
+
+    // Doctor-visit brief — one read assembling the printable appointment
+    // summary. Cloud-only for now (the MCP registry op is med-5k6t.3), so
+    // neither the catalog drift test nor the Go coverage guard applies.
+    if (path === '/api/brief' && method === 'GET') {
+      return brief.build({ days: params.get('days'), sections: params.get('sections') });
     }
 
     if (path === '/api/health/overview' && method === 'GET') return vitals.overview();
