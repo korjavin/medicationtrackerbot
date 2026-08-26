@@ -17,6 +17,7 @@ import { createNotesDomain } from '../../../domain/notes.js';
 import { createMedicationsDomain } from '../../../domain/medications.js';
 import { createIntakeDomain } from '../../../domain/medintake.js';
 import { createAnalysis } from '../../../domain/analysis.js';
+import { createWorkoutDomain } from '../../../domain/workout.js';
 
 const TZ = 'UTC';
 const NOW = Date.UTC(2026, 7, 20, 12, 0); // 2026-08-20T12:00:00Z
@@ -94,6 +95,17 @@ function session(id, scheduledDate, status) {
     return {
         recordId: `session-${id}`, deleted: false, id, group_id: 1, variant_id: 1,
         scheduled_date: scheduledDate, scheduled_time: '09:00', status, snooze_count: 0
+    };
+}
+
+// A completed exercise log inside `sessionId`. The scalar (sets/reps/weight)
+// shape, not the per-set array — that is what a pre-med-qj4 log looks like and
+// it is enough for the stats fold.
+function exerciseLog(id, sessionId, name, sets, reps, kg) {
+    return {
+        recordId: `log-${id}`, deleted: false, id, session_id: sessionId, exercise_id: id,
+        exercise_name: name, status: 'completed', sets_completed: sets, reps_completed: reps,
+        weight_kg: kg, logged_at: iso(NOW - 5 * DAY)
     };
 }
 
@@ -600,11 +612,85 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
         // 2 completed in the last 30 days (the third is 100 days back, the
         // fourth was skipped).
         expect((await call('/api/brief?days=30&sections=workouts', 'GET')).workouts)
-            .toEqual({ session_count: 2, per_week: 0.5 });
+            .toMatchObject({ session_count: 2, per_week: 0.5 });
         // 180 must not silently fall back to the 30-day range — it would still
         // say 2 if it did.
         expect((await call('/api/brief?days=180&sections=workouts', 'GET')).workouts)
-            .toEqual({ session_count: 3, per_week: 0.1 });
+            .toMatchObject({ session_count: 3, per_week: 0.1 });
+    });
+
+    // bd med-29gh.4 — the brief's Workouts section used to be two numbers and
+    // throw the rest of the getStats response away. The chart and the stats
+    // line in the printed doc are fed from these, out of the SAME single call.
+    it('carries the chart series, totals, streak and top exercises alongside the counts', async () => {
+        const vault = fullVault();
+        vault.exerciselog = [
+            exerciseLog(1, 1, 'Squat', 3, 5, 100),
+            exerciseLog(2, 2, 'Squat', 3, 5, 100),
+            exerciseLog(3, 1, 'Bench press', 3, 8, 60),
+            // A 0 kg log, the shape bd med-45u is about. It must still be
+            // countable by NAME — what must never reach paper is its weight.
+            exerciseLog(4, 1, 'Plank', 0, 0, 0)
+        ];
+        const call = routerWith(vault);
+
+        const { workouts } = await call('/api/brief?days=30&sections=workouts', 'GET');
+
+        expect(workouts).toEqual({
+            session_count: 2,
+            per_week: 0.5,
+            // Range-independent by contract: a streak is a property of the
+            // whole history, not of the window being printed.
+            current_streak_weeks: 1,
+            totals: {
+                volume_kg: 4440, hard_sets: 9, easy_sets: 0, reps: 54, pr_count: 2
+            },
+            // ISO-Monday buckets, exactly the shape WGWorkoutChart's `sessions`
+            // option consumes.
+            weekly_activity: [
+                { week: '2026-08-10', completed: 2, skipped: 0 },
+                { week: '2026-08-17', completed: 0, skipped: 1 }
+            ],
+            top_exercises: [
+                { exercise_name: 'Squat', session_count: 2 },
+                { exercise_name: 'Bench press', session_count: 1 },
+                { exercise_name: 'Plank', session_count: 1 }
+            ]
+        });
+        // The point of the trim, asserted rather than implied: no per-exercise
+        // weight or volume can reach the document (bd med-45u would print a
+        // "0 kg" Plank row at a doctor).
+        for (const e of workouts.top_exercises) {
+            expect(Object.keys(e).sort()).toEqual(['exercise_name', 'session_count']);
+        }
+    });
+
+    // The drift guard (the counterpart of the sleep_daily one above). Nothing
+    // in the brief re-derives a workout number: if workoutsSection ever grows
+    // its own fold, or getStats changes shape under it, this fails.
+    it('passes the workout series through byte-identical from workout.getStats', async () => {
+        const vault = fullVault();
+        vault.exerciselog = [exerciseLog(1, 1, 'Squat', 3, 5, 100)];
+        const records = createInMemoryRecordsPort(vault);
+        const call = routerWith(null, records);
+        const workoutDomain = createWorkoutDomain({ records, now: () => NOW, timeZone: TZ });
+
+        const [{ workouts }, stats] = await Promise.all([
+            call('/api/brief?days=90&sections=workouts', 'GET'),
+            workoutDomain.getStats({ range: '90d' })
+        ]);
+
+        expect(workouts.session_count).toBe(stats.completed_sessions);
+        expect(workouts.current_streak_weeks).toBe(stats.current_streak_weeks);
+        expect(workouts.totals).toEqual(stats.totals);
+        expect(workouts.weekly_activity).toEqual(stats.weekly_activity);
+        // top_exercises is the one deliberately narrowed field — same rows,
+        // same order, weights dropped.
+        expect(workouts.top_exercises).toEqual(
+            stats.top_exercises.map((e) => ({
+                exercise_name: e.exercise_name, session_count: e.session_count
+            }))
+        );
     });
 
     it('degrades an empty section to null/empty instead of throwing', async () => {
@@ -623,7 +709,19 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
         expect(brief.notes).toEqual([]);
         expect(brief.food.days_logged).toBe(0);
         expect(brief.food.avg_kcal).toBeNull();
-        expect(brief.workouts).toEqual({ session_count: 0, per_week: 0 });
+        // Empty window: weekly_activity and top_exercises are null, NEVER [] —
+        // a Go-contract passthrough (workout.js getStats header) that both the
+        // chart branch and the doc read with Array.isArray.
+        expect(brief.workouts).toEqual({
+            session_count: 0,
+            per_week: 0,
+            current_streak_weeks: 0,
+            totals: {
+                volume_kg: 0, hard_sets: 0, easy_sets: 0, reps: 0, pr_count: 0
+            },
+            weekly_activity: null,
+            top_exercises: null
+        });
         // No intakes at all — "nothing scheduled" is null, not 0% adherence.
         expect(brief.medications[0].adherence_pct).toBeNull();
         expect(brief.overall_adherence_pct).toBeNull();

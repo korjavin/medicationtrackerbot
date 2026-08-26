@@ -260,6 +260,25 @@ export function createBriefDomain({
     return {
       session_count: sessionCount,
       per_week: round1(sessionCount / (days / 7)),
+      // Everything below is passed through byte-identical from the ONE
+      // getStats call above (bd med-29gh.4) — no second fold, so the brief's
+      // workout numbers can never disagree with the Workouts screen's.
+      // weekly_activity and top_exercises are `null`, never `[]`, on an empty
+      // window (Go-contract passthrough, see workout.js getStats header); both
+      // callers read them with Array.isArray.
+      current_streak_weeks: stats.current_streak_weeks,
+      totals: stats.totals,
+      weekly_activity: stats.weekly_activity,
+      // ponytail: name + session count only, dropping top_exercises'
+      // total_volume_kg / max_weight_kg. A warm-up-only log reports 0 kg there
+      // (bd med-45u); a "0 kg" row is a nuisance on screen and misinformation
+      // in a document handed to a doctor. Names + counts sidestep it entirely
+      // and need no dependency on that fix.
+      top_exercises: Array.isArray(stats.top_exercises)
+        ? stats.top_exercises.map((e) => ({
+          exercise_name: e.exercise_name, session_count: e.session_count,
+        }))
+        : null,
     };
   }
 
