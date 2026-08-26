@@ -36,3 +36,31 @@
   - GitHub Main Repository: https://github.com/oliexdev/openScale (Accessed August 2026)
   - GitHub Sync Companion Repo: https://github.com/oliexdev/openScale-sync (Accessed August 2026)
   - F-Droid Listing: https://f-droid.org/en/packages/com.health.openscale/ (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **Community & Install Signals**: **~2,500+ GitHub stars** and **>220 contributors** on `oliexdev/openScale`. Primary distribution via **F-Droid** (estimated **50,000–100,000 active F-Droid installations**) and Play Store (`openScale sync` ~2,500+ downloads) (Source: GitHub, F-Droid, AppBrain, August 2026).
+- **Estimated Active Base**: Estimated **50,000–100,000 active privacy-focused users** globally.
+- **Licensing & Financials**: 100% Free Open Source Software (GPL-3.0 license). $0 commercial revenue.
+- **Code Signals**: Native Android app (Kotlin / Jetpack Compose) without `INTERNET` permission.
+
+### 2. Killer features — why customers actually choose it
+- **Bypassing Vendor Scale Cloud Accounts**: Directly reads Bluetooth LE data from 50+ cheap smart scales (Xiaomi, Beurer, Yunmai, Sanitas) without installing vendor cloud apps (paraphrased theme from `r/F_Droid` & `r/selfhosted`).
+- **Zero-Internet Local Privacy**: Core openScale app does not request Android `INTERNET` permission.
+- **Home Assistant & MQTT Integration**: Syncs scale weight data directly to home automation MQTT brokers via `openScale-sync`.
+
+### 3. Marketing & acquisition — how self-hosters discover it
+- **Channels**: F-Droid catalogue recommendations, privacy subreddits (`r/F_Droid`, `r/selfhosted`, `r/QuantifiedSelf`), and Home Assistant forum tutorials.
+- **What we can learn**: **Zero-Account Local Utility.** Market our PWA's instant local start and privacy guarantees to users looking for local-first health logging without cloud vendor tracking.
+
+### 4. Beating them in comparison
+
+| Feature / Dimension | openScale | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **Platform Scope** | Android-only local app (No iOS, Web, PWA, or Desktop access) | **Cross-Platform PWA** (Runs on iOS, Android, Windows, Mac, Linux, Web) |
+| **Multi-Device Sync** | Local-only (requires custom MQTT setup for sync) | **Sync Without Trust** (WebAuthn/Passkey auth + browser E2EE + blind push relay) |
+| **Health Domain Scope** | Weight/body composition only (No medication or symptom tracking) | **Full Medication Safety, Dosing, & Clinical Vitals Workbench** |
+
+- **Winning Angle**: openScale is an Android-only app strictly focused on Bluetooth scales with no web interface or medication tracking. Our Zero-Knowledge PWA provides multi-device sync without vendor trust — WebAuthn passkey security, full medication adherence, symptom correlation, and universal web browser access.
+- **Where we lose & how to neutralize it**: We lose on direct Web Bluetooth LE smart scale decoding. Neutralize by supporting CSV import of openScale weight logs.

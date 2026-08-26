@@ -36,3 +36,31 @@
   - GitHub Repository: https://github.com/wger-project/wger (Accessed August 2026)
   - Documentation: https://wger.readthedocs.io/ (Accessed August 2026)
   - Official Web Portal: https://wger.de (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **Community & Install Signals**: **~6,700+ GitHub stars** and **100+ contributors** on `wger-project/wger`. **27,000+ total downloads** on Google Play Store (`de.wger.flutter`) with primary distribution via Docker Hub (**>1,000,000 pulls** across wger server images) and F-Droid (Source: GitHub, AppBrain, Docker Hub, August 2026).
+- **Estimated Active Base**: Estimated **10,000–25,000 active self-hosters and app users** globally.
+- **Licensing & Financials**: Free open-source software (AGPL-3.0 license); funded via Open Collective donations and public `wger.de` sponsorships.
+- **Code Signals**: Python/Django backend + Flutter mobile app + REST API.
+
+### 2. Killer features — why customers actually choose it
+- **Self-Hosted Gym & Meal Management**: Complete self-hosted alternative to proprietary gym workout planners (Hevy, Strong) and calorie counters (MyFitnessPal).
+- **Comprehensive REST API**: Quantified Self power users choose wger because of its open REST API to push workout data into personal dashboards (paraphrased theme from `r/selfhosted` & `r/QuantifiedSelf`).
+- **Open Food Facts Integration**: Pulls nutritional data from open-source databases without paywalls.
+
+### 3. Marketing & acquisition — how self-hosters discover it
+- **Channels**: Recommendations on `r/selfhosted`, `awesome-selfhosted` curated lists, and homelab YouTube setup guides.
+- **What we can learn**: **Targeting Self-Hosted Curated Directories.** Ensure our PWA is listed in `awesome-selfhosted` and privacy directories as a zero-knowledge health tracking vault.
+
+### 4. Beating them in comparison
+
+| Feature / Dimension | wger | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **Server Deployment Complexity** | Complex Docker/Django/PostgreSQL self-hosting setup required | **Zero-Setup PWA Instant Access** (Runs in any browser; optional single-container server) |
+| **Data Encryption Architecture** | Plaintext database on server (no E2EE) | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, server holds ciphertext) |
+| **Medication & Clinical Scope** | 100% focused on gym workouts/macros (No meds or clinical vitals) | **Full Medication Safety, Dosing, & Clinical Vitals Workbench** |
+
+- **Winning Angle**: wger requires setting up complex Docker/PostgreSQL containers, stores plaintext data on the server, and has no medication or clinical health features. Our PWA provides zero-knowledge multi-device sync without vendor trust — instant browser access, WebAuthn passkey authentication, and full medication/symptom tracking.
+- **Where we lose & how to neutralize it**: We lose on wger's built-in exercise wiki database. Neutralize by offering flexible custom workout metric logging.

@@ -30,3 +30,31 @@
   - Samsung Developer Program - Samsung Health: https://developer.samsung.com/health (Accessed August 2026)
   - Samsung Knox Security Platform: https://security.samsungmobile.com/ (Accessed August 2026)
   - Samsung Knox Security Solutions: https://www.samsungknox.com/en/solutions/knox-platform-for-enterprise (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **User Count & Downloads**: Google Play Store bracket is **1,000,000,000+** downloads (`com.sec.android.app.shealth`) with ~1,300,000+ reviews (4.5-star rating). Pre-installed on all Samsung Galaxy smartphones worldwide (>1 billion active Galaxy devices) (Source: Google Play Store & Samsung Electronics Statements, August 2026).
+- **Estimated Active Base**: `(unverified estimate based on ~1B active Galaxy devices)` Estimated >200,000,000 active monthly users globally across Galaxy smartphones, Galaxy Watches (Watch 4/5/6/7/Ultra), and Galaxy Rings.
+- **Corporate Ownership & Financials**: Division of Samsung Electronics Co., Ltd. (KRX: `005930`), backed by Samsung's global consumer electronics and mobile hardware revenues.
+- **Code Signals**: Closed-source proprietary ecosystem software; Knox security platform integration.
+
+### 2. Killer features — why customers actually choose it
+- **Exclusive Wearable Biometrics (BIA Body Comp, BP, ECG, Sleep Apnea)**: Provides Bioelectrical Impedance Analysis (BIA) body fat tracking, cuffless blood pressure monitoring, ECG rhythm checks, and FDA-cleared Sleep Apnea detection directly on the wrist.
+- **Visual UI & Energy Score Coaching**: Delivers visual Sleep Animals, daily Energy Scores, and automatic workout detection (paraphrased theme from `r/galaxywatch` & `r/SamsungHealth`).
+- **Out-of-the-Box Galaxy Hardware Synergy**: Instant pairing and automatic step/sleep tracking across Galaxy devices.
+
+### 3. Marketing & acquisition — how they win customers
+- **Channels**: 100% factory pre-installation on all Galaxy smartphones, hardware bundling/trade-in promotions with Galaxy Watches/Rings, and feature-gating ECG/BP features exclusively to Samsung Galaxy phones to drive phone retention.
+- **What we can learn**: **Frictionless Daily Engagement Summaries.** Build an intuitive daily summary (Medication Adherence Score, Routine Streak, Quick-Action Vitals Logging) that provides immediate value in under 5 seconds upon opening the app.
+
+### 4. Beating them in comparison
+
+| Feature / Dimension | Samsung Health | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **Hardware / OS Ecosystem** | Soft-locked to Samsung Galaxy hardware & Android (restricted on non-Samsung/iOS) | **100% Cross-Platform PWA** (Runs on iOS, Android, Windows, Mac, Linux, Web) |
+| **Privacy & Telemetry** | Mandatory Samsung Cloud processing; unencrypted server-side DBs | **Zero-Knowledge Vault** (Passkey auth, client-side encryption, blind push relay) |
+| **Web Client Access** | Web portal retired; mobile-only access | **WebAuthn Authenticated Web Interface** |
+
+- **Winning Angle**: Samsung Health locks advanced features into Samsung Galaxy hardware, requires broad cloud data processing terms on Samsung Cloud, and has no web/desktop interface. Our PWA provides zero-knowledge multi-device sync without vendor trust — WebAuthn passkey security, client-side encryption, blind push alerts, and universal browser access on any platform.
+- **Where we lose & how to neutralize it**: We lose on wrist-based hardware BIA body composition and continuous ECG telemetry. Neutralize by positioning our PWA as the platform-agnostic active health management workbench that accepts manual/file imports of wearable biometrics.

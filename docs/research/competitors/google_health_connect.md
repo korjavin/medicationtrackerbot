@@ -30,3 +30,31 @@
   - Android Developers - Medical Records in Health Connect: https://developer.android.com/health-and-fitness/guides/health-connect/develop/medical-records (Accessed August 2026)
   - Google Support - About Health Connect on Android: https://support.google.com/fit/answer/12912440 (Accessed August 2026)
   - Google Play Developer Policy - Health Connect Data Policy: https://support.google.com/googleplay/android-developer/answer/9888379 (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **User Count & Platform Reach**: Pre-baked as a core OS framework module into **Android 14+** across **>3 billion active Android devices** globally. Standalone Play Store app (for Android 9–13) has **500,000,000+ downloads** with ~87,000+ reviews (3.4-star rating) (Source: Google Play Store & Android Developer Documentation, August 2026).
+- **Estimated Active Base**: `(unverified estimate based on ~3B active Android devices)` Industry estimates >500,000,000 active devices have Health Connect enabled or actively processing background telemetry across integrated apps.
+- **Developer Adoption Signals**: Integrated into **>500 major health apps** (Fitbit, Samsung Health, Garmin, Strava, Oura, MyFitnessPal, Peloton, Whoop). Google mandated 100% developer migration from deprecated Google Fit APIs to Health Connect Jetpack SDK by end of 2026.
+- **Code Signals**: Proprietary Android OS framework component and Jetpack SDK.
+
+### 2. Killer features — why customers actually choose it
+- **Standardized On-Device Data Hub (No 3rd-Party Paywalls)**: Operates as a free, native, on-device data broker that passes steps, heart rate, sleep, and workouts between rival Android apps without requiring third-party subscription sync bridges (paraphrased theme from `r/android` & `r/Fitbit`).
+- **Granular Centralized OS Permission Sheet**: Unified settings sheet (`Settings > Privacy > Health Connect`) where users toggle exact read/write permissions per metric per app.
+- **Low-Latency Local SQLite Storage**: Data resides on-device in an encrypted system store, ensuring offline capability without forced cloud scraping.
+
+### 3. Marketing & acquisition — how they win customers
+- **Channels**: 100% default pre-installation on Android 14+, Pixel hardware ecosystem promotion, and Play Store developer policy incentives mandating Health Connect adoption.
+- **What we can learn**: **Granular Self-Sovereign Permission Sheets.** Adopt Health Connect's popular permission sheet UX pattern (letting users toggle exact read/write permissions per metric domain) while offering full cross-platform access beyond Android.
+
+### 4. Beating them in comparison
+
+| Feature / Dimension | Google Health Connect | Our Zero-Knowledge PWA |
+| :--- | :--- | :--- |
+| **Platform Ecosystem** | Strictly locked to Android OS (No iOS, Windows, Linux, or Web) | **Cross-Platform PWA** (Runs on iOS, Android, Windows, Mac, Linux, Web) |
+| **Desktop / Web Interface** | Zero web interface; mobile-only framework | **WebAuthn/Passkey Authenticated Web Interface** |
+| **Encryption Architecture** | Google Account OS telemetry integration | **Zero-Knowledge Vault** (Browser holds keys & plaintext; server holds ciphertext) |
+
+- **Winning Angle**: Google Health Connect is locked strictly to Android devices and lacks any web or desktop interface. Our Zero-Knowledge PWA provides cross-platform multi-device sync without vendor trust — browser-managed encryption, Passkey authentication, and universal browser access across iOS, Android, Windows, Mac, and Linux.
+- **Where we lose & how to neutralize it**: We lose on native low-level background Android app-to-app data sharing. Neutralize by supporting Health Connect / Apple Health file import utilities and positioning our PWA as the secure personal health workbench.
