@@ -448,11 +448,21 @@ describe('mcp_help wire contract (generated catalog)', () => {
     for (const id of ['workouts.groups.list', 'medications.list', 'food.log.create', 'health.bp.list']) {
       expect(ids).toContain(id);
     }
-    // Cloud-only composite analyses (mcp-catalog.cloud-extra.js) merged into the
-    // catalog surface on mcp_help just like the generated ops.
-    for (const id of ['health.analyze_cardiovascular', 'health.analyze_fitness']) {
+    // Cloud-only ops (mcp-catalog.cloud-extra.js) merged into the catalog
+    // surface on mcp_help just like the generated ops.
+    for (const id of ['health.analyze_cardiovascular', 'health.analyze_fitness', 'health.brief']) {
       expect(ids).toContain(id);
     }
+  });
+
+  // med-5k6t.3: a cloud-only op still has to drill in with a full schema and a
+  // response example — the terse catalog alone is not usable agent guidance.
+  it('drills into a cloud-only op with its schema and response example', async () => {
+    const result = await makeDispatcher().handle('mcp_help', { operation_id: 'health.brief' });
+    const op = result.operations[0];
+    expect(op.id).toBe('health.brief');
+    expect(op.params_schema.properties).toHaveProperty('sections');
+    expect(op.response_example.range.days).toBe(90);
   });
 
   it('drills into full entries by operation_ids and notes unknown ids instead of throwing', async () => {

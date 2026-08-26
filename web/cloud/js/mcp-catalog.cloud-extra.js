@@ -131,6 +131,77 @@ export const CLOUD_EXTRA = [
       }],
     },
   },
+  // Doctor-visit brief (med-5k6t). Cloud-only for the same reason as the two
+  // analyses above: /api/brief is served by apishim.js's createApiRouter over
+  // web/domain/brief.js, and the legacy Go server has no handler for it. In the
+  // shared registry this op would ride DefaultOperations into bot mode's
+  // mcp_help and 404 on every call from the bridge.
+  {
+    id: 'health.brief',
+    topic: 'health',
+    method: 'GET',
+    path: '/api/brief',
+    risk: 'read',
+    description: 'Assemble the doctor-visit brief: ONE read folding medications + adherence, blood pressure, weight, sleep/resting-HR vitals, diary notes, and optionally food and workouts over the last 30/90/180 days. Use this instead of chaining health.bp.list + health.weight.list + medications.history when the user asks for an appointment summary or "everything since my last visit". Computed client-side over your vault from the same folds the app screens show, so it can never disagree with them. A selected section with no data yields nulls/empty arrays rather than an error.',
+    response_summary: 'Object with range{days,from,to,generated_at} plus one key per SELECTED section: medications[] (name, dosage, schedule_summary, started_at, adherence_pct) and overall_adherence_pct for meds; bp{count, systolic/diastolic/pulse{avg,min,max} or null, goal, readings[] oldest-first}; weight{start,end,delta,unit:"kg",points[]}; vitals{avg_sleep_minutes,resting_hr}; notes[{date,text}] capped at 50. food{days_logged,avg_kcal,avg_protein,avg_carbs,avg_fat,targets} and workouts{session_count,per_week} appear ONLY when named in sections. An unselected section is absent from the response, not null.',
+    params_schema: {
+      type: 'object',
+      properties: {
+        days: {
+          type: 'integer',
+          enum: [30, 90, 180],
+          description: 'Window length in days (default 90). Any other value falls back to 90 rather than erroring.',
+        },
+        sections: {
+          type: 'string',
+          description: 'Comma-separated subset of meds,bp,weight,vitals,notes,food,workouts. Default: meds,bp,weight,vitals,notes — food and workouts are opt-in and cost a read only when named. Unknown names are ignored.',
+        },
+      },
+    },
+    // Captured from the real router (createApiRouter → /api/brief) against the
+    // med-5k6t.1 test vault, default sections.
+    response_example: {
+      range: {
+        days: 90, from: '2026-05-22T12:00:00.000Z', to: '2026-08-20T12:00:00.000Z', generated_at: '2026-08-20T12:00:00.000Z',
+      },
+      medications: [
+        {
+          name: 'Lisinopril', dosage: '10mg', schedule_summary: 'Mon, Thu at 09:00', started_at: '2026-02-01T00:00:00.000Z', adherence_pct: 50,
+        },
+        {
+          name: 'Metformin', dosage: '500mg', schedule_summary: 'daily at 08:00, 20:00', started_at: '2026-01-05T00:00:00.000Z', adherence_pct: 75,
+        },
+      ],
+      overall_adherence_pct: 66.7,
+      bp: {
+        count: 3,
+        systolic: { avg: 130, min: 120, max: 140 },
+        diastolic: { avg: 85, min: 80, max: 90 },
+        pulse: { avg: 65, min: 60, max: 70 },
+        goal: { target_systolic: 130, target_diastolic: 85 },
+        readings: [
+          {
+            measured_at: '2026-08-18T09:00:00Z', systolic: 120, diastolic: 80, pulse: 60,
+          },
+          {
+            measured_at: '2026-08-20T09:00:00Z', systolic: 130, diastolic: 85, pulse: null,
+          },
+        ],
+      },
+      weight: {
+        start: 82,
+        end: 80.5,
+        delta: -1.5,
+        unit: 'kg',
+        points: [
+          { measured_at: '2026-08-10T12:00:00.000Z', weight: 82 },
+          { measured_at: '2026-08-19T12:00:00.000Z', weight: 80.5 },
+        ],
+      },
+      vitals: { avg_sleep_minutes: 450, resting_hr: 60 },
+      notes: [{ date: '2026-08-19', text: 'dizzy after the morning dose' }],
+    },
+  },
 ];
 
 // CLOUD_EXTRA_PARAMS: params that exist ONLY in cloud mode, merged into the
