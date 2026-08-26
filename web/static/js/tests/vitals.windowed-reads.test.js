@@ -58,6 +58,52 @@ describe('vitals windowed reads', () => {
     expect(got).toEqual([97, 95]);
   });
 
+  // bd med-29gh.3 — overview()'s per-local-day sleep fold, windowed, so the
+  // doctor brief's sleep chart plots the Vitals screen's own numbers instead
+  // of a second derivation.
+  it('sleepDaily sums a day\'s sessions and weights heart rate by minutes', async () => {
+    const v = domain({
+      sleep: [
+        {
+          recordId: 's-1', deleted: false, day: '2026-07-14',
+          start_time: '2026-07-13T23:00:00Z', total_minutes: 300,
+          deep_minutes: 60, light_minutes: 200, rem_minutes: 30, awake_minutes: 10,
+          heart_rate_avg: 60,
+        },
+        {
+          // A second session the same day: phases add, HR is minutes-weighted
+          // ((300*60 + 100*80) / 400 = 65), not a flat mean of 70.
+          recordId: 's-2', deleted: false, day: '2026-07-14',
+          start_time: '2026-07-14T14:00:00Z', total_minutes: 100,
+          deep_minutes: 20, light_minutes: 70, rem_minutes: 10, awake_minutes: 0,
+          heart_rate_avg: 80,
+        },
+        {
+          recordId: 's-3', deleted: false, day: '2026-07-16',
+          start_time: '2026-07-15T23:00:00Z', total_minutes: 420,
+        },
+        // Outside the window on either side.
+        {
+          recordId: 's-0', deleted: false, day: '2026-07-10',
+          start_time: '2026-07-09T23:00:00Z', total_minutes: 400,
+        },
+      ],
+    });
+
+    const got = await v.sleepDaily({
+      from: Date.parse('2026-07-13T00:00:00Z'), to: Date.parse('2026-07-16T23:00:00Z'),
+    });
+
+    expect(got).toEqual([
+      {
+        date: '2026-07-14', total_mins: 400, deep_mins: 80, light_mins: 270, rem_mins: 40, awake_mins: 10, heart_rate_avg: 65,
+      },
+      {
+        date: '2026-07-16', total_mins: 420, deep_mins: 0, light_mins: 0, rem_mins: 0, awake_mins: 0, heart_rate_avg: 0,
+      },
+    ]);
+  });
+
   it('listDayStats filters by inclusive day-string range, sorted ascending', async () => {
     const v = domain({
       daystats: [

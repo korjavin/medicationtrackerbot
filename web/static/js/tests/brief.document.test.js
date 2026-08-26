@@ -14,6 +14,21 @@ import { allowConsoleNoise } from './helpers/setup.js';
 import { macrotask } from './helpers/settle.js';
 import { downloadDoc, printDoc } from '../../../cloud/js/print-doc.js';
 
+// The sleep chart's '30d' window is a CALENDAR filter anchored on the real
+// Date.now() (wg-sleep-chart.js filterByRange), so these fixture days have to
+// be relative — hardcoded ones silently fall out of range as the clock moves.
+function daysAgo(n) {
+    const d = new Date(Date.now() - n * 86400000);
+    const p2 = (v) => String(v).padStart(2, '0');
+    return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+}
+
+function sleepDay(n, total, hr) {
+    return {
+        date: daysAgo(n), total_mins: total, deep_mins: 90, light_mins: total - 150, rem_mins: 45, awake_mins: 15, heart_rate_avg: hr,
+    };
+}
+
 function briefPayload(overrides) {
     return {
         range: {
@@ -53,7 +68,11 @@ function briefPayload(overrides) {
                 { measured_at: '2026-05-28T07:00:00.000Z', weight: 75 },
             ],
         },
-        vitals: { avg_sleep_minutes: 431, resting_hr: 58 },
+        vitals: {
+            avg_sleep_minutes: 431,
+            resting_hr: 58,
+            sleep_daily: [sleepDay(2, 420, 57), sleepDay(1, 445, 59)],
+        },
         notes: [
             { id: 'n1', date: '2026-04-02', text: 'Dizzy after the dose <bump>' },
             { id: 'n2', date: '2026-04-11', text: 'Argument with my sister, slept badly' },
@@ -224,9 +243,33 @@ describe('Doctor brief — printable document', () => {
     });
 
     it('inlines the serialized charts it is handed', () => {
-        const html = build(briefPayload(), { charts: { bp: '<svg id="bpx"></svg>', weight: '<svg id="wx"></svg>' } });
+        const html = build(briefPayload(), {
+            charts: { bp: '<svg id="bpx"></svg>', weight: '<svg id="wx"></svg>', sleep: '<svg id="sx"></svg>' },
+        });
         expect(html).toContain('<svg id="bpx">');
         expect(html).toContain('<svg id="wx">');
+        expect(html).toContain('<svg id="sx">');
+    });
+
+    // bd med-29gh.3: the sentence averages the whole range, the bars cover only
+    // the last 30 days. Without the caption a doctor reads the bars as spanning
+    // the range printed in the header.
+    it('captions the sleep chart with the narrower window it actually spans', () => {
+        const html = build(briefPayload(), { charts: { sleep: '<svg id="sx"></svg>' } });
+
+        expect(html).toContain('<svg id="sx">');
+        expect(html).toContain('Sleep chart: last 30 days shown.');
+    });
+
+    // No chart (no sleep in range, or the component handed back its empty-state
+    // card) must degrade to the sentence — never a caption for bars that are
+    // not there, and never an empty chart box.
+    it('prints the vitals sentence alone when there is no sleep chart', () => {
+        const html = build(briefPayload({ vitals: { avg_sleep_minutes: 431, resting_hr: 58, sleep_daily: [] } }), {});
+
+        expect(html).toContain('average sleep 7h 11m');
+        expect(html).not.toContain('Sleep chart: last 30 days shown.');
+        expect(html).not.toContain('<div class="chart"></div>');
     });
 });
 
@@ -416,9 +459,14 @@ describe('Doctor brief — modal + print/download', () => {
         expect(printed[0]).toContain('<svg');
         expect(printed[0]).toContain('class="wg-bp-chart"');
         expect(printed[0]).toContain('class="wg-weight-chart"');
+        // bd med-29gh.3 — the sleep chart is the live WGSleepChart component
+        // serialized, not a second renderer.
+        expect(printed[0]).toContain('class="wg-sleep-chart"');
+        expect(printed[0]).toContain('Sleep chart: last 30 days shown.');
         // The doc restates the chart class contract with a fixed print palette,
         // because --wg-* tokens do not exist outside the app.
         expect(printed[0]).toContain('.wg-bp-chart__sys');
+        expect(printed[0]).toContain('.wg-sleep-chart__stage--deep');
     });
 });
 

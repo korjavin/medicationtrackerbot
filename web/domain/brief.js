@@ -204,15 +204,23 @@ export function createBriefDomain({
   }
 
   async function vitalsSection(fromMs, toMs) {
-    const logs = await vitals.sleep({
-      from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(), limit: 0,
-    });
+    const [logs, sleepDaily] = await Promise.all([
+      vitals.sleep({
+        from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString(), limit: 0,
+      }),
+      // The per-local-day fold the Vitals screen charts, over the same window
+      // (vitals.js foldSleepDaily) — one fold, two callers, so the brief's
+      // chart can never disagree with the screen. The presentation layer draws
+      // only the tail of it (bd med-29gh.3); the averages below stay full-window.
+      vitals.sleepDaily({ from: fromMs, to: toMs }),
+    ]);
     return {
       avg_sleep_minutes: roundInt(mean(logs.map((l) => l.total_minutes).filter(isNum))),
       // Sleeping heart rate is the resting-HR proxy the gamification engine
       // already uses (gamification.js "a resting-HR proxy"); the vault has no
       // dedicated resting-HR series.
       resting_hr: roundInt(mean(logs.map((l) => l.heart_rate_avg).filter(isNum))),
+      sleep_daily: sleepDaily,
     };
   }
 
