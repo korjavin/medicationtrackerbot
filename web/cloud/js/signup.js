@@ -385,15 +385,13 @@ function escapeHtml(s) {
 // ponytail: the few literal colors here are intentional — this file renders
 // outside the app, where --wg-* tokens do not exist, and it is printed on
 // white paper.
-export function buildKitDocument({ kitUrl, accountId, formatted, qrSvg }) {
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<title>Med Tracker Emergency Kit — ${escapeHtml(accountId)}</title>
-<style>
+//
+// Hoisted out of the template so printKit can hand the same bytes to
+// print-doc.js: this origin's `style-src 'self'` refuses the inline <style>
+// inside the print iframe (which inherits the embedder's policy), so the frame
+// adopts this as a constructed stylesheet instead. The document keeps the
+// inline copy — that is what styles the file saved to disk.
+const KIT_CSS = `
   body { font: 16px/1.5 system-ui, sans-serif; color: #111; background: #fff;
          max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
   h1 { font-size: 1.5rem; }
@@ -404,7 +402,17 @@ export function buildKitDocument({ kitUrl, accountId, formatted, qrSvg }) {
   .warn { border: 1px solid #111; padding: 0.75rem 1rem; margin: 1.5rem 0; }
   svg { max-width: 12rem; height: auto; }
   @media print { body { margin: 0; } }
-</style>
+`;
+
+export function buildKitDocument({ kitUrl, accountId, formatted, qrSvg }) {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Med Tracker Emergency Kit — ${escapeHtml(accountId)}</title>
+<style>${KIT_CSS}</style>
 </head>
 <body>
 <h1>Med Tracker — Emergency Kit</h1>
@@ -436,7 +444,7 @@ function downloadKit(docHtml, accountId) {
 }
 
 function printKit(docHtml) {
-  printDoc(document, docHtml, 'kit-print-frame');
+  printDoc(document, docHtml, 'kit-print-frame', KIT_CSS);
 }
 
 // Wizard step 5: optional Telegram linking. mountTelegram self-gates on the

@@ -791,11 +791,13 @@
         // Doctor brief (med-5k6t.2) — its own row because it is a document
         // action, not a quick-log. Shown whenever anything at all is tracked
         // (a meds-only vault still goes to appointments, and it has no BP or
-        // food quick-log row to ride on); suppressed only in the every-feature-
-        // off state, where there is nothing to brief and Today shows its empty
-        // placeholder instead.
+        // food quick-log row to ride on); suppressed in the every-feature-off
+        // state, where there is nothing to brief and Today shows its empty
+        // placeholder instead, and wherever the caller supplies no handler
+        // (bot mode — see renderToday's cloud gate).
         const medsCell = state && state.nextMed;
-        if (rows.length > 0 || (medsCell && medsCell.status !== 'disabled')) {
+        if (typeof handlers.onDoctorBrief === 'function'
+            && (rows.length > 0 || (medsCell && medsCell.status !== 'disabled'))) {
             const briefRow = d.createElement('div');
             briefRow.className = 'wg-today-shortcuts wg-today-shortcuts--brief';
             briefRow.setAttribute('data-section', 'shortcuts-brief');
@@ -1273,6 +1275,12 @@
         return card;
     }
 
+    function briefOpenerOrNull() {
+        if (typeof window === 'undefined' || !window.__MEDTRACKER_CLOUD__) return null;
+        const brief = window.DoctorBrief;
+        return (brief && typeof brief.open === 'function') ? () => brief.open() : null;
+    }
+
     function defaultHandler(name, fallbackTab) {
         return () => {
             if (typeof window !== 'undefined') {
@@ -1308,13 +1316,11 @@
                 window.FoodActions.triggerPhotoPicker();
             }
         });
-        const onDoctorBrief = opts.onDoctorBrief || (() => {
-            if (typeof window !== 'undefined'
-                && window.DoctorBrief
-                && typeof window.DoctorBrief.open === 'function') {
-                window.DoctorBrief.open();
-            }
-        });
+        // Cloud-only: GET /api/brief is answered by web/cloud/js/apishim.js and
+        // the print helper is served from the cloud shell, so bot mode has
+        // neither. No handler → renderShortcutRow omits the tile entirely
+        // rather than offering a button that can only fail.
+        const onDoctorBrief = opts.onDoctorBrief || briefOpenerOrNull();
         const onScanFood = opts.onScanFood || (() => {
             if (typeof window === 'undefined') return;
             if (window.FoodLog && typeof window.FoodLog.openAdd === 'function') {

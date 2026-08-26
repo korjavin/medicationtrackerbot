@@ -41,15 +41,42 @@ export function downloadDoc(doc, html, filename) {
 // (cloud.css `.kit-print-frame`, styles.css `.wg-brief-print-frame`) position
 // it off-canvas rather than display:none, because a hidden iframe does not
 // lay out and the print dialog needs a rendered document.
-export function printDoc(doc, html, className) {
+//
+// `css` is the document's own stylesheet, adopted into the frame after load.
+// It is not redundant with the <style> the document already carries: this
+// origin serves `style-src 'self'` on every response (internal/cloudserver/
+// router.go cspPolicy), and an iframe inherits the embedder's policy — srcdoc,
+// sandbox and blob: alike, all three verified — so that inline <style> is
+// parsed but refused, and the brief would print with no layout and invisible
+// charts. A constructed stylesheet is script-driven, not a style-src subject,
+// and applies. The inline <style> stays because it is what makes the
+// *downloaded* file standalone on disk and what styles the print anywhere the
+// policy does not apply; under CSP it costs one console violation per print.
+export function printDoc(doc, html, className, css) {
   const frame = doc.createElement('iframe');
   frame.className = className;
   frame.setAttribute('aria-hidden', 'true');
   frame.srcdoc = html;
   frame.addEventListener('load', () => {
+    const win = frame.contentWindow;
     try {
-      frame.contentWindow.focus();
-      frame.contentWindow.print();
+      // Constructed in the FRAME's realm — adoptedStyleSheets rejects a sheet
+      // built by another document. Best-effort: a browser without constructed
+      // stylesheets (Safari < 16.4) falls back to the inline <style>.
+      const supported = !!win && typeof win.CSSStyleSheet === 'function'
+        && typeof win.CSSStyleSheet.prototype.replaceSync === 'function'
+        && 'adoptedStyleSheets' in frame.contentDocument;
+      if (css && supported) {
+        const sheet = new win.CSSStyleSheet();
+        sheet.replaceSync(css);
+        frame.contentDocument.adoptedStyleSheets = [sheet];
+      }
+    } catch (e) {
+      console.error('[print-doc] stylesheet adoption failed');
+    }
+    try {
+      win.focus();
+      win.print();
     } catch (e) {
       console.error('[print-doc] print failed');
     }

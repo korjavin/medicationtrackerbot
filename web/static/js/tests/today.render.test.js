@@ -136,8 +136,9 @@ describe('TodayDashboard.renderToday', () => {
         expect(root.querySelector('.section-header')).toBeNull();
 
         expect(root.querySelector('.wg-today-shortcuts')).not.toBeNull();
-        // 5 quick-log tiles + the Doctor brief document action (med-5k6t.2).
-        expect(root.querySelectorAll('.wg-shortcut-tile').length).toBe(6);
+        // 5 quick-log tiles. The Doctor brief tile (med-5k6t.2) is cloud-gated
+        // and this env sets no __MEDTRACKER_CLOUD__ — see today.shortcut-row-split.
+        expect(root.querySelectorAll('.wg-shortcut-tile').length).toBe(5);
         expect(root.querySelector('.wg-vitals-grid')).not.toBeNull();
         expect(root.querySelectorAll('.wg-metric-tile').length).toBe(2);
         expect(root.querySelector('.wg-fuel-card')).not.toBeNull();
@@ -384,10 +385,9 @@ describe('TodayDashboard.renderToday', () => {
         env.render(allPresentState(now), root, { now });
         const secondCount = root.querySelectorAll('.wg-metric-tile').length;
         expect(firstCount).toBe(secondCount);
-        expect(root.querySelectorAll('.wg-today-shortcuts').length).toBe(3);
+        expect(root.querySelectorAll('.wg-today-shortcuts').length).toBe(2);
         expect(root.querySelectorAll('.wg-today-shortcuts--food').length).toBe(1);
         expect(root.querySelectorAll('.wg-today-shortcuts--vitals').length).toBe(1);
-        expect(root.querySelectorAll('.wg-today-shortcuts--brief').length).toBe(1);
         expect(root.querySelectorAll('.wg-today-meds').length).toBe(1);
     });
 

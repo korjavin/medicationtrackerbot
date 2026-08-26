@@ -244,7 +244,7 @@ describe('Doctor brief — modal + print/download', () => {
         const printed = [];
         env.window.DoctorBrief.loadPrintDoc = async () => ({
             downloadDoc: () => true,
-            printDoc: (d, html, cls) => printed.push({ html, cls }),
+            printDoc: (d, html, cls, css) => printed.push({ html, cls, css }),
         });
         env.window.DoctorBrief.open();
         click('brief-print-btn');
@@ -256,6 +256,12 @@ describe('Doctor brief — modal + print/download', () => {
         expect(printed[0].html).toContain('Lisinopril');
         // App chrome must not ride along.
         expect(printed[0].html).not.toContain('bottom-nav');
+        // The print frame inherits the app origin's `style-src 'self'`, which
+        // refuses the document's inline <style>; the stylesheet must ride
+        // alongside so print-doc.js can adopt it, or the brief prints with no
+        // layout and invisible charts.
+        expect(printed[0].css).toContain('.wg-bp-chart__sys');
+        expect(printed[0].html).toContain(printed[0].css);
     });
 
     it('downloads a self-contained .html through the real blob path', async () => {

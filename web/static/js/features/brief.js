@@ -342,11 +342,11 @@ ${body}
                 }
                 // In-app browsers refuse Blob downloads — print is the fallback
                 // that still gets the paper into the appointment.
-                mod.printDoc(doc, html, 'wg-brief-print-frame');
+                mod.printDoc(doc, html, 'wg-brief-print-frame', DOC_CSS);
                 setStatus(doc, 'Download blocked — opened the print dialog instead.');
                 return;
             }
-            mod.printDoc(doc, html, 'wg-brief-print-frame');
+            mod.printDoc(doc, html, 'wg-brief-print-frame', DOC_CSS);
             setStatus(doc, 'Print dialog opened.');
         } catch (e) {
             console.error('[brief] generate failed', e);
