@@ -218,7 +218,10 @@ export function createBriefDomain({
 
   async function notesSection(days) {
     const rows = await notes.list({ days, limit: NOTES_LIMIT });
-    return rows.map((n) => ({ date: String(n.created_at || '').slice(0, 10), text: n.content }));
+    // `id` rides along so the presentation layer can offer a per-note include
+    // checkbox before printing (bd med-29gh.5) — diary notes are the most
+    // personal free text in the vault and the brief is handed to a stranger.
+    return rows.map((n) => ({ id: n.id, date: String(n.created_at || '').slice(0, 10), text: n.content }));
   }
 
   async function foodSection(days) {
