@@ -321,26 +321,15 @@ describe('Doctor brief — printable document', () => {
         expect(html).toContain('Most trained: Squat (5 sessions), Bench press (4 sessions), Deadlift (2 sessions).');
         expect(html).not.toContain('Plank');
         expect(html).toContain('<svg id="wkx">');
-        // A 90-day brief's bars span exactly 90 days — nothing to caption.
-        expect(html).not.toContain('Activity chart:');
-    });
-
-    // weekly_activity keeps a >=12-week heatmap span, so a 30-day brief's bars
-    // are WIDER than its header. Asking the chart for '30d' would not fix that
-    // (its filter keeps an overlapping week whole), so the doc says what the
-    // bars actually cover — same treatment as the sleep chart.
-    it('captions the workout chart when it spans more than the brief window', () => {
-        const data = briefPayload({ workouts: workoutsPayload() });
-        data.range = { ...data.range, days: 30 };
-
-        const html = build(data, { charts: { workouts: '<svg id="wkx"></svg>' } });
-
-        expect(html).toContain('Activity chart: last 12 weeks shown.');
+        // Whole ISO weeks, and weekly_activity keeps a >=12-week span whatever
+        // the range — so the first bar can start (and on a 30-day brief can
+        // count) before the range in the header. Said plainly rather than as a
+        // fixed span, because the buckets are sparse.
+        expect(html).toContain('Activity chart: one bar per week; the first week may start before the range.');
     });
 
     it('never captions a chart that is not there', () => {
         const data = briefPayload({ workouts: workoutsPayload({ weekly_activity: null }) });
-        data.range = { ...data.range, days: 30 };
 
         expect(build(data, {})).not.toContain('Activity chart:');
     });

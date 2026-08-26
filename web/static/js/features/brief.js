@@ -288,15 +288,13 @@ ${statRow('Pulse', bp.pulse, 'bpm')}
         return `<p class="stat">${esc(`Most trained: ${parts.join(', ')}.`)}</p>`;
     }
 
-    // The bars span min(12 weeks, the range), so only the 30-day brief has a
-    // chart wider than its own header. Same reason the sleep chart is
-    // captioned: without this a doctor reads the bars as covering the range
-    // printed at the top of the page.
-    function workoutChartCaption(data) {
-        return Number(data.range && data.range.days) === 30
-            ? '<p class="stat">Activity chart: last 12 weeks shown.</p>'
-            : '';
-    }
+    // Whole ISO weeks, and weekly_activity keeps a >=12-week span regardless of
+    // the range (workout.js getStats cutoff12w), so the first bar can start —
+    // and on a 30-day brief can COUNT — before the range printed in the header.
+    // Said plainly rather than asserted as a fixed span: the buckets are
+    // sparse, so "12 weeks shown" would be a lie on a chart with two bars.
+    const WORKOUT_CHART_CAPTION = '<p class="stat">Activity chart: one bar per week;'
+        + ' the first week may start before the range.</p>';
 
     function workoutsBlock(data, charts) {
         const w = data.workouts;
@@ -311,7 +309,7 @@ ${statRow('Pulse', bp.pulse, 'bpm')}
                 + ` week${n === 1 ? '' : 's'}</td></tr>`);
         }
         const chart = (charts && charts.workouts)
-            ? `<div class="chart">${charts.workouts}</div>${workoutChartCaption(data)}`
+            ? `<div class="chart">${charts.workouts}</div>${WORKOUT_CHART_CAPTION}`
             : '';
         return block('Workouts', `<table>
 <tbody>
