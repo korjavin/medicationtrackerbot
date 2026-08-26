@@ -1,211 +1,116 @@
 # CLAUDE.md
 
-Guidance for Claude Code working in this repository. This file is an index — detailed topics live in `docs/`.
+Guidance for Claude Code in this repo. This file is an index — detail lives in `docs/`; [docs/README.md](docs/README.md) maps which docs are normative vs proposal vs history, [docs/architecture.md](docs/architecture.md) is the starting point.
 
 ## Project Overview
 
-A self-hosted health-tracking PWA for medications, blood pressure, weight, workouts, sleep, food, and diary, built around a **zero-knowledge vault**. `cmd/cloud` is the product: the browser holds the vault keys, the plaintext, and all domain logic; the server stores encrypted sync state and operates relays. A handful of optional integrations deliberately reach outside the vault and are enumerated with code evidence in [docs/cloud-mode.md → Privacy boundary](docs/cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
-
-**Philosophy**: single source of truth for health metrics, with the encrypted PWA as the primary interface and optional chat/AI integrations that do not become the trust anchor. Self-hosted for real data ownership.
-
-**New here?** [docs/README.md](docs/README.md) is the documentation map — which docs are normative, which are proposals, and which are history. [docs/architecture.md](docs/architecture.md) is the starting point.
+Self-hosted health-tracking PWA (meds, BP, weight, workouts, sleep, food, diary) built around a **zero-knowledge vault**. `cmd/cloud` is the product: the browser holds the vault keys, plaintext, and all domain logic; the server stores encrypted sync state and operates relays. The few integrations that deliberately leave the vault are enumerated in [docs/cloud-mode.md → Privacy boundary](docs/cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
 
 ## Critical Rules
 
-1. **Domain logic lives in one place per runtime.** In the browser that is `web/domain/*.js` — pure ES modules behind injected ports, no browser globals, enforced by `architecture.domain-purity.test.js`. `web/cloud/js/apishim.js` and `mcp-responder.js` route into it; neither may hold domain logic of its own. (The Go `internal/domain/*` service pattern that governs `internal/server` + `internal/bot` is unchanged and documented in [docs/archive/architecture-bot-mode.md](docs/archive/architecture-bot-mode.md#domain-service-pattern).)
-2. **Never modify existing migrations.** Always add new ones in `internal/store/migrations/`.
-3. **No hardcoded colors or inline `.style.` assignments in frontend code.** Use design tokens and CSS classes. All visual values come from `--wg-*` tokens (Wandergeek system). Architecture tests enforce this. See [docs/frontend.md](docs/frontend.md#design-tokens).
-4. **New `window.*` globals require an allowlist entry** in `tests/architecture.globals.test.js` with justification.
-5. **Use `log/slog` with contextual args** (`slog.Error("msg", "error", err)`), not `log.Printf`.
-6. **The bottom nav is the canonical navigation** — one slot per real section (row 1: Today, BP, Food, Meds — row 2: Vitals, Workouts, Weight, Settings). The Vitals slot keeps its internal id `health` for deeplink / localStorage stability; only the label is "Vitals". No "More" aggregator: every section is a first-class destination with its own icon. Disabled features are filtered out of the nav before mount, not bounced after tap. Screens sit directly on the teal stage — no `section-header-mount` banners. `<wg-phone-chrome>` is a design-system primitive available for Phase 3+ screen reskins; it is not yet wrapped around screens at runtime. See [docs/frontend.md](docs/frontend.md#navigation).
-7. **Merge PRs with `gh pr merge --merge`** (regular merge commit), never `--squash` or `--rebase`. The project's history uses merge commits to preserve feature-branch context.
-8. **Frontend tests are integration-first.** New behavior is added to the owning feature suite (`features.*` or `<feature>.<aspect>.test.js`) through `tests/helpers/frontend-harness.js`. Do not add coverage-driven `*-branches` / `*-edges` / `*-characterization` files, and do not create standalone `pin-defect-N` or `task-N` files — extend the feature's existing `describe` block instead. Pure-unit tests are reserved for layers without an integration entry point (web components, DB, SW, sync, cached-fetch). See [docs/frontend.md → Testing posture](docs/frontend.md#testing-posture).
-9. **Frontend write handlers MUST use `DataStore.applyOptimistic`**, never `invalidateTags + loadX()`. Optimistic state repaints the UI before the POST resolves; `commit(serverPayload)` reconciles on success, `rollback()` restores prior cache and invalidates tags on failure. The `invalidateTags + loadX()` pattern is reserved for read-only refreshes (e.g. `invalidateWorkoutCache`) and the rollback path itself. See [docs/frontend.md → Optimistic Write Updates](docs/frontend.md#optimistic-write-updates).
-10. **Device-capability access routes through `web/static/js/native/`.** Feature code calls `window.MediaCapture` / `window.Barcode` rather than `getUserMedia`, `BarcodeDetector`, or `<input type=file capture=…>` directly. `tests/architecture.native-abstractions.test.js` enforces this: `navigator.mediaDevices` / `getUserMedia` / `BarcodeDetector` are banned outside `native/` with no allowlist, and `window.Capacitor` / `isNativePlatform` are banned everywhere (the Capacitor shell was removed). New device capabilities add a `web/<cap>.js`, register via the foundation's `registerImpl`, and ship a `tests/native.<cap>.test.js`. See [docs/frontend.md → Device-Capability Abstractions](docs/frontend.md#device-capability-abstractions).
-11. **The app document must not surface Telegram — neither remote script nor login UI.** `web/static/index.html` MUST NOT contain a `<script src="https://telegram.org/...">` tag, or every cloud page load would phone Telegram's CDN (and the cloud origin's `default-src 'self'` CSP would block it anyway). The Telegram Web App SDK is injected at runtime by `web/static/js/core/messenger-adapter.js` (via `loadTelegramSdk()`), skipped in cloud mode and when `window.Telegram?.WebApp` is already present. `checkAuth()` short-circuits on `window.__MEDTRACKER_CLOUD__` and goes straight to `/api/bootstrap` + `applyBootstrapPayload`, so the Telegram login screen never renders there. Enforced by `architecture.no-telegram-in-html.test.js`.
+1. **Domain logic lives in one place per runtime.** In the browser: `web/domain/*.js` — pure ES modules with injected ports, no browser globals (enforced by `architecture.domain-purity.test.js`). `web/cloud/js/apishim.js` and `mcp-responder.js` only route into it. (Go side: `internal/domain/*` service pattern, [docs/archive/architecture-bot-mode.md](docs/archive/architecture-bot-mode.md#domain-service-pattern).)
+2. **Never modify existing migrations** — add new ones in `internal/store/migrations/`.
+3. **No hardcoded colors or inline `.style.` assignments in frontend code.** All visual values come from `--wg-*` design tokens + CSS classes; architecture tests enforce. See [docs/frontend.md](docs/frontend.md#design-tokens).
+4. **New `window.*` globals need an allowlist entry** in `tests/architecture.globals.test.js` with justification.
+5. **Use `log/slog` with contextual args**, not `log.Printf`.
+6. **The bottom nav is the canonical navigation** — one slot per section (row 1: Today, BP, Food, Meds — row 2: Vitals, Workouts, Weight, Settings). The Vitals slot keeps internal id `health` for deeplink/localStorage stability. No "More" aggregator; disabled features are filtered out before mount; no `section-header-mount` banners. `<wg-phone-chrome>` exists but is not yet wrapped around screens at runtime. See [docs/frontend.md](docs/frontend.md#navigation).
+7. **Merge PRs with `gh pr merge --merge`**, never `--squash` or `--rebase`.
+8. **Frontend tests are integration-first.** Add behavior to the owning feature suite via `tests/helpers/frontend-harness.js`; no coverage-driven `*-branches`/`*-edges` files, no standalone `pin-defect-N`/`task-N` files. Pure-unit tests only for layers without an integration entry point. See [docs/frontend.md → Testing posture](docs/frontend.md#testing-posture).
+9. **Frontend write handlers MUST use `DataStore.applyOptimistic`** (commit/rollback), never `invalidateTags + loadX()` — that pattern is only for read-only refreshes and the rollback path. See [docs/frontend.md → Optimistic Write Updates](docs/frontend.md#optimistic-write-updates).
+10. **Device-capability access routes through `web/static/js/native/`** (`window.MediaCapture` / `window.Barcode`), never raw `getUserMedia`/`BarcodeDetector`. Enforced by `tests/architecture.native-abstractions.test.js`, no allowlist; `window.Capacitor`/`isNativePlatform` banned everywhere. New capability: `native/<cap>.js` + `registerImpl` + `tests/native.<cap>.test.js`. See [docs/frontend.md → Device-Capability Abstractions](docs/frontend.md#device-capability-abstractions).
+11. **The app document must not surface Telegram** — no `<script src="https://telegram.org/...">` in `web/static/index.html` (SDK is runtime-injected by `messenger-adapter.js`, skipped in cloud mode) and no Telegram login screen in cloud (`checkAuth()` short-circuits on `window.__MEDTRACKER_CLOUD__`). Enforced by `architecture.no-telegram-in-html.test.js`.
 
 ## Build
 
-Plain `go build ./...` — no build tags anywhere.
+Plain `go build ./...` — no build tags. **`cmd/cloud` is the only shipped binary** (`Dockerfile` builds and runs only `./cloud`). Everything else under `cmd/` is dev/operator tooling, plus `cmd/bot` and `cmd/installer` which are **not built, shipped, or deployed** — their source must keep compiling and passing `go test ./...` so it cannot rot, and no doc may present them as deployment targets. The Capacitor Android shell was removed (branch `mobile` preserves it). `DEMO_MODE` is not a cloud flag — nothing in `cmd/cloud` reads it ([docs/archive/demo-mode.md](docs/archive/demo-mode.md)).
 
-**`cmd/cloud` is the service.** It serves per-account subdomains, encrypted sync, and the blind push relay. All product work targets it; see [docs/cloud-mode.md](docs/cloud-mode.md).
-
-Other `cmd/` directories are developer and operator tooling (`mcpshim`, `genmcpcatalog`, `genvapid`, `feedbackpull`, `seeddemo`, importers) plus `cmd/bot` and `cmd/installer`, which are **not built, not shipped, not deployed and not operated** — the image builds and runs only `./cloud` (`Dockerfile:21,33,47`). Their source stays in the tree and must keep compiling and passing tests under `go build ./...` / `go test ./...` so it cannot silently rot. That is the whole of their status; no doc should present either as a deployment target. The Capacitor Android shell and its `//go:build mobile` variant were removed (branch `mobile` preserves the last working state).
-
-`DEMO_MODE` is **not** a cloud flag — it appears only under `cmd/bot` / `internal/server` / `internal/config` / `internal/mcp`, and nothing in `cmd/cloud` reads it. Archived runbook: [docs/archive/demo-mode.md](docs/archive/demo-mode.md).
-
-Configuration layering: env var → settings table → built-in default. The `internal/config` package owns `LoadFromEnv` + `LoadFromSettings` + `Merge`. User-editable provider keys (OpenAI, Food DB, ElevenLabs) live in the singleton settings row and are reachable via the Settings UI's Integrations section.
+Config layering: env var → settings table → built-in default (`internal/config`: `LoadFromEnv` + `LoadFromSettings` + `Merge`). User-editable provider keys (OpenAI, Food DB, ElevenLabs) live in the settings row, editable via Settings → Integrations.
 
 ## Development Commands
 
 ```bash
-# Run the service
-go run ./cmd/cloud
-
-# Run all tests (this must stay green for the whole tree, cmd/bot included)
-go test ./...
-
-# Run a specific package
-go test ./internal/store
-go test -v ./internal/cloudserver -run TestRouter
-
-# Frontend tests (Vitest + jsdom)
-pnpm test
-
-# Regenerate the privacy boundary table after editing the manifest
-pnpm privacy:docs
-
-# Docker
+go run ./cmd/cloud                    # run the service
+go test ./...                         # must stay green tree-wide, cmd/bot included
+pnpm test                             # frontend (Vitest + jsdom)
+pnpm privacy:docs                     # regenerate privacy boundary table after editing the manifest
+go run ./cmd/genmcpcatalog            # regenerate cloud MCP catalog after registry changes
 docker compose -f docker-compose.cloud.yml up
 ```
 
-### Data import tools
-
-```bash
-go run cmd/importer/main.go   -file export.json -user <telegram_user_id> -db meds.db
-go run cmd/bpimporter/main.go -file bp_data.csv -db meds.db
-go run cmd/genvapid/main.go                                   # VAPID keys for web push
-```
-
-#### Demo data seeder
-
-`cmd/seeddemo` wipes a target user's data and seeds N days (default 90) of synthetic, varied health-tracking data so the app can be demoed: medications with overlapping courses, BP/weight/sleep time series with visible trends, continuous HR/SpO2/stress samples (Mi Band-style), daily step/calorie/distance aggregates correlated with workout days, food logs hitting and missing targets, planned + ad-hoc workouts, diary notes, and a mid-period timezone change. Deterministic by default (seedable RNG) so re-running with the same seed produces an identical dataset. Generator code lives in `internal/seeddemo/`.
-
-The same binary also supports `-topup`, an incremental mode that appends new rows since each stream's last logged timestamp without wiping. Top-up is idempotent within a calendar day (re-running with the same `-now` is a no-op) and is what the demo bot's background top-up loop (`internal/demotopup`, started automatically when `DEMO_MODE=1`, configurable via `DEMO_TOPUP_INTERVAL`) calls on a ticker to keep a seeded dataset fresh. The tool is live; the auth-less demo deployment it was built for is archived ([docs/archive/demo-mode.md](docs/archive/demo-mode.md#automatic-top-up)).
-
-Non-obvious patterns in the top-up path:
-- **Per-tick RNG seed** is derived as `pcg(uint64(opts.Seed) XOR uint64(opts.Now.Unix()/86400))` so two ticks on the same calendar day produce the same candidate samples — idempotency holds on retry without consulting the DB.
-- **Time-series cadence is anchored to 00:00 UTC** (15 min for HR/SpO2, 30 min for stress) so consecutive top-ups land on the same grid regardless of when each tick fires; UNIQUE PK `(user_id, date_time)` then makes `INSERT OR IGNORE` a free dedupe. The same cadence constants are reused server-side to downsample dense Mi Band `.nxk` imports in `internal/cloudserver/vitals_import.go` (`hrCadence`/`spo2Cadence`/`stressCadence`), so cloud-imported and seeded vitals land on the same grid.
-- **`demotopup.Run` fires its first tick immediately on startup** (not after one interval) so a fresh deploy isn't stale until the first hour elapses.
-- **Daily streams snap forward to "day after latest sample"** (`dailyTopUpFrom`), which means weight — on a weekly cadence — can add one row per tick. This is deliberate "near no-op within one sample interval" tolerance, not a bug.
-- **`-topup` and explicit `-wipe` together is an error**, but the default `wipe=true` is force-cleared when `-topup` is passed alone — checked via `fs.Visit` so only operator-set `-wipe` trips the mutex guard.
-
-```bash
-# Full seed (wipes target user first):
-go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -days 90 -wipe -seed 42
-
-# Incremental top-up (no wipe; appends rows from each stream's last sample to now):
-go run ./cmd/seeddemo -user <telegram_user_id> -db meds.db -topup -seed 42
-```
+Data import tools: `cmd/importer` (JSON export), `cmd/bpimporter` (CSV), `cmd/genvapid` (web-push keys). `cmd/seeddemo` seeds N days of deterministic synthetic demo data (`-wipe -seed 42 -days 90`) or incrementally tops up (`-topup`, idempotent within a calendar day); generator in `internal/seeddemo/`, top-up loop in `internal/demotopup` — non-obvious cadence/idempotency invariants are commented there and in [docs/archive/demo-mode.md](docs/archive/demo-mode.md#automatic-top-up).
 
 ## Code Layout
 
-- `cmd/` — entry points (`bot`, `cloud`, `mcptool`, `mcpshim`, `importer`, `bpimporter`, `genvapid`, `seeddemo`, `feedbackpull`). `feedbackpull` is the dev/ops CLI that drains the cloud `feedback_queue`, age-decrypts each item with the developer's private key, prints text + metadata, and saves attachments — the only place the age private key lives (server stores ciphertext blindly). Imports `filippo.io/age` (not linked into the server binary).
-- `internal/ai` — AI client (OpenAI-compatible)
-- `internal/store` — per-domain SQLite repositories (one Go package per feature). `store.Repos` (alias: `store.Store`) is a thin aggregator wired in `cmd/bot/main.go` (and `cmd/mcptool`, `cmd/seeddemo`, `cmd/bpimporter`). Sub-packages:
-  - `db/` — shared `*sql.DB` open/close + busy-timeout config, `WithTx` cross-repo transaction helper, goose migrations runner, unix-seconds time helpers.
-  - `medication/` — medication CRUD + intake_log + restock + inventory.
-  - `bp/`, `weight/`, `food/`, `workout/` (incl. mi-band), `vitals/` (sleep + day stats), `diary/`, `tz/` (timezone history + transition plans/steps), `settings/` (incl. download cursor + change_events), `auth/` (API tokens + login nonce), `push/` — one repo per feature, each with its own tests.
-  - `migrations/` — embedded goose SQL files (plus a tiny Go re-export of the embed.FS so subpackage tests can mount the schema).
-- `internal/server` — HTTP handlers
-- `internal/bot` — Telegram bot — **thin channel layer only**
-- `internal/domain` — business logic services (medication, exercise, reminder, food, food_ai)
-  - `workout/` — workout session service (reference service pattern): session lifecycle (start/snooze/skip/complete/ad-hoc) plus the next-workout engine, stats, session listing/details, rotation, and exercise-log read/write models extracted from the HTTP handlers
-- `internal/scheduler` — notification scheduler
-- `internal/mcp` — MCP server. Sub-packages: `registry/` (allowlisted operation catalog), `proxy/` (in-process API proxy used by the executor), `executor/` (Python runner orchestration). The bridge endpoint that the proxy talks to lives in `internal/server/mcp_bridge.go`.
-- `internal/rxnorm` — drug interaction checks
-- `internal/webpush` — web push
-- `internal/tzlookup` — geo-to-timezone (tzf, offline)
-- `web/static/` — vanilla JS frontend, Dexie.js, Service Worker
-- `python/` — `medtracker` helper package, sandboxed runner, and example scripts used by the `mcp_execute` tool. Tests live in `python/tests/` and `python/runner/`.
-- `internal/cloudstore` — SQLite repo for `cmd/cloud` (accounts, credentials, envelopes, recovery verifier). Own migrations; imports only `internal/store/db`, never `internal/store` (goose-registry landmine — see [docs/cloud-mode.md](docs/cloud-mode.md))
-- `internal/cloudserver` — HTTP handlers for `cmd/cloud`: wildcard host routing, WebAuthn registration/login ceremonies, envelope API, admin invite provisioning, encrypted oplog sync + snapshot compaction, push subscriptions + blind scheduled-push relay (sender goroutine + stale-sync warning sweep), per-account egress-host registration (`PUT /api/egress-hosts`). **CSP invariant:** the account app document (`/`) must never serve a wildcard `https:`/`wss:` `connect-src` — it emits a per-account allowlist (`'self'` + stored provider hosts + fixed `api.elevenlabs.io`). Enforced by `TestRouter_HostVariants` / `TestRouter_AppDocumentReflectsEgressHosts` in `router_test.go`. See [docs/cloud-crypto.md](docs/cloud-crypto.md).
-- `web/cloud/` — embedded static shell (signup/unlock wizard, client-side crypto module, sync engine + local IndexedDB mirror, toy encrypted-notes UI, NK-aware service worker + push scheduler, `apishim.js` + `cloud-boot.js`) served by `cmd/cloud`; account subdomains now also serve the full `web/static` app, with the shell moved to `/unlock`
-- `web/domain/` — **the domain layer**: pure ES modules taking injected ports (`records`, `now`, `timeZone`, …) with zero browser globals — `bp`, `weight`, `medications`, `intake`, `medschedule`, `reminders`, `tzplan`, `food`, `foodai`, `workout`, `vitals`, `notes`, `settings`, `tgcommand`, `vault`. `web/cloud/js/apishim.js` routes `/api/*` into them with no translation layer, and `mcp-responder.js` dispatches through that same router. Purity is enforced by `architecture.domain-purity.test.js`: nothing here may touch `window`, `document`, `fetch`, or IndexedDB. That rule is what keeps the layer embeddable outside a browser at all.
+- `cmd/` — entry points; `feedbackpull` is the only place the age private key lives (drains + decrypts the cloud `feedback_queue`; server stores ciphertext blindly).
+- `internal/store` — per-domain SQLite repos (one package per feature) + `db/` (shared open/`WithTx`/goose runner/time helpers) + `migrations/`. Aggregator `store.Repos` wired in `cmd/bot`, `cmd/mcptool`, `cmd/seeddemo`, `cmd/bpimporter`.
+- `internal/server`, `internal/bot` (thin channel layer), `internal/domain` (services; `workout/` is the reference pattern), `internal/scheduler` — the legacy bot-mode path; not deployed, must keep building.
+- `internal/mcp` — MCP server: `registry/` (op catalog), `proxy/`, `executor/`; bridge endpoint in `internal/server/mcp_bridge.go`.
+- `internal/ai`, `internal/rxnorm`, `internal/webpush`, `internal/tzlookup` — clients/helpers.
+- `internal/cloudstore` — SQLite repo for `cmd/cloud`; own migrations; imports only `internal/store/db`, **never `internal/store`** (goose-registry landmine — [docs/cloud-mode.md](docs/cloud-mode.md)).
+- `internal/cloudserver` — cloud HTTP: wildcard host routing, WebAuthn ceremonies, envelope API, encrypted oplog sync + snapshot compaction, blind push relay, per-account egress hosts. **CSP invariant:** the account app document must never serve wildcard `https:`/`wss:` `connect-src` — per-account allowlist only; enforced by `TestRouter_HostVariants` / `TestRouter_AppDocumentReflectsEgressHosts` in `router_test.go`.
+- `web/static/` — vanilla JS frontend, Dexie, Service Worker.
+- `web/cloud/` — cloud shell (unlock wizard at `/unlock`, crypto module, sync engine, `apishim.js`, service worker); account subdomains serve the full `web/static` app.
+- `web/domain/` — **the domain layer**: pure ES modules, injected ports, zero browser globals (purity-enforced); `apishim.js` routes `/api/*` into it and `mcp-responder.js` dispatches through the same router.
+- `python/` — `medtracker` helper package + sandboxed runner for `mcp_execute`.
 
 ## Documentation Index
 
 | Topic | File |
 |-------|------|
-| Architecture: components, data flows, sync, reminders, identity, MCP, and the generated-privacy-boundary rule | [docs/architecture.md](docs/architecture.md) |
-| Feature behaviors (Today dashboard, meds, BP, weight, food, workouts, MCP) | [docs/features.md](docs/features.md) |
-| Gamification design (HealthPoints, science-based, outcome-in-range scoring, insight ladder) — **design proposal, not yet implemented** | [docs/gamification.md](docs/gamification.md) |
-| Workout depth (per-set logging → est-1RM/PR/graphs → opt-in progression; strength-logger parity; no social/watch/DSL) — **design proposal (epic med-qj4), Phase 1 in progress** | [docs/workout-depth.md](docs/workout-depth.md) |
-| Cloud onboarding wizard (revives the existing `WGFirstRun` overlay in cloud mode via a vault-backed `first_run_complete`; step sequence, skip/resume, claim→app seam) — **design proposal, not yet implemented** | [docs/onboarding-wizard.md](docs/onboarding-wizard.md) |
-| Cloud mode, per-subsystem: accounts/onboarding, key hierarchy, encrypted sync, blind push relay, Telegram sealed inbox, MCP tiers, BYO + trial provider keys, voice, export/import — **and the generated privacy boundary table** (canonical enumeration of what leaves the vault; source `web/cloud/js/privacy-manifest.js`, regenerate with `pnpm privacy:docs`, never hand-edit) | [docs/cloud-mode.md](docs/cloud-mode.md) |
-| Canonical full-vault export/import format (one-user-all-domains JSON, wire-shape field names, skip list, round-trip normalizations, age encryption) — **v1 implemented (C2e)** | [docs/vault-format.md](docs/vault-format.md) |
-| Cloud-mode crypto (passkey-only key management: WebAuthn PRF envelopes over a random DEK, device enrollment ceremonies, recovery code, formats) — **suite v1 implemented in `web/cloud/js/crypto.js`** | [docs/cloud-crypto.md](docs/cloud-crypto.md) |
-| Cloud key rotation (compromised-device eviction: account key epoch, single-transaction DEK/NK rotation + fresh snapshot, surviving-device re-derivation, honest "cannot un-leak the past" UI copy) — **design proposal, not yet implemented** | [docs/cloud-key-rotation.md](docs/cloud-key-rotation.md) |
-| Cloud deployment (self-hosted `cmd/cloud`: Traefik + Portainer infra layer, DNS-01 wildcard cert, gitops app stack, admin invite) | [docs/cloud-deployment.md](docs/cloud-deployment.md) |
-| Cloud operations security, retention, backup, deletion propagation, per-feature subprocessor table, incident response (operator policy: what remains after deletion, for how long, where data was sent) | [docs/cloud-operations-security.md](docs/cloud-operations-security.md) |
+| Architecture (components, sync, reminders, identity, MCP) | [docs/architecture.md](docs/architecture.md) |
+| Feature behaviors | [docs/features.md](docs/features.md) |
+| Gamification — **proposal, not implemented** | [docs/gamification.md](docs/gamification.md) |
+| Workout depth — **proposal (epic med-qj4), Phase 1 in progress** | [docs/workout-depth.md](docs/workout-depth.md) |
+| Cloud onboarding wizard — **proposal, not implemented** | [docs/onboarding-wizard.md](docs/onboarding-wizard.md) |
+| Cloud mode per-subsystem + **generated privacy boundary table** (source `web/cloud/js/privacy-manifest.js`, regen `pnpm privacy:docs`, never hand-edit) | [docs/cloud-mode.md](docs/cloud-mode.md) |
+| Vault export/import format — **v1 implemented** | [docs/vault-format.md](docs/vault-format.md) |
+| Cloud crypto (passkey/PRF envelopes over DEK) — **implemented in `web/cloud/js/crypto.js`** | [docs/cloud-crypto.md](docs/cloud-crypto.md) |
+| Cloud key rotation — **proposal, not implemented** | [docs/cloud-key-rotation.md](docs/cloud-key-rotation.md) |
+| Cloud deployment (Traefik + Portainer, wildcard cert, gitops) | [docs/cloud-deployment.md](docs/cloud-deployment.md) |
+| Cloud operations security (retention, backup, deletion, subprocessors, incidents) | [docs/cloud-operations-security.md](docs/cloud-operations-security.md) |
 | Environment variables | [docs/environment.md](docs/environment.md) |
-| MCP agent-usage evals (does a real LLM drive mcp_help/mcp_call/mcp_execute to finish tasks) | [docs/mcp-evals.md](docs/mcp-evals.md) |
-| Frontend architecture, load order, globals, design tokens, data flow | [docs/frontend.md](docs/frontend.md) |
-| Technical decisions (offline writes, 5xx-as-offline, IndexedDB as a write-ahead queue, vanilla JS) | [docs/technical-decisions.md](docs/technical-decisions.md) |
-| **Archived** — runbooks and specs for the Go server / Telegram bot, which is not built or deployed (API route table, MCP deployment + coverage + Python executor, SSE, demo mode, installer) | [docs/archive/](docs/archive/) |
-| **Documentation map** — which docs are normative vs proposal vs historical, and the rules for changing them | [docs/README.md](docs/README.md) |
-| **Threat model** (cloud): assets, trust boundaries, attacker model, what leaks by design, ranked residual risks | [docs/security/threat-model.md](docs/security/threat-model.md) |
-| Release integrity — the operator serves the code that holds the DEK; what narrows that, and how to verify a deployment | [docs/security/release-integrity.md](docs/security/release-integrity.md) |
-| Other security policies | [docs/security/](docs/security/) |
+| MCP agent-usage evals | [docs/mcp-evals.md](docs/mcp-evals.md) |
+| Frontend architecture, load order, tokens, data flow | [docs/frontend.md](docs/frontend.md) |
+| Technical decisions (offline writes, 5xx-as-offline, vanilla JS) | [docs/technical-decisions.md](docs/technical-decisions.md) |
+| Threat model / release integrity / other policies | [docs/security/](docs/security/) |
+| Archived bot-mode runbooks (API routes, MCP deployment/coverage/executor, SSE, demo mode) | [docs/archive/](docs/archive/) |
 
 ## Common Tasks
 
 ### Adding a new health metric
 
-There is **no server-side schema change** — the server stores opaque records, so
-a new metric is a new record type plus the browser code that understands it.
+No server-side schema change — the server stores opaque records; a new metric is a record type plus browser code.
 
-1. **Pick a record type and id convention.** A random recordId is fine unless
-   two devices can independently materialize the same logical row — then use a
-   deterministic id (`intake-<medId>-<slotUnix>`, `session-<groupId>-<date>`) so
-   LWW converges instead of duplicating. Singletons get a fixed recordId.
-2. **Write `web/domain/<feature>.js`** — `createXDomain({ records, now, timeZone })`,
-   pure, injected ports only. `architecture.domain-purity.test.js` fails on any
-   browser global.
-3. **Route `/api/<feature>*` in `web/cloud/js/apishim.js`** to that domain. Keep
-   the wire shape the UI already expects; the same shape is what the vault
-   export stores.
-4. **Add the UI in `web/static/`**, talking only to `/api/*`.
-5. **Reminders?** Extend the horizon computation in `web/domain/reminders.js`
-   and let the shim re-upload the replace-all schedule. The server cannot
-   compute a schedule.
-6. **Export/import**: add it to `web/domain/vault.js` and the golden fixture, or
-   the round-trip test will not cover it and a restore will silently drop it.
-7. **MCP**: register the operation in `internal/mcp/registry/`, run
-   `go run ./cmd/genmcpcatalog`, and make sure the router in step 3 serves it —
-   the responder dispatches through that same router, never its own branch.
+1. Pick a record-id convention: deterministic id (`intake-<medId>-<slotUnix>`) when two devices can materialize the same logical row (LWW convergence), fixed id for singletons, random otherwise.
+2. Write `web/domain/<feature>.js` — pure, injected ports only (`createXDomain({ records, now, timeZone })`).
+3. Route `/api/<feature>*` in `web/cloud/js/apishim.js`; keep the wire shape the UI expects (the vault export stores the same shape).
+4. Add the UI in `web/static/`, talking only to `/api/*`.
+5. Reminders: extend the horizon computation in `web/domain/reminders.js`; the server cannot compute schedules.
+6. Export/import: add to `web/domain/vault.js` **and the golden fixture**, or the round-trip test won't cover it and restore silently drops it.
+7. MCP: register the op in `internal/mcp/registry/`, run `go run ./cmd/genmcpcatalog`; the responder dispatches through the same router as step 3.
 
-The Go store/handler/scheduler path (`internal/store/`, `internal/server/`,
-`internal/bot/`, `internal/scheduler/`) is not on the deployed path; its
-conventions are in [docs/archive/architecture-bot-mode.md](docs/archive/architecture-bot-mode.md).
-If you do change Go code there, it must keep building and passing tests.
-
-Any new dose-like timestamp column (one that participates in SQL equality — dedupe, lookup by instant, etc.) must be stored as `INTEGER` unix-seconds-UTC, not as `DATETIME` text. Normalize via `t.UTC().Unix()` (or `storedb.TimeToUnix`) at the writer and `time.Unix(n, 0).UTC()` (or `storedb.UnixToTime`) at the reader. See [docs/archive/architecture-bot-mode.md → Time storage](docs/archive/architecture-bot-mode.md#time-storage); the convention is enforced cross-table by `TestDoseTimeColumnsAreInteger` in `internal/store/store_time_invariants_test.go` (current allowlist covers `intake_log.{scheduled,taken,snoozed_until}_at_unix` and `tz_transition_plans.{created,notified,approved}_at_unix`). When adding a new dose-like column, append it to the allowlist in the same test and to the package comment at the top of `internal/store/store.go`.
+Any new dose-like timestamp column (participates in SQL equality) must be `INTEGER` unix-seconds-UTC, not `DATETIME` text — normalize via `storedb.TimeToUnix`/`UnixToTime`. Enforced by `TestDoseTimeColumnsAreInteger` (`internal/store/store_time_invariants_test.go`); new columns go in that allowlist and the `internal/store/store.go` package comment.
 
 ### Adding an MCP tool
 
-For most new backend capabilities, prefer adding an entry to the operation registry (`internal/mcp/registry/`) so it becomes reachable from the discover-then-run surface — `mcp_help` (discover), `mcp_call` (one-shot single read/write, no script), and `mcp_execute` (multi-step Python scripts) — via the proxy → bridge path, with no new MCP tool registration required. When adding a read/list/get/overview op, also populate its `ResponseExample` (a small realistic JSON sample) so the discovery surface can show agents the output shape; `mcp_help` carries a stable `usage_protocol`, supports batch `operation_ids` (full entries) and `query` (compact matches, never auto-expanded to full schemas — see the comment in `internal/mcp/help.go`), and is mirrored by the preloadable `mcp://catalog` resource. Unknown-op denials return did-you-mean suggestions, and `mcp_call`/`mcp_execute` attach warn-only schema validation warnings (`registry.ValidateInput`) without blocking the call. Only add a top-level MCP tool when a granular tool has a clear standalone use case (e.g., `workout_log`'s natural-language inference). Note that `mcp_execute` has **no cloud path** — a server-side script runner would have nothing to read — so a registry op is the only surface that reaches cloud. Current MCP architecture: [docs/architecture.md §7](docs/architecture.md#7-mcp). Archived Go-server runbooks: [mcp-deployment.md](docs/archive/mcp-deployment.md#adding-mcp-tools), [mcp-python-executor.md](docs/archive/mcp-python-executor.md), [mcp-coverage.md](docs/archive/mcp-coverage.md).
+Prefer a registry op (`internal/mcp/registry/`) over a new top-level tool — it becomes reachable via `mcp_help`/`mcp_call`/`mcp_execute` with no new registration. Populate `ResponseExample` for read ops (copied from the handler's real JSON — a test asserts the shape). `mcp_execute` has **no cloud path**; a registry op is the only surface that reaches cloud. Then:
 
-Adding a registry operation also means updating the **cloud** MCP catalog: `web/cloud/js/mcp-catalog.generated.js` is generated from `registry.DefaultOperations()` by `cmd/genmcpcatalog`. Run `go run ./cmd/genmcpcatalog` and commit the result, or add a reasoned entry to `catalogjs.Excluded` (same shape as `internal/server/mcp_coverage_exempt.go`). `internal/mcp/catalogjs/drift_test.go` fails CI otherwise — the regenerate-or-exempt sibling of the HTTP-route coverage guard.
+- Regenerate `web/cloud/js/mcp-catalog.generated.js` (`go run ./cmd/genmcpcatalog`) or add a reasoned `catalogjs.Excluded` entry — `internal/mcp/catalogjs/drift_test.go` fails CI otherwise.
+- The op must be routable in cloud via `apishim.js`'s `createApiRouter` — **never** a bespoke branch in `mcp-responder.js`. Missing routes fail CI in `web/cloud/js/tests/mcp-responder.test.js`. Behavior the domain layer lacks goes in `web/domain/*.js`.
 
-A catalogued op must also be **routable in cloud mode**, and its route belongs in the shared router — `web/cloud/js/apishim.js`'s `createApiRouter` — never in `web/cloud/js/mcp-responder.js`. The responder dispatches every op by the catalog's own `method` + `path` through that router, so MCP and the cloud UI share one code path; a bespoke branch in the responder would be a second copy of domain logic. When the route needs behavior the domain layer lacks, add it to `web/domain/*.js` (purity-guarded by `architecture.domain-purity.test.js`). The coverage sweep in `web/cloud/js/tests/mcp-responder.test.js` fails CI naming any catalogued op the router cannot serve, and a companion test asserts each op's `ResponseExample` shape — so an example must be copied from the handler's real JSON, not hand-written from memory. See [docs/cloud-mode.md](docs/cloud-mode.md).
+Details: [docs/architecture.md §7](docs/architecture.md#7-mcp); archived runbooks in [docs/archive/](docs/archive/).
 
-### Adding an egress path (a proxy, an upstream host, or server-side plaintext)
+### Adding an egress path
 
-`web/cloud/js/privacy-manifest.js` is the single source of truth for what leaves the vault. `docs/cloud-mode.md`'s privacy boundary table is **generated** from it (`pnpm privacy:docs`) and Settings → *What can the operator see?* is derived from it. `web/cloud/js/tests/architecture.privacy-claims.test.js` scans the real call sites — outbound HTTP / `proxyUpstream` / `webpush.Send` / `tgclient.` / `SealAndQueue` / `nxk.` in `internal/cloudserver/*.go`, plus every literal third-party host in the Go and `web/cloud/js` sources — and fails CI on anything no manifest entry claims. So: add the entry (every field, real `file:line` evidence, user-facing `userCopy`), run `pnpm privacy:docs`, commit the regenerated table. Do not flatten the activation classes — the operator-default food DB and RxNav have no toggle, and RxNav has no BYO alternative.
+`web/cloud/js/privacy-manifest.js` is the single source of truth for what leaves the vault; the docs table and Settings copy are generated from it. `architecture.privacy-claims.test.js` scans real call sites and third-party host literals and fails CI on anything unclaimed. Add the manifest entry (with `file:line` evidence and `userCopy`), run `pnpm privacy:docs`, commit the regenerated table. Don't flatten activation classes (food DB and RxNav have no toggle; RxNav has no BYO).
 
 ### Adding a new HTTP route
 
-A cloud route is a route in `internal/cloudserver` **plus** the `web/cloud/js/apishim.js` route that answers it in the browser — the server route only moves ciphertext. If the capability should be agent-reachable, add a registry op (above) and regenerate the catalog; `web/cloud/js/tests/mcp-responder.test.js` fails CI naming any catalogued op the router cannot serve.
+A cloud route = `internal/cloudserver` route **plus** the `apishim.js` route that answers it in the browser (the server only moves ciphertext). Agent-reachable → add a registry op and regenerate the catalog. On the legacy Go server, `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` still enforces registry-or-exempt (`internal/server/mcp_coverage_exempt.go`, with `Reason`) — read [docs/archive/mcp-coverage.md](docs/archive/mcp-coverage.md) before silencing it.
 
-**Still-live guard on the Go server.** `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` continues to run against `internal/server`, which still compiles. If you add an `apiMux.HandleFunc(...)` there, it must be reachable via the registry or listed in `internal/server/mcp_coverage_exempt.go` with a `Reason`, or CI fails. The policy behind that guard is archived but has not stopped being enforced — read it at [docs/archive/mcp-coverage.md](docs/archive/mcp-coverage.md) before trying to silence the failure.
+### Adding a local-first read
 
-### Modifying workout rotation
-
-- Core logic: `internal/store/workout/repo.go` (`AdvanceRotation`)
-- Scheduler integration: `internal/scheduler/workout.go`
-- Bot callbacks: `internal/bot/workout_callbacks.go`
-- Tests: `internal/store/workout/workout_test.go`
-
-### Adding a local-first read to a feature module
-
-When a screen needs to render cached data offline (or behind a 5xx proxy), route the read through `window.cachedFetch` and surface freshness via `<wg-stale-badge>` instead of writing a new ad-hoc cache fallback. See [docs/frontend.md → Local-First Read Resilience](docs/frontend.md#local-first-read-resilience).
-
-1. Replace the direct `apiCall(url)` with `await window.cachedFetch(key, url, { tags, freshAfterMs, staleAfterMs, transform })` — returns `{ data, fetchedAt, isFromCache, isStale }`. Pick a `key` that matches the bootstrap apply path in `app.js` if one exists, so the bootstrap-warmed cache is reused.
-2. Catch `window.OfflineNoCacheError` and render an explicit empty state (e.g., "No cached data — connect to load"). Never let it bubble to the console.
-3. Mount the freshness chip into the section header: `await window.WGStaleBadge.mountFromKey({ slot, key })`. For sections that don't go through `cachedFetch` (BP/Weight/Meds/Workouts/Vitals still use `offlineAwareApiCall`), `mountFromKey` reads the bootstrap-warmed timestamp directly.
-4. Tests (Vitest): one case for warm-cache offline render (asserts data + `Offline · …` chip), one for `OfflineNoCacheError` empty state. Reference: `web/static/js/tests/food.offline-cached-fetch.test.js`, `sections.stale-badge.test.js`.
-
+Route reads through `window.cachedFetch(key, url, {...})` and mount `<wg-stale-badge>` via `WGStaleBadge.mountFromKey`; catch `window.OfflineNoCacheError` with an explicit empty state. Tests: warm-cache offline render + no-cache empty state (reference: `food.offline-cached-fetch.test.js`). See [docs/frontend.md → Local-First Read Resilience](docs/frontend.md#local-first-read-resilience).
 
 ## Issue Tracking
 
