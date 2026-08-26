@@ -10,6 +10,7 @@
 // it breaks.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 import { macrotask } from './helpers/settle.js';
 import { downloadDoc, printDoc } from '../../../cloud/js/print-doc.js';
 
@@ -308,6 +309,9 @@ describe('Doctor brief — modal + print/download', () => {
     });
 
     it('says the brief is unavailable rather than printing a blank page when the read fails', async () => {
+        // The handler logs the swallowed failure on purpose — that is the only
+        // trace a user's "it just said it could not build" report leaves.
+        allowConsoleNoise();
         env.window.apiCall = async () => null;
         const printed = [];
         env.window.DoctorBrief.loadPrintDoc = async () => ({
