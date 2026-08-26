@@ -288,6 +288,16 @@ ${statRow('Pulse', bp.pulse, 'bpm')}
         return `<p class="stat">${esc(`Most trained: ${parts.join(', ')}.`)}</p>`;
     }
 
+    // The bars span min(12 weeks, the range), so only the 30-day brief has a
+    // chart wider than its own header. Same reason the sleep chart is
+    // captioned: without this a doctor reads the bars as covering the range
+    // printed at the top of the page.
+    function workoutChartCaption(data) {
+        return Number(data.range && data.range.days) === 30
+            ? '<p class="stat">Activity chart: last 12 weeks shown.</p>'
+            : '';
+    }
+
     function workoutsBlock(data, charts) {
         const w = data.workouts;
         if (!w || !w.session_count) return '';
@@ -300,7 +310,9 @@ ${statRow('Pulse', bp.pulse, 'bpm')}
             rows.push(`<tr><th>Current streak</th><td class="num">${esc(fmtNum(w.current_streak_weeks))}`
                 + ` week${n === 1 ? '' : 's'}</td></tr>`);
         }
-        const chart = (charts && charts.workouts) ? `<div class="chart">${charts.workouts}</div>` : '';
+        const chart = (charts && charts.workouts)
+            ? `<div class="chart">${charts.workouts}</div>${workoutChartCaption(data)}`
+            : '';
         return block('Workouts', `<table>
 <tbody>
 ${rows.join('\n')}
@@ -403,17 +415,18 @@ ${body}
                 // zero baseline and keeps every bucket, so an untrained week
                 // reads as zero rather than as a gap in a smoothed line.
                 //
-                // weekly_activity's span is min(12 weeks, the range) — WIDER
-                // than a 30-day brief's window (workout.js getStats cutoff12w),
-                // exactly as wide for 90/180. Handing the component the brief's
-                // own window keeps the bars from covering more than the header
-                // claims; it has no '180d' filter, and none is needed there.
-                const days = (data.range && data.range.days) || 0;
+                // 'all' — draw every bucket the payload carries. Its span is
+                // min(12 weeks, the range) (workout.js getStats cutoff12w), so
+                // it matches the window for 90/180 and is WIDER for 30. Asking
+                // the component for '30d' there would not fix that: its filter
+                // keeps any bucket that merely OVERLAPS the cutoff, and keeps
+                // it whole, so the first bar would still carry up to six
+                // out-of-range days while claiming not to. workoutsBlock
+                // captions the wider span instead.
                 out.workouts = serializeSvg(window.WGWorkoutChart.render({
                     sessions: wk.weekly_activity,
                     metric: 'sessions',
                     variant: 'bars',
-                    range: days === 30 ? '30d' : 'all',
                 }));
             }
         } catch (e) {
