@@ -91,6 +91,7 @@ const SETTINGS_INTEGRATIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/se
 const TRIAL_CONSENT_JS = path.join(REPO_ROOT, 'web/static/js/features/trial-consent.js');
 const SETTINGS_IMPORTEXPORT_JS = path.join(REPO_ROOT, 'web/static/js/features/settings/importexport.js');
 const WORKOUT_MODALS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/modals.js');
+const BRIEF_JS = path.join(REPO_ROOT, 'web/static/js/features/brief.js');
 
 // Device-capability abstraction layer. Must load before feature modules that
 // call window.Barcode / window.MediaCapture — food/scanner.js + food/photo.js
@@ -390,6 +391,12 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   // loadWorkouts / invalidateWorkoutCache / switchTab at call time, so they
   // work whether or not the withWorkout sub-files are present.
   evalFileCached(window, WORKOUT_MODALS_JS);
+
+  // brief.js — the doctor-visit brief modal (med-5k6t.2). Loaded before the
+  // DOMContentLoaded dispatch below so its bind() runs off the same event the
+  // production page fires; it only needs window.apiCall / window.ModalManager
+  // (and the chart components) at call time.
+  evalFileCached(window, BRIEF_JS);
 
   // auth-flow.js: provides saveAuthState / getCachedAuthState / clearAuthState.
   evalFileCached(window, AUTH_FLOW_JS);

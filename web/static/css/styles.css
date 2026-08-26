@@ -10102,6 +10102,32 @@ textarea.wg-input {
     padding: var(--space-xs) var(--space-md);
 }
 
+/* Doctor brief modal (med-5k6t.2). Rides `.wg-health-modal` for the shell,
+   header actions, and field layout; only the section checkbox grid and the
+   status line are its own. */
+.wg-brief-modal__sections {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(var(--wg-today-shortcut-min), 1fr));
+    gap: var(--space-xs) var(--space-md);
+}
+
+.wg-brief-modal__status {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+}
+
+/* Offscreen rather than display:none — a hidden iframe does not lay out, and
+   the print dialog needs a rendered document. Mirrors `.kit-print-frame` in
+   web/cloud/css/cloud.css; both are driven by web/cloud/js/print-doc.js. */
+.wg-brief-print-frame {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    left: -9999px;
+    border: 0;
+}
+
 /* Meds schedule sub-tab (Phase 5, Task 4). `.wg-section-label` hour headers
    bracket clusters of scheduled meds; each row is a `.wg-card` with a name
    (mono-display), dosage, schedule summary, optional inventory tag, and a
@@ -11312,7 +11338,8 @@ textarea.wg-input {
     gap: var(--wg-meds-modal-toggle-gap);
 }
 
-.wg-meds-modal__toggle {
+.wg-meds-modal__toggle,
+.wg-brief-modal__toggle {
     display: inline-flex;
     align-items: center;
     gap: var(--space-xs);
@@ -11322,7 +11349,8 @@ textarea.wg-input {
     cursor: pointer;
 }
 
-.wg-meds-modal__toggle input[type="checkbox"] {
+.wg-meds-modal__toggle input[type="checkbox"],
+.wg-brief-modal__toggle input[type="checkbox"] {
     margin: 0;
     width: auto;
 }

@@ -129,4 +129,70 @@ describe('Today shortcut rows — food + vitals split', () => {
         const vitalsRow = root.querySelector('.wg-today-shortcuts--vitals');
         expect(tileLabels(vitalsRow)).toEqual(['Add weight']);
     });
+
+    // med-5k6t.2 — the Doctor brief entry point. A normal Today element, not a
+    // bottom-nav slot and not a section-header banner (CLAUDE.md rule 6).
+    describe('Doctor brief shortcut', () => {
+        const brief = () => ({ now, onDoctorBrief: () => {} });
+
+        it('renders last, alone in its own row', () => {
+            const root = env.document.getElementById('today-content');
+            env.render(baseState(now), root, brief());
+            const rows = Array.from(root.querySelectorAll('.wg-today-shortcuts'));
+            expect(rows.length).toBe(3);
+            expect(rows[2].classList.contains('wg-today-shortcuts--brief')).toBe(true);
+            expect(tileLabels(rows[2])).toEqual(['Doctor brief']);
+        });
+
+        it('calls the handler on click', () => {
+            const root = env.document.getElementById('today-content');
+            let opened = 0;
+            env.render(baseState(now), root, { now, onDoctorBrief: () => { opened += 1; } });
+            root.querySelector('.wg-today-shortcuts--brief .wg-shortcut-tile')
+                .dispatchEvent(new env.window.Event('click', { bubbles: true }));
+            expect(opened).toBe(1);
+        });
+
+        it('still appears for a meds-only vault with no quick-log rows', () => {
+            const root = env.document.getElementById('today-content');
+            const state = baseState(now);
+            state.caloriesTarget.status = 'disabled';
+            state.bpLatest.status = 'disabled';
+            state.weightLatest.status = 'disabled';
+            env.render(state, root, brief());
+            expect(root.querySelector('.wg-today-shortcuts--brief')).not.toBeNull();
+        });
+
+        it('disappears when every feature is off — there is nothing to brief', () => {
+            const root = env.document.getElementById('today-content');
+            const state = baseState(now);
+            Object.keys(state).forEach((k) => {
+                if (state[k] && typeof state[k] === 'object' && 'status' in state[k]) state[k].status = 'disabled';
+            });
+            env.render(state, root, brief());
+            expect(root.querySelector('.wg-today-shortcuts')).toBeNull();
+        });
+
+        // Bot mode has no GET /api/brief and does not serve /js/print-doc.js,
+        // so the tile must not be offered there at all.
+        it('is absent outside cloud mode even with window.DoctorBrief present', () => {
+            const root = env.document.getElementById('today-content');
+            env.window.DoctorBrief = { open() {} };
+            env.window.__MEDTRACKER_CLOUD__ = false;
+            env.render(baseState(now), root, { now });
+            expect(root.querySelector('.wg-today-shortcuts--brief')).toBeNull();
+        });
+
+        it('uses window.DoctorBrief.open as the default handler in cloud mode', () => {
+            const root = env.document.getElementById('today-content');
+            let opened = 0;
+            env.window.__MEDTRACKER_CLOUD__ = true;
+            env.window.DoctorBrief = { open() { opened += 1; } };
+            env.render(baseState(now), root, { now });
+            const tile = root.querySelector('.wg-today-shortcuts--brief .wg-shortcut-tile');
+            expect(tile).not.toBeNull();
+            tile.dispatchEvent(new env.window.Event('click', { bubbles: true }));
+            expect(opened).toBe(1);
+        });
+    });
 });

@@ -788,6 +788,25 @@
         }
         if (vitalsAdded > 0) rows.push(vitalsRow);
 
+        // Doctor brief (med-5k6t.2) — its own row because it is a document
+        // action, not a quick-log. Shown whenever anything at all is tracked
+        // (a meds-only vault still goes to appointments, and it has no BP or
+        // food quick-log row to ride on); suppressed in the every-feature-off
+        // state, where there is nothing to brief and Today shows its empty
+        // placeholder instead, and wherever the caller supplies no handler
+        // (bot mode — see renderToday's cloud gate).
+        const medsCell = state && state.nextMed;
+        if (typeof handlers.onDoctorBrief === 'function'
+            && (rows.length > 0 || (medsCell && medsCell.status !== 'disabled'))) {
+            const briefRow = d.createElement('div');
+            briefRow.className = 'wg-today-shortcuts wg-today-shortcuts--brief';
+            briefRow.setAttribute('data-section', 'shortcuts-brief');
+            briefRow.appendChild(renderShortcutTile('chart', 'Doctor brief', () => {
+                if (typeof handlers.onDoctorBrief === 'function') handlers.onDoctorBrief();
+            }));
+            rows.push(briefRow);
+        }
+
         return rows.length > 0 ? rows : null;
     }
 
@@ -1256,6 +1275,12 @@
         return card;
     }
 
+    function briefOpenerOrNull() {
+        if (typeof window === 'undefined' || !window.__MEDTRACKER_CLOUD__) return null;
+        const brief = window.DoctorBrief;
+        return (brief && typeof brief.open === 'function') ? () => brief.open() : null;
+    }
+
     function defaultHandler(name, fallbackTab) {
         return () => {
             if (typeof window !== 'undefined') {
@@ -1291,6 +1316,11 @@
                 window.FoodActions.triggerPhotoPicker();
             }
         });
+        // Cloud-only: GET /api/brief is answered by web/cloud/js/apishim.js and
+        // the print helper is served from the cloud shell, so bot mode has
+        // neither. No handler → renderShortcutRow omits the tile entirely
+        // rather than offering a button that can only fail.
+        const onDoctorBrief = opts.onDoctorBrief || briefOpenerOrNull();
         const onScanFood = opts.onScanFood || (() => {
             if (typeof window === 'undefined') return;
             if (window.FoodLog && typeof window.FoodLog.openAdd === 'function') {
@@ -1365,7 +1395,7 @@
         }
 
         const shortcutRows = renderShortcutRow(state, {
-            onLogFood, onScanFood, onPhotoMeal, onAddBp, onAddWeight
+            onLogFood, onScanFood, onPhotoMeal, onAddBp, onAddWeight, onDoctorBrief
         });
         if (shortcutRows) {
             shortcutRows.forEach((r) => root.appendChild(r));

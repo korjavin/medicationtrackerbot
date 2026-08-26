@@ -2106,6 +2106,80 @@
         </form>
     </mt-modal>
 
+    <!-- Doctor brief (med-5k6t.2) — range + section picker for the printable
+         appointment summary. Print / Download both build a standalone HTML
+         document in the browser; nothing is uploaded. Cancel sits left of the
+         primary action, both in the header row so a mobile keyboard cannot
+         occlude them. -->
+    <mt-modal id="brief-modal" class="hidden wg-modal wg-health-modal">
+        <div class="wg-health-modal__header">
+            <div class="wg-health-modal__heading">
+                <span class="wg-section-label wg-health-modal__eyebrow">Doctor brief</span>
+                <span class="wg-mono-display wg-health-modal__title">Appointment summary</span>
+            </div>
+            <div class="wg-health-modal__header-actions">
+                <button type="button" id="brief-cancel-btn"
+                    class="wg-gloss wg-health-modal__header-btn">Cancel</button>
+                <button type="button" id="brief-download-btn"
+                    class="wg-gloss wg-health-modal__header-btn">Download</button>
+                <button type="button" id="brief-print-btn"
+                    class="wg-gloss wg-gloss--sun wg-health-modal__header-btn wg-health-modal__header-btn--save">Print</button>
+            </div>
+        </div>
+
+        <div class="wg-health-modal__body">
+            <div class="wg-health-modal__field">
+                <span class="wg-health-modal__label">Range</span>
+                <div class="wg-gloss--inset wg-settings-segmented" role="radiogroup" aria-label="Brief range"
+                    id="brief-range">
+                    <button type="button" class="wg-gloss wg-settings-segmented__btn"
+                        data-days="30" aria-pressed="false">30 days</button>
+                    <button type="button"
+                        class="wg-gloss wg-gloss--sun wg-settings-segmented__btn wg-settings-segmented__btn--active"
+                        data-days="90" aria-pressed="true">90 days</button>
+                    <button type="button" class="wg-gloss wg-settings-segmented__btn"
+                        data-days="180" aria-pressed="false">180 days</button>
+                </div>
+            </div>
+
+            <div class="wg-health-modal__field">
+                <span class="wg-health-modal__label">Sections</span>
+                <div class="wg-brief-modal__sections" id="brief-sections">
+                    <label class="wg-brief-modal__toggle">
+                        <input type="checkbox" data-section="meds" checked>
+                        <span>Meds + adherence</span>
+                    </label>
+                    <label class="wg-brief-modal__toggle">
+                        <input type="checkbox" data-section="bp" checked>
+                        <span>Blood pressure</span>
+                    </label>
+                    <label class="wg-brief-modal__toggle">
+                        <input type="checkbox" data-section="weight" checked>
+                        <span>Weight</span>
+                    </label>
+                    <label class="wg-brief-modal__toggle">
+                        <input type="checkbox" data-section="vitals" checked>
+                        <span>Vitals</span>
+                    </label>
+                    <label class="wg-brief-modal__toggle">
+                        <input type="checkbox" data-section="notes" checked>
+                        <span>Notes</span>
+                    </label>
+                    <label class="wg-brief-modal__toggle">
+                        <input type="checkbox" data-section="food">
+                        <span>Nutrition</span>
+                    </label>
+                    <label class="wg-brief-modal__toggle">
+                        <input type="checkbox" data-section="workouts">
+                        <span>Workouts</span>
+                    </label>
+                </div>
+            </div>
+
+            <p class="wg-brief-modal__status" id="brief-status">Everything is generated on this device.</p>
+        </div>
+    </mt-modal>
+
     <!-- Modal for Medication Confirmation (from Push) -->
     <mt-modal id="med-confirm-modal" class="hidden wg-modal wg-med-confirm-modal">
         <div class="wg-med-confirm-modal__header">
@@ -2258,6 +2332,7 @@
     <script src="/static/js/features/settings/integrations.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/settings/importexport.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/today.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/brief.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/journey.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/tz-plan-banner.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/forecast-card.js?v=TIMESTAMP_PLACEHOLDER"></script>

@@ -112,6 +112,7 @@ const STATIC_ASSETS = [
     '/static/js/features/settings/integrations.js',
     '/static/js/features/settings/importexport.js',
     '/static/js/features/today.js',
+    '/static/js/features/brief.js',
     '/static/js/features/journey.js',
     '/static/js/features/tz-plan-banner.js',
     '/static/js/features/forecast-card.js',

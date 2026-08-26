@@ -136,6 +136,8 @@ describe('TodayDashboard.renderToday', () => {
         expect(root.querySelector('.section-header')).toBeNull();
 
         expect(root.querySelector('.wg-today-shortcuts')).not.toBeNull();
+        // 5 quick-log tiles. The Doctor brief tile (med-5k6t.2) is cloud-gated
+        // and this env sets no __MEDTRACKER_CLOUD__ — see today.shortcut-row-split.
         expect(root.querySelectorAll('.wg-shortcut-tile').length).toBe(5);
         expect(root.querySelector('.wg-vitals-grid')).not.toBeNull();
         expect(root.querySelectorAll('.wg-metric-tile').length).toBe(2);

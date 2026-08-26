@@ -76,6 +76,10 @@ const ALLOWLIST = [
         reason: 'pure aggregation + render contract; consumes bootstrap + DataStore caches seeded elsewhere, never reads the network directly',
     },
     {
+        file: 'brief.js',
+        reason: 'doctor-visit brief (med-5k6t.2); its only read is a one-shot GET /api/brief behind an explicit Print/Download press — a document the user asks for on the spot, not a section landing. Caching a stale brief would print numbers that disagree with the screens it summarizes, so offline the modal says so and prints nothing',
+    },
+    {
         file: 'tz-plan-banner.js',
         reason: 'transient banner that fetches /api/tz-plan/current as a single-shot; if offline the banner simply does not appear — no cached section state to surface',
     },
