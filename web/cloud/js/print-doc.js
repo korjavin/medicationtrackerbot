@@ -61,8 +61,15 @@ export function printDoc(doc, html, className, css) {
     const win = frame.contentWindow;
     try {
       // Constructed in the FRAME's realm — adoptedStyleSheets rejects a sheet
-      // built by another document. Best-effort: a browser without constructed
-      // stylesheets (Safari < 16.4) falls back to the inline <style>.
+      // built by another document.
+      //
+      // ponytail: a browser with no constructed stylesheets falls back to the
+      // inline <style>, which this origin's CSP refuses — so it prints
+      // unstyled. That is Chrome < 73, Firefox < 101, Safari < 16.4, none of
+      // which can unlock a vault here at all (cloud unlock needs WebAuthn PRF:
+      // Safari 18+, Chrome 116+). Upgrade path if that ever stops holding:
+      // serve the document CSS as a real file and <link> it — same-origin, so
+      // style-src 'self' allows it — instead of adopting.
       const supported = !!win && typeof win.CSSStyleSheet === 'function'
         && typeof win.CSSStyleSheet.prototype.replaceSync === 'function'
         && 'adoptedStyleSheets' in frame.contentDocument;
