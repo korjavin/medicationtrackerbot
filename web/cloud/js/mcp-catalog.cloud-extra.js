@@ -143,7 +143,7 @@ export const CLOUD_EXTRA = [
     path: '/api/brief',
     risk: 'read',
     description: 'Assemble the doctor-visit brief: ONE read folding medications + adherence, blood pressure, weight, sleep/resting-HR vitals, diary notes, and optionally food and workouts over the last 30/90/180 days. Use this instead of chaining health.bp.list + health.weight.list + medications.history when the user asks for an appointment summary or "everything since my last visit". Computed client-side over your vault from the same folds the app screens show, so it can never disagree with them. A selected section with no data yields nulls/empty arrays rather than an error.',
-    response_summary: 'Object with range{days,from,to,generated_at} plus one key per SELECTED section: medications[] (name, dosage, schedule_summary, started_at, adherence_pct, as_needed, times_taken) and overall_adherence_pct plus adherence_detail{missed,delayed,avg_delay_minutes} for meds — an as-needed medication (or one whose schedule cannot be parsed) has as_needed true, adherence_pct null and times_taken = number of doses logged in the window, and is excluded from overall_adherence_pct; adherence_pct/overall_adherence_pct are also null when nothing was scheduled in the window. adherence_detail is the overall-only breakdown behind that percentage: missed = SKIPPED + overdue PENDING doses, delayed = doses taken more than 60 minutes after their slot, avg_delay_minutes = mean lateness over those delayed doses (null when none were). Manually logged past doses have no real slot, so they count toward the percentage but never toward delayed/avg_delay_minutes; as-needed medications contribute nothing to adherence_detail at all. It has no per-medication counterpart; bp{count, systolic/diastolic/pulse{avg,min,max} or null, goal, readings[] oldest-first}; weight{start,end,delta,unit:"kg",points[]}; vitals{avg_sleep_minutes,resting_hr}; notes[{id,date,text}] capped at 50 — this op always returns EVERY note in the window, including any the user excluded from a printed brief in the app (that per-note picker is presentational only), because you already have unrestricted note access via the notes ops. food{days_logged,avg_kcal,avg_protein,avg_carbs,avg_fat,targets} and workouts{session_count,per_week} appear ONLY when named in sections. An unselected section is absent from the response, not null.',
+    response_summary: 'Object with range{days,from,to,generated_at} plus one key per SELECTED section: medications[] (name, dosage, schedule_summary, started_at, adherence_pct, as_needed, times_taken) and overall_adherence_pct plus adherence_detail{missed,delayed,avg_delay_minutes} for meds — an as-needed medication (or one whose schedule cannot be parsed) has as_needed true, adherence_pct null and times_taken = number of doses logged in the window, and is excluded from overall_adherence_pct; adherence_pct/overall_adherence_pct are also null when nothing was scheduled in the window. adherence_detail is the overall-only breakdown behind that percentage: missed = SKIPPED + overdue PENDING doses, delayed = doses taken more than 60 minutes after their slot, avg_delay_minutes = mean lateness over those delayed doses (null when none were). Manually logged past doses have no real slot, so they count toward the percentage but never toward delayed/avg_delay_minutes; as-needed medications contribute nothing to adherence_detail at all. It has no per-medication counterpart; bp{count, systolic/diastolic/pulse{avg,min,max} or null, goal, readings[] oldest-first}; weight{start,end,delta,unit:"kg",points[]}; vitals{avg_sleep_minutes,resting_hr,sleep_daily[]} — sleep_daily is the per-LOCAL-day sleep fold (the same one the Vitals screen charts): one entry per day with a logged session, date-ascending, {date:"YYYY-MM-DD",total_mins,deep_mins,light_mins,rem_mins,awake_mins,heart_rate_avg} with 0 for phases the tracker did not report and a minutes-weighted heart_rate_avg (0 when none was recorded); avg_sleep_minutes/resting_hr are per-SESSION means over the same window, so they will not equal a mean over sleep_daily on days with more than one session; notes[{id,date,text}] capped at 50 — this op always returns EVERY note in the window, including any the user excluded from a printed brief in the app (that per-note picker is presentational only), because you already have unrestricted note access via the notes ops. food{days_logged,avg_kcal,avg_protein,avg_carbs,avg_fat,targets} and workouts{session_count,per_week} appear ONLY when named in sections. An unselected section is absent from the response, not null.',
     params_schema: {
       type: 'object',
       properties: {
@@ -206,7 +206,18 @@ export const CLOUD_EXTRA = [
           { measured_at: '2026-08-19T12:00:00.000Z', weight: 80.5 },
         ],
       },
-      vitals: { avg_sleep_minutes: 450, resting_hr: 60 },
+      vitals: {
+        avg_sleep_minutes: 450,
+        resting_hr: 60,
+        sleep_daily: [
+          {
+            date: '2026-08-18', light_mins: 0, deep_mins: 0, rem_mins: 0, awake_mins: 0, total_mins: 420, heart_rate_avg: 58,
+          },
+          {
+            date: '2026-08-19', light_mins: 0, deep_mins: 0, rem_mins: 0, awake_mins: 0, total_mins: 480, heart_rate_avg: 62,
+          },
+        ],
+      },
       notes: [{ id: '1755600000000', date: '2026-08-19', text: 'dizzy after the morning dose' }],
     },
   },

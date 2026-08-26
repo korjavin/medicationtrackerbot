@@ -521,7 +521,52 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
 
         const { vitals } = await call('/api/brief?days=30&sections=vitals', 'GET');
 
-        expect(vitals).toEqual({ avg_sleep_minutes: 450, resting_hr: 60 });
+        expect(vitals).toEqual({
+            avg_sleep_minutes: 450,
+            resting_hr: 60,
+            // The same per-local-day fold the Vitals screen charts
+            // (vitals.js foldSleepDaily) — not a second derivation here.
+            sleep_daily: [
+                {
+                    date: '2026-08-18', light_mins: 0, deep_mins: 0, rem_mins: 0, awake_mins: 0,
+                    total_mins: 420, heart_rate_avg: 58
+                },
+                {
+                    date: '2026-08-19', light_mins: 0, deep_mins: 0, rem_mins: 0, awake_mins: 0,
+                    total_mins: 480, heart_rate_avg: 62
+                }
+            ]
+        });
+    });
+
+    // bd med-29gh.3 — the brief's sleep chart must plot the Vitals screen's
+    // numbers, so both go through vitals.js foldSleepDaily. If the brief ever
+    // grew its own fold this is what would catch the drift.
+    it('folds sleep_daily to the same per-day numbers vitals.overview() charts', async () => {
+        const vault = fullVault();
+        const records = createInMemoryRecordsPort(vault);
+        const now = () => NOW;
+        const vitalsDomain = createVitalsDomain({ records, now, timeZone: TZ });
+        const call = routerWith(vault);
+
+        const [{ vitals }, overview] = await Promise.all([
+            call('/api/brief?days=30&sections=vitals', 'GET'),
+            vitalsDomain.overview()
+        ]);
+
+        expect(vitals.sleep_daily).toEqual(overview.sleep_stats_30d);
+    });
+
+    // A window with no sleep in it yields an empty array, not a hole: the
+    // presentation layer branches on `.length`, and undefined would throw.
+    it('returns an empty sleep_daily when nothing was slept in the window', async () => {
+        const vault = fullVault();
+        vault.sleep = [];
+        const call = routerWith(vault);
+
+        const { vitals } = await call('/api/brief?days=30&sections=vitals', 'GET');
+
+        expect(vitals).toEqual({ avg_sleep_minutes: null, resting_hr: null, sleep_daily: [] });
     });
 
     // `id` is what the app's per-note include picker (med-29gh.5) ticks against,
@@ -574,7 +619,7 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
         expect(brief.weight).toEqual({
             start: null, end: null, delta: null, unit: 'kg', points: []
         });
-        expect(brief.vitals).toEqual({ avg_sleep_minutes: null, resting_hr: null });
+        expect(brief.vitals).toEqual({ avg_sleep_minutes: null, resting_hr: null, sleep_daily: [] });
         expect(brief.notes).toEqual([]);
         expect(brief.food.days_logged).toBe(0);
         expect(brief.food.avg_kcal).toBeNull();

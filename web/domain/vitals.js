@@ -63,6 +63,48 @@ function calcAvg(values) {
   return Math.trunc(sum / values.length);
 }
 
+// foldSleepDaily sums per-LOCAL-day phase minutes across sessions, then a
+// minutes-weighted average heart rate per day (mirrors the dailyHRAcc pass in
+// handleGetHealthOverview). Returns date-ascending entries in exactly the
+// WGSleepChart stats shape, so the Vitals screen and the doctor brief's sleep
+// chart read the same numbers from one fold. The day key is the log's own
+// `day` — the local day the session is filed under — falling back to the
+// start_time's date only when the importer left `day` unset.
+function foldSleepDaily(logs) {
+  const dailyMap = new Map();
+  const hrAcc = new Map();
+  for (const l of logs) {
+    if (l.total_minutes === null || l.total_minutes === undefined) continue;
+    const day = l.day || (l.start_time ? l.start_time.slice(0, 10) : '');
+    if (!day) continue;
+    let stat = dailyMap.get(day);
+    if (!stat) {
+      stat = {
+        date: day, light_mins: 0, deep_mins: 0, rem_mins: 0, awake_mins: 0, total_mins: 0, heart_rate_avg: 0,
+      };
+      dailyMap.set(day, stat);
+    }
+    stat.total_mins += l.total_minutes;
+    if (l.light_minutes) stat.light_mins += l.light_minutes;
+    if (l.deep_minutes) stat.deep_mins += l.deep_minutes;
+    if (l.rem_minutes) stat.rem_mins += l.rem_minutes;
+    if (l.awake_minutes) stat.awake_mins += l.awake_minutes;
+    if (l.heart_rate_avg) {
+      const mins = l.total_minutes || 1;
+      const acc = hrAcc.get(day) || { weightedSum: 0, totalMins: 0 };
+      acc.weightedSum += l.heart_rate_avg * mins;
+      acc.totalMins += mins;
+      hrAcc.set(day, acc);
+    }
+  }
+  for (const [day, acc] of hrAcc) {
+    if (acc.totalMins <= 0) continue;
+    const stat = dailyMap.get(day);
+    if (stat) stat.heart_rate_avg = Math.trunc(acc.weightedSum / acc.totalMins);
+  }
+  return [...dailyMap.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+}
+
 // Ported from health_handlers.go bucketVitals: groups samples into UTC
 // hour-aligned buckets (Go's time.Truncate(time.Hour) truncates the absolute
 // instant, not the local wall clock), dropping samples before cutoffMs.
@@ -186,58 +228,12 @@ export function createVitalsDomain({ records, now, timeZone }) {
       vitalWindow(STRESS_RECORD_TYPE, start7d, start30d, nowMs),
     ]);
 
-    // Daily sleep stats: sum per-day phase minutes across sessions, then a
-    // minutes-weighted average heart rate per day (mirrors the dailyHRAcc
-    // pass in handleGetHealthOverview).
-    const sleepLogs = (await readSleepLogs())
-      .filter((l) => l.total_minutes !== null && l.total_minutes !== undefined);
-    const dailyMap = new Map();
-    const hrAcc = new Map();
-    for (const l of sleepLogs) {
-      const day = l.day || (l.start_time ? l.start_time.slice(0, 10) : '');
-      if (!day) continue;
-      let stat = dailyMap.get(day);
-      if (!stat) {
-        stat = {
-          date: day, light_mins: 0, deep_mins: 0, rem_mins: 0, awake_mins: 0, total_mins: 0, heart_rate_avg: 0,
-        };
-        dailyMap.set(day, stat);
-      }
-      stat.total_mins += l.total_minutes;
-      if (l.light_minutes) stat.light_mins += l.light_minutes;
-      if (l.deep_minutes) stat.deep_mins += l.deep_minutes;
-      if (l.rem_minutes) stat.rem_mins += l.rem_minutes;
-      if (l.awake_minutes) stat.awake_mins += l.awake_minutes;
-      if (l.heart_rate_avg) {
-        const mins = l.total_minutes || 1;
-        const acc = hrAcc.get(day) || { weightedSum: 0, totalMins: 0 };
-        acc.weightedSum += l.heart_rate_avg * mins;
-        acc.totalMins += mins;
-        hrAcc.set(day, acc);
-      }
-    }
-    for (const [day, acc] of hrAcc) {
-      if (acc.totalMins <= 0) continue;
-      const stat = dailyMap.get(day);
-      if (stat) stat.heart_rate_avg = Math.trunc(acc.weightedSum / acc.totalMins);
-    }
+    const sleepDailyAll = foldSleepDaily(await readSleepLogs());
+    const sleepStats30d = sleepDailyAll.filter((s) => s.date >= start30dDay);
+    const sleepStats7d = sleepStats30d.filter((s) => s.date >= start7dDay);
 
-    const sleepStats7d = []; const sleepStats30d = [];
-    const sleep7dMins = []; const sleep30dMins = [];
-    for (const [day, stat] of dailyMap) {
-      if (day < start30dDay) continue;
-      sleepStats30d.push(stat);
-      sleep30dMins.push(stat.total_mins);
-      if (day >= start7dDay) {
-        sleepStats7d.push(stat);
-        sleep7dMins.push(stat.total_mins);
-      }
-    }
-    sleepStats7d.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-    sleepStats30d.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-
-    const avgSleepMins7d = calcAvg(sleep7dMins);
-    const avgSleepMins30d = calcAvg(sleep30dMins);
+    const avgSleepMins7d = calcAvg(sleepStats7d.map((s) => s.total_mins));
+    const avgSleepMins30d = calcAvg(sleepStats30d.map((s) => s.total_mins));
 
     const dayStats30d = (await readDayStats())
       .filter((d) => d.day >= start30dDay)
@@ -287,6 +283,20 @@ export function createVitalsDomain({ records, now, timeZone }) {
     return (await readDayStats())
       .filter((d) => (!from || d.day >= from) && (!to || d.day <= to))
       .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+  }
+
+  // sleepDaily is overview()'s per-local-day sleep fold over an arbitrary
+  // window — same fold, so a caller (the doctor brief's sleep chart) can never
+  // disagree with the Vitals screen. `from`/`to` are instants (ms or anything
+  // Date.parse accepts) resolved to LOCAL day strings, because that is the key
+  // the fold buckets on.
+  async function sleepDaily({ from, to, days = 30 } = {}) {
+    // dayString feeds `new Date(...)`, which takes an epoch-ms number and an
+    // ISO string alike, so callers can pass either.
+    const fromDay = dayString(from === undefined || from === null ? now() - days * DAY_MS : from, timeZone);
+    const toDay = to === undefined || to === null ? null : dayString(to, timeZone);
+    return foldSleepDaily(await readSleepLogs())
+      .filter((s) => s.date >= fromDay && (toDay === null || s.date <= toDay));
   }
 
   // sleep mirrors handleListSleepLogs: raw sessions over an explicit from/to
@@ -485,6 +495,6 @@ export function createVitalsDomain({ records, now, timeZone }) {
   }
 
   return {
-    overview, sleep, importSamples, listHeart, listSpO2, listDayStats,
+    overview, sleep, sleepDaily, importSamples, listHeart, listSpO2, listDayStats,
   };
 }

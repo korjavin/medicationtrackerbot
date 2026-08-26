@@ -85,9 +85,9 @@
     // renders OUTSIDE the app, where --wg-* tokens do not exist, and it is
     // printed on white paper. Same precedent as buildKitDocument in
     // web/cloud/js/signup.js. The chart rules restate the .wg-bp-chart__* /
-    // .wg-weight-chart__* class contract from styles.css with a fixed print
-    // palette, because the SVGs are serialized verbatim from the live
-    // components and carry only those classes.
+    // .wg-weight-chart__* / .wg-sleep-chart__* class contract from styles.css
+    // with a fixed print palette, because the SVGs are serialized verbatim
+    // from the live components and carry only those classes.
     const DOC_CSS = `
   * { box-sizing: border-box; }
   body { font: 13px/1.5 system-ui, -apple-system, sans-serif; color: #111; background: #fff;
@@ -123,6 +123,23 @@
                                  font-variant-numeric: tabular-nums; }
   .wg-bp-chart__axis-tick[data-bp-axis="y"] { text-anchor: end; }
   .wg-bp-chart__axis-tick[data-bp-axis="x"] { text-anchor: middle; }
+  .wg-sleep-chart__stage { stroke: none; }
+  .wg-sleep-chart__stage--deep { fill: #4a2585; }
+  .wg-sleep-chart__stage--light { fill: #2a6fb0; }
+  .wg-sleep-chart__stage--rem { fill: #9a4fb0; }
+  .wg-sleep-chart__stage--awake { fill: #c9971a; }
+  .wg-sleep-chart__guide { stroke: #bbb; stroke-width: 1; stroke-dasharray: 3 3; fill: none; }
+  .wg-sleep-chart__tick { stroke: #444; fill: none; }
+  .wg-sleep-chart__hr-line { fill: none; stroke: #c0392b; stroke-width: 2;
+                             stroke-linecap: round; stroke-linejoin: round; }
+  .wg-sleep-chart__hr-dot-outer { fill: #fff; stroke: none; }
+  .wg-sleep-chart__hr-dot { fill: #c0392b; stroke: none; }
+  .wg-sleep-chart__hr-label { fill: #c0392b; font-weight: 700; stroke: none; }
+  .wg-sleep-chart__axis-label, .wg-sleep-chart__day-label { fill: #444; }
+  .wg-sleep-chart__bar-label { fill: #111; }
+  .wg-sleep-chart__axis-label, .wg-sleep-chart__day-label,
+  .wg-sleep-chart__bar-label, .wg-sleep-chart__hr-label {
+    font-family: inherit; font-size: 9px; font-variant-numeric: tabular-nums; }
   @media print {
     body { margin: 0; max-width: none; font-size: 11px; }
     @page { size: A4; margin: 14mm; }
@@ -203,14 +220,22 @@ ${statRow('Pulse', bp.pulse, 'bpm')}
         return v !== null && v !== undefined;
     }
 
-    function vitalsBlock(data) {
+    function vitalsBlock(data, charts) {
         const v = data.vitals;
         if (!v) return '';
         const parts = [];
         if (has(v.avg_sleep_minutes)) parts.push(`average sleep ${esc(fmtDuration(v.avg_sleep_minutes))}`);
         if (has(v.resting_hr)) parts.push(`resting heart rate ${esc(fmtNum(v.resting_hr))} bpm`);
         if (parts.length === 0) return '';
-        return block('Vitals', `<p class="stat">${parts.join(', ')}.</p>`);
+        // The caption is not decoration: renderCharts draws only the last 30
+        // days (90 or 180 daily bars in a 358-unit coord space are unreadable),
+        // while the sentence above averages the FULL range. Without it a doctor
+        // reads the bars as spanning the range in the header.
+        const chart = charts.sleep
+            ? `<div class="chart">${charts.sleep}</div>`
+                + '<p class="stat">Sleep chart: last 30 days shown.</p>'
+            : '';
+        return block('Vitals', `<p class="stat">${parts.join(', ')}.</p>${chart}`);
     }
 
     function notesBlock(data) {
@@ -248,7 +273,7 @@ ${statRow('Pulse', bp.pulse, 'bpm')}
         meds: (data) => medsBlock(data),
         bp: (data, unit, charts) => bpBlock(data, charts),
         weight: (data, unit, charts) => weightBlock(data, unit, charts),
-        vitals: (data) => vitalsBlock(data),
+        vitals: (data, unit, charts) => vitalsBlock(data, charts),
         notes: (data) => notesBlock(data),
         food: (data) => foodBlock(data),
         workouts: (data) => workoutsBlock(data),
@@ -297,8 +322,9 @@ ${body}
     function loadPrintDoc() { return import('/js/print-doc.js'); }
 
     function serializeSvg(el) {
-        // WGWeightChart returns a <div> empty-state card (not an <svg>) when it
-        // has nothing to draw; WGBpChart returns null. Either way: no chart.
+        // WGWeightChart and WGSleepChart return a <div> empty-state card (not
+        // an <svg>) when they have nothing to draw; WGBpChart returns null.
+        // Either way: no chart.
         if (!el || String(el.tagName || '').toLowerCase() !== 'svg') return '';
         try {
             return new XMLSerializer().serializeToString(el);
@@ -318,6 +344,17 @@ ${body}
             if (w && Array.isArray(w.points) && w.points.length > 0 && window.WGWeightChart) {
                 out.weight = serializeSvg(window.WGWeightChart.render({
                     logs: w.points, unit, range: 'all',
+                }));
+            }
+            const v = data.vitals;
+            if (v && Array.isArray(v.sleep_daily) && v.sleep_daily.length > 0 && window.WGSleepChart) {
+                // '30d' is the component's own calendar-day filter — a brief
+                // over 90 or 180 days still prints a readable ~30 bars, and
+                // vitalsBlock captions that narrower window. If every logged
+                // day falls outside it the component returns its empty-state
+                // <div> instead of an <svg>, and serializeSvg drops it.
+                out.sleep = serializeSvg(window.WGSleepChart.render({
+                    stats: v.sleep_daily, range: '30d',
                 }));
             }
         } catch (e) {
