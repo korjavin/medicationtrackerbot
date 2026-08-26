@@ -75,6 +75,19 @@ function weekdayAllowed(weekday, days) {
   return Array.isArray(days) && days.includes(weekday);
 }
 
+// "HH:MM" -> {hour, minute}, or null for anything candidateNormalTargets would
+// skip. Shared with scheduleYieldsDoses so the two cannot disagree about what
+// counts as a usable time entry.
+function parseTimeOfDay(ts) {
+  if (typeof ts !== 'string' || ts.length !== 5) return null;
+  const hour = parseInt(ts.slice(0, 2), 10);
+  const minute = parseInt(ts.slice(3, 5), 10);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  return { hour, minute };
+}
+
+const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
+
 // window === 0 → fire mode: include only targets at-or-before now.
 // window  > 0 → forecast mode: include only targets in (now, now+window].
 // Exported so tzplan.js's forecast union (Task 4) applies the identical
@@ -96,10 +109,9 @@ function candidateNormalTargets(cfg, timeZone, now, window) {
     if (cfg.type === 'weekly' && !weekdayAllowed(dayUtc.getUTCDay(), cfg.days)) continue;
 
     for (const ts of cfg.times) {
-      if (typeof ts !== 'string' || ts.length !== 5) continue;
-      const hour = parseInt(ts.slice(0, 2), 10);
-      const minute = parseInt(ts.slice(3, 5), 10);
-      if (Number.isNaN(hour) || Number.isNaN(minute)) continue;
+      const hm = parseTimeOfDay(ts);
+      if (!hm) continue;
+      const { hour, minute } = hm;
 
       const wallAsUtc = Date.UTC(dayUtc.getUTCFullYear(), dayUtc.getUTCMonth(), dayUtc.getUTCDate(), hour, minute);
       const target = localWallToUtcMs(wallAsUtc, timeZone);
@@ -155,6 +167,30 @@ export function planDoses({ medications = [], timeZone, now, window = 0 }) {
     ? a.scheduledAtMs - b.scheduledAtMs
     : a.medicationId - b.medicationId));
   return out;
+}
+
+// Can this schedule ever produce a dose on some day? Exactly the conditions
+// planDoses + candidateNormalTargets apply, over the same parseTimeOfDay and
+// weekdayAllowed predicates so the two cannot drift: a schedule that never
+// yields a target is one planDoses silently skips forever.
+//
+// Nothing validates a schedule on the way in — medications.js stores the string
+// verbatim — so this has to reject more than just `as_needed`: unparseable
+// strings, slotless configs ({"type":"daily","times":[]}), junk time entries
+// ({"times":["bad"]}) and weekly configs whose days are all out of range. Note
+// an UNKNOWN type is scheduled: candidateNormalTargets only special-cases
+// 'weekly', so anything else materializes on the daily path.
+//
+// Used by medintake.js's adherence fold: a med planDoses skips has no doses to
+// miss, so counting its manual logs as adherence invents compliance (med-29gh.1).
+// Deliberately independent of start_date/end_date/archived — a finished course's
+// past doses were still real scheduled doses.
+export function scheduleYieldsDoses(schedule) {
+  const cfg = parseSchedule(schedule);
+  if (!cfg || cfg.type === 'as_needed') return false;
+  if (!cfg.times.some((ts) => parseTimeOfDay(ts) !== null)) return false;
+  if (cfg.type === 'weekly') return WEEKDAYS.some((d) => weekdayAllowed(d, cfg.days));
+  return true;
 }
 
 // Ported from internal/store/medication/repo.go:394 (calculateDailyUsage).

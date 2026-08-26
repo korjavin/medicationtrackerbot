@@ -16,7 +16,7 @@
 // no dupes, no divergence. Manual (log-past) intakes have no natural slot, so
 // they get a random id (same nowMs+random technique as medications.js's
 // nextId / weight.js's genId).
-import { minDoseIntervalMs, localDateTimeParts, calculateDailyUsage } from './medschedule.js';
+import { minDoseIntervalMs, localDateTimeParts, scheduleYieldsDoses } from './medschedule.js';
 import { planDosesWithTzPlan, forecastDosesWithTzPlan } from './tzplan.js';
 
 const MEDICATION_RECORD_TYPE = 'medication';
@@ -93,14 +93,12 @@ function toResponse(intake) {
 // percentage of its own AND its rows are excluded from the overall
 // numerator/denominator. It is still reported (a doctor wants to know the
 // patient takes ibuprofen as needed), as a count of times taken.
-// calculateDailyUsage is the existing "how many doses a day does planDoses
-// produce" helper, and it already returns 0 for every schedule planDoses
-// skips: as-needed, unparseable, an unknown type, and the slotless shapes that
-// parse fine but can never yield a target ({type:'daily',times:[]}, a weekly
-// schedule with no days). Reusing it keeps this definition from drifting away
-// from the planner's.
+// Delegates to the planner (medschedule.js scheduleYieldsDoses) rather than
+// re-reading the schedule here: the definition of "unscheduled" has to be
+// exactly "planDoses would skip it", and a second reading of the schedule
+// string is how that drifts.
 export function isScheduledMed(med) {
-  return !!med && calculateDailyUsage(med) > 0;
+  return !!med && scheduleYieldsDoses(med.schedule);
 }
 
 // listWindow denormalizes to medication_name + dosage rather than an id, and

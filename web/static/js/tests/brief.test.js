@@ -298,6 +298,14 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
                 // it exactly like an as-needed med.
                 med('med-4', 'Slotless', '5mg', {
                     schedule: JSON.stringify({ type: 'daily', times: [] })
+                }),
+                // Nothing validates a schedule on the way in, so junk times and
+                // out-of-range weekdays reach the fold. planDoses skips both.
+                med('med-5', 'Junktime', '5mg', {
+                    schedule: JSON.stringify({ type: 'daily', times: ['bad'] })
+                }),
+                med('med-6', 'Noday', '5mg', {
+                    schedule: JSON.stringify({ type: 'weekly', days: [9], times: ['08:00'] })
                 })
             ],
             intake: [
@@ -309,7 +317,9 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
                 intake('intake-manual-4', 'med-2', NOW - 2 * DAY, 'TAKEN'),
                 intake('intake-manual-5', 'med-2', NOW - 1 * DAY, 'TAKEN'),
                 intake('intake-manual-6', 'med-3', NOW - 1 * DAY, 'TAKEN'),
-                intake('intake-manual-7', 'med-4', NOW - 1 * DAY, 'TAKEN')
+                intake('intake-manual-7', 'med-4', NOW - 1 * DAY, 'TAKEN'),
+                intake('intake-manual-8', 'med-5', NOW - 1 * DAY, 'TAKEN'),
+                intake('intake-manual-9', 'med-6', NOW - 1 * DAY, 'TAKEN')
             ]
         });
 
@@ -317,13 +327,17 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
         const byName = Object.fromEntries(brief.medications.map((m) => [m.name, m]));
 
         // Still listed — a doctor wants to know the patient takes ibuprofen.
-        expect(Object.keys(byName).sort()).toEqual(['Ibuprofen', 'Lisinopril', 'Mystery', 'Slotless']);
+        expect(Object.keys(byName).sort()).toEqual([
+            'Ibuprofen', 'Junktime', 'Lisinopril', 'Mystery', 'Noday', 'Slotless'
+        ]);
         expect(byName.Ibuprofen).toMatchObject({ adherence_pct: null, as_needed: true, times_taken: 5 });
         expect(byName.Mystery).toMatchObject({ adherence_pct: null, as_needed: true, times_taken: 1 });
         expect(byName.Slotless).toMatchObject({ adherence_pct: null, as_needed: true, times_taken: 1 });
+        expect(byName.Junktime).toMatchObject({ adherence_pct: null, as_needed: true, times_taken: 1 });
+        expect(byName.Noday).toMatchObject({ adherence_pct: null, as_needed: true, times_taken: 1 });
         expect(byName.Lisinopril).toMatchObject({ adherence_pct: 50, as_needed: false, times_taken: 1 });
-        // 1 of 2 scheduled doses. Folding the 7 unscheduled TAKEN rows in would
-        // have reported 8/9 = 88.9%.
+        // 1 of 2 scheduled doses. Folding the 9 unscheduled TAKEN rows in would
+        // have reported 10/11 = 90.9%.
         expect(brief.overall_adherence_pct).toBe(50);
     });
 
