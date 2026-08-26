@@ -129,7 +129,7 @@ export function createBriefDomain({
     // so its rows are all manual TAKEN logs and a percentage over them is a
     // fabricated 100%. Those meds report `times_taken` instead — and their rows
     // stay out of the overall number too.
-    const { overall, perMed } = foldAdherence({ log, meds: all, nowMs });
+    const { overall, perMed, detail } = foldAdherence({ log, meds: all, nowMs });
     const empty = { scheduled: true, total: 0, taken: 0, timesTaken: 0 };
     return {
       medications: list.map((m) => {
@@ -150,6 +150,13 @@ export function createBriefDomain({
         };
       }),
       overall_adherence_pct: round1(adherencePct(overall, null)),
+      // The same fold's second reading (bd med-29gh.2): what the percentage
+      // does not say — how many doses were missed, how many were merely late,
+      // and by how much on average. Overall-only on purpose; per-med detail is
+      // a separate ask. Manual log-past rows are excluded from the delay
+      // numbers upstream (they have no real slot to be late against) but still
+      // count toward the percentage.
+      adherence_detail: detail,
     };
   }
 
@@ -265,9 +272,12 @@ export function createBriefDomain({
     };
 
     if (selected.has('meds')) {
-      const { medications: meds, overall_adherence_pct: overall } = await medsSection(fromMs, nowMs, nowMs);
+      const {
+        medications: meds, overall_adherence_pct: overall, adherence_detail: detail,
+      } = await medsSection(fromMs, nowMs, nowMs);
       out.medications = meds;
       out.overall_adherence_pct = overall;
+      out.adherence_detail = detail;
     }
     if (selected.has('bp')) out.bp = await bpSection(windowDays);
     if (selected.has('weight')) out.weight = await weightSection(windowDays);

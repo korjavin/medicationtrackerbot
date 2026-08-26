@@ -56,11 +56,13 @@
         return (typeof v === 'number' && Number.isFinite(v)) ? String(v) : '—';
     }
 
+    // Round the TOTAL before splitting: rounding the remainder alone renders
+    // 119.6 as "1h 60m", because the hour was floored off the unrounded value.
     function fmtDuration(minutes) {
         if (typeof minutes !== 'number' || !Number.isFinite(minutes)) return '—';
-        const h = Math.floor(minutes / 60);
-        const m = Math.round(minutes % 60);
-        return h > 0 ? `${h}h ${m}m` : `${m}m`;
+        const total = Math.round(minutes);
+        const h = Math.floor(total / 60);
+        return h > 0 ? `${h}h ${total % 60}m` : `${total}m`;
     }
 
     function block(title, body) {
@@ -131,6 +133,18 @@
         return n === 1 ? 'taken 1 time' : `taken ${n} times`;
     }
 
+    // What the percentage alone hides: missed doses vs merely-late ones (bd
+    // med-29gh.2). The average clause only appears when something was actually
+    // delayed — "average delay —" would say nothing.
+    function adherenceDetailLine(detail) {
+        if (!detail || typeof detail !== 'object') return '';
+        const parts = [`missed ${fmtNum(detail.missed)}`, `delayed ${fmtNum(detail.delayed)}`];
+        if (typeof detail.avg_delay_minutes === 'number' && Number.isFinite(detail.avg_delay_minutes)) {
+            parts.push(`average delay ${fmtDuration(detail.avg_delay_minutes)}`);
+        }
+        return `<p class="stat">${esc(parts.join(', '))}</p>`;
+    }
+
     function medsBlock(data) {
         const meds = Array.isArray(data.medications) ? data.medications : null;
         if (!meds || meds.length === 0) return '';
@@ -145,7 +159,7 @@
 <tbody>
 ${rows}
 </tbody>
-</table>${overall}`);
+</table>${overall}${adherenceDetailLine(data.adherence_detail)}`);
     }
 
     function bpBlock(data, charts) {
