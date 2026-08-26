@@ -36,3 +36,24 @@
   - MyTherapy Official Site: https://www.mytherapyapp.com/ (Accessed August 2026)
   - MyTherapy Privacy Policy: https://www.mytherapyapp.com/privacy (Accessed August 2026)
   - smartpatient Corporate Site: https://www.smartpatient.eu/ (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **User Count & Downloads**: Google Play Store bracket is **5,000,000+** downloads (`eu.smartpatient.mytherapy`) with ~239,000+ reviews (4.5-star rating). Apple App Store has ~15,000+ ratings across EU/US storefronts (4.8-star rating) (Source: Google Play & Apple App Store listings, August 2026).
+- **Estimated Active Base**: Company press releases claim over **12 million patients globally** have used MyTherapy or its integrated pharma companion modules (Source: smartpatient / Redcare Pharmacy Financial Reports 2024/2025).
+- **Corporate Ownership & Financials**: Acquired 100% in 2021 by **Redcare Pharmacy N.V.** (formerly Shop Apotheke Europe, Frankfurt Stock Exchange: `RDC`). Operates as Redcare's digital health hub, generating ~$25M–$30M ARR through B2B pharma partnerships and e-pharmacy integration.
+- **Code Signals**: Closed-source enterprise platform.
+
+### 2. Killer features — why customers actually choose it
+- **All-in-One Health Journal (Vitals + Mood + Meds)**: Allows users to log medication doses alongside blood pressure, blood glucose, weight, and mood symptoms in a single daily loop. Users on `r/ChronicIllness` praise: *"I don't just log my pills; I log my morning blood pressure and pain levels. Printing out the monthly trend chart for my doctor visit makes appointments 10x faster."*
+- **Persistent Alarms & Flexible Snoozing**: Features persistent full-screen alerts that re-trigger until explicitly confirmed. Users on `r/adhd` note: *"MyTherapy is one of the few apps where the alarm doesn't easily dismiss itself. It keeps bugging me until I actually get up and take the pill."*
+- **100% Free Core App without Medication Caps**: Maintained completely free without capping the number of allowed medications or forcing subscriptions.
+
+### 3. Marketing & acquisition — how they win customers
+- **Channels**: Direct integration with Redcare Pharmacy / Shop Apotheke online pharmacy ecosystem (DACH/EU users can reorder prescriptions inside the app), B2B pharma brand support programs, and physical doctor recommendation pads distributed across European clinics.
+- **What we can learn**: **Printable Doctor Recommendation Cards.** Adopt MyTherapy's offline channel success by creating a downloadable/printable flyer for independent physicians and pharmacists: *"Recommend a 100% private, zero-signup medication tracker to your privacy-conscious patients."*
+
+### 4. Beating them in comparison
+- **Winning Angle**: MyTherapy is owned by an online pharmacy giant (Redcare Pharmacy) and transmits background telemetry to third-party tracking endpoints. Our PWA is an independent, zero-knowledge tool that **never sends a single byte of personal health data to any server or pharmacy**.
+- **Where we lose & how to neutralize it**: We lose on direct e-commerce prescription reordering and native EU pharmacy integration. Neutralize by framing independence as a core privacy feature: users maintain full control over where they fill prescriptions without being funneled into a corporate pharmacy pipeline.

@@ -36,3 +36,24 @@
   - MedM Official Website: https://www.medm.com/ (Accessed August 2026)
   - MedM Privacy Policy: https://www.medm.com/privacy-policy.html (Accessed August 2026)
   - MedM Health Cloud Portal: https://health.medm.com/ (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **User Count & Downloads**: Google Play Store metrics show **100,000+** downloads for MedM Health (`com.medm.phone.health`) with ~4.96k reviews (4.7-star rating) and **500,000+** downloads for MedM Blood Pressure (4.5-star rating). Apple App Store has 152 ratings for MedM Health (Source: Google Play & Apple App Store listings, August 2026).
+- **Estimated Active Base**: Combined across MedM Health, MedM BP, MedM Diabetes, and white-label enterprise hubs: **>1,000,000 cumulative downloads** globally. Estimated **80,000–150,000 Monthly Active Users (MAU)** across the MedM app ecosystem.
+- **Funding & Financials**: Bootstrapped by MedM Inc. (Sunnyvale, CA, founded 2012) with zero VC funding; ~20 employees, estimated ~$2.2M ARR (Source: Latka, MedM corporate filings, August 2026).
+- **Code Signals**: Closed-source commercial software; offers white-label SDKs and "MedM Soft Hub" for RPM hardware vendors.
+
+### 2. Killer features — why customers actually choose it
+- **Unrivaled Medical Bluetooth Compatibility (1,000+ Monitors)**: Connects wirelessly with over 1,000 Bluetooth medical devices (BP cuffs, oximeters, glucometers, ECGs, scales) from 100+ hardware vendors (Omron, A&D, Beurer, Roche). Users on `r/QuantifiedSelf` state: *"MedM just connects to generic or cheap Bluetooth BP cuffs when native vendor apps fail or force cloud logins."*
+- **Sensor-Agnostic Offline Logging**: Records 20+ physiological parameters locally without requiring a persistent internet/cloud connection during measurements.
+- **B2B Remote Patient Monitoring (RPM)**: Highly trusted by clinical providers due to turn-key CPT code reimbursement tracking and EHR API integration.
+
+### 3. Marketing & acquisition — how they win customers
+- **Channels**: B2B hardware vendor bundling (recommended by device manufacturers whose native apps are unmaintained), Remote Patient Monitoring (RPM) hospital sales, and organic App Store Optimization (ASO) searches like *"Bluetooth blood pressure log"*.
+- **What we can learn**: **Web Bluetooth GATT Standard Pairing.** Implement browser-native Web Bluetooth for standard GATT profiles (Blood Pressure `0x1810`, Glucose `0x1808`, Heart Rate `0x180D`). Market our PWA as a zero-install utility that pairs directly with hardware devices in the browser without charging $35/yr for CSV exports.
+
+### 4. Beating them in comparison
+- **Winning Angle**: MedM charges users **$35/year or $99 lifetime** just to export data to CSV/Excel and pushes legacy enterprise software. Our PWA gives users 100% free, instant CSV/JSON exports, a modern responsive UI, and zero-knowledge local encryption.
+- **Where we lose & how to neutralize it**: We lose on MedM's driver library for 1,000+ proprietary/legacy Bluetooth devices. Neutralize by implementing Web Bluetooth for standard GATT BLE profiles and offering an ultra-fast 2-tap manual entry interface (<5 seconds per measurement).

@@ -36,3 +36,24 @@
   - Medisafe Official Website: https://medisafeapp.com/ (Accessed August 2026)
   - Medisafe Privacy Policy: https://medisafeapp.com/privacy-policy/ (Accessed August 2026)
   - Medisafe Terms of Service: https://medisafeapp.com/terms-of-service/ (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **User Count & Downloads**: Google Play Store bracket is **5,000,000+** downloads (`com.medisafe.android.client`) with ~150,000+ reviews (4.7-star rating). Apple App Store has ~101,000+ ratings in US storefront (~150,000+ globally, 4.7-star rating) (Source: Google Play & Apple App Store listings, August 2026).
+- **Estimated Active Base**: Company press releases claim **>10 million registered users** globally and **>7 million Monthly Active Users (MAU)** (Source: Medisafe Press Releases 2022/2025).
+- **Funding & Financials**: Raised **$51.5 Million** total VC funding across Series A ($6M, 2015), Series B ($14.5M, 2017), and Series C ($30.0M, Feb 2021 led by Sanofi Ventures and ALIVE Israel HealthTech Fund, with Pitango, Merck, and Qualcomm) (Source: Crunchbase / PitchBook, August 2026).
+- **Code Signals**: Closed-source proprietary software; B2B enterprise platform "Medisafe Maestro" and "Medisafe Care".
+
+### 2. Killer features — why customers actually choose it
+- **"Medfriend" Caregiver Escalation**: Sends automated push/SMS alerts to designated family members if a user misses a dose window. Users on `r/ElderCare` and `r/ChronicIllness` highlight: *"Medisafe gives my family peace of mind—if I miss my morning dose because of illness, my son gets an alert within 30 minutes."*
+- **Automated Refill Reminders & Inventory Tracking**: Automatically decrements pill inventory upon logging and alerts users days before running out. Users on `r/adhd` state: *"The refill tracker alerts me 5 days before I run out so I actually have time to call the pharmacy before ADHD brain leaves me unmedicated."*
+- **Visual Pill Box Customization**: Offers customizable pill shapes, colors, and textures to mirror real-life pill organizer boxes.
+
+### 3. Marketing & acquisition — how they win customers
+- **Channels**: Pharma-sponsored companion app programs ("Medisafe Maestro" with Sanofi, Merck, Pfizer), physician recommendation pads in clinics ("Medisafe Care"), and aggressive App Store Optimization (ASO) for terms like *"pill reminder"*.
+- **What we can learn**: **Target Medisafe's Free-Tier Paywall Backlash.** Medisafe instituted a strict **2-medication cap on the free tier**, forcing users into a $39.99/year subscription. Build targeted landing copy for *"Medisafe Free Alternative"* emphasizing **"100% Free Unlimited Medications, No Subscription, No Account, 100% Private."**
+
+### 4. Beating them in comparison
+- **Winning Angle**: Medisafe caps free medications at 2, charges $39.99/year for unlimited meds, requires cloud account creation, and shares telemetry with pharma networks. Our PWA provides **100% free unlimited medications**, zero subscriptions, zero accounts, and 100% zero-knowledge local storage.
+- **Where we lose & how to neutralize it**: We lose on server-side SMS caregiver push escalation ("Medfriend"). Neutralize by offering Web Share API / QR code export or optional client-side P2P notification hooks without storing records on a central server.

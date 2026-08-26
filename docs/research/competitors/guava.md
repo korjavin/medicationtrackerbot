@@ -21,3 +21,24 @@
   - Guava Health Official Website: https://guavahealth.com/ (Accessed August 2026)
   - Guava Health Privacy Policy: https://guavahealth.com/privacy (Accessed August 2026)
   - Guava Developer API & FHIR Documentation: https://guavahealth.com/developer (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **User Count & Downloads**: Google Play Store bracket is **100,000+** downloads (`com.guavahealth.guava`) with ~1,740+ reviews (4.6-star rating). Apple App Store has 862+ ratings (4.8-star rating) (Source: Google Play & Apple App Store listings, August 2026).
+- **Estimated Active Base**: Estimated **40,000–75,000 Monthly Active Users (MAU)** across web and mobile platforms (estimate derived from >100k Play Store installs and ~2.6k aggregate store reviews).
+- **Funding & Investor Signals**: Founded in 2021 by Dylan Wenzlau and Alex Yau (Santa Barbara, CA). Backed by venture capital including ScOp Venture Capital, Panasonic Well, and the AgeTech Collaborative from AARP (Source: Tracxn, PitchBook, AARP AgeTech, August 2026).
+- **Code Signals**: Closed-source proprietary SaaS (React/Web + Native wrappers); registered in SMART App Gallery.
+
+### 2. Killer features — why customers actually choose it
+- **SMART-on-FHIR Patient Portal Aggregation**: Connects directly with 100,000+ clinical portals (Epic, Cerner, MyChart) alongside 20+ fitness wearables (Apple Health, Fitbit, Garmin, Oura, Dexcom). Users on `r/ChronicIllness` and `r/GuavaHealth` state they chose Guava because *"it automatically pulls my lab work from MyChart and syncs my Garmin HRV so I don't have to spend 20 minutes tapping buttons during a flare-up."*
+- **AI Correlation Discovery & Doctor Briefs**: Automatically calculates statistical correlations between daily logged symptoms, lifestyle factors, and lab values, generating provider-ready PDF summaries for 15-minute appointments.
+- **Low-Cognitive-Load UX for Chronic Illness**: Designed specifically for users managing complex conditions (POTS, MCAS, Long COVID, Endometriosis) where daily manual logging induces cognitive fatigue ("brain fog").
+
+### 3. Marketing & acquisition — how they win customers
+- **Channels**: Organic community word-of-mouth in subreddits (`r/ChronicIllness`, `r/POTS`, `r/LongCovid`, `r/Bearable`), SMART App Gallery provider directories, SEO articles explaining lab values and chronic symptom tracking, and AARP AgeTech accelerator partnerships.
+- **What we can learn**: **The "Doctor Visit Summary PDF" Hook.** Build a single-click local PDF export generator optimized for 15-minute doctor appointments. Position our zero-knowledge PWA as the privacy-safe tool that converts offline symptom/medication logs into clean clinical briefs without cloud server processing.
+
+### 4. Beating them in comparison
+- **Winning Angle**: Guava hosts intimate medical records, lab reports, and symptom histories on central cloud servers for $96/year ($8/mo Premium). Our PWA gives users complete offline symptom and medication tracking with **100% Zero-Knowledge local encryption** — completely free with zero account or login required.
+- **Where we lose & how to neutralize it**: We lose on direct cloud OAuth connections to 100,000+ EHR portals (SMART-on-FHIR). Neutralize this by supporting client-side JSON/CSV/HealthKit file imports and running local Web-Worker correlation algorithms directly inside the browser.

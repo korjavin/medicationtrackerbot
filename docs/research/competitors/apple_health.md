@@ -31,3 +31,24 @@
   - Apple Support - Track Medications in Health: https://support.apple.com/en-us/HT213240 (Accessed August 2026)
   - Apple Developer - HealthKit Documentation: https://developer.apple.com/documentation/healthkit (Accessed August 2026)
   - Apple Support - Protecting Access to User Health Data: https://support.apple.com/en-us/HT204356 (Accessed August 2026)
+
+## Phase 2
+
+### 1. Customer base
+- **User Count & Devices**: Pre-installed on **>1.4 billion active iPhones** globally. Apple Watch active user base exceeds **100 million users** (Source: Apple Earnings / Device Base Statements, August 2026).
+- **Estimated Active Base**: Industry research estimates **>300,000,000 active users** globally interact with Apple Health directly or passively via background HealthKit sync.
+- **Funding & Financials**: Division of Apple Inc. (NASDAQ: AAPL), backed by Apple's $300B+ annual revenue and hardware ecosystem sales.
+- **Code Signals**: Proprietary iOS/watchOS operating system component. Opens HealthKit framework APIs for iOS developers and SMART-on-FHIR clinical records.
+
+### 2. Killer features — why customers actually choose it
+- **Passive OS-Level Sensor Integration**: Automatically captures steps, active energy, heart rate, sleep stages, walking asymmetry, and wrist temperature via iPhone/Apple Watch hardware sensors with zero manual effort.
+- **Hardware Enclave Security**: On-device encryption using Secure Enclave keys when locked with FaceID/passcode, plus E2EE iCloud sync.
+- **Native SMART-on-FHIR Clinical Records**: Direct, seamless integration with major hospital portals (Epic, Cerner, Kaiser, Mayo Clinic) alongside OS-level medication reminders. Users on `r/apple` and `r/QuantifiedSelf` value the passive tracking, though power users complain that *"Apple Health's native export is an unreadable XML blob that fails to export granular medication dose timestamps."*
+
+### 3. Marketing & acquisition — how they win customers
+- **Channels**: 100% default pre-installation on every iPhone sold, featured heavily in Apple WWDC Keynotes and TV ads, and network effect of thousands of iOS apps integrating with HealthKit.
+- **What we can learn**: **Target Apple Health's Export Blindspots.** Build in-browser local parsing of Apple Health XML export zip files. Market our PWA as the tool that converts Apple Health's opaque XML dumps into readable CSV tables, dose history logs, and interactive charts without sending data to a server.
+
+### 4. Beating them in comparison
+- **Winning Angle**: Apple Health is locked strictly inside the Apple hardware ecosystem (no Android, Windows, Linux, or Web access) and refuses to export clean medication dose timestamps. Our Zero-Knowledge PWA runs on **any browser/OS**, gives users full control, custom chronic symptom tracking, and instant 1-click CSV/JSON exports.
+- **Where we lose & how to neutralize it**: We lose on background passive sensor tracking (Apple Watch continuous heart rate/steps without opening the app). Neutralize by positioning our PWA as the specialized **active health & medication management workbench** for targeted logging, complemented by local file import of Apple Health data.
