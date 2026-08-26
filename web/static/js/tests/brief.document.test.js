@@ -29,6 +29,38 @@ function sleepDay(n, total, hr) {
     };
 }
 
+// bd med-29gh.4. WGWorkoutChart's range filter is anchored on the real
+// Date.now() too, so the ISO-Monday buckets have to be relative.
+function weekStart(weeksAgo) {
+    const d = new Date(Date.now() - weeksAgo * 7 * 86400000);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    const p2 = (v) => String(v).padStart(2, '0');
+    return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+}
+
+function workoutsPayload(overrides) {
+    return {
+        session_count: 9,
+        per_week: 2.3,
+        current_streak_weeks: 3,
+        totals: {
+            volume_kg: 12400, hard_sets: 54, easy_sets: 6, reps: 380, pr_count: 2,
+        },
+        weekly_activity: [
+            { week: weekStart(2), completed: 3, skipped: 0 },
+            { week: weekStart(1), completed: 4, skipped: 1 },
+            { week: weekStart(0), completed: 2, skipped: 0 },
+        ],
+        top_exercises: [
+            { exercise_name: 'Squat', session_count: 5 },
+            { exercise_name: 'Bench press', session_count: 4 },
+            { exercise_name: 'Deadlift', session_count: 2 },
+            { exercise_name: 'Plank', session_count: 1 },
+        ],
+        ...(overrides || {}),
+    };
+}
+
 function briefPayload(overrides) {
     return {
         range: {
@@ -271,6 +303,71 @@ describe('Doctor brief — printable document', () => {
         expect(html).not.toContain('Sleep chart: last 30 days shown.');
         expect(html).not.toContain('<div class="chart"></div>');
     });
+
+    // bd med-29gh.4 — the Workouts section used to be one sentence.
+    it('prints the workout stats table, the top three exercises, and the chart', () => {
+        const html = build(briefPayload({ workouts: workoutsPayload() }), {
+            charts: { workouts: '<svg id="wkx"></svg>' },
+        });
+
+        expect(html).toContain('<h2>Workouts</h2>');
+        expect(html).toContain('Completed sessions');
+        expect(html).toContain('>9<');
+        expect(html).toContain('Sessions per week');
+        expect(html).toContain('>2.3<');
+        expect(html).toContain('Current streak');
+        expect(html).toContain('3 weeks');
+        // Top THREE, by name and session count.
+        expect(html).toContain('Most trained: Squat (5 sessions), Bench press (4 sessions), Deadlift (2 sessions).');
+        expect(html).not.toContain('Plank');
+        expect(html).toContain('<svg id="wkx">');
+        // Whole ISO weeks, and weekly_activity keeps a >=12-week span whatever
+        // the range — so the first bar can start (and on a 30-day brief can
+        // count) before the range in the header. Said plainly rather than as a
+        // fixed span, because the buckets are sparse.
+        expect(html).toContain('Activity chart: one bar per week; the first week may start before the range.');
+    });
+
+    it('never captions a chart that is not there', () => {
+        const data = briefPayload({ workouts: workoutsPayload({ weekly_activity: null }) });
+
+        expect(build(data, {})).not.toContain('Activity chart:');
+    });
+
+    // The med-45u guard, on the surface that matters: a "0 kg" row is a
+    // nuisance on a screen and misinformation in a document handed to a doctor.
+    it('never prints a per-exercise weight or volume', () => {
+        // Workouts alone, so the weight section's own kilograms cannot mask a
+        // leak here — and from <body> on, because DOC_CSS's `background:`
+        // contains a "kg" that has nothing to do with kilograms.
+        const html = build({ range: briefPayload().range, workouts: workoutsPayload() }, {});
+        const body = html.slice(html.indexOf('<body>'));
+
+        expect(body).toContain('Most trained: Squat');
+        expect(body).not.toContain('kg');
+        expect(body).not.toContain('12400');
+    });
+
+    it('prints the workout numbers without a chart when the window has no weekly activity', () => {
+        const html = build(briefPayload({
+            workouts: workoutsPayload({ weekly_activity: null, top_exercises: null }),
+        }), {});
+
+        expect(html).toContain('<h2>Workouts</h2>');
+        expect(html).toContain('Completed sessions');
+        expect(html).not.toContain('Most trained');
+        expect(html).not.toContain('<div class="chart"></div>');
+    });
+
+    it('omits Workouts entirely when nothing was completed in the window', () => {
+        const html = build(briefPayload({
+            workouts: workoutsPayload({
+                session_count: 0, per_week: 0, weekly_activity: null, top_exercises: null,
+            }),
+        }), {});
+
+        expect(html).not.toContain('<h2>Workouts</h2>');
+    });
 });
 
 describe('Doctor brief — modal + print/download', () => {
@@ -467,6 +564,45 @@ describe('Doctor brief — modal + print/download', () => {
         // because --wg-* tokens do not exist outside the app.
         expect(printed[0]).toContain('.wg-bp-chart__sys');
         expect(printed[0]).toContain('.wg-sleep-chart__stage--deep');
+    });
+
+    // bd med-29gh.4 — same deal for the workout chart: the live WGWorkoutChart
+    // serialized, in the 'bars' variant (discrete weeks, forced zero baseline).
+    it('inlines the live workout chart as zero-baselined bars', async () => {
+        env.window.apiCall = async () => briefPayload({ workouts: workoutsPayload() });
+        const printed = [];
+        env.window.DoctorBrief.loadPrintDoc = async () => ({
+            downloadDoc: () => true,
+            printDoc: (d, html) => printed.push(html),
+        });
+        env.window.DoctorBrief.open();
+        await generateVia('brief-print-btn');
+
+        expect(printed.length).toBe(1);
+        expect(printed[0]).toContain('class="wg-workout-chart"');
+        expect(printed[0]).toContain('data-workout-variant="bars"');
+        // A real <rect> per week, plus the print rule that colors it.
+        expect(printed[0]).toContain('class="wg-workout-chart__bar"');
+        expect(printed[0]).toContain('.wg-workout-chart__bar {');
+        expect(printed[0]).toContain('Most trained: Squat (5 sessions)');
+    });
+
+    // A chart that cannot draw must never cost the doctor the numbers.
+    it('still prints the workout stats when the chart component is missing', async () => {
+        env.window.apiCall = async () => briefPayload({ workouts: workoutsPayload() });
+        delete env.window.WGWorkoutChart;
+        const printed = [];
+        env.window.DoctorBrief.loadPrintDoc = async () => ({
+            downloadDoc: () => true,
+            printDoc: (d, html) => printed.push(html),
+        });
+        env.window.DoctorBrief.open();
+        await generateVia('brief-print-btn');
+
+        expect(printed.length).toBe(1);
+        expect(printed[0]).toContain('<h2>Workouts</h2>');
+        expect(printed[0]).toContain('Most trained: Squat (5 sessions)');
+        expect(printed[0]).not.toContain('class="wg-workout-chart"');
     });
 });
 

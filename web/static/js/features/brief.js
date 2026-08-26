@@ -85,7 +85,8 @@
     // renders OUTSIDE the app, where --wg-* tokens do not exist, and it is
     // printed on white paper. Same precedent as buildKitDocument in
     // web/cloud/js/signup.js. The chart rules restate the .wg-bp-chart__* /
-    // .wg-weight-chart__* / .wg-sleep-chart__* class contract from styles.css
+    // .wg-weight-chart__* / .wg-sleep-chart__* / .wg-workout-chart__* class
+    // contract from styles.css
     // with a fixed print palette, because the SVGs are serialized verbatim
     // from the live components and carry only those classes.
     const DOC_CSS = `
@@ -140,6 +141,15 @@
   .wg-sleep-chart__axis-label, .wg-sleep-chart__day-label,
   .wg-sleep-chart__bar-label, .wg-sleep-chart__hr-label {
     font-family: inherit; font-size: 9px; font-variant-numeric: tabular-nums; }
+  .wg-workout-chart__bar { fill: #1f6f5c; stroke: none; }
+  .wg-workout-chart__line { fill: none; stroke: #1f6f5c; stroke-width: 2;
+                            stroke-linecap: round; stroke-linejoin: round; }
+  .wg-workout-chart__last { fill: #b8860b; stroke: #1f6f5c; stroke-width: 1.5; }
+  .wg-workout-chart__guide { stroke: #bbb; stroke-width: 1; stroke-dasharray: 3 3; fill: none; }
+  .wg-workout-chart__axis-tick { fill: #444; font-family: inherit; font-size: 9px;
+                                 font-variant-numeric: tabular-nums; }
+  .wg-workout-chart__axis-tick[data-workout-axis="y"] { text-anchor: end; }
+  .wg-workout-chart__axis-tick[data-workout-axis="x"] { text-anchor: middle; }
   @media print {
     body { margin: 0; max-width: none; font-size: 11px; }
     @page { size: A4; margin: 14mm; }
@@ -262,11 +272,50 @@ ${statRow('Pulse', bp.pulse, 'bpm')}
 <p class="stat">Averaged over ${esc(String(f.days_logged))} logged day${f.days_logged === 1 ? '' : 's'}.</p>`);
     }
 
-    function workoutsBlock(data) {
+    // bd med-29gh.4. Exercise NAMES and session counts only, never a weight or
+    // a volume: top_exercises reports 0 kg for a warm-up-only log (bd med-45u),
+    // and a "0 kg" row a doctor reads is misinformation, not a nuisance.
+    function topExercisesLine(list) {
+        const top = (Array.isArray(list) ? list : []).slice(0, 3)
+            .filter((e) => e && e.exercise_name);
+        if (top.length === 0) return '';
+        const parts = top.map((e) => {
+            const n = Number(e.session_count);
+            return Number.isFinite(n)
+                ? `${e.exercise_name} (${n} session${n === 1 ? '' : 's'})`
+                : String(e.exercise_name);
+        });
+        return `<p class="stat">${esc(`Most trained: ${parts.join(', ')}.`)}</p>`;
+    }
+
+    // Whole ISO weeks, and weekly_activity keeps a >=12-week span regardless of
+    // the range (workout.js getStats cutoff12w), so the first bar can start —
+    // and on a 30-day brief can COUNT — before the range printed in the header.
+    // Said plainly rather than asserted as a fixed span: the buckets are
+    // sparse, so "12 weeks shown" would be a lie on a chart with two bars.
+    const WORKOUT_CHART_CAPTION = '<p class="stat">Activity chart: one bar per week;'
+        + ' the first week may start before the range.</p>';
+
+    function workoutsBlock(data, charts) {
         const w = data.workouts;
         if (!w || !w.session_count) return '';
-        return block('Workouts', `<p class="stat">${esc(String(w.session_count))} completed session`
-            + `${w.session_count === 1 ? '' : 's'}, ${esc(fmtNum(w.per_week))} per week.</p>`);
+        const rows = [
+            `<tr><th>Completed sessions</th><td class="num">${esc(String(w.session_count))}</td></tr>`,
+            `<tr><th>Sessions per week</th><td class="num">${esc(fmtNum(w.per_week))}</td></tr>`,
+        ];
+        if (has(w.current_streak_weeks)) {
+            const n = Number(w.current_streak_weeks);
+            rows.push(`<tr><th>Current streak</th><td class="num">${esc(fmtNum(w.current_streak_weeks))}`
+                + ` week${n === 1 ? '' : 's'}</td></tr>`);
+        }
+        const chart = (charts && charts.workouts)
+            ? `<div class="chart">${charts.workouts}</div>${WORKOUT_CHART_CAPTION}`
+            : '';
+        return block('Workouts', `<table>
+<tbody>
+${rows.join('\n')}
+</tbody>
+</table>${topExercisesLine(w.top_exercises)}${chart}`);
     }
 
     const BLOCK_BUILDERS = {
@@ -276,7 +325,7 @@ ${statRow('Pulse', bp.pulse, 'bpm')}
         vitals: (data, unit, charts) => vitalsBlock(data, charts),
         notes: (data) => notesBlock(data),
         food: (data) => foodBlock(data),
-        workouts: (data) => workoutsBlock(data),
+        workouts: (data, unit, charts) => workoutsBlock(data, charts),
     };
 
     // buildBriefDocument(data, { unit, charts }) → a standalone HTML string.
@@ -355,6 +404,27 @@ ${body}
                 // <div> instead of an <svg>, and serializeSvg drops it.
                 out.sleep = serializeSvg(window.WGSleepChart.render({
                     stats: v.sleep_daily, range: '30d',
+                }));
+            }
+            const wk = data.workouts;
+            if (wk && Array.isArray(wk.weekly_activity) && wk.weekly_activity.length > 0
+                && window.WGWorkoutChart) {
+                // 'bars' because the buckets are discrete ISO weeks: it forces a
+                // zero baseline and keeps every bucket, so an untrained week
+                // reads as zero rather than as a gap in a smoothed line.
+                //
+                // 'all' — draw every bucket the payload carries. Its span is
+                // min(12 weeks, the range) (workout.js getStats cutoff12w), so
+                // it matches the window for 90/180 and is WIDER for 30. Asking
+                // the component for '30d' there would not fix that: its filter
+                // keeps any bucket that merely OVERLAPS the cutoff, and keeps
+                // it whole, so the first bar would still carry up to six
+                // out-of-range days while claiming not to. workoutsBlock
+                // captions the wider span instead.
+                out.workouts = serializeSvg(window.WGWorkoutChart.render({
+                    sessions: wk.weekly_activity,
+                    metric: 'sessions',
+                    variant: 'bars',
                 }));
             }
         } catch (e) {
