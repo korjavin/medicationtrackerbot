@@ -28,7 +28,15 @@ const NEXT_INTAKE_FORECAST_MS = 12 * 60 * 60 * 1000;
 const CLUSTER_WINDOW_MS = 10 * 60 * 1000;
 const DEFAULT_SNOOZE_MINUTES = 10;
 const DAY_MS = 24 * 60 * 60 * 1000;
+// The only marker a log-past intake carries — logPast writes source:'schedule'
+// like a materialized dose, so the id prefix is what distinguishes them.
+const MANUAL_ID_PREFIX = 'intake-manual-';
 const UPCOMING_FORECAST_DAYS = 7;
+// A dose taken more than this long after its slot is "delayed". Owner decision
+// (bd med-29gh.2): 60 minutes, from their own "avg delay ~ 1h" framing — the
+// default snooze is 10 minutes, so anything under an hour is routine. Named so
+// it stays tunable.
+const DELAYED_DOSE_THRESHOLD_MS = 60 * 60 * 1000;
 
 function pad2(n) {
   return String(n).padStart(2, '0');
@@ -41,7 +49,7 @@ function slotId(medId, scheduledAtMs) {
 // ponytail: nowMs*1e6 stays under Number.MAX_SAFE_INTEGER until ~year 2255,
 // same margin medications.js's nextId relies on.
 function genManualId(nowMs) {
-  return `intake-manual-${nowMs}-${Math.floor(Math.random() * 1e6)}`;
+  return `${MANUAL_ID_PREFIX}${nowMs}-${Math.floor(Math.random() * 1e6)}`;
 }
 
 function notPending(message = 'intake is not pending') {
@@ -97,6 +105,10 @@ function toResponse(intake) {
 // re-reading the schedule here: the definition of "unscheduled" has to be
 // exactly "planDoses would skip it", and a second reading of the schedule
 // string is how that drifts.
+function round1(n) {
+  return Math.round(n * 10) / 10;
+}
+
 export function isScheduledMed(med) {
   return !!med && scheduleYieldsDoses(med.schedule);
 }
@@ -109,11 +121,12 @@ export function adherenceKey(name, dosage) {
   return JSON.stringify([name || '', dosage || '']);
 }
 
-// foldAdherence({ log, meds, nowMs }) -> { overall, perMed }
-//   log     — intake.listWindow rows ({medication_name, dosage, scheduled_at, status})
+// foldAdherence({ log, meds, nowMs }) -> { overall, perMed, detail }
+//   log     — intake.listWindow rows ({medication_name, dosage, scheduled_at, status, taken_at?, manual?})
 //   meds    — medications.list rows ({name, dosage, schedule})
 //   overall — {total, taken} over SCHEDULED meds' due rows only
 //   perMed  — Map(adherenceKey -> {scheduled, total, taken, timesTaken})
+//   detail  — {missed, delayed, avg_delay_minutes} over the same SCHEDULED rows
 // A future PENDING dose isn't due yet and counts for nothing; every other row
 // counts, TAKEN is the numerator. `timesTaken` counts TAKEN rows whether or not
 // the med is scheduled — it is what an as-needed med reports instead of a
@@ -126,6 +139,21 @@ export function adherenceKey(name, dosage) {
 // When two meds collide on name+dosage (the active pair is unique, an archived
 // one can still shadow it) the fold takes the pessimistic reading and calls the
 // key unscheduled: no number beats a number that might be invented.
+//
+// `detail` (bd med-29gh.2) is the same fold's second reading, for the brief's
+// "missed 4, delayed 7, average delay 1h 10m" line:
+//   missed  — overall.total - overall.taken, i.e. SKIPPED + overdue PENDING.
+//             Derived, not re-counted, so a third definition cannot drift in.
+//   delayed — TAKEN rows whose taken_at is more than DELAYED_DOSE_THRESHOLD_MS
+//             past their slot. A dose taken EARLY is not late: the `>` compare
+//             on a signed difference drops negatives, never abs().
+//   MANUAL ROWS ARE EXCLUDED FROM DELAY MATH (but still count toward
+//   adherence — the patient did take it). logPast fakes scheduled_at ==
+//   taken_at because a manual entry has no slot, and updateIntakes will then
+//   re-stamp taken_at = now() on such a row while scheduled_at stays days back,
+//   inventing a multi-day "delay". listWindow flags those rows `manual` off
+//   their `intake-manual-` id prefix; `source` cannot — logPast writes
+//   source:'schedule' like everything else.
 export function foldAdherence({ log = [], meds = [], nowMs = 0 } = {}) {
   const perMed = new Map();
   for (const m of meds) {
@@ -139,6 +167,8 @@ export function foldAdherence({ log = [], meds = [], nowMs = 0 } = {}) {
     });
   }
   const overall = { total: 0, taken: 0 };
+  let delayed = 0;
+  let delaySumMs = 0;
   for (const row of log) {
     const key = adherenceKey(row.medication_name, row.dosage);
     let entry = perMed.get(key);
@@ -155,9 +185,21 @@ export function foldAdherence({ log = [], meds = [], nowMs = 0 } = {}) {
     if (isTaken) {
       entry.taken += 1;
       overall.taken += 1;
+      if (!row.manual && row.taken_at) {
+        const lateBy = Date.parse(row.taken_at) - Date.parse(row.scheduled_at);
+        if (lateBy > DELAYED_DOSE_THRESHOLD_MS) {
+          delayed += 1;
+          delaySumMs += lateBy;
+        }
+      }
     }
   }
-  return { overall, perMed };
+  const detail = {
+    missed: overall.total - overall.taken,
+    delayed,
+    avg_delay_minutes: delayed > 0 ? round1(delaySumMs / delayed / 60000) : null,
+  };
+  return { overall, perMed, detail };
 }
 
 // Percentage from one fold counter. `empty` is the caller's choice for a
@@ -639,7 +681,9 @@ export function createIntakeDomain({ records, now, timeZone }) {
   // then join med name/dosage). history()'s 100-row cap would undercount
   // adherence, or drop every row for a past-dated window, over a dense range;
   // this reads the full [fromMs,toMs] slice ascending with the Go row shape
-  // ({medication_name, dosage, scheduled_at, status, taken_at?}).
+  // ({medication_name, dosage, scheduled_at, status, taken_at?}), plus
+  // `manual: true` on a log-past row — its scheduled_at is a fake copy of
+  // taken_at (see logPast), so foldAdherence must keep it out of delay math.
   async function listWindow({ fromMs = 0, toMs = Infinity } = {}) {
     const [intakes, meds] = await Promise.all([loadIntakes(), loadMeds()]);
     const byId = new Map(meds.map((m) => [m.recordId, m]));
@@ -658,6 +702,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
           status: i.status,
         };
         if (i.taken_at) row.taken_at = i.taken_at;
+        if (typeof i.recordId === 'string' && i.recordId.startsWith(MANUAL_ID_PREFIX)) row.manual = true;
         return row;
       });
   }

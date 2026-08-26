@@ -115,6 +115,35 @@ describe('Doctor brief — printable document', () => {
         expect(row.slice(0, row.indexOf('</tr>'))).not.toMatch(/%/);
     });
 
+    // bd med-29gh.2: the line under "Overall adherence" that says what the
+    // percentage does not — how many doses were missed outright versus merely
+    // late, and by how much.
+    it('prints the adherence breakdown under the overall percentage', () => {
+        const html = build(briefPayload({
+            adherence_detail: { missed: 4, delayed: 7, avg_delay_minutes: 70 },
+        }), {});
+
+        expect(html).toContain('missed 4, delayed 7, average delay 1h 10m');
+    });
+
+    it('omits the average-delay clause when nothing was late', () => {
+        const html = build(briefPayload({
+            adherence_detail: { missed: 2, delayed: 0, avg_delay_minutes: null },
+        }), {});
+
+        expect(html).toContain('missed 2, delayed 0');
+        expect(html).not.toContain('average delay');
+    });
+
+    // An older brief payload (or a cached one) has no adherence_detail at all;
+    // the document must print without an empty stat line rather than "— , —".
+    it('prints no breakdown line when the brief carries no adherence_detail', () => {
+        const html = build(briefPayload(), {});
+
+        expect(html).toContain('Overall adherence');
+        expect(html).not.toContain('missed');
+    });
+
     it('carries no external references — it must render from the Downloads folder offline', () => {
         const html = build(briefPayload(), {
             charts: { bp: '<svg xmlns="http://www.w3.org/2000/svg"></svg>' },

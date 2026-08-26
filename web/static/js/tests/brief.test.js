@@ -21,6 +21,7 @@ import { createAnalysis } from '../../../domain/analysis.js';
 const TZ = 'UTC';
 const NOW = Date.UTC(2026, 7, 20, 12, 0); // 2026-08-20T12:00:00Z
 const DAY = 24 * 60 * 60 * 1000;
+const MIN = 60 * 1000;
 
 const iso = (ms) => new Date(ms).toISOString();
 
@@ -66,8 +67,8 @@ function med(recordId, name, dosage, extra = {}) {
     };
 }
 
-function intake(recordId, medicationId, scheduledAtMs, status) {
-    return {
+function intake(recordId, medicationId, scheduledAtMs, status, takenAtMs) {
+    const r = {
         recordId,
         deleted: false,
         medication_id: medicationId,
@@ -75,6 +76,10 @@ function intake(recordId, medicationId, scheduledAtMs, status) {
         status,
         source: 'schedule'
     };
+    // logPast writes source:'schedule' too, so the `intake-manual-` id prefix
+    // is the only thing that marks a manual row — same as production.
+    if (takenAtMs !== undefined) r.taken_at = iso(takenAtMs);
+    return r;
 }
 
 function bpReading(recordId, measuredAt, systolic, diastolic, pulse) {
@@ -189,7 +194,8 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
             generated_at: iso(NOW)
         });
         expect(Object.keys(brief).sort()).toEqual([
-            'bp', 'medications', 'notes', 'overall_adherence_pct', 'range', 'vitals', 'weight'
+            'adherence_detail', 'bp', 'medications', 'notes', 'overall_adherence_pct',
+            'range', 'vitals', 'weight'
         ]);
         // Food and workouts are opt-in.
         expect(brief.food).toBeUndefined();
@@ -221,7 +227,7 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
         const brief = await call('/api/brief?days=30&sections=meds,food,workouts', 'GET');
 
         expect(Object.keys(brief).sort()).toEqual([
-            'food', 'medications', 'overall_adherence_pct', 'range', 'workouts'
+            'adherence_detail', 'food', 'medications', 'overall_adherence_pct', 'range', 'workouts'
         ]);
     });
 
@@ -283,6 +289,83 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
         // 4 kept of 6 scheduled doses. The two Ibuprofen logs are excluded from
         // the overall fold too — counting them would report 6/8 = 75%.
         expect(brief.overall_adherence_pct).toBe(66.7);
+    });
+
+    // bd med-29gh.2 — the breakdown behind the percentage. Ten slots for one
+    // scheduled med: 6 taken within minutes, 2 taken 90 minutes late, 1 skipped,
+    // 1 still PENDING an hour after its slot (overdue, so it counts as missed).
+    function tenSlotVault(extraIntakes = [], extraMeds = []) {
+        const slot = (i) => NOW - (i + 2) * DAY;
+        const intakes = [];
+        for (let i = 0; i < 6; i++) {
+            intakes.push(intake(`intake-med-1-${i}`, 'med-1', slot(i), 'TAKEN', slot(i) + 5 * MIN));
+        }
+        for (let i = 6; i < 8; i++) {
+            intakes.push(intake(`intake-med-1-${i}`, 'med-1', slot(i), 'TAKEN', slot(i) + 90 * MIN));
+        }
+        intakes.push(intake('intake-med-1-8', 'med-1', slot(8), 'SKIPPED'));
+        intakes.push(intake('intake-med-1-9', 'med-1', NOW - 60 * MIN, 'PENDING'));
+        return {
+            medication: [med('med-1', 'Metformin', '500mg'), ...extraMeds],
+            intake: [...intakes, ...extraIntakes]
+        };
+    }
+
+    it('reports missed, delayed and average delay alongside the percentage', async () => {
+        const call = routerWith(tenSlotVault());
+
+        const brief = await call('/api/brief?days=30&sections=meds', 'GET');
+
+        expect(brief.overall_adherence_pct).toBe(80);
+        expect(brief.adherence_detail).toEqual({
+            missed: 2, delayed: 2, avg_delay_minutes: 90
+        });
+    });
+
+    // The trap the fold has to survive: a manual log-past row fakes
+    // scheduled_at == taken_at, and updateIntakes will later re-stamp its
+    // taken_at to now() while scheduled_at stays days back — a multi-day
+    // phantom "delay". It still counts as a dose taken. A dose taken EARLY is
+    // not late either, and an as-needed med has no slot to be late against.
+    it('keeps manual, early and as-needed doses out of the delay numbers', async () => {
+        const call = routerWith(tenSlotVault(
+            [
+                // Manual row for the SAME scheduled med, taken_at re-stamped to
+                // now: five days "late" on paper, not a delay in fact.
+                intake('intake-manual-1', 'med-1', NOW - 5 * DAY, 'TAKEN', NOW),
+                // Taken five hours BEFORE its slot — clamp, never abs().
+                intake('intake-med-1-early', 'med-1', NOW - 12 * DAY, 'TAKEN', NOW - 12 * DAY - 5 * 60 * MIN),
+                // As-needed rows: excluded from adherence entirely, so they can
+                // never reach the delay math however late they look.
+                intake('intake-manual-2', 'med-2', NOW - 3 * DAY, 'TAKEN', NOW),
+                intake('intake-manual-3', 'med-2', NOW - 2 * DAY, 'TAKEN', NOW)
+            ],
+            [med('med-2', 'Ibuprofen', '200mg', { schedule: JSON.stringify({ type: 'as_needed' }) })]
+        ));
+
+        const brief = await call('/api/brief?days=30&sections=meds', 'GET');
+
+        // 12 scheduled doses now, 10 of them taken — the manual and early rows
+        // both counted toward the percentage...
+        expect(brief.overall_adherence_pct).toBe(83.3);
+        // ...and neither moved a single delay number.
+        expect(brief.adherence_detail).toEqual({
+            missed: 2, delayed: 2, avg_delay_minutes: 90
+        });
+        expect(brief.medications.find((m) => m.name === 'Ibuprofen'))
+            .toMatchObject({ as_needed: true, times_taken: 2 });
+    });
+
+    it('reports zero delay detail for a window with nothing late', async () => {
+        const call = routerWith(fullVault());
+
+        const brief = await call('/api/brief?days=30&sections=meds', 'GET');
+
+        // No intake in the vault carries a taken_at, so nothing can be delayed;
+        // the two non-TAKEN scheduled rows are the missed ones.
+        expect(brief.adherence_detail).toEqual({
+            missed: 2, delayed: 0, avg_delay_minutes: null
+        });
     });
 
     // bd med-29gh.1 acceptance: one scheduled med at 50% plus a PRN med with

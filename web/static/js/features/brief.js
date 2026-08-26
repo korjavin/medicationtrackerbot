@@ -131,6 +131,18 @@
         return n === 1 ? 'taken 1 time' : `taken ${n} times`;
     }
 
+    // What the percentage alone hides: missed doses vs merely-late ones (bd
+    // med-29gh.2). The average clause only appears when something was actually
+    // delayed — "average delay —" would say nothing.
+    function adherenceDetailLine(detail) {
+        if (!detail || typeof detail !== 'object') return '';
+        const parts = [`missed ${fmtNum(detail.missed)}`, `delayed ${fmtNum(detail.delayed)}`];
+        if (typeof detail.avg_delay_minutes === 'number' && Number.isFinite(detail.avg_delay_minutes)) {
+            parts.push(`average delay ${fmtDuration(detail.avg_delay_minutes)}`);
+        }
+        return `<p class="stat">${esc(parts.join(', '))}</p>`;
+    }
+
     function medsBlock(data) {
         const meds = Array.isArray(data.medications) ? data.medications : null;
         if (!meds || meds.length === 0) return '';
@@ -145,7 +157,7 @@
 <tbody>
 ${rows}
 </tbody>
-</table>${overall}`);
+</table>${overall}${adherenceDetailLine(data.adherence_detail)}`);
     }
 
     function bpBlock(data, charts) {
