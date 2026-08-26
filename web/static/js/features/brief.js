@@ -121,12 +121,22 @@
     @page { size: A4; margin: 14mm; }
   }`;
 
+    // An as-needed med has no schedule to be adherent to (web/domain/brief.js
+    // sends as_needed + times_taken and adherence_pct null for it), so the
+    // Adherence cell must never print a percentage for one — the count is the
+    // honest number a doctor can read.
+    function adherenceCell(m) {
+        if (!m.as_needed) return fmtPct(m.adherence_pct);
+        const n = Number(m.times_taken) || 0;
+        return n === 1 ? 'taken 1 time' : `taken ${n} times`;
+    }
+
     function medsBlock(data) {
         const meds = Array.isArray(data.medications) ? data.medications : null;
         if (!meds || meds.length === 0) return '';
         const rows = meds.map((m) => `<tr><td>${esc(m.name)}</td><td>${esc(m.dosage)}</td>`
             + `<td>${esc(m.schedule_summary)}</td><td>${esc(fmtDate(m.started_at))}</td>`
-            + `<td class="num">${esc(fmtPct(m.adherence_pct))}</td></tr>`).join('\n');
+            + `<td class="num">${esc(adherenceCell(m))}</td></tr>`).join('\n');
         const overall = (typeof data.overall_adherence_pct === 'number')
             ? `<p class="stat">Overall adherence: <strong>${esc(fmtPct(data.overall_adherence_pct))}</strong></p>`
             : '';

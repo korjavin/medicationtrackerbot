@@ -101,7 +101,10 @@ function foodLog(recordId, eatenAt, m) {
 
 // A vault with something in every section. Adherence over the window:
 // Metformin 3 TAKEN / 1 SKIPPED = 75%, Lisinopril 1 TAKEN / 1 SKIPPED = 50%,
-// overall 4/6 = 66.7%.
+// overall 4/6 = 66.7%. Ibuprofen is as-needed: planDoses never materializes a
+// dose for it, so its only rows are manual TAKEN logs — they must stay out of
+// every percentage (bd med-29gh.1), which is why overall is still 66.7 and not
+// 6/8 = 75%.
 function fullVault() {
     return {
         medication: [
@@ -109,6 +112,10 @@ function fullVault() {
             med('med-2', 'Lisinopril', '10mg', {
                 schedule: JSON.stringify({ type: 'weekly', days: [1, 4], times: ['09:00'] }),
                 start_date: '2026-02-01T00:00:00.000Z'
+            }),
+            med('med-3', 'Ibuprofen', '200mg', {
+                schedule: JSON.stringify({ type: 'as_needed' }),
+                start_date: '2026-03-01T00:00:00.000Z'
             })
         ],
         intake: [
@@ -119,7 +126,10 @@ function fullVault() {
             intake('i-5', 'med-2', NOW - 3 * DAY, 'TAKEN'),
             intake('i-6', 'med-2', NOW - 2 * DAY, 'SKIPPED'),
             // Not yet due — must not count against adherence (analysis.js's rule).
-            intake('i-7', 'med-1', NOW + 2 * DAY, 'PENDING')
+            intake('i-7', 'med-1', NOW + 2 * DAY, 'PENDING'),
+            // Manual PRN logs, the shape medintake.logPast writes.
+            intake('intake-manual-1', 'med-3', NOW - 3 * DAY, 'TAKEN'),
+            intake('intake-manual-2', 'med-3', NOW - 1 * DAY, 'TAKEN')
         ],
         bp: [
             bpReading('bp-1', '2026-08-18T09:00:00Z', 120, 80, 60),
@@ -242,21 +252,72 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
 
         expect(brief.medications).toEqual([
             {
+                name: 'Ibuprofen',
+                dosage: '200mg',
+                schedule_summary: 'as needed',
+                started_at: '2026-03-01T00:00:00.000Z',
+                // No schedule to be adherent to: a count, never a percentage.
+                adherence_pct: null,
+                as_needed: true,
+                times_taken: 2
+            },
+            {
                 name: 'Lisinopril',
                 dosage: '10mg',
                 schedule_summary: 'Mon, Thu at 09:00',
                 started_at: '2026-02-01T00:00:00.000Z',
-                adherence_pct: 50
+                adherence_pct: 50,
+                as_needed: false,
+                times_taken: 1
             },
             {
                 name: 'Metformin',
                 dosage: '500mg',
                 schedule_summary: 'daily at 08:00, 20:00',
                 started_at: '2026-01-05T00:00:00.000Z',
-                adherence_pct: 75
+                adherence_pct: 75,
+                as_needed: false,
+                times_taken: 3
             }
         ]);
+        // 4 kept of 6 scheduled doses. The two Ibuprofen logs are excluded from
+        // the overall fold too — counting them would report 6/8 = 75%.
         expect(brief.overall_adherence_pct).toBe(66.7);
+    });
+
+    // bd med-29gh.1 acceptance: one scheduled med at 50% plus a PRN med with
+    // logs must read 50% overall, not something dragged toward 100.
+    it('never prints a percentage for a medication with no schedule', async () => {
+        const call = routerWith({
+            medication: [
+                med('med-1', 'Lisinopril', '10mg'),
+                med('med-2', 'Ibuprofen', '200mg', { schedule: JSON.stringify({ type: 'as_needed' }) }),
+                // Unparseable schedule → planDoses skips it → unscheduled too.
+                med('med-3', 'Mystery', '1 tab', { schedule: 'when needed' })
+            ],
+            intake: [
+                intake('i-1', 'med-1', NOW - 2 * DAY, 'TAKEN'),
+                intake('i-2', 'med-1', NOW - 1 * DAY, 'SKIPPED'),
+                intake('intake-manual-1', 'med-2', NOW - 5 * DAY, 'TAKEN'),
+                intake('intake-manual-2', 'med-2', NOW - 4 * DAY, 'TAKEN'),
+                intake('intake-manual-3', 'med-2', NOW - 3 * DAY, 'TAKEN'),
+                intake('intake-manual-4', 'med-2', NOW - 2 * DAY, 'TAKEN'),
+                intake('intake-manual-5', 'med-2', NOW - 1 * DAY, 'TAKEN'),
+                intake('intake-manual-6', 'med-3', NOW - 1 * DAY, 'TAKEN')
+            ]
+        });
+
+        const brief = await call('/api/brief?days=30&sections=meds', 'GET');
+        const byName = Object.fromEntries(brief.medications.map((m) => [m.name, m]));
+
+        // Still listed — a doctor wants to know the patient takes ibuprofen.
+        expect(Object.keys(byName).sort()).toEqual(['Ibuprofen', 'Lisinopril', 'Mystery']);
+        expect(byName.Ibuprofen).toMatchObject({ adherence_pct: null, as_needed: true, times_taken: 5 });
+        expect(byName.Mystery).toMatchObject({ adherence_pct: null, as_needed: true, times_taken: 1 });
+        expect(byName.Lisinopril).toMatchObject({ adherence_pct: 50, as_needed: false, times_taken: 1 });
+        // 1 of 2 scheduled doses. Folding the 6 unscheduled TAKEN rows in would
+        // have reported 7/8 = 87.5%.
+        expect(brief.overall_adherence_pct).toBe(50);
     });
 
     // The acceptance pin: the brief must never disagree with the composite

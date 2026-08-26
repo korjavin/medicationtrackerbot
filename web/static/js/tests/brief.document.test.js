@@ -91,6 +91,30 @@ describe('Doctor brief — printable document', () => {
         expect(html).toContain('Generated locally by Med Tracker — this data never left the device.');
     });
 
+    // bd med-29gh.1: an as-needed med has no schedule to be adherent to, so
+    // the Adherence cell must carry a count and never a percentage — a printed
+    // "100%" for a PRN med is compliance the patient never claimed.
+    it('prints an as-needed medication as a count of doses, never a percentage', () => {
+        const html = build(briefPayload({
+            medications: [
+                {
+                    name: 'Lisinopril', dosage: '10mg', schedule_summary: 'daily at 08:00',
+                    started_at: '2026-01-04', adherence_pct: 50, as_needed: false, times_taken: 12,
+                },
+                {
+                    name: 'Ibuprofen', dosage: '200mg', schedule_summary: 'as needed',
+                    started_at: '2026-01-04', adherence_pct: null, as_needed: true, times_taken: 5,
+                },
+            ],
+            overall_adherence_pct: 50,
+        }), {});
+
+        expect(html).toContain('Ibuprofen');
+        expect(html).toContain('taken 5 times');
+        const row = html.slice(html.indexOf('Ibuprofen'));
+        expect(row.slice(0, row.indexOf('</tr>'))).not.toMatch(/%/);
+    });
+
     it('carries no external references — it must render from the Downloads folder offline', () => {
         const html = build(briefPayload(), {
             charts: { bp: '<svg xmlns="http://www.w3.org/2000/svg"></svg>' },

@@ -41,7 +41,7 @@ export const CLOUD_EXTRA = [
     path: '/api/health/cardiovascular-analysis',
     risk: 'read',
     description: 'Comprehensive cardiovascular health analysis. Returns blood pressure readings with daily averages, active medications and adherence, sleep duration and quality, heart rate and SpO2 trends, and personal diary notes — all in one call. Maximum 90 days per query. Use this for any question about blood pressure, heart health, medication effects, or sleep quality. Computed client-side over your vault; a disabled/empty section is listed in the `warning` field rather than aborting.',
-    response_summary: 'Object {period, blood_pressure?, medications?, sleep?, heart_rate?, spo2?, diary_notes?, warning?}. blood_pressure has avg_systolic/avg_diastolic (integer means) + days_measured; medications has adherence_rate (taken/resolved×100); sleep has avg_duration_minutes/avg_deep_minutes; heart_rate has avg/min/max/readings_count; spo2 has avg/min/readings_count. A section is omitted (and named in `warning`) when its feature is disabled or it has no data.',
+    response_summary: 'Object {period, blood_pressure?, medications?, sleep?, heart_rate?, spo2?, diary_notes?, warning?}. blood_pressure has avg_systolic/avg_diastolic (integer means) + days_measured; medications has adherence_rate (taken/resolved×100) computed over SCHEDULED medications only — an as-needed medication (or one whose schedule cannot be parsed) has no doses to miss, so its intake rows are excluded from the rate entirely, though they still appear in intake_log; sleep has avg_duration_minutes/avg_deep_minutes; heart_rate has avg/min/max/readings_count; spo2 has avg/min/readings_count. A section is omitted (and named in `warning`) when its feature is disabled or it has no data.',
     params_schema: ANALYSIS_PARAMS,
     response_example: {
       period: '2026-04-07 to 2026-07-06',
@@ -143,7 +143,7 @@ export const CLOUD_EXTRA = [
     path: '/api/brief',
     risk: 'read',
     description: 'Assemble the doctor-visit brief: ONE read folding medications + adherence, blood pressure, weight, sleep/resting-HR vitals, diary notes, and optionally food and workouts over the last 30/90/180 days. Use this instead of chaining health.bp.list + health.weight.list + medications.history when the user asks for an appointment summary or "everything since my last visit". Computed client-side over your vault from the same folds the app screens show, so it can never disagree with them. A selected section with no data yields nulls/empty arrays rather than an error.',
-    response_summary: 'Object with range{days,from,to,generated_at} plus one key per SELECTED section: medications[] (name, dosage, schedule_summary, started_at, adherence_pct) and overall_adherence_pct for meds; bp{count, systolic/diastolic/pulse{avg,min,max} or null, goal, readings[] oldest-first}; weight{start,end,delta,unit:"kg",points[]}; vitals{avg_sleep_minutes,resting_hr}; notes[{date,text}] capped at 50. food{days_logged,avg_kcal,avg_protein,avg_carbs,avg_fat,targets} and workouts{session_count,per_week} appear ONLY when named in sections. An unselected section is absent from the response, not null.',
+    response_summary: 'Object with range{days,from,to,generated_at} plus one key per SELECTED section: medications[] (name, dosage, schedule_summary, started_at, adherence_pct, as_needed, times_taken) and overall_adherence_pct for meds — an as-needed medication (or one whose schedule cannot be parsed) has as_needed true, adherence_pct null and times_taken = number of doses logged in the window, and is excluded from overall_adherence_pct; adherence_pct/overall_adherence_pct are also null when nothing was scheduled in the window; bp{count, systolic/diastolic/pulse{avg,min,max} or null, goal, readings[] oldest-first}; weight{start,end,delta,unit:"kg",points[]}; vitals{avg_sleep_minutes,resting_hr}; notes[{date,text}] capped at 50. food{days_logged,avg_kcal,avg_protein,avg_carbs,avg_fat,targets} and workouts{session_count,per_week} appear ONLY when named in sections. An unselected section is absent from the response, not null.',
     params_schema: {
       type: 'object',
       properties: {
@@ -166,12 +166,17 @@ export const CLOUD_EXTRA = [
       },
       medications: [
         {
-          name: 'Lisinopril', dosage: '10mg', schedule_summary: 'Mon, Thu at 09:00', started_at: '2026-02-01T00:00:00.000Z', adherence_pct: 50,
+          name: 'Ibuprofen', dosage: '200mg', schedule_summary: 'as needed', started_at: '2026-03-01T00:00:00.000Z', adherence_pct: null, as_needed: true, times_taken: 2,
         },
         {
-          name: 'Metformin', dosage: '500mg', schedule_summary: 'daily at 08:00, 20:00', started_at: '2026-01-05T00:00:00.000Z', adherence_pct: 75,
+          name: 'Lisinopril', dosage: '10mg', schedule_summary: 'Mon, Thu at 09:00', started_at: '2026-02-01T00:00:00.000Z', adherence_pct: 50, as_needed: false, times_taken: 1,
+        },
+        {
+          name: 'Metformin', dosage: '500mg', schedule_summary: 'daily at 08:00, 20:00', started_at: '2026-01-05T00:00:00.000Z', adherence_pct: 75, as_needed: false, times_taken: 3,
         },
       ],
+      // 4 of 6 scheduled doses — the as-needed medication's rows are excluded
+      // from the overall rate, not folded in at 100%.
       overall_adherence_pct: 66.7,
       bp: {
         count: 3,
