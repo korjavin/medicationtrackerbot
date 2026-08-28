@@ -660,8 +660,11 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
     // whichever device drains the tap — not only the one that pushed. No
     // getSlotMeds is injected in these: they exercise the production default,
     // which reads the `slotmeds` record off the same records port.
+    // One `slotmeds-<slotUnix>` record per slot (bd med-onzf).
     const slotMedsRecord = (slots) => ({
-        slotmeds: [{ recordId: 'slotmeds-current', deleted: false, clientTs: SLOT_UNIX * 1000, slots }],
+        slotmeds: Object.entries(slots).map(([slotUnix, medicationIds]) => ({
+            recordId: `slotmeds-${slotUnix}`, deleted: false, clientTs: SLOT_UNIX * 1000, slotUnix: Number(slotUnix), medicationIds,
+        })),
     });
 
     it('confirms a dose drifted far beyond the band from the vault map alone (cross-device tap)', async () => {
@@ -794,7 +797,7 @@ describe('inbox-apply.js — createInboxApplier routing', () => {
             ...seed(),
             // The vault slot→meds map the cancel needs to know what the reminder
             // covered — written by every pushSchedule in production.
-            slotmeds: [{ recordId: 'slotmeds-current', deleted: false, clientTs: SLOT_UNIX * 1000, slots: { [SLOT_UNIX]: ['med-a', 'med-b'] } }],
+            slotmeds: [{ recordId: `slotmeds-${SLOT_UNIX}`, deleted: false, clientTs: SLOT_UNIX * 1000, slotUnix: SLOT_UNIX, medicationIds: ['med-a', 'med-b'] }],
         });
         // cancelRefire is the applier's job to supply (in production, the real
         // cancelMedRefire POST) — applyIntakeSlotAction itself defaults to a
