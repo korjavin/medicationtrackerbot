@@ -1010,6 +1010,14 @@ async function toggleFeatureSetting(feature, enabled) {
     } catch (e) {
         console.warn(`Failed to invalidate settings cache after toggling ${feature}:`, e);
     }
+    // The Tomorrow Forecast route answers {enabled:false} while Journey is off,
+    // so the card's cached payload is empty and only bootstrap ever fills it.
+    // Re-fetch on the toggle or the card stays missing until a full reload
+    // (refresh() reloads Today itself when the card's presence changes).
+    if (feature === 'gamification' && window.WGForecastCard
+        && typeof window.WGForecastCard.refresh === 'function') {
+        window.WGForecastCard.refresh();
+    }
     updateFeatureTabVisibility();
 }
 

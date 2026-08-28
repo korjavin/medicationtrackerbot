@@ -80,6 +80,20 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(await window.apiCall('/api/gamification/forecast', 'GET')).toEqual({ enabled: false });
     });
 
+    // The card caches its payload at bootstrap only, so a mid-session re-enable
+    // has to re-fetch — otherwise the gate above leaves it empty until reload.
+    it('toggling gamification back on re-refreshes the forecast card', async () => {
+        const { window } = env;
+        window.rebuildCanonicalBottomNav = vi.fn();
+        window.WGForecastCard = { refresh: vi.fn(), mountCard: vi.fn() };
+
+        await window.toggleFeatureSetting('gamification', false);
+        await window.toggleFeatureSetting('gamification', true);
+
+        expect(window.WGForecastCard.refresh).toHaveBeenCalledTimes(2);
+        expect((await window.apiCall('/api/gamification/forecast', 'GET')).enabled).toBe(true);
+    });
+
     it('saveTabOrder persists through the shim and is echoed by bootstrap', async () => {
         const { window } = env;
         const order = ['weight', 'bp', 'health'];
