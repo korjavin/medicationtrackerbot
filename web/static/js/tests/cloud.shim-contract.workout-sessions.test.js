@@ -1500,6 +1500,23 @@ describe('bd med-gmyf: starting a not-today session logs the workout for today',
         expect(callbacks).not.toContain('w:1:20260826');
     });
 
+    it('mints an ad-hoc session rather than reopening a finished day', async () => {
+        const records = seed([
+            session(WEDNESDAY, 'completed', { id: 901, variantId: 1 }),
+            session(FRIDAY, 'pending')
+        ]);
+
+        await domainOver(records).startSession(900);
+
+        const stored = await records.list('workoutsession');
+        expect(stored.find((s) => s.recordId === `session-1-${WEDNESDAY}`).status).toBe('completed');
+        expect(stored.find((s) => s.recordId === `session-1-${FRIDAY}`).status).toBe('pending');
+        const adhoc = stored.filter((s) => s.group_id === -1);
+        expect(adhoc).toHaveLength(1);
+        expect(adhoc[0].status).toBe('in_progress');
+        expect(adhoc[0].scheduled_date.startsWith(WEDNESDAY)).toBe(true);
+    });
+
     it('starts today\'s own session in place, with no duplicate record', async () => {
         const records = seed([session(WEDNESDAY, 'pending', { id: 901, variantId: 1 })]);
 

@@ -1380,7 +1380,18 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     let target = session;
     if (session.group_id > 0
       && localDateStr(new Date(session.scheduled_date).getTime(), timeZone) !== todayStr) {
-      target = await findOrCreateScheduledSession(session.group_id, todayStr, session.variant_id);
+      const slot = await findOrCreateScheduledSession(session.group_id, todayStr, session.variant_id);
+      // Today's own occurrence is already completed/skipped (that is one reason
+      // getNext surfaced a future one at all): reopening it would rewrite a
+      // finished workout — old completed_at, its logs, a second rotation
+      // advance on re-completion. A second workout on a finished day IS an
+      // ad-hoc session, so mint one instead (it also adopts a session already
+      // running today rather than duplicating).
+      if (slot.status === 'completed' || slot.status === 'skipped') {
+        await createAdHocSession();
+        return;
+      }
+      target = slot;
     }
     await records.put(WORKOUT_RECORD_TYPES.SESSION, {
       ...target,
