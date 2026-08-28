@@ -218,30 +218,46 @@ describe('slot→meds map (med-eas.65: vault-resident, merge-and-prune)', () => 
     expect(await domainAt(merged, muchLater).getSlotMedications(NOW_UNIX)).toBeNull();
   });
 
-  // Cutover from the pre-med-onzf singleton. Its FIRED in-window entries move to
-  // per-slot records so a message pushed before the deploy stays resolvable by
-  // identity; its FUTURE entries die with it, because the next PUT may serve a
-  // different set for those slots and the singleton was never re-read after a
-  // lost post-PUT write (codex review of PR #804).
-  it('migrates the legacy singleton\'s fired entries once and tombstones it, dropping its future entries', async () => {
+  // Cutover from the pre-med-onzf singleton: it is tombstoned by the first
+  // prune and NOTHING in it is honoured, fired entries included — a tap on a
+  // pre-deploy message takes the ±band fallback for the 48h window.
+  it('tombstones the legacy singleton on the first prune and never reads it', async () => {
     const fired = NOW_UNIX - HOUR;
     const future = NOW_UNIX + HOUR;
-    const expired = NOW_UNIX - 50 * HOUR;
-    const records = fakeRecords({ slotmeds: [{ recordId: 'slotmeds-current', deleted: false, clientTs: 1, slots: { [fired]: ['med-a', 'med-b'], [future]: ['med-a', 'med-b'], [expired]: ['med-z'] } }] }, () => NOW_MS);
-    // Not consulted before the migration: a legacy entry is never a read fallback.
+    const records = fakeRecords({ slotmeds: [{ recordId: 'slotmeds-current', deleted: false, clientTs: 1, slots: { [fired]: ['med-a', 'med-b'], [future]: ['med-a', 'med-b'] } }] }, () => NOW_MS);
     expect(await domainAt(records, NOW_MS).getSlotMedications(fired)).toBeNull();
 
     await domainAt(records, NOW_MS).dropFutureSlotMedications(); // the pre-PUT step
-    const domain = domainAt(records, NOW_MS);
-    expect(await domain.getSlotMedications(fired)).toEqual(['med-a', 'med-b']);
-    expect(await domain.getSlotMedications(future)).toBeNull();
-    expect(await domain.getSlotMedications(expired)).toBeNull();
     expect(records.dump().slotmeds.find((r) => r.recordId === 'slotmeds-current').deleted).toBe(true);
-
-    // The post-PUT write then names the served set, and the legacy future entry
-    // cannot resurface — even when that write is lost (the hazard the drop is for).
+    const domain = domainAt(records, NOW_MS);
+    expect(await domain.getSlotMedications(fired)).toBeNull();
+    expect(await domain.getSlotMedications(future)).toBeNull();
     await domain.recordSlotMedications([rem(future, ['med-a'])]);
     expect(await domain.getSlotMedications(future)).toEqual(['med-a']);
+  });
+
+  // Why nothing is migrated (codex review of PR #804): device A upgrades before
+  // S, drops, PUTs a schedule naming S=[a] and records it. Device B, never
+  // synced, wakes after S with the old singleton still saying S=[a,b]. Had B
+  // migrated "fired" entries, its later-clientTs S=[a,b] would win LWW over A's
+  // correct [a] and a tap on the [a] message could confirm b.
+  it('a late-waking device with the old singleton cannot overwrite an upgraded device\'s per-slot record', async () => {
+    const S = NOW_UNIX + HOUR;
+    const legacy = { recordId: 'slotmeds-current', deleted: false, clientTs: NOW_MS - 2 * HOUR * 1000, slots: { [S]: ['med-a', 'med-b'] } };
+
+    let clockA = NOW_MS;
+    const deviceA = fakeRecords({ slotmeds: [legacy] }, () => clockA);
+    await domainAt(deviceA, clockA).dropFutureSlotMedications();
+    clockA = NOW_MS + 500;
+    await domainAt(deviceA, clockA).recordSlotMedications([rem(S, ['med-a'])]); // the served message names only a
+
+    const later = NOW_MS + 2 * HOUR * 1000; // S fired an hour ago
+    const deviceB = fakeRecords({ slotmeds: [legacy] }, () => later);
+    await domainAt(deviceB, later).dropFutureSlotMedications();
+    await domainAt(deviceB, later).recordSlotMedications([rem(S + 24 * HOUR, ['med-a', 'med-b'])]);
+
+    expect(await domainAt(lww(deviceA, deviceB), later).getSlotMedications(S)).toEqual(['med-a']);
+    expect(await domainAt(lww(deviceB, deviceA), later).getSlotMedications(S)).toEqual(['med-a']);
   });
 
   it('is readable from another device through the same vault records', async () => {

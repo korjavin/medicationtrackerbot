@@ -35,7 +35,7 @@ const DELIVERYPREF_RECORD_ID = 'reminderdeliverypref';
 // that DRAINS the tap — every cross-device Confirm used to miss the map.
 const SLOTMEDS_RECORD_TYPE = 'slotmeds';
 const SLOTMEDS_RECORD_ID_PREFIX = 'slotmeds-';
-const LEGACY_SLOTMEDS_RECORD_ID = 'slotmeds-current'; // pre-med-onzf singleton, migrated once then tombstoned
+const LEGACY_SLOTMEDS_RECORD_ID = 'slotmeds-current'; // pre-med-onzf singleton, tombstoned on first prune, never read
 
 export const DELIVERY_CHANNELS = ['webpush', 'telegram', 'both'];
 export const VERBOSITIES = ['detailed', 'generic'];
@@ -712,7 +712,7 @@ export function createRemindersDomain({ records, now }) {
   // named them and cannot change.
   async function pruneSlotRecords(keepFuture) {
     const nowMs = now();
-    await migrateLegacySlotMedications(nowMs);
+    await retireLegacySlotMedications();
     for (const r of await listSlotRecords()) {
       const slotMs = Number(r.slotUnix) * 1000;
       const expired = slotMs < nowMs - SLOTMEDS_RETAIN_MS;
@@ -721,27 +721,18 @@ export function createRemindersDomain({ records, now }) {
     }
   }
 
-  // The pre-med-onzf singleton (`slotmeds-current`, { slots }) is moved into
-  // per-slot records once and tombstoned — its FIRED in-window entries only, so
-  // a message pushed before this deploy stays identity-resolvable for its 48h;
-  // its future entries are exactly the stale-future hazard the drop exists to
-  // clear, and must not outlive the first new-code PUT. Runs on the first prune
-  // after deploy and is a no-op ever after (or on a fresh vault).
-  // ponytail: delete this once every vault has recomputed past the window.
-  async function migrateLegacySlotMedications(nowMs) {
-    const all = await records.list(SLOTMEDS_RECORD_TYPE);
-    const legacy = findSingleton(all, LEGACY_SLOTMEDS_RECORD_ID);
-    if (!legacy) return;
-    const have = new Set(all.filter((r) => !r.deleted).map((r) => r.recordId));
-    for (const [slotUnix, ids] of Object.entries(legacy.slots || {})) {
-      const slotMs = Number(slotUnix) * 1000;
-      if (!(slotMs <= nowMs && slotMs >= nowMs - SLOTMEDS_RETAIN_MS) || !Array.isArray(ids) || !ids.length) continue;
-      if (have.has(slotRecordId(slotUnix))) continue;
-      await records.put(SLOTMEDS_RECORD_TYPE, {
-        recordId: slotRecordId(slotUnix), clientTs: now(), deleted: false, slotUnix: Number(slotUnix), medicationIds: ids,
-      });
-    }
-    await records.del(SLOTMEDS_RECORD_TYPE, LEGACY_SLOTMEDS_RECORD_ID);
+  // The pre-med-onzf singleton (`slotmeds-current`, { slots }) is tombstoned
+  // on the first prune and never read. Nothing in it is migrated: a device that
+  // wakes late cannot tell a slot that fired under the OLD schedule from one
+  // that fired after another device's new-code PUT re-named it, and a migrated
+  // entry with a later clientTs would overwrite that device's correct per-slot
+  // record — a Confirm could then mark an unnamed med taken (codex review of
+  // PR #804). Cost: taps on messages pushed before the deploy take the ±band
+  // fallback (safe false negative, one re-fire chain left to its 6h cap) for at
+  // most the 48h window. ponytail: delete once every vault has recomputed.
+  async function retireLegacySlotMedications() {
+    const legacy = findSingleton(await records.list(SLOTMEDS_RECORD_TYPE), LEGACY_SLOTMEDS_RECORD_ID);
+    if (legacy) await records.del(SLOTMEDS_RECORD_TYPE, LEGACY_SLOTMEDS_RECORD_ID);
   }
 
   // dropFutureSlotMedications runs BEFORE the new schedule is uploaded.
@@ -774,10 +765,9 @@ export function createRemindersDomain({ records, now }) {
   // the design considers expired. Retention is a property of the answer, not
   // of write scheduling.
   //
-  // The legacy singleton is deliberately NOT a read fallback: a legacy FUTURE
-  // entry can describe a schedule the relay no longer serves, and honouring
-  // it after the slot fires could confirm an unnamed med. Its safe entries are
-  // migrated by the first prune instead (migrateLegacySlotMedications).
+  // The legacy singleton is deliberately NOT a read fallback: any entry in it
+  // can describe a schedule the relay no longer serves, and honouring it could
+  // confirm an unnamed med (see retireLegacySlotMedications).
   async function getSlotMedications(slotUnix) {
     if (!(Number(slotUnix) * 1000 >= now() - SLOTMEDS_RETAIN_MS)) return null;
     const rec = findSingleton(await records.list(SLOTMEDS_RECORD_TYPE), slotRecordId(slotUnix));

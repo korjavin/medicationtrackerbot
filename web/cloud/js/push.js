@@ -324,7 +324,6 @@ export function pushSchedule(ctx, reminders, pref = {}, onPushed, beforePush) {
 // entry hands the relay PLAINTEXT (it cannot decrypt the vault), so 'generic'
 // verbosity is what keeps medication names out of the relay's reach.
 async function pushScheduleInner(ctx, reminders, pref = {}, onPushed, beforePush) {
-  if (beforePush) await beforePush();
   const delivery = ['webpush', 'telegram', 'both'].includes(pref.delivery) ? pref.delivery : 'webpush';
   const verbosity = pref.verbosity === 'generic' ? 'generic' : 'detailed';
   const needsCT = delivery === 'webpush' || delivery === 'both';
@@ -351,6 +350,9 @@ async function pushScheduleInner(ctx, reminders, pref = {}, onPushed, beforePush
     }
     entries.push(entry);
   }
+  // Immediately before the upload, after the (possibly slow) NK/encrypt work,
+  // so the mapless window the drop opens is as narrow as the PUT itself.
+  if (beforePush) await beforePush();
   const res = await fetch('/api/push/schedule', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
