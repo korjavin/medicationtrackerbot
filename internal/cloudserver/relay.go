@@ -258,6 +258,13 @@ func (rl *Relay) Tick(ctx context.Context) {
 		// but sent re-fires vanished from scheduled_pushes, leaving no audit
 		// trail (med-ls3i). If the mark failed, p is still pending for the next
 		// tick's retry — chaining would delete that retry instead.
+		//
+		// ponytail: the two writes are not one transaction, so a crash in the
+		// gap ends that slot's hourly nag (the reminder itself already sent,
+		// and the client's next ReplaceSchedule repopulates client-origin
+		// rows). Upgrade path if that ever bites: a store method that marks
+		// sent and inserts the successor inside RescheduleRelayRefire's
+		// existing tx.
 		if tgSent && marked {
 			rl.scheduleMedRefire(ctx, p, tgMessageID)
 		}
