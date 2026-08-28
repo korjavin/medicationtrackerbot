@@ -774,11 +774,11 @@ func TestRescheduleRelayRefire(t *testing.T) {
 	}
 
 	past := now.Add(-time.Minute)
-	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "snooze 1h", "w:6:20260720", 111); err != nil {
+	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "snooze 1h", "w:6:20260720", "", 111); err != nil {
 		t.Fatalf("RescheduleRelayRefire (first): %v", err)
 	}
 	// Re-snooze the same session: the first refire is superseded, not stacked.
-	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "snooze 2h", "w:6:20260720", 222); err != nil {
+	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "snooze 2h", "w:6:20260720", "", 222); err != nil {
 		t.Fatalf("RescheduleRelayRefire (second): %v", err)
 	}
 
@@ -800,7 +800,7 @@ func TestRescheduleRelayRefire(t *testing.T) {
 	// med-eas.79: a delayed tap from an OLDER message (lower id) must not regress
 	// the pending supersedes below the newer one already queued — else the next
 	// re-fire would delete an already-gone message and orphan the live one.
-	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "late tap", "w:6:20260720", 100); err != nil {
+	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, "late tap", "w:6:20260720", "", 100); err != nil {
 		t.Fatalf("RescheduleRelayRefire (regress): %v", err)
 	}
 	due, err = r.DueScheduledPushes(ctx, now)
@@ -845,7 +845,7 @@ func TestRelayRefiresClearedOnChatRelink(t *testing.T) {
 
 	scheduleRefire := func() {
 		t.Helper()
-		if err := r.RescheduleRelayRefire(ctx, acc.ID, now.Add(-time.Minute), "snooze", "s:9:20260720", 5000); err != nil {
+		if err := r.RescheduleRelayRefire(ctx, acc.ID, now.Add(-time.Minute), "snooze", "s:9:20260720", "", 5000); err != nil {
 			t.Fatalf("RescheduleRelayRefire: %v", err)
 		}
 	}
@@ -997,5 +997,69 @@ func TestAccountsNeedingStaleSyncWarning_EmptyQueue(t *testing.T) {
 	}
 	if !warned(now.Add(cooldown + time.Hour))[dry] {
 		t.Errorf("not re-warned after the cooldown elapsed")
+	}
+}
+
+// TestScheduledPushMedIDs pins med-kbpf: the med identity a client uploads on a
+// reminder row reaches the relay, is copied down the re-fire chain, is readable
+// back by its callback stem while the chain is live, and is wiped on send with
+// the rest of the Telegram plaintext.
+func TestScheduledPushMedIDs(t *testing.T) {
+	r := setupRepo(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	acc, err := r.CreateAccount(ctx, "acc-medids", "keen-heron-can021", []byte("hash"), now.Add(time.Hour), now, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	past := now.Add(-time.Minute)
+	if err := r.ReplaceSchedule(ctx, acc.ID, []ScheduledPushInput{
+		{FireAt: past, Delivery: DeliveryTelegram, TGText: "Time to take (2)", TGCallback: "s:1767225600", TGMedIDs: "2,9"},
+	}, now); err != nil {
+		t.Fatalf("ReplaceSchedule: %v", err)
+	}
+
+	due, err := r.DueScheduledPushes(ctx, now)
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 1 || due[0].TGMedIDs != "2,9" {
+		t.Fatalf("due = %+v, want one row carrying tg_med_ids 2,9", due)
+	}
+
+	// While the row is live the stem resolves to the identity the tap needs.
+	if ids, err := r.MedIDsForCallback(ctx, acc.ID, "s:1767225600"); err != nil || ids != "2,9" {
+		t.Fatalf("MedIDsForCallback = %q, %v; want \"2,9\", nil", ids, err)
+	}
+	if ids, err := r.MedIDsForCallback(ctx, acc.ID, "s:999"); err != nil || ids != "" {
+		t.Fatalf("MedIDsForCallback(unknown) = %q, %v; want \"\", nil", ids, err)
+	}
+
+	// The relay chains the next re-fire from the row it just sent: identity rides along.
+	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, due[0].TGText, due[0].TGCallback, due[0].TGMedIDs, 7); err != nil {
+		t.Fatalf("RescheduleRelayRefire: %v", err)
+	}
+	if err := r.MarkPushSent(ctx, due[0].ID, now); err != nil {
+		t.Fatalf("MarkPushSent: %v", err)
+	}
+	// The sent row is scrubbed; the pending re-fire is what answers the next tap.
+	if ids, err := r.MedIDsForCallback(ctx, acc.ID, "s:1767225600"); err != nil || ids != "2,9" {
+		t.Fatalf("MedIDsForCallback after send = %q, %v; want the re-fire's \"2,9\", nil", ids, err)
+	}
+	refires, err := r.DueScheduledPushes(ctx, now)
+	if err != nil {
+		t.Fatalf("DueScheduledPushes (refire): %v", err)
+	}
+	if len(refires) != 1 || refires[0].TGMedIDs != "2,9" {
+		t.Fatalf("re-fire = %+v, want one row carrying 2,9", refires)
+	}
+	if err := r.MarkPushSent(ctx, refires[0].ID, now); err != nil {
+		t.Fatalf("MarkPushSent (refire): %v", err)
+	}
+	// Nothing pending, nothing on file: a tap past the chain has no identity.
+	if ids, err := r.MedIDsForCallback(ctx, acc.ID, "s:1767225600"); err != nil || ids != "" {
+		t.Fatalf("MedIDsForCallback after the chain ends = %q, %v; want \"\", nil", ids, err)
 	}
 }

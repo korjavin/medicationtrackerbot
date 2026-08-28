@@ -229,6 +229,11 @@ func TestPutSchedule_DeliveryValidation(t *testing.T) {
 		{"both without ct", scheduleEntryWire{FireAtUnix: fireAt, Delivery: "both", TGText: "hi"}},
 		{"webpush without ct", scheduleEntryWire{FireAtUnix: fireAt, Delivery: "webpush"}},
 		{"tg text too long", scheduleEntryWire{FireAtUnix: fireAt, Delivery: "telegram", TGText: strings.Repeat("x", maxScheduleTGTextLen+1)}},
+		// med-kbpf: tg_med_ids is bare decimal ids, bounded, and only on a med row.
+		{"med ids not numeric", scheduleEntryWire{FireAtUnix: fireAt, Delivery: "telegram", TGText: "hi", TGCallback: "s:1767225600", TGMedIDs: "2,abc"}},
+		{"med ids malformed", scheduleEntryWire{FireAtUnix: fireAt, Delivery: "telegram", TGText: "hi", TGCallback: "s:1767225600", TGMedIDs: "2,"}},
+		{"med ids too long", scheduleEntryWire{FireAtUnix: fireAt, Delivery: "telegram", TGText: "hi", TGCallback: "s:1767225600", TGMedIDs: strings.Repeat("1,", maxScheduleTGMedIDsLen) + "1"}},
+		{"med ids on a non-med callback", scheduleEntryWire{FireAtUnix: fireAt, Delivery: "telegram", TGText: "hi", TGCallback: "w:6:20260720", TGMedIDs: "2,9"}},
 	}
 	for _, tc := range bad {
 		if code := put(tc.entry); code != http.StatusBadRequest {
@@ -246,5 +251,18 @@ func TestPutSchedule_DeliveryValidation(t *testing.T) {
 	}
 	if len(due) != 1 || due[0].Delivery != cloudstore.DeliveryWebPush {
 		t.Fatalf("legacy entry did not default to webpush: %+v", due)
+	}
+
+	// A well-formed med row stores its identity verbatim — that is what a Confirm
+	// tap seals (med-kbpf).
+	if code := put(scheduleEntryWire{FireAtUnix: time.Now().Add(-time.Minute).Unix(), Delivery: "telegram", TGText: "Time to take (2)", TGCallback: "s:1767225600", TGMedIDs: "2,9"}); code != http.StatusNoContent {
+		t.Fatalf("med-ids entry status = %d, want 204", code)
+	}
+	due, err = store.DueScheduledPushes(context.Background(), time.Now().UTC())
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 1 || due[0].TGMedIDs != "2,9" {
+		t.Fatalf("stored med ids = %+v, want one row with tg_med_ids 2,9", due)
 	}
 }

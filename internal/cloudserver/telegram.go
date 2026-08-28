@@ -1677,6 +1677,29 @@ type intakeSlotEvent struct {
 	Action    string `json:"action"`
 	AtUnix    int64  `json:"at_unix"`
 	MessageID int64  `json:"message_id"`
+	// MedicationIDs is the identity of the meds the tapped message named, copied
+	// off the scheduled_pushes row the client uploaded it with (med-kbpf). The
+	// drain confirms exactly these — no vault side-table, no time-band guessing.
+	// Empty when the relay has no row left for the stem (a tap past the re-fire
+	// window, or a reminder pushed by a pre-med-kbpf client): the drain then
+	// applies nothing and says so, rather than guessing.
+	MedicationIDs []int64 `json:"medication_ids,omitempty"`
+}
+
+// parseMedIDs turns the stored "id,id,id" list into the event's numeric ids.
+// Malformed entries are dropped rather than failing the tap: the column is
+// written only by the validated PUT path, so this is belt-and-braces.
+func parseMedIDs(s string) []int64 {
+	if s == "" {
+		return nil
+	}
+	var out []int64
+	for _, part := range strings.Split(s, ",") {
+		if id, err := strconv.ParseInt(part, 10, 64); err == nil {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // inboxEventKindWorkoutSession is the sealed-event kind a workout Snooze/Skip tap
@@ -1788,12 +1811,22 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 	}
 
 	now := time.Now().UTC()
+	// The stem "s:<slotUnix>" is the tapped callback minus its ":<action>" suffix —
+	// the key the relay files re-fires (and their med identity) under.
+	stem := strings.TrimSuffix(cq.Data, ":"+action)
+	// ref IS the account id (see BotByWebhookRef). Read the identity BEFORE any
+	// cancel below deletes the row that holds it.
+	medIDs, err := t.store.MedIDsForCallback(r.Context(), ref, stem)
+	if err != nil {
+		slog.Error("telegram callback: load med ids", "error", err, "ref", ref)
+	}
 	plaintext, err := json.Marshal(intakeSlotEvent{
-		Kind:      inboxEventKindIntakeSlot,
-		SlotUnix:  slotUnix,
-		Action:    action,
-		AtUnix:    now.Unix(),
-		MessageID: messageID,
+		Kind:          inboxEventKindIntakeSlot,
+		SlotUnix:      slotUnix,
+		Action:        action,
+		AtUnix:        now.Unix(),
+		MessageID:     messageID,
+		MedicationIDs: parseMedIDs(medIDs),
 	})
 	if err != nil {
 		slog.Error("telegram callback: marshal event", "error", err, "ref", ref)
@@ -1818,13 +1851,14 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 		// "s:<slotUnix>" is the tapped callback minus its ":<action>" suffix; the
 		// re-fire only COPIES already-cleartext fields, never reading `ct`. Cancel +
 		// insert supersede any pending re-fire so a re-snooze reschedules instead of
-		// stacking. Log-and-swallow: a failed reschedule never fails the 200.
-		stem := strings.TrimSuffix(cq.Data, ":"+action)
+		// stacking. The med identity rides along so a tap on the re-fired message
+		// still knows which doses it confirms (med-kbpf). Log-and-swallow: a failed
+		// reschedule never fails the 200.
 		refireText := medRefireText
 		if cq.Message != nil && cq.Message.Text != "" {
 			refireText = cq.Message.Text
 		}
-		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem, messageID); err != nil {
+		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem, medIDs, messageID); err != nil {
 			slog.Error("telegram callback: reschedule med relay refire", "error", err, "ref", ref)
 		}
 		t.editCallbackMessage(r.Context(), bot, ref, messageID, medSnoozeEditText)
@@ -1967,7 +2001,7 @@ func (t *TelegramAPI) handleWorkoutCallback(w http.ResponseWriter, r *http.Reque
 		// stacking a second delivery. Snooze1h and Snooze2h share the same stem.
 		// Cancel + insert are one transaction so two concurrent snooze taps can't
 		// both delete-then-insert and leave duplicate pending re-fires.
-		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(delay), refireText, stem, messageID); err != nil {
+		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(delay), refireText, stem, "", messageID); err != nil {
 			slog.Error("telegram callback: reschedule relay refire", "error", err, "ref", ref)
 		}
 		t.editCallbackMessage(r.Context(), bot, ref, messageID, workoutSnoozeEditText)
@@ -2050,7 +2084,7 @@ func (t *TelegramAPI) handleMeasureCallback(w http.ResponseWriter, r *http.Reque
 		if cq.Message != nil && cq.Message.Text != "" {
 			refireText = cq.Message.Text
 		}
-		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem, messageID); err != nil {
+		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem, "", messageID); err != nil {
 			slog.Error("telegram callback: reschedule measure relay refire", "error", err, "ref", ref)
 		}
 		t.editCallbackMessage(r.Context(), bot, ref, messageID, measureSnoozeEditText)

@@ -585,7 +585,7 @@ func TestRelay_MedRefireChain(t *testing.T) {
 	freshSlot := now.Add(-30 * time.Minute).Unix()
 	freshStem := fmt.Sprintf("s:%d", freshSlot)
 	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{
-		{FireAtUnix: now.Add(-time.Minute).Unix(), Delivery: "telegram", TGText: "Time to take: X", TGCallback: freshStem},
+		{FireAtUnix: now.Add(-time.Minute).Unix(), Delivery: "telegram", TGText: "Time to take: X", TGCallback: freshStem, TGMedIDs: "2,9"},
 	}})
 
 	tg := &fakeTGSender{}
@@ -602,6 +602,11 @@ func TestRelay_MedRefireChain(t *testing.T) {
 	}
 	if len(future) != 1 || future[0].TGCallback != freshStem {
 		t.Fatalf("expected one queued re-fire for %q, got %+v", freshStem, future)
+	}
+	// med-kbpf: identity travels the chain, so a tap on the LAST re-fire still
+	// names the same meds the first message did.
+	if future[0].TGMedIDs != "2,9" {
+		t.Fatalf("re-fire tg_med_ids = %q, want the sent row's \"2,9\"", future[0].TGMedIDs)
 	}
 	if delta := future[0].FireAt.Sub(now); delta < 55*time.Minute || delta > 65*time.Minute {
 		t.Fatalf("re-fire scheduled at now+%v, want ~1h", delta)
@@ -683,7 +688,7 @@ func TestRelay_RefireDeletesPriorMessage(t *testing.T) {
 
 	// Make that queued re-fire due now (same DELETE-then-INSERT the chain uses,
 	// backdated so a second tick fires it without a 1h wait).
-	if err := store.RescheduleRelayRefire(ctx, future[0].AccountID, now.Add(-time.Second), future[0].TGText, freshStem, future[0].SupersedesMessageID); err != nil {
+	if err := store.RescheduleRelayRefire(ctx, future[0].AccountID, now.Add(-time.Second), future[0].TGText, freshStem, future[0].TGMedIDs, future[0].SupersedesMessageID); err != nil {
 		t.Fatalf("RescheduleRelayRefire (seed due): %v", err)
 	}
 
@@ -705,7 +710,7 @@ func TestRelay_RefireDeleteFailureDoesNotAbortChain(t *testing.T) {
 
 	freshStem := fmt.Sprintf("s:%d", now.Add(-30*time.Minute).Unix())
 	// Seed a due re-fire that supersedes a (doomed) prior message id 5.
-	if err := store.RescheduleRelayRefire(ctx, accountID, now.Add(-time.Second), "Time to take: X", freshStem, 5); err != nil {
+	if err := store.RescheduleRelayRefire(ctx, accountID, now.Add(-time.Second), "Time to take: X", freshStem, "", 5); err != nil {
 		t.Fatalf("RescheduleRelayRefire (seed due): %v", err)
 	}
 

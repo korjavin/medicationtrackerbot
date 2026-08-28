@@ -140,6 +140,13 @@ type ScheduledPush struct {
 	Delivery   string
 	TGText     string
 	TGCallback string
+	// TGMedIDs is the comma-separated list of medication record ids the client
+	// named in this reminder's text ("" on non-med rows). Cleartext to the relay
+	// like TGText — and strictly less than TGText already carries at 'detailed'
+	// verbosity (the names) — so a Telegram Confirm tap can seal the identity of
+	// the doses it confirms instead of the browser guessing them from a time band
+	// (med-kbpf). CT stays opaque.
+	TGMedIDs string
 	// SupersedesMessageID is the prior Telegram message_id this send should delete
 	// (0 = nothing to delete). A TG artifact, never vault/ct data (med-eas.79).
 	SupersedesMessageID int64
@@ -153,6 +160,7 @@ type ScheduledPushInput struct {
 	Delivery   string
 	TGText     string
 	TGCallback string
+	TGMedIDs   string
 }
 
 // ReplaceSchedule replaces accountID's unsent schedule with entries in one
@@ -180,8 +188,8 @@ func (r *Repo) ReplaceSchedule(ctx context.Context, accountID string, entries []
 				ct = []byte{}
 			}
 			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct, delivery, tg_text, tg_callback) VALUES (?, ?, ?, ?, ?, ?)`,
-				accountID, storedb.TimeToUnix(e.FireAt), ct, delivery, e.TGText, e.TGCallback); err != nil {
+				`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, tg_med_ids) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				accountID, storedb.TimeToUnix(e.FireAt), ct, delivery, e.TGText, e.TGCallback, e.TGMedIDs); err != nil {
 				return err
 			}
 		}
@@ -193,7 +201,7 @@ func (r *Repo) ReplaceSchedule(ctx context.Context, accountID string, entries []
 // fire_at has passed — the relay sender's per-tick query.
 func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]ScheduledPush, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, supersedes_message_id FROM scheduled_pushes WHERE sent_at_unix IS NULL AND fire_at_unix <= ? ORDER BY fire_at_unix`,
+		`SELECT id, account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, tg_med_ids, supersedes_message_id FROM scheduled_pushes WHERE sent_at_unix IS NULL AND fire_at_unix <= ? ORDER BY fire_at_unix`,
 		storedb.TimeToUnix(now))
 	if err != nil {
 		return nil, err
@@ -206,7 +214,7 @@ func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]Schedul
 			p        ScheduledPush
 			fireUnix int64
 		)
-		if err := rows.Scan(&p.ID, &p.AccountID, &fireUnix, &p.CT, &p.Delivery, &p.TGText, &p.TGCallback, &p.SupersedesMessageID); err != nil {
+		if err := rows.Scan(&p.ID, &p.AccountID, &fireUnix, &p.CT, &p.Delivery, &p.TGText, &p.TGCallback, &p.TGMedIDs, &p.SupersedesMessageID); err != nil {
 			return nil, err
 		}
 		p.FireAt = storedb.UnixToTime(fireUnix)
@@ -217,13 +225,14 @@ func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]Schedul
 
 // MarkPushSent marks a scheduled push as sent so later ticks skip it, and
 // clears the payload in the same UPDATE so fired Telegram plaintext (med name +
-// dose in tg_text/tg_callback) and the NK ciphertext don't accumulate at rest.
+// dose in tg_text/tg_callback, med identity in tg_med_ids) and the NK ciphertext
+// don't accumulate at rest.
 // Every post-send reader filters sent_at_unix IS NULL or reads only timestamps,
 // so the emptied row is never re-read (bd med-yor.13). ct/tg_text/tg_callback
 // are NOT NULL, so they clear to empty rather than SQL NULL.
 func (r *Repo) MarkPushSent(ctx context.Context, id int64, sentAt time.Time) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE scheduled_pushes SET sent_at_unix = ?, ct = X'', tg_text = '', tg_callback = '' WHERE id = ?`,
+		`UPDATE scheduled_pushes SET sent_at_unix = ?, ct = X'', tg_text = '', tg_callback = '', tg_med_ids = '' WHERE id = ?`,
 		storedb.TimeToUnix(sentAt), id)
 	return err
 }
@@ -246,7 +255,9 @@ func (r *Repo) InsertRelayRefire(ctx context.Context, accountID string, fireAt t
 // both delete-then-insert and leave duplicate pending re-fire rows (med-eas.70).
 // Copies only already-cleartext fields (empty ct), preserving zero-knowledge.
 // supersedesMessageID is the prior TG message_id this re-fire should delete when it
-// sends (0 = none) — a TG artifact, not vault data (med-eas.79).
+// sends (0 = none) — a TG artifact, not vault data (med-eas.79). tgMedIDs carries
+// the med identity of the reminder down the chain ("" for non-med re-fires), so a
+// tap on the LAST re-fire still knows which doses it confirms (med-kbpf).
 //
 // The supersedes id never regresses: a delayed snooze tap from an older message
 // (its callback processed after the relay already queued a newer re-fire) must
@@ -257,7 +268,7 @@ func (r *Repo) InsertRelayRefire(ctx context.Context, accountID string, fireAt t
 // sound because pending re-fires never outlive their chat: ClearRelayRefires
 // wipes them on every bot relink / new /start, so both ids here always come from
 // the same chat's id-space (med-eas.79).
-func (r *Repo) RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback string, supersedesMessageID int64) error {
+func (r *Repo) RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback, tgMedIDs string, supersedesMessageID int64) error {
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
 		var pending sql.NullInt64
 		if err := tx.QueryRowContext(ctx,
@@ -274,10 +285,27 @@ func (r *Repo) RescheduleRelayRefire(ctx context.Context, accountID string, fire
 			return err
 		}
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, origin, supersedes_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			accountID, storedb.TimeToUnix(fireAt), []byte{}, DeliveryTelegram, tgText, tgCallback, PushOriginRelayRefire, supersedesMessageID)
+			`INSERT INTO scheduled_pushes (account_id, fire_at_unix, ct, delivery, tg_text, tg_callback, tg_med_ids, origin, supersedes_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			accountID, storedb.TimeToUnix(fireAt), []byte{}, DeliveryTelegram, tgText, tgCallback, tgMedIDs, PushOriginRelayRefire, supersedesMessageID)
 		return err
 	})
+}
+
+// MedIDsForCallback returns the comma-separated medication ids stored on the most
+// recent live row for (accountID, tgCallback) — the reminder the user is tapping.
+// The live row is the pending re-fire the relay armed right after the send:
+// MarkPushSent clears tg_text/tg_callback/tg_med_ids on the row it just fired, so a
+// sent row is never a match. Empty string (no error) when nothing is on file, which
+// is what a tap past the re-fire window looks like (med-kbpf).
+func (r *Repo) MedIDsForCallback(ctx context.Context, accountID, tgCallback string) (string, error) {
+	var ids string
+	err := r.db.QueryRowContext(ctx,
+		`SELECT tg_med_ids FROM scheduled_pushes WHERE account_id = ? AND tg_callback = ? AND tg_med_ids <> '' ORDER BY id DESC LIMIT 1`,
+		accountID, tgCallback).Scan(&ids)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return ids, err
 }
 
 // ClearRelayRefires drops ALL pending (unsent) relay re-fires for accountID.

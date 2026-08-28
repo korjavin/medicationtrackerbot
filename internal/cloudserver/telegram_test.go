@@ -1327,6 +1327,11 @@ func TestChildWebhook_MedSnoozeSchedulesRelayRefire(t *testing.T) {
 	publishInboxKey(t, f.store, f.accountID)
 
 	before := time.Now().UTC()
+	// The live chain (the re-fire the relay armed after the send) is where the tap
+	// reads the reminder's med identity from.
+	if err := f.store.RescheduleRelayRefire(t.Context(), f.accountID, before.Add(time.Hour), "Time to take (2)", "s:1767225600", "2,9", 0); err != nil {
+		t.Fatalf("seed pending re-fire: %v", err)
+	}
 	rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:snooze", 12345))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
@@ -1349,6 +1354,10 @@ func TestChildWebhook_MedSnoozeSchedulesRelayRefire(t *testing.T) {
 	}
 	if rf.Delivery != cloudstore.DeliveryTelegram {
 		t.Errorf("re-fire delivery = %q, want telegram", rf.Delivery)
+	}
+	// med-kbpf: the snooze re-fire keeps the identity, so a Confirm on it resolves.
+	if rf.TGMedIDs != "2,9" {
+		t.Errorf("re-fire tg_med_ids = %q, want \"2,9\" carried from the live chain", rf.TGMedIDs)
 	}
 	if len(rf.CT) != 0 {
 		t.Errorf("re-fire must carry no ciphertext (relay stays blind), got %d bytes", len(rf.CT))
@@ -2827,5 +2836,65 @@ func TestManagerWebhookOversizedBodyRejected(t *testing.T) {
 	rec := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, body)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("oversized manager webhook body = %d, want 400", rec.Code)
+	}
+}
+
+// med-kbpf: the sealed tap event carries the medication identity the reminder
+// row was uploaded with, so the drain confirms exactly the doses the message
+// named — no vault side-table, no time-band guessing. When nothing is on file
+// for the stem (a tap long past the re-fire chain) the event simply has no ids
+// and the drain says so rather than guessing.
+func TestChildWebhook_MedTapSealsMedicationIdentity(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	privRaw := publishInboxKey(t, f.store, f.accountID)
+
+	if err := f.store.RescheduleRelayRefire(t.Context(), f.accountID, time.Now().UTC().Add(time.Hour), "Time to take (2)", "s:1767225600", "2,9", 0); err != nil {
+		t.Fatalf("seed pending re-fire: %v", err)
+	}
+	if rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:confirm", 12345)); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	events, err := f.store.ListInboxEvents(t.Context(), f.accountID, 10)
+	if err != nil {
+		t.Fatalf("ListInboxEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("queued %d events, want 1", len(events))
+	}
+	opened, err := openInbox(privRaw, f.accountID, events[0].CT)
+	if err != nil {
+		t.Fatalf("openInbox: %v", err)
+	}
+	var got intakeSlotEvent
+	if err := json.Unmarshal(opened, &got); err != nil {
+		t.Fatalf("unmarshal sealed event: %v", err)
+	}
+	if len(got.MedicationIDs) != 2 || got.MedicationIDs[0] != 2 || got.MedicationIDs[1] != 9 {
+		t.Fatalf("sealed medication_ids = %v, want [2 9]", got.MedicationIDs)
+	}
+
+	// A slot the relay has no live row for seals no identity.
+	if rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767311999:confirm", 12345)); rec.Code != http.StatusOK {
+		t.Fatalf("status (unknown slot) = %d", rec.Code)
+	}
+	events, err = f.store.ListInboxEvents(t.Context(), f.accountID, 10)
+	if err != nil {
+		t.Fatalf("ListInboxEvents (unknown slot): %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("queued %d events, want 2", len(events))
+	}
+	opened, err = openInbox(privRaw, f.accountID, events[1].CT)
+	if err != nil {
+		t.Fatalf("openInbox (unknown slot): %v", err)
+	}
+	var unknown intakeSlotEvent
+	if err := json.Unmarshal(opened, &unknown); err != nil {
+		t.Fatalf("unmarshal sealed event (unknown slot): %v", err)
+	}
+	if len(unknown.MedicationIDs) != 0 {
+		t.Fatalf("sealed medication_ids = %v, want none for a slot with no live row", unknown.MedicationIDs)
 	}
 }
