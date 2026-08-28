@@ -198,8 +198,21 @@ describe('Settings on-mount refresh (Task 7)', () => {
         window.SettingsState.applyBootstrapFeatures({ gamification: false });
         window.WGForecastCard = { refresh: vi.fn(), mountCard: vi.fn() };
 
+        // Every slice must resolve: fetchBundle returns null (and applyBundle
+        // never runs) if any one of them comes back null.
         window.apiCall = vi.fn(async (url) => {
-            if (url === '/api/settings/features') return { gamification: true };
+            if (url === '/api/settings/features') return { medication: true, gamification: true };
+            if (url === '/api/food/settings/targets') return { calories: 2100, carbs: 250, protein: 145, fat: 75 };
+            if (url === '/api/bp/reminder/status') return { enabled: false };
+            if (url === '/api/weight/reminder/status') return { enabled: true };
+            if (url === '/api/settings') {
+                return {
+                    timezone: 'Europe/Berlin',
+                    server_time: new Date().toISOString(),
+                    server_timezone: 'UTC',
+                    weight_unit_preference: 'kg'
+                };
+            }
             return null;
         });
 
