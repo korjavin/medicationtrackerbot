@@ -245,8 +245,10 @@ func (rl *Relay) Tick(ctx context.Context) {
 		// lookup error would re-send its Telegram half, and a permanently
 		// unlinked chat or revoked token would re-fire forever. A DB outage
 		// fails MarkPushSent too, so the row is naturally retried then.
+		marked := true
 		if err := rl.store.MarkPushSent(ctx, p.ID, time.Now().UTC()); err != nil {
 			slog.Error("push relay: mark sent", "id", p.ID, "error", err)
+			marked = false
 		}
 
 		// Chain the next re-fire only AFTER p is marked sent.
@@ -254,8 +256,9 @@ func (rl *Relay) Tick(ctx context.Context) {
 		// so chaining first deleted p itself (still pending), and the
 		// MarkPushSent above then updated a gone row: delivery was unaffected
 		// but sent re-fires vanished from scheduled_pushes, leaving no audit
-		// trail (med-ls3i).
-		if tgSent {
+		// trail (med-ls3i). If the mark failed, p is still pending for the next
+		// tick's retry — chaining would delete that retry instead.
+		if tgSent && marked {
 			rl.scheduleMedRefire(ctx, p, tgMessageID)
 		}
 	}
