@@ -11,12 +11,6 @@ import { openDb } from './localdb.js';
 
 const REMINDERS_KEY = 'demoReminders';
 
-// The slotUnix → [medicationId…] map a Confirm tap resolves by identity used to
-// live here, in a device-local store (bd med-eas.67). It moved into the vault —
-// reminders.js's recordSlotMedications, written by recomputeAndPush right after
-// this module's upload lands — because the device that pushes a reminder is
-// routinely not the device that drains the tap (bd med-eas.65).
-
 // Exported so the signup wizard's install step (web/cloud/js/signup.js) derives
 // the same shown/skipped/iOS state from display-mode instead of duplicating the
 // platform probe — docs/cloud-mode.md Onboarding ("derive steps from
@@ -291,28 +285,14 @@ export async function sendTestPush(ctx) {
 // recompute's push is still in flight — so two replace-all PUTs can be in flight
 // at once and the relay may settle on whichever it happens to process last,
 // which need not be the one built from the freshest vault state. Chaining makes
-// the last-run recompute the last schedule served — and, via onPushed, the last
-// slot→meds map recorded, so the two can never end up describing different
-// horizons.
+// the last-run recompute the last schedule served.
 const pushChains = new Map();
 
-// onPushed runs INSIDE the per-account chain, immediately after a successful
-// upload — that is the whole point of the parameter. reminders.js passes the
-// slot→meds vault write here rather than awaiting pushSchedule and writing
-// afterwards: outside the chain, a slow recompute could record its map after a
-// newer recompute's schedule had already become the one being served, and
-// Confirm would then resolve a delivered message against a med set the relay
-// never sent.
-// beforePush runs INSIDE the per-account chain, right before the PUT: the slot
-// map's pre-upload drop lives there so prune → PUT → record is one serialized
-// step per account. Outside the chain a second recompute could prune while the
-// first's PUT hung, and the first's post-PUT record would then outlive the
-// second's served schedule (bd med-onzf, codex review).
-export function pushSchedule(ctx, reminders, pref = {}, onPushed, beforePush) {
+export function pushSchedule(ctx, reminders, pref = {}) {
   const key = (ctx && ctx.accountId) || ctx;
   const run = (pushChains.get(key) || Promise.resolve())
     .catch(() => {})
-    .then(() => pushScheduleInner(ctx, reminders, pref, onPushed, beforePush));
+    .then(() => pushScheduleInner(ctx, reminders, pref));
   // Store a settled-swallowing tail so a rejected push can't wedge the chain,
   // but return the real promise so callers still see the failure.
   pushChains.set(key, run.catch(() => {}));
@@ -323,7 +303,7 @@ export function pushSchedule(ctx, reminders, pref = {}, onPushed, beforePush) {
 // the delivery channel and, for Telegram, how much the message says — a Telegram
 // entry hands the relay PLAINTEXT (it cannot decrypt the vault), so 'generic'
 // verbosity is what keeps medication names out of the relay's reach.
-async function pushScheduleInner(ctx, reminders, pref = {}, onPushed, beforePush) {
+async function pushScheduleInner(ctx, reminders, pref = {}) {
   const delivery = ['webpush', 'telegram', 'both'].includes(pref.delivery) ? pref.delivery : 'webpush';
   const verbosity = pref.verbosity === 'generic' ? 'generic' : 'detailed';
   const needsCT = delivery === 'webpush' || delivery === 'both';
@@ -347,19 +327,26 @@ async function pushScheduleInner(ctx, reminders, pref = {}, onPushed, beforePush
       // Confirm/Snooze buttons. BP/weight reminders have no stem and no buttons.
       // Safe at either verbosity: the slot instant is already fire_at_unix.
       if (r.callback) entry.tg_callback = r.callback;
+      // The med identity the message names, carried ON THE ROW so a Confirm tap
+      // seals it and the drain confirms exactly these doses (med-kbpf). The relay
+      // learns opaque numeric ids per slot — strictly less than the medication
+      // NAMES tg_text already hands it at 'detailed' verbosity, and sent at
+      // 'generic' too so a tap resolves either way. Non-numeric ids are dropped
+      // rather than rejected by the server: one odd id must not 400 the whole
+      // replace-all schedule.
+      if (r.callback && Array.isArray(r.medicationIds)) {
+        const ids = r.medicationIds.map(Number).filter((id) => Number.isInteger(id) && id >= 0);
+        if (ids.length) entry.tg_med_ids = ids.join(',');
+      }
     }
     entries.push(entry);
   }
-  // Immediately before the upload, after the (possibly slow) NK/encrypt work,
-  // so the mapless window the drop opens is as narrow as the PUT itself.
-  if (beforePush) await beforePush();
   const res = await fetch('/api/push/schedule', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ entries }),
   });
   if (!res.ok) throw new Error('Could not schedule the reminder.');
-  if (onPushed) await onPushed(reminders);
 }
 
 async function addDemoReminder(ctx, minutes, text) {

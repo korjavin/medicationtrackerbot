@@ -192,6 +192,27 @@ dose" — the client does:
    horizon lapses — the server *does* know last-sync time, so it sends a
    generic escalating warning rather than silently stopping.
 
+**Telegram dose reminders and the re-fire chain.** A med reminder sent over
+Telegram carries `Confirm`/`Snooze` buttons whose `callback_data` is the slot
+stem `s:<slotUnix>`, and the relay re-arms an hourly re-fire after every send
+until ~6h past the slot. Because 64 bytes of `callback_data` cannot hold a set
+of medication ids, the identity of the meds a reminder names rides on the
+**queued row** instead (`scheduled_pushes.tg_med_ids`, cleartext like
+`tg_text`), is copied down the re-fire chain, and is sealed into the tap event.
+So (bd med-kbpf):
+
+- a **Confirm tap cancels the chain server-side, immediately** — the tap is the
+  user's explicit statement, and the event names the doses;
+- the **drain confirms by identity**: per named med, the deterministic
+  `intake-<medId>-<slotUnix>` row, else that med's nearest PENDING dose within
+  its own `minDoseInterval` (the drift fallback);
+- the drain **re-arms one re-fire** (`POST /api/telegram/rearm-refire`) only if
+  a named med is still due afterwards. An in-app confirm, which produces no
+  tap, still cancels via `POST /api/telegram/cancel-refire`.
+
+A tap with no ids (a reminder pushed before this shipped, or one older than the
+chain) applies nothing and says so, rather than guessing from a time band.
+
 **Subscription eviction** is reconciled on every boot: `ensurePushSubscription()`
 demands a live `pushManager.getSubscription()` and re-subscribes if it is gone,
 which also heals the server row. A `pushsubscriptionchange` handler is the

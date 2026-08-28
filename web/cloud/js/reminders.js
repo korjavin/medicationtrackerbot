@@ -125,24 +125,7 @@ export async function recomputeAndPush(ctx, opts = {}) {
     computeReminderEntries(ctx, opts),
     domain.getDeliveryPref(),
   ]);
-  // The vault's record of which meds each reminder NAMED — what a Telegram
-  // Confirm resolves by identity at drain time (bd med-eas.65). Written in two
-  // moves around the upload, because only one of the two failure orderings is
-  // safe (see the domain's own comments):
-  //
-  //   1. drop every not-yet-fired slot BEFORE the PUT, so a PUT that lands
-  //      without its follow-up write leaves those slots MAPLESS (±band fallback,
-  //      a false negative) instead of naming meds the new reminder dropped;
-  //   2. write the uploaded horizon's slots AFTER the PUT succeeds.
-  //
-  // Both are pushSchedule hooks — i.e. inside its per-account chain, so two
-  // overlapping recomputes run drop → PUT → record strictly one after the other
-  // and cannot leave the served schedule and the map describing different
-  // horizons. Already-fired slots ride through both moves untouched: their
-  // messages are out, tappable, and cannot change.
-  await pushSchedule(ctx, entries, pref,
-    (pushed) => domain.recordSlotMedications(pushed),
-    () => domain.dropFutureSlotMedications());
+  await pushSchedule(ctx, entries, pref);
 }
 
 // scheduleReminderRecompute debounces recomputeAndPush per ctx (keyed by
@@ -158,36 +141,51 @@ export function scheduleReminderRecompute(ctx, opts = {}, debounceMs = DEBOUNCE_
   timers.set(key, timer);
 }
 
-// cancelMedRefire tells the relay to drop its server-owned re-fire chain for a
-// med dose slot the user just confirmed IN THE APP. A PWA confirm produces no
-// Telegram tap, so the relay would otherwise keep nagging hourly (med-eas.74).
-// Fire-and-forget: the vault write is already durable, so a failure here never
-// blocks the confirm. slotMs is the dose slot instant (scheduled_at) in ms; the
-// relay keys re-fires by the "s:<slotUnix>" callback stem.
+// postRefire is the one request shape both re-fire controls make: a med slot
+// stem, session-authed, 204 on success.
 //
-// A miss is NOT cheap, which is why the response is checked rather than only
-// the rejection: the chain re-fires hourly until the relay's 6h cap, so one
-// swallowed 5xx on an evening slot is ~6 overnight Telegram nags for doses the
-// user already took. A rejected fetch or a non-2xx is retried ONCE — the
-// realistic failure is a reverse-proxy blip (the same 502/503/504-as-offline
-// case the SW and auth paths already assume), and a 404 (no Telegram
-// configured) or a 4xx is not going to change on a second attempt, so the retry
-// is bounded at one and a final failure only warns.
+// A miss is NOT cheap, which is why the response is checked rather than only the
+// rejection: the relay's chain re-fires hourly until its 6h cap, so one
+// swallowed 5xx on an evening slot is ~6 overnight Telegram nags. A rejected
+// fetch or a non-2xx is retried ONCE — the realistic failure is a reverse-proxy
+// blip (the same 502/503/504-as-offline case the SW and auth paths already
+// assume), and a 404 (no Telegram configured) or a 4xx is not going to change on
+// a second attempt, so the retry is bounded at one and a final failure only
+// warns. Fire-and-forget: the vault write is already durable, so a failure here
+// never blocks the confirm.
 // ponytail: one retry, no backoff queue. Persist + replay on next unlock if
 // stray nags survive this.
-export function cancelMedRefire(slotMs, { fetchImpl = fetch } = {}) {
+function postRefire(path, slotMs, extra, fetchImpl) {
   const slotUnix = Math.floor(slotMs / 1000);
   if (!Number.isFinite(slotUnix) || slotUnix <= 0) return;
-  const post = () => fetchImpl('/api/telegram/cancel-refire', {
+  const post = () => fetchImpl(`/api/telegram/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ callback: `s:${slotUnix}` }),
+    body: JSON.stringify({ callback: `s:${slotUnix}`, ...extra }),
   }).then((res) => {
-    if (!res || !res.ok) throw new Error(`cancel-refire HTTP ${res && res.status}`);
+    if (!res || !res.ok) throw new Error(`${path} HTTP ${res && res.status}`);
   });
   post()
     .catch(() => post())
-    .catch((e) => console.warn('[reminders] cancel med refire failed, the relay may keep nagging', slotUnix, e));
+    .catch((e) => console.warn(`[reminders] ${path} failed, the relay may keep nagging`, slotUnix, e));
+}
+
+// cancelMedRefire tells the relay to drop its server-owned re-fire chain for a
+// med dose slot the user just confirmed IN THE APP. A PWA confirm produces no
+// Telegram tap, so the relay would otherwise keep nagging hourly (med-eas.74).
+// A Telegram tap needs no call: the relay cancels that chain itself (med-kbpf).
+// slotMs is the dose slot instant (scheduled_at) in ms; the relay keys re-fires
+// by the "s:<slotUnix>" callback stem.
+export function cancelMedRefire(slotMs, { fetchImpl = fetch } = {}) {
+  postRefire('cancel-refire', slotMs, {}, fetchImpl);
+}
+
+// rearmMedRefire puts ONE re-fire back for a slot whose Telegram Confirm the
+// drain could only partly apply — a named dose that is still PENDING after the
+// tap (med-kbpf). medIds names those doses so a tap on the re-fired message
+// still resolves by identity. The relay no-ops it past its 6h cap.
+export function rearmMedRefire(slotMs, medIds = [], { fetchImpl = fetch } = {}) {
+  postRefire('rearm-refire', slotMs, { med_ids: (medIds || []).join(',') }, fetchImpl);
 }
 
 // Drops a pending debounced recompute for `ctx` without running it. A live page

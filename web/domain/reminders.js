@@ -26,16 +26,6 @@ const WEIGHT_REMINDERPREF_RECORD_TYPE = 'weightreminderpref';
 const WEIGHT_REMINDERPREF_RECORD_ID = 'weightreminderpref';
 const DELIVERYPREF_RECORD_TYPE = 'reminderdeliverypref';
 const DELIVERYPREF_RECORD_ID = 'reminderdeliverypref';
-// slotmeds — the vault-resident record of which medications each pushed
-// reminder NAMED, keyed by its "s:<slotUnix>" callback stem (bd med-eas.65).
-// A Telegram Confirm carries only that stem, so this is what lets the drain
-// resolve the tap to the message's own med set by identity instead of guessing
-// from a time band. In the vault (not a device store, as med-eas.67 first had
-// it) because the device that PUSHED the reminder is routinely not the device
-// that DRAINS the tap — every cross-device Confirm used to miss the map.
-const SLOTMEDS_RECORD_TYPE = 'slotmeds';
-const SLOTMEDS_RECORD_ID_PREFIX = 'slotmeds-';
-const LEGACY_SLOTMEDS_RECORD_ID = 'slotmeds-current'; // pre-med-onzf singleton, tombstoned on first prune, never read
 
 export const DELIVERY_CHANNELS = ['webpush', 'telegram', 'both'];
 export const VERBOSITIES = ['detailed', 'generic'];
@@ -45,15 +35,6 @@ const FORECAST_DAYS = 7;
 // to hit with real schedules, guards a pathological edge case only.
 const MAX_HORIZON_ENTRIES = 500;
 
-// How long a FIRED slot's med set is kept after its instant. The horizon is
-// forward-looking and rebuilt constantly, so a slot leaves it as soon as the
-// local day rolls over — but the Telegram message is still sitting in the
-// user's chat, and the relay re-fires it for ~6h. Without retention, "tap
-// yesterday evening's Confirm this morning" found no map and fell back to the
-// ±band, which is exactly the drift case this whole record exists to fix.
-// 48h covers a night, a phone that was off, and the re-fire chain. Past that a
-// tap is legacy-shaped and takes the ±band path.
-const SLOTMEDS_RETAIN_MS = 48 * 60 * 60 * 1000;
 
 function medDisplayName(med) {
   return med.dosage ? `${med.name} (${med.dosage})` : med.name;
@@ -533,28 +514,6 @@ function findSingleton(all, recordId) {
   return all.find((r) => r.recordId === recordId && !r.deleted);
 }
 
-// The "s:<slotUnix>" stem computeReminderHorizon puts on every medication entry
-// (grouped dose reminders and the relay's re-fires alike). BP/weight/workout
-// entries carry a different stem or none, and contribute no slot.
-function slotUnixFromCallback(cb) {
-  const m = /^s:(\d+)$/.exec(cb || '');
-  return m ? Number(m[1]) : null;
-}
-
-// slotMedicationsFromEntries collapses a horizon into slotUnix → [medId…],
-// deduped within a slot (a re-reminder shares its grouped slot's stem, so its
-// single med folds back in).
-export function slotMedicationsFromEntries(entries) {
-  const slots = {};
-  for (const e of entries || []) {
-    const slotUnix = slotUnixFromCallback(e.callback);
-    if (slotUnix == null || !Array.isArray(e.medicationIds)) continue;
-    const ids = slots[slotUnix] || (slots[slotUnix] = []);
-    for (const id of e.medicationIds) if (id != null && !ids.includes(id)) ids.push(id);
-  }
-  return slots;
-}
-
 // createRemindersDomain builds the enable/disable preference + horizon-build
 // API over the injected ports:
 //   records — { list(type), put(type, record), del(type, id) }
@@ -673,108 +632,6 @@ export function createRemindersDomain({ records, now }) {
     return getDeliveryPref();
   }
 
-  // --- slot → named medications (bd med-eas.65) ---
-  //
-  // The map is NOT replace-all like the relay schedule it accompanies: a slot's
-  // entry describes what a message SAID, and a delivered Telegram message stays
-  // tappable long after its slot has left the forward horizon. So the shim
-  // writes it in two moves around the upload, and only the second one is
-  // allowed to go missing:
-  //
-  //   dropFutureSlotMedications()  BEFORE the schedule PUT
-  //   recordSlotMedications(horizon) AFTER it succeeds
-  //
-  // One record per slot: `slotmeds-<slotUnix>` → { slotUnix, medicationIds }.
-  // Per-slot (not the singleton med-eas.65 first shipped) so the two writes
-  // around an upload only ever touch the slots they mean: dropFuture tombstones
-  // the not-yet-fired slots, record puts the pushed ones, and a FIRED slot's
-  // record is never rewritten by either — so a second device that synced the
-  // post-drop state and recomputed could not, as the singleton let it, win LWW
-  // with a copy that lacked the fired slot (bd med-onzf: that lost slot put the
-  // Confirm drain on the mapless path, which never cancels the relay's hourly
-  // re-fire, and the user was nagged for 6h after taking every dose).
-  function slotRecordId(slotUnix) {
-    return `${SLOTMEDS_RECORD_ID_PREFIX}${slotUnix}`;
-  }
-
-  async function listSlotRecords() {
-    return (await records.list(SLOTMEDS_RECORD_TYPE))
-      .filter((r) => !r.deleted && r.recordId.startsWith(SLOTMEDS_RECORD_ID_PREFIX) && Number.isFinite(Number(r.slotUnix)));
-  }
-
-  // Tombstones every per-slot record outside [now - retention, now]: the
-  // not-yet-fired ones because a stale FUTURE entry is the one dangerous state
-  // (the relay serving a reminder that names fewer meds than the map claims,
-  // and Confirm marking an unnamed med taken — clearing first turns a lost
-  // follow-up write into a mapless slot, the ±band fallback, a false negative);
-  // the expired ones to keep the vault bounded. Already-fired slots inside the
-  // window are untouched: their messages went out under the schedule that
-  // named them and cannot change.
-  async function pruneSlotRecords(keepFuture) {
-    const nowMs = now();
-    await retireLegacySlotMedications();
-    for (const r of await listSlotRecords()) {
-      const slotMs = Number(r.slotUnix) * 1000;
-      const expired = slotMs < nowMs - SLOTMEDS_RETAIN_MS;
-      const future = slotMs > nowMs;
-      if (expired || (future && !keepFuture)) await records.del(SLOTMEDS_RECORD_TYPE, r.recordId);
-    }
-  }
-
-  // The pre-med-onzf singleton (`slotmeds-current`, { slots }) is tombstoned
-  // on the first prune and never read. Nothing in it is migrated: a device that
-  // wakes late cannot tell a slot that fired under the OLD schedule from one
-  // that fired after another device's new-code PUT re-named it, and a migrated
-  // entry with a later clientTs would overwrite that device's correct per-slot
-  // record — a Confirm could then mark an unnamed med taken (codex review of
-  // PR #804). Cost: taps on messages pushed before the deploy take the ±band
-  // fallback (safe false negative, one re-fire chain left to its 6h cap) for at
-  // most the 48h window. ponytail: delete once every vault has recomputed.
-  async function retireLegacySlotMedications() {
-    const legacy = findSingleton(await records.list(SLOTMEDS_RECORD_TYPE), LEGACY_SLOTMEDS_RECORD_ID);
-    if (legacy) await records.del(SLOTMEDS_RECORD_TYPE, LEGACY_SLOTMEDS_RECORD_ID);
-  }
-
-  // dropFutureSlotMedications runs BEFORE the new schedule is uploaded.
-  async function dropFutureSlotMedications() {
-    await pruneSlotRecords(false);
-  }
-
-  // recordSlotMedications runs AFTER the upload succeeds: one put per pushed
-  // slot. A slot the newest horizon no longer lists keeps its record (its
-  // Telegram message is still in the chat, tappable, re-fired for ~6h) until
-  // retention expires it. A re-listed slot's record is replaced — it describes
-  // the message the relay is serving for it now.
-  async function recordSlotMedications(entries) {
-    await pruneSlotRecords(true);
-    for (const [slotUnix, medicationIds] of Object.entries(slotMedicationsFromEntries(entries))) {
-      await records.put(SLOTMEDS_RECORD_TYPE, {
-        recordId: slotRecordId(slotUnix), clientTs: now(), deleted: false, slotUnix: Number(slotUnix), medicationIds,
-      });
-    }
-  }
-
-  // getSlotMedications returns the med ids the reminder NAMED for slotUnix, or
-  // null when nothing is recorded for it — a reminder pushed before this
-  // shipped, or one older than the retention window. inbox-apply then falls
-  // back to its fixed ±band match.
-  //
-  // The age check is repeated HERE, not left to the prune: pruning only happens
-  // when a recompute runs, so a device that was closed for a week and drains an
-  // old tap on first open would otherwise take the identity path on an entry
-  // the design considers expired. Retention is a property of the answer, not
-  // of write scheduling.
-  //
-  // The legacy singleton is deliberately NOT a read fallback: any entry in it
-  // can describe a schedule the relay no longer serves, and honouring it could
-  // confirm an unnamed med (see retireLegacySlotMedications).
-  async function getSlotMedications(slotUnix) {
-    if (!(Number(slotUnix) * 1000 >= now() - SLOTMEDS_RETAIN_MS)) return null;
-    const rec = findSingleton(await records.list(SLOTMEDS_RECORD_TYPE), slotRecordId(slotUnix));
-    const ids = rec && rec.medicationIds;
-    return Array.isArray(ids) && ids.length ? ids : null;
-  }
-
   // buildHorizon returns [] when reminders are disabled — the caller uploads
   // that empty med portion via a replace-all pushSchedule, per the plan's
   // "disabled -> upload empty med portion" rule.
@@ -823,6 +680,5 @@ export function createRemindersDomain({ records, now }) {
     getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled,
     snoozeBPReminder, dontBugBPReminder, snoozeWeightReminder, dontBugWeightReminder,
     getDeliveryPref, setDeliveryPref, buildHorizon,
-    dropFutureSlotMedications, recordSlotMedications, getSlotMedications,
   };
 }
