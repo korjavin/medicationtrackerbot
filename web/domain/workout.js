@@ -2289,6 +2289,20 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       rangeEasySets += work.easy_sets;
       rangeReps += work.reps;
 
+      // A log carrying no WORKING sets is a ramp nobody trained on: it must not
+      // open a row (the cosmetic "0 kg" line in Top Exercises, bd med-45u) and
+      // must not add its session to one, or an exercise warmed up on Tuesday
+      // and actually worked on Thursday would report two sessions. It adds
+      // nothing to the range totals above either — volume, hard/easy sets and
+      // reps are all 0 whenever `sets` is — so skipping here changes only the
+      // per-exercise fold.
+      //
+      // The test is WORKING SETS and must never become a volume test: a
+      // bodyweight push-up has real working sets at total_volume_kg 0, and
+      // dropping it on volume would move a body part the user actually trained
+      // into the Balance view's "Not Trained" chips.
+      if (work.sets === 0) continue;
+
       let entry = agg.get(log.exercise_name);
       if (!entry) {
         entry = {
