@@ -6,7 +6,8 @@
 // contract bugs in the JS domain layer, not test bugs; the original
 // (network-mocked) workout.*.test.js files keep running unshimmed.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { createInMemoryRecordsPort, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { createWorkoutDomain } from '../../../domain/workout.js';
 
 // Every day matches, so "today" always resolves in the P2 scan regardless of
 // which weekday the suite happens to run on.
@@ -1333,5 +1334,81 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
 
         const details = await window.apiCall(`/api/workout/sessions/details?id=${adhoc.id}`);
         expect(details.session.exercise_snapshot).toBeUndefined();
+    });
+});
+
+
+// bd med-kuew — today's occurrence must survive its scheduled_time passing.
+// Injected clock (not the shim harness) because the case is "now is after
+// today's scheduled time", which the real wall clock cannot be pinned to.
+describe('getNext keeps today\'s occurrence live after its scheduled time passes', () => {
+    // Friday 2026-08-28 18:34 UTC; the group fires Mon/Wed/Fri/Sun at 18:00, so
+    // today's 18:00 slot is 34 minutes in the past and Sunday is the next day.
+    const NOW = Date.UTC(2026, 7, 28, 18, 34);
+    const FRIDAY = '2026-08-28';
+    const SUNDAY = '2026-08-30';
+
+    function seed(sessions = []) {
+        return createInMemoryRecordsPort({
+            workoutgroup: [{
+                recordId: 'group-1', clientTs: NOW, deleted: false, id: 1, user_id: 1, name: 'Evening 2',
+                is_rotating: false, days_of_week: '[1,3,5,0]', scheduled_time: '18:00',
+                notification_advance_minutes: 0, active: true,
+                created_at: new Date(NOW).toISOString(), updated_at: new Date(NOW).toISOString()
+            }],
+            workoutvariant: [{
+                recordId: 'variant-1', clientTs: NOW, deleted: false, id: 1, group_id: 1, name: 'Legs',
+                rotation_order: 0, created_at: new Date(NOW).toISOString()
+            }],
+            workoutsession: sessions
+        });
+    }
+
+    function session(date, status) {
+        return {
+            recordId: `session-1-${date}`, clientTs: NOW, deleted: false, id: 900, user_id: 1,
+            group_id: 1, variant_id: 1, scheduled_date: `${date}T00:00:00Z`, scheduled_time: '18:00',
+            status, started_at: null, completed_at: null, snoozed_until: null, snooze_count: 0,
+            notification_message_id: null, notes: ''
+        };
+    }
+
+    function domainOver(records) {
+        return createWorkoutDomain({ records, now: () => NOW, timeZone: 'UTC' });
+    }
+
+    it('materializes today\'s pending session even though 18:00 already passed', async () => {
+        const records = seed();
+
+        const next = await domainOver(records).getNext();
+
+        expect(next.session.scheduled_date.startsWith(FRIDAY)).toBe(true);
+        expect(next.session.is_today).toBe(true);
+        expect(next.session.status).toBe('pending');
+        expect(next.group_name).toBe('Evening 2');
+        const stored = await records.list('workoutsession');
+        expect(stored.map((r) => r.recordId)).toEqual([`session-1-${FRIDAY}`]);
+        expect(stored[0].id).toBe(next.session.id);
+    });
+
+    it('returns the existing pending session for today rather than a fresh one', async () => {
+        const records = seed([session(FRIDAY, 'pending')]);
+
+        const next = await domainOver(records).getNext();
+
+        expect(next.session.id).toBe(900);
+        expect(next.session.status).toBe('pending');
+        expect(next.session.scheduled_date.startsWith(FRIDAY)).toBe(true);
+        expect(await records.list('workoutsession')).toHaveLength(1);
+    });
+
+    it.each(['completed', 'skipped'])('skips today and returns Sunday when today is %s', async (status) => {
+        const records = seed([session(FRIDAY, status)]);
+
+        const next = await domainOver(records).getNext();
+
+        expect(next.session.scheduled_date.startsWith(SUNDAY)).toBe(true);
+        expect(next.session.is_today).toBe(false);
+        expect(next.session.status).toBe('pending');
     });
 });
