@@ -1152,6 +1152,21 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       last_session_date: new Date(nowMs).toISOString(),
       updated_at: new Date(nowMs).toISOString(),
     });
+
+    // A future day already materialized off the OLD cursor keeps a stale
+    // variant_id, and the two readers disagree about it: getNext's PRIORITY-2
+    // renders the LIVE cursor's variant for a pending session while the session
+    // modal (and startSession) open the one stored on the record. Re-point the
+    // untouched future days at the new variant so card, reminder and session
+    // name one routine. Only `pending` days move — a notified/pre_skipped one is
+    // rendered from its own record (PRIORITY 0), and today/the past keep what
+    // the user was already shown.
+    const todayStr = localDateStr(nowMs, timeZone);
+    for (const s of await activeRecords(WORKOUT_RECORD_TYPES.SESSION)) {
+      if (s.group_id !== groupId || s.status !== 'pending' || s.variant_id === nextVariantId) continue;
+      if (localDateStr(new Date(s.scheduled_date).getTime(), timeZone) <= todayStr) continue;
+      await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...s, variant_id: nextVariantId, clientTs: nowMs });
+    }
   }
 
   // tryAdvanceRotation is the best-effort wrapper service.go's SkipSession/

@@ -1530,8 +1530,8 @@ describe('bd med-gmyf: starting a not-today session logs the workout for today',
         expect(stored[0].variant_id).toBe(1);
     });
 
-    it('advances the rotation when the re-keyed session is completed', async () => {
-        const records = seed([session(FRIDAY, 'pending')], [{
+    it('advances the rotation when the re-keyed session is completed, and re-points Friday', async () => {
+        const records = seed([session(FRIDAY, 'pending', { variantId: 1 })], [{
             recordId: 'rotation-1', clientTs: NOW, deleted: false, group_id: 1,
             current_variant_id: 1, last_session_date: new Date(NOW).toISOString(),
             updated_at: new Date(NOW).toISOString()
@@ -1545,8 +1545,12 @@ describe('bd med-gmyf: starting a not-today session logs the workout for today',
 
         const rotation = (await records.list('workoutrotation'))[0];
         expect(rotation.current_variant_id).toBe(2);
-        const stored = (await records.list('workoutsession'))
-            .find((s) => s.recordId === `session-1-${WEDNESDAY}`);
-        expect(stored.status).toBe('completed');
+        const stored = await records.list('workoutsession');
+        expect(stored.find((s) => s.recordId === `session-1-${WEDNESDAY}`).status).toBe('completed');
+        // Friday was materialized off the old cursor; the advance re-points it so
+        // the card, the reminder and the session it opens all name the new variant.
+        const friday = stored.find((s) => s.recordId === `session-1-${FRIDAY}`);
+        expect(friday.status).toBe('pending');
+        expect(friday.variant_id).toBe(2);
     });
 });
