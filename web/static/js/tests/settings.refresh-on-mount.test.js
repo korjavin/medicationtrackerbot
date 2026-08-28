@@ -184,6 +184,34 @@ describe('Settings on-mount refresh (Task 7)', () => {
         expect(refreshed.bpReminderStatus).toEqual({ enabled: false });
     });
 
+    // med-ja0u: the Tomorrow Forecast route answers {enabled:false} while
+    // Journey is off, so the card caches nothing. Another device turning the
+    // feature on reaches this device as an authoritative settings bundle — not
+    // a local toggle — and must re-fetch, or Today shows the rings tile with no
+    // forecast until a full reload.
+    it('a bundle turning gamification back on re-refreshes the forecast card', async () => {
+        allowConsoleNoise();
+        const { window } = env;
+        setAuthCache(window);
+        installApiCacheMap(window, {});
+        setOnline(window, true);
+        window.SettingsState.applyBootstrapFeatures({ gamification: false });
+        window.WGForecastCard = { refresh: vi.fn(), mountCard: vi.fn() };
+
+        window.apiCall = vi.fn(async (url) => {
+            if (url === '/api/settings/features') return { gamification: true };
+            return null;
+        });
+
+        await window.loadSettings();
+
+        expect(window.WGForecastCard.refresh).toHaveBeenCalledTimes(1);
+
+        // Already-on stays quiet: a second mount must not re-fetch.
+        await window.loadSettings();
+        expect(window.WGForecastCard.refresh).toHaveBeenCalledTimes(1);
+    });
+
     it('mounts a wg-stale-badge into the Settings header pulling from the settings_bundle cache row', async () => {
         allowConsoleNoise();
         const { window, document } = env;
