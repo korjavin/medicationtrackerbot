@@ -20,7 +20,9 @@ const NOW_MS = NOW_UNIX * 1000;
 
 // Records port over an in-memory map, keyed by recordId within each type —
 // same shape as sync.js's recordsPort, matching inbox-apply.test.js's fake.
-function fakeRecords(seed = {}) {
+// del writes a tombstone stamped by `clock` (sync.js's del stamps Date.now()),
+// so a merge can rank it against a live record by clientTs the way sync does.
+function fakeRecords(seed = {}, clock = Date.now) {
   const store = JSON.parse(JSON.stringify(seed));
   return {
     dump: () => store,
@@ -32,11 +34,25 @@ function fakeRecords(seed = {}) {
     },
     del: async (type, id) => {
       store[type] = (store[type] || []).filter((r) => r.recordId !== id);
+      store[type].push({ recordId: id, clientTs: clock(), deleted: true });
     },
     listRange: async (type, fromId, toId) => (store[type] || [])
       .filter((r) => !r.deleted && r.recordId >= fromId && r.recordId <= toId)
       .map((r) => ({ ...r })),
   };
+}
+
+// lww merges two devices' record sets the way sync does: per recordId, the
+// higher clientTs wins, tombstones included.
+function lww(a, b) {
+  const merged = fakeRecords();
+  for (const r of [...(a.dump().slotmeds || []), ...(b.dump().slotmeds || [])]) {
+    const cur = (merged.dump().slotmeds || []).find((x) => x.recordId === r.recordId);
+    if (!cur || r.clientTs > cur.clientTs) {
+      merged.dump().slotmeds = (merged.dump().slotmeds || []).filter((x) => x.recordId !== r.recordId).concat([{ ...r }]);
+    }
+  }
+  return merged;
 }
 
 // A grouped dose reminder carries every med's id; a re-reminder carries its one
@@ -155,6 +171,95 @@ describe('slot→meds map (med-eas.65: vault-resident, merge-and-prune)', () => 
   // Cross-device, the med-eas.65 hole: device A pushes, device B drains the tap.
   // The map rides the vault, so B's records port sees exactly what A recorded —
   // the device-local store it replaced never did.
+  // bd med-onzf — the interleaving that lost a fired slot under the singleton.
+  // Device A drops its future slots (write 1) and uploads; device B syncs THAT
+  // state and goes quiet; A's post-upload write (2) restores the slots. The slot
+  // fires. B wakes, recomputes off its stale post-drop copy: the slot is now
+  // past, so nothing re-lists it, and B's newer write won LWW without it. With
+  // per-slot records B's writes never touch that slot: A's live record (write 2)
+  // outranks the write-1 tombstone B holds, and the drain resolves by identity.
+  it('keeps a fired slot when a stale device recomputes off the first device\'s post-drop state', async () => {
+    const slot = NOW_UNIX + HOUR; // future at A's upload, fired by the time B recomputes
+    let clockA = NOW_MS - HOUR * 1000;
+    const deviceA = fakeRecords({}, () => clockA);
+    await domainAt(deviceA, clockA).recordSlotMedications([rem(slot, ['med-a'])]);
+
+    clockA = NOW_MS;
+    await domainAt(deviceA, clockA).dropFutureSlotMedications(); // write 1: tombstone, PUT in flight
+    const synced = JSON.parse(JSON.stringify(deviceA.dump().slotmeds)); // B syncs exactly this
+    expect(synced.find((r) => r.recordId === `slotmeds-${slot}`).deleted).toBe(true);
+    clockA = NOW_MS + 500;
+    await domainAt(deviceA, clockA).recordSlotMedications([rem(slot, ['med-a'])]); // write 2
+
+    const later = NOW_MS + 2 * HOUR * 1000; // slot fired an hour ago; B never saw write 2
+    const deviceB = fakeRecords({ slotmeds: synced }, () => later);
+    await domainAt(deviceB, later).dropFutureSlotMedications();
+    await domainAt(deviceB, later).recordSlotMedications([rem(slot + 24 * HOUR, ['med-a'])]);
+    expect(await domainAt(deviceB, later).getSlotMedications(slot)).toBeNull(); // B alone is honestly stale
+
+    expect(await domainAt(lww(deviceA, deviceB), later).getSlotMedications(slot)).toEqual(['med-a']);
+    expect(await domainAt(lww(deviceB, deviceA), later).getSlotMedications(slot)).toEqual(['med-a']);
+  });
+
+  // A stale device that still holds a LIVE copy of an expired slot cannot
+  // resurrect it: the pruning device's tombstone is newer and wins the merge,
+  // and the getter's own age guard refuses the record before any sync anyway.
+  it('an expiry tombstone outranks a stale device\'s live copy', async () => {
+    const deviceA = fakeRecords({}, () => NOW_MS);
+    await domainAt(deviceA, NOW_MS).recordSlotMedications([rem(NOW_UNIX, ['med-a'])]);
+    const stale = fakeRecords({ slotmeds: deviceA.dump().slotmeds }, () => NOW_MS);
+
+    const muchLater = NOW_MS + 49 * HOUR * 1000;
+    const pruner = fakeRecords({ slotmeds: deviceA.dump().slotmeds }, () => muchLater);
+    await domainAt(pruner, muchLater).recordSlotMedications([]);
+
+    const merged = lww(stale, pruner);
+    expect(merged.dump().slotmeds.find((r) => r.recordId === `slotmeds-${NOW_UNIX}`).deleted).toBe(true);
+    expect(await domainAt(merged, muchLater).getSlotMedications(NOW_UNIX)).toBeNull();
+  });
+
+  // Cutover from the pre-med-onzf singleton: it is tombstoned by the first
+  // prune and NOTHING in it is honoured, fired entries included — a tap on a
+  // pre-deploy message takes the ±band fallback for the 48h window.
+  it('tombstones the legacy singleton on the first prune and never reads it', async () => {
+    const fired = NOW_UNIX - HOUR;
+    const future = NOW_UNIX + HOUR;
+    const records = fakeRecords({ slotmeds: [{ recordId: 'slotmeds-current', deleted: false, clientTs: 1, slots: { [fired]: ['med-a', 'med-b'], [future]: ['med-a', 'med-b'] } }] }, () => NOW_MS);
+    expect(await domainAt(records, NOW_MS).getSlotMedications(fired)).toBeNull();
+
+    await domainAt(records, NOW_MS).dropFutureSlotMedications(); // the pre-PUT step
+    expect(records.dump().slotmeds.find((r) => r.recordId === 'slotmeds-current').deleted).toBe(true);
+    const domain = domainAt(records, NOW_MS);
+    expect(await domain.getSlotMedications(fired)).toBeNull();
+    expect(await domain.getSlotMedications(future)).toBeNull();
+    await domain.recordSlotMedications([rem(future, ['med-a'])]);
+    expect(await domain.getSlotMedications(future)).toEqual(['med-a']);
+  });
+
+  // Why nothing is migrated (codex review of PR #804): device A upgrades before
+  // S, drops, PUTs a schedule naming S=[a] and records it. Device B, never
+  // synced, wakes after S with the old singleton still saying S=[a,b]. Had B
+  // migrated "fired" entries, its later-clientTs S=[a,b] would win LWW over A's
+  // correct [a] and a tap on the [a] message could confirm b.
+  it('a late-waking device with the old singleton cannot overwrite an upgraded device\'s per-slot record', async () => {
+    const S = NOW_UNIX + HOUR;
+    const legacy = { recordId: 'slotmeds-current', deleted: false, clientTs: NOW_MS - 2 * HOUR * 1000, slots: { [S]: ['med-a', 'med-b'] } };
+
+    let clockA = NOW_MS;
+    const deviceA = fakeRecords({ slotmeds: [legacy] }, () => clockA);
+    await domainAt(deviceA, clockA).dropFutureSlotMedications();
+    clockA = NOW_MS + 500;
+    await domainAt(deviceA, clockA).recordSlotMedications([rem(S, ['med-a'])]); // the served message names only a
+
+    const later = NOW_MS + 2 * HOUR * 1000; // S fired an hour ago
+    const deviceB = fakeRecords({ slotmeds: [legacy] }, () => later);
+    await domainAt(deviceB, later).dropFutureSlotMedications();
+    await domainAt(deviceB, later).recordSlotMedications([rem(S + 24 * HOUR, ['med-a', 'med-b'])]);
+
+    expect(await domainAt(lww(deviceA, deviceB), later).getSlotMedications(S)).toEqual(['med-a']);
+    expect(await domainAt(lww(deviceB, deviceA), later).getSlotMedications(S)).toEqual(['med-a']);
+  });
+
   it('is readable from another device through the same vault records', async () => {
     const deviceA = fakeRecords();
     await domainAt(deviceA, NOW_MS).recordSlotMedications([rem(NOW_UNIX, ['med-a', 'med-b'])]);
@@ -195,11 +300,9 @@ describe('recomputeAndPush records the slot→meds map after a successful push',
     const records = fakeRecords(seed());
     await recomputeAndPush(ctx, { records, timeZone: 'UTC' });
 
-    const rec = (records.dump().slotmeds || [])[0];
-    expect(rec).toBeDefined();
-    const slots = Object.entries(rec.slots);
-    expect(slots.length).toBeGreaterThan(0);
-    for (const [, ids] of slots) expect(ids).toEqual(['med-a']);
+    const recs = (records.dump().slotmeds || []).filter((r) => !r.deleted);
+    expect(recs.length).toBeGreaterThan(0);
+    for (const r of recs) expect(r.medicationIds).toEqual(['med-a']);
   });
 
   it('records nothing when the relay upload fails — no map ahead of the schedule', async () => {
@@ -207,8 +310,7 @@ describe('recomputeAndPush records the slot→meds map after a successful push',
     const records = fakeRecords(seed());
 
     await expect(recomputeAndPush(ctx, { records, timeZone: 'UTC' })).rejects.toThrow();
-    const rec = (records.dump().slotmeds || [])[0];
-    expect(rec ? Object.keys(rec.slots) : []).toEqual([]);
+    expect((records.dump().slotmeds || []).filter((r) => !r.deleted)).toEqual([]);
   });
 
   // The failure the pre-upload drop exists for: a push whose PUT lands but whose
@@ -219,7 +321,7 @@ describe('recomputeAndPush records the slot→meds map after a successful push',
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
     const records = fakeRecords(seed());
     await recomputeAndPush(ctx, { records, timeZone: 'UTC' });
-    const staleSlots = Object.keys((records.dump().slotmeds || [])[0].slots);
+    const staleSlots = (records.dump().slotmeds || []).filter((r) => !r.deleted).map((r) => String(r.slotUnix));
     expect(staleSlots.length).toBeGreaterThan(0);
 
     // Next recompute: the PUT lands, then the post-upload write is lost.
@@ -260,15 +362,16 @@ describe('recomputeAndPush records the slot→meds map after a successful push',
       return Promise.resolve({ ok: true });
     });
 
-    const pA = pushSchedule(ctx, [rem(NOW_UNIX, ['med-a'])], { delivery: 'telegram' }, async () => { order.push('mapA'); });
-    const pB = pushSchedule(ctx, [rem(NOW_UNIX, ['med-b'])], { delivery: 'telegram' }, async () => { order.push('mapB'); });
+    const pA = pushSchedule(ctx, [rem(NOW_UNIX, ['med-a'])], { delivery: 'telegram' }, async () => { order.push('mapA'); }, async () => { order.push('dropA'); });
+    const pB = pushSchedule(ctx, [rem(NOW_UNIX, ['med-b'])], { delivery: 'telegram' }, async () => { order.push('mapB'); }, async () => { order.push('dropB'); });
 
     // A's PUT hangs; B is chained behind it and has not started.
     await entered;
-    expect(order).toEqual(['put1']);
+    expect(order).toEqual(['dropA', 'put1']);
 
     releaseFirst();
     await Promise.all([pA, pB]);
-    expect(order).toEqual(['put1', 'mapA', 'put2', 'mapB']);
+    // B's drop waits for A's record: prune → PUT → record is one step per account.
+    expect(order).toEqual(['dropA', 'put1', 'mapA', 'dropB', 'put2', 'mapB']);
   });
 });

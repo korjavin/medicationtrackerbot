@@ -303,11 +303,16 @@ const pushChains = new Map();
 // newer recompute's schedule had already become the one being served, and
 // Confirm would then resolve a delivered message against a med set the relay
 // never sent.
-export function pushSchedule(ctx, reminders, pref = {}, onPushed) {
+// beforePush runs INSIDE the per-account chain, right before the PUT: the slot
+// map's pre-upload drop lives there so prune → PUT → record is one serialized
+// step per account. Outside the chain a second recompute could prune while the
+// first's PUT hung, and the first's post-PUT record would then outlive the
+// second's served schedule (bd med-onzf, codex review).
+export function pushSchedule(ctx, reminders, pref = {}, onPushed, beforePush) {
   const key = (ctx && ctx.accountId) || ctx;
   const run = (pushChains.get(key) || Promise.resolve())
     .catch(() => {})
-    .then(() => pushScheduleInner(ctx, reminders, pref, onPushed));
+    .then(() => pushScheduleInner(ctx, reminders, pref, onPushed, beforePush));
   // Store a settled-swallowing tail so a rejected push can't wedge the chain,
   // but return the real promise so callers still see the failure.
   pushChains.set(key, run.catch(() => {}));
@@ -318,7 +323,7 @@ export function pushSchedule(ctx, reminders, pref = {}, onPushed) {
 // the delivery channel and, for Telegram, how much the message says — a Telegram
 // entry hands the relay PLAINTEXT (it cannot decrypt the vault), so 'generic'
 // verbosity is what keeps medication names out of the relay's reach.
-async function pushScheduleInner(ctx, reminders, pref = {}, onPushed) {
+async function pushScheduleInner(ctx, reminders, pref = {}, onPushed, beforePush) {
   const delivery = ['webpush', 'telegram', 'both'].includes(pref.delivery) ? pref.delivery : 'webpush';
   const verbosity = pref.verbosity === 'generic' ? 'generic' : 'detailed';
   const needsCT = delivery === 'webpush' || delivery === 'both';
@@ -345,6 +350,9 @@ async function pushScheduleInner(ctx, reminders, pref = {}, onPushed) {
     }
     entries.push(entry);
   }
+  // Immediately before the upload, after the (possibly slow) NK/encrypt work,
+  // so the mapless window the drop opens is as narrow as the PUT itself.
+  if (beforePush) await beforePush();
   const res = await fetch('/api/push/schedule', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
