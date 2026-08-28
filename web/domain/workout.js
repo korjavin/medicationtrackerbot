@@ -1934,7 +1934,12 @@ export function createWorkoutDomain({ records, now, timeZone }) {
           Date.UTC(parts.year, parts.month - 1, parts.day, hhmm.hour, hhmm.minute),
           timeZone,
         );
-        if (scheduledMs < nowMs) continue;
+        // No past-occurrence skip (Go's next.go:120 had one): today's slot stays
+        // a candidate after its time passes. The Go scheduler flipped
+        // pending->notified at fire time so P0 caught the day; cloud has no
+        // scheduler, so skipping here dropped a workout the user never
+        // completed or skipped. Completed/skipped days are still filtered below,
+        // and a future daysAhead can never be in the past.
 
         if (best === null || scheduledMs < bestMs) {
           const variant = await findByNumericId(records, WORKOUT_RECORD_TYPES.VARIANT, variantId);
