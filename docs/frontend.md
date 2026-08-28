@@ -303,7 +303,7 @@ Key rules (enforced by architecture tests in `web/static/js/tests/architecture.d
 
 The canonical visual system. Every new screen and component uses these. Organized by group (see `WANDERGEEK_TOKENS` in the design-tokens architecture test for the authoritative list):
 
-- **Palette** — raw color primitives: `--wg-paper`, `--wg-paper-deep`, `--wg-paper-soft`; `--wg-ink` + alpha variants (`--wg-ink-85/-70/-55/-35/-15/-08`); `--wg-teal`, `--wg-teal-stage` (deep-teal page background `#0f2522`), `--wg-teal-sage`; `--wg-mint`, `--wg-mint-soft`; `--wg-sun` (`#FBBD0D`, primary accent), `--wg-sun-deep`, `--wg-sun-soft`; `--wg-clay` (`#C6553A`, alert), `--wg-clay-soft`.
+- **Palette** — raw color primitives: `--wg-paper`, `--wg-paper-deep`, `--wg-paper-soft`; `--wg-ink` + its one surviving alpha variant `--wg-ink-70` (the rest of the ramp was retired in med-cue — dark-teal ink on dark surfaces caused three zero-contrast bugs); `--wg-teal`, `--wg-teal-stage` (deep-teal page background `#0f2522`), `--wg-teal-sage`; `--wg-mint`, `--wg-mint-soft`; `--wg-sun` (`#FBBD0D`, primary accent), `--wg-sun-deep`, `--wg-sun-soft`; `--wg-clay` (`#C6553A`, alert), `--wg-clay-soft`.
 - **Semantic** — role-based aliases on top of the palette: `--wg-bg-stage`, `--wg-bg-card`, `--wg-bg-card-inset`; foreground alphas `--wg-fg-1` through `--wg-fg-5`; `--wg-border-hairline`, `--wg-border-strong`.
 - **Gloss material** — gradient + shadow strings for the convex tile look: `--wg-gloss-bg`, `--wg-gloss-bg-sun`, `--wg-gloss-bg-clay`, `--wg-gloss-bg-inset`; matching `--wg-gloss-shadow`, `--wg-gloss-shadow-sun`, `--wg-gloss-shadow-inset`.
 - **Status tags** — triplets per severity: `--wg-tag-normal-bg/-fg/-border`, `--wg-tag-high-*`, `--wg-tag-alert-*`.
