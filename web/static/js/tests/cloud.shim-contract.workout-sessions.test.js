@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createInMemoryRecordsPort, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { createWorkoutDomain } from '../../../domain/workout.js';
+import { computeReminderHorizon } from '../../../domain/reminders.js';
 
 // Every day matches, so "today" always resolves in the P2 scan regardless of
 // which weekday the suite happens to run on.
@@ -1410,5 +1411,156 @@ describe('getNext keeps today\'s occurrence live after its scheduled time passes
         expect(next.session.scheduled_date.startsWith(SUNDAY)).toBe(true);
         expect(next.session.is_today).toBe(false);
         expect(next.session.status).toBe('pending');
+    });
+});
+
+describe('bd med-gmyf: starting a not-today session logs the workout for today', () => {
+    // Wednesday 2026-08-26 17:40 UTC. The group fires Mon/Wed/Fri/Sun at 18:00,
+    // and only Friday's session is materialized — the shape that let a Wednesday
+    // workout be logged against Friday's slot.
+    const NOW = Date.UTC(2026, 7, 26, 17, 40);
+    const WEDNESDAY = '2026-08-26';
+    const FRIDAY = '2026-08-28';
+
+    function seed(sessions = [], rotations = []) {
+        return createInMemoryRecordsPort({
+            workoutgroup: [{
+                recordId: 'group-1', clientTs: NOW, deleted: false, id: 1, user_id: 1, name: 'Evening',
+                is_rotating: true, days_of_week: '[1,3,5,0]', scheduled_time: '18:00',
+                notification_advance_minutes: 0, active: true,
+                created_at: new Date(NOW).toISOString(), updated_at: new Date(NOW).toISOString()
+            }],
+            workoutvariant: [{
+                recordId: 'variant-1', clientTs: NOW, deleted: false, id: 1, group_id: 1, name: 'Legs',
+                rotation_order: 0, created_at: new Date(NOW).toISOString()
+            }, {
+                recordId: 'variant-2', clientTs: NOW, deleted: false, id: 2, group_id: 1, name: 'Push',
+                rotation_order: 1, created_at: new Date(NOW).toISOString()
+            }],
+            workoutrotation: rotations,
+            workoutsession: sessions
+        });
+    }
+
+    function session(date, status, { id = 900, variantId = 2 } = {}) {
+        return {
+            recordId: `session-1-${date}`, clientTs: NOW, deleted: false, id, user_id: 1,
+            group_id: 1, variant_id: variantId, scheduled_date: `${date}T00:00:00Z`, scheduled_time: '18:00',
+            status, started_at: null, completed_at: null, snoozed_until: null, snooze_count: 0,
+            notification_message_id: null, notes: ''
+        };
+    }
+
+    function domainOver(records) {
+        return createWorkoutDomain({ records, now: () => NOW, timeZone: 'UTC' });
+    }
+
+    it('re-keys the start onto today\'s slot and leaves Friday pending', async () => {
+        const records = seed([session(FRIDAY, 'pending')]);
+
+        await domainOver(records).startSession(900);
+
+        const stored = await records.list('workoutsession');
+        const friday = stored.find((s) => s.recordId === `session-1-${FRIDAY}`);
+        const wednesday = stored.find((s) => s.recordId === `session-1-${WEDNESDAY}`);
+        expect(friday.status).toBe('pending');
+        expect(friday.started_at).toBeNull();
+        expect(wednesday).toBeDefined();
+        expect(wednesday.status).toBe('in_progress');
+        expect(wednesday.variant_id).toBe(2);
+        expect(wednesday.group_id).toBe(1);
+        expect(wednesday.scheduled_time).toBe('18:00');
+        expect(wednesday.scheduled_date.startsWith(WEDNESDAY)).toBe(true);
+        expect(wednesday.id).not.toBe(900);
+
+        const next = await domainOver(records).getNext();
+        expect(next.session.id).toBe(wednesday.id);
+        expect(next.session.status).toBe('in_progress');
+        expect(next.session.is_today).toBe(true);
+        expect(next.variant_name).toBe('Push');
+    });
+
+    it('leaves Friday\'s reminder in the horizon after the Wednesday start', async () => {
+        const records = seed([session(FRIDAY, 'pending')]);
+        await domainOver(records).startSession(900);
+
+        const entries = computeReminderHorizon({
+            timeZone: 'UTC', now: NOW,
+            workoutStatus: { enabled: true },
+            workoutGroups: await records.list('workoutgroup'),
+            workoutVariants: await records.list('workoutvariant'),
+            workoutExercises: [],
+            workoutRotations: await records.list('workoutrotation'),
+            workoutSessions: await records.list('workoutsession'),
+        });
+
+        const callbacks = entries.filter((e) => e.kind === 'workout').map((e) => e.callback);
+        expect(callbacks).toContain('w:1:20260828');
+        // Wednesday is in_progress now, so its own 18:00 fire is suppressed.
+        expect(callbacks).not.toContain('w:1:20260826');
+    });
+
+    it('drops an elapsed snooze on the day it re-keys away from', async () => {
+        const monday = { ...session('2026-08-24', 'notified'), snoozed_until: new Date(NOW - 3600e3).toISOString() };
+        const records = seed([monday]);
+
+        await domainOver(records).startSession(900);
+
+        const stored = await records.list('workoutsession');
+        expect(stored.find((s) => s.recordId === 'session-1-2026-08-24').snoozed_until).toBeNull();
+        // PRIORITY 1 would otherwise keep re-serving Monday's elapsed snooze.
+        const next = await domainOver(records).getNext();
+        expect(next.session.is_today).toBe(true);
+        expect(next.session.status).toBe('in_progress');
+    });
+
+    it('mints an ad-hoc session rather than reopening a finished day', async () => {
+        const records = seed([
+            session(WEDNESDAY, 'completed', { id: 901, variantId: 1 }),
+            session(FRIDAY, 'pending')
+        ]);
+
+        await domainOver(records).startSession(900);
+
+        const stored = await records.list('workoutsession');
+        expect(stored.find((s) => s.recordId === `session-1-${WEDNESDAY}`).status).toBe('completed');
+        expect(stored.find((s) => s.recordId === `session-1-${FRIDAY}`).status).toBe('pending');
+        const adhoc = stored.filter((s) => s.group_id === -1);
+        expect(adhoc).toHaveLength(1);
+        expect(adhoc[0].status).toBe('in_progress');
+        expect(adhoc[0].scheduled_date.startsWith(WEDNESDAY)).toBe(true);
+    });
+
+    it('starts today\'s own session in place, with no duplicate record', async () => {
+        const records = seed([session(WEDNESDAY, 'pending', { id: 901, variantId: 1 })]);
+
+        await domainOver(records).startSession(901);
+
+        const stored = await records.list('workoutsession');
+        expect(stored).toHaveLength(1);
+        expect(stored[0].id).toBe(901);
+        expect(stored[0].recordId).toBe(`session-1-${WEDNESDAY}`);
+        expect(stored[0].status).toBe('in_progress');
+        expect(stored[0].variant_id).toBe(1);
+    });
+
+    it('advances the rotation when the re-keyed session is completed', async () => {
+        const records = seed([session(FRIDAY, 'pending', { variantId: 1 })], [{
+            recordId: 'rotation-1', clientTs: NOW, deleted: false, group_id: 1,
+            current_variant_id: 1, last_session_date: new Date(NOW).toISOString(),
+            updated_at: new Date(NOW).toISOString()
+        }]);
+        const domain = domainOver(records);
+
+        await domain.startSession(900);
+        const wednesday = (await records.list('workoutsession'))
+            .find((s) => s.recordId === `session-1-${WEDNESDAY}`);
+        await domain.setSessionStatus(wednesday.id, 'completed');
+
+        const rotation = (await records.list('workoutrotation'))[0];
+        expect(rotation.current_variant_id).toBe(2);
+        const stored = await records.list('workoutsession');
+        expect(stored.find((s) => s.recordId === `session-1-${WEDNESDAY}`).status).toBe('completed');
+        expect(stored.find((s) => s.recordId === `session-1-${FRIDAY}`).status).toBe('pending');
     });
 });
