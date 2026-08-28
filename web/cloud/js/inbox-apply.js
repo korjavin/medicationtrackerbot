@@ -269,7 +269,21 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   await intake.materializeDueDoses();
 
   const intakes = await records.list(INTAKE_RECORD_TYPE);
-  const medicationIds = await getSlotMedicationsSafe(slotMeds, event.slot_unix);
+  let medicationIds = await getSlotMedicationsSafe(slotMeds, event.slot_unix);
+  // ponytail: the slotmeds singleton is lossy across devices (reminders.js
+  // documents its LWW ceiling) and a lost FIRED slot is unrecoverable — the
+  // drain then took the "no map → never cancel" fallback and the relay nagged
+  // hourly for 6h after a confirmed dose (bd med-onzf). The vault already
+  // knows which meds a slot reminder named: the reminder text is built from the
+  // doses materialized AT that slot, so derive the same set from the intakes.
+  // Only a dose drifted off its slot (course/tz-plan) is missed here, and only
+  // when the map is ALSO lost. Upgrade path: a record per slot.
+  if (!medicationIds) {
+    const derived = new Set(intakes
+      .filter((i) => !i.deleted && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= SLOT_DRIFT_BAND_MS)
+      .map((i) => i.medication_id));
+    if (derived.size) medicationIds = [...derived];
+  }
 
   // medById + each med's own drift band (minDoseInterval) are needed by the
   // identity selection, the receipt count and the re-fire cancel — all three
