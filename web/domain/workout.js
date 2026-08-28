@@ -1152,22 +1152,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       last_session_date: new Date(nowMs).toISOString(),
       updated_at: new Date(nowMs).toISOString(),
     });
-
-    // A future day already materialized off the OLD cursor keeps a stale
-    // variant_id, and the two readers disagree about it: getNext's PRIORITY-2
-    // renders the LIVE cursor's variant for a pending session while the session
-    // modal (and startSession) open the one stored on the record. Re-point the
-    // untouched future days at the new variant so card, reminder and session
-    // name one routine. Only future pending/notified days move: a pre_skipped
-    // day was explicitly declined, and today / the past are rendered from their
-    // own record (PRIORITY 0), so they keep what the user was already shown.
-    const todayStr = localDateStr(nowMs, timeZone);
-    for (const s of await activeRecords(WORKOUT_RECORD_TYPES.SESSION)) {
-      if (s.group_id !== groupId || s.variant_id === nextVariantId) continue;
-      if (s.status !== 'pending' && s.status !== 'notified') continue;
-      if (localDateStr(new Date(s.scheduled_date).getTime(), timeZone) <= todayStr) continue;
-      await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...s, variant_id: nextVariantId, clientTs: nowMs });
-    }
+    // ponytail: a future day materialized off the OLD cursor keeps its stale
+    // variant_id, which getNext's PRIORITY 2 already overrides with the live
+    // cursor when it renders that day — a pre-existing split between what the
+    // card names and what the record stores (reachable through any skip with a
+    // future day materialized). Re-pointing those records here also has to
+    // migrate their exercise_snapshot/logs, so it is its own bead, not a rider
+    // on bd med-gmyf.
   }
 
   // tryAdvanceRotation is the best-effort wrapper service.go's SkipSession/
@@ -1397,12 +1388,6 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (session.group_id > 0
       && localDateStr(new Date(session.scheduled_date).getTime(), timeZone) !== todayStr) {
       const slot = await findOrCreateScheduledSession(session.group_id, todayStr, session.variant_id);
-      // Today's own occurrence is already completed/skipped (that is one reason
-      // getNext surfaced a future one at all): reopening it would rewrite a
-      // finished workout — old completed_at, its logs, a second rotation
-      // advance on re-completion. A second workout on a finished day IS an
-      // ad-hoc session, so mint one instead (it also adopts a session already
-      // running today rather than duplicating).
       // Starting used to clear the tapped session's snooze. Now that the tapped
       // session survives, an ALREADY-ELAPSED snooze on it would keep winning
       // getNext's PRIORITY 1 and re-prompt the workout the user just did — the
@@ -1410,6 +1395,12 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       if (session.snoozed_until && new Date(session.snoozed_until).getTime() <= nowMs) {
         await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...session, snoozed_until: null, clientTs: nowMs });
       }
+      // Today's own occurrence is already completed/skipped (that is one reason
+      // getNext surfaced a future one at all): reopening it would rewrite a
+      // finished workout — old completed_at, its logs, a second rotation
+      // advance on re-completion. A second workout on a finished day IS an
+      // ad-hoc session, so mint one instead (it also adopts a session already
+      // running today rather than duplicating).
       if (slot.status === 'completed' || slot.status === 'skipped') {
         await createAdHocSession();
         return;
