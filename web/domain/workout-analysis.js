@@ -90,9 +90,22 @@ export function exercisePRs(logs) {
 // est-1RM, the top weight, and the session's working-set volume — the shape the
 // per-exercise progress graphs consume. Logs with no working sets contribute a
 // zeroed point (so a session still shows on the timeline).
+//
+// The LOGS are sorted, not the points: scheduled_date is day-granular, so two
+// sessions on the same day tie on date alone and would plot in whatever order
+// the record store returned — a within-day dip-then-rise that never happened.
+// session_id is monotonic, so it breaks the tie chronologically; same fix as
+// sortedLogsByName in workout.js (med-qj4.7). Logs without a session_id (bare
+// test/fixture logs) fall back to the previous stable order.
 export function exerciseSeries(logs) {
   if (!Array.isArray(logs)) return [];
-  return logs
+  return [...logs]
+    .sort((a, b) => {
+      const ad = String(a && a.date);
+      const bd = String(b && b.date);
+      if (ad !== bd) return ad < bd ? -1 : 1;
+      return ((a && a.session_id) - (b && b.session_id)) || 0;
+    })
     .map((log) => {
       const sets = nonWarmup(log);
       let est1rm = 0;
@@ -118,8 +131,7 @@ export function exerciseSeries(logs) {
         reps: totalReps,
         work_sets: sets.length,
       };
-    })
-    .sort((a, b) => (String(a.date) < String(b.date) ? -1 : String(a.date) > String(b.date) ? 1 : 0));
+    });
 }
 
 // -- Goal-driven emphasis (med-qj4.6.4) ------------------------------------

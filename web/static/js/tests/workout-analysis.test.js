@@ -113,6 +113,18 @@ describe('exerciseSeries', () => {
   it('returns [] for absent input', () => {
     expect(exerciseSeries(null)).toEqual([]);
   });
+
+  // med-qj4.7 — scheduled_date is day-granular, so two sessions on one day tie
+  // on date; without the session-id tiebreak the plotted order is whatever the
+  // record store returned (here: the later session first).
+  it('orders same-day sessions by session id, not record-store order', () => {
+    const series = exerciseSeries([
+      { date: '2026-07-01', session_id: 9, sets: [set(110, 5)] },
+      { date: '2026-07-01', session_id: 4, sets: [set(100, 5)] },
+      { date: '2026-06-30', session_id: 2, sets: [set(90, 5)] },
+    ]);
+    expect(series.map((p) => p.top_weight)).toEqual([90, 100, 110]);
+  });
 });
 
 // med-qj4.6.4 — est-1RM confidence + goal-driven headline emphasis.
