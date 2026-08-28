@@ -35,7 +35,7 @@ const DELIVERYPREF_RECORD_ID = 'reminderdeliverypref';
 // that DRAINS the tap — every cross-device Confirm used to miss the map.
 const SLOTMEDS_RECORD_TYPE = 'slotmeds';
 const SLOTMEDS_RECORD_ID_PREFIX = 'slotmeds-';
-const LEGACY_SLOTMEDS_RECORD_ID = 'slotmeds-current'; // pre-med-onzf singleton, read-only fallback
+const LEGACY_SLOTMEDS_RECORD_ID = 'slotmeds-current'; // pre-med-onzf singleton, migrated once then tombstoned
 
 export const DELIVERY_CHANNELS = ['webpush', 'telegram', 'both'];
 export const VERBOSITIES = ['detailed', 'generic'];
@@ -712,12 +712,36 @@ export function createRemindersDomain({ records, now }) {
   // named them and cannot change.
   async function pruneSlotRecords(keepFuture) {
     const nowMs = now();
+    await migrateLegacySlotMedications(nowMs);
     for (const r of await listSlotRecords()) {
       const slotMs = Number(r.slotUnix) * 1000;
       const expired = slotMs < nowMs - SLOTMEDS_RETAIN_MS;
       const future = slotMs > nowMs;
       if (expired || (future && !keepFuture)) await records.del(SLOTMEDS_RECORD_TYPE, r.recordId);
     }
+  }
+
+  // The pre-med-onzf singleton (`slotmeds-current`, { slots }) is moved into
+  // per-slot records once and tombstoned — its FIRED in-window entries only, so
+  // a message pushed before this deploy stays identity-resolvable for its 48h;
+  // its future entries are exactly the stale-future hazard the drop exists to
+  // clear, and must not outlive the first new-code PUT. Runs on the first prune
+  // after deploy and is a no-op ever after (or on a fresh vault).
+  // ponytail: delete this once every vault has recomputed past the window.
+  async function migrateLegacySlotMedications(nowMs) {
+    const all = await records.list(SLOTMEDS_RECORD_TYPE);
+    const legacy = findSingleton(all, LEGACY_SLOTMEDS_RECORD_ID);
+    if (!legacy) return;
+    const have = new Set(all.filter((r) => !r.deleted).map((r) => r.recordId));
+    for (const [slotUnix, ids] of Object.entries(legacy.slots || {})) {
+      const slotMs = Number(slotUnix) * 1000;
+      if (!(slotMs <= nowMs && slotMs >= nowMs - SLOTMEDS_RETAIN_MS) || !Array.isArray(ids) || !ids.length) continue;
+      if (have.has(slotRecordId(slotUnix))) continue;
+      await records.put(SLOTMEDS_RECORD_TYPE, {
+        recordId: slotRecordId(slotUnix), clientTs: now(), deleted: false, slotUnix: Number(slotUnix), medicationIds: ids,
+      });
+    }
+    await records.del(SLOTMEDS_RECORD_TYPE, LEGACY_SLOTMEDS_RECORD_ID);
   }
 
   // dropFutureSlotMedications runs BEFORE the new schedule is uploaded.
@@ -750,19 +774,14 @@ export function createRemindersDomain({ records, now }) {
   // the design considers expired. Retention is a property of the answer, not
   // of write scheduling.
   //
-  // ponytail: the pre-med-onzf singleton (`slotmeds-current`, { slots }) is
-  // still read as a fallback so a message pushed before this deploy stays
-  // resolvable by identity for its 48h; nothing writes it any more, so it goes
-  // inert on its own. Delete this branch once the retention window has passed.
+  // The legacy singleton is deliberately NOT a read fallback: a legacy FUTURE
+  // entry can describe a schedule the relay no longer serves, and honouring
+  // it after the slot fires could confirm an unnamed med. Its safe entries are
+  // migrated by the first prune instead (migrateLegacySlotMedications).
   async function getSlotMedications(slotUnix) {
     if (!(Number(slotUnix) * 1000 >= now() - SLOTMEDS_RETAIN_MS)) return null;
-    const all = await records.list(SLOTMEDS_RECORD_TYPE);
-    const rec = findSingleton(all, slotRecordId(slotUnix));
-    let ids = rec && rec.medicationIds;
-    if (!Array.isArray(ids)) {
-      const legacy = findSingleton(all, LEGACY_SLOTMEDS_RECORD_ID);
-      ids = legacy && legacy.slots && legacy.slots[slotUnix];
-    }
+    const rec = findSingleton(await records.list(SLOTMEDS_RECORD_TYPE), slotRecordId(slotUnix));
+    const ids = rec && rec.medicationIds;
     return Array.isArray(ids) && ids.length ? ids : null;
   }
 

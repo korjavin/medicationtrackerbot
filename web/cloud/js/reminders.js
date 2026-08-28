@@ -133,15 +133,16 @@ export async function recomputeAndPush(ctx, opts = {}) {
   //   1. drop every not-yet-fired slot BEFORE the PUT, so a PUT that lands
   //      without its follow-up write leaves those slots MAPLESS (±band fallback,
   //      a false negative) instead of naming meds the new reminder dropped;
-  //   2. merge the uploaded horizon back in AFTER the PUT succeeds, as
-  //      pushSchedule's post-upload hook — i.e. inside its per-account chain, so
-  //      two overlapping recomputes cannot leave the served schedule and the map
-  //      describing different horizons.
+  //   2. write the uploaded horizon's slots AFTER the PUT succeeds.
   //
-  // Already-fired slots ride through both moves untouched: their messages are
-  // out, tappable, and cannot change.
-  await domain.dropFutureSlotMedications();
-  await pushSchedule(ctx, entries, pref, (pushed) => domain.recordSlotMedications(pushed));
+  // Both are pushSchedule hooks — i.e. inside its per-account chain, so two
+  // overlapping recomputes run drop → PUT → record strictly one after the other
+  // and cannot leave the served schedule and the map describing different
+  // horizons. Already-fired slots ride through both moves untouched: their
+  // messages are out, tappable, and cannot change.
+  await pushSchedule(ctx, entries, pref,
+    (pushed) => domain.recordSlotMedications(pushed),
+    () => domain.dropFutureSlotMedications());
 }
 
 // scheduleReminderRecompute debounces recomputeAndPush per ctx (keyed by
