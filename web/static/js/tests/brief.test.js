@@ -628,9 +628,11 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
             exerciseLog(1, 1, 'Squat', 3, 5, 100),
             exerciseLog(2, 2, 'Squat', 3, 5, 100),
             exerciseLog(3, 1, 'Bench press', 3, 8, 60),
-            // A 0 kg log, the shape bd med-45u is about. It must still be
-            // countable by NAME — what must never reach paper is its weight.
-            exerciseLog(4, 1, 'Plank', 0, 0, 0)
+            // A bodyweight log: real working sets, no load. It must still be
+            // countable by NAME — what must never reach paper is its weight
+            // (bd med-45u). A log with no working sets at all is a different
+            // animal and no longer reaches top_exercises.
+            exerciseLog(4, 1, 'Plank', 1, 1, 0)
         ];
         const call = routerWith(vault);
 
@@ -643,7 +645,7 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
             // whole history, not of the window being printed.
             current_streak_weeks: 1,
             totals: {
-                volume_kg: 4440, hard_sets: 9, easy_sets: 0, reps: 54, pr_count: 2
+                volume_kg: 4440, hard_sets: 10, easy_sets: 0, reps: 55, pr_count: 2
             },
             // ISO-Monday buckets, exactly the shape WGWorkoutChart's `sessions`
             // option consumes.
@@ -658,8 +660,8 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
             ]
         });
         // The point of the trim, asserted rather than implied: no per-exercise
-        // weight or volume can reach the document (bd med-45u would print a
-        // "0 kg" Plank row at a doctor).
+        // weight or volume can reach the document — a bodyweight Plank would
+        // otherwise print as a "0 kg" row at a doctor.
         for (const e of workouts.top_exercises) {
             expect(Object.keys(e).sort()).toEqual(['exercise_name', 'session_count']);
         }

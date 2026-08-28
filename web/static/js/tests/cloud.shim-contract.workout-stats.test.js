@@ -264,11 +264,20 @@ describe('cloud shim contract — workout stats + mi-band', () => {
                 { reps: 20 },
                 { reps: 15 },
             ]);
+
             // A second Push-up session that never got past the ramp: it must not
-            // add a session to the row it already has.
-            const stats = await logSets(env.window, 'Push-up', [
-                { reps: 5, set_type: 'warmup' },
-            ]);
+            // add a session to the row it already has. Logged against the same
+            // library item — the library rejects a duplicate name.
+            const { window } = env;
+            const pushup = (await window.apiCall('/api/workout/exercise-library'))
+                .find((e) => e.name === 'Push-up');
+            const second = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: second.id, exercise_id: pushup.id, exercise_name: 'Push-up',
+                source: 'library', status: 'completed', sets: [{ reps: 5, set_type: 'warmup' }],
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${second.id}`, 'PUT', { status: 'completed' });
+            const stats = await window.apiCallDirect('/api/workout/stats');
 
             expect(stats.exercise_totals).toEqual([
                 expect.objectContaining({
