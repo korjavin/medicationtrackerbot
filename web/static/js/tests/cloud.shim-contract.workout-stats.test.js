@@ -247,6 +247,31 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             expect(stats.totals.hard_sets).toBe(4);
             expect(stats.totals.easy_sets).toBe(0);
         });
+
+        // bd med-45u. Both halves in one vault, because the fix only holds if
+        // the filter is WORKING SETS and never volume: a warm-up-only log is
+        // nobody's training and must not print a "0 kg" row in Top Exercises,
+        // while a bodyweight push-up has real working sets at 0 kg and must
+        // keep its row — dropping it would move a body part the user actually
+        // trained into the Balance view's "Not Trained" chips.
+        it('drops a warm-up-only exercise but keeps a zero-volume bodyweight one', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await logSets(env.window, 'Leg Press', [
+                { weight_kg: 40, reps: 10, set_type: 'warmup' },
+                { weight_kg: 60, reps: 10, set_type: 'warmup' },
+            ]);
+            const stats = await logSets(env.window, 'Push-up', [
+                { reps: 20 },
+                { reps: 15 },
+            ]);
+
+            expect(stats.exercise_totals).toEqual([
+                expect.objectContaining({ exercise_name: 'Push-up', sets: 2, hard_sets: 2, reps: 35, total_volume_kg: 0 }),
+            ]);
+            expect(stats.top_exercises).toEqual([
+                { exercise_name: 'Push-up', session_count: 1, total_volume_kg: 0, max_weight_kg: 0 },
+            ]);
+        });
     });
 
     it('range scopes the load aggregates, while weekly_volume keeps the wider heatmap span', async () => {

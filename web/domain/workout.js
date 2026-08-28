@@ -2315,7 +2315,15 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
     // Every exercise trained in range, which is what lets the Balance view fold
     // a COMPLETE body-part split instead of guessing from eight rows.
+    //
+    // The filter is `sets > 0` — WORKING sets — and must never become a volume
+    // test (bd med-45u). A warm-up-only log is a ramp nobody trained on, so it
+    // has no place in the split or in top_exercises' "0 kg" row; but a
+    // bodyweight exercise like a push-up has real working sets at
+    // total_volume_kg 0, and dropping it on volume would move a body part the
+    // user actually trained into the Balance view's "Not Trained" chips.
     const totalRows = Array.from(agg.values())
+      .filter((entry) => entry.sets > 0)
       .map((entry) => ({
         exercise_name: entry.exercise_name,
         session_count: entry.sessionIds.size,

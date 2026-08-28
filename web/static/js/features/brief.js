@@ -273,8 +273,9 @@ ${statRow('Pulse', bp.pulse, 'bpm')}
     }
 
     // bd med-29gh.4. Exercise NAMES and session counts only, never a weight or
-    // a volume: top_exercises reports 0 kg for a warm-up-only log (bd med-45u),
-    // and a "0 kg" row a doctor reads is misinformation, not a nuisance.
+    // a volume: top_exercises reports 0 kg for a bodyweight exercise (a push-up
+    // has real working sets and no load), and a "0 kg" row a doctor reads is
+    // misinformation, not a nuisance.
     function topExercisesLine(list) {
         const top = (Array.isArray(list) ? list : []).slice(0, 3)
             .filter((e) => e && e.exercise_name);
