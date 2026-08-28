@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createRemindersDomain } from '../../../domain/reminders.js';
-import { recomputeAndPush } from '../reminders.js';
+import { recomputeAndPush, cancelMedRefire } from '../reminders.js';
 import { pushSchedule } from '../push.js';
 
 const HOUR = 3600;
@@ -373,5 +373,36 @@ describe('recomputeAndPush records the slot→meds map after a successful push',
     await Promise.all([pA, pB]);
     // B's drop waits for A's record: prune → PUT → record is one step per account.
     expect(order).toEqual(['dropA', 'put1', 'mapA', 'dropB', 'put2', 'mapB']);
+  });
+
+  // A swallowed cancel is not one stray nag: the relay re-fires hourly to its 6h
+  // cap, so a lost cancel on an evening slot is a night of Telegram nags for
+  // doses already taken. The old code only caught a REJECTED fetch, so a 5xx
+  // resolved and vanished (codex review, 2026-08-28).
+  it('retries the re-fire cancel once when the relay answers non-2xx', async () => {
+    const calls = [];
+    const fetchImpl = vi.fn((url, init) => {
+      calls.push(JSON.parse(init.body).callback);
+      return Promise.resolve({ ok: calls.length > 1, status: calls.length > 1 ? 204 : 502 });
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    cancelMedRefire(NOW_MS, { fetchImpl });
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+
+    expect(calls).toEqual([`s:${NOW_UNIX}`, `s:${NOW_UNIX}`]);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('warns once when both cancel attempts fail, and never throws', async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve({ ok: false, status: 500 }));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(() => cancelMedRefire(NOW_MS, { fetchImpl })).not.toThrow();
+    await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1));
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
   });
 });

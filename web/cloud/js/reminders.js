@@ -161,21 +161,33 @@ export function scheduleReminderRecompute(ctx, opts = {}, debounceMs = DEBOUNCE_
 // cancelMedRefire tells the relay to drop its server-owned re-fire chain for a
 // med dose slot the user just confirmed IN THE APP. A PWA confirm produces no
 // Telegram tap, so the relay would otherwise keep nagging hourly (med-eas.74).
-// Fire-and-forget: the vault write is already durable and a missed cancel only
-// costs one stray Telegram nag; a deployment without Telegram just 404s here,
-// harmlessly. slotMs is the dose slot instant (scheduled_at) in ms; the relay
-// keys re-fires by the "s:<slotUnix>" callback stem.
-// ponytail: only the app Confirm path cancels — an in-app snooze leaves the
-// chain alive (one extra hourly nag until the next slot), not worth resolving
-// the snoozed intake's slot for.
+// Fire-and-forget: the vault write is already durable, so a failure here never
+// blocks the confirm. slotMs is the dose slot instant (scheduled_at) in ms; the
+// relay keys re-fires by the "s:<slotUnix>" callback stem.
+//
+// A miss is NOT cheap, which is why the response is checked rather than only
+// the rejection: the chain re-fires hourly until the relay's 6h cap, so one
+// swallowed 5xx on an evening slot is ~6 overnight Telegram nags for doses the
+// user already took. A rejected fetch or a non-2xx is retried ONCE — the
+// realistic failure is a reverse-proxy blip (the same 502/503/504-as-offline
+// case the SW and auth paths already assume), and a 404 (no Telegram
+// configured) or a 4xx is not going to change on a second attempt, so the retry
+// is bounded at one and a final failure only warns.
+// ponytail: one retry, no backoff queue. Persist + replay on next unlock if
+// stray nags survive this.
 export function cancelMedRefire(slotMs, { fetchImpl = fetch } = {}) {
   const slotUnix = Math.floor(slotMs / 1000);
   if (!Number.isFinite(slotUnix) || slotUnix <= 0) return;
-  fetchImpl('/api/telegram/cancel-refire', {
+  const post = () => fetchImpl('/api/telegram/cancel-refire', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ callback: `s:${slotUnix}` }),
-  }).catch((e) => console.warn('[reminders] cancel med refire failed', e));
+  }).then((res) => {
+    if (!res || !res.ok) throw new Error(`cancel-refire HTTP ${res && res.status}`);
+  });
+  post()
+    .catch(() => post())
+    .catch((e) => console.warn('[reminders] cancel med refire failed, the relay may keep nagging', slotUnix, e));
 }
 
 // Drops a pending debounced recompute for `ctx` without running it. A live page
