@@ -729,3 +729,51 @@ func TestRelay_RefireDeleteFailureDoesNotAbortChain(t *testing.T) {
 		t.Fatalf("chain must continue despite the failed delete, got %+v", future)
 	}
 }
+
+// TestRelay_SentRefireLeavesAuditRow pins med-ls3i: a relay re-fire that
+// actually sent must survive in scheduled_pushes as a sent_at row. The chain's
+// RescheduleRelayRefire deletes every *pending* row for the callback, so if the
+// tick chains before marking the fired row sent it deletes that very row and
+// MarkPushSent updates a ghost — delivery still works, but no sent relay_refire
+// ever lands in the table and "did the relay send at 07:20?" is unanswerable.
+func TestRelay_SentRefireLeavesAuditRow(t *testing.T) {
+	store, d := setupStoreWithDB(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	acc, err := store.CreateAccount(ctx, "acc-refire-audit", "keen-heron-ls3i01", []byte("hash"), now.Add(time.Hour), now, "", "", "")
+	if err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+
+	stem := fmt.Sprintf("s:%d", now.Add(-30*time.Minute).Unix())
+	if err := store.RescheduleRelayRefire(ctx, acc.ID, now.Add(-time.Second), "Time to take: X", stem, 5); err != nil {
+		t.Fatalf("RescheduleRelayRefire (seed due): %v", err)
+	}
+
+	tg := &fakeTGSender{nextID: 5}
+	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, tg, 0).Tick(ctx)
+
+	if len(tg.sent) != 1 {
+		t.Fatalf("expected the due re-fire to send, got sent=%v", tg.sent)
+	}
+
+	countRefires := func(where string) int {
+		t.Helper()
+		var n int
+		if err := d.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM scheduled_pushes WHERE account_id = ? AND origin = ? AND `+where,
+			acc.ID, cloudstore.PushOriginRelayRefire).Scan(&n); err != nil {
+			t.Fatalf("count relay_refire rows (%s): %v", where, err)
+		}
+		return n
+	}
+	if got := countRefires("sent_at_unix IS NOT NULL"); got != 1 {
+		t.Fatalf("sent relay re-fire left no audit row: got %d sent rows, want 1", got)
+	}
+	// The one-pending-per-callback invariant still holds: the chain queued
+	// exactly one successor.
+	if got := countRefires("sent_at_unix IS NULL"); got != 1 {
+		t.Fatalf("expected exactly 1 pending re-fire after the tick, got %d", got)
+	}
+}
