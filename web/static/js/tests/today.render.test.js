@@ -586,6 +586,46 @@ describe('TodayDashboard.renderToday', () => {
         expect(onDeeplink).toHaveBeenCalledWith('food');
     });
 
+    // med-ja0u: the Tomorrow Forecast is a Journey (gamification) feature and
+    // its only home on Today is inside the rings tile. With the feature off the
+    // tile is absent and Today must mount no forecast anywhere — the shim's
+    // {enabled:false} keeps the card empty, and there is no standalone mount.
+    function stubForecastCard(window, document) {
+        const mountCard = vi.fn((host) => {
+            const card = document.createElement('section');
+            card.className = 'wg-forecast-card';
+            host.appendChild(card);
+            return card;
+        });
+        window.WGForecastCard = { mountCard, refresh: vi.fn() };
+        return mountCard;
+    }
+
+    it('gamification disabled → no rings tile and no forecast card on Today', () => {
+        const root = env.document.getElementById('today-content');
+        const mountCard = stubForecastCard(env.window, env.document);
+
+        const state = allPresentState(now);
+        state.gamificationRings = { value: null, deeplink: 'journey', status: 'disabled' };
+        env.render(state, root, { now });
+
+        expect(root.querySelector('.wg-today-rings')).toBeNull();
+        expect(root.querySelector('.wg-forecast-card')).toBeNull();
+        expect(mountCard).not.toHaveBeenCalled();
+    });
+
+    it('gamification enabled → the forecast mounts inside the rings tile', () => {
+        const root = env.document.getElementById('today-content');
+        const mountCard = stubForecastCard(env.window, env.document);
+
+        env.render(ringsState(now, ['bedtime']), root, { now });
+
+        const tile = root.querySelector('.wg-today-rings');
+        expect(tile).not.toBeNull();
+        expect(mountCard).toHaveBeenCalledTimes(1);
+        expect(tile.querySelector('.wg-forecast-card')).not.toBeNull();
+    });
+
     it('only sync-pending rings remaining reads as caught up, not a nag', () => {
         const root = env.document.getElementById('today-content');
         env.render(ringsState(now, ['movement', 'nourishment'], ['bedtime']), root, { now });
