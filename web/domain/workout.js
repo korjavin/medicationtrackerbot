@@ -1152,6 +1152,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       last_session_date: new Date(nowMs).toISOString(),
       updated_at: new Date(nowMs).toISOString(),
     });
+    // ponytail: a future day materialized off the OLD cursor keeps its stale
+    // variant_id, which getNext's PRIORITY 2 already overrides with the live
+    // cursor when it renders that day — a pre-existing split between what the
+    // card names and what the record stores (reachable through any skip with a
+    // future day materialized). Re-pointing those records here also has to
+    // migrate their exercise_snapshot/logs, so it is its own bead, not a rider
+    // on bd med-gmyf.
   }
 
   // tryAdvanceRotation is the best-effort wrapper service.go's SkipSession/
@@ -1368,8 +1375,40 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const session = await findSession(id);
     if (!session) return;
     const nowMs = now();
+    // bd med-gmyf: starting a session scheduled for another day logs the workout
+    // for TODAY, it does not consume the other day's slot. The card offers
+    // "Start Scheduled" on whatever occurrence getNext surfaces, which on a
+    // rest day (or after today's slot is done) is a future one — starting it
+    // marked Friday complete on a Wednesday, killing Friday's reminder and card.
+    // Re-key onto today's deterministic slot for the same group, carrying the
+    // started session's variant, and leave the original untouched (pending).
+    // Ad-hoc sessions (group_id -1) have no per-day slot, so they start as-is.
+    const todayStr = localDateStr(nowMs, timeZone);
+    let target = session;
+    if (session.group_id > 0
+      && localDateStr(new Date(session.scheduled_date).getTime(), timeZone) !== todayStr) {
+      const slot = await findOrCreateScheduledSession(session.group_id, todayStr, session.variant_id);
+      // Starting used to clear the tapped session's snooze. Now that the tapped
+      // session survives, an ALREADY-ELAPSED snooze on it would keep winning
+      // getNext's PRIORITY 1 and re-prompt the workout the user just did — the
+      // old day is done with, so drop it (a still-live snooze is left alone).
+      if (session.snoozed_until && new Date(session.snoozed_until).getTime() <= nowMs) {
+        await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...session, snoozed_until: null, clientTs: nowMs });
+      }
+      // Today's own occurrence is already completed/skipped (that is one reason
+      // getNext surfaced a future one at all): reopening it would rewrite a
+      // finished workout — old completed_at, its logs, a second rotation
+      // advance on re-completion. A second workout on a finished day IS an
+      // ad-hoc session, so mint one instead (it also adopts a session already
+      // running today rather than duplicating).
+      if (slot.status === 'completed' || slot.status === 'skipped') {
+        await createAdHocSession();
+        return;
+      }
+      target = slot;
+    }
     await records.put(WORKOUT_RECORD_TYPES.SESSION, {
-      ...session,
+      ...target,
       status: 'in_progress',
       started_at: new Date(nowMs).toISOString(),
       snoozed_until: null,
@@ -1402,7 +1441,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // must find-or-create `session-<groupId>-<date>` rather than look up a numeric
   // id. A materialized session with this recordId also suppresses future primary
   // fires via reminders.js sessionStatusByKey.
-  async function findOrCreateScheduledSession(groupId, date) {
+  // `variantIdOverride` pins the created session's variant instead of resolving
+  // the group's rotation cursor — startSession's re-key path carries the variant
+  // the user tapped Start on, so re-dating the workout doesn't also swap it.
+  async function findOrCreateScheduledSession(groupId, date, variantIdOverride) {
     const recordId = sessionRecordId(groupId, date);
     const existing = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION)).find((s) => s.recordId === recordId);
     if (existing) return existing;
@@ -1413,7 +1455,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // reads variant_id/scheduled_time straight off it, so leaving them at 0/''
     // would render the next-workout card as "Unknown" variant, 0 exercises, no time.
     const group = await findByNumericId(records, WORKOUT_RECORD_TYPES.GROUP, groupId);
-    const variantId = group ? await resolveVariantId(group) : 0;
+    const variantId = variantIdOverride || (group ? await resolveVariantId(group) : 0);
     return {
       recordId,
       clientTs: nowMs,
@@ -1934,7 +1976,12 @@ export function createWorkoutDomain({ records, now, timeZone }) {
           Date.UTC(parts.year, parts.month - 1, parts.day, hhmm.hour, hhmm.minute),
           timeZone,
         );
-        if (scheduledMs < nowMs) continue;
+        // No past-occurrence skip (Go's next.go:120 had one): today's slot stays
+        // a candidate after its time passes. The Go scheduler flipped
+        // pending->notified at fire time so P0 caught the day; cloud has no
+        // scheduler, so skipping here dropped a workout the user never
+        // completed or skipped. Completed/skipped days are still filtered below,
+        // and a future daysAhead can never be in the past.
 
         if (best === null || scheduledMs < bestMs) {
           const variant = await findByNumericId(records, WORKOUT_RECORD_TYPES.VARIANT, variantId);
@@ -2289,6 +2336,20 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       rangeEasySets += work.easy_sets;
       rangeReps += work.reps;
 
+      // A log carrying no WORKING sets is a ramp nobody trained on: it must not
+      // open a row (the cosmetic "0 kg" line in Top Exercises, bd med-45u) and
+      // must not add its session to one, or an exercise warmed up on Tuesday
+      // and actually worked on Thursday would report two sessions. It adds
+      // nothing to the range totals above either — volume, hard/easy sets and
+      // reps are all 0 whenever `sets` is — so skipping here changes only the
+      // per-exercise fold.
+      //
+      // The test is WORKING SETS and must never become a volume test: a
+      // bodyweight push-up has real working sets at total_volume_kg 0, and
+      // dropping it on volume would move a body part the user actually trained
+      // into the Balance view's "Not Trained" chips.
+      if (work.sets === 0) continue;
+
       let entry = agg.get(log.exercise_name);
       if (!entry) {
         entry = {
@@ -2439,17 +2500,25 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   async function sortedLogsByName(name) {
     const sessions = await activeRecords(WORKOUT_RECORD_TYPES.SESSION);
     const dateById = new Map(sessions.map((s) => [s.id, s.scheduled_date]));
+    const timeById = new Map(sessions.map((s) => [s.id, s.scheduled_time || '']));
     const logs = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
       .filter((l) => l.status === 'completed' && l.exercise_name === name && dateById.has(l.session_id))
       .sort((a, b) => {
         const byDate = new Date(dateById.get(b.session_id)).getTime()
           - new Date(dateById.get(a.session_id)).getTime();
+        if (byDate) return byDate;
         // scheduled_date is day-granular, so two sessions on one day tie. Break
-        // on session id (monotonic) — otherwise "newest" is whatever order the
-        // record store happened to return, which the goal resolution below reads.
-        return byDate || b.session_id - a.session_id;
+        // on scheduled_time like sortSessions does (the canonical within-day
+        // order — two same-day sessions can be created in either order), then on
+        // session id so the result is still total — otherwise "newest" is
+        // whatever order the record store happened to return, which the goal
+        // resolution below reads.
+        const ta = timeById.get(a.session_id);
+        const tb = timeById.get(b.session_id);
+        if (ta !== tb) return ta < tb ? 1 : -1;
+        return b.session_id - a.session_id;
       });
-    return { logs, dateById };
+    return { logs, dateById, timeById };
   }
 
   // listExerciseLogsByName is the per-exercise history read (Phase 3, epic
@@ -2459,7 +2528,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // over it on the read side. No storage, no MCP catalog entry (UI read only).
   async function listExerciseLogsByName(name, opts) {
     const lim = opts && opts.limit > 0 ? opts.limit : 500;
-    const { logs, dateById } = await sortedLogsByName(name);
+    const { logs, dateById, timeById } = await sortedLogsByName(name);
 
     // The exercise's effective training goal rides along (med-qj4.6.4/.5): the
     // detail view's headline emphasis and near-failure advisory are goal-driven,
@@ -2479,7 +2548,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
     return logs
       .map((l) => ({
-        date: dateById.get(l.session_id), sets: l.sets, session_id: l.session_id, training_goal: goal,
+        date: dateById.get(l.session_id),
+        // The session's within-day key: scheduled_date is day-granular, so the
+        // graph series (exerciseSeries) needs this to order two same-day
+        // sessions chronologically instead of by record-store luck (med-qj4.7).
+        scheduled_time: timeById.get(l.session_id),
+        sets: l.sets,
+        session_id: l.session_id,
+        training_goal: goal,
       }))
       .slice(0, lim);
   }
