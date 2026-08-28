@@ -371,6 +371,9 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             expect(entry.date).toBeTruthy();
             expect(Array.isArray(entry.sets)).toBe(true);
             expect(entry.session_id).toBeGreaterThan(0);
+            // The session's within-day key — scheduled_date is day-granular, so
+            // the graph series orders same-day sessions on this (med-qj4.7).
+            expect(entry.scheduled_time).toMatch(/^([01]\d|2[0-3]):[0-5]\d$/);
         }
         // Per-set arrays ride through verbatim (warm-up preserved for the reader).
         const allSets = history.flatMap((e) => e.sets);
