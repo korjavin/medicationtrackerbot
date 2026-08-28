@@ -900,7 +900,15 @@ export function createApiRouter(ctx, {
     // chance + this-morning resolution + the "how well do we know you"
     // calibration meter, all recomputed client-side from vault bp+sleep records
     // (never weight). Bot mode 404s this route; the Today card then omits itself.
-    if (path === '/api/gamification/forecast' && method === 'GET') return gamification.getForecast();
+    // The forecast is a Journey feature, and its card lives on Today (a screen
+    // that renders with the feature off), so the flag has to be enforced here:
+    // forecast-card.js hides itself on !enabled, which is the only gate the
+    // Today mount respects.
+    if (path === '/api/gamification/forecast' && method === 'GET') {
+      const flags = await settings.getFeatures();
+      if (!flags.gamification) return { enabled: false };
+      return gamification.getForecast();
+    }
     // Self-Experiments (Phase 4): the flagship N-of-1 mechanic. listExperiments
     // recomputes the active trial's tracker + any un-acknowledged verdict from
     // vault records (persisting only the frozen verdict + lifecycle status);

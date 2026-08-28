@@ -1415,17 +1415,13 @@
 
         // Gamification rings — a compact tile (us0.1) sitting directly above the
         // food card. The Tomorrow Forecast (us0.3) is merged inside this tile by
-        // renderRingsTile. When gamification is disabled the tile is absent, so
-        // mount the forecast standalone here instead (it self-suppresses to
-        // nothing when below its confidence gate / in bot mode).
+        // renderRingsTile. With gamification off there is no tile and no
+        // forecast: the shim's forecast route returns {enabled:false}, so the
+        // card has nothing to mount anywhere on Today.
         const ringsTile = renderRingsTile(state && state.gamificationRings, onDeeplink);
         if (ringsTile) {
             root.appendChild(ringsTile);
             rendered += 1;
-        } else if (typeof window !== 'undefined' && window.WGForecastCard
-            && typeof window.WGForecastCard.mountCard === 'function') {
-            const forecastCard = window.WGForecastCard.mountCard(root);
-            if (forecastCard) { rendered += 1; }
         }
 
         const fuelCard = renderFuelCard(

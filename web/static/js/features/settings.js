@@ -646,7 +646,11 @@ async function loadSettings() {
     }
     const applyBundle = async (rawBundle) => {
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
+        const gamificationWas = !!window.SettingsState.getFeatureSettings().gamification;
         window.SettingsState.applyBootstrapFeatures(bundle.featureSettings);
+        if (!gamificationWas && window.SettingsState.getFeatureSettings().gamification) {
+            refreshForecastCard();
+        }
         window.WeightUnitState.applyAuthoritative(bundle.weightUnitPreference);
         updateFeatureToggles();
         updateFeatureTabVisibility();
@@ -1010,7 +1014,20 @@ async function toggleFeatureSetting(feature, enabled) {
     } catch (e) {
         console.warn(`Failed to invalidate settings cache after toggling ${feature}:`, e);
     }
+    if (feature === 'gamification') refreshForecastCard();
     updateFeatureTabVisibility();
+}
+
+// The Tomorrow Forecast route answers {enabled:false} while Journey is off, so
+// the card's cached payload goes empty and only a fetch refills it. Every path
+// that can flip the flag after boot — the local toggle and an authoritative
+// settings bundle carrying another device's toggle — must re-run this, or Today
+// renders the rings tile with no forecast until a full reload. refresh() is a
+// no-op on the card when nothing changed.
+function refreshForecastCard() {
+    if (window.WGForecastCard && typeof window.WGForecastCard.refresh === 'function') {
+        window.WGForecastCard.refresh();
+    }
 }
 
 function updateFeatureTabVisibility() {
