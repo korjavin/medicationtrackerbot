@@ -1500,6 +1500,20 @@ describe('bd med-gmyf: starting a not-today session logs the workout for today',
         expect(callbacks).not.toContain('w:1:20260826');
     });
 
+    it('drops an elapsed snooze on the day it re-keys away from', async () => {
+        const monday = { ...session('2026-08-24', 'notified'), snoozed_until: new Date(NOW - 3600e3).toISOString() };
+        const records = seed([monday]);
+
+        await domainOver(records).startSession(900);
+
+        const stored = await records.list('workoutsession');
+        expect(stored.find((s) => s.recordId === 'session-1-2026-08-24').snoozed_until).toBeNull();
+        // PRIORITY 1 would otherwise keep re-serving Monday's elapsed snooze.
+        const next = await domainOver(records).getNext();
+        expect(next.session.is_today).toBe(true);
+        expect(next.session.status).toBe('in_progress');
+    });
+
     it('mints an ad-hoc session rather than reopening a finished day', async () => {
         const records = seed([
             session(WEDNESDAY, 'completed', { id: 901, variantId: 1 }),
