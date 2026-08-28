@@ -155,6 +155,45 @@ describe('slot→meds map (med-eas.65: vault-resident, merge-and-prune)', () => 
   // Cross-device, the med-eas.65 hole: device A pushes, device B drains the tap.
   // The map rides the vault, so B's records port sees exactly what A recorded —
   // the device-local store it replaced never did.
+  // bd med-onzf — the interleaving that lost a fired slot under the singleton.
+  // Device A drops its future slots (write 1) and uploads; device B syncs THAT
+  // state and goes quiet; A's post-upload write (2) restores the slots. The slot
+  // fires. B wakes, recomputes off its stale post-drop copy: the slot is now
+  // past, so nothing re-lists it, and B's newer write won LWW without it. With
+  // per-slot records B's writes never touch that slot: A's live record outlives
+  // the tombstone B synced, and the drain still resolves the tap by identity.
+  it('keeps a fired slot when a stale device recomputes off the first device\'s post-drop state', async () => {
+    const slot = NOW_UNIX + HOUR; // future at A's upload, fired by the time B recomputes
+    const deviceA = fakeRecords();
+    await domainAt(deviceA, NOW_MS - HOUR * 1000).recordSlotMedications([rem(slot, ['med-a'])]);
+
+    await domainAt(deviceA, NOW_MS).dropFutureSlotMedications(); // write 1: tombstone, PUT in flight
+    const deviceB = fakeRecords({ slotmeds: deviceA.dump().slotmeds }); // B syncs exactly this
+    await domainAt(deviceA, NOW_MS + 500).recordSlotMedications([rem(slot, ['med-a'])]); // write 2
+
+    const later = NOW_MS + 2 * HOUR * 1000; // slot fired an hour ago; B never saw write 2
+    await domainAt(deviceB, later).dropFutureSlotMedications();
+    await domainAt(deviceB, later).recordSlotMedications([rem(slot + 24 * HOUR, ['med-a'])]);
+
+    // Sync merges per record by LWW: B only ever held A's write-1 tombstone
+    // (clientTs NOW_MS), older than A's write-2 record (NOW_MS + 500), so the
+    // live record wins; B's own writes name other slots and cannot collide.
+    const merged = fakeRecords({ slotmeds: deviceA.dump().slotmeds });
+    for (const r of deviceB.dump().slotmeds) await merged.put('slotmeds', r);
+    expect(await domainAt(merged, later).getSlotMedications(slot)).toEqual(['med-a']);
+    expect(await domainAt(deviceB, later).getSlotMedications(slot)).toBeNull(); // B alone is honestly stale
+  });
+
+  // A message pushed before per-slot records shipped still resolves by identity
+  // from the old singleton for its retention window; nothing writes it any more.
+  it('falls back to the legacy singleton for a slot only it names', async () => {
+    const records = fakeRecords({ slotmeds: [{ recordId: 'slotmeds-current', deleted: false, clientTs: 1, slots: { [NOW_UNIX]: ['med-z'] } }] });
+    expect(await domainAt(records, NOW_MS).getSlotMedications(NOW_UNIX)).toEqual(['med-z']);
+    await domainAt(records, NOW_MS).recordSlotMedications([rem(NOW_UNIX, ['med-a'])]);
+    expect(await domainAt(records, NOW_MS).getSlotMedications(NOW_UNIX)).toEqual(['med-a']); // per-slot wins
+    expect(await domainAt(records, NOW_MS + 49 * HOUR * 1000).getSlotMedications(NOW_UNIX)).toBeNull();
+  });
+
   it('is readable from another device through the same vault records', async () => {
     const deviceA = fakeRecords();
     await domainAt(deviceA, NOW_MS).recordSlotMedications([rem(NOW_UNIX, ['med-a', 'med-b'])]);
@@ -195,11 +234,9 @@ describe('recomputeAndPush records the slot→meds map after a successful push',
     const records = fakeRecords(seed());
     await recomputeAndPush(ctx, { records, timeZone: 'UTC' });
 
-    const rec = (records.dump().slotmeds || [])[0];
-    expect(rec).toBeDefined();
-    const slots = Object.entries(rec.slots);
-    expect(slots.length).toBeGreaterThan(0);
-    for (const [, ids] of slots) expect(ids).toEqual(['med-a']);
+    const recs = (records.dump().slotmeds || []).filter((r) => !r.deleted);
+    expect(recs.length).toBeGreaterThan(0);
+    for (const r of recs) expect(r.medicationIds).toEqual(['med-a']);
   });
 
   it('records nothing when the relay upload fails — no map ahead of the schedule', async () => {
@@ -207,8 +244,7 @@ describe('recomputeAndPush records the slot→meds map after a successful push',
     const records = fakeRecords(seed());
 
     await expect(recomputeAndPush(ctx, { records, timeZone: 'UTC' })).rejects.toThrow();
-    const rec = (records.dump().slotmeds || [])[0];
-    expect(rec ? Object.keys(rec.slots) : []).toEqual([]);
+    expect((records.dump().slotmeds || []).filter((r) => !r.deleted)).toEqual([]);
   });
 
   // The failure the pre-upload drop exists for: a push whose PUT lands but whose
@@ -219,7 +255,7 @@ describe('recomputeAndPush records the slot→meds map after a successful push',
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
     const records = fakeRecords(seed());
     await recomputeAndPush(ctx, { records, timeZone: 'UTC' });
-    const staleSlots = Object.keys((records.dump().slotmeds || [])[0].slots);
+    const staleSlots = (records.dump().slotmeds || []).filter((r) => !r.deleted).map((r) => String(r.slotUnix));
     expect(staleSlots.length).toBeGreaterThan(0);
 
     // Next recompute: the PUT lands, then the post-upload write is lost.

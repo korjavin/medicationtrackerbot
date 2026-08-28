@@ -34,7 +34,8 @@ const DELIVERYPREF_RECORD_ID = 'reminderdeliverypref';
 // it) because the device that PUSHED the reminder is routinely not the device
 // that DRAINS the tap — every cross-device Confirm used to miss the map.
 const SLOTMEDS_RECORD_TYPE = 'slotmeds';
-const SLOTMEDS_RECORD_ID = 'slotmeds-current';
+const SLOTMEDS_RECORD_ID_PREFIX = 'slotmeds-';
+const LEGACY_SLOTMEDS_RECORD_ID = 'slotmeds-current'; // pre-med-onzf singleton, read-only fallback
 
 export const DELIVERY_CHANNELS = ['webpush', 'telegram', 'both'];
 export const VERBOSITIES = ['detailed', 'generic'];
@@ -683,65 +684,59 @@ export function createRemindersDomain({ records, now }) {
   //   dropFutureSlotMedications()  BEFORE the schedule PUT
   //   recordSlotMedications(horizon) AFTER it succeeds
   //
-  // ponytail: cross-device ceiling. This is ONE singleton record, so two devices
-  // that both recompute before syncing each other's write resolve by LWW, and
-  // the loser's RETAINED (already-fired) slots are dropped from the map. Taps
-  // for those slots then take the ±band fallback — a degradation to the safe
-  // path, never a false confirm, and only for slots that fired while just one
-  // device was around. Upgrade path if that ever bites: a record per slot
-  // (`slotmeds-<slotUnix>`), which converges per-slot but costs one vault write
-  // per slot per recompute instead of one.
-  async function loadSlotMedications() {
-    const all = await records.list(SLOTMEDS_RECORD_TYPE);
-    const rec = findSingleton(all, SLOTMEDS_RECORD_ID);
-    return (rec && rec.slots) || {};
+  // One record per slot: `slotmeds-<slotUnix>` → { slotUnix, medicationIds }.
+  // Per-slot (not the singleton med-eas.65 first shipped) so the two writes
+  // around an upload only ever touch the slots they mean: dropFuture tombstones
+  // the not-yet-fired slots, record puts the pushed ones, and a FIRED slot's
+  // record is never rewritten by either — so a second device that synced the
+  // post-drop state and recomputed could not, as the singleton let it, win LWW
+  // with a copy that lacked the fired slot (bd med-onzf: that lost slot put the
+  // Confirm drain on the mapless path, which never cancels the relay's hourly
+  // re-fire, and the user was nagged for 6h after taking every dose).
+  function slotRecordId(slotUnix) {
+    return `${SLOTMEDS_RECORD_ID_PREFIX}${slotUnix}`;
   }
 
-  async function putSlotMedications(slots) {
-    await records.put(SLOTMEDS_RECORD_TYPE, {
-      recordId: SLOTMEDS_RECORD_ID, clientTs: now(), deleted: false, slots,
-    });
+  async function listSlotRecords() {
+    return (await records.list(SLOTMEDS_RECORD_TYPE))
+      .filter((r) => !r.deleted && r.recordId.startsWith(SLOTMEDS_RECORD_ID_PREFIX) && Number.isFinite(Number(r.slotUnix)));
   }
 
-  // retained() keeps the entries a NEW horizon may not restate: those whose slot
-  // has already fired (their message is out and immutable) and is still inside
-  // the retention window. Entries for slots that have NOT fired are deliberately
-  // not retained — see dropFutureSlotMedications.
-  function retained(slots, nowMs) {
-    const out = {};
-    for (const [slotUnix, ids] of Object.entries(slots)) {
-      const slotMs = Number(slotUnix) * 1000;
-      if (slotMs <= nowMs && slotMs >= nowMs - SLOTMEDS_RETAIN_MS && Array.isArray(ids) && ids.length) {
-        out[slotUnix] = ids;
-      }
+  // Tombstones every per-slot record outside [now - retention, now]: the
+  // not-yet-fired ones because a stale FUTURE entry is the one dangerous state
+  // (the relay serving a reminder that names fewer meds than the map claims,
+  // and Confirm marking an unnamed med taken — clearing first turns a lost
+  // follow-up write into a mapless slot, the ±band fallback, a false negative);
+  // the expired ones to keep the vault bounded. Already-fired slots inside the
+  // window are untouched: their messages went out under the schedule that
+  // named them and cannot change.
+  async function pruneSlotRecords(keepFuture) {
+    const nowMs = now();
+    for (const r of await listSlotRecords()) {
+      const slotMs = Number(r.slotUnix) * 1000;
+      const expired = slotMs < nowMs - SLOTMEDS_RETAIN_MS;
+      const future = slotMs > nowMs;
+      if (expired || (future && !keepFuture)) await records.del(SLOTMEDS_RECORD_TYPE, r.recordId);
     }
-    return out;
   }
 
-  // dropFutureSlotMedications invalidates every not-yet-fired slot BEFORE the
-  // new schedule is uploaded. A stale FUTURE entry is the one genuinely
-  // dangerous state this record can be in: if the PUT lands and the write after
-  // it does not (the tab closes, the vault write errors), the relay would be
-  // serving a reminder that names fewer meds than the map still claims, and
-  // Confirm would mark an unnamed med taken. Clearing first makes that failure
-  // a mapless slot instead — the ±band fallback, a false negative. (Already-
-  // fired slots are safe to keep across the gap: their messages went out under
-  // the schedule that named them and cannot change.)
+  // dropFutureSlotMedications runs BEFORE the new schedule is uploaded.
   async function dropFutureSlotMedications() {
-    await putSlotMedications(retained(await loadSlotMedications(), now()));
+    await pruneSlotRecords(false);
   }
 
-  // recordSlotMedications merges the uploaded horizon over what survived the
-  // drop above. Merging is what makes retention safe rather than a hazard: an
-  // entry the newest horizon dropped can only ever be consulted by a tap on the
-  // older, already-delivered message that named it — precisely the set that tap
-  // meant. (The one case last-writer-wins still gets wrong — a LATER push ADDS a
-  // med to an existing slot and the user taps the EARLIER message — is the same
-  // accepted ceiling documented in inbox-apply.js's nearestPendingByMed.)
+  // recordSlotMedications runs AFTER the upload succeeds: one put per pushed
+  // slot. A slot the newest horizon no longer lists keeps its record (its
+  // Telegram message is still in the chat, tappable, re-fired for ~6h) until
+  // retention expires it. A re-listed slot's record is replaced — it describes
+  // the message the relay is serving for it now.
   async function recordSlotMedications(entries) {
-    const slots = retained(await loadSlotMedications(), now());
-    Object.assign(slots, slotMedicationsFromEntries(entries));
-    await putSlotMedications(slots);
+    await pruneSlotRecords(true);
+    for (const [slotUnix, medicationIds] of Object.entries(slotMedicationsFromEntries(entries))) {
+      await records.put(SLOTMEDS_RECORD_TYPE, {
+        recordId: slotRecordId(slotUnix), clientTs: now(), deleted: false, slotUnix: Number(slotUnix), medicationIds,
+      });
+    }
   }
 
   // getSlotMedications returns the med ids the reminder NAMED for slotUnix, or
@@ -749,16 +744,25 @@ export function createRemindersDomain({ records, now }) {
   // shipped, or one older than the retention window. inbox-apply then falls
   // back to its fixed ±band match.
   //
-  // The age check is repeated HERE, not left to recordSlotMedications' prune:
-  // pruning only happens when a recompute runs, so a device that was closed for
-  // a week and drains an old tap on first open would otherwise take the identity
-  // path on an entry the design considers expired. Retention is a property of
-  // the answer, not of write scheduling.
+  // The age check is repeated HERE, not left to the prune: pruning only happens
+  // when a recompute runs, so a device that was closed for a week and drains an
+  // old tap on first open would otherwise take the identity path on an entry
+  // the design considers expired. Retention is a property of the answer, not
+  // of write scheduling.
+  //
+  // ponytail: the pre-med-onzf singleton (`slotmeds-current`, { slots }) is
+  // still read as a fallback so a message pushed before this deploy stays
+  // resolvable by identity for its 48h; nothing writes it any more, so it goes
+  // inert on its own. Delete this branch once the retention window has passed.
   async function getSlotMedications(slotUnix) {
     if (!(Number(slotUnix) * 1000 >= now() - SLOTMEDS_RETAIN_MS)) return null;
     const all = await records.list(SLOTMEDS_RECORD_TYPE);
-    const rec = findSingleton(all, SLOTMEDS_RECORD_ID);
-    const ids = rec && rec.slots && rec.slots[slotUnix];
+    const rec = findSingleton(all, slotRecordId(slotUnix));
+    let ids = rec && rec.medicationIds;
+    if (!Array.isArray(ids)) {
+      const legacy = findSingleton(all, LEGACY_SLOTMEDS_RECORD_ID);
+      ids = legacy && legacy.slots && legacy.slots[slotUnix];
+    }
     return Array.isArray(ids) && ids.length ? ids : null;
   }
 

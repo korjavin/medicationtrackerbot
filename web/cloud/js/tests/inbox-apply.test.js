@@ -218,25 +218,10 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const intakes = await records.list('intake');
         expect(intakes.find((i) => i.recordId === `intake-med-a-${SLOT_UNIX}`).status).toBe('TAKEN');
         expect(intakes.find((i) => i.recordId === 'intake-med-b-far').status).toBe('PENDING');
-        // ...and with no slot→meds map the drain derives the named set from the
-        // doses materialized at the slot (med-a only): nothing named is left
-        // PENDING, so the relay's re-fire chain is cancelled. med-b's drifted
-        // dose is the documented ceiling of that fallback.
-        expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
-    });
-
-    // The slotmeds singleton can lose a fired slot across devices; the drain must
-    // still cancel the relay's hourly re-fire once the slot's doses are all TAKEN,
-    // or the user is nagged for 6h after confirming (bd med-onzf).
-    it('cancels the re-fire chain without a slot→meds map once every dose at the slot is taken', async () => {
-        const records = fakeRecords(seed());
-        const now = () => DRAIN_MS;
-        const cancelRefire = vi.fn();
-        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now, cancelRefire, getSlotMeds: async () => null });
-
-        const atSlot = (await records.list('intake')).filter((i) => i.scheduled_at === SLOT_ISO);
-        for (const i of atSlot) expect(i.status).toBe('TAKEN');
-        expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
+        // ...and with no slot→meds map there is no way to tell which doses this
+        // message covered, so the relay's re-fire chain is left alone rather than
+        // risking silencing that deliberate false-negative (bd med-fml).
+        expect(cancelRefire).not.toHaveBeenCalled();
     });
 
     // Rule 2. The mailbox is at-least-once: a crash between the vault write and
