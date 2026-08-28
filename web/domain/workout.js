@@ -2439,17 +2439,25 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   async function sortedLogsByName(name) {
     const sessions = await activeRecords(WORKOUT_RECORD_TYPES.SESSION);
     const dateById = new Map(sessions.map((s) => [s.id, s.scheduled_date]));
+    const timeById = new Map(sessions.map((s) => [s.id, s.scheduled_time || '']));
     const logs = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
       .filter((l) => l.status === 'completed' && l.exercise_name === name && dateById.has(l.session_id))
       .sort((a, b) => {
         const byDate = new Date(dateById.get(b.session_id)).getTime()
           - new Date(dateById.get(a.session_id)).getTime();
+        if (byDate) return byDate;
         // scheduled_date is day-granular, so two sessions on one day tie. Break
-        // on session id (monotonic) — otherwise "newest" is whatever order the
-        // record store happened to return, which the goal resolution below reads.
-        return byDate || b.session_id - a.session_id;
+        // on scheduled_time like sortSessions does (the canonical within-day
+        // order — two same-day sessions can be created in either order), then on
+        // session id so the result is still total — otherwise "newest" is
+        // whatever order the record store happened to return, which the goal
+        // resolution below reads.
+        const ta = timeById.get(a.session_id);
+        const tb = timeById.get(b.session_id);
+        if (ta !== tb) return ta < tb ? 1 : -1;
+        return b.session_id - a.session_id;
       });
-    return { logs, dateById };
+    return { logs, dateById, timeById };
   }
 
   // listExerciseLogsByName is the per-exercise history read (Phase 3, epic
@@ -2459,7 +2467,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // over it on the read side. No storage, no MCP catalog entry (UI read only).
   async function listExerciseLogsByName(name, opts) {
     const lim = opts && opts.limit > 0 ? opts.limit : 500;
-    const { logs, dateById } = await sortedLogsByName(name);
+    const { logs, dateById, timeById } = await sortedLogsByName(name);
 
     // The exercise's effective training goal rides along (med-qj4.6.4/.5): the
     // detail view's headline emphasis and near-failure advisory are goal-driven,
@@ -2479,7 +2487,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
     return logs
       .map((l) => ({
-        date: dateById.get(l.session_id), sets: l.sets, session_id: l.session_id, training_goal: goal,
+        date: dateById.get(l.session_id),
+        // The session's within-day key: scheduled_date is day-granular, so the
+        // graph series (exerciseSeries) needs this to order two same-day
+        // sessions chronologically instead of by record-store luck (med-qj4.7).
+        scheduled_time: timeById.get(l.session_id),
+        sets: l.sets,
+        session_id: l.session_id,
+        training_goal: goal,
       }))
       .slice(0, lim);
   }

@@ -94,9 +94,10 @@ export function exercisePRs(logs) {
 // The LOGS are sorted, not the points: scheduled_date is day-granular, so two
 // sessions on the same day tie on date alone and would plot in whatever order
 // the record store returned — a within-day dip-then-rise that never happened.
-// session_id is monotonic, so it breaks the tie chronologically; same fix as
-// sortedLogsByName in workout.js (med-qj4.7). Logs without a session_id (bare
-// test/fixture logs) fall back to the previous stable order.
+// `scheduled_time` (HH:MM, the canonical within-day order sortSessions uses) is
+// the real chronological key; session_id only breaks a remaining tie so the
+// order is total. Same fix as sortedLogsByName in workout.js (med-qj4.7). Logs
+// carrying neither key (bare fixtures) keep the previous stable order.
 export function exerciseSeries(logs) {
   if (!Array.isArray(logs)) return [];
   return [...logs]
@@ -104,6 +105,9 @@ export function exerciseSeries(logs) {
       const ad = String(a && a.date);
       const bd = String(b && b.date);
       if (ad !== bd) return ad < bd ? -1 : 1;
+      const at = String((a && a.scheduled_time) || '');
+      const bt = String((b && b.scheduled_time) || '');
+      if (at !== bt) return at < bt ? -1 : 1;
       return ((a && a.session_id) - (b && b.session_id)) || 0;
     })
     .map((log) => {
