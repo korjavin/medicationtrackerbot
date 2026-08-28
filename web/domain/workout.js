@@ -2289,6 +2289,20 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       rangeEasySets += work.easy_sets;
       rangeReps += work.reps;
 
+      // A log carrying no WORKING sets is a ramp nobody trained on: it must not
+      // open a row (the cosmetic "0 kg" line in Top Exercises, bd med-45u) and
+      // must not add its session to one, or an exercise warmed up on Tuesday
+      // and actually worked on Thursday would report two sessions. It adds
+      // nothing to the range totals above either — volume, hard/easy sets and
+      // reps are all 0 whenever `sets` is — so skipping here changes only the
+      // per-exercise fold.
+      //
+      // The test is WORKING SETS and must never become a volume test: a
+      // bodyweight push-up has real working sets at total_volume_kg 0, and
+      // dropping it on volume would move a body part the user actually trained
+      // into the Balance view's "Not Trained" chips.
+      if (work.sets === 0) continue;
+
       let entry = agg.get(log.exercise_name);
       if (!entry) {
         entry = {
@@ -2315,15 +2329,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
     // Every exercise trained in range, which is what lets the Balance view fold
     // a COMPLETE body-part split instead of guessing from eight rows.
-    //
-    // The filter is `sets > 0` — WORKING sets — and must never become a volume
-    // test (bd med-45u). A warm-up-only log is a ramp nobody trained on, so it
-    // has no place in the split or in top_exercises' "0 kg" row; but a
-    // bodyweight exercise like a push-up has real working sets at
-    // total_volume_kg 0, and dropping it on volume would move a body part the
-    // user actually trained into the Balance view's "Not Trained" chips.
     const totalRows = Array.from(agg.values())
-      .filter((entry) => entry.sets > 0)
       .map((entry) => ({
         exercise_name: entry.exercise_name,
         session_count: entry.sessionIds.size,

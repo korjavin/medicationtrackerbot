@@ -260,13 +260,20 @@ describe('cloud shim contract — workout stats + mi-band', () => {
                 { weight_kg: 40, reps: 10, set_type: 'warmup' },
                 { weight_kg: 60, reps: 10, set_type: 'warmup' },
             ]);
-            const stats = await logSets(env.window, 'Push-up', [
+            await logSets(env.window, 'Push-up', [
                 { reps: 20 },
                 { reps: 15 },
             ]);
+            // A second Push-up session that never got past the ramp: it must not
+            // add a session to the row it already has.
+            const stats = await logSets(env.window, 'Push-up', [
+                { reps: 5, set_type: 'warmup' },
+            ]);
 
             expect(stats.exercise_totals).toEqual([
-                expect.objectContaining({ exercise_name: 'Push-up', sets: 2, hard_sets: 2, reps: 35, total_volume_kg: 0 }),
+                expect.objectContaining({
+                    exercise_name: 'Push-up', session_count: 1, sets: 2, hard_sets: 2, reps: 35, total_volume_kg: 0,
+                }),
             ]);
             expect(stats.top_exercises).toEqual([
                 { exercise_name: 'Push-up', session_count: 1, total_volume_kg: 0, max_weight_kg: 0 },
