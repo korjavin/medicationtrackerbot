@@ -35,6 +35,13 @@ const (
 	defaultDryQueueWarnWithin = 120 * time.Hour
 )
 
+// sentIdentityRetention is how long a SENT reminder row keeps the addressing a
+// tap resolves against (tg_callback/tg_med_ids — see MarkPushSent). Same 48h the
+// retired slotmeds records used, for the same reason: tapping Confirm on
+// yesterday evening's message this morning must still name its meds, long after
+// the 6h re-fire chain ended (med-kbpf).
+const sentIdentityRetention = 48 * time.Hour
+
 // staleSyncWarningPayload is the server-composed, content-free push body
 // (Task 7): a literal constant, never derived from account data, sent
 // outside the NK app-layer encryption path. web/cloud/sw.js recognizes
@@ -149,6 +156,7 @@ type relayStore interface {
 	MarkStaleSyncWarned(ctx context.Context, accountID string, now time.Time) error
 	AccountVAPIDKeysByID(ctx context.Context, accountID string) (cloudstore.AccountVAPIDKeys, error)
 	RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback, tgMedIDs string, supersedesMessageID int64) error
+	ScrubSentPushIdentity(ctx context.Context, before time.Time) (int64, error)
 }
 
 // Relay is the blind push-firing loop: it never decrypts or composes a
@@ -344,6 +352,11 @@ func (rl *Relay) scheduleMedRefire(ctx context.Context, p cloudstore.ScheduledPu
 // the hourly ticker.
 func (rl *Relay) StaleSyncSweep(ctx context.Context) {
 	now := time.Now().UTC()
+	// Piggy-backed on the same hourly tick: expire the tap addressing left on
+	// sent rows (med-kbpf). Nothing here depends on it, so a failure only logs.
+	if _, err := rl.store.ScrubSentPushIdentity(ctx, now.Add(-sentIdentityRetention)); err != nil {
+		slog.Error("push relay: scrub sent push identity", "error", err)
+	}
 	accountIDs, err := rl.store.AccountsNeedingStaleSyncWarning(ctx, now, rl.dryQueueWarnWithin, warnCooldown)
 	if err != nil {
 		slog.Error("push relay: list stale-sync accounts", "error", err)

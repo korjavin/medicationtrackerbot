@@ -734,3 +734,41 @@ func TestRelay_RefireDeleteFailureDoesNotAbortChain(t *testing.T) {
 		t.Fatalf("chain must continue despite the failed delete, got %+v", future)
 	}
 }
+
+// med-kbpf: a SENT reminder row keeps the addressing a tap resolves against
+// (tg_callback/tg_med_ids) so tapping Confirm on last night's message this
+// morning still names its meds — long after the 6h re-fire chain ended. The
+// hourly sweep expires that addressing at sentIdentityRetention.
+func TestRelay_SweepScrubsAgedSentIdentity(t *testing.T) {
+	store := setupStore(t)
+	account, _ := setupInvite(t, store)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	send := func(stem, ids string, sentAgo time.Duration) {
+		t.Helper()
+		if err := store.ReplaceSchedule(ctx, account.ID, []cloudstore.ScheduledPushInput{
+			{FireAt: now.Add(-sentAgo), Delivery: cloudstore.DeliveryTelegram, TGText: "Time to take", TGCallback: stem, TGMedIDs: ids},
+		}, now); err != nil {
+			t.Fatalf("ReplaceSchedule(%s): %v", stem, err)
+		}
+		due, err := store.DueScheduledPushes(ctx, now)
+		if err != nil || len(due) != 1 {
+			t.Fatalf("DueScheduledPushes(%s) = %+v, %v; want 1 unsent row", stem, due, err)
+		}
+		if err := store.MarkPushSent(ctx, due[0].ID, now.Add(-sentAgo)); err != nil {
+			t.Fatalf("MarkPushSent(%s): %v", stem, err)
+		}
+	}
+	send("s:1000000001", "2,9", 49*time.Hour) // past the window
+	send("s:1000000002", "3,7", time.Hour)    // last night
+
+	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, nil, 0).StaleSyncSweep(ctx)
+
+	if ids, err := store.MedIDsForCallback(ctx, account.ID, "s:1000000001"); err != nil || ids != "" {
+		t.Errorf("aged row = %q, %v; want its identity scrubbed", ids, err)
+	}
+	if ids, err := store.MedIDsForCallback(ctx, account.ID, "s:1000000002"); err != nil || ids != "3,7" {
+		t.Errorf("recent row = %q, %v; want \"3,7\" still tappable", ids, err)
+	}
+}

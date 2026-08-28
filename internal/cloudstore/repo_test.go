@@ -591,8 +591,13 @@ func TestMarkPushSentClearsPayload(t *testing.T) {
 		Scan(&ct, &tgText, &tgCallback, &sentUnix); err != nil {
 		t.Fatalf("read sent row: %v", err)
 	}
-	if len(ct) != 0 || tgText != "" || tgCallback != "" {
-		t.Errorf("sent row still holds payload: ct=%q tg_text=%q tg_callback=%q", ct, tgText, tgCallback)
+	if len(ct) != 0 || tgText != "" {
+		t.Errorf("sent row still holds content: ct=%q tg_text=%q", ct, tgText)
+	}
+	// The addressing stays until the retention sweep: a late tap resolves against
+	// this row (med-kbpf, MarkPushSent's comment).
+	if tgCallback != "cb-stem" {
+		t.Errorf("tg_callback = %q, want the stem kept for a late tap", tgCallback)
 	}
 	if !sentUnix.Valid {
 		t.Errorf("sent_at_unix not set after MarkPushSent")
@@ -1058,8 +1063,24 @@ func TestScheduledPushMedIDs(t *testing.T) {
 	if err := r.MarkPushSent(ctx, refires[0].ID, now); err != nil {
 		t.Fatalf("MarkPushSent (refire): %v", err)
 	}
-	// Nothing pending, nothing on file: a tap past the chain has no identity.
+	// The chain has ended, but the sent rows still answer a late tap — the 48h
+	// window that replaces the old slotmeds retention.
+	if ids, err := r.MedIDsForCallback(ctx, acc.ID, "s:1767225600"); err != nil || ids != "2,9" {
+		t.Fatalf("MedIDsForCallback after the chain ends = %q, %v; want \"2,9\", nil", ids, err)
+	}
+
+	// A row still inside the window keeps its addressing; past it, the sweep
+	// drops it and the tap resolves to nothing.
+	if n, err := r.ScrubSentPushIdentity(ctx, now.Add(-48*time.Hour)); err != nil || n != 0 {
+		t.Fatalf("ScrubSentPushIdentity(fresh rows) = %d, %v; want 0, nil", n, err)
+	}
+	if ids, _ := r.MedIDsForCallback(ctx, acc.ID, "s:1767225600"); ids != "2,9" {
+		t.Fatalf("MedIDsForCallback after scrubbing older rows = %q, want \"2,9\"", ids)
+	}
+	if n, err := r.ScrubSentPushIdentity(ctx, now.Add(time.Hour)); err != nil || n != 2 {
+		t.Fatalf("ScrubSentPushIdentity(past the window) = %d, %v; want 2, nil", n, err)
+	}
 	if ids, err := r.MedIDsForCallback(ctx, acc.ID, "s:1767225600"); err != nil || ids != "" {
-		t.Fatalf("MedIDsForCallback after the chain ends = %q, %v; want \"\", nil", ids, err)
+		t.Fatalf("MedIDsForCallback after the retention sweep = %q, %v; want \"\", nil", ids, err)
 	}
 }

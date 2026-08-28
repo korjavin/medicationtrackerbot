@@ -223,18 +223,36 @@ func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]Schedul
 	return due, rows.Err()
 }
 
-// MarkPushSent marks a scheduled push as sent so later ticks skip it, and
-// clears the payload in the same UPDATE so fired Telegram plaintext (med name +
-// dose in tg_text/tg_callback, med identity in tg_med_ids) and the NK ciphertext
-// don't accumulate at rest.
-// Every post-send reader filters sent_at_unix IS NULL or reads only timestamps,
-// so the emptied row is never re-read (bd med-yor.13). ct/tg_text/tg_callback
-// are NOT NULL, so they clear to empty rather than SQL NULL.
+// MarkPushSent marks a scheduled push as sent so later ticks skip it, and clears
+// the CONTENT in the same UPDATE so fired Telegram plaintext (med name + dose in
+// tg_text) and the NK ciphertext don't accumulate at rest (bd med-yor.13).
+//
+// tg_callback and tg_med_ids deliberately SURVIVE the send: they are the tap's
+// addressing, not its content — the callback is the slot instant already stored
+// in fire_at_unix, and the med ids are opaque numbers. A Confirm tapped on
+// yesterday evening's message this morning is answered from this sent row
+// (MedIDsForCallback), long after the re-fire chain ended; without them that tap
+// would resolve to nothing (med-kbpf). ScrubSentPushIdentity drops them once
+// they are too old to be tapped. ct/tg_text are NOT NULL, so they clear to empty
+// rather than SQL NULL.
 func (r *Repo) MarkPushSent(ctx context.Context, id int64, sentAt time.Time) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE scheduled_pushes SET sent_at_unix = ?, ct = X'', tg_text = '', tg_callback = '', tg_med_ids = '' WHERE id = ?`,
+		`UPDATE scheduled_pushes SET sent_at_unix = ?, ct = X'', tg_text = '' WHERE id = ?`,
 		storedb.TimeToUnix(sentAt), id)
 	return err
+}
+
+// ScrubSentPushIdentity drops the tap addressing (tg_callback/tg_med_ids) from
+// rows sent before `before` — the hourly sweep's retention pass for what
+// MarkPushSent leaves behind. Returns rows affected.
+func (r *Repo) ScrubSentPushIdentity(ctx context.Context, before time.Time) (int64, error) {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE scheduled_pushes SET tg_callback = '', tg_med_ids = '' WHERE sent_at_unix IS NOT NULL AND sent_at_unix < ?`,
+		storedb.TimeToUnix(before))
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // InsertRelayRefire schedules one relay-owned Telegram re-fire (med-eas.70): a
@@ -292,11 +310,11 @@ func (r *Repo) RescheduleRelayRefire(ctx context.Context, accountID string, fire
 }
 
 // MedIDsForCallback returns the comma-separated medication ids stored on the most
-// recent live row for (accountID, tgCallback) — the reminder the user is tapping.
-// The live row is the pending re-fire the relay armed right after the send:
-// MarkPushSent clears tg_text/tg_callback/tg_med_ids on the row it just fired, so a
-// sent row is never a match. Empty string (no error) when nothing is on file, which
-// is what a tap past the re-fire window looks like (med-kbpf).
+// recent row for (accountID, tgCallback) — the reminder the user is tapping. That
+// is the pending re-fire the relay armed after the send while the chain is alive,
+// and the sent row itself once it has ended: MarkPushSent keeps the addressing,
+// and ScrubSentPushIdentity only drops it past the retention window. Empty string
+// (no error) when nothing is on file (med-kbpf).
 func (r *Repo) MedIDsForCallback(ctx context.Context, accountID, tgCallback string) (string, error) {
 	var ids string
 	err := r.db.QueryRowContext(ctx,

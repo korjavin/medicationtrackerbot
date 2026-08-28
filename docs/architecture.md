@@ -210,8 +210,12 @@ So (bd med-kbpf):
   a named med is still due afterwards. An in-app confirm, which produces no
   tap, still cancels via `POST /api/telegram/cancel-refire`.
 
-A tap with no ids (a reminder pushed before this shipped, or one older than the
-chain) applies nothing and says so, rather than guessing from a time band.
+The sent row keeps the callback stem and the ids (only `ct`/`tg_text` are
+scrubbed on send), so a tap resolves for 48h after the last send —
+`ScrubSentPushIdentity`, run by the relay's hourly sweep, expires them at the
+same window the retired `slotmeds` records used. A tap with no ids (a reminder
+pushed before this shipped, or one older than that window) applies nothing and
+says so, rather than guessing from a time band.
 
 **Subscription eviction** is reconciled on every boot: `ensurePushSubscription()`
 demands a live `pushManager.getSubscription()` and re-subscribes if it is gone,
