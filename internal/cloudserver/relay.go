@@ -232,8 +232,12 @@ func (rl *Relay) Tick(ctx context.Context) {
 			rl.sendWebPush(ctx, p, subsByAccount, keysByAccount)
 		}
 
+		var (
+			tgMessageID int64
+			tgSent      bool
+		)
 		if delivery == cloudstore.DeliveryTelegram || delivery == cloudstore.DeliveryBoth {
-			rl.sendTelegram(ctx, p)
+			tgMessageID, tgSent = rl.sendTelegram(ctx, p)
 		}
 
 		// Mark sent whatever happened on either channel: delivery is
@@ -241,8 +245,28 @@ func (rl *Relay) Tick(ctx context.Context) {
 		// lookup error would re-send its Telegram half, and a permanently
 		// unlinked chat or revoked token would re-fire forever. A DB outage
 		// fails MarkPushSent too, so the row is naturally retried then.
+		marked := true
 		if err := rl.store.MarkPushSent(ctx, p.ID, time.Now().UTC()); err != nil {
 			slog.Error("push relay: mark sent", "id", p.ID, "error", err)
+			marked = false
+		}
+
+		// Chain the next re-fire only AFTER p is marked sent.
+		// RescheduleRelayRefire deletes every *pending* row for this callback,
+		// so chaining first deleted p itself (still pending), and the
+		// MarkPushSent above then updated a gone row: delivery was unaffected
+		// but sent re-fires vanished from scheduled_pushes, leaving no audit
+		// trail (med-ls3i). If the mark failed, p is still pending for the next
+		// tick's retry — chaining would delete that retry instead.
+		//
+		// ponytail: the two writes are not one transaction, so a crash in the
+		// gap ends that slot's hourly nag (the reminder itself already sent,
+		// and the client's next ReplaceSchedule repopulates client-origin
+		// rows). Upgrade path if that ever bites: a store method that marks
+		// sent and inserts the successor inside RescheduleRelayRefire's
+		// existing tx.
+		if tgSent && marked {
+			rl.scheduleMedRefire(ctx, p, tgMessageID)
 		}
 	}
 }
@@ -290,16 +314,17 @@ func (rl *Relay) sendWebPush(
 // sendTelegram forwards p.TGText to the account's linked bot. Every failure is
 // logged and swallowed: the caller still marks the row sent, so a revoked token
 // or an account that never tapped /start cannot re-fire the same reminder on
-// every tick forever.
-func (rl *Relay) sendTelegram(ctx context.Context, p cloudstore.ScheduledPush) {
+// every tick forever. Returns the new TG message id and whether the send
+// succeeded, so the caller can chain the next re-fire after marking p sent.
+func (rl *Relay) sendTelegram(ctx context.Context, p cloudstore.ScheduledPush) (int64, bool) {
 	if rl.tg == nil {
 		slog.Warn("push relay: telegram entry but no telegram sender configured", "accountID", p.AccountID)
-		return
+		return 0, false
 	}
 	newID, err := rl.tg.SendReminder(ctx, p.AccountID, p.TGText, p.TGCallback)
 	if err != nil {
 		slog.Error("push relay: telegram send", "accountID", p.AccountID, "error", err)
-		return
+		return 0, false
 	}
 	// Best-effort: delete the prior message in this chain so exactly one live
 	// reminder remains. A failed delete (already gone / >48h old) never aborts.
@@ -308,7 +333,7 @@ func (rl *Relay) sendTelegram(ctx context.Context, p cloudstore.ScheduledPush) {
 			slog.Warn("push relay: delete superseded reminder", "accountID", p.AccountID, "error", err)
 		}
 	}
-	rl.scheduleMedRefire(ctx, p, newID)
+	return newID, true
 }
 
 // scheduleMedRefire chains the next re-fire of an unconfirmed med reminder. When
