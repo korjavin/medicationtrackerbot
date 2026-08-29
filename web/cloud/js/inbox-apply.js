@@ -34,7 +34,7 @@ import { parseCommand } from '../../domain/tgcommand.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
 import { createApiRouter } from './apishim.js';
-import { cancelMedRefire } from './reminders.js';
+import { cancelMedRefire, rearmMedRefire } from './reminders.js';
 import { createDispatcher } from './mcp-responder.js';
 import { createTGAgent } from './tg-agent.js';
 import { recordsPort, ORIGIN_EXTERNAL } from './sync.js';
@@ -154,25 +154,6 @@ function truncateRunes(s, n) {
 const INTAKE_RECORD_TYPE = 'intake';
 const MEDICATION_RECORD_TYPE = 'medication';
 
-// LEGACY-ONLY drift band. Every reminder pushed since bd med-eas.65 records the
-// meds it named in the vault (reminders.js recordSlotMedications), and the
-// identity path below resolves the tap from that — no time band involved. This
-// constant survives for the taps identity cannot serve, and only those:
-//
-//   • a reminder pushed before that shipped, still sitting in the user's chat;
-//   • a tap on a message older than SLOTMEDS_RETAIN_MS (48h).
-//
-// For those the callback carries only the slot (callback_data is 64-byte
-// limited; med IDs cannot be embedded), so drift and a genuinely different dose
-// are indistinguishable by time alone. The value is the deterministic
-// dose-clustering window (CLUSTER_WINDOW_MS = 10min, medintake.js), because
-// triggerNext/confirmSchedule store a clustered dose's scheduled_at at
-// clusterEarliestMs — up to 10min before its own slot. A different dose is ≥ the
-// med's minDoseInterval (hours) away, far outside 10min, so this band can NEVER
-// confirm a dose the user didn't take. A larger drift falls OUT of it: that dose
-// stays PENDING and is re-reminded — a safe false-negative, chosen over a
-// false-positive (recording a med as taken when it wasn't is worse for meds).
-const SLOT_DRIFT_BAND_MS = 10 * 60 * 1000; // = CLUSTER_WINDOW_MS (medintake.js)
 
 // Mirrors DEFAULT_SNOOZE_MINUTES in web/domain/medintake.js (and the server's
 // own default). Not imported because that module does not export it.
@@ -196,10 +177,9 @@ function isAlreadyApplied(err) {
 // within `bandMs`. Nearest-wins guards the rare case where both an on-slot and a
 // drifted intake of the same med sit inside the band — we act on one, not both.
 //
-// ponytail: known false-positive ceiling. The reminder's med IDENTITY is
-// carried (med-eas.65), but not the exact dose INSTANT it named — the stored
-// intake's scheduled_at is re-derived and drifts, which is the whole reason
-// identity is what gets carried. So if the exact on-slot dose was already handled via
+// ponytail: known false-positive ceiling, and only reachable now as the FALLBACK
+// after the exact `intake-<medId>-<slotUnix>` lookup misses — i.e. the stored
+// intake's scheduled_at drifted off the instant the reminder was built from. So if the exact on-slot dose was already handled via
 // another channel AND a *different* dose of this same multi-daily med drifted
 // into `bandMs`, we confirm that other instant. The two cases are
 // indistinguishable here, so this is accepted rather than fixed. Requires a
@@ -212,51 +192,42 @@ function nearestPendingByMed(intakes, medId, slotMs, bandMs) {
   let best = null;
   let bestDelta = Infinity;
   for (const i of intakes) {
-    if (i.deleted || i.status !== 'PENDING' || i.medication_id !== medId) continue;
+    if (i.deleted || i.status !== 'PENDING' || String(i.medication_id) !== String(medId)) continue;
     const delta = Math.abs(Date.parse(i.scheduled_at) - slotMs);
     if (delta <= bandMs && delta < bestDelta) { best = i; bestDelta = delta; }
   }
   return best;
 }
 
-// getSlotMedicationsSafe reads the push-time slot→medIds map out of the vault,
-// but a Confirm drain must never fail on a read that doesn't come back: any
-// throw is treated as "no map" so the ±band fallback takes over — the
-// load-bearing medication-safety guard. Silent: a mapless slot (a legacy
-// reminder, a tap older than the retention window) is the EXPECTED fallback,
-// not an error to log on every such tap.
-async function getSlotMedicationsSafe(getSlotMeds, slotUnix) {
-  try {
-    return await getSlotMeds(slotUnix);
-  } catch {
-    return null;
-  }
-}
-
 // applyIntakeSlotAction confirms (or snoozes) the meds a slot reminder named.
 //
-// It resolves the slot to intakes by IDENTITY when the push-time slot→medIds map
-// is present (getSlotMeds — by default the vault record every pushSchedule
-// writes, so it is there on EVERY unlocked device, not just the one that pushed):
-// for each NAMED med it acts on that med's nearest PENDING dose within the med's
-// OWN minDoseInterval of the slot. Scoping the wider interval to the reminder's
-// own named meds is what makes it safe — we only ever touch a dose the reminder
-// explicitly told the user about, so no false positive, even when a course/
-// tz-plan dose drifted HOURS off its clock slot (bd med-eas.67, med-eas.65).
-// With no stored map (a reminder pushed before that shipped, or one older than
-// the retention window) it falls back to the fixed ±SLOT_DRIFT_BAND_MS match.
+// Identity rides on the EVENT (med-kbpf): the relay stores the medication ids
+// the client uploaded with the reminder row and seals them into the tap, so this
+// no longer reconstructs "which meds did that message name" from a vault
+// side-table (the deleted `slotmeds` records — every reconstruction failure used
+// to mean 6h of hourly nags for doses already taken).
+//
+// Per named med it picks, in order:
+//   1. the deterministic `intake-<medId>-<slotUnix>` row — the exact id
+//      materializeDueDoses writes for the very instant the reminder was built
+//      from, so the common case is an exact lookup;
+//   2. otherwise that med's nearest PENDING dose within its OWN
+//      minDoseInterval — the drift fallback for a course/tz-plan dose whose
+//      scheduled_at moved hours off its clock slot (bd med-eas.67).
 //
 // atUnix is the SERVER's timestamp for the tap, so a Confirm tapped at 09:00
 // records taken_at 09:00 even when the app first opens at noon — the backdating
 // rule (docs/cloud-mode.md → drain protocol, rule 4).
-// cancelRefire is injected by createInboxApplier (the only production caller),
-// which passes the real cancelMedRefire. It defaults to a no-op rather than to
-// cancelMedRefire so a direct call — every test in this module's suite — never
-// reaches for an ambient fetch.
-export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, getSlotMeds, cancelRefire = () => {} }) {
-  const slotMeds = getSlotMeds
-    || ((slotUnix) => createRemindersDomain({ records, now }).getSlotMedications(slotUnix));
-  const slotMs = event.slot_unix * 1000;
+//
+// rearmRefire is injected by createInboxApplier (the only production caller),
+// which passes the real rearmMedRefire. It defaults to a no-op rather than to
+// rearmMedRefire so a direct call — every test in this module's suite — never
+// reaches for an ambient fetch. There is no cancel here any more: the relay
+// cancels the chain the instant the Confirm is tapped, and this only puts ONE
+// re-fire back when a named dose is somehow still due afterwards.
+export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, rearmRefire = () => {}, cancelRefire = () => {} }) {
+  const slotUnix = event.slot_unix;
+  const slotMs = slotUnix * 1000;
   const atMs = event.at_unix * 1000;
   // confirm() backdates taken_at to atMs deterministically, so this instant is
   // stable across an at-least-once redelivery of the same tap. Used both to skip
@@ -269,48 +240,65 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   await intake.materializeDueDoses();
 
   const intakes = await records.list(INTAKE_RECORD_TYPE);
-  const medicationIds = await getSlotMedicationsSafe(slotMeds, event.slot_unix);
+  // Compared as strings throughout: the relay round-trips the ids through a
+  // decimal column, so a numeric recordId comes back as a number while an
+  // imported vault could hold it as a string. One normalisation, no coercion.
+  const named = (Array.isArray(event.medication_ids) ? event.medication_ids : [])
+    .filter((id) => id !== null && id !== undefined && id !== '');
+
+  // No identity: a reminder pushed by a pre-med-kbpf client, or a tap on a
+  // message so old the relay's chain (and with it the row that named the meds)
+  // is gone. Apply NOTHING rather than guess a band-wide set — the tap already
+  // stopped the nagging server-side, so the cost is "confirm it in the app",
+  // not six overnight nags. Still answer the message so the user is not left
+  // looking at a spinner-less "Confirmed" that recorded nothing.
+  if (!named.length) {
+    console.warn('[inbox] intake slot tap carries no medication identity, nothing applied', slotUnix);
+    try {
+      await editReply(event.message_id, confirmationText({ kind: 'intake' }, { confirmed: 0 }, verbosity));
+    } catch (e) {
+      console.warn('[inbox] could not update the Telegram reply', e);
+    }
+    return;
+  }
 
   // medById + each med's own drift band (minDoseInterval) are needed by the
-  // identity selection, the receipt count and the re-fire cancel — all three
-  // only on the identity path — so build them once, there.
+  // selection, the receipt count and the still-due check — build them once.
   const medById = new Map();
-  if (medicationIds) {
-    for (const m of await records.list(MEDICATION_RECORD_TYPE)) medById.set(m.recordId, m);
-  }
+  for (const m of await records.list(MEDICATION_RECORD_TYPE)) medById.set(String(m.recordId), m);
   const medBandMs = (medId) => {
-    const med = medById.get(medId);
+    const med = medById.get(String(medId));
     return med ? minDoseIntervalMs(med.schedule, med.tz_shift_policy) : 0;
   };
+  // A med's dose for THIS slot: the deterministic `intake-<medId>-<slotUnix>`
+  // row materializeDueDoses writes for the very instant the reminder was built
+  // from (medintake.js's slotId, not exported), else its nearest PENDING dose
+  // within its own band. `list` is passed in because the still-due check below
+  // must see the writes this tap just made.
+  const findPending = (list, medId) => {
+    const exact = list.find((i) => i.recordId === `intake-${medId}-${slotUnix}` && !i.deleted);
+    if (exact && exact.status === 'PENDING') return exact;
+    return nearestPendingByMed(list, medId, slotMs, medBandMs(medId));
+  };
 
-  // atSlot: the PENDING intakes this tap acts on.
-  //   identity — one per NAMED med, its nearest due dose within that med's band.
-  //   fallback — every PENDING intake within the fixed ±SLOT_DRIFT_BAND_MS (why a
-  //   fixed band and not the per-med interval when the med set is unknown:
-  //   see SLOT_DRIFT_BAND_MS).
-  let atSlot;
-  if (medicationIds) {
-    atSlot = [];
-    for (const medId of medicationIds) {
-      const band = medBandMs(medId);
-      // A prior redelivery of THIS tap may have already confirmed this med's dose
-      // (deferred flush failed → inbox re-queues the event). Its taken_at is atMs
-      // exactly, so a TAKEN intake at atMs within band means this tap is done with
-      // this med — skip it instead of picking its NEXT nearest PENDING dose, which
-      // on a multi-daily med with a drifted in-band dose would confirm a second
-      // instant the user never took. Only the same-tap case is closable here (atMs
-      // is deterministic across redeliveries); a genuinely separate confirm at
-      // another instant stays the documented ceiling in nearestPendingByMed.
-      const doneThisTap = intakes.some((i) => !i.deleted && i.status === 'TAKEN'
-        && i.medication_id === medId && i.taken_at === atIso
-        && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= band);
-      if (doneThisTap) continue;
-      const hit = nearestPendingByMed(intakes, medId, slotMs, band);
-      if (hit) atSlot.push(hit);
-    }
-  } else {
-    atSlot = intakes.filter((i) => !i.deleted && i.status === 'PENDING'
-      && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= SLOT_DRIFT_BAND_MS);
+  // atSlot: the PENDING intakes this tap acts on — one per NAMED med.
+  const atSlot = [];
+  for (const medId of named) {
+    // A prior redelivery of THIS tap may have already confirmed this med's dose
+    // (deferred flush failed → inbox re-queues the event). Its taken_at is atMs
+    // exactly, so a TAKEN intake at atMs within band means this tap is done with
+    // this med — skip it instead of picking its NEXT nearest PENDING dose, which
+    // on a multi-daily med with a drifted in-band dose would confirm a second
+    // instant the user never took. Only the same-tap case is closable here (atMs
+    // is deterministic across redeliveries); a genuinely separate confirm at
+    // another instant stays the documented ceiling in nearestPendingByMed.
+    const band = medBandMs(medId);
+    const doneThisTap = intakes.some((i) => !i.deleted && i.status === 'TAKEN'
+      && String(i.medication_id) === String(medId) && i.taken_at === atIso
+      && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= band);
+    if (doneThisTap) continue;
+    const hit = findPending(intakes, medId);
+    if (hit) atSlot.push(hit);
   }
 
   let applied = 0;
@@ -332,35 +320,24 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
     }
   }
 
-  // Stop the relay's server-owned re-fire chain for this slot — but only once
-  // NOTHING this reminder covered is left due (bd med-fml). The tap carries no
-  // medication identity, so the SERVER cannot make this call for us: every med
-  // the slot→medIds map did not name, and every named med with no PENDING dose
-  // in band, was silently skipped above, and a slot-wide cancel would leave
-  // those doses PENDING *and* permanently silent. Same rule as the in-app
-  // confirm path (apishim.js, med-eas.74). Snooze never cancels — the relay
-  // just rescheduled the chain +1h, which is the point of the tap.
+  // The relay already cancelled this slot's re-fire chain when the button was
+  // tapped (med-kbpf). Put ONE re-fire back only if a med the message NAMED is
+  // still due after all of the above — the drifted dose that fell outside its
+  // band, which would otherwise be silent. Snooze never re-arms: the relay
+  // rescheduled the chain +1h itself, which is the point of the tap.
   //
-  // "Covered by this reminder" is deliberately narrower than the identity
-  // selection above, or a later dose of an unrelated med would keep the chain
-  // alive forever: an 08:00 confirm must not be blocked by a 20:00 dose that
-  // has its own reminder, even though 12h sits inside a daily med's 14.4h band.
-  if (event.action === 'confirm' && medicationIds) {
-    const named = new Set(medicationIds);
-    const stillDue = (await records.list(INTAKE_RECORD_TYPE)).some((i) => {
-      if (i.deleted || i.status !== 'PENDING') return false;
-      const delta = Math.abs(Date.parse(i.scheduled_at) - slotMs);
-      // On-slot, named or not: this message told the user about that instant.
-      // Plus a NAMED med's drifted dose, which the message named by identity.
-      return delta <= SLOT_DRIFT_BAND_MS
-        || (named.has(i.medication_id) && delta <= medBandMs(i.medication_id));
-    });
-    if (!stillDue) cancelRefire(slotMs);
+  // When nothing is left due, cancel AGAIN from here. The tap-time cancel is
+  // primary, but a tap that lands in the gap between the relay sending a
+  // message and inserting its successor row finds nothing to cancel, and the
+  // successor then carries the chain on. This idempotent backstop closes that
+  // gap at drain latency. ponytail: a durable "confirmed" marker on the stem
+  // would close it at tap time; add if the gap is ever hit in practice.
+  if (event.action === 'confirm') {
+    const after = await records.list(INTAKE_RECORD_TYPE);
+    const stillDue = named.filter((medId) => !!findPending(after, medId));
+    if (stillDue.length) rearmRefire(slotMs, stillDue);
+    else cancelRefire(slotMs);
   }
-  // No map (a legacy reminder, or one older than the retention window): we
-  // cannot tell which doses this message covered, so we never cancel. The chain
-  // expires on its own at the relay's 6h cap — the pre-med-eas.74 behavior, and
-  // strictly better than silencing a dose that drifted out of the ±band.
 
   // Edit the original reminder message to a receipt and drop its buttons (the
   // edit sends no reply_markup — bug 1). Only when we actually applied something:
@@ -383,21 +360,15 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
       // "Confirmed 4" vs 3-taken mismatch. Fallback: band-matched rows, unchanged.
       const taken = (await records.list(INTAKE_RECORD_TYPE)).filter((i) =>
         !i.deleted && i.status === 'TAKEN' && i.taken_at === atIso);
-      let confirmed;
-      if (medicationIds) {
-        const named = new Set(medicationIds);
-        const distinct = new Set();
-        for (const i of taken) {
-          if (named.has(i.medication_id)
-            && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= medBandMs(i.medication_id)) {
-            distinct.add(i.medication_id);
-          }
+      const namedSet = new Set(named.map(String));
+      const distinct = new Set();
+      for (const i of taken) {
+        const medId = String(i.medication_id);
+        if (namedSet.has(medId) && Math.abs(Date.parse(i.scheduled_at) - slotMs) <= medBandMs(medId)) {
+          distinct.add(medId);
         }
-        confirmed = distinct.size;
-      } else {
-        confirmed = taken.filter((i) =>
-          Math.abs(Date.parse(i.scheduled_at) - slotMs) <= SLOT_DRIFT_BAND_MS).length;
       }
+      const confirmed = distinct.size;
       text = confirmationText({ kind: 'intake' }, { confirmed }, verbosity);
     } else {
       text = verbosity === 'generic' ? '⏰ Snoozed.' : '⏰ Snoozed — will remind you again shortly.';
@@ -854,7 +825,7 @@ async function confirmDueIntakes({ intake, records, atMs, now }) {
 // decrypted event in, a domain write out. Unknown kinds are ignored rather than
 // thrown — a newer relay may queue kinds this client predates, and stalling the
 // whole drain on one of them would block the events it does understand.
-export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, cancelRefire = cancelMedRefire, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride, history: historyOverride } = {}) {
+export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, rearmRefire = rearmMedRefire, cancelRefire = cancelMedRefire, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride, history: historyOverride } = {}) {
   // A Telegram-drained /bp must repaint an open BP screen (med-d5t.10), so this
   // is explicitly external even though that is already the default. deferFlush:
   // an applied event's writes only queue to 'pending'; drainInbox pushes them
@@ -991,6 +962,6 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     // verbosity only affects the cosmetic receipt text — never gate the confirm
     // data-write on this read: a rejected pref read falls back to generic.
     const { verbosity } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic' }));
-    await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply, cancelRefire });
+    await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply, rearmRefire, cancelRefire });
   };
 }

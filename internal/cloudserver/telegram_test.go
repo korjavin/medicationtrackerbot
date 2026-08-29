@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 	"io"
 	"log/slog"
 	"net/http"
@@ -1073,6 +1074,7 @@ func TestChildWebhookRace(t *testing.T) {
 
 type tapFixture struct {
 	store     *cloudstore.Repo
+	db        *storedb.DB
 	accountID string
 	top       *http.ServeMux
 	childPath string
@@ -1084,7 +1086,7 @@ type tapFixture struct {
 // is linked — the state a Confirm/Snooze tap arrives in.
 func linkedBotTap(t *testing.T, tg *recordingTG) tapFixture {
 	t.Helper()
-	store := setupStore(t)
+	store, db := setupStoreWithDB(t)
 	account, claimToken := setupInvite(t, store)
 	host := account.Subdomain + ".localhost"
 
@@ -1133,7 +1135,7 @@ func linkedBotTap(t *testing.T, tg *recordingTG) tapFixture {
 	tg.mu.answered = nil
 	tg.mu.Unlock()
 
-	return tapFixture{store: store, accountID: account.ID, top: top, childPath: childPath, secret: bot.WebhookSecret, api: tgAPI}
+	return tapFixture{store: store, db: db, accountID: account.ID, top: top, childPath: childPath, secret: bot.WebhookSecret, api: tgAPI}
 }
 
 func callbackUpdate(data string, chatID int64) string {
@@ -1327,6 +1329,11 @@ func TestChildWebhook_MedSnoozeSchedulesRelayRefire(t *testing.T) {
 	publishInboxKey(t, f.store, f.accountID)
 
 	before := time.Now().UTC()
+	// The live chain (the re-fire the relay armed after the send) is where the tap
+	// reads the reminder's med identity from.
+	if err := f.store.RescheduleRelayRefire(t.Context(), f.accountID, before.Add(time.Hour), "Time to take (2)", "s:1767225600", "2,9", 0); err != nil {
+		t.Fatalf("seed pending re-fire: %v", err)
+	}
 	rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:snooze", 12345))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
@@ -1349,6 +1356,10 @@ func TestChildWebhook_MedSnoozeSchedulesRelayRefire(t *testing.T) {
 	}
 	if rf.Delivery != cloudstore.DeliveryTelegram {
 		t.Errorf("re-fire delivery = %q, want telegram", rf.Delivery)
+	}
+	// med-kbpf: the snooze re-fire keeps the identity, so a Confirm on it resolves.
+	if rf.TGMedIDs != "2,9" {
+		t.Errorf("re-fire tg_med_ids = %q, want \"2,9\" carried from the live chain", rf.TGMedIDs)
 	}
 	if len(rf.CT) != 0 {
 		t.Errorf("re-fire must carry no ciphertext (relay stays blind), got %d bytes", len(rf.CT))
@@ -1375,14 +1386,13 @@ func TestChildWebhook_MedSnoozeSchedulesRelayRefire(t *testing.T) {
 	}
 }
 
-// med-fml: a med Confirm tap must NOT cancel the slot's relay-owned re-fire
-// chain. The callback carries only the slot, no medication identity, so the
-// server cannot know which meds the client will actually confirm on drain — a
-// partial confirm would otherwise leave the remaining doses PENDING *and*
-// permanently silent. The client cancels instead (via POST
-// /api/telegram/cancel-refire, TestCancelRefire) once nothing is left due.
-// The tapped message is still rewritten immediately so the buttons go away.
-func TestChildWebhook_MedConfirmLeavesRelayRefireForTheClientToCancel(t *testing.T) {
+// med-kbpf: a med Confirm tap cancels the slot's relay-owned re-fire chain right
+// there. The tap is the user's explicit statement and the sealed event now names
+// the meds, so the drain no longer has to prove a negative before the nagging
+// stops; it re-arms one re-fire (POST /api/telegram/rearm-refire) in the rare
+// case a named dose is still PENDING after it applies. The tapped message is
+// still rewritten immediately so the buttons go away.
+func TestChildWebhook_MedConfirmCancelsRelayRefire(t *testing.T) {
 	tg := newRecordingTG(t)
 	f := linkedBotTap(t, tg)
 	publishInboxKey(t, f.store, f.accountID)
@@ -1401,8 +1411,8 @@ func TestChildWebhook_MedConfirmLeavesRelayRefireForTheClientToCancel(t *testing
 	if err != nil {
 		t.Fatalf("DueScheduledPushes: %v", err)
 	}
-	if len(due) != 1 || due[0].TGCallback != "s:1767225600" {
-		t.Fatalf("confirm left %d pending re-fires (%+v), want the slot chain intact", len(due), due)
+	if len(due) != 0 {
+		t.Fatalf("confirm left %d pending re-fires (%+v), want the chain cancelled at tap", len(due), due)
 	}
 
 	// The tap is still acked and the buttons still cleared on the spot.
@@ -2827,5 +2837,156 @@ func TestManagerWebhookOversizedBodyRejected(t *testing.T) {
 	rec := postWebhook(t, top, "/tg/manager/"+managerSecret, managerSecret, body)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("oversized manager webhook body = %d, want 400", rec.Code)
+	}
+}
+
+// med-kbpf: the sealed tap event carries the medication identity the reminder
+// row was uploaded with, so the drain confirms exactly the doses the message
+// named — no vault side-table, no time-band guessing. When nothing is on file
+// for the stem (a tap long past the re-fire chain) the event simply has no ids
+// and the drain says so rather than guessing.
+func TestChildWebhook_MedTapSealsMedicationIdentity(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	privRaw := publishInboxKey(t, f.store, f.accountID)
+
+	if err := f.store.RescheduleRelayRefire(t.Context(), f.accountID, time.Now().UTC().Add(time.Hour), "Time to take (2)", "s:1767225600", "2,9", 0); err != nil {
+		t.Fatalf("seed pending re-fire: %v", err)
+	}
+	if rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:confirm", 12345)); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+
+	events, err := f.store.ListInboxEvents(t.Context(), f.accountID, 10)
+	if err != nil {
+		t.Fatalf("ListInboxEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("queued %d events, want 1", len(events))
+	}
+	opened, err := openInbox(privRaw, f.accountID, events[0].CT)
+	if err != nil {
+		t.Fatalf("openInbox: %v", err)
+	}
+	var got intakeSlotEvent
+	if err := json.Unmarshal(opened, &got); err != nil {
+		t.Fatalf("unmarshal sealed event: %v", err)
+	}
+	if len(got.MedicationIDs) != 2 || got.MedicationIDs[0] != 2 || got.MedicationIDs[1] != 9 {
+		t.Fatalf("sealed medication_ids = %v, want [2 9]", got.MedicationIDs)
+	}
+
+	// A slot the relay has no live row for seals no identity.
+	if rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767311999:confirm", 12345)); rec.Code != http.StatusOK {
+		t.Fatalf("status (unknown slot) = %d", rec.Code)
+	}
+	events, err = f.store.ListInboxEvents(t.Context(), f.accountID, 10)
+	if err != nil {
+		t.Fatalf("ListInboxEvents (unknown slot): %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("queued %d events, want 2", len(events))
+	}
+	opened, err = openInbox(privRaw, f.accountID, events[1].CT)
+	if err != nil {
+		t.Fatalf("openInbox (unknown slot): %v", err)
+	}
+	var unknown intakeSlotEvent
+	if err := json.Unmarshal(opened, &unknown); err != nil {
+		t.Fatalf("unmarshal sealed event (unknown slot): %v", err)
+	}
+	if len(unknown.MedicationIDs) != 0 {
+		t.Fatalf("sealed medication_ids = %v, want none for a slot with no live row", unknown.MedicationIDs)
+	}
+}
+
+// med-kbpf: the rearm-refire endpoint turns the chain back on for the one case
+// the Confirm tap's server-side cancel gets wrong — a named dose the drain found
+// still PENDING after applying the tap. It re-files the slot with the identity
+// the client hands back (so a tap on the re-fired message still resolves), uses
+// the generic server text, no-ops past the 6h cap, and rejects anything that is
+// not a med slot.
+func TestRearmRefire(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
+	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", "", "", 14*24*time.Hour)
+	apiMux := http.NewServeMux()
+	webauthnAPI.RegisterRoutes(apiMux)
+	tgAPI.RegisterAPIRoutes(apiMux)
+	router := New("localhost", store, testFS(), testAppFS(), testDomainFS(), apiMux, "", false, false)
+
+	session := registerAndGetSession(t, router, host, claimToken)
+	now := time.Now().UTC()
+	fresh := fmt.Sprintf("s:%d", now.Add(-30*time.Minute).Unix())
+
+	body := fmt.Sprintf(`{"callback":%q,"med_ids":"2,9"}`, fresh)
+	if rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, session, []byte(body)); rec.Code != http.StatusNoContent {
+		t.Fatalf("rearm status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	due, err := store.DueScheduledPushes(t.Context(), now.Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes: %v", err)
+	}
+	if len(due) != 1 || due[0].TGCallback != fresh || due[0].TGMedIDs != "2,9" || due[0].TGText != medRefireText {
+		t.Fatalf("re-armed row = %+v, want one %q row carrying 2,9 and the generic text", due, fresh)
+	}
+	if d := due[0].FireAt.Sub(now); d < 55*time.Minute || d > 65*time.Minute {
+		t.Errorf("re-arm fires in %v, want ~1h", d)
+	}
+
+	// Past the 6h cap the chain is over: a no-op, not a fresh nag.
+	stale := fmt.Sprintf("s:%d", now.Add(-7*time.Hour).Unix())
+	if rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, session, []byte(fmt.Sprintf(`{"callback":%q}`, stale))); rec.Code != http.StatusNoContent {
+		t.Fatalf("stale rearm status = %d", rec.Code)
+	}
+	due, err = store.DueScheduledPushes(t.Context(), now.Add(3*time.Hour))
+	if err != nil {
+		t.Fatalf("DueScheduledPushes (after stale rearm): %v", err)
+	}
+	if len(due) != 1 {
+		t.Fatalf("stale rearm queued %d rows, want the original 1", len(due))
+	}
+
+	for _, bad := range []string{`{"callback":"w:6:20260720"}`, `{"callback":"s:abc"}`, `{"callback":""}`, `{"callback":"s:1767225600","med_ids":"2,abc"}`, `not json`} {
+		if r := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, session, []byte(bad)); r.Code != http.StatusBadRequest {
+			t.Errorf("rearm %q = %d, want 400", bad, r.Code)
+		}
+	}
+	if r := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, nil, []byte(`{"callback":"s:1"}`)); r.Code != http.StatusUnauthorized {
+		t.Errorf("unauthenticated rearm = %d, want 401", r.Code)
+	}
+}
+
+// A store error on the identity lookup must not be conflated with "no row":
+// the tap is refused (buttons stay, user re-taps) rather than sealed id-less and
+// the chain cancelled (codex review, 2026-08-29).
+func TestChildWebhook_MedTapRefusedWhenIdentityLookupFails(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	if _, err := f.db.ExecContext(t.Context(), `DROP TABLE scheduled_pushes`); err != nil {
+		t.Fatalf("drop scheduled_pushes: %v", err)
+	}
+	if rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:confirm", 12345)); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	events, err := f.store.ListInboxEvents(t.Context(), f.accountID, 10)
+	if err != nil {
+		t.Fatalf("ListInboxEvents: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("queued %d events, want none when identity could not be loaded", len(events))
+	}
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.answered) != 1 || !strings.Contains(tg.mu.answered[0], "please tap again") {
+		t.Fatalf("answered = %v, want one retry ack", tg.mu.answered)
+	}
+	if len(tg.mu.edits) != 0 {
+		t.Fatalf("edits = %v, want the buttons left in place for a re-tap", tg.mu.edits)
 	}
 }

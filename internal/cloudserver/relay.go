@@ -35,6 +35,13 @@ const (
 	defaultDryQueueWarnWithin = 120 * time.Hour
 )
 
+// sentIdentityRetention is how long a SENT reminder row keeps the addressing a
+// tap resolves against (tg_callback/tg_med_ids — see MarkPushSent). Same 48h the
+// retired slotmeds records used, for the same reason: tapping Confirm on
+// yesterday evening's message this morning must still name its meds, long after
+// the 6h re-fire chain ended (med-kbpf).
+const sentIdentityRetention = 48 * time.Hour
+
 // staleSyncWarningPayload is the server-composed, content-free push body
 // (Task 7): a literal constant, never derived from account data, sent
 // outside the NK app-layer encryption path. web/cloud/sw.js recognizes
@@ -148,7 +155,8 @@ type relayStore interface {
 	AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, warnCooldown time.Duration) ([]string, error)
 	MarkStaleSyncWarned(ctx context.Context, accountID string, now time.Time) error
 	AccountVAPIDKeysByID(ctx context.Context, accountID string) (cloudstore.AccountVAPIDKeys, error)
-	RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback string, supersedesMessageID int64) error
+	RescheduleRelayRefire(ctx context.Context, accountID string, fireAt time.Time, tgText, tgCallback, tgMedIDs string, supersedesMessageID int64) error
+	ScrubSentPushIdentity(ctx context.Context, before time.Time) (int64, error)
 }
 
 // Relay is the blind push-firing loop: it never decrypts or composes a
@@ -342,7 +350,9 @@ func (rl *Relay) sendTelegram(ctx context.Context, p cloudstore.ScheduledPush) (
 // now+1h; a Confirm/Snooze tap (which cancels/reschedules the same callback key)
 // or crossing the window ends the chain. Both the primary send and each
 // relay_refire flow through here, so the hourly nag perpetuates without a
-// counter. Zero-knowledge: it copies only the already-cleartext tg_text/callback.
+// counter. Zero-knowledge: it copies only the already-cleartext
+// tg_text/callback/med-ids — the identity travels the whole chain so the LAST
+// re-fire is as tappable as the first (med-kbpf).
 func (rl *Relay) scheduleMedRefire(ctx context.Context, p cloudstore.ScheduledPush, supersedesMessageID int64) {
 	rest, ok := strings.CutPrefix(p.TGCallback, tgclient.CallbackSlotPrefix)
 	if !ok {
@@ -356,7 +366,7 @@ func (rl *Relay) scheduleMedRefire(ctx context.Context, p cloudstore.ScheduledPu
 	if now.Sub(time.Unix(slotUnix, 0).UTC()) > maxMedRefireWindow {
 		return // past the cap: stop nagging
 	}
-	if err := rl.store.RescheduleRelayRefire(ctx, p.AccountID, now.Add(time.Hour), p.TGText, p.TGCallback, supersedesMessageID); err != nil {
+	if err := rl.store.RescheduleRelayRefire(ctx, p.AccountID, now.Add(time.Hour), p.TGText, p.TGCallback, p.TGMedIDs, supersedesMessageID); err != nil {
 		slog.Error("push relay: schedule med refire", "accountID", p.AccountID, "error", err)
 	}
 }
@@ -367,6 +377,11 @@ func (rl *Relay) scheduleMedRefire(ctx context.Context, p cloudstore.ScheduledPu
 // the hourly ticker.
 func (rl *Relay) StaleSyncSweep(ctx context.Context) {
 	now := time.Now().UTC()
+	// Piggy-backed on the same hourly tick: expire the tap addressing left on
+	// sent rows (med-kbpf). Nothing here depends on it, so a failure only logs.
+	if _, err := rl.store.ScrubSentPushIdentity(ctx, now.Add(-sentIdentityRetention)); err != nil {
+		slog.Error("push relay: scrub sent push identity", "error", err)
+	}
 	accountIDs, err := rl.store.AccountsNeedingStaleSyncWarning(ctx, now, rl.dryQueueWarnWithin, warnCooldown)
 	if err != nil {
 		slog.Error("push relay: list stale-sync accounts", "error", err)

@@ -11,12 +11,6 @@ import { openDb } from './localdb.js';
 
 const REMINDERS_KEY = 'demoReminders';
 
-// The slotUnix → [medicationId…] map a Confirm tap resolves by identity used to
-// live here, in a device-local store (bd med-eas.67). It moved into the vault —
-// reminders.js's recordSlotMedications, written by recomputeAndPush right after
-// this module's upload lands — because the device that pushes a reminder is
-// routinely not the device that drains the tap (bd med-eas.65).
-
 // Exported so the signup wizard's install step (web/cloud/js/signup.js) derives
 // the same shown/skipped/iOS state from display-mode instead of duplicating the
 // platform probe — docs/cloud-mode.md Onboarding ("derive steps from
@@ -291,28 +285,14 @@ export async function sendTestPush(ctx) {
 // recompute's push is still in flight — so two replace-all PUTs can be in flight
 // at once and the relay may settle on whichever it happens to process last,
 // which need not be the one built from the freshest vault state. Chaining makes
-// the last-run recompute the last schedule served — and, via onPushed, the last
-// slot→meds map recorded, so the two can never end up describing different
-// horizons.
+// the last-run recompute the last schedule served.
 const pushChains = new Map();
 
-// onPushed runs INSIDE the per-account chain, immediately after a successful
-// upload — that is the whole point of the parameter. reminders.js passes the
-// slot→meds vault write here rather than awaiting pushSchedule and writing
-// afterwards: outside the chain, a slow recompute could record its map after a
-// newer recompute's schedule had already become the one being served, and
-// Confirm would then resolve a delivered message against a med set the relay
-// never sent.
-// beforePush runs INSIDE the per-account chain, right before the PUT: the slot
-// map's pre-upload drop lives there so prune → PUT → record is one serialized
-// step per account. Outside the chain a second recompute could prune while the
-// first's PUT hung, and the first's post-PUT record would then outlive the
-// second's served schedule (bd med-onzf, codex review).
-export function pushSchedule(ctx, reminders, pref = {}, onPushed, beforePush) {
+export function pushSchedule(ctx, reminders, pref = {}) {
   const key = (ctx && ctx.accountId) || ctx;
   const run = (pushChains.get(key) || Promise.resolve())
     .catch(() => {})
-    .then(() => pushScheduleInner(ctx, reminders, pref, onPushed, beforePush));
+    .then(() => pushScheduleInner(ctx, reminders, pref));
   // Store a settled-swallowing tail so a rejected push can't wedge the chain,
   // but return the real promise so callers still see the failure.
   pushChains.set(key, run.catch(() => {}));
@@ -323,7 +303,11 @@ export function pushSchedule(ctx, reminders, pref = {}, onPushed, beforePush) {
 // the delivery channel and, for Telegram, how much the message says — a Telegram
 // entry hands the relay PLAINTEXT (it cannot decrypt the vault), so 'generic'
 // verbosity is what keeps medication names out of the relay's reach.
-async function pushScheduleInner(ctx, reminders, pref = {}, onPushed, beforePush) {
+// Mirrors maxScheduleTGMedIDsLen in internal/cloudserver/push.go: a list the
+// relay would 400 must never sink the whole replace-all schedule.
+const MAX_TG_MED_IDS_LEN = 2048;
+
+async function pushScheduleInner(ctx, reminders, pref = {}) {
   const delivery = ['webpush', 'telegram', 'both'].includes(pref.delivery) ? pref.delivery : 'webpush';
   const verbosity = pref.verbosity === 'generic' ? 'generic' : 'detailed';
   const needsCT = delivery === 'webpush' || delivery === 'both';
@@ -347,19 +331,29 @@ async function pushScheduleInner(ctx, reminders, pref = {}, onPushed, beforePush
       // Confirm/Snooze buttons. BP/weight reminders have no stem and no buttons.
       // Safe at either verbosity: the slot instant is already fire_at_unix.
       if (r.callback) entry.tg_callback = r.callback;
+      // The med identity the message names, carried ON THE ROW so a Confirm tap
+      // seals it and the drain confirms exactly these doses (med-kbpf). The relay
+      // learns opaque numeric ids per slot — strictly less than the medication
+      // NAMES tg_text already hands it at 'detailed' verbosity, and sent at
+      // 'generic' too so a tap resolves either way. All or nothing: a partial
+      // list would let one tap confirm SOME named meds and still cancel the
+      // slot's chain, leaving the rest pending and silent. An id the server
+      // would reject (non-numeric, or a list over its cap) drops the whole
+      // list; the tap then applies nothing and the user confirms in the app.
+      if (r.callback && Array.isArray(r.medicationIds) && r.medicationIds.length) {
+        const ids = r.medicationIds.map(String);
+        const joined = ids.join(',');
+        if (ids.every((id) => /^\d+$/.test(id)) && joined.length <= MAX_TG_MED_IDS_LEN) entry.tg_med_ids = joined;
+      }
     }
     entries.push(entry);
   }
-  // Immediately before the upload, after the (possibly slow) NK/encrypt work,
-  // so the mapless window the drop opens is as narrow as the PUT itself.
-  if (beforePush) await beforePush();
   const res = await fetch('/api/push/schedule', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ entries }),
   });
   if (!res.ok) throw new Error('Could not schedule the reminder.');
-  if (onPushed) await onPushed(reminders);
 }
 
 async function addDemoReminder(ctx, minutes, text) {

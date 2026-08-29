@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
@@ -35,6 +37,13 @@ const (
 	// is far above any reminder the client composes and well under Telegram's
 	// own 4096-char sendMessage limit.
 	maxScheduleTGTextLen = 1 << 10
+
+	// tg_med_ids is a comma-separated list of numeric medication record ids
+	// (16-digit ids in practice) — 2048 bytes holds ~120 of them per dose slot.
+	// The client omits the list (never the entry) when it would exceed this, so
+	// an oversized slot degrades to "no identity", not a rejected schedule
+	// (web/cloud/js/push.js MAX_TG_MED_IDS_LEN mirrors it).
+	maxScheduleTGMedIDsLen = 2048
 
 	// Test-push body cap; the ciphertext reuses maxScheduleCTLen (same bound
 	// as a single schedule entry).
@@ -215,6 +224,22 @@ type scheduleEntryWire struct {
 	Delivery   string `json:"delivery"`
 	TGText     string `json:"tg_text"`
 	TGCallback string `json:"tg_callback"`
+	// TGMedIDs names the medications this reminder's text is about, so a Telegram
+	// Confirm tap seals their identity instead of the browser reconstructing it
+	// (med-kbpf). Cleartext to the relay, like TGText — see the migration comment
+	// in 022_push_med_ids.sql for the privacy trade-off.
+	TGMedIDs string `json:"tg_med_ids"`
+}
+
+// tgMedIDsPattern is the ONLY shape tg_med_ids may take: bare decimal record ids,
+// comma separated. Anything else is rejected rather than stored — the value ends
+// up inside a sealed inbox event the client parses.
+var tgMedIDsPattern = regexp.MustCompile(`^[0-9]+(,[0-9]+)*$`)
+
+// validTGMedIDs accepts an empty list (every non-med entry, and any client that
+// predates med-kbpf) or a bounded comma-separated id list.
+func validTGMedIDs(s string) bool {
+	return s == "" || (len(s) <= maxScheduleTGMedIDsLen && tgMedIDsPattern.MatchString(s))
 }
 
 type putScheduleRequest struct {
@@ -276,12 +301,19 @@ func (a *PushAPI) PutSchedule(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "schedule entry field invalid or missing", http.StatusBadRequest)
 			return
 		}
+		// Med identity only makes sense on a med row: it is what a "s:<slot>" tap
+		// resolves against, and nothing else has a tap to resolve.
+		if !validTGMedIDs(e.TGMedIDs) || (e.TGMedIDs != "" && !strings.HasPrefix(e.TGCallback, tgclient.CallbackSlotPrefix)) {
+			http.Error(w, "schedule entry field invalid or missing", http.StatusBadRequest)
+			return
+		}
 		entries[i] = cloudstore.ScheduledPushInput{
 			FireAt:     storedb.UnixToTime(e.FireAtUnix),
 			CT:         e.CT,
 			Delivery:   delivery,
 			TGText:     e.TGText,
 			TGCallback: e.TGCallback,
+			TGMedIDs:   e.TGMedIDs,
 		}
 	}
 

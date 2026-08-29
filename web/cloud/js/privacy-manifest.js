@@ -390,15 +390,16 @@ export const PRIVACY_MANIFEST = [
     id: 'telegram-relay',
     feature: 'Telegram relay',
     boundary: 'carve-out',
-    data: 'Outbound reminder and confirmation text the client composes, forwarded verbatim; your chat id',
+    data: 'Outbound reminder and confirmation text the client composes, forwarded verbatim; the opaque medication ids a dose reminder names, stored on its queued row; your chat id',
     destination: 'The operator\'s relay, then api.telegram.org',
     operatorVisibility: 'plaintext',
-    retention: 'The queued entry is deleted after sending; Telegram keeps the chat',
+    retention: 'Reminder text is erased from the queued entry when it is sent; the medication ids and dose-slot key stay on the sent row for 48 hours so a later Confirm tap still resolves, then are erased; Telegram keeps the chat',
     activation: 'opt-in',
     activationNote: 'requires you to link your own bot',
     byo: 'The bot is yours; a chat bot cannot be made end-to-end encrypted',
     evidence: [
       'internal/cloudserver/push.go:215',
+      'internal/cloudserver/push.go:229',
       'internal/cloudserver/telegram.go:1',
       'internal/cloudserver/inbox.go:207',
     ],
@@ -414,7 +415,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'visible',
       title: 'Telegram chat + reminders, if you turn them on',
-      detail: 'A chat bot cannot be end-to-end encrypted, so text crosses the relay in plain text both ways. Reminders it sends carry the detail you choose — "Medication time" with no names (generic), or the medication named (detailed) — in Settings → Notifications. Messages you send the bot also transit the relay in the clear; the server seals each on arrival, and the RELAY itself never parses it, never calls AI on it, and never logs it. What happens next is your own app\'s doing: an unlocked device opens the message and may hand it to an AI assistant — your own provider, or the operator\'s trial key with your consent (see "Telegram assistant answers" below). Photos are fetched through the server but never stored there.',
+      detail: 'A chat bot cannot be end-to-end encrypted, so text crosses the relay in plain text both ways. Reminders it sends carry the detail you choose — "Medication time" with no names (generic), or the medication named (detailed) — in Settings → Notifications. Messages you send the bot also transit the relay in the clear; the server seals each on arrival, and the RELAY itself never parses it, never calls AI on it, and never logs it. What happens next is your own app\'s doing: an unlocked device opens the message and may hand it to an AI assistant — your own provider, or the operator\'s trial key with your consent (see "Telegram assistant answers" below). Photos are fetched through the server but never stored there. A dose reminder also carries the opaque id numbers of the medications it names, so tapping Confirm records exactly those doses — numbers only, never names, and at "detailed" the message text already spells the names out.',
     },
   },
   {

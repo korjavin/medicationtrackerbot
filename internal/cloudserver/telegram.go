@@ -364,6 +364,7 @@ func (t *TelegramAPI) RegisterAPIRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/telegram/test", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Test)))
 	mux.Handle("POST /api/telegram/reply-edit", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.EditReply)))
 	mux.Handle("POST /api/telegram/cancel-refire", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.CancelRefire)))
+	mux.Handle("POST /api/telegram/rearm-refire", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.RearmRefire)))
 	mux.Handle("GET /api/telegram/photo", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.GetPhoto)))
 	mux.Handle("DELETE /api/telegram", RequireSession(t.store, t.sessionSecret, http.HandlerFunc(t.Delete)))
 }
@@ -1431,6 +1432,65 @@ func (t *TelegramAPI) CancelRefire(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// rearmRefireRequest re-arms the chain a Confirm tap just cancelled, for the rare
+// slot where the drain found a named dose still PENDING after applying the tap.
+// MedIDs is the identity to put back on the row (same "id,id" shape the schedule
+// PUT validates) so a tap on the re-fired message still resolves.
+type rearmRefireRequest struct {
+	Callback string `json:"callback"`
+	MedIDs   string `json:"med_ids"`
+}
+
+// RearmRefire schedules ONE re-fire ~1h out for a med slot whose Confirm tap the
+// drain could only partly apply (med-kbpf). It is the counterpart to the cancel
+// the Confirm tap now performs server-side: the tap stops the nagging, and the
+// client turns it back on only when it can name a dose that is genuinely still
+// due. Same session + "s:" prefix guard as CancelRefire, so a session can only
+// touch its own med slots.
+//
+// The message body is the generic medRefireText constant, NOT the original
+// reminder text: the row that held it is gone (the tap cancelled it, and
+// MarkPushSent scrubs sent rows), and the relay must never compose text out of
+// account data. The identity comes from the request because the client has it
+// from the sealed event.
+//
+// Past maxMedRefireWindow the chain would have ended anyway, so a late re-arm is
+// a 204 no-op rather than a new nag on a stale slot.
+func (t *TelegramAPI) RearmRefire(w http.ResponseWriter, r *http.Request) {
+	sess, ok := SessionFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req rearmRefireRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<12)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	rest, ok := strings.CutPrefix(req.Callback, tgclient.CallbackSlotPrefix)
+	if !ok || !validTGMedIDs(req.MedIDs) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_callback"})
+		return
+	}
+	slotUnix, err := strconv.ParseInt(rest, 10, 64)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_callback"})
+		return
+	}
+	now := time.Now().UTC()
+	if now.Sub(time.Unix(slotUnix, 0).UTC()) > maxMedRefireWindow {
+		w.WriteHeader(http.StatusNoContent) // past the cap: nothing to re-arm
+		return
+	}
+	if err := t.store.RescheduleRelayRefire(r.Context(), sess.AccountID, now.Add(time.Hour), medRefireText, req.Callback, req.MedIDs, 0); err != nil {
+		slog.Error("telegram rearm refire", "error", err, "account", sess.AccountID)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // maxPhotoProxyBytes caps what the photo proxy streams, matching the client's
 // 8 MB image ceiling (web/cloud/js/aiclient.js). Telegram photos are far smaller;
 // this only bounds a misbehaving upstream.
@@ -1677,6 +1737,29 @@ type intakeSlotEvent struct {
 	Action    string `json:"action"`
 	AtUnix    int64  `json:"at_unix"`
 	MessageID int64  `json:"message_id"`
+	// MedicationIDs is the identity of the meds the tapped message named, copied
+	// off the scheduled_pushes row the client uploaded it with (med-kbpf). The
+	// drain confirms exactly these — no vault side-table, no time-band guessing.
+	// Empty when the relay has no row left for the stem (a tap past the re-fire
+	// window, or a reminder pushed by a pre-med-kbpf client): the drain then
+	// applies nothing and says so, rather than guessing.
+	MedicationIDs []int64 `json:"medication_ids,omitempty"`
+}
+
+// parseMedIDs turns the stored "id,id,id" list into the event's numeric ids.
+// Malformed entries are dropped rather than failing the tap: the column is
+// written only by the validated PUT path, so this is belt-and-braces.
+func parseMedIDs(s string) []int64 {
+	if s == "" {
+		return nil
+	}
+	var out []int64
+	for _, part := range strings.Split(s, ",") {
+		if id, err := strconv.ParseInt(part, 10, 64); err == nil {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // inboxEventKindWorkoutSession is the sealed-event kind a workout Snooze/Skip tap
@@ -1717,6 +1800,7 @@ const (
 	callbackAckSkipped = "⏭️ Skipped — it will apply when you next open the app."
 	callbackAckDropped = "Open the app once to finish setting up, then try again."
 	callbackAckUnknown = "Sorry — this button is no longer valid."
+	callbackAckRetry   = "Couldn't save that just now — please tap again."
 )
 
 // handleCallbackQuery turns an inline Confirm/Snooze tap into a sealed mailbox
@@ -1788,12 +1872,29 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 	}
 
 	now := time.Now().UTC()
+	// The stem "s:<slotUnix>" is the tapped callback minus its ":<action>" suffix —
+	// the key the relay files re-fires (and their med identity) under.
+	stem := strings.TrimSuffix(cq.Data, ":"+action)
+	// ref IS the account id (see BotByWebhookRef). Read the identity BEFORE any
+	// cancel below deletes the row that holds it.
+	medIDs, err := t.store.MedIDsForCallback(r.Context(), ref, stem)
+	if err != nil {
+		// A store error is NOT "no row": sealing an id-less event would make the
+		// drain apply nothing while the confirm branch below kills the chain —
+		// dose unrecorded and never re-reminded. Leave the buttons up and ask for
+		// another tap instead (codex review, 2026-08-29).
+		slog.Error("telegram callback: load med ids", "error", err, "ref", ref)
+		answer(callbackAckRetry)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	plaintext, err := json.Marshal(intakeSlotEvent{
-		Kind:      inboxEventKindIntakeSlot,
-		SlotUnix:  slotUnix,
-		Action:    action,
-		AtUnix:    now.Unix(),
-		MessageID: messageID,
+		Kind:          inboxEventKindIntakeSlot,
+		SlotUnix:      slotUnix,
+		Action:        action,
+		AtUnix:        now.Unix(),
+		MessageID:     messageID,
+		MedicationIDs: parseMedIDs(medIDs),
 	})
 	if err != nil {
 		slog.Error("telegram callback: marshal event", "error", err, "ref", ref)
@@ -1818,32 +1919,35 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 		// "s:<slotUnix>" is the tapped callback minus its ":<action>" suffix; the
 		// re-fire only COPIES already-cleartext fields, never reading `ct`. Cancel +
 		// insert supersede any pending re-fire so a re-snooze reschedules instead of
-		// stacking. Log-and-swallow: a failed reschedule never fails the 200.
-		stem := strings.TrimSuffix(cq.Data, ":"+action)
+		// stacking. The med identity rides along so a tap on the re-fired message
+		// still knows which doses it confirms (med-kbpf). Log-and-swallow: a failed
+		// reschedule never fails the 200.
 		refireText := medRefireText
 		if cq.Message != nil && cq.Message.Text != "" {
 			refireText = cq.Message.Text
 		}
-		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem, messageID); err != nil {
+		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem, medIDs, messageID); err != nil {
 			slog.Error("telegram callback: reschedule med relay refire", "error", err, "ref", ref)
 		}
 		t.editCallbackMessage(r.Context(), bot, ref, messageID, medSnoozeEditText)
 		answer(callbackAckSnooze)
 	default:
-		// A Confirm deliberately does NOT cancel the relay-owned re-fire chain here
-		// (bd med-fml). The callback carries only the slot — no medication identity —
-		// so the server cannot know which meds the client will actually confirm when
-		// it drains this event: anything the vault's slot→medIds map does not name,
-		// or that has no PENDING dose within band, is silently skipped there
-		// (web/cloud/js/inbox-apply.js). Killing the slot-wide chain at tap time
-		// would leave those doses PENDING *and* permanently silent — exactly what
-		// the 6h re-fire window exists to prevent. The draining client cancels
-		// instead, once NOTHING is left due for the slot, mirroring the in-app
-		// confirm rule in apishim.js. Cost: the chain stops at drain instead of at
-		// tap; the seal wakes the inbox immediately and the next re-fire is an hour
-		// out, and if no device drains within that hour the dose is recorded nowhere
-		// and one more nag is correct. The buttons still go away right now, so the
-		// user cannot re-tap while the drain is pending.
+		// A Confirm is the user's explicit statement that the dose is taken, so the
+		// hourly chain stops HERE, at tap time (med-kbpf, inverting med-fml). The
+		// sealed event now carries the medication identity the message named, so the
+		// drain no longer has to reconstruct it — and if a named dose turns out to
+		// still be PENDING after it applies (a dose drifted out of its band), the
+		// client re-arms one re-fire via POST /api/telegram/rearm-refire.
+		//
+		// That inverts the failure direction: the OLD rule (cancel only at drain)
+		// meant every reconstruction failure — a lost side-table record, an
+		// IndexedDB throw, a device that never woke — kept nagging hourly to the 6h
+		// cap, ~6 messages for doses already taken. Now a missed drain is silent for
+		// one rare case instead of loud for every case. Log-and-swallow, like the
+		// snooze branch: a failed cancel never fails the 200.
+		if _, err := t.store.CancelRelayRefire(r.Context(), ref, stem); err != nil {
+			slog.Error("telegram callback: cancel med relay refire", "error", err, "ref", ref)
+		}
 		t.editCallbackMessage(r.Context(), bot, ref, messageID, medConfirmEditText)
 		answer(callbackAckConfirm)
 	}
@@ -1967,7 +2071,7 @@ func (t *TelegramAPI) handleWorkoutCallback(w http.ResponseWriter, r *http.Reque
 		// stacking a second delivery. Snooze1h and Snooze2h share the same stem.
 		// Cancel + insert are one transaction so two concurrent snooze taps can't
 		// both delete-then-insert and leave duplicate pending re-fires.
-		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(delay), refireText, stem, messageID); err != nil {
+		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(delay), refireText, stem, "", messageID); err != nil {
 			slog.Error("telegram callback: reschedule relay refire", "error", err, "ref", ref)
 		}
 		t.editCallbackMessage(r.Context(), bot, ref, messageID, workoutSnoozeEditText)
@@ -2050,7 +2154,7 @@ func (t *TelegramAPI) handleMeasureCallback(w http.ResponseWriter, r *http.Reque
 		if cq.Message != nil && cq.Message.Text != "" {
 			refireText = cq.Message.Text
 		}
-		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem, messageID); err != nil {
+		if err := t.store.RescheduleRelayRefire(r.Context(), ref, now.Add(time.Hour), refireText, stem, "", messageID); err != nil {
 			slog.Error("telegram callback: reschedule measure relay refire", "error", err, "ref", ref)
 		}
 		t.editCallbackMessage(r.Context(), bot, ref, messageID, measureSnoozeEditText)
