@@ -303,6 +303,10 @@ export function pushSchedule(ctx, reminders, pref = {}) {
 // the delivery channel and, for Telegram, how much the message says — a Telegram
 // entry hands the relay PLAINTEXT (it cannot decrypt the vault), so 'generic'
 // verbosity is what keeps medication names out of the relay's reach.
+// Mirrors maxScheduleTGMedIDsLen in internal/cloudserver/push.go: a list the
+// relay would 400 must never sink the whole replace-all schedule.
+const MAX_TG_MED_IDS_LEN = 2048;
+
 async function pushScheduleInner(ctx, reminders, pref = {}) {
   const delivery = ['webpush', 'telegram', 'both'].includes(pref.delivery) ? pref.delivery : 'webpush';
   const verbosity = pref.verbosity === 'generic' ? 'generic' : 'detailed';
@@ -331,12 +335,15 @@ async function pushScheduleInner(ctx, reminders, pref = {}) {
       // seals it and the drain confirms exactly these doses (med-kbpf). The relay
       // learns opaque numeric ids per slot — strictly less than the medication
       // NAMES tg_text already hands it at 'detailed' verbosity, and sent at
-      // 'generic' too so a tap resolves either way. Non-numeric ids are dropped
-      // rather than rejected by the server: one odd id must not 400 the whole
-      // replace-all schedule.
-      if (r.callback && Array.isArray(r.medicationIds)) {
-        const ids = r.medicationIds.map(Number).filter((id) => Number.isInteger(id) && id >= 0);
-        if (ids.length) entry.tg_med_ids = ids.join(',');
+      // 'generic' too so a tap resolves either way. All or nothing: a partial
+      // list would let one tap confirm SOME named meds and still cancel the
+      // slot's chain, leaving the rest pending and silent. An id the server
+      // would reject (non-numeric, or a list over its cap) drops the whole
+      // list; the tap then applies nothing and the user confirms in the app.
+      if (r.callback && Array.isArray(r.medicationIds) && r.medicationIds.length) {
+        const ids = r.medicationIds.map(String);
+        const joined = ids.join(',');
+        if (ids.every((id) => /^\d+$/.test(id)) && joined.length <= MAX_TG_MED_IDS_LEN) entry.tg_med_ids = joined;
       }
     }
     entries.push(entry);

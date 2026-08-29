@@ -88,14 +88,29 @@ describe('pushSchedule carries the named med ids on the reminder row (med-kbpf)'
 
   // The server rejects a non-numeric id list, and a rejected PUT is a whole
   // horizon not scheduled. A vault with an odd id must lose identity, not
-  // reminders.
-  it('drops non-numeric ids instead of letting them 400 the whole schedule', async () => {
+  // reminders — and lose it for the WHOLE slot: a partial list would let one
+  // tap confirm some named meds and still cancel the chain for the rest
+  // (codex review, 2026-08-29).
+  it('omits the whole id list when one id is non-numeric, never a partial one', async () => {
     const records = fakeRecords(seed());
     records.dump().medication.push({ recordId: 'med-x', deleted: false, name: 'X', schedule: '{"type":"daily","times":["09:00"]}' });
     await recomputeAndPush(ctx, { records, timeZone: 'UTC' });
 
-    expect(medEntries().length).toBeGreaterThan(0);
-    for (const e of medEntries()) expect(e.tg_med_ids).toBe('2,9');
+    const entries = medEntries();
+    expect(entries.length).toBeGreaterThan(0);
+    for (const e of entries) expect(e.tg_med_ids).toBeUndefined();
+  });
+
+  it('omits the id list when it would exceed the relay cap, keeping the entry', async () => {
+    const records = fakeRecords(seed());
+    for (let i = 0; i < 130; i++) {
+      records.dump().medication.push({ recordId: 1787000000000000 + i, deleted: false, name: `M${i}`, schedule: '{"type":"daily","times":["09:00"]}' });
+    }
+    await recomputeAndPush(ctx, { records, timeZone: 'UTC' });
+
+    const entries = medEntries();
+    expect(entries.length).toBeGreaterThan(0);
+    for (const e of entries) expect(e.tg_med_ids).toBeUndefined();
   });
 });
 

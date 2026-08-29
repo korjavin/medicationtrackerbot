@@ -39,9 +39,11 @@ const (
 	maxScheduleTGTextLen = 1 << 10
 
 	// tg_med_ids is a comma-separated list of numeric medication record ids
-	// (16-digit ids in practice) — 512 bytes holds ~30 of them, far more than any
-	// one dose slot names.
-	maxScheduleTGMedIDsLen = 512
+	// (16-digit ids in practice) — 2048 bytes holds ~120 of them per dose slot.
+	// The client omits the list (never the entry) when it would exceed this, so
+	// an oversized slot degrades to "no identity", not a rejected schedule
+	// (web/cloud/js/push.js MAX_TG_MED_IDS_LEN mirrors it).
+	maxScheduleTGMedIDsLen = 2048
 
 	// Test-push body cap; the ciphertext reuses maxScheduleCTLen (same bound
 	// as a single schedule entry).

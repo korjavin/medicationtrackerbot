@@ -393,7 +393,7 @@ export const PRIVACY_MANIFEST = [
     data: 'Outbound reminder and confirmation text the client composes, forwarded verbatim; the opaque medication ids a dose reminder names, stored on its queued row; your chat id',
     destination: 'The operator\'s relay, then api.telegram.org',
     operatorVisibility: 'plaintext',
-    retention: 'The queued entry is deleted after sending; Telegram keeps the chat',
+    retention: 'Reminder text is erased from the queued entry when it is sent; the medication ids and dose-slot key stay on the sent row for 48 hours so a later Confirm tap still resolves, then are erased; Telegram keeps the chat',
     activation: 'opt-in',
     activationNote: 'requires you to link your own bot',
     byo: 'The bot is yours; a chat bot cannot be made end-to-end encrypted',
