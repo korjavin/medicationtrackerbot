@@ -1800,6 +1800,7 @@ const (
 	callbackAckSkipped = "⏭️ Skipped — it will apply when you next open the app."
 	callbackAckDropped = "Open the app once to finish setting up, then try again."
 	callbackAckUnknown = "Sorry — this button is no longer valid."
+	callbackAckRetry   = "Couldn't save that just now — please tap again."
 )
 
 // handleCallbackQuery turns an inline Confirm/Snooze tap into a sealed mailbox
@@ -1878,7 +1879,14 @@ func (t *TelegramAPI) handleCallbackQuery(w http.ResponseWriter, r *http.Request
 	// cancel below deletes the row that holds it.
 	medIDs, err := t.store.MedIDsForCallback(r.Context(), ref, stem)
 	if err != nil {
+		// A store error is NOT "no row": sealing an id-less event would make the
+		// drain apply nothing while the confirm branch below kills the chain —
+		// dose unrecorded and never re-reminded. Leave the buttons up and ask for
+		// another tap instead (codex review, 2026-08-29).
 		slog.Error("telegram callback: load med ids", "error", err, "ref", ref)
+		answer(callbackAckRetry)
+		w.WriteHeader(http.StatusOK)
+		return
 	}
 	plaintext, err := json.Marshal(intakeSlotEvent{
 		Kind:          inboxEventKindIntakeSlot,

@@ -34,7 +34,7 @@ import { parseCommand } from '../../domain/tgcommand.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
 import { createApiRouter } from './apishim.js';
-import { rearmMedRefire } from './reminders.js';
+import { cancelMedRefire, rearmMedRefire } from './reminders.js';
 import { createDispatcher } from './mcp-responder.js';
 import { createTGAgent } from './tg-agent.js';
 import { recordsPort, ORIGIN_EXTERNAL } from './sync.js';
@@ -225,7 +225,7 @@ function nearestPendingByMed(intakes, medId, slotMs, bandMs) {
 // reaches for an ambient fetch. There is no cancel here any more: the relay
 // cancels the chain the instant the Confirm is tapped, and this only puts ONE
 // re-fire back when a named dose is somehow still due afterwards.
-export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, rearmRefire = () => {} }) {
+export async function applyIntakeSlotAction(event, { intake, records, now = Date.now, verbosity = 'detailed', editReply = editTelegramReply, rearmRefire = () => {}, cancelRefire = () => {} }) {
   const slotUnix = event.slot_unix;
   const slotMs = slotUnix * 1000;
   const atMs = event.at_unix * 1000;
@@ -325,10 +325,18 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // still due after all of the above — the drifted dose that fell outside its
   // band, which would otherwise be silent. Snooze never re-arms: the relay
   // rescheduled the chain +1h itself, which is the point of the tap.
+  //
+  // When nothing is left due, cancel AGAIN from here. The tap-time cancel is
+  // primary, but a tap that lands in the gap between the relay sending a
+  // message and inserting its successor row finds nothing to cancel, and the
+  // successor then carries the chain on. This idempotent backstop closes that
+  // gap at drain latency. ponytail: a durable "confirmed" marker on the stem
+  // would close it at tap time; add if the gap is ever hit in practice.
   if (event.action === 'confirm') {
     const after = await records.list(INTAKE_RECORD_TYPE);
     const stillDue = named.filter((medId) => !!findPending(after, medId));
     if (stillDue.length) rearmRefire(slotMs, stillDue);
+    else cancelRefire(slotMs);
   }
 
   // Edit the original reminder message to a receipt and drop its buttons (the
@@ -817,7 +825,7 @@ async function confirmDueIntakes({ intake, records, atMs, now }) {
 // decrypted event in, a domain write out. Unknown kinds are ignored rather than
 // thrown — a newer relay may queue kinds this client predates, and stalling the
 // whole drain on one of them would block the events it does understand.
-export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, rearmRefire = rearmMedRefire, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride, history: historyOverride } = {}) {
+export function createInboxApplier(ctx, { records: recordsOverride, now = Date.now, editReply = editTelegramReply, rearmRefire = rearmMedRefire, cancelRefire = cancelMedRefire, foodAI: foodAIOverride, activityAI: activityAIOverride, agent: agentOverride, prefs: prefsOverride, history: historyOverride } = {}) {
   // A Telegram-drained /bp must repaint an open BP screen (med-d5t.10), so this
   // is explicitly external even though that is already the default. deferFlush:
   // an applied event's writes only queue to 'pending'; drainInbox pushes them
@@ -954,6 +962,6 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
     // verbosity only affects the cosmetic receipt text — never gate the confirm
     // data-write on this read: a rejected pref read falls back to generic.
     const { verbosity } = await reminders.getDeliveryPref().catch(() => ({ verbosity: 'generic' }));
-    await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply, rearmRefire });
+    await applyIntakeSlotAction(event, { intake, records, now, verbosity, editReply, rearmRefire, cancelRefire });
   };
 }

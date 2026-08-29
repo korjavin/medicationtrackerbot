@@ -473,10 +473,13 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         const records = slotDoseFixture();
         const now = () => DRAIN_MS;
         const rearmRefire = vi.fn();
-        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now, rearmRefire });
+        const cancelRefire = vi.fn();
+        await applyIntakeSlotAction(confirmEvent, { intake: domainFor(records, now), records, now, rearmRefire, cancelRefire });
 
         for (const i of await records.list('intake')) expect(i.status).toBe('TAKEN');
         expect(rearmRefire).not.toHaveBeenCalled();
+        // Backstop for a tap that raced the relay's successor insert.
+        expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
     });
 
     // A med the message did NOT name is not this reminder's business: it has its
@@ -510,9 +513,11 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         });
         const now = () => DRAIN_MS;
         const rearmRefire = vi.fn();
-        await applyIntakeSlotAction(medsNamed(confirmEvent, ['med-a']), { intake: domainFor(records, now), records, now, rearmRefire });
+        const cancelRefire = vi.fn();
+        await applyIntakeSlotAction(medsNamed(confirmEvent, ['med-a']), { intake: domainFor(records, now), records, now, rearmRefire, cancelRefire });
 
         expect(rearmRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000, ['med-a']);
+        expect(cancelRefire).not.toHaveBeenCalled();
     });
 
     it('never re-arms on a snooze — the relay already rescheduled that chain', async () => {
@@ -755,7 +760,8 @@ describe('inbox-apply.js — createInboxApplier routing', () => {
         // rearmMedRefire POST) — applyIntakeSlotAction itself defaults to a no-op,
         // so this asserts the wiring, not the default (bd med-kbpf).
         const rearmRefire = vi.fn();
-        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS, rearmRefire });
+        const cancelRefire = vi.fn();
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS, rearmRefire, cancelRefire });
         await apply(confirmEvent);
 
         const atSlot = (await records.list('intake')).filter((i) => i.scheduled_at === SLOT_ISO);
@@ -763,6 +769,7 @@ describe('inbox-apply.js — createInboxApplier routing', () => {
         // Everything the reminder named is settled, so the chain the relay already
         // cancelled at tap time stays cancelled.
         expect(rearmRefire).not.toHaveBeenCalled();
+        expect(cancelRefire).toHaveBeenCalledWith(SLOT_UNIX * 1000);
     });
 });
 

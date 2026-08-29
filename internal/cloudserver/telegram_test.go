@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
 	"io"
 	"log/slog"
 	"net/http"
@@ -1073,6 +1074,7 @@ func TestChildWebhookRace(t *testing.T) {
 
 type tapFixture struct {
 	store     *cloudstore.Repo
+	db        *storedb.DB
 	accountID string
 	top       *http.ServeMux
 	childPath string
@@ -1084,7 +1086,7 @@ type tapFixture struct {
 // is linked — the state a Confirm/Snooze tap arrives in.
 func linkedBotTap(t *testing.T, tg *recordingTG) tapFixture {
 	t.Helper()
-	store := setupStore(t)
+	store, db := setupStoreWithDB(t)
 	account, claimToken := setupInvite(t, store)
 	host := account.Subdomain + ".localhost"
 
@@ -1133,7 +1135,7 @@ func linkedBotTap(t *testing.T, tg *recordingTG) tapFixture {
 	tg.mu.answered = nil
 	tg.mu.Unlock()
 
-	return tapFixture{store: store, accountID: account.ID, top: top, childPath: childPath, secret: bot.WebhookSecret, api: tgAPI}
+	return tapFixture{store: store, db: db, accountID: account.ID, top: top, childPath: childPath, secret: bot.WebhookSecret, api: tgAPI}
 }
 
 func callbackUpdate(data string, chatID int64) string {
@@ -2955,5 +2957,36 @@ func TestRearmRefire(t *testing.T) {
 	}
 	if r := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/rearm-refire", host, nil, []byte(`{"callback":"s:1"}`)); r.Code != http.StatusUnauthorized {
 		t.Errorf("unauthenticated rearm = %d, want 401", r.Code)
+	}
+}
+
+// A store error on the identity lookup must not be conflated with "no row":
+// the tap is refused (buttons stay, user re-taps) rather than sealed id-less and
+// the chain cancelled (codex review, 2026-08-29).
+func TestChildWebhook_MedTapRefusedWhenIdentityLookupFails(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	publishInboxKey(t, f.store, f.accountID)
+
+	if _, err := f.db.ExecContext(t.Context(), `DROP TABLE scheduled_pushes`); err != nil {
+		t.Fatalf("drop scheduled_pushes: %v", err)
+	}
+	if rec := postWebhook(t, f.top, f.childPath, f.secret, callbackUpdate("s:1767225600:confirm", 12345)); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	events, err := f.store.ListInboxEvents(t.Context(), f.accountID, 10)
+	if err != nil {
+		t.Fatalf("ListInboxEvents: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("queued %d events, want none when identity could not be loaded", len(events))
+	}
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.answered) != 1 || !strings.Contains(tg.mu.answered[0], "please tap again") {
+		t.Fatalf("answered = %v, want one retry ack", tg.mu.answered)
+	}
+	if len(tg.mu.edits) != 0 {
+		t.Fatalf("edits = %v, want the buttons left in place for a re-tap", tg.mu.edits)
 	}
 }
