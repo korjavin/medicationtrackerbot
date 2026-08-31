@@ -2026,7 +2026,19 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       const nowMs2 = now();
       const record = {
         recordId: sessionRecordId(best.groupId, best.dateStr),
-        clientTs: nowMs2,
+        // DERIVED state, so it takes the LOWEST possible LWW precedence — not
+        // now() (same rule as medintake.js's dose materialization, bd med-d4w).
+        // getNext is a READ that writes: every device re-derives this row from
+        // the group's schedule, into the same deterministic recordId. A device
+        // whose mirror predates today's workout (a second browser left open
+        // since last week) sees no slot for today and re-creates it as PENDING.
+        // Stamped with now() that stale re-creation is the NEWEST write, so LWW
+        // erases the real COMPLETED session — the finished workout vanishes from
+        // history, its exercise logs orphan onto a session id that no longer
+        // exists, and the reminder un-suppresses (bd med-9a87). A floor clientTs
+        // makes materialization lose every merge against a real write, which is
+        // exactly its standing: it only ever needs to win against nothing at all.
+        clientTs: 0,
         deleted: false,
         id: mintNumericId(await records.list(WORKOUT_RECORD_TYPES.SESSION), nowMs2),
         user_id: CLOUD_USER_ID,

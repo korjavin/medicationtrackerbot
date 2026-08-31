@@ -251,10 +251,38 @@ account inbox keypair (ECDH) — public half on server, private half in vault
   1. **Server-referenced time.** Every sync response already carries a `Date` header — the server's own clock, for free. `noteServerDate` measures the offset into `sync_meta.clockSkewMs` and writes subtract it, so every device stamps on one scale.
   2. **A per-record monotonic guard.** A write to a record this device can already see is stamped `max(correctedNow, existing.clientTs + 1)`, so editing what you can see always beats what you are overwriting, whatever either clock says. This is what fixes the phone-then-laptop case outright.
 
+  3. **A floor for materialized rows** (bd med-d4w, bd med-9a87). A row that a *read path* lazily derives into a **deterministic recordId** is stamped `clientTs: 0`, never `correctedNow`. Such a row is re-derivable on every device, so a client whose mirror is stale re-creates that same recordId in its *initial* state — `PENDING` dose, `pending` session. Stamped with a real timestamp that stale re-creation is the newest write, and LWW erases the real state underneath it. A floor makes materialization lose every merge against a real write, which is exactly its standing: **it only ever needs to win against nothing at all.** Guard 2 does not cover this — it only fires when the writing device can already *see* the record, and the whole failure mode is a device that cannot. Current materializers: `web/domain/medintake.js` (dose targets) and `web/domain/workout.js`'s `getNext` (the day's session). See [Incident: a stale tab erased a finished workout](#incident-a-stale-tab-erased-a-finished-workout-bd-med-9a87).
+
   Neither orders two *blind concurrent* writes made on skewed devices; that needs a hybrid logical clock (deferred with the envelope's `format_version`, bd med-jb7.5). But a device whose clock is more than two minutes out now says so in the sync status line rather than losing edits quietly.
 - **Snapshots + compaction**: the server cannot compact ciphertext, so clients periodically upload a full encrypted snapshot; the server then drops ops below that seq. Bounds both restore time on a new device and storage growth. The snapshot plaintext is **gzip-then-encrypt** (`gzip(utf8(JSON))` before AES-GCM), shrinking a large vault's POST body ~10x; the decrypt path sniffs the `0x1f 0x8b` gzip magic so legacy uncompressed snapshots still read. Server cap is a **64 MiB decoded ciphertext** (the request body is capped at 96 MiB to hold its base64 expansion). See [docs/cloud-crypto.md](cloud-crypto.md).
 - Local layer stays Dexie/IndexedDB (already vendored); plaintext lives only in memory and IndexedDB on the user's device, cloud copy is authoritative.
 - **Account deletion is a verified local wipe** (med-d5t.8 / med-yor.3): the client's `clearLocalVault()` awaits `deleteDatabase` on **both** `medtracker-cloud` (encrypted mirror + LDK material) and Dexie's `MedTrackerDB` (the shared frontend's plaintext caches), resolving only on `onsuccess`, and the flow runs it **twice**: once *before* `DELETE /api/account` — a blocked delete (another open tab) fails while the account is still intact, so plaintext can never be stranded no matter what the user does next (the cloud copy is authoritative; an erased mirror re-syncs if they abort at the passkey prompt) — and once *after*, the load-bearing erase that catches anything background sync re-created during the ceremony. Navigation happens only once the post-delete wipe is confirmed; a blocked wipe surfaces a recoverable "close other tabs" error instead of a false success, and a post-delete retry skips the (now-impossible) re-auth ceremony, re-runs only the wipe, and must happen in the same tab — the deleted account's subdomain serves 404s, so no page on that origin can ever run again. Push unsubscribe (browser-side only — the server rows are already cascaded) and SW unregister are best-effort. The pre-delete safety export warns before writing plaintext provider keys, same as Settings → Import/Export. Related invariant: every open of `medtracker-cloud` auto-closes on `versionchange` — page code via `localdb.js`'s `openDb()`, and the service worker's per-push `readNK` open directly — so a live handle never blocks the deletion (or a future schema bump); any new open of that DB must do the same.
+
+### Incident: a stale tab erased a finished workout (bd med-9a87)
+
+**2026-08-31, production.** A completed strength session vanished from history hours after it was logged. Worth keeping because nothing misbehaved — every component did exactly what it was written to do, and the data was still destroyed.
+
+| time (Europe/Berlin) | event |
+|---|---|
+| 08-30 21:18 | `getNext` materializes `session-7-2026-08-31` (LEGS, `pending`), stamped `clientTs = now()` |
+| 08-31 18:24:09 | user finishes the workout — status `completed`, 4 exercise logs written, rotation cursor advances 16 → 14 |
+| 08-31 18:24:09 | `getNext` re-runs, skips today (terminal) and materializes the *next* occurrence, 09-02 |
+| **08-31 21:40:43** | **a second browser, mirror stale since ~08-28, is opened.** Its `getNext` sees no slot for 08-31, re-derives one as `pending`, stamps `clientTs = now()`, pushes it |
+| — | LWW: `21:40 > 18:24` ⇒ the placeholder wins. The completed session is gone |
+
+Three symptoms, one cause: the workout disappeared from history (the list renders only `completed`/`skipped`), its four exercise logs orphaned onto a `session_id` no record carried any more, and the Telegram reminder un-suppressed because the horizon reads that slot's status.
+
+**What made it findable.** The `/api/*` views hide all of it — they project live records and drop `clientTs`, tombstones, and orphans. Three things cracked it, all worth reaching for again:
+
+- **Numeric ids decode to wall-clock.** `mintNumericId` is `nowMs * 1000 + rand`, so `id / 1000` is the mint instant. That alone built the timeline above and showed the intruder was minted *after* the completion.
+- **Read the raw mirror.** `indexedDB.open('medtracker-cloud')` → `records` store is plaintext and carries `clientTs`, `deleted` tombstones, and rows no API surfaces.
+- **Cross-check derived cursors.** The intruding record carried `variant_id: 15` while `rotation-7` sat at `14`. Variant 15 was the cursor value from *before* a skip three days earlier — which dated the offending device's mirror precisely.
+
+**Why it is a class, not a one-off.** This is the second time: bd med-d4w was the same shape in `medintake.js`, where a stale device re-materialized a dose target and a *confirmed* dose silently reverted to `PENDING`. Both are the same three ingredients — a read path that writes, a deterministic recordId, and a `now()` stamp. Any two of those are fine; all three lose data.
+
+**The rule that prevents it** is guard 3 above: materialized rows are stamped `clientTs: 0`. Regression coverage lives in `web/static/js/tests/cloud.shim-contract.workout-convergence.test.js`, which replays a stale device against a completed session through `applyIncoming`'s merge.
+
+**If you are adding a lazily-materialized record**, the check is one question: *could a device that has not synced recently create this same recordId?* If yes, it is derived state and takes the floor.
 
 ## Push relay & reminder lifecycle
 
