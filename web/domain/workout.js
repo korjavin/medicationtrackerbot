@@ -2038,6 +2038,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         // exists, and the reminder un-suppresses (bd med-9a87). A floor clientTs
         // makes materialization lose every merge against a real write, which is
         // exactly its standing: it only ever needs to win against nothing at all.
+        // Not absolute through writeRecord, which promotes this over any raw row
+        // already at the recordId (tombstones included) — bd med-qhpu.
         clientTs: 0,
         deleted: false,
         id: mintNumericId(await records.list(WORKOUT_RECORD_TYPES.SESSION), nowMs2),

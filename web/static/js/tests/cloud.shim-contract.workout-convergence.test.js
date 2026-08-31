@@ -61,6 +61,10 @@ describe('createMiBand deterministic recordId convergence', () => {
     });
 });
 
+// NOTE: the two-instance test above shares ONE in-memory port between both
+// domains, so it pins the deterministic recordId, NOT cross-device
+// convergence of the two bodies — bd med-8j12 tracks the real two-port case.
+//
 // bd med-9a87: getNext is a READ that WRITES — it materializes the day's
 // session into the deterministic sessionRecordId slot. In production a second
 // browser whose mirror predated the workout re-derived today's slot as PENDING
@@ -69,7 +73,11 @@ describe('createMiBand deterministic recordId convergence', () => {
 // exercise logs orphaned onto a dead session id, and the reminder
 // un-suppressed). A materialized row must lose every merge against a real one.
 describe('stale-device re-materialization vs. a completed session', () => {
-    // The merge sync.js applyIncoming performs on every pulled record.
+    // A local REPLICA of the comparison sync.js applyIncoming makes on every
+    // pulled record. This is a domain-layer test: it does not go through the
+    // records port, so nextClientTs' skew correction and its promotion of a
+    // floored row over an existing raw row (tombstone included) are NOT covered
+    // here — see bd med-qhpu.
     const lww = (existing, incoming) => (!existing || incoming.clientTs > existing.clientTs ? incoming : existing);
 
     it('materializes the day slot at the LWW floor, so a stale device cannot erase a completed workout', async () => {
