@@ -157,7 +157,13 @@ export function scheduleReminderRecompute(ctx, opts = {}, debounceMs = DEBOUNCE_
 // stray nags survive this.
 function postRefire(path, callback, extra, fetchImpl) {
   if (!callback) return;
-  const post = () => fetchImpl(`/api/telegram/${path}`, {
+  // Resolved HERE, not as a `fetchImpl = fetch` default parameter: that default
+  // is evaluated synchronously at call time, so an environment with no global
+  // fetch threw a ReferenceError straight through this fire-and-forget helper
+  // and into the caller's already-durable vault write. `f` being undefined
+  // instead lands in the try below, which is what fire-and-forget means.
+  const f = fetchImpl || globalThis.fetch;
+  const post = () => f(`/api/telegram/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ callback, ...extra }),
@@ -188,7 +194,7 @@ function medStem(slotMs) {
 // A Telegram tap needs no call: the relay cancels that chain itself (med-kbpf).
 // slotMs is the dose slot instant (scheduled_at) in ms; the relay keys re-fires
 // by the "s:<slotUnix>" callback stem.
-export function cancelMedRefire(slotMs, { fetchImpl = fetch } = {}) {
+export function cancelMedRefire(slotMs, { fetchImpl } = {}) {
   cancelReminderRefire(medStem(slotMs), { fetchImpl });
 }
 
@@ -198,7 +204,7 @@ export function cancelMedRefire(slotMs, { fetchImpl = fetch } = {}) {
 // the message still live in the chat, so an in-app workout complete/skip/start no
 // longer leaves its reminder sitting there with buttons (med-r3dm). Empty stem =
 // no chain to cancel (an ad-hoc session carries no callback), so it no-ops.
-export function cancelReminderRefire(stem, { fetchImpl = fetch } = {}) {
+export function cancelReminderRefire(stem, { fetchImpl } = {}) {
   postRefire('cancel-refire', stem, {}, fetchImpl);
 }
 
@@ -206,7 +212,7 @@ export function cancelReminderRefire(stem, { fetchImpl = fetch } = {}) {
 // drain could only partly apply — a named dose that is still PENDING after the
 // tap (med-kbpf). medIds names those doses so a tap on the re-fired message
 // still resolves by identity. The relay no-ops it past its 6h cap.
-export function rearmMedRefire(slotMs, medIds = [], { fetchImpl = fetch } = {}) {
+export function rearmMedRefire(slotMs, medIds = [], { fetchImpl } = {}) {
   postRefire('rearm-refire', medStem(slotMs), { med_ids: (medIds || []).join(',') }, fetchImpl);
 }
 

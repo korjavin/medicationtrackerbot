@@ -16,12 +16,19 @@ const EVERY_DAY = '[0,1,2,3,4,5,6]';
 
 describe('cloud shim contract — workout next-workout, rotation, session lifecycle', () => {
     let env;
+    // Every session transition now best-effort POSTs /api/telegram/cancel-refire
+    // (med-r3dm), so the whole suite needs a fetch to hit — otherwise each one
+    // logs a failed-relay warning that has nothing to do with what it asserts.
+    let fetchMock;
 
     beforeEach(() => {
         env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        fetchMock = vi.fn().mockResolvedValue({ ok: true });
+        globalThis.fetch = fetchMock;
     });
 
     afterEach(() => {
+        delete globalThis.fetch;
         env.cleanup();
         env = null;
     });
@@ -126,15 +133,6 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
                 .filter(([url]) => url === '/api/telegram/cancel-refire')
                 .map(([, init]) => JSON.parse(init.body).callback);
         }
-
-        let fetchMock;
-        beforeEach(() => {
-            fetchMock = vi.fn().mockResolvedValue({ ok: true });
-            globalThis.fetch = fetchMock;
-        });
-        afterEach(() => {
-            delete globalThis.fetch;
-        });
 
         for (const [name, call] of [
             ['status=completed', (window, id) => window.apiCall(`/api/workout/sessions/status?id=${id}`, 'PUT', { status: 'completed' })],
