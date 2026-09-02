@@ -250,6 +250,22 @@ func (r *Repo) BotByWebhookRef(ctx context.Context, ref string) (*TGBot, error) 
 // LinkChat records the chat_id the bot was /start'ed from (the end of the
 // managed/BYO flow). Returns sql.ErrNoRows if the account has no bot.
 func (r *Repo) LinkChat(ctx context.Context, accountID string, chatID int64, linkedAt time.Time) error {
+	// Read the chat this account was on BEFORE the update: only a change of chat
+	// invalidates the stored Telegram message ids. A repeat /start in the SAME
+	// chat (users do this) must keep them, or it would throw away the live
+	// reminder's id and with it the ability to delete that message on an in-app
+	// confirm/complete — and the pending nag chain along with it (med-r3dm).
+	// ponytail: read-then-write, not one transaction. The race needs two
+	// concurrent /starts for one account from two different chats; losing it
+	// costs a cleared chain, which is exactly the pre-med-r3dm behavior.
+	var prevChat sql.NullInt64
+	switch err := r.db.QueryRowContext(ctx, `SELECT chat_id FROM tg_bots WHERE account_id = ?`, accountID).Scan(&prevChat); {
+	case errors.Is(err, sql.ErrNoRows):
+		return sql.ErrNoRows
+	case err != nil:
+		return err
+	}
+
 	result, err := r.db.ExecContext(ctx,
 		`UPDATE tg_bots SET chat_id = ?, linked_at_unix = ? WHERE account_id = ?`,
 		chatID, storedb.TimeToUnix(linkedAt), accountID)
@@ -263,8 +279,12 @@ func (r *Repo) LinkChat(ctx context.Context, accountID string, chatID int64, lin
 	if n == 0 {
 		return sql.ErrNoRows
 	}
+	if prevChat.Valid && prevChat.Int64 == chatID {
+		return nil // same chat, same message-id space: nothing to invalidate
+	}
 	// A new chat may have a lower message-id space; drop pending re-fires whose
-	// supersedes ids reference whatever chat was linked before this /start.
+	// supersedes ids reference whatever chat was linked before this /start, and
+	// the sent rows' own message ids with them.
 	return r.ClearRelayRefires(ctx, accountID)
 }
 

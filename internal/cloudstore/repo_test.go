@@ -917,6 +917,22 @@ func TestRelayRefiresClearedOnChatRelink(t *testing.T) {
 	if id, err := r.LastReminderMessageID(ctx, acc.ID, "s:9:20260720"); err != nil || id != 0 {
 		t.Fatalf("relink left a prior chat's message id on file: got %d, %v; want 0", id, err)
 	}
+
+	// A repeat /start in the SAME chat is not a relink: the message-id space is
+	// unchanged, so the live reminder stays deletable and the nag chain survives.
+	if err := r.MarkPushSent(ctx, due[0].ID, now, 6000); err != nil {
+		t.Fatalf("MarkPushSent (re-stamp): %v", err)
+	}
+	scheduleRefire()
+	if err := r.LinkChat(ctx, acc.ID, 43, now); err != nil {
+		t.Fatalf("LinkChat (same chat): %v", err)
+	}
+	if id, err := r.LastReminderMessageID(ctx, acc.ID, "s:9:20260720"); err != nil || id != 6000 {
+		t.Fatalf("repeat /start in the same chat dropped the message id: got %d, %v; want 6000", id, err)
+	}
+	if got := pendingRefires(); got != 1 {
+		t.Fatalf("repeat /start in the same chat cleared the nag chain: pending re-fires = %d, want 1", got)
+	}
 }
 
 // TestAccountsNeedingStaleSyncWarning_EmptyQueue pins bd med-2lx: the dry-queue
