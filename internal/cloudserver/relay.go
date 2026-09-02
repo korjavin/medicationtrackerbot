@@ -36,10 +36,12 @@ const (
 )
 
 // sentIdentityRetention is how long a SENT reminder row keeps the addressing a
-// tap resolves against (tg_callback/tg_med_ids — see MarkPushSent). Same 48h the
-// retired slotmeds records used, for the same reason: tapping Confirm on
-// yesterday evening's message this morning must still name its meds, long after
-// the 6h re-fire chain ended (med-kbpf).
+// tap resolves against (tg_callback/tg_med_ids/tg_message_id — see MarkPushSent).
+// Same 48h the retired slotmeds records used, for the same reason: tapping Confirm
+// on yesterday evening's message this morning must still name its meds, long after
+// the 6h re-fire chain ended (med-kbpf). It is also exactly Telegram's bot-delete
+// window, so the message id it holds is dropped when it stops being deletable
+// (med-r3dm).
 const sentIdentityRetention = 48 * time.Hour
 
 // staleSyncWarningPayload is the server-composed, content-free push body
@@ -149,7 +151,7 @@ func vapidSubjectFor(endpoint, subject, baseDomain string) string {
 // relayStore is the subset of *cloudstore.Repo the blind push relay needs.
 type relayStore interface {
 	DueScheduledPushes(ctx context.Context, now time.Time) ([]cloudstore.ScheduledPush, error)
-	MarkPushSent(ctx context.Context, id int64, sentAt time.Time) error
+	MarkPushSent(ctx context.Context, id int64, sentAt time.Time, tgMessageID int64) error
 	List(ctx context.Context, accountID string) ([]cloudstore.PushSubscription, error)
 	Disable(ctx context.Context, endpoint string) error
 	AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Time, dryQueueWithin, warnCooldown time.Duration) ([]string, error)
@@ -254,7 +256,7 @@ func (rl *Relay) Tick(ctx context.Context) {
 		// unlinked chat or revoked token would re-fire forever. A DB outage
 		// fails MarkPushSent too, so the row is naturally retried then.
 		marked := true
-		if err := rl.store.MarkPushSent(ctx, p.ID, time.Now().UTC()); err != nil {
+		if err := rl.store.MarkPushSent(ctx, p.ID, time.Now().UTC(), tgMessageID); err != nil {
 			slog.Error("push relay: mark sent", "id", p.ID, "error", err)
 			marked = false
 		}

@@ -576,7 +576,7 @@ func TestMarkPushSentClearsPayload(t *testing.T) {
 		t.Fatalf("expected 1 due entry, got %d", len(due))
 	}
 
-	if err := r.MarkPushSent(ctx, due[0].ID, now); err != nil {
+	if err := r.MarkPushSent(ctx, due[0].ID, now, 0); err != nil {
 		t.Fatalf("MarkPushSent: %v", err)
 	}
 
@@ -757,7 +757,7 @@ func TestCancelRelayRefire(t *testing.T) {
 	}
 
 	// A sent refire is never cancelled.
-	if err := r.MarkPushSent(ctx, due[0].ID, now); err != nil {
+	if err := r.MarkPushSent(ctx, due[0].ID, now, 0); err != nil {
 		t.Fatalf("MarkPushSent: %v", err)
 	}
 	if n, err := r.CancelRelayRefire(ctx, acc.ID, "w:7:20260720"); err != nil || n != 0 {
@@ -891,6 +891,48 @@ func TestRelayRefiresClearedOnChatRelink(t *testing.T) {
 	if got := pendingRefires(); got != 0 {
 		t.Fatalf("UpsertBot relink did not clear pending re-fires: got %d, want 0", got)
 	}
+
+	// med-r3dm: a SENT row's tg_message_id outlives the relink for 48h and feeds
+	// the same cross-chat compare through LastReminderMessageID — an in-app cancel
+	// would hand DeleteReminder an old chat's id and delete whatever the NEW chat
+	// has at that number. The relink must zero it too.
+	if err := r.ReplaceSchedule(ctx, acc.ID, []ScheduledPushInput{
+		{FireAt: now.Add(-time.Minute), Delivery: DeliveryTelegram, TGText: "Time to take", TGCallback: "s:9:20260720"},
+	}, now); err != nil {
+		t.Fatalf("ReplaceSchedule: %v", err)
+	}
+	due, err := r.DueScheduledPushes(ctx, now)
+	if err != nil || len(due) != 1 {
+		t.Fatalf("DueScheduledPushes = %+v, %v; want the seeded row", due, err)
+	}
+	if err := r.MarkPushSent(ctx, due[0].ID, now, 5000); err != nil {
+		t.Fatalf("MarkPushSent: %v", err)
+	}
+	if id, err := r.LastReminderMessageID(ctx, acc.ID, "s:9:20260720"); err != nil || id != 5000 {
+		t.Fatalf("before relink, LastReminderMessageID = %d, %v; want 5000", id, err)
+	}
+	if err := r.LinkChat(ctx, acc.ID, 43, now); err != nil {
+		t.Fatalf("LinkChat (new chat): %v", err)
+	}
+	if id, err := r.LastReminderMessageID(ctx, acc.ID, "s:9:20260720"); err != nil || id != 0 {
+		t.Fatalf("relink left a prior chat's message id on file: got %d, %v; want 0", id, err)
+	}
+
+	// A repeat /start in the SAME chat is not a relink: the message-id space is
+	// unchanged, so the live reminder stays deletable and the nag chain survives.
+	if err := r.MarkPushSent(ctx, due[0].ID, now, 6000); err != nil {
+		t.Fatalf("MarkPushSent (re-stamp): %v", err)
+	}
+	scheduleRefire()
+	if err := r.LinkChat(ctx, acc.ID, 43, now); err != nil {
+		t.Fatalf("LinkChat (same chat): %v", err)
+	}
+	if id, err := r.LastReminderMessageID(ctx, acc.ID, "s:9:20260720"); err != nil || id != 6000 {
+		t.Fatalf("repeat /start in the same chat dropped the message id: got %d, %v; want 6000", id, err)
+	}
+	if got := pendingRefires(); got != 1 {
+		t.Fatalf("repeat /start in the same chat cleared the nag chain: pending re-fires = %d, want 1", got)
+	}
 }
 
 // TestAccountsNeedingStaleSyncWarning_EmptyQueue pins bd med-2lx: the dry-queue
@@ -940,7 +982,7 @@ func TestAccountsNeedingStaleSyncWarning_EmptyQueue(t *testing.T) {
 			if p.AccountID != accountID {
 				continue
 			}
-			if err := r.MarkPushSent(ctx, p.ID, now); err != nil {
+			if err := r.MarkPushSent(ctx, p.ID, now, 0); err != nil {
 				t.Fatalf("MarkPushSent(%s): %v", accountID, err)
 			}
 		}
@@ -1046,7 +1088,7 @@ func TestScheduledPushMedIDs(t *testing.T) {
 	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, due[0].TGText, due[0].TGCallback, due[0].TGMedIDs, 7); err != nil {
 		t.Fatalf("RescheduleRelayRefire: %v", err)
 	}
-	if err := r.MarkPushSent(ctx, due[0].ID, now); err != nil {
+	if err := r.MarkPushSent(ctx, due[0].ID, now, 0); err != nil {
 		t.Fatalf("MarkPushSent: %v", err)
 	}
 	// The sent row is scrubbed; the pending re-fire is what answers the next tap.
@@ -1060,7 +1102,7 @@ func TestScheduledPushMedIDs(t *testing.T) {
 	if len(refires) != 1 || refires[0].TGMedIDs != "2,9" {
 		t.Fatalf("re-fire = %+v, want one row carrying 2,9", refires)
 	}
-	if err := r.MarkPushSent(ctx, refires[0].ID, now); err != nil {
+	if err := r.MarkPushSent(ctx, refires[0].ID, now, 0); err != nil {
 		t.Fatalf("MarkPushSent (refire): %v", err)
 	}
 	// The chain has ended, but the sent rows still answer a late tap — the 48h

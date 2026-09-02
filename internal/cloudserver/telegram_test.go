@@ -1076,6 +1076,8 @@ type tapFixture struct {
 	store     *cloudstore.Repo
 	db        *storedb.DB
 	accountID string
+	host      string
+	session   *http.Cookie
 	top       *http.ServeMux
 	childPath string
 	secret    string
@@ -1135,7 +1137,7 @@ func linkedBotTap(t *testing.T, tg *recordingTG) tapFixture {
 	tg.mu.answered = nil
 	tg.mu.Unlock()
 
-	return tapFixture{store: store, db: db, accountID: account.ID, top: top, childPath: childPath, secret: bot.WebhookSecret, api: tgAPI}
+	return tapFixture{store: store, db: db, accountID: account.ID, host: host, session: session, top: top, childPath: childPath, secret: bot.WebhookSecret, api: tgAPI}
 }
 
 func callbackUpdate(data string, chatID int64) string {
@@ -1426,50 +1428,115 @@ func TestChildWebhook_MedConfirmCancelsRelayRefire(t *testing.T) {
 	}
 }
 
-// The cancel-refire endpoint lets an app-confirmed dose (no Telegram tap) drop
-// the relay's re-fire chain. It accepts only med "s:<slot>" callbacks so a client
-// can never cancel an arbitrary re-fire, and is session-authed.
+// The cancel-refire endpoint ends one reminder chain the user satisfied IN THE
+// APP (no Telegram tap): it drops the relay-owned pending re-fire AND deletes the
+// message still live in the chat. It used to guard on the med "s:" prefix and
+// only drop the re-fire — so a workout completed in the PWA left its reminder
+// sitting there with Start/Snooze/Skip buttons (med-r3dm). The guard is now
+// tgclient.ValidCallbackStem, the same validator that gates what may enter the
+// queue: s:/w:/bp:/wt: stems only, no action suffix, no foreign namespace.
 func TestCancelRefire(t *testing.T) {
-	store := setupStore(t)
-	account, claimToken := setupInvite(t, store)
-	host := account.Subdomain + ".localhost"
-
-	webauthnAPI := NewWebAuthnAPI(store, tgTestSecret)
-	tgAPI := NewTelegramAPI(store, tgTestSecret, "MANAGER:TOKEN", "localhost", "", "", 14*24*time.Hour)
-	apiMux := http.NewServeMux()
-	webauthnAPI.RegisterRoutes(apiMux)
-	tgAPI.RegisterAPIRoutes(apiMux)
-	router := New("localhost", store, testFS(), testAppFS(), testDomainFS(), apiMux, "", false, false)
-
-	session := registerAndGetSession(t, router, host, claimToken)
-
-	if err := store.InsertRelayRefire(t.Context(), account.ID, time.Now().Add(time.Hour), "Medication reminder", "s:1767225600"); err != nil {
-		t.Fatalf("InsertRelayRefire: %v", err)
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+	ctx := t.Context()
+	cancel := func(body string) *httptest.ResponseRecorder {
+		t.Helper()
+		return doReq(t, f.top, http.MethodPost, "http://"+f.host+"/api/telegram/cancel-refire", f.host, f.session, []byte(body))
+	}
+	deletes := func() []string {
+		t.Helper()
+		tg.mu.Lock()
+		defer tg.mu.Unlock()
+		out := append([]string(nil), tg.mu.deletes...)
+		tg.mu.deletes = nil
+		return out
 	}
 
-	// A valid "s:" cancel returns 204 and drops the pending re-fire.
-	rec := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/cancel-refire", host, session, []byte(`{"callback":"s:1767225600"}`))
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("cancel status = %d, body %q", rec.Code, rec.Body.String())
+	// A med "s:" stem: the pre-med-r3dm behavior (drop the pending re-fire) plus
+	// the delete of the message that re-fire was going to supersede.
+	if err := f.store.RescheduleRelayRefire(ctx, f.accountID, time.Now().Add(time.Hour), "Medication reminder", "s:1767225600", "2,9", 501); err != nil {
+		t.Fatalf("RescheduleRelayRefire: %v", err)
 	}
-	due, err := store.DueScheduledPushes(t.Context(), time.Now().Add(3*time.Hour))
+	if rec := cancel(`{"callback":"s:1767225600"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("cancel s: status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	due, err := f.store.DueScheduledPushes(ctx, time.Now().Add(3*time.Hour))
 	if err != nil {
 		t.Fatalf("DueScheduledPushes: %v", err)
 	}
 	if len(due) != 0 {
 		t.Fatalf("cancel left %d pending re-fires, want 0", len(due))
 	}
+	if d := deletes(); len(d) != 1 || !strings.Contains(d[0], "501") {
+		t.Fatalf("s: cancel deletes = %v, want one delete of message 501", d)
+	}
 
-	// A non-"s:" callback (e.g. a workout stem) or malformed body is rejected.
-	for _, bad := range []string{`{"callback":"w:6:20260720"}`, `{"callback":"nonsense"}`, `{"callback":""}`, `not json`} {
-		r := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/cancel-refire", host, session, []byte(bad))
-		if r.Code != http.StatusBadRequest {
+	// A workout "w:" stem is now accepted, and its message id is the one the
+	// relay recorded on the SENT row — no re-fire ever carries it (med-r3dm).
+	stem := "w:6:20260720"
+	now := time.Now().UTC()
+	if err := f.store.ReplaceSchedule(ctx, f.accountID, []cloudstore.ScheduledPushInput{
+		{FireAt: now.Add(-time.Minute), Delivery: cloudstore.DeliveryTelegram, TGText: "Workout starting", TGCallback: stem},
+	}, now); err != nil {
+		t.Fatalf("ReplaceSchedule: %v", err)
+	}
+	pending, err := f.store.DueScheduledPushes(ctx, now)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("DueScheduledPushes = %+v, %v; want the seeded workout row", pending, err)
+	}
+	if err := f.store.MarkPushSent(ctx, pending[0].ID, now, 612); err != nil {
+		t.Fatalf("MarkPushSent: %v", err)
+	}
+	if rec := cancel(`{"callback":"` + stem + `"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("cancel w: status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	if d := deletes(); len(d) != 1 || !strings.Contains(d[0], "612") {
+		t.Fatalf("w: cancel deletes = %v, want one delete of message 612", d)
+	}
+
+	// Nothing on file: still 204, and no deleteMessage is attempted.
+	if rec := cancel(`{"callback":"bp:1767225600"}`); rec.Code != http.StatusNoContent {
+		t.Errorf("cancel with no message on file = %d, want 204", rec.Code)
+	}
+	if d := deletes(); len(d) != 0 {
+		t.Errorf("cancel with no message on file issued deletes: %v", d)
+	}
+
+	// A failing Telegram delete never turns into an error for the client.
+	if err := f.store.RescheduleRelayRefire(ctx, f.accountID, time.Now().Add(time.Hour), "Weight reminder", "wt:1767225600", "", 700); err != nil {
+		t.Fatalf("RescheduleRelayRefire (wt): %v", err)
+	}
+	tg.mu.Lock()
+	tg.mu.deleteFails = true
+	tg.mu.Unlock()
+	if rec := cancel(`{"callback":"wt:1767225600"}`); rec.Code != http.StatusNoContent {
+		t.Errorf("cancel with a failing TG delete = %d, want 204", rec.Code)
+	}
+	if d := deletes(); len(d) != 1 {
+		t.Errorf("failing delete should still be attempted once, got %v", d)
+	}
+	tg.mu.Lock()
+	tg.mu.deleteFails = false
+	tg.mu.Unlock()
+
+	// Garbage, cross-namespace, an already-attached action, and an empty stem are
+	// all rejected — a session may only cancel a well-formed stem.
+	for _, bad := range []string{
+		`{"callback":"w:abc:1"}`,
+		`{"callback":"x:1"}`,
+		`{"callback":"w:1:20260902:skip"}`,
+		`{"callback":"s:1767225600:confirm"}`,
+		`{"callback":"nonsense"}`,
+		`{"callback":""}`,
+		`not json`,
+	} {
+		if r := cancel(bad); r.Code != http.StatusBadRequest {
 			t.Errorf("cancel %q = %d, want 400", bad, r.Code)
 		}
 	}
 
 	// Unauthenticated.
-	if r := doReq(t, router, http.MethodPost, "http://"+host+"/api/telegram/cancel-refire", host, nil, []byte(`{"callback":"s:1"}`)); r.Code != http.StatusUnauthorized {
+	if r := doReq(t, f.top, http.MethodPost, "http://"+f.host+"/api/telegram/cancel-refire", f.host, nil, []byte(`{"callback":"s:1"}`)); r.Code != http.StatusUnauthorized {
 		t.Errorf("unauthenticated cancel = %d, want 401", r.Code)
 	}
 }

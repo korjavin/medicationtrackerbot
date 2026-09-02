@@ -735,6 +735,55 @@ func TestRelay_RefireDeleteFailureDoesNotAbortChain(t *testing.T) {
 	}
 }
 
+// med-r3dm: every Telegram send records its own message_id on the sent row, for
+// EVERY stem namespace. Before this the id survived only as the next re-fire's
+// supersedes_message_id — which scheduleMedRefire arms for med "s:" chains only,
+// so a workout/BP/weight reminder's message id was dropped on the floor and an
+// in-app complete had nothing to delete.
+func TestRelay_MarksSentMessageIDForEveryStem(t *testing.T) {
+	store := setupStore(t)
+	account, _ := setupInvite(t, store)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	stems := []string{"w:6:20260720", "bp:1000000003", "wt:1000000004", fmt.Sprintf("s:%d", now.Unix())}
+	entries := make([]cloudstore.ScheduledPushInput, 0, len(stems))
+	for _, stem := range stems {
+		entries = append(entries, cloudstore.ScheduledPushInput{
+			FireAt: now.Add(-time.Minute), Delivery: cloudstore.DeliveryTelegram, TGText: "Reminder", TGCallback: stem,
+		})
+	}
+	if err := store.ReplaceSchedule(ctx, account.ID, entries, now); err != nil {
+		t.Fatalf("ReplaceSchedule: %v", err)
+	}
+
+	tg := &fakeTGSender{}
+	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, tg, 0).Tick(ctx)
+
+	if len(tg.sent) != len(stems) {
+		t.Fatalf("sent %d reminders, want %d", len(tg.sent), len(stems))
+	}
+	// fakeTGSender hands out ids 1..n in send order, which is fire_at order — all
+	// four share one instant, so match each stem to the id its own send returned.
+	idByStem := map[string]int64{}
+	for i, stem := range tg.callbacks {
+		idByStem[stem] = int64(i + 1)
+	}
+	for _, stem := range stems {
+		want := idByStem[stem]
+		if want == 0 {
+			t.Fatalf("stem %q never sent, callbacks=%v", stem, tg.callbacks)
+		}
+		got, err := store.LastReminderMessageID(ctx, account.ID, stem)
+		if err != nil {
+			t.Fatalf("LastReminderMessageID(%s): %v", stem, err)
+		}
+		if got != want {
+			t.Errorf("LastReminderMessageID(%s) = %d, want %d", stem, got, want)
+		}
+	}
+}
+
 // med-kbpf: a SENT reminder row keeps the addressing a tap resolves against
 // (tg_callback/tg_med_ids) so tapping Confirm on last night's message this
 // morning still names its meds — long after the 6h re-fire chain ended. The
@@ -745,7 +794,7 @@ func TestRelay_SweepScrubsAgedSentIdentity(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	send := func(stem, ids string, sentAgo time.Duration) {
+	send := func(stem, ids string, sentAgo time.Duration, msgID int64) {
 		t.Helper()
 		if err := store.ReplaceSchedule(ctx, account.ID, []cloudstore.ScheduledPushInput{
 			{FireAt: now.Add(-sentAgo), Delivery: cloudstore.DeliveryTelegram, TGText: "Time to take", TGCallback: stem, TGMedIDs: ids},
@@ -756,12 +805,12 @@ func TestRelay_SweepScrubsAgedSentIdentity(t *testing.T) {
 		if err != nil || len(due) != 1 {
 			t.Fatalf("DueScheduledPushes(%s) = %+v, %v; want 1 unsent row", stem, due, err)
 		}
-		if err := store.MarkPushSent(ctx, due[0].ID, now.Add(-sentAgo)); err != nil {
+		if err := store.MarkPushSent(ctx, due[0].ID, now.Add(-sentAgo), msgID); err != nil {
 			t.Fatalf("MarkPushSent(%s): %v", stem, err)
 		}
 	}
-	send("s:1000000001", "2,9", 49*time.Hour) // past the window
-	send("s:1000000002", "3,7", time.Hour)    // last night
+	send("s:1000000001", "2,9", 49*time.Hour, 41) // past the window
+	send("s:1000000002", "3,7", time.Hour, 42)    // last night
 
 	NewRelay(store, &fakeSender{goneFor: map[string]bool{}}, nil, 0).StaleSyncSweep(ctx)
 
@@ -770,6 +819,15 @@ func TestRelay_SweepScrubsAgedSentIdentity(t *testing.T) {
 	}
 	if ids, err := store.MedIDsForCallback(ctx, account.ID, "s:1000000002"); err != nil || ids != "3,7" {
 		t.Errorf("recent row = %q, %v; want \"3,7\" still tappable", ids, err)
+	}
+	// med-r3dm: tg_message_id rides the same retention. The aged row's id is gone
+	// (past Telegram's 48h bot-delete window, so it could not be deleted anyway);
+	// the recent one is still there for an in-app cancel to delete.
+	if id, err := store.LastReminderMessageID(ctx, account.ID, "s:1000000001"); err != nil || id != 0 {
+		t.Errorf("aged row message id = %d, %v; want 0", id, err)
+	}
+	if id, err := store.LastReminderMessageID(ctx, account.ID, "s:1000000002"); err != nil || id != 42 {
+		t.Errorf("recent row message id = %d, %v; want 42", id, err)
 	}
 }
 

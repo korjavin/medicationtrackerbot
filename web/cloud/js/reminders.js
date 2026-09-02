@@ -155,19 +155,37 @@ export function scheduleReminderRecompute(ctx, opts = {}, debounceMs = DEBOUNCE_
 // never blocks the confirm.
 // ponytail: one retry, no backoff queue. Persist + replay on next unlock if
 // stray nags survive this.
-function postRefire(path, slotMs, extra, fetchImpl) {
-  const slotUnix = Math.floor(slotMs / 1000);
-  if (!Number.isFinite(slotUnix) || slotUnix <= 0) return;
-  const post = () => fetchImpl(`/api/telegram/${path}`, {
+function postRefire(path, callback, extra, fetchImpl) {
+  if (!callback) return;
+  // Resolved HERE, not as a `fetchImpl = fetch` default parameter: that default
+  // is evaluated synchronously at call time, so an environment with no global
+  // fetch threw a ReferenceError straight through this fire-and-forget helper
+  // and into the caller's already-durable vault write. `f` being undefined
+  // instead lands in the try below, which is what fire-and-forget means.
+  const f = fetchImpl || globalThis.fetch;
+  const post = () => f(`/api/telegram/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ callback: `s:${slotUnix}`, ...extra }),
+    body: JSON.stringify({ callback, ...extra }),
   }).then((res) => {
     if (!res || !res.ok) throw new Error(`${path} HTTP ${res && res.status}`);
   });
-  post()
-    .catch(() => post())
-    .catch((e) => console.warn(`[reminders] ${path} failed, the relay may keep nagging`, slotUnix, e));
+  const warn = (e) => console.warn(`[reminders] ${path} failed, the relay may keep nagging`, callback, e);
+  // The try guards a fetch that throws SYNCHRONOUSLY (an environment with no
+  // global fetch at all) — this is fire-and-forget and must never escape into
+  // the caller, which is in the middle of an already-durable vault write.
+  try {
+    post().catch(() => post()).catch(warn);
+  } catch (e) {
+    warn(e);
+  }
+}
+
+// medStem builds the "s:<slotUnix>" callback stem for a dose slot instant in ms,
+// or "" when the instant is not a usable slot.
+function medStem(slotMs) {
+  const slotUnix = Math.floor(slotMs / 1000);
+  return Number.isFinite(slotUnix) && slotUnix > 0 ? `s:${slotUnix}` : '';
 }
 
 // cancelMedRefire tells the relay to drop its server-owned re-fire chain for a
@@ -176,16 +194,26 @@ function postRefire(path, slotMs, extra, fetchImpl) {
 // A Telegram tap needs no call: the relay cancels that chain itself (med-kbpf).
 // slotMs is the dose slot instant (scheduled_at) in ms; the relay keys re-fires
 // by the "s:<slotUnix>" callback stem.
-export function cancelMedRefire(slotMs, { fetchImpl = fetch } = {}) {
-  postRefire('cancel-refire', slotMs, {}, fetchImpl);
+export function cancelMedRefire(slotMs, { fetchImpl } = {}) {
+  cancelReminderRefire(medStem(slotMs), { fetchImpl });
+}
+
+// cancelReminderRefire is the general form: it ends the reminder chain for ANY
+// stem the relay knows — med "s:<slotUnix>", workout "w:<groupId>:<YYYYMMDD>",
+// measure "bp:|wt:<slotUnix>". The server drops the pending re-fire and deletes
+// the message still live in the chat, so an in-app workout complete/skip/start no
+// longer leaves its reminder sitting there with buttons (med-r3dm). Empty stem =
+// no chain to cancel (an ad-hoc session carries no callback), so it no-ops.
+export function cancelReminderRefire(stem, { fetchImpl } = {}) {
+  postRefire('cancel-refire', stem, {}, fetchImpl);
 }
 
 // rearmMedRefire puts ONE re-fire back for a slot whose Telegram Confirm the
 // drain could only partly apply — a named dose that is still PENDING after the
 // tap (med-kbpf). medIds names those doses so a tap on the re-fired message
 // still resolves by identity. The relay no-ops it past its 6h cap.
-export function rearmMedRefire(slotMs, medIds = [], { fetchImpl = fetch } = {}) {
-  postRefire('rearm-refire', slotMs, { med_ids: (medIds || []).join(',') }, fetchImpl);
+export function rearmMedRefire(slotMs, medIds = [], { fetchImpl } = {}) {
+  postRefire('rearm-refire', medStem(slotMs), { med_ids: (medIds || []).join(',') }, fetchImpl);
 }
 
 // Drops a pending debounced recompute for `ctx` without running it. A live page
