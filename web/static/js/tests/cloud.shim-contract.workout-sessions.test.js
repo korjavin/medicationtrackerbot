@@ -5,7 +5,7 @@
 // (web/cloud/js/apishim.js) instead of the network. Divergences here are
 // contract bugs in the JS domain layer, not test bugs; the original
 // (network-mocked) workout.*.test.js files keep running unshimmed.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createInMemoryRecordsPort, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { createWorkoutDomain } from '../../../domain/workout.js';
 import { computeReminderHorizon } from '../../../domain/reminders.js';
@@ -110,6 +110,72 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
 
         const next = await window.apiCallDirect('/api/workout/sessions/next');
         expect(next.variant_id).toBe(variants[1].id);
+    });
+
+    // med-r3dm: acting on a workout IN THE APP must also end its Telegram
+    // reminder chain. Re-pushing the schedule is not enough — ReplaceSchedule
+    // deliberately preserves relay-owned re-fires, and nothing in it deletes the
+    // message already sitting in the chat with Start/Snooze/Skip buttons.
+    describe('in-app transitions cancel the Telegram reminder chain', () => {
+        function stemOf(group, session) {
+            const p = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(session.scheduled_date));
+            return `w:${group.id}:${p[1]}${p[2]}${p[3]}`;
+        }
+        function cancelBodies(fetchMock) {
+            return fetchMock.mock.calls
+                .filter(([url]) => url === '/api/telegram/cancel-refire')
+                .map(([, init]) => JSON.parse(init.body).callback);
+        }
+
+        let fetchMock;
+        beforeEach(() => {
+            fetchMock = vi.fn().mockResolvedValue({ ok: true });
+            globalThis.fetch = fetchMock;
+        });
+        afterEach(() => {
+            delete globalThis.fetch;
+        });
+
+        for (const [name, call] of [
+            ['status=completed', (window, id) => window.apiCall(`/api/workout/sessions/status?id=${id}`, 'PUT', { status: 'completed' })],
+            ['status=skipped', (window, id) => window.apiCall(`/api/workout/sessions/status?id=${id}`, 'PUT', { status: 'skipped' })],
+            ['skip', (window, id) => window.apiCall(`/api/workout/sessions/${id}/skip`, 'POST')],
+            ['preskip', (window, id) => window.apiCall(`/api/workout/sessions/${id}/preskip`, 'POST')],
+            ['start', (window, id) => window.apiCall(`/api/workout/sessions/${id}/start`, 'POST')],
+        ]) {
+            it(`${name} posts exactly one cancel-refire for the session's own stem`, async () => {
+                const { window } = env;
+                const { group } = await makeRotatingGroup(window, ['Push', 'Pull']);
+                const first = await window.apiCallDirect('/api/workout/sessions/next');
+
+                await call(window, first.session.id);
+
+                // The stem must match web/domain/reminders.js exactly, or the
+                // server cancels nothing: `w:<groupId>:<YYYYMMDD>` off the
+                // scheduled_date prefix (which IS the local calendar day).
+                expect(cancelBodies(fetchMock)).toEqual([stemOf(group, first.session)]);
+            });
+        }
+
+        it('snooze keeps the chain — the reminder is meant to come back', async () => {
+            const { window } = env;
+            await makeRotatingGroup(window, ['Push', 'Pull']);
+            const first = await window.apiCallDirect('/api/workout/sessions/next');
+
+            await window.apiCall(`/api/workout/sessions/${first.session.id}/snooze`, 'POST', { minutes: 60 });
+
+            expect(cancelBodies(fetchMock)).toEqual([]);
+        });
+
+        it('an ad-hoc session cancels nothing — it never carried a callback stem', async () => {
+            const { window } = env;
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            expect(session.group_id).toBe(-1);
+
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+            expect(cancelBodies(fetchMock)).toEqual([]);
+        });
     });
 
     it('next-variant advances the cursor and deletes the current pending session so it re-materializes fresh', async () => {

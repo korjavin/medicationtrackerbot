@@ -22,7 +22,7 @@ import {
 } from '../../domain/paginate.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
 import { recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from './sync.js';
-import { scheduleReminderRecompute, sendTestPush, cancelMedRefire } from './reminders.js';
+import { scheduleReminderRecompute, sendTestPush, cancelMedRefire, cancelReminderRefire } from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
@@ -95,6 +95,21 @@ function apiError(status, message) {
   const err = new Error(message);
   err.status = status;
   return err;
+}
+
+// workoutReminderStem rebuilds the Telegram callback stem the reminder horizon
+// put on this session's recurring reminder, so an in-app transition can end that
+// chain (med-r3dm). It MUST match web/domain/reminders.js exactly:
+// `w:<groupId>:<YYYYMMDD>` where the date is the scheduled_date prefix — that
+// prefix IS the local calendar day (scheduledDateRFC), so read it as a string;
+// going through UTC parts shifts the day in positive-offset zones.
+//
+// Returns '' when there is no chain to cancel: an ad-hoc session (group_id -1)
+// carries no callback stem at all, since (groupId, date) isn't unique for it.
+function workoutReminderStem(session) {
+  if (!session || !(session.group_id > 0)) return '';
+  const p = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(session.scheduled_date));
+  return p ? `w:${session.group_id}:${p[1]}${p[2]}${p[3]}` : '';
 }
 
 const loggedOnce = new Set();
@@ -804,6 +819,10 @@ export function createApiRouter(ctx, {
       if (!outcome) throw apiError(404, 'session not found');
       // A skip/complete suppresses that day's recurring reminder — re-push so
       // the blind relay drops it (matches the bot cancelling on status change).
+      // The re-push alone is not enough: ReplaceSchedule deliberately preserves
+      // relay-owned re-fires, and it never touches the message already in the
+      // chat. Kill the chain explicitly (med-r3dm).
+      cancelReminderRefire(workoutReminderStem(outcome.session));
       scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
@@ -821,12 +840,30 @@ export function createApiRouter(ctx, {
       if (m) {
         const id = Number(m[1]);
         const action = m[2];
+        // start/skip/preskip take the session out of 'pending', so its Telegram
+        // reminder is answered and must go (med-r3dm). These actions return void,
+        // so read the session BEFORE the write — group_id/scheduled_date don't
+        // change, and after a next-variant the session is gone entirely. snooze
+        // (the chain re-fires on purpose), cancel-preskip (back to pending) and
+        // next-variant (same slot, new variant) deliberately keep it.
+        //
+        // startSession may re-key onto TODAY's slot when the tapped session is a
+        // future one (med-gmyf), so the stem cancelled here is the tapped day's,
+        // not the started one's. That is a no-op rather than a bug: a future day
+        // has no sent message and no relay re-fire (both only exist after a send),
+        // and CancelRelayRefire only touches relay-origin rows, so the client's
+        // scheduled push for that day survives. The re-key path also implies today
+        // had no live pending reminder for the group — getNext would have surfaced
+        // today's occurrence instead of a future one if it had.
+        const answersReminder = action === 'start' || action === 'skip' || action === 'preskip';
+        const details = answersReminder ? await workout.getSessionDetails(id) : null;
         if (action === 'start') await workout.startSession(id);
         else if (action === 'snooze') await workout.snoozeSession(id, body && body.minutes);
         else if (action === 'skip') await workout.skipSession(id);
         else if (action === 'preskip') await workout.preSkipSession(id);
         else if (action === 'cancel-preskip') await workout.cancelPreSkipSession(id);
         else await workout.nextVariant(id);
+        if (details) cancelReminderRefire(workoutReminderStem(details.session));
         // start/snooze/skip change the session's status, which the horizon uses
         // to suppress the recurring reminder — re-push so the relay follows.
         scheduleReminderRecompute(ctx, { records, timeZone });

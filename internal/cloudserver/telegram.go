@@ -1397,17 +1397,32 @@ func (t *TelegramAPI) EditReply(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// cancelRefireRequest is the app-confirm cancel body: a med slot stem
-// "s:<slotUnix>". The client sends it when a dose is confirmed/snoozed in the
-// PWA (no Telegram tap), so the relay-owned re-fire chain stops for that slot.
+// cancelRefireRequest is the app-confirm cancel body: a reminder stem — a med
+// "s:<slotUnix>", a workout "w:<groupId>:<YYYYMMDD>", or a measure
+// "bp:|wt:<slotUnix>". The client sends it when the thing the reminder asks for
+// happened IN THE PWA (no Telegram tap), so the chain stops for that stem.
 type cancelRefireRequest struct {
 	Callback string `json:"callback"`
 }
 
-// CancelRefire drops the relay-owned re-fire chain for a med slot the client
-// confirmed/snoozed in the app. The prefix guard means a session can only cancel
-// its own med "s:<slot>" re-fires, never an arbitrary callback. Best-effort from
-// the client's side; here it validates, cancels, and returns 204.
+// CancelRefire ends one reminder chain the client just satisfied in the app: it
+// drops the relay-owned pending re-fire AND best-effort deletes the reminder
+// message still live in the chat. Dropping the re-fire alone was the med-r3dm
+// defect — an in-app dose confirm or workout complete stopped the nag but left
+// the last message sitting there with its Confirm/Start/Snooze/Skip buttons.
+//
+// The guard is tgclient.ValidCallbackStem, the same validator that gates what a
+// client may put in the push queue in the first place: it accepts exactly the
+// s:/w:/bp:/wt: stems and rejects garbage, a foreign namespace, and a stem that
+// already carries an action suffix. Empty is rejected here (ValidCallbackStem
+// allows it as "this queue entry has no buttons", which is not a chain to cancel).
+// So a session can still only cancel a well-formed stem of its own account.
+//
+// Deleting rather than editing matches the relay's own supersede path, which
+// deletes: a completed workout or a confirmed dose needs no residual text. The
+// delete is best-effort (DeleteReminder swallows every Telegram error) and a
+// missing message id is a no-op, so the response is 204 either way — the client
+// treats this as fire-and-forget.
 func (t *TelegramAPI) CancelRefire(w http.ResponseWriter, r *http.Request) {
 	sess, ok := SessionFromContext(r.Context())
 	if !ok {
@@ -1420,14 +1435,24 @@ func (t *TelegramAPI) CancelRefire(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
-	if !strings.HasPrefix(req.Callback, tgclient.CallbackSlotPrefix) {
+	if req.Callback == "" || !tgclient.ValidCallbackStem(req.Callback) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_callback"})
 		return
+	}
+	// Read the live message id BEFORE cancelling: CancelRelayRefire deletes the
+	// pending row that carries it as supersedes_message_id.
+	msgID, err := t.store.LastReminderMessageID(r.Context(), sess.AccountID, req.Callback)
+	if err != nil {
+		slog.Warn("telegram cancel refire: last message id", "error", err, "account", sess.AccountID)
+		msgID = 0 // the cancel below still matters more than the delete
 	}
 	if _, err := t.store.CancelRelayRefire(r.Context(), sess.AccountID, req.Callback); err != nil {
 		slog.Error("telegram cancel refire", "error", err, "account", sess.AccountID)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+	if err := t.DeleteReminder(r.Context(), sess.AccountID, msgID); err != nil {
+		slog.Warn("telegram cancel refire: delete live reminder", "error", err, "account", sess.AccountID)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

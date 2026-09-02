@@ -576,7 +576,7 @@ func TestMarkPushSentClearsPayload(t *testing.T) {
 		t.Fatalf("expected 1 due entry, got %d", len(due))
 	}
 
-	if err := r.MarkPushSent(ctx, due[0].ID, now); err != nil {
+	if err := r.MarkPushSent(ctx, due[0].ID, now, 0); err != nil {
 		t.Fatalf("MarkPushSent: %v", err)
 	}
 
@@ -757,7 +757,7 @@ func TestCancelRelayRefire(t *testing.T) {
 	}
 
 	// A sent refire is never cancelled.
-	if err := r.MarkPushSent(ctx, due[0].ID, now); err != nil {
+	if err := r.MarkPushSent(ctx, due[0].ID, now, 0); err != nil {
 		t.Fatalf("MarkPushSent: %v", err)
 	}
 	if n, err := r.CancelRelayRefire(ctx, acc.ID, "w:7:20260720"); err != nil || n != 0 {
@@ -940,7 +940,7 @@ func TestAccountsNeedingStaleSyncWarning_EmptyQueue(t *testing.T) {
 			if p.AccountID != accountID {
 				continue
 			}
-			if err := r.MarkPushSent(ctx, p.ID, now); err != nil {
+			if err := r.MarkPushSent(ctx, p.ID, now, 0); err != nil {
 				t.Fatalf("MarkPushSent(%s): %v", accountID, err)
 			}
 		}
@@ -1046,7 +1046,7 @@ func TestScheduledPushMedIDs(t *testing.T) {
 	if err := r.RescheduleRelayRefire(ctx, acc.ID, past, due[0].TGText, due[0].TGCallback, due[0].TGMedIDs, 7); err != nil {
 		t.Fatalf("RescheduleRelayRefire: %v", err)
 	}
-	if err := r.MarkPushSent(ctx, due[0].ID, now); err != nil {
+	if err := r.MarkPushSent(ctx, due[0].ID, now, 0); err != nil {
 		t.Fatalf("MarkPushSent: %v", err)
 	}
 	// The sent row is scrubbed; the pending re-fire is what answers the next tap.
@@ -1060,7 +1060,7 @@ func TestScheduledPushMedIDs(t *testing.T) {
 	if len(refires) != 1 || refires[0].TGMedIDs != "2,9" {
 		t.Fatalf("re-fire = %+v, want one row carrying 2,9", refires)
 	}
-	if err := r.MarkPushSent(ctx, refires[0].ID, now); err != nil {
+	if err := r.MarkPushSent(ctx, refires[0].ID, now, 0); err != nil {
 		t.Fatalf("MarkPushSent (refire): %v", err)
 	}
 	// The chain has ended, but the sent rows still answer a late tap — the 48h

@@ -210,6 +210,13 @@ So (bd med-kbpf):
   a named med is still due afterwards. An in-app confirm, which produces no
   tap, still cancels via `POST /api/telegram/cancel-refire`.
 
+An in-app terminal transition (dose confirm, workout complete/skip/start) calls
+`cancel-refire` with the reminder's own stem, which drops the pending re-fire
+**and** best-effort deletes the last live message for `s:`/`w:`/`bp:`/`wt:`
+alike — the stem is validated with `tgclient.ValidCallbackStem`, and the message
+id comes from the sent row's `tg_message_id` (recorded by `MarkPushSent`, and
+scrubbed on the same 48h sweep, which is also Telegram's bot-delete window).
+
 The sent row keeps the callback stem and the ids (only `ct`/`tg_text` are
 scrubbed on send), so a tap resolves for 48h after the last send —
 `ScrubSentPushIdentity`, run by the relay's hourly sweep, expires them at the

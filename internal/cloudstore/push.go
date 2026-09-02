@@ -235,19 +235,50 @@ func (r *Repo) DueScheduledPushes(ctx context.Context, now time.Time) ([]Schedul
 // would resolve to nothing (med-kbpf). ScrubSentPushIdentity drops them once
 // they are too old to be tapped. ct/tg_text are NOT NULL, so they clear to empty
 // rather than SQL NULL.
-func (r *Repo) MarkPushSent(ctx context.Context, id int64, sentAt time.Time) error {
+//
+// tgMessageID is the message_id this row's Telegram send produced (0 = web-push
+// only, or the send failed). It is recorded for the same window and the same
+// reason as the addressing: an in-app confirm/complete must be able to DELETE the
+// message that is still live in the chat, and for w:/bp:/wt: stems no re-fire row
+// ever carries that id as supersedes_message_id (med-r3dm).
+func (r *Repo) MarkPushSent(ctx context.Context, id int64, sentAt time.Time, tgMessageID int64) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE scheduled_pushes SET sent_at_unix = ?, ct = X'', tg_text = '' WHERE id = ?`,
-		storedb.TimeToUnix(sentAt), id)
+		`UPDATE scheduled_pushes SET sent_at_unix = ?, ct = X'', tg_text = '', tg_message_id = ? WHERE id = ?`,
+		storedb.TimeToUnix(sentAt), tgMessageID, id)
 	return err
 }
 
-// ScrubSentPushIdentity drops the tap addressing (tg_callback/tg_med_ids) from
-// rows sent before `before` — the hourly sweep's retention pass for what
-// MarkPushSent leaves behind. Returns rows affected.
+// LastReminderMessageID returns the newest Telegram message_id still on file for
+// (accountID, tgCallback) — the one live reminder message for that stem — or 0
+// when nothing is on file. It reads a PENDING re-fire's supersedes_message_id
+// (the message that re-fire would have deleted when it fired) and a SENT row's
+// own tg_message_id, and takes the max of both.
+//
+// Sent rows keep their addressing for sentIdentityRetention (MarkPushSent leaves
+// tg_callback alone), so this still resolves after the re-fire chain has ended.
+// The max is sound for the same reason RescheduleRelayRefire's max-preserve is:
+// message ids are monotonic per chat, and ClearRelayRefires wipes pending rows on
+// every relink, so every id compared here comes from the same chat's id-space.
+func (r *Repo) LastReminderMessageID(ctx context.Context, accountID, tgCallback string) (int64, error) {
+	var id int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(CASE WHEN sent_at_unix IS NULL THEN supersedes_message_id ELSE tg_message_id END), 0)
+		 FROM scheduled_pushes WHERE account_id = ? AND tg_callback = ?`,
+		accountID, tgCallback).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return id, err
+}
+
+// ScrubSentPushIdentity drops the tap addressing (tg_callback/tg_med_ids) and the
+// sent message id (tg_message_id) from rows sent before `before` — the hourly
+// sweep's retention pass for what MarkPushSent leaves behind. The retention window
+// is also Telegram's 48h bot-delete limit, so a message id is dropped exactly when
+// it stops being deletable (med-r3dm). Returns rows affected.
 func (r *Repo) ScrubSentPushIdentity(ctx context.Context, before time.Time) (int64, error) {
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE scheduled_pushes SET tg_callback = '', tg_med_ids = '' WHERE sent_at_unix IS NOT NULL AND sent_at_unix < ?`,
+		`UPDATE scheduled_pushes SET tg_callback = '', tg_med_ids = '', tg_message_id = 0 WHERE sent_at_unix IS NOT NULL AND sent_at_unix < ?`,
 		storedb.TimeToUnix(before))
 	if err != nil {
 		return 0, err
