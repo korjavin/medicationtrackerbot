@@ -257,8 +257,9 @@ func (r *Repo) MarkPushSent(ctx context.Context, id int64, sentAt time.Time, tgM
 // Sent rows keep their addressing for sentIdentityRetention (MarkPushSent leaves
 // tg_callback alone), so this still resolves after the re-fire chain has ended.
 // The max is sound for the same reason RescheduleRelayRefire's max-preserve is:
-// message ids are monotonic per chat, and ClearRelayRefires wipes pending rows on
-// every relink, so every id compared here comes from the same chat's id-space.
+// message ids are monotonic per chat, and ClearRelayRefires runs on every relink
+// — dropping pending re-fires AND zeroing sent rows' tg_message_id — so every id
+// compared here comes from the currently-linked chat's id-space.
 func (r *Repo) LastReminderMessageID(ctx context.Context, accountID, tgCallback string) (int64, error) {
 	var id int64
 	err := r.db.QueryRowContext(ctx,
@@ -365,10 +366,21 @@ func (r *Repo) MedIDsForCallback(ctx context.Context, accountID, tgCallback stri
 // message ids are only monotonic per chat), so a stale high id can never win the
 // max() against a fresh low id and make the delete target the wrong message
 // (med-eas.79).
+//
+// It also zeroes tg_message_id on the account's SENT rows, which outlive the
+// relink for sentIdentityRetention and would otherwise feed exactly the same
+// cross-chat id into LastReminderMessageID — an in-app cancel would then hand
+// DeleteReminder an old chat's message id and delete whatever the NEW chat
+// happens to have at that number (med-r3dm). Same invariant, second column.
 func (r *Repo) ClearRelayRefires(ctx context.Context, accountID string) error {
-	_, err := r.db.ExecContext(ctx,
+	if _, err := r.db.ExecContext(ctx,
 		`DELETE FROM scheduled_pushes WHERE account_id = ? AND origin = ? AND sent_at_unix IS NULL`,
-		accountID, PushOriginRelayRefire)
+		accountID, PushOriginRelayRefire); err != nil {
+		return err
+	}
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE scheduled_pushes SET tg_message_id = 0 WHERE account_id = ? AND sent_at_unix IS NOT NULL AND tg_message_id <> 0`,
+		accountID)
 	return err
 }
 

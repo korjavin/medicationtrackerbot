@@ -891,6 +891,32 @@ func TestRelayRefiresClearedOnChatRelink(t *testing.T) {
 	if got := pendingRefires(); got != 0 {
 		t.Fatalf("UpsertBot relink did not clear pending re-fires: got %d, want 0", got)
 	}
+
+	// med-r3dm: a SENT row's tg_message_id outlives the relink for 48h and feeds
+	// the same cross-chat compare through LastReminderMessageID — an in-app cancel
+	// would hand DeleteReminder an old chat's id and delete whatever the NEW chat
+	// has at that number. The relink must zero it too.
+	if err := r.ReplaceSchedule(ctx, acc.ID, []ScheduledPushInput{
+		{FireAt: now.Add(-time.Minute), Delivery: DeliveryTelegram, TGText: "Time to take", TGCallback: "s:9:20260720"},
+	}, now); err != nil {
+		t.Fatalf("ReplaceSchedule: %v", err)
+	}
+	due, err := r.DueScheduledPushes(ctx, now)
+	if err != nil || len(due) != 1 {
+		t.Fatalf("DueScheduledPushes = %+v, %v; want the seeded row", due, err)
+	}
+	if err := r.MarkPushSent(ctx, due[0].ID, now, 5000); err != nil {
+		t.Fatalf("MarkPushSent: %v", err)
+	}
+	if id, err := r.LastReminderMessageID(ctx, acc.ID, "s:9:20260720"); err != nil || id != 5000 {
+		t.Fatalf("before relink, LastReminderMessageID = %d, %v; want 5000", id, err)
+	}
+	if err := r.LinkChat(ctx, acc.ID, 43, now); err != nil {
+		t.Fatalf("LinkChat (new chat): %v", err)
+	}
+	if id, err := r.LastReminderMessageID(ctx, acc.ID, "s:9:20260720"); err != nil || id != 0 {
+		t.Fatalf("relink left a prior chat's message id on file: got %d, %v; want 0", id, err)
+	}
 }
 
 // TestAccountsNeedingStaleSyncWarning_EmptyQueue pins bd med-2lx: the dry-queue
