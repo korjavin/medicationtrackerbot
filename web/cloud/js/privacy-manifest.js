@@ -294,7 +294,7 @@ export const PRIVACY_MANIFEST = [
     id: 'trial-voice',
     feature: 'Trial voice (operator\'s ElevenLabs key)',
     boundary: 'carve-out',
-    data: 'Your voice audio, the transcript, and the agent conversation — including tool results read out of your vault',
+    data: 'Your voice audio, the transcript, and the agent conversation — including tool results read out of your vault, which can be any part of your health record',
     destination: 'The operator mints the signed URL, then the operator\'s ElevenLabs account',
     operatorVisibility: 'plaintext',
     retention: 'Not stored by the app; ElevenLabs retention applies',
@@ -307,7 +307,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'visible',
       title: 'Trial voice calls, if you use the operator\'s key',
-      detail: 'Trial voice calls run on the operator\'s ElevenLabs account, so your voice audio, its transcript and the agent conversation — including the blood pressure, weight and notes the agent reads back to you — pass through it. This requires your explicit consent: asked on first use, revocable in Settings → Integrations. With your own ElevenLabs key the operator is not involved.',
+      detail: 'Trial voice calls run on the operator\'s ElevenLabs account, so your voice audio, its transcript and the agent conversation pass through it — and the agent can reach your whole health record, so anything you ask it about (blood pressure, weight, workouts, medications, food, sleep, notes) is read out of your vault and travels with the conversation. This requires your explicit consent: asked on first use, revocable in Settings → Integrations. With your own ElevenLabs key the operator is not involved.',
     },
   },
 
@@ -338,11 +338,12 @@ export const PRIVACY_MANIFEST = [
     // The audit lists ElevenLabs audio / transcripts / tool names / tool
     // RESULTS as an omission: the agent and its client tools are provisioned
     // browser-direct with your vault key, and the tools hand back real vault
-    // data (BP, weight, notes) inside the conversation.
+    // data inside the conversation — and since med-eas.82 the agent's tool set
+    // reaches the whole operation catalog, not a fixed handful of domains.
     id: 'byo-elevenlabs',
     feature: 'Voice with your own ElevenLabs key',
     boundary: 'not-a-carve-out',
-    data: 'Voice audio, transcripts, the tool definitions this app provisions, and the tool RESULTS — the blood pressure, weight and diary notes the agent reads out of your vault',
+    data: 'Voice audio, transcripts, the tool definitions this app provisions, and the tool RESULTS — the agent can call any operation in the app catalog, so any part of your health record it is asked about (blood pressure, weight, workouts, medications, food, sleep, diary notes) is read out of your vault into the conversation',
     destination: 'api.elevenlabs.io, browser-direct',
     operatorVisibility: 'none',
     retention: 'ElevenLabs retains the conversation per your ElevenLabs account settings; the provisioned agent and tool definitions persist in that account until deleted',
@@ -359,7 +360,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'leaves',
       title: 'Voice calls with your own ElevenLabs key',
-      detail: 'A voice call sends your audio to ElevenLabs and gets speech back, so ElevenLabs sees what you say and the transcript of it. It also sees the answers: when you ask about your numbers the app reads them out of your vault and hands them to the agent as tool results, so your blood pressure, weight and notes travel with the conversation. The app also creates an agent and its tools in your ElevenLabs account on first use. All of it goes browser-direct; the operator is not in the path.',
+      detail: 'A voice call sends your audio to ElevenLabs and gets speech back, so ElevenLabs sees what you say and the transcript of it. It also sees the answers: when you ask about your numbers the app reads them out of your vault and hands them to the agent as tool results. The agent can reach the full set of operations this app exposes, so whichever part of your health record you ask about — blood pressure, weight, workouts, medications, food, sleep, diary notes — travels with the conversation. The app also creates an agent and its tools in your ElevenLabs account on first use. All of it goes browser-direct; the operator is not in the path.',
     },
   },
   {

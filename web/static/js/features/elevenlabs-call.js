@@ -189,20 +189,27 @@
     }
 
     // Cloud-only dynamic MCP client-tools. The ElevenLabs agent invokes these
-    // by name (must match its dashboard config, marked blocking); each callback
+    // by name — for a BYO key the names come from elevenlabs-agent.js
+    // TOOL_SPECS, which provisions them; the trial agent's list lives in the
+    // operator's ElevenLabs dashboard instead. Each callback
     // dispatches straight into the in-tab MCP dispatcher — no relay, no crypto,
     // since this tab is both the voice client and the MCP responder host.
     // Returns JSON strings the agent reads; dispatcher errors come back as a
     // short string rather than throwing into the SDK.
     function buildClientTools() {
         if (!window.__MEDTRACKER_CLOUD__ || !window.CloudMCPDispatcher) return undefined;
-        const dispatch = async (method, params) => {
+        // guard() is the single place a dispatcher throw becomes a short JSON
+        // string. The workout tools chain several dispatches, so the try/catch
+        // has to wrap the whole tool body, not one handle() call.
+        const guard = async (fn) => {
             try {
-                return JSON.stringify(await window.CloudMCPDispatcher.handle(method, params));
+                return JSON.stringify(await fn());
             } catch (err) {
                 return JSON.stringify({ error: (err && err.message) || 'MCP dispatch failed' });
             }
         };
+        const raw = (method, params) => window.CloudMCPDispatcher.handle(method, params);
+        const dispatch = (method, params) => guard(() => raw(method, params));
         // The SDK sometimes hands tool args as a JSON string rather than an
         // object; coerce so destructuring works either way.
         const asObj = (a) => {
@@ -212,23 +219,120 @@
         // now() as a stable seam so tests can stamp a deterministic timestamp.
         const nowISO = () => new Date().toISOString();
         const call = (op, params) => dispatch('mcp_call', { op, params });
+        // Drop keys the agent left out. The dispatcher's required-field gate
+        // tests key PRESENCE, so `{sets: undefined}` reads as "supplied" and a
+        // malformed write reaches the domain as a 0 instead of bouncing back at
+        // the agent with the field to resend.
+        const compact = (o) => {
+            const out = {};
+            Object.keys(o).forEach((k) => { if (o[k] !== undefined) out[k] = o[k]; });
+            return out;
+        };
         // Catalog ops with risk:"write" are refused unless the envelope carries
         // mode:"write" and a non-empty intent. The user spoke the request, so
         // the intent is the voice call itself.
-        const write = (op, params) => dispatch('mcp_call', {
-            op, params, mode: 'write', intent: 'logged by the user during an ElevenLabs voice call',
-        });
+        const writeEnvelope = (op, params, pathParams) => {
+            const env = {
+                op, params: compact(params), mode: 'write',
+                intent: 'logged by the user during an ElevenLabs voice call',
+            };
+            if (pathParams) env.path_params = pathParams;
+            return env;
+        };
+        const write = (op, params) => dispatch('mcp_call', writeEnvelope(op, params));
+        const rawWrite = (op, params, pathParams) => raw('mcp_call', writeEnvelope(op, params, pathParams));
+        // One flat view of today's workout: the session, plus every exercise as
+        // a uniform row. sessions.details returns only PERSISTED logs, and a
+        // session nobody has touched has none — the Workouts screen synthesizes
+        // the missing planned rows the same way (features/workout/sessions.js),
+        // so without this the agent sees an empty workout it cannot write to.
+        // A planned row carries log_id 0 and log_exercise creates its log.
+        const readWorkout = async () => {
+            const next = await raw('mcp_call', { op: 'workouts.sessions.next', params: {} });
+            const view = next && next.result;
+            const sessionId = view && view.session && view.session.id;
+            if (!sessionId) return next;
+            const details = await raw('mcp_call', { op: 'workouts.sessions.details', params: { id: sessionId } });
+            const logs = (details && details.result && details.result.logs) || [];
+            const exercises = logs.map((l) => ({
+                log_id: l.id,
+                exercise_id: l.exercise_id,
+                exercise_name: l.exercise_name,
+                sets_completed: l.sets_completed,
+                reps_completed: l.reps_completed,
+                weight_kg: l.weight_kg,
+                status: l.status,
+            }));
+            // Same plan source as the Workouts screen: the session's
+            // exercise_snapshot when it has one (it is the per-session copy, so
+            // an exercise removed from TODAY only stays removed), else the live
+            // variant. Ad-hoc sessions (variant_id -1) render from logs alone.
+            const session = (details && details.result && details.result.session) || {};
+            let planned = Array.isArray(session.exercise_snapshot) ? session.exercise_snapshot : null;
+            if (!planned && view.variant_id > 0) {
+                const listed = await raw('mcp_call', {
+                    op: 'workouts.exercises.list', params: { variant_id: view.variant_id },
+                });
+                planned = ((listed && listed.result) || []).map((e) => ({
+                    exercise_id: e.id,
+                    exercise_name: e.exercise_name,
+                    target_sets: e.target_sets,
+                    target_reps_min: e.target_reps_min,
+                    target_weight_kg: e.target_weight_kg,
+                }));
+            }
+            // Only schedule-sourced logs consume a planned row: a mid-session
+            // "library" log's exercise_id indexes the exercise library, a
+            // different id space that can collide with a variant exercise id.
+            // Name is the fallback for legacy rows saved without an id.
+            const fromPlan = logs.filter((l) => l.source !== 'library');
+            const loggedIds = new Set(fromPlan.map((l) => l.exercise_id));
+            const loggedNames = new Set(fromPlan.map((l) => l.exercise_name));
+            (planned || []).forEach((ex) => {
+                const done = ex.exercise_id ? loggedIds.has(ex.exercise_id) : loggedNames.has(ex.exercise_name);
+                if (done) return;
+                exercises.push({
+                    log_id: 0,
+                    exercise_id: ex.exercise_id,
+                    exercise_name: ex.exercise_name,
+                    target_sets: ex.target_sets,
+                    target_reps_min: ex.target_reps_min,
+                    target_weight_kg: ex.target_weight_kg,
+                    status: '',
+                });
+            });
+            return { ...next, result: { ...view, session_id: sessionId, exercises } };
+        };
         return {
-            // Generic surface — harmless to keep; the concrete tools below are
-            // the provisioned + actually-invoked path (Task 3).
-            mcp_help: async () => dispatch('mcp_help', {}),
-            // Forwards the whole envelope verbatim (operation_id/op, params,
-            // path_params, body, mode, intent): a write op reaches the
-            // dispatcher's gate with the payload and intent the agent stated,
-            // rather than being stripped down to an empty read.
+            // Parity surface: these two reach the whole catalog, so the agent
+            // is never stuck without a tool for what the user asked (med-eas.82
+            // — it used to file a workout edit as a diary note). Provisioned in
+            // TOOL_SPECS alongside the concrete tools, which stay because voice
+            // LLMs drive those far more reliably on the frequent paths.
+            mcp_help: async (a) => {
+                const { query, topic, operation_id: operationId } = asObj(a);
+                return dispatch('mcp_help', compact({ query, topic, operation_id: operationId }));
+            },
+            // Forwards the whole envelope (operation_id/op, params, path_params,
+            // body, mode, intent) so a write reaches the dispatcher's gate with
+            // the payload and intent the agent stated. ElevenLabs client tools
+            // are flat, so the two object fields arrive as JSON strings.
             mcp_call: async (a) => {
-                const p = asObj(a);
-                return dispatch('mcp_call', { ...p, params: p.params || {} });
+                const { params_json, path_params_json, ...rest } = asObj(a);
+                const parsed = {};
+                try {
+                    if (params_json) parsed.params = JSON.parse(params_json);
+                    if (path_params_json) parsed.path_params = JSON.parse(path_params_json);
+                } catch (err) {
+                    return JSON.stringify({
+                        error: `params_json / path_params_json must each be a JSON object encoded as a string: ${err.message}`,
+                    });
+                }
+                return dispatch('mcp_call', {
+                    ...rest,
+                    ...parsed,
+                    params: parsed.params || rest.params || {},
+                });
             },
             // Concrete tools whose names match the provisioned ElevenLabs tools
             // (elevenlabs-agent.js TOOL_SPECS). Each maps 1:1 to a catalog op.
@@ -244,6 +348,92 @@
                 const { text, tag } = asObj(a);
                 return write('health.notes.create', { content: text, tag });
             },
+            // Chains three reads into one tool call because a voice LLM asked
+            // to chain them itself before every write mostly won't.
+            get_workout: async () => guard(readWorkout),
+            // Reads before it writes: the read is what tells it whether the
+            // session is even today's, which row the agent means, and what the
+            // planned targets are — none of which the agent can be trusted to
+            // carry correctly across two turns.
+            log_exercise: async (a) => guard(async () => {
+                const args = asObj(a);
+                const before = await readWorkout();
+                const view = (before && before.result) || null;
+                const session = view && view.session;
+                if (!session) return { error: 'nothing is scheduled, so there is no exercise to log' };
+                // sessions.next also surfaces sessions scheduled for a LATER
+                // day. Logging actuals into one would record the workout on the
+                // wrong date and propagate the numbers into that day's plan;
+                // starting it re-keys it onto today first.
+                if (session.is_today === false) {
+                    return {
+                        error: 'that workout is scheduled for a later day — call set_workout_status with '
+                            + 'in_progress first (that moves it to today), then log the exercise',
+                    };
+                }
+                const logId = Number(args.log_id) || 0;
+                const exerciseId = Number(args.exercise_id) || 0;
+                const row = (view.exercises || []).find((r) => (logId
+                    ? r.log_id === logId
+                    : exerciseId && r.exercise_id === exerciseId));
+                if (!row) {
+                    // Never silently no-op: logs.update against an unknown id
+                    // succeeds with an empty body, so the agent would report a
+                    // write that never happened.
+                    return {
+                        error: 'no such exercise in this workout — call get_workout and use the log_id '
+                            + 'or exercise_id from one of its rows',
+                    };
+                }
+                const {
+                    sets, reps, weight_kg: weightKg, notes, status,
+                } = args;
+                if (row.log_id > 0) {
+                    // Omitted scalars are dropped, not sent as 0: updateLog
+                    // reads an absent sets/reps/weight/status as "no data" and
+                    // keeps what is stored, so the agent can log reps without
+                    // clobbering the weight. (`notes` is the exception — that op
+                    // always rewrites it, exactly as the Workouts screen does.)
+                    await rawWrite('workouts.sessions.logs.update', {
+                        id: row.log_id, sets_completed: sets, reps_completed: reps, weight_kg: weightKg, notes, status,
+                    });
+                } else {
+                    // No log row yet. logs.create carries the actuals in its
+                    // target_* fields — the same call the Workouts screen makes
+                    // when you fill in a planned row — falling back to the
+                    // planned targets so "skip the rows", which names no
+                    // numbers, still satisfies the op's required fields.
+                    await rawWrite('workouts.sessions.logs.create', {
+                        session_id: view.session_id,
+                        exercise_id: row.exercise_id,
+                        exercise_name: row.exercise_name,
+                        target_sets: sets === undefined ? row.target_sets : sets,
+                        target_reps_min: reps === undefined ? row.target_reps_min : reps,
+                        target_weight_kg: weightKg === undefined ? row.target_weight_kg : weightKg,
+                        status: status || 'completed',
+                        notes,
+                    });
+                }
+                // These ops answer with an empty body, so the re-read is the
+                // only thing the agent can confirm the write against.
+                return { status: 'ok', workout: await readWorkout() };
+            }),
+            set_workout_status: async (a) => guard(async () => {
+                const { session_id: sessionId, status } = asObj(a);
+                if (status === 'in_progress') {
+                    // sessions.status only flips the field; sessions.start also
+                    // stamps started_at, clears a snooze, and re-keys a session
+                    // scheduled for another day onto today — which changes the
+                    // ids, hence the refreshed read.
+                    await rawWrite('workouts.sessions.start', {}, { id: sessionId });
+                    return { status: 'ok', workout: await readWorkout() };
+                }
+                await rawWrite('workouts.sessions.status', { id: sessionId, status });
+                // No re-read here: sessions.next excludes terminal sessions, so
+                // it would answer with an unrelated future workout and the agent
+                // would describe that one instead of the one it just closed.
+                return { status: 'ok', session_id: sessionId, session_status: status };
+            }),
         };
     }
 

@@ -781,6 +781,264 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
         }
     });
 
+    // med-eas.82: asked to change a workout the agent used to reach for
+    // add_note (the only free-text write it had), writing a Vitals note.
+    const workoutDispatcher = (logs) => vi.fn(async (method, params) => {
+        if (params.op === 'workouts.sessions.next') {
+            return {
+                status: 'ok',
+                result: { session: { id: 43, status: 'pending' }, variant_id: 6, variant_name: 'Push Day' },
+            };
+        }
+        if (params.op === 'workouts.sessions.details') return { status: 'ok', result: { logs } };
+        if (params.op === 'workouts.exercises.list') {
+            return {
+                status: 'ok',
+                result: [
+                    { id: 7, exercise_name: 'Bench Press', target_sets: 4, target_reps_min: 8 },
+                    { id: 8, exercise_name: 'Rows', target_sets: 3, target_reps_min: 10 },
+                ],
+            };
+        }
+        return { status: 'ok', result: null };
+    });
+
+    it('get_workout merges logged and still-planned exercises into one flat list', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            // Only Bench Press has a log row; Rows is planned and untouched —
+            // sessions.details never returns it, so without the plan merge the
+            // agent sees an exercise it cannot write to (or none at all).
+            const handle = workoutDispatcher([
+                { id: 99, exercise_id: 7, exercise_name: 'Bench Press', sets_completed: 4, status: 'completed' },
+            ]);
+            window.CloudMCPDispatcher = { handle };
+            const { opts } = await startCall(window);
+
+            const read = JSON.parse(await opts.clientTools.get_workout());
+            expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'workouts.sessions.next', params: {} });
+            expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'workouts.sessions.details', params: { id: 43 } });
+            expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'workouts.exercises.list', params: { variant_id: 6 } });
+            expect(read.result.session_id).toBe(43);
+            expect(read.result.variant_name).toBe('Push Day');
+            expect(read.result.exercises).toEqual([
+                {
+                    log_id: 99, exercise_id: 7, exercise_name: 'Bench Press',
+                    sets_completed: 4, reps_completed: undefined, weight_kg: undefined, status: 'completed',
+                },
+                {
+                    log_id: 0, exercise_id: 8, exercise_name: 'Rows',
+                    target_sets: 3, target_reps_min: 10, target_weight_kg: undefined, status: '',
+                },
+            ]);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('workout write tools pick update vs create and answer with the fresh workout', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const handle = workoutDispatcher([
+                { id: 99, exercise_id: 7, exercise_name: 'Bench Press' },
+            ]);
+            window.CloudMCPDispatcher = { handle };
+            const { opts } = await startCall(window);
+            const t = opts.clientTools;
+            const opCall = (op) => handle.mock.calls.find((c) => c[1].op === op);
+
+            const logged = JSON.parse(await t.log_exercise({ log_id: 99, sets: 3, reps: 12, weight_kg: 60 }));
+            const upd = opCall('workouts.sessions.logs.update');
+            expect(upd[1].params).toEqual({ id: 99, sets_completed: 3, reps_completed: 12, weight_kg: 60 });
+            expect(upd[1].mode).toBe('write');
+            expect(upd[1].intent).toBeTruthy();
+            // The op returns an empty body, so the tool hands the agent the
+            // re-read workout instead — its only way to confirm anything.
+            expect(logged.workout.result.session_id).toBe(43);
+
+            await t.log_exercise({ log_id: 0, session_id: 43, exercise_id: 8, exercise_name: 'Rows', sets: 3, reps: 10 });
+            const crt = opCall('workouts.sessions.logs.create');
+            expect(crt[1].params).toEqual({
+                session_id: 43, exercise_id: 8, exercise_name: 'Rows',
+                target_sets: 3, target_reps_min: 10, status: 'completed',
+            });
+            expect(crt[1].mode).toBe('write');
+
+            const closed = JSON.parse(await t.set_workout_status({ session_id: 43, status: 'completed' }));
+            const st = opCall('workouts.sessions.status');
+            expect(st[1].params).toEqual({ id: 43, status: 'completed' });
+            expect(st[1].mode).toBe('write');
+            expect(st[1].intent).toBeTruthy();
+            // sessions.next excludes terminal sessions, so re-reading would hand
+            // back an unrelated future workout — confirm the write itself.
+            expect(closed).toEqual({ status: 'ok', session_id: 43, session_status: 'completed' });
+
+            await t.set_workout_status({ session_id: 43, status: 'in_progress' });
+            const start = opCall('workouts.sessions.start');
+            expect(start[1].path_params).toEqual({ id: 43 });
+            expect(start[1].mode).toBe('write');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('log_exercise fills a skipped planned exercise from its targets and refuses a future session', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            let isToday = true;
+            const handle = vi.fn(async (method, params) => {
+                if (params.op === 'workouts.sessions.next') {
+                    return { status: 'ok', result: { session: { id: 43, is_today: isToday }, variant_id: 6 } };
+                }
+                if (params.op === 'workouts.sessions.details') return { status: 'ok', result: { logs: [] } };
+                if (params.op === 'workouts.exercises.list') {
+                    return {
+                        status: 'ok',
+                        result: [{ id: 8, exercise_name: 'Rows', target_sets: 3, target_reps_min: 10 }],
+                    };
+                }
+                return { status: 'ok', result: null };
+            });
+            window.CloudMCPDispatcher = { handle };
+            const { opts } = await startCall(window);
+
+            // "skip the rows" states no sets or reps, but logs.create requires
+            // target_sets/target_reps_min — fall back to the planned targets
+            // rather than bouncing off the write gate or inventing actuals.
+            await opts.clientTools.log_exercise({ exercise_id: 8, status: 'skipped' });
+            const crt = handle.mock.calls.find((c) => c[1].op === 'workouts.sessions.logs.create');
+            expect(crt[1].params).toEqual({
+                session_id: 43, exercise_id: 8, exercise_name: 'Rows',
+                target_sets: 3, target_reps_min: 10, status: 'skipped',
+            });
+
+            // sessions.next also surfaces sessions scheduled for a later day;
+            // logging into one records the workout on the wrong date and pushes
+            // the numbers into that day's plan.
+            isToday = false;
+            const refused = JSON.parse(await opts.clientTools.log_exercise({ exercise_id: 8, sets: 3, reps: 10 }));
+            expect(refused.error).toMatch(/later day/);
+            expect(handle.mock.calls.filter((c) => c[1].op === 'workouts.sessions.logs.create')).toHaveLength(1);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('get_workout prefers the session snapshot and ignores library-sourced logs when merging the plan', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const handle = vi.fn(async (method, params) => {
+                if (params.op === 'workouts.sessions.next') {
+                    return { status: 'ok', result: { session: { id: 43 }, variant_id: 6 } };
+                }
+                if (params.op === 'workouts.sessions.details') {
+                    return {
+                        status: 'ok',
+                        result: {
+                            // The user dropped "Rows" from today only, so the
+                            // snapshot — not the live variant — is the plan.
+                            session: {
+                                id: 43,
+                                exercise_snapshot: [
+                                    { exercise_id: 7, exercise_name: 'Bench Press', target_sets: 4, target_reps_min: 8 },
+                                ],
+                            },
+                            // A library-sourced log whose exercise_id happens to
+                            // equal a planned workout_exercises id: different id
+                            // spaces, so it must not hide the planned row.
+                            logs: [{ id: 100, exercise_id: 7, exercise_name: 'Curls', source: 'library' }],
+                        },
+                    };
+                }
+                return { status: 'ok', result: [] };
+            });
+            window.CloudMCPDispatcher = { handle };
+            const { opts } = await startCall(window);
+
+            const read = JSON.parse(await opts.clientTools.get_workout());
+            expect(handle.mock.calls.some((c) => c[1].op === 'workouts.exercises.list')).toBe(false);
+            expect(read.result.exercises).toEqual([
+                {
+                    log_id: 100, exercise_id: 7, exercise_name: 'Curls',
+                    sets_completed: undefined, reps_completed: undefined, weight_kg: undefined, status: undefined,
+                },
+                {
+                    log_id: 0, exercise_id: 7, exercise_name: 'Bench Press',
+                    target_sets: 4, target_reps_min: 8, target_weight_kg: undefined, status: '',
+                },
+            ]);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('get_workout returns the bare next-session response when nothing is scheduled', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const handle = vi.fn(async () => ({ status: 'ok', result: null }));
+            window.CloudMCPDispatcher = { handle };
+            const { opts } = await startCall(window);
+
+            const out = JSON.parse(await opts.clientTools.get_workout());
+            expect(out).toEqual({ status: 'ok', result: null });
+            // No session id -> no second dispatch with an undefined id.
+            expect(handle).toHaveBeenCalledTimes(1);
+        } finally {
+            cleanup();
+        }
+    });
+
+    // Scope widened (med-eas.82): the generic pair is provisioned now, so the
+    // agent can reach every catalog op the Claude connector can. ElevenLabs
+    // client tools are flat, so the nested params arrive as a JSON string.
+    it('mcp_call parses params_json / path_params_json into the dispatcher envelope', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const handle = vi.fn(async () => ({ status: 'ok', result: [] }));
+            window.CloudMCPDispatcher = { handle };
+            const { opts } = await startCall(window);
+
+            // mcp_help's drill-down is the only way the agent learns an op's
+            // required fields, so the filters have to be declared and forwarded.
+            await opts.clientTools.mcp_help({ operation_id: 'food.log.create' });
+            expect(handle).toHaveBeenCalledWith('mcp_help', { operation_id: 'food.log.create' });
+            await opts.clientTools.mcp_help({ query: 'sleep' });
+            expect(handle).toHaveBeenCalledWith('mcp_help', { query: 'sleep' });
+
+            await opts.clientTools.mcp_call({ op: 'food.log.list', params_json: '{"days": 7}' });
+            expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'food.log.list', params: { days: 7 } });
+
+            await opts.clientTools.mcp_call({
+                op: 'meds.intake.confirm',
+                params_json: '{"note": "taken"}',
+                path_params_json: '{"id": 42}',
+                mode: 'write',
+                intent: 'user confirmed it out loud',
+            });
+            expect(handle).toHaveBeenCalledWith('mcp_call', {
+                op: 'meds.intake.confirm',
+                params: { note: 'taken' },
+                path_params: { id: 42 },
+                mode: 'write',
+                intent: 'user confirmed it out loud',
+            });
+
+            // Malformed JSON must come back as a correctable message, not a
+            // throw into the SDK and not a silent empty-params call.
+            const bad = JSON.parse(await opts.clientTools.mcp_call({ op: 'food.log.list', params_json: '{days: 7' }));
+            expect(bad.error).toMatch(/params_json/);
+            expect(handle).toHaveBeenCalledTimes(4);
+        } finally {
+            cleanup();
+        }
+    });
+
     // The tests above mock CloudMCPDispatcher, so they cannot see the real
     // dispatcher's write gate (risk:"write" ops are refused without
     // mode:"write" + intent). Drive the real one: this is the only test that
@@ -793,7 +1051,20 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
             // The dispatcher routes every op through apishim's router, so a
             // stub router records the (endpoint, method, body) each voice tool
             // produces. The route table itself is covered by the cloud suite.
-            const router = vi.fn(async (endpoint, method, body) => (method === 'GET' ? [] : { id: 1, ...body }));
+            const router = vi.fn(async (endpoint, method, body) => {
+                // Enough of a workout for the write tools to resolve a row:
+                // one logged exercise and one still-planned one.
+                if (endpoint.startsWith('/api/workout/sessions/next')) {
+                    return { session: { id: 43, is_today: true }, variant_id: 6 };
+                }
+                if (endpoint.startsWith('/api/workout/sessions/details')) {
+                    return { session: { id: 43 }, logs: [{ id: 99, exercise_id: 7, exercise_name: 'Bench Press' }] };
+                }
+                if (endpoint.startsWith('/api/workout/exercises?')) {
+                    return [{ id: 8, exercise_name: 'Rows', target_sets: 3, target_reps_min: 10 }];
+                }
+                return method === 'GET' ? [] : { id: 1, ...body };
+            });
             window.CloudMCPDispatcher = createDispatcher({ router });
 
             const { opts } = await startCall(window);
@@ -820,6 +1091,47 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
             // Reads still work without mode/intent.
             expect(JSON.parse(await t.get_blood_pressure({ days: 7 })).error).toBeUndefined();
             expect(routed()[3].slice(0, 2)).toEqual(['/api/bp?days=7', 'GET']);
+
+            // Workout writes: the gate blocks a missing required field, so
+            // these prove the callbacks send every field the catalog declares.
+            const at = (endpoint) => routed().find((r) => r[0] === endpoint);
+
+            const lOut = JSON.parse(await t.log_exercise({ log_id: 99, sets: 3, reps: 12, weight_kg: 60 }));
+            expect(lOut.error).toBeUndefined();
+            const upd = at('/api/workout/sessions/logs/update');
+            expect(upd[1]).toBe('POST');
+            expect(upd[2]).toEqual({ id: 99, sets_completed: 3, reps_completed: 12, weight_kg: 60 });
+
+            // No log row yet (log_id 0): the same tool creates one, carrying the
+            // actuals in the target_* fields logs.create declares required.
+            const cOut = JSON.parse(await t.log_exercise({ exercise_id: 8, sets: 3, reps: 12, weight_kg: 60 }));
+            expect(cOut.error).toBeUndefined();
+            const crt = at('/api/workout/sessions/logs/create');
+            expect(crt[1]).toBe('POST');
+            expect(crt[2]).toMatchObject({
+                session_id: 43, exercise_id: 8, exercise_name: 'Rows',
+                target_sets: 3, target_reps_min: 12, target_weight_kg: 60, status: 'completed',
+            });
+
+            // With no usable id the tool refuses instead of issuing an update
+            // against an unknown log, which the domain answers 200/no-op.
+            const bad = JSON.parse(await t.log_exercise({ sets: 3 }));
+            expect(bad.error).toMatch(/get_workout/);
+
+            const sOut = JSON.parse(await t.set_workout_status({ session_id: 43, status: 'completed' }));
+            expect(sOut.error).toBeUndefined();
+            // id rides the query string (params_schema), status the body.
+            const st = at('/api/workout/sessions/status?id=43');
+            expect(st[1]).toBe('PUT');
+            expect(st[2]).toEqual({ status: 'completed' });
+
+            // "in_progress" is not a plain status flip — it must go through the
+            // start op, which also stamps started_at and clears a snooze.
+            const stOut = JSON.parse(await t.set_workout_status({ session_id: 43, status: 'in_progress' }));
+            expect(stOut.error).toBeUndefined();
+            expect(at('/api/workout/sessions/43/start')[1]).toBe('POST');
+            // ...and does not also flip the status directly.
+            expect(routed().filter((r) => r[0].startsWith('/api/workout/sessions/status'))).toHaveLength(1);
         } finally {
             cleanup();
         }

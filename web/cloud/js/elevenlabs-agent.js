@@ -14,7 +14,7 @@ const AGENTS_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/agents';
 
 // Bump this whenever TOOL_SPECS or the agent config below changes so unlocked
 // devices reprovision on their next connect.
-export const TOOLSET_VERSION = 2;
+export const TOOLSET_VERSION = 3;
 
 // Rachel — a warm ElevenLabs female voice (med-eas.27).
 const VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
@@ -23,16 +23,32 @@ const VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 // our actual tools (BP / weight / notes) and kept concise for voice.
 const SYSTEM_PROMPT = [
   "You are Silas, the user's personal health concierge in this app, where they",
-  'track their own blood pressure, weight, and diary notes. You are grounded,',
-  'observant, and quietly encouraging — you offer brief, insightful reflections,',
-  'not commands, and you look for the story behind the numbers. Precise, never',
-  'clinical.',
+  'track their own health — blood pressure, weight, workouts, medications,',
+  'food, sleep and diary notes. You are grounded, observant, and quietly',
+  'encouraging — you offer brief, insightful reflections, not commands, and you',
+  'look for the story behind the numbers. Precise, never clinical.',
   '',
   'ALWAYS use your tools for any question about the data — never guess, never say',
   'you cannot access it:',
   '- Blood pressure → get_blood_pressure to read, log_blood_pressure to record.',
   '- Weight → get_weight to read, log_weight to record.',
+  "- Workouts → get_workout to read today's session and its exercises,",
+  '  log_exercise to record the actual sets/reps/weight on one of them, and',
+  '  set_workout_status to start, finish or skip the session. To change anything',
+  '  about a workout you MUST call get_workout first — it returns the session id',
+  '  and, per exercise, a log_id and an exercise_id that the write tools need.',
+  '  If the session it returns is not for today, start it before logging into it.',
   '- Diary notes → get_notes to read, add_note to record.',
+  '- ANYTHING ELSE — medications, food, sleep, vitals, statistics, settings —',
+  '  call mcp_help to find the operation you need, then mcp_call to run it. Do',
+  '  that instead of saying you cannot do something, and never file one kind of',
+  '  record as a diary note just because add_note was the tool that fit.',
+  '',
+  'mcp_call takes flat strings: op is the operation id mcp_help gave you,',
+  'params_json is a JSON object encoded as a string (e.g. {"days": 7}), and any',
+  'operation that changes data also needs mode "write" plus a short intent.',
+  'path_params_json fills a {slot} in an operation path.',
+  '',
   'After recording something, confirm it back in one short line. When you read',
   'data, add a brief bit of context if useful — a gentle comparison or observation.',
   '',
@@ -115,6 +131,93 @@ export const TOOL_SPECS = [
         tag: { type: 'string', description: 'optional: one of SLEEP, STRESS, HR, SPO2, STEPS, NOTE' },
       },
       required: ['text'],
+    },
+  },
+  {
+    name: 'get_workout',
+    description: "Get the user's current or next workout session together with its planned "
+      + 'exercises. Returns the session id, its status, and one row per exercise with its log '
+      + 'id, name, planned targets and what has been logged so far. Call this before any other '
+      + 'workout tool — log_exercise and set_workout_status need the ids it returns.',
+    parameters: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'log_exercise',
+    description: 'Record what the user actually did on one exercise of the current workout: '
+      + 'sets, reps, weight, notes, or mark it skipped. Identify the exercise with the log_id '
+      + 'from its get_workout row, or with its exercise_id when that row shows log_id 0 '
+      + '(a planned exercise nothing has been logged against yet).',
+    parameters: {
+      type: 'object',
+      properties: {
+        log_id: { type: 'integer', description: "the exercise's log id from get_workout; 0 if it has none yet" },
+        exercise_id: { type: 'integer', description: 'exercise id from get_workout; use this when log_id is 0' },
+        sets: { type: 'integer', description: 'sets actually completed' },
+        reps: { type: 'integer', description: 'reps actually completed per set' },
+        weight_kg: { type: 'number', description: 'weight used, in kilograms' },
+        notes: { type: 'string', description: 'optional short note about this exercise' },
+        status: { type: 'string', description: 'optional: "completed" or "skipped"' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'set_workout_status',
+    description: 'Start, finish or skip a whole workout session. Use the session id from get_workout.',
+    parameters: {
+      type: 'object',
+      properties: {
+        session_id: { type: 'integer', description: 'workout session id, from get_workout' },
+        status: { type: 'string', description: 'one of in_progress, completed, skipped' },
+      },
+      required: ['session_id', 'status'],
+    },
+  },
+  // Parity surface (med-eas.82, widened scope): the concrete tools above cover
+  // the high-frequency paths, these two reach the rest of the MCP catalog — the
+  // same operations the Claude connector gets. ElevenLabs client tools take flat
+  // scalars only, so the nested `params` / `path_params` objects travel as JSON
+  // strings the callback parses (buildClientTools in elevenlabs-call.js).
+  {
+    name: 'mcp_help',
+    description: 'Discover the operations this app exposes. Call it with query to keyword-search '
+      + '("blood pressure"), or topic to browse one area, then call it again with operation_id to '
+      + "get that operation's exact parameters before running it with mcp_call. With no arguments "
+      + 'it returns the whole catalog in terse form, which is long — prefer query or topic.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'keyword search over the catalog, e.g. "sleep"' },
+        topic: { type: 'string', description: 'browse one area, e.g. "workouts", "food", "meds"' },
+        operation_id: {
+          type: 'string',
+          description: 'full schema for one operation, e.g. "food.log.create" — do this before any mcp_call you are unsure about',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'mcp_call',
+    description: "Run any operation from mcp_help against the user's health data — medications, "
+      + 'food, sleep, vitals, statistics, settings, and everything else the concrete tools do '
+      + 'not cover.',
+    parameters: {
+      type: 'object',
+      properties: {
+        op: { type: 'string', description: 'operation id from mcp_help, e.g. "food.log.list"' },
+        params_json: {
+          type: 'string',
+          description: 'the operation\'s parameters as a JSON object encoded in a string, e.g. {"days": 7}. Omit or "{}" when it takes none.',
+        },
+        mode: { type: 'string', description: 'set to "write" for any operation that changes data; omit for reads' },
+        intent: { type: 'string', description: 'required with mode "write": one short line on why, e.g. "user asked during a voice call"' },
+        path_params_json: {
+          type: 'string',
+          description: 'only for operations whose path contains a {slot}: a JSON object encoded in a string, e.g. {"id": 42}',
+        },
+      },
+      required: ['op'],
     },
   },
 ];
