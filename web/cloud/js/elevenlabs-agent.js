@@ -273,14 +273,28 @@ export function toolBody(spec) {
 // its progress seam ('created' | 'updated', tool name).
 export async function ensureTools(key, onEvent) {
   const report = typeof onEvent === 'function' ? onEvent : () => {};
-  const listResp = await fetch(TOOLS_ENDPOINT, { method: 'GET', headers: headers(key) });
-  if (!listResp.ok) throw await toError(listResp, 'tool list');
-  const listData = await listResp.json();
-  const existing = Array.isArray(listData) ? listData : (listData.tools || []);
   const byName = new Map();
-  for (const t of existing) {
-    const name = t && t.tool_config && t.tool_config.name;
-    if (name) byName.set(name, t.id);
+  // GET /tools returns 30 per page by default and includes tools SHARED with
+  // the account. Both defaults are traps here: an unseen later page makes an
+  // existing tool look missing (so we mint a duplicate on every run, and wire
+  // the agent to the copy), and a shared tool with a colliding name would be
+  // PATCHed even though we do not own it. Page through everything, own tools
+  // only (`@me` supersedes the deprecated show_only_owned_documents).
+  let cursor = '';
+  for (;;) {
+    const q = new URLSearchParams({ page_size: '100', created_by_user_id: '@me' });
+    if (cursor) q.set('cursor', cursor);
+    const listResp = await fetch(`${TOOLS_ENDPOINT}?${q.toString()}`, { method: 'GET', headers: headers(key) });
+    if (!listResp.ok) throw await toError(listResp, 'tool list');
+    const listData = await listResp.json();
+    const page = Array.isArray(listData) ? listData : (listData.tools || []);
+    for (const t of page) {
+      const name = t && t.tool_config && t.tool_config.name;
+      if (name && !byName.has(name)) byName.set(name, t.id);
+    }
+    const next = (!Array.isArray(listData) && listData.has_more && listData.next_cursor) || '';
+    if (!next || next === cursor) break;
+    cursor = next;
   }
 
   const map = {};
@@ -330,6 +344,17 @@ export function buildAgentConfig(toolIds) {
       tts: { voice_id: VOICE_ID },
     },
   };
+}
+
+// GET an agent by id. The trial script preflights with this so a mistyped or
+// foreign TRIAL_ELEVENLABS_AGENT_ID fails BEFORE any tool is created or
+// PATCHed, rather than after the account's tools have already been rewritten.
+export async function fetchAgent(key, agentId) {
+  const resp = await fetch(`${AGENTS_ENDPOINT}/${encodeURIComponent(agentId)}`, {
+    method: 'GET', headers: headers(key),
+  });
+  if (!resp.ok) throw await toError(resp, 'read agent');
+  return resp.json();
 }
 
 // PATCH an existing agent in place. Shared with the trial script, which must
