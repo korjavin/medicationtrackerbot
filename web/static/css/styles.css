@@ -4556,6 +4556,29 @@ textarea.wg-input {
     gap: var(--space-sm);
 }
 
+/* med-z8ic — when Today folds the Doctor brief row into the call card, the
+   card becomes a 2-column grid: the trigger keeps the majority of the row and
+   the brief rides beside it at a third of the width (well under half). The
+   in-call controls and the status line span both columns so they still get
+   their own full-width lines underneath (today.js inserts the brief between
+   the trigger and the controls, so plain row auto-flow lands everything on
+   the right line). minmax(0, …) pins the ratio so a long label widens neither
+   track; the nested shortcut grid is collapsed to a single column so its
+   auto-fit min-width can't overflow the narrow cell. */
+.wg-call-card--with-brief {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+
+.wg-call-card__brief {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.wg-call-card--with-brief .wg-call-card__controls,
+.wg-call-card--with-brief .wg-call-card__status {
+    grid-column: 1 / -1;
+}
+
 .wg-call-card__btn {
     display: flex;
     flex-direction: row;
