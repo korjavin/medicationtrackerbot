@@ -187,13 +187,21 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
     // Route fetch by URL + method. `existingTools` is what GET /tools returns;
     // POST /tools mints `tool-<name>`; POST /agents/create returns `agentId`;
     // PATCH echoes the id. Records every call for assertions.
-    function makeElevenLabsFetch({ existingTools = [], agentId = 'agent-new' } = {}) {
+    // `existingTools` is the single-page case; `toolPages` (keyed by the cursor
+    // the request carried, '' for the first) drives the multi-page case.
+    function makeElevenLabsFetch({ existingTools = [], toolPages = null, agentId = 'agent-new' } = {}) {
         const calls = [];
+        toolPages = toolPages || { '': { tools: existingTools, has_more: false } };
         const spy = vi.fn(async (url, opts = {}) => {
             const method = (opts.method || 'GET').toUpperCase();
             calls.push({ url, method, body: opts.body ? JSON.parse(opts.body) : undefined, headers: opts.headers || {} });
-            if (url === 'https://api.elevenlabs.io/v1/convai/tools' && method === 'GET') {
-                return okJson({ tools: existingTools });
+            // The list call carries query params (own tools only, paged) —
+            // match on the path, not on an exact URL.
+            if (url.startsWith('https://api.elevenlabs.io/v1/convai/tools?') && method === 'GET') {
+                const cursor = new URL(url).searchParams.get('cursor') || '';
+                const page = toolPages[cursor];
+                if (!page) throw new Error(`unexpected tool-list cursor ${JSON.stringify(cursor)}`);
+                return okJson(page);
             }
             if (url === 'https://api.elevenlabs.io/v1/convai/tools' && method === 'POST') {
                 return okJson({ id: `tool-${JSON.parse(opts.body).tool_config.name}` });
@@ -237,8 +245,11 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         expect(toolPatches).toHaveLength(TOOL_SPECS.length);
         expect(toolPatches[0].body.tool_config).toMatchObject({ type: 'client', expects_response: true });
         // xi-api-key on the tool list call.
-        const listCall = calls.find((c) => c.url.endsWith('/tools') && c.method === 'GET');
+        const listCall = calls.find((c) => c.url.includes('/convai/tools?') && c.method === 'GET');
         expect(listCall.headers['xi-api-key']).toBe('xi-test-key');
+        // Own tools only: a tool merely SHARED with the account must not be
+        // PATCHed (we don't own it) nor block creating ours.
+        expect(new URL(listCall.url).searchParams.get('created_by_user_id')).toBe('@me');
     });
 
     it('ensureTools creates missing tools with the exact client tool_config shape', async () => {
@@ -261,6 +272,28 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
                 expects_response: true,
             },
         });
+    });
+
+    it('ensureTools pages through the tool list instead of re-minting tools past page 1', async () => {
+        // GET /tools returns 30 per page. Stopping at page 1 makes an existing
+        // tool look missing, so every run mints a duplicate and wires the agent
+        // to the copy — the opposite of idempotent (bd med-qgnk).
+        const { window } = env;
+        await setKey(window);
+        const all = existingAll();
+        const { spy, calls } = makeElevenLabsFetch({
+            toolPages: {
+                '': { tools: all.slice(0, 2), has_more: true, next_cursor: 'page-2' },
+                'page-2': { tools: all.slice(2), has_more: false, next_cursor: null },
+            },
+        });
+        vi.stubGlobal('fetch', spy);
+
+        await window.CloudElevenLabsAgent.provision();
+
+        expect(calls.filter((c) => c.url.includes('/convai/tools?') && c.method === 'GET')).toHaveLength(2);
+        expect(calls.filter((c) => c.url.endsWith('/tools') && c.method === 'POST')).toHaveLength(0);
+        expect(calls.filter((c) => c.url.includes('/tools/') && c.method === 'PATCH')).toHaveLength(TOOL_SPECS.length);
     });
 
     it('ensureAgent creates once with tool_ids + tool_call_sound, then reuses on matching version', async () => {

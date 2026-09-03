@@ -95,6 +95,29 @@ one in Settings → Integrations." instead of "Found 0 result(s)." (med-1j1). A
 user who typed a query is told the database is missing, not that their food
 doesn't exist.
 
+### Trial voice agent (`pnpm trial:agent`)
+
+`TRIAL_ELEVENLABS_API_KEY` + `TRIAL_ELEVENLABS_AGENT_ID` let the server mint
+signed URLs for one shared ElevenLabs agent that every trial user talks to. That
+agent's tools and prompt are **not** provisioned by the server — nothing in
+`cmd/cloud` touches the ElevenLabs management API. Push them from the repo:
+
+```bash
+TRIAL_ELEVENLABS_API_KEY=... TRIAL_ELEVENLABS_AGENT_ID=agent_... pnpm trial:agent           # dry run: prints the payload, calls nothing
+TRIAL_ELEVENLABS_API_KEY=... TRIAL_ELEVENLABS_AGENT_ID=agent_... pnpm trial:agent --apply   # rewrites the live shared agent
+```
+
+It reads `TOOL_SPECS` and the agent config straight out of
+`web/cloud/js/elevenlabs-agent.js` — the same source the BYO path provisions
+itself from — creates or updates the trial account's own client tools (matched
+by tool name; tool ids are per-ElevenLabs-account), and PATCHes the given agent
+id. It never creates an agent, so the id in your env stays valid.
+
+**Re-run it after every `TOOLSET_VERSION` bump.** This does not happen
+automatically on deploy. BYO users reprovision themselves on their next voice
+call; trial users keep whatever the shared agent was last given, which is how
+the voice surface silently drifted apart before (#817).
+
 ### Telegram manager bot (optional, C3a)
 
 One-time operator setup enables one-tap managed-bot provisioning for users
