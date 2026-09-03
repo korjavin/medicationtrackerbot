@@ -351,62 +351,88 @@
             // Chains three reads into one tool call because a voice LLM asked
             // to chain them itself before every write mostly won't.
             get_workout: async () => guard(readWorkout),
-            // Two write paths, because a planned exercise has no log row until
-            // something creates one. Both answer with the refreshed workout:
-            // the ops return an empty body, so this is the only way the agent
-            // can confirm what landed — and after a start the ids may have
-            // moved (see set_workout_status).
+            // Reads before it writes: the read is what tells it whether the
+            // session is even today's, which row the agent means, and what the
+            // planned targets are — none of which the agent can be trusted to
+            // carry correctly across two turns.
             log_exercise: async (a) => guard(async () => {
+                const args = asObj(a);
+                const before = await readWorkout();
+                const view = (before && before.result) || null;
+                const session = view && view.session;
+                if (!session) return { error: 'nothing is scheduled, so there is no exercise to log' };
+                // sessions.next also surfaces sessions scheduled for a LATER
+                // day. Logging actuals into one would record the workout on the
+                // wrong date and propagate the numbers into that day's plan;
+                // starting it re-keys it onto today first.
+                if (session.is_today === false) {
+                    return {
+                        error: 'that workout is scheduled for a later day — call set_workout_status with '
+                            + 'in_progress first (that moves it to today), then log the exercise',
+                    };
+                }
+                const logId = Number(args.log_id) || 0;
+                const exerciseId = Number(args.exercise_id) || 0;
+                const row = (view.exercises || []).find((r) => (logId
+                    ? r.log_id === logId
+                    : exerciseId && r.exercise_id === exerciseId));
+                if (!row) {
+                    // Never silently no-op: logs.update against an unknown id
+                    // succeeds with an empty body, so the agent would report a
+                    // write that never happened.
+                    return {
+                        error: 'no such exercise in this workout — call get_workout and use the log_id '
+                            + 'or exercise_id from one of its rows',
+                    };
+                }
                 const {
-                    log_id, session_id, exercise_id, exercise_name,
-                    sets, reps, weight_kg, notes, status,
-                } = asObj(a);
-                if (log_id > 0) {
+                    sets, reps, weight_kg: weightKg, notes, status,
+                } = args;
+                if (row.log_id > 0) {
                     // Omitted scalars are dropped, not sent as 0: updateLog
                     // reads an absent sets/reps/weight/status as "no data" and
                     // keeps what is stored, so the agent can log reps without
                     // clobbering the weight. (`notes` is the exception — that op
                     // always rewrites it, exactly as the Workouts screen does.)
                     await rawWrite('workouts.sessions.logs.update', {
-                        id: log_id, sets_completed: sets, reps_completed: reps, weight_kg, notes, status,
+                        id: row.log_id, sets_completed: sets, reps_completed: reps, weight_kg: weightKg, notes, status,
                     });
-                } else if (exercise_id > 0 && session_id > 0) {
-                    // logs.create carries the actuals in its target_* fields —
-                    // the same call the Workouts screen makes when you fill in a
-                    // planned row (features/workout/sessions.js).
+                } else {
+                    // No log row yet. logs.create carries the actuals in its
+                    // target_* fields — the same call the Workouts screen makes
+                    // when you fill in a planned row — falling back to the
+                    // planned targets so "skip the rows", which names no
+                    // numbers, still satisfies the op's required fields.
                     await rawWrite('workouts.sessions.logs.create', {
-                        session_id,
-                        exercise_id,
-                        exercise_name,
-                        target_sets: sets,
-                        target_reps_min: reps,
-                        target_weight_kg: weight_kg,
+                        session_id: view.session_id,
+                        exercise_id: row.exercise_id,
+                        exercise_name: row.exercise_name,
+                        target_sets: sets === undefined ? row.target_sets : sets,
+                        target_reps_min: reps === undefined ? row.target_reps_min : reps,
+                        target_weight_kg: weightKg === undefined ? row.target_weight_kg : weightKg,
                         status: status || 'completed',
                         notes,
                     });
-                } else {
-                    // Never silently no-op: logs.update against an unknown id
-                    // succeeds with an empty body, so the agent would report a
-                    // write that never happened.
-                    return {
-                        error: 'need log_id, or session_id + exercise_id + exercise_name when the '
-                            + 'exercise has no log yet — call get_workout and copy the ids from its row',
-                    };
                 }
+                // These ops answer with an empty body, so the re-read is the
+                // only thing the agent can confirm the write against.
                 return { status: 'ok', workout: await readWorkout() };
             }),
             set_workout_status: async (a) => guard(async () => {
-                const { session_id, status } = asObj(a);
+                const { session_id: sessionId, status } = asObj(a);
                 if (status === 'in_progress') {
                     // sessions.status only flips the field; sessions.start also
                     // stamps started_at, clears a snooze, and re-keys a session
                     // scheduled for another day onto today — which changes the
-                    // ids, hence the refreshed read below.
-                    await rawWrite('workouts.sessions.start', {}, { id: session_id });
-                } else {
-                    await rawWrite('workouts.sessions.status', { id: session_id, status });
+                    // ids, hence the refreshed read.
+                    await rawWrite('workouts.sessions.start', {}, { id: sessionId });
+                    return { status: 'ok', workout: await readWorkout() };
                 }
-                return { status: 'ok', workout: await readWorkout() };
+                await rawWrite('workouts.sessions.status', { id: sessionId, status });
+                // No re-read here: sessions.next excludes terminal sessions, so
+                // it would answer with an unrelated future workout and the agent
+                // would describe that one instead of the one it just closed.
+                return { status: 'ok', session_id: sessionId, session_status: status };
             }),
         };
     }

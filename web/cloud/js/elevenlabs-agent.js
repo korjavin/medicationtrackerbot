@@ -37,6 +37,7 @@ const SYSTEM_PROMPT = [
   '  set_workout_status to start, finish or skip the session. To change anything',
   '  about a workout you MUST call get_workout first — it returns the session id',
   '  and, per exercise, a log_id and an exercise_id that the write tools need.',
+  '  If the session it returns is not for today, start it before logging into it.',
   '- Diary notes → get_notes to read, add_note to record.',
   '- ANYTHING ELSE — medications, food, sleep, vitals, statistics, settings —',
   '  call mcp_help to find the operation you need, then mcp_call to run it. Do',
@@ -143,17 +144,14 @@ export const TOOL_SPECS = [
   {
     name: 'log_exercise',
     description: 'Record what the user actually did on one exercise of the current workout: '
-      + 'sets, reps, weight, notes, or mark it skipped. Copy the ids straight from the '
-      + "get_workout row for that exercise: pass its log_id when that is non-zero; when the "
-      + 'log_id is 0 (a planned exercise nothing has been logged against yet) pass '
-      + 'session_id, exercise_id and exercise_name instead, along with sets and reps.',
+      + 'sets, reps, weight, notes, or mark it skipped. Identify the exercise with the log_id '
+      + 'from its get_workout row, or with its exercise_id when that row shows log_id 0 '
+      + '(a planned exercise nothing has been logged against yet).',
     parameters: {
       type: 'object',
       properties: {
         log_id: { type: 'integer', description: "the exercise's log id from get_workout; 0 if it has none yet" },
-        session_id: { type: 'integer', description: 'session id from get_workout; needed only when log_id is 0' },
-        exercise_id: { type: 'integer', description: 'exercise id from get_workout; needed only when log_id is 0' },
-        exercise_name: { type: 'string', description: 'exercise name from get_workout; needed only when log_id is 0' },
+        exercise_id: { type: 'integer', description: 'exercise id from get_workout; use this when log_id is 0' },
         sets: { type: 'integer', description: 'sets actually completed' },
         reps: { type: 'integer', description: 'reps actually completed per set' },
         weight_kg: { type: 'number', description: 'weight used, in kilograms' },

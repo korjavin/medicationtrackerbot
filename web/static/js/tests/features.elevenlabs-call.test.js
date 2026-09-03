@@ -866,16 +866,62 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
             });
             expect(crt[1].mode).toBe('write');
 
-            await t.set_workout_status({ session_id: 43, status: 'completed' });
+            const closed = JSON.parse(await t.set_workout_status({ session_id: 43, status: 'completed' }));
             const st = opCall('workouts.sessions.status');
             expect(st[1].params).toEqual({ id: 43, status: 'completed' });
             expect(st[1].mode).toBe('write');
             expect(st[1].intent).toBeTruthy();
+            // sessions.next excludes terminal sessions, so re-reading would hand
+            // back an unrelated future workout — confirm the write itself.
+            expect(closed).toEqual({ status: 'ok', session_id: 43, session_status: 'completed' });
 
             await t.set_workout_status({ session_id: 43, status: 'in_progress' });
             const start = opCall('workouts.sessions.start');
             expect(start[1].path_params).toEqual({ id: 43 });
             expect(start[1].mode).toBe('write');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('log_exercise fills a skipped planned exercise from its targets and refuses a future session', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            let isToday = true;
+            const handle = vi.fn(async (method, params) => {
+                if (params.op === 'workouts.sessions.next') {
+                    return { status: 'ok', result: { session: { id: 43, is_today: isToday }, variant_id: 6 } };
+                }
+                if (params.op === 'workouts.sessions.details') return { status: 'ok', result: { logs: [] } };
+                if (params.op === 'workouts.exercises.list') {
+                    return {
+                        status: 'ok',
+                        result: [{ id: 8, exercise_name: 'Rows', target_sets: 3, target_reps_min: 10 }],
+                    };
+                }
+                return { status: 'ok', result: null };
+            });
+            window.CloudMCPDispatcher = { handle };
+            const { opts } = await startCall(window);
+
+            // "skip the rows" states no sets or reps, but logs.create requires
+            // target_sets/target_reps_min — fall back to the planned targets
+            // rather than bouncing off the write gate or inventing actuals.
+            await opts.clientTools.log_exercise({ exercise_id: 8, status: 'skipped' });
+            const crt = handle.mock.calls.find((c) => c[1].op === 'workouts.sessions.logs.create');
+            expect(crt[1].params).toEqual({
+                session_id: 43, exercise_id: 8, exercise_name: 'Rows',
+                target_sets: 3, target_reps_min: 10, status: 'skipped',
+            });
+
+            // sessions.next also surfaces sessions scheduled for a later day;
+            // logging into one records the workout on the wrong date and pushes
+            // the numbers into that day's plan.
+            isToday = false;
+            const refused = JSON.parse(await opts.clientTools.log_exercise({ exercise_id: 8, sets: 3, reps: 10 }));
+            expect(refused.error).toMatch(/later day/);
+            expect(handle.mock.calls.filter((c) => c[1].op === 'workouts.sessions.logs.create')).toHaveLength(1);
         } finally {
             cleanup();
         }
@@ -1005,7 +1051,20 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
             // The dispatcher routes every op through apishim's router, so a
             // stub router records the (endpoint, method, body) each voice tool
             // produces. The route table itself is covered by the cloud suite.
-            const router = vi.fn(async (endpoint, method, body) => (method === 'GET' ? [] : { id: 1, ...body }));
+            const router = vi.fn(async (endpoint, method, body) => {
+                // Enough of a workout for the write tools to resolve a row:
+                // one logged exercise and one still-planned one.
+                if (endpoint.startsWith('/api/workout/sessions/next')) {
+                    return { session: { id: 43, is_today: true }, variant_id: 6 };
+                }
+                if (endpoint.startsWith('/api/workout/sessions/details')) {
+                    return { session: { id: 43 }, logs: [{ id: 99, exercise_id: 7, exercise_name: 'Bench Press' }] };
+                }
+                if (endpoint.startsWith('/api/workout/exercises?')) {
+                    return [{ id: 8, exercise_name: 'Rows', target_sets: 3, target_reps_min: 10 }];
+                }
+                return method === 'GET' ? [] : { id: 1, ...body };
+            });
             window.CloudMCPDispatcher = createDispatcher({ router });
 
             const { opts } = await startCall(window);
@@ -1045,14 +1104,12 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
 
             // No log row yet (log_id 0): the same tool creates one, carrying the
             // actuals in the target_* fields logs.create declares required.
-            const cOut = JSON.parse(await t.log_exercise({
-                log_id: 0, session_id: 43, exercise_id: 7, exercise_name: 'Bench Press', sets: 3, reps: 12, weight_kg: 60,
-            }));
+            const cOut = JSON.parse(await t.log_exercise({ exercise_id: 8, sets: 3, reps: 12, weight_kg: 60 }));
             expect(cOut.error).toBeUndefined();
             const crt = at('/api/workout/sessions/logs/create');
             expect(crt[1]).toBe('POST');
             expect(crt[2]).toMatchObject({
-                session_id: 43, exercise_id: 7, exercise_name: 'Bench Press',
+                session_id: 43, exercise_id: 8, exercise_name: 'Rows',
                 target_sets: 3, target_reps_min: 12, target_weight_kg: 60, status: 'completed',
             });
 

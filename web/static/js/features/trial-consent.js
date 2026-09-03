@@ -30,7 +30,7 @@
         },
         voice: {
             title: 'Use the trial voice agent?',
-            data: 'Your voice audio and the agent conversation (including transcripts) will be processed by the voice service.',
+            data: 'Your voice audio and the agent conversation (including transcripts) will be processed by the voice service — AND the health data the agent reads from your vault to answer you: blood pressure, weight, workouts, medications, food, sleep, notes, whatever you ask it about.',
             transit: 'This content transits the operator’s ElevenLabs agent — the operator’s provider processes it on the operator’s key.',
         },
         tg: {
