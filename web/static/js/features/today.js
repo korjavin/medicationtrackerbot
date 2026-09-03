@@ -789,7 +789,10 @@
         if (vitalsAdded > 0) rows.push(vitalsRow);
 
         // Doctor brief (med-5k6t.2) — its own row because it is a document
-        // action, not a quick-log. Shown whenever anything at all is tracked
+        // action, not a quick-log; renderToday folds that row into the Call
+        // agent card's row when the call card is present (med-z8ic), so the
+        // two share one line instead of stacking. Shown whenever anything at
+        // all is tracked
         // (a meds-only vault still goes to appointments, and it has no BP or
         // food quick-log row to ride on); suppressed in the every-feature-off
         // state, where there is nothing to brief and Today shows its empty
@@ -1389,8 +1392,9 @@
         // they're the first thing visible in every state (features on/off,
         // cached/offline). Nothing renders above them except the freshness
         // badge + offline banner.
+        let callCard = null;
         if (typeof window !== 'undefined' && window.WGCallAgent && typeof window.WGCallAgent.mountCard === 'function') {
-            window.WGCallAgent.mountCard(root);
+            callCard = window.WGCallAgent.mountCard(root);
             rendered += 1;
         }
 
@@ -1398,7 +1402,28 @@
             onLogFood, onScanFood, onPhotoMeal, onAddBp, onAddWeight, onDoctorBrief
         });
         if (shortcutRows) {
-            shortcutRows.forEach((r) => root.appendChild(r));
+            shortcutRows.forEach((r) => {
+                // med-z8ic: Doctor brief rides the Call agent row as its
+                // narrower sibling (2fr / 1fr, see .wg-call-card--with-brief)
+                // instead of burning a whole row on one tile. It goes *inside*
+                // the call card rather than into a shared wrapper on purpose:
+                // mountCard() dedupes on `root.querySelector('[data-section=
+                // "call-agent"]')` and reattaches live-call state to whatever
+                // it finds, so the container it is handed must stay `root`.
+                // Whichever of the two is absent, the survivor fills the row.
+                if (callCard && r.getAttribute('data-section') === 'shortcuts-brief'
+                    && !callCard.querySelector('[data-section="shortcuts-brief"]')) {
+                    r.classList.add('wg-call-card__brief');
+                    callCard.classList.add('wg-call-card--with-brief');
+                    // Insert right after the trigger (before the in-call
+                    // controls) so DOM order matches the visual order the
+                    // grid produces: trigger + brief on line 1, controls and
+                    // status on their own full-width lines below.
+                    callCard.insertBefore(r, callCard.querySelector('.wg-call-card__controls'));
+                    return;
+                }
+                root.appendChild(r);
+            });
             rendered += shortcutRows.length;
         }
 
