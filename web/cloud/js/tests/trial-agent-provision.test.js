@@ -61,6 +61,12 @@ describe('scripts/provision-trial-agent.mjs', () => {
     expect(r.stdout).toBe('');
   });
 
+  it('refuses --apply --dry-run rather than silently applying', () => {
+    const r = run(['--apply', '--dry-run'], { TRIAL_ELEVENLABS_API_KEY: FAKE_KEY, TRIAL_ELEVENLABS_AGENT_ID: 'agent_fake' });
+    expect(r.status).toBe(2);
+    expect(r.stdout).toBe('');
+  });
+
   it('never prints the API key', () => {
     for (const args of [[], ['--apply']]) {
       const r = run(args, { TRIAL_ELEVENLABS_API_KEY: FAKE_KEY, TRIAL_ELEVENLABS_AGENT_ID: '' });

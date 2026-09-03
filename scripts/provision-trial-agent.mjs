@@ -25,12 +25,17 @@ import {
   toolBody,
 } from '../web/cloud/js/elevenlabs-agent.js';
 
-const apply = process.argv.includes('--apply');
-const unknown = process.argv.slice(2).filter((a) => a !== '--apply' && a !== '--dry-run');
+const argv = process.argv.slice(2);
+const unknown = argv.filter((a) => a !== '--apply' && a !== '--dry-run');
 if (unknown.length) {
   console.error(`Unknown argument(s): ${unknown.join(' ')}\nUsage: pnpm trial:agent [--apply|--dry-run]`);
   process.exit(2);
 }
+if (argv.includes('--apply') && argv.includes('--dry-run')) {
+  console.error('--apply and --dry-run are alternatives. Refusing rather than guessing which you meant.');
+  process.exit(2);
+}
+const apply = argv.includes('--apply');
 
 const agentId = process.env.TRIAL_ELEVENLABS_AGENT_ID || '';
 const apiKey = process.env.TRIAL_ELEVENLABS_API_KEY || '';
@@ -63,8 +68,17 @@ try {
   // Preflight: confirm the agent exists under THIS key before mutating any
   // tool. A 404/401 here means the id or the key is wrong, and stopping now
   // leaves the account's tools untouched.
-  await fetchAgent(apiKey, agentId);
-  console.log(`agent ${agentId} found — provisioning ${TOOL_SPECS.length} tools`);
+  const agent = await fetchAgent(apiKey, agentId);
+  // A workspace can share an agent read-only. Catching that here matters
+  // because the PATCH is the LAST step: without it a viewer key would rewrite
+  // every tool in the account and only then discover it cannot save the agent.
+  // is_creator false is fine (service-account keys), a non-writing role is not.
+  const role = agent && agent.access_info && agent.access_info.role;
+  if (role && role !== 'admin' && role !== 'editor') {
+    console.error(`This key has role "${role}" on agent ${agentId} and cannot write to it. Refusing.`);
+    process.exit(1);
+  }
+  console.log(`agent ${agentId} found (role ${role || 'unknown'}) — provisioning ${TOOL_SPECS.length} tools`);
   const toolMap = await ensureTools(apiKey, (action, name) => console.log(`  tool ${action}: ${name}`));
   const toolIds = TOOL_SPECS.map((s) => toolMap[s.name]).filter(Boolean);
   if (toolIds.length !== TOOL_SPECS.length) {
