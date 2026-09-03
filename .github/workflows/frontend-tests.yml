@@ -6,6 +6,7 @@ on:
       - master
     paths:
       - 'web/**'
+      - 'scripts/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'vitest.config.mjs'

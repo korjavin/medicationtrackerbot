@@ -242,6 +242,107 @@ async function toError(resp, action) {
   return err;
 }
 
+export function toolBody(spec) {
+  return {
+    tool_config: {
+      type: 'client',
+      name: spec.name,
+      description: spec.description,
+      parameters: spec.parameters,
+      // Blocking: the agent waits for and reads the callback's return value.
+      // ElevenLabs client tools default to fire-and-forget, so without this
+      // the get_* reads would return data the agent never consumes. (The
+      // prior hand-configured tools set this via the dashboard's "blocking"
+      // toggle.) Verify the field name against the live API during
+      // acceptance, like tool_call_sound.
+      expects_response: true,
+    },
+  };
+}
+
+// ensureTools returns a { name → id } map for every TOOL_SPECS entry, resolved
+// by tool NAME against the account's own tool list — tool ids are per-ElevenLabs
+// account, so nothing may assume a stored id. On the BYO path it only runs
+// during a (re)provision (provision() short-circuits when the stored version
+// matches), so it PATCHes tools that already exist by name — otherwise a
+// TOOLSET_VERSION bump that edits a spec (params/description) would never reach
+// accounts that already created the tool. Missing tools are created.
+//
+// Module-scope and exported because the trial agent is provisioned by an
+// operator script with no vault (scripts/provision-trial-agent.mjs); onEvent is
+// its progress seam ('created' | 'updated', tool name).
+export async function ensureTools(key, onEvent) {
+  const report = typeof onEvent === 'function' ? onEvent : () => {};
+  const listResp = await fetch(TOOLS_ENDPOINT, { method: 'GET', headers: headers(key) });
+  if (!listResp.ok) throw await toError(listResp, 'tool list');
+  const listData = await listResp.json();
+  const existing = Array.isArray(listData) ? listData : (listData.tools || []);
+  const byName = new Map();
+  for (const t of existing) {
+    const name = t && t.tool_config && t.tool_config.name;
+    if (name) byName.set(name, t.id);
+  }
+
+  const map = {};
+  for (const spec of TOOL_SPECS) {
+    const existingId = byName.get(spec.name);
+    if (existingId) {
+      // Update the existing tool in place so edited specs propagate. PATCH
+      // endpoint shape verified against the live API during acceptance.
+      const resp = await fetch(`${TOOLS_ENDPOINT}/${encodeURIComponent(existingId)}`, {
+        method: 'PATCH', headers: headers(key), body: JSON.stringify(toolBody(spec)),
+      });
+      if (!resp.ok) throw await toError(resp, `update tool ${spec.name}`);
+      map[spec.name] = existingId;
+      report('updated', spec.name);
+      continue;
+    }
+    const resp = await fetch(TOOLS_ENDPOINT, { method: 'POST', headers: headers(key), body: JSON.stringify(toolBody(spec)) });
+    if (!resp.ok) throw await toError(resp, `create tool ${spec.name}`);
+    const created = await resp.json();
+    // Guard the id like ensureAgent guards agent_id: a missing id would
+    // otherwise be silently dropped by ensureAgent's filter(Boolean), leaving
+    // the agent wired to fewer tools with no diagnostic.
+    if (!created.id) throw new Error(`ElevenLabs create tool ${spec.name} response missing id`);
+    map[spec.name] = created.id;
+    report('created', spec.name);
+  }
+  return map;
+}
+
+// buildAgentConfig is the single source of truth for the agent body — persona,
+// first message, voice, tool wiring. BOTH the BYO path (ensureAgent below) and
+// the operator's trial-agent script consume it, so a prompt change reaches the
+// shared trial agent on the next `pnpm trial:agent` instead of quietly diverging
+// (bd med-qgnk).
+export function buildAgentConfig(toolIds) {
+  return {
+    conversation_config: {
+      agent: {
+        prompt: { prompt: SYSTEM_PROMPT, tool_ids: toolIds },
+        first_message: FIRST_MESSAGE,
+        language: 'en',
+        // Audible cue when the agent calls a tool (owner UX request). Nesting
+        // verified against the live API during acceptance.
+        tool_call_sound: 'typing',
+        tool_call_sound_behavior: 'always',
+      },
+      tts: { voice_id: VOICE_ID },
+    },
+  };
+}
+
+// PATCH an existing agent in place. Shared with the trial script, which must
+// never create an agent: TRIAL_ELEVENLABS_AGENT_ID is baked into the deployed
+// server's config, so a fresh id would silently strand every trial user.
+export async function patchAgent(key, agentId, config) {
+  const resp = await fetch(`${AGENTS_ENDPOINT}/${encodeURIComponent(agentId)}`, {
+    method: 'PATCH', headers: headers(key), body: JSON.stringify(config),
+  });
+  if (!resp.ok) throw await toError(resp, 'update agent');
+  return agentId;
+}
+
 export function createElevenLabsAgentProvisioner({ settingsDomain }) {
   async function apiKey() {
     const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
@@ -249,82 +350,6 @@ export function createElevenLabsAgentProvisioner({ settingsDomain }) {
       throw new Error('Set your ElevenLabs API key in Settings → Integrations');
     }
     return elevenlabs.api_key;
-  }
-
-  function toolBody(spec) {
-    return {
-      tool_config: {
-        type: 'client',
-        name: spec.name,
-        description: spec.description,
-        parameters: spec.parameters,
-        // Blocking: the agent waits for and reads the callback's return value.
-        // ElevenLabs client tools default to fire-and-forget, so without this
-        // the get_* reads would return data the agent never consumes. (The
-        // prior hand-configured tools set this via the dashboard's "blocking"
-        // toggle.) Verify the field name against the live API during
-        // acceptance, like tool_call_sound.
-        expects_response: true,
-      },
-    };
-  }
-
-  // ensureTools returns a { name → id } map for every TOOL_SPECS entry. It only
-  // runs during a (re)provision (provision() short-circuits when the stored
-  // version matches), so it PATCHes tools that already exist by name — otherwise
-  // a TOOLSET_VERSION bump that edits a spec (params/description) would never
-  // reach accounts that already created the tool. Missing tools are created.
-  async function ensureTools(key) {
-    const listResp = await fetch(TOOLS_ENDPOINT, { method: 'GET', headers: headers(key) });
-    if (!listResp.ok) throw await toError(listResp, 'tool list');
-    const listData = await listResp.json();
-    const existing = Array.isArray(listData) ? listData : (listData.tools || []);
-    const byName = new Map();
-    for (const t of existing) {
-      const name = t && t.tool_config && t.tool_config.name;
-      if (name) byName.set(name, t.id);
-    }
-
-    const map = {};
-    for (const spec of TOOL_SPECS) {
-      const existingId = byName.get(spec.name);
-      if (existingId) {
-        // Update the existing tool in place so edited specs propagate. PATCH
-        // endpoint shape verified against the live API during acceptance.
-        const resp = await fetch(`${TOOLS_ENDPOINT}/${encodeURIComponent(existingId)}`, {
-          method: 'PATCH', headers: headers(key), body: JSON.stringify(toolBody(spec)),
-        });
-        if (!resp.ok) throw await toError(resp, `update tool ${spec.name}`);
-        map[spec.name] = existingId;
-        continue;
-      }
-      const resp = await fetch(TOOLS_ENDPOINT, { method: 'POST', headers: headers(key), body: JSON.stringify(toolBody(spec)) });
-      if (!resp.ok) throw await toError(resp, `create tool ${spec.name}`);
-      const created = await resp.json();
-      // Guard the id like ensureAgent guards agent_id: a missing id would
-      // otherwise be silently dropped by ensureAgent's filter(Boolean), leaving
-      // the agent wired to fewer tools with no diagnostic.
-      if (!created.id) throw new Error(`ElevenLabs create tool ${spec.name} response missing id`);
-      map[spec.name] = created.id;
-    }
-    return map;
-  }
-
-  function agentConfig(toolIds) {
-    return {
-      conversation_config: {
-        agent: {
-          prompt: { prompt: SYSTEM_PROMPT, tool_ids: toolIds },
-          first_message: FIRST_MESSAGE,
-          language: 'en',
-          // Audible cue when the agent calls a tool (owner UX request). Nesting
-          // verified against the live API during acceptance.
-          tool_call_sound: 'typing',
-          tool_call_sound_behavior: 'always',
-        },
-        tts: { voice_id: VOICE_ID },
-      },
-    };
   }
 
   // ensureAgent reuses the stored agent when its toolset version matches; else
@@ -335,15 +360,11 @@ export function createElevenLabsAgentProvisioner({ settingsDomain }) {
     const stored = await settingsDomain.getVoiceProvisioning();
     const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
     const presetId = (elevenlabs && elevenlabs.agent_id) || stored.agentId || '';
-    const config = agentConfig(toolIds);
+    const config = buildAgentConfig(toolIds);
 
     let agentId;
     if (presetId) {
-      const resp = await fetch(`${AGENTS_ENDPOINT}/${encodeURIComponent(presetId)}`, {
-        method: 'PATCH', headers: headers(key), body: JSON.stringify(config),
-      });
-      if (!resp.ok) throw await toError(resp, 'update agent');
-      agentId = presetId;
+      agentId = await patchAgent(key, presetId, config);
     } else {
       const resp = await fetch(`${AGENTS_ENDPOINT}/create`, {
         method: 'POST', headers: headers(key), body: JSON.stringify(config),
