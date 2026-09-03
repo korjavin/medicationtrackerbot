@@ -263,25 +263,44 @@
                 weight_kg: l.weight_kg,
                 status: l.status,
             }));
-            // Ad-hoc sessions (variant_id -1) render from their logs alone.
-            if (view.variant_id > 0) {
-                const planned = await raw('mcp_call', {
+            // Same plan source as the Workouts screen: the session's
+            // exercise_snapshot when it has one (it is the per-session copy, so
+            // an exercise removed from TODAY only stays removed), else the live
+            // variant. Ad-hoc sessions (variant_id -1) render from logs alone.
+            const session = (details && details.result && details.result.session) || {};
+            let planned = Array.isArray(session.exercise_snapshot) ? session.exercise_snapshot : null;
+            if (!planned && view.variant_id > 0) {
+                const listed = await raw('mcp_call', {
                     op: 'workouts.exercises.list', params: { variant_id: view.variant_id },
                 });
-                const logged = new Set(exercises.map((e) => e.exercise_id));
-                ((planned && planned.result) || []).forEach((ex) => {
-                    if (logged.has(ex.id)) return;
-                    exercises.push({
-                        log_id: 0,
-                        exercise_id: ex.id,
-                        exercise_name: ex.exercise_name,
-                        target_sets: ex.target_sets,
-                        target_reps_min: ex.target_reps_min,
-                        target_weight_kg: ex.target_weight_kg,
-                        status: '',
-                    });
-                });
+                planned = ((listed && listed.result) || []).map((e) => ({
+                    exercise_id: e.id,
+                    exercise_name: e.exercise_name,
+                    target_sets: e.target_sets,
+                    target_reps_min: e.target_reps_min,
+                    target_weight_kg: e.target_weight_kg,
+                }));
             }
+            // Only schedule-sourced logs consume a planned row: a mid-session
+            // "library" log's exercise_id indexes the exercise library, a
+            // different id space that can collide with a variant exercise id.
+            // Name is the fallback for legacy rows saved without an id.
+            const fromPlan = logs.filter((l) => l.source !== 'library');
+            const loggedIds = new Set(fromPlan.map((l) => l.exercise_id));
+            const loggedNames = new Set(fromPlan.map((l) => l.exercise_name));
+            (planned || []).forEach((ex) => {
+                const done = ex.exercise_id ? loggedIds.has(ex.exercise_id) : loggedNames.has(ex.exercise_name);
+                if (done) return;
+                exercises.push({
+                    log_id: 0,
+                    exercise_id: ex.exercise_id,
+                    exercise_name: ex.exercise_name,
+                    target_sets: ex.target_sets,
+                    target_reps_min: ex.target_reps_min,
+                    target_weight_kg: ex.target_weight_kg,
+                    status: '',
+                });
+            });
             return { ...next, result: { ...view, session_id: sessionId, exercises } };
         };
         return {
@@ -290,7 +309,10 @@
             // — it used to file a workout edit as a diary note). Provisioned in
             // TOOL_SPECS alongside the concrete tools, which stay because voice
             // LLMs drive those far more reliably on the frequent paths.
-            mcp_help: async () => dispatch('mcp_help', {}),
+            mcp_help: async (a) => {
+                const { query, topic, operation_id: operationId } = asObj(a);
+                return dispatch('mcp_help', compact({ query, topic, operation_id: operationId }));
+            },
             // Forwards the whole envelope (operation_id/op, params, path_params,
             // body, mode, intent) so a write reaches the dispatcher's gate with
             // the payload and intent the agent stated. ElevenLabs client tools

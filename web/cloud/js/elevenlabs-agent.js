@@ -182,10 +182,22 @@ export const TOOL_SPECS = [
   // strings the callback parses (buildClientTools in elevenlabs-call.js).
   {
     name: 'mcp_help',
-    description: 'List every operation this app exposes — id, what it does, and its parameters. '
-      + 'Call this whenever the concrete tools do not cover what the user asked for, then run '
-      + 'the operation you found with mcp_call.',
-    parameters: { type: 'object', properties: {}, required: [] },
+    description: 'Discover the operations this app exposes. Call it with query to keyword-search '
+      + '("blood pressure"), or topic to browse one area, then call it again with operation_id to '
+      + "get that operation's exact parameters before running it with mcp_call. With no arguments "
+      + 'it returns the whole catalog in terse form, which is long — prefer query or topic.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'keyword search over the catalog, e.g. "sleep"' },
+        topic: { type: 'string', description: 'browse one area, e.g. "workouts", "food", "meds"' },
+        operation_id: {
+          type: 'string',
+          description: 'full schema for one operation, e.g. "food.log.create" — do this before any mcp_call you are unsure about',
+        },
+      },
+      required: [],
+    },
   },
   {
     name: 'mcp_call',

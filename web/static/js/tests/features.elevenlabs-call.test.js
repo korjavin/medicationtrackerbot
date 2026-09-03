@@ -881,6 +881,55 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
         }
     });
 
+    it('get_workout prefers the session snapshot and ignores library-sourced logs when merging the plan', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const handle = vi.fn(async (method, params) => {
+                if (params.op === 'workouts.sessions.next') {
+                    return { status: 'ok', result: { session: { id: 43 }, variant_id: 6 } };
+                }
+                if (params.op === 'workouts.sessions.details') {
+                    return {
+                        status: 'ok',
+                        result: {
+                            // The user dropped "Rows" from today only, so the
+                            // snapshot — not the live variant — is the plan.
+                            session: {
+                                id: 43,
+                                exercise_snapshot: [
+                                    { exercise_id: 7, exercise_name: 'Bench Press', target_sets: 4, target_reps_min: 8 },
+                                ],
+                            },
+                            // A library-sourced log whose exercise_id happens to
+                            // equal a planned workout_exercises id: different id
+                            // spaces, so it must not hide the planned row.
+                            logs: [{ id: 100, exercise_id: 7, exercise_name: 'Curls', source: 'library' }],
+                        },
+                    };
+                }
+                return { status: 'ok', result: [] };
+            });
+            window.CloudMCPDispatcher = { handle };
+            const { opts } = await startCall(window);
+
+            const read = JSON.parse(await opts.clientTools.get_workout());
+            expect(handle.mock.calls.some((c) => c[1].op === 'workouts.exercises.list')).toBe(false);
+            expect(read.result.exercises).toEqual([
+                {
+                    log_id: 100, exercise_id: 7, exercise_name: 'Curls',
+                    sets_completed: undefined, reps_completed: undefined, weight_kg: undefined, status: undefined,
+                },
+                {
+                    log_id: 0, exercise_id: 7, exercise_name: 'Bench Press',
+                    target_sets: 4, target_reps_min: 8, target_weight_kg: undefined, status: '',
+                },
+            ]);
+        } finally {
+            cleanup();
+        }
+    });
+
     it('get_workout returns the bare next-session response when nothing is scheduled', async () => {
         const { window, cleanup } = createConversationEnv();
         try {
@@ -909,6 +958,13 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
             window.CloudMCPDispatcher = { handle };
             const { opts } = await startCall(window);
 
+            // mcp_help's drill-down is the only way the agent learns an op's
+            // required fields, so the filters have to be declared and forwarded.
+            await opts.clientTools.mcp_help({ operation_id: 'food.log.create' });
+            expect(handle).toHaveBeenCalledWith('mcp_help', { operation_id: 'food.log.create' });
+            await opts.clientTools.mcp_help({ query: 'sleep' });
+            expect(handle).toHaveBeenCalledWith('mcp_help', { query: 'sleep' });
+
             await opts.clientTools.mcp_call({ op: 'food.log.list', params_json: '{"days": 7}' });
             expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'food.log.list', params: { days: 7 } });
 
@@ -931,7 +987,7 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
             // throw into the SDK and not a silent empty-params call.
             const bad = JSON.parse(await opts.clientTools.mcp_call({ op: 'food.log.list', params_json: '{days: 7' }));
             expect(bad.error).toMatch(/params_json/);
-            expect(handle).toHaveBeenCalledTimes(2);
+            expect(handle).toHaveBeenCalledTimes(4);
         } finally {
             cleanup();
         }
