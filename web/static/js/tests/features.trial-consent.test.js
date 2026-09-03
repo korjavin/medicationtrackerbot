@@ -77,11 +77,16 @@ describe('features/trial-consent.js — disclosure dialog + retry seam', () => {
         modal().querySelector('[data-trial-consent-choice="deny"]').click();
     });
 
-    it('voice dialog names voice audio + transcripts and the operator’s ElevenLabs agent', () => {
+    it('voice dialog names voice audio + transcripts, the vault data the tools read, and the operator’s ElevenLabs agent', () => {
         env.window.TrialConsent.request('voice');
         const text = modal().textContent;
         expect(text).toMatch(/voice audio/i);
         expect(text).toMatch(/transcripts/i);
+        // The agent reads vault records through its client tools, and since
+        // med-eas.82 it can reach the whole catalog — the disclosure has to say
+        // so, exactly like the `tg` scope does.
+        expect(text).toMatch(/health data the agent reads from your vault/i);
+        expect(text).toMatch(/blood pressure/i);
         expect(text).toMatch(/operator[’']s ElevenLabs/i);
         modal().querySelector('[data-trial-consent-choice="deny"]').click();
     });
