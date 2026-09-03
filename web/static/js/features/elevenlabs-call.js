@@ -189,7 +189,9 @@
     }
 
     // Cloud-only dynamic MCP client-tools. The ElevenLabs agent invokes these
-    // by name (must match its dashboard config, marked blocking); each callback
+    // by name — for a BYO key the names come from elevenlabs-agent.js
+    // TOOL_SPECS, which provisions them; the trial agent's list lives in the
+    // operator's ElevenLabs dashboard instead. Each callback
     // dispatches straight into the in-tab MCP dispatcher — no relay, no crypto,
     // since this tab is both the voice client and the MCP responder host.
     // Returns JSON strings the agent reads; dispatcher errors come back as a
@@ -197,8 +199,8 @@
     function buildClientTools() {
         if (!window.__MEDTRACKER_CLOUD__ || !window.CloudMCPDispatcher) return undefined;
         // guard() is the single place a dispatcher throw becomes a short JSON
-        // string: get_workout chains two dispatches, so the try/catch has to
-        // wrap the whole tool body, not one handle() call.
+        // string. The workout tools chain several dispatches, so the try/catch
+        // has to wrap the whole tool body, not one handle() call.
         const guard = async (fn) => {
             try {
                 return JSON.stringify(await fn());
@@ -217,27 +219,98 @@
         // now() as a stable seam so tests can stamp a deterministic timestamp.
         const nowISO = () => new Date().toISOString();
         const call = (op, params) => dispatch('mcp_call', { op, params });
+        // Drop keys the agent left out. The dispatcher's required-field gate
+        // tests key PRESENCE, so `{sets: undefined}` reads as "supplied" and a
+        // malformed write reaches the domain as a 0 instead of bouncing back at
+        // the agent with the field to resend.
+        const compact = (o) => {
+            const out = {};
+            Object.keys(o).forEach((k) => { if (o[k] !== undefined) out[k] = o[k]; });
+            return out;
+        };
         // Catalog ops with risk:"write" are refused unless the envelope carries
         // mode:"write" and a non-empty intent. The user spoke the request, so
         // the intent is the voice call itself.
-        const write = (op, params) => dispatch('mcp_call', {
-            op, params, mode: 'write', intent: 'logged by the user during an ElevenLabs voice call',
-        });
+        const writeEnvelope = (op, params, pathParams) => {
+            const env = {
+                op, params: compact(params), mode: 'write',
+                intent: 'logged by the user during an ElevenLabs voice call',
+            };
+            if (pathParams) env.path_params = pathParams;
+            return env;
+        };
+        const write = (op, params) => dispatch('mcp_call', writeEnvelope(op, params));
+        const rawWrite = (op, params, pathParams) => raw('mcp_call', writeEnvelope(op, params, pathParams));
+        // One flat view of today's workout: the session, plus every exercise as
+        // a uniform row. sessions.details returns only PERSISTED logs, and a
+        // session nobody has touched has none — the Workouts screen synthesizes
+        // the missing planned rows the same way (features/workout/sessions.js),
+        // so without this the agent sees an empty workout it cannot write to.
+        // A planned row carries log_id 0 and log_exercise creates its log.
+        const readWorkout = async () => {
+            const next = await raw('mcp_call', { op: 'workouts.sessions.next', params: {} });
+            const view = next && next.result;
+            const sessionId = view && view.session && view.session.id;
+            if (!sessionId) return next;
+            const details = await raw('mcp_call', { op: 'workouts.sessions.details', params: { id: sessionId } });
+            const logs = (details && details.result && details.result.logs) || [];
+            const exercises = logs.map((l) => ({
+                log_id: l.id,
+                exercise_id: l.exercise_id,
+                exercise_name: l.exercise_name,
+                sets_completed: l.sets_completed,
+                reps_completed: l.reps_completed,
+                weight_kg: l.weight_kg,
+                status: l.status,
+            }));
+            // Ad-hoc sessions (variant_id -1) render from their logs alone.
+            if (view.variant_id > 0) {
+                const planned = await raw('mcp_call', {
+                    op: 'workouts.exercises.list', params: { variant_id: view.variant_id },
+                });
+                const logged = new Set(exercises.map((e) => e.exercise_id));
+                ((planned && planned.result) || []).forEach((ex) => {
+                    if (logged.has(ex.id)) return;
+                    exercises.push({
+                        log_id: 0,
+                        exercise_id: ex.id,
+                        exercise_name: ex.exercise_name,
+                        target_sets: ex.target_sets,
+                        target_reps_min: ex.target_reps_min,
+                        target_weight_kg: ex.target_weight_kg,
+                        status: '',
+                    });
+                });
+            }
+            return { ...next, result: { ...view, session_id: sessionId, exercises } };
+        };
         return {
-            // Generic surface. The BYO agent is NOT provisioned with these
-            // (they are absent from elevenlabs-agent.js TOOL_SPECS, so it can
-            // never invoke them) — they stay registered for the trial agent,
-            // whose tool list lives in the operator's ElevenLabs dashboard and
-            // is not visible from here. The concrete tools below are the BYO
-            // path.
+            // Parity surface: these two reach the whole catalog, so the agent
+            // is never stuck without a tool for what the user asked (med-eas.82
+            // — it used to file a workout edit as a diary note). Provisioned in
+            // TOOL_SPECS alongside the concrete tools, which stay because voice
+            // LLMs drive those far more reliably on the frequent paths.
             mcp_help: async () => dispatch('mcp_help', {}),
-            // Forwards the whole envelope verbatim (operation_id/op, params,
-            // path_params, body, mode, intent): a write op reaches the
-            // dispatcher's gate with the payload and intent the agent stated,
-            // rather than being stripped down to an empty read.
+            // Forwards the whole envelope (operation_id/op, params, path_params,
+            // body, mode, intent) so a write reaches the dispatcher's gate with
+            // the payload and intent the agent stated. ElevenLabs client tools
+            // are flat, so the two object fields arrive as JSON strings.
             mcp_call: async (a) => {
-                const p = asObj(a);
-                return dispatch('mcp_call', { ...p, params: p.params || {} });
+                const { params_json, path_params_json, ...rest } = asObj(a);
+                const parsed = {};
+                try {
+                    if (params_json) parsed.params = JSON.parse(params_json);
+                    if (path_params_json) parsed.path_params = JSON.parse(path_params_json);
+                } catch (err) {
+                    return JSON.stringify({
+                        error: `params_json / path_params_json must each be a JSON object encoded as a string: ${err.message}`,
+                    });
+                }
+                return dispatch('mcp_call', {
+                    ...rest,
+                    ...parsed,
+                    params: parsed.params || rest.params || {},
+                });
             },
             // Concrete tools whose names match the provisioned ElevenLabs tools
             // (elevenlabs-agent.js TOOL_SPECS). Each maps 1:1 to a catalog op.
@@ -253,33 +326,66 @@
                 const { text, tag } = asObj(a);
                 return write('health.notes.create', { content: text, tag });
             },
-            // Workout read is two ops: sessions.next names the session,
-            // sessions.details carries the per-exercise log rows whose ids the
-            // write tools below need. Merged into one tool because a voice LLM
-            // that has to chain two reads before it can write mostly doesn't.
-            get_workout: async () => guard(async () => {
-                const next = await raw('mcp_call', { op: 'workouts.sessions.next', params: {} });
-                const view = next && next.result;
-                const id = view && view.session && view.session.id;
-                if (!id) return next;
-                const details = await raw('mcp_call', { op: 'workouts.sessions.details', params: { id } });
-                const logs = (details && details.result && details.result.logs) || [];
-                return { ...next, result: { ...view, logs } };
+            // Chains three reads into one tool call because a voice LLM asked
+            // to chain them itself before every write mostly won't.
+            get_workout: async () => guard(readWorkout),
+            // Two write paths, because a planned exercise has no log row until
+            // something creates one. Both answer with the refreshed workout:
+            // the ops return an empty body, so this is the only way the agent
+            // can confirm what landed — and after a start the ids may have
+            // moved (see set_workout_status).
+            log_exercise: async (a) => guard(async () => {
+                const {
+                    log_id, session_id, exercise_id, exercise_name,
+                    sets, reps, weight_kg, notes, status,
+                } = asObj(a);
+                if (log_id > 0) {
+                    // Omitted scalars are dropped, not sent as 0: updateLog
+                    // reads an absent sets/reps/weight/status as "no data" and
+                    // keeps what is stored, so the agent can log reps without
+                    // clobbering the weight. (`notes` is the exception — that op
+                    // always rewrites it, exactly as the Workouts screen does.)
+                    await rawWrite('workouts.sessions.logs.update', {
+                        id: log_id, sets_completed: sets, reps_completed: reps, weight_kg, notes, status,
+                    });
+                } else if (exercise_id > 0 && session_id > 0) {
+                    // logs.create carries the actuals in its target_* fields —
+                    // the same call the Workouts screen makes when you fill in a
+                    // planned row (features/workout/sessions.js).
+                    await rawWrite('workouts.sessions.logs.create', {
+                        session_id,
+                        exercise_id,
+                        exercise_name,
+                        target_sets: sets,
+                        target_reps_min: reps,
+                        target_weight_kg: weight_kg,
+                        status: status || 'completed',
+                        notes,
+                    });
+                } else {
+                    // Never silently no-op: logs.update against an unknown id
+                    // succeeds with an empty body, so the agent would report a
+                    // write that never happened.
+                    return {
+                        error: 'need log_id, or session_id + exercise_id + exercise_name when the '
+                            + 'exercise has no log yet — call get_workout and copy the ids from its row',
+                    };
+                }
+                return { status: 'ok', workout: await readWorkout() };
             }),
-            // Omitted scalars stay undefined on purpose: updateLog reads
-            // sets/reps/weight/status as "no data" and keeps what is stored, so
-            // the agent can log reps without clobbering the weight. (`notes` is
-            // the exception — that op always rewrites it, same as the UI does.)
-            log_exercise: async (a) => {
-                const { log_id, sets, reps, weight_kg, notes, status } = asObj(a);
-                return write('workouts.sessions.logs.update', {
-                    id: log_id, sets_completed: sets, reps_completed: reps, weight_kg, notes, status,
-                });
-            },
-            set_workout_status: async (a) => {
+            set_workout_status: async (a) => guard(async () => {
                 const { session_id, status } = asObj(a);
-                return write('workouts.sessions.status', { id: session_id, status });
-            },
+                if (status === 'in_progress') {
+                    // sessions.status only flips the field; sessions.start also
+                    // stamps started_at, clears a snooze, and re-keys a session
+                    // scheduled for another day onto today — which changes the
+                    // ids, hence the refreshed read below.
+                    await rawWrite('workouts.sessions.start', {}, { id: session_id });
+                } else {
+                    await rawWrite('workouts.sessions.status', { id: session_id, status });
+                }
+                return { status: 'ok', workout: await readWorkout() };
+            }),
         };
     }
 
