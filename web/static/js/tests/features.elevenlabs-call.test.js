@@ -781,6 +781,67 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
         }
     });
 
+    // med-eas.82: asked to change a workout the agent used to reach for
+    // add_note (the only free-text write it had), writing a Vitals note.
+    it('workout tools read the session then write to the workout ops', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const handle = vi.fn(async (method, params) => {
+                if (params.op === 'workouts.sessions.next') {
+                    return { status: 'ok', result: { session: { id: 43, status: 'pending' }, variant_name: 'Push Day' } };
+                }
+                if (params.op === 'workouts.sessions.details') {
+                    return { status: 'ok', result: { logs: [{ id: 99, exercise_name: 'Bench Press' }] } };
+                }
+                return { status: 'ok', result: null };
+            });
+            window.CloudMCPDispatcher = { handle };
+            const { opts } = await startCall(window);
+            const t = opts.clientTools;
+
+            // One tool call has to hand the agent both the session id and the
+            // per-exercise log ids, or it cannot issue any workout write.
+            const read = JSON.parse(await t.get_workout());
+            expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'workouts.sessions.next', params: {} });
+            expect(handle).toHaveBeenCalledWith('mcp_call', { op: 'workouts.sessions.details', params: { id: 43 } });
+            expect(read.result.session.id).toBe(43);
+            expect(read.result.variant_name).toBe('Push Day');
+            expect(read.result.logs).toEqual([{ id: 99, exercise_name: 'Bench Press' }]);
+
+            await t.log_exercise({ log_id: 99, sets: 3, reps: 12, weight_kg: 60 });
+            const upd = handle.mock.calls.find((c) => c[1].op === 'workouts.sessions.logs.update');
+            expect(upd[1].params).toMatchObject({ id: 99, sets_completed: 3, reps_completed: 12, weight_kg: 60 });
+            expect(upd[1].mode).toBe('write');
+            expect(upd[1].intent).toBeTruthy();
+
+            await t.set_workout_status({ session_id: 43, status: 'completed' });
+            const st = handle.mock.calls.find((c) => c[1].op === 'workouts.sessions.status');
+            expect(st[1].params).toMatchObject({ id: 43, status: 'completed' });
+            expect(st[1].mode).toBe('write');
+            expect(st[1].intent).toBeTruthy();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('get_workout returns the bare next-session response when nothing is scheduled', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const handle = vi.fn(async () => ({ status: 'ok', result: null }));
+            window.CloudMCPDispatcher = { handle };
+            const { opts } = await startCall(window);
+
+            const out = JSON.parse(await opts.clientTools.get_workout());
+            expect(out).toEqual({ status: 'ok', result: null });
+            // No session id -> no second dispatch with an undefined id.
+            expect(handle).toHaveBeenCalledTimes(1);
+        } finally {
+            cleanup();
+        }
+    });
+
     // The tests above mock CloudMCPDispatcher, so they cannot see the real
     // dispatcher's write gate (risk:"write" ops are refused without
     // mode:"write" + intent). Drive the real one: this is the only test that
@@ -820,6 +881,19 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
             // Reads still work without mode/intent.
             expect(JSON.parse(await t.get_blood_pressure({ days: 7 })).error).toBeUndefined();
             expect(routed()[3].slice(0, 2)).toEqual(['/api/bp?days=7', 'GET']);
+
+            // Workout writes: the gate blocks a missing required field, so
+            // these prove the callbacks send every field the catalog declares.
+            const lOut = JSON.parse(await t.log_exercise({ log_id: 99, sets: 3, reps: 12, weight_kg: 60 }));
+            expect(lOut.error).toBeUndefined();
+            expect(routed()[4].slice(0, 2)).toEqual(['/api/workout/sessions/logs/update', 'POST']);
+            expect(routed()[4][2]).toMatchObject({ id: 99, sets_completed: 3, reps_completed: 12, weight_kg: 60 });
+
+            const sOut = JSON.parse(await t.set_workout_status({ session_id: 43, status: 'completed' }));
+            expect(sOut.error).toBeUndefined();
+            // id rides the query string (params_schema), status the body.
+            expect(routed()[5].slice(0, 2)).toEqual(['/api/workout/sessions/status?id=43', 'PUT']);
+            expect(routed()[5][2]).toEqual({ status: 'completed' });
         } finally {
             cleanup();
         }

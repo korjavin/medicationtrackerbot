@@ -196,13 +196,18 @@
     // short string rather than throwing into the SDK.
     function buildClientTools() {
         if (!window.__MEDTRACKER_CLOUD__ || !window.CloudMCPDispatcher) return undefined;
-        const dispatch = async (method, params) => {
+        // guard() is the single place a dispatcher throw becomes a short JSON
+        // string: get_workout chains two dispatches, so the try/catch has to
+        // wrap the whole tool body, not one handle() call.
+        const guard = async (fn) => {
             try {
-                return JSON.stringify(await window.CloudMCPDispatcher.handle(method, params));
+                return JSON.stringify(await fn());
             } catch (err) {
                 return JSON.stringify({ error: (err && err.message) || 'MCP dispatch failed' });
             }
         };
+        const raw = (method, params) => window.CloudMCPDispatcher.handle(method, params);
+        const dispatch = (method, params) => guard(() => raw(method, params));
         // The SDK sometimes hands tool args as a JSON string rather than an
         // object; coerce so destructuring works either way.
         const asObj = (a) => {
@@ -219,8 +224,12 @@
             op, params, mode: 'write', intent: 'logged by the user during an ElevenLabs voice call',
         });
         return {
-            // Generic surface — harmless to keep; the concrete tools below are
-            // the provisioned + actually-invoked path (Task 3).
+            // Generic surface. The BYO agent is NOT provisioned with these
+            // (they are absent from elevenlabs-agent.js TOOL_SPECS, so it can
+            // never invoke them) — they stay registered for the trial agent,
+            // whose tool list lives in the operator's ElevenLabs dashboard and
+            // is not visible from here. The concrete tools below are the BYO
+            // path.
             mcp_help: async () => dispatch('mcp_help', {}),
             // Forwards the whole envelope verbatim (operation_id/op, params,
             // path_params, body, mode, intent): a write op reaches the
@@ -243,6 +252,33 @@
             add_note: async (a) => {
                 const { text, tag } = asObj(a);
                 return write('health.notes.create', { content: text, tag });
+            },
+            // Workout read is two ops: sessions.next names the session,
+            // sessions.details carries the per-exercise log rows whose ids the
+            // write tools below need. Merged into one tool because a voice LLM
+            // that has to chain two reads before it can write mostly doesn't.
+            get_workout: async () => guard(async () => {
+                const next = await raw('mcp_call', { op: 'workouts.sessions.next', params: {} });
+                const view = next && next.result;
+                const id = view && view.session && view.session.id;
+                if (!id) return next;
+                const details = await raw('mcp_call', { op: 'workouts.sessions.details', params: { id } });
+                const logs = (details && details.result && details.result.logs) || [];
+                return { ...next, result: { ...view, logs } };
+            }),
+            // Omitted scalars stay undefined on purpose: updateLog reads
+            // sets/reps/weight/status as "no data" and keeps what is stored, so
+            // the agent can log reps without clobbering the weight. (`notes` is
+            // the exception — that op always rewrites it, same as the UI does.)
+            log_exercise: async (a) => {
+                const { log_id, sets, reps, weight_kg, notes, status } = asObj(a);
+                return write('workouts.sessions.logs.update', {
+                    id: log_id, sets_completed: sets, reps_completed: reps, weight_kg, notes, status,
+                });
+            },
+            set_workout_status: async (a) => {
+                const { session_id, status } = asObj(a);
+                return write('workouts.sessions.status', { id: session_id, status });
             },
         };
     }

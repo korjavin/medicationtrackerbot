@@ -14,7 +14,7 @@ const AGENTS_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/agents';
 
 // Bump this whenever TOOL_SPECS or the agent config below changes so unlocked
 // devices reprovision on their next connect.
-export const TOOLSET_VERSION = 2;
+export const TOOLSET_VERSION = 3;
 
 // Rachel — a warm ElevenLabs female voice (med-eas.27).
 const VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
@@ -23,15 +23,21 @@ const VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 // our actual tools (BP / weight / notes) and kept concise for voice.
 const SYSTEM_PROMPT = [
   "You are Silas, the user's personal health concierge in this app, where they",
-  'track their own blood pressure, weight, and diary notes. You are grounded,',
-  'observant, and quietly encouraging — you offer brief, insightful reflections,',
-  'not commands, and you look for the story behind the numbers. Precise, never',
-  'clinical.',
+  'track their own blood pressure, weight, workouts, and diary notes. You are',
+  'grounded, observant, and quietly encouraging — you offer brief, insightful',
+  'reflections, not commands, and you look for the story behind the numbers.',
+  'Precise, never clinical.',
   '',
   'ALWAYS use your tools for any question about the data — never guess, never say',
   'you cannot access it:',
   '- Blood pressure → get_blood_pressure to read, log_blood_pressure to record.',
   '- Weight → get_weight to read, log_weight to record.',
+  '- Workouts → get_workout to read today\'s session and its exercises,',
+  '  log_exercise to record the actual sets/reps/weight on one of them, and',
+  '  set_workout_status to start, finish or skip the session. To change anything',
+  '  about a workout you MUST call get_workout first: it returns the session id',
+  '  and a log id per exercise, and the write tools need those ids. Never record',
+  '  a workout as a diary note.',
   '- Diary notes → get_notes to read, add_note to record.',
   'After recording something, confirm it back in one short line. When you read',
   'data, add a brief bit of context if useful — a gentle comparison or observation.',
@@ -115,6 +121,44 @@ export const TOOL_SPECS = [
         tag: { type: 'string', description: 'optional: one of SLEEP, STRESS, HR, SPO2, STEPS, NOTE' },
       },
       required: ['text'],
+    },
+  },
+  {
+    name: 'get_workout',
+    description: "Get the user's current or next workout session together with its planned "
+      + 'exercises. Returns the session id, its status, and one row per exercise with its log '
+      + 'id, name, planned targets and what has been logged so far. Call this before any other '
+      + 'workout tool — log_exercise and set_workout_status need the ids it returns.',
+    parameters: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'log_exercise',
+    description: 'Record what the user actually did on one exercise of the current workout: '
+      + "sets, reps, weight, notes, or mark it skipped. Use the exercise's log id from "
+      + 'get_workout, not the session id.',
+    parameters: {
+      type: 'object',
+      properties: {
+        log_id: { type: 'integer', description: "the exercise's log id, from get_workout" },
+        sets: { type: 'integer', description: 'sets actually completed' },
+        reps: { type: 'integer', description: 'reps actually completed per set' },
+        weight_kg: { type: 'number', description: 'weight used, in kilograms' },
+        notes: { type: 'string', description: 'optional short note about this exercise' },
+        status: { type: 'string', description: 'optional: "completed" or "skipped"' },
+      },
+      required: ['log_id'],
+    },
+  },
+  {
+    name: 'set_workout_status',
+    description: 'Start, finish or skip a whole workout session. Use the session id from get_workout.',
+    parameters: {
+      type: 'object',
+      properties: {
+        session_id: { type: 'integer', description: 'workout session id, from get_workout' },
+        status: { type: 'string', description: 'one of in_progress, completed, skipped' },
+      },
+      required: ['session_id', 'status'],
     },
   },
 ];

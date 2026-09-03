@@ -307,7 +307,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'visible',
       title: 'Trial voice calls, if you use the operator\'s key',
-      detail: 'Trial voice calls run on the operator\'s ElevenLabs account, so your voice audio, its transcript and the agent conversation — including the blood pressure, weight and notes the agent reads back to you — pass through it. This requires your explicit consent: asked on first use, revocable in Settings → Integrations. With your own ElevenLabs key the operator is not involved.',
+      detail: 'Trial voice calls run on the operator\'s ElevenLabs account, so your voice audio, its transcript and the agent conversation — including the blood pressure, weight, workouts and notes the agent reads back to you — pass through it. This requires your explicit consent: asked on first use, revocable in Settings → Integrations. With your own ElevenLabs key the operator is not involved.',
     },
   },
 
@@ -338,11 +338,11 @@ export const PRIVACY_MANIFEST = [
     // The audit lists ElevenLabs audio / transcripts / tool names / tool
     // RESULTS as an omission: the agent and its client tools are provisioned
     // browser-direct with your vault key, and the tools hand back real vault
-    // data (BP, weight, notes) inside the conversation.
+    // data (BP, weight, workouts, notes) inside the conversation.
     id: 'byo-elevenlabs',
     feature: 'Voice with your own ElevenLabs key',
     boundary: 'not-a-carve-out',
-    data: 'Voice audio, transcripts, the tool definitions this app provisions, and the tool RESULTS — the blood pressure, weight and diary notes the agent reads out of your vault',
+    data: 'Voice audio, transcripts, the tool definitions this app provisions, and the tool RESULTS — the blood pressure, weight, workout sessions and diary notes the agent reads out of your vault',
     destination: 'api.elevenlabs.io, browser-direct',
     operatorVisibility: 'none',
     retention: 'ElevenLabs retains the conversation per your ElevenLabs account settings; the provisioned agent and tool definitions persist in that account until deleted',
@@ -359,7 +359,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'leaves',
       title: 'Voice calls with your own ElevenLabs key',
-      detail: 'A voice call sends your audio to ElevenLabs and gets speech back, so ElevenLabs sees what you say and the transcript of it. It also sees the answers: when you ask about your numbers the app reads them out of your vault and hands them to the agent as tool results, so your blood pressure, weight and notes travel with the conversation. The app also creates an agent and its tools in your ElevenLabs account on first use. All of it goes browser-direct; the operator is not in the path.',
+      detail: 'A voice call sends your audio to ElevenLabs and gets speech back, so ElevenLabs sees what you say and the transcript of it. It also sees the answers: when you ask about your numbers the app reads them out of your vault and hands them to the agent as tool results, so your blood pressure, weight, workouts and notes travel with the conversation. The app also creates an agent and its tools in your ElevenLabs account on first use. All of it goes browser-direct; the operator is not in the path.',
     },
   },
   {
