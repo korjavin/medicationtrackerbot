@@ -65,7 +65,11 @@ export function onCachedDbDropped(cb) {
 // Shared connection accessor: opens one if none is cached, otherwise reuses.
 export function cachedDb() {
   if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
+  const p = new Promise((resolve, reject) => {
+    // indexedDB.open can throw SYNCHRONOUSLY (storage denied / SecurityError,
+    // document unloading) — that path never reaches onerror. The executor turns
+    // the throw into a rejection; the p.catch below is what keeps it from being
+    // cached forever.
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => applyUpgrade(req);
     req.onsuccess = () => {
@@ -74,9 +78,17 @@ export function cachedDb() {
       db.onclose = () => dropCache();
       resolve(db);
     };
-    req.onerror = () => { dbPromise = null; reject(req.error); };
+    req.onerror = () => reject(req.error);
   });
-  return dbPromise;
+  dbPromise = p;
+  // ANY failure (async onerror or a synchronous throw above) uncaches, so the
+  // next caller retries the open instead of inheriting a permanently rejected
+  // promise — withDb (sync.js) awaits cachedDb() outside its try, so a cached
+  // rejection would wedge every DB access for the page's lifetime. The identity
+  // guard keeps a late rejection from clearing a NEWER promise after a
+  // drop+reopen interleave.
+  p.catch(() => { if (dbPromise === p) dbPromise = null; });
+  return p;
 }
 
 // Force the next cachedDb() to reopen (sync.js's InvalidStateError reopen guard).

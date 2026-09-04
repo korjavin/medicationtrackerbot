@@ -1821,6 +1821,29 @@ describe('cachedDb shared handle + drop-listener (med-90w.1)', () => {
     expect(fired).toBe(1);
     unsub();
   });
+
+  // med-4jf — a failed open must never stay cached: withDb awaits cachedDb()
+  // OUTSIDE its try, so a cached rejection wedges every DB access for the page.
+  it('retries the open after indexedDB.open throws SYNCHRONOUSLY', async () => {
+    const spy = vi.spyOn(indexedDB, 'open').mockImplementationOnce(() => {
+      throw new DOMException('storage denied', 'SecurityError');
+    });
+    await expect(cachedDb()).rejects.toThrow('storage denied');
+    spy.mockRestore();
+    // Second call must re-open, not hand back the cached rejection.
+    expect(await cachedDb()).toBeTruthy();
+  });
+
+  it('retries the open after the request fires onerror', async () => {
+    const spy = vi.spyOn(indexedDB, 'open').mockImplementationOnce(() => {
+      const req = { error: new Error('open failed'), onupgradeneeded: null, onsuccess: null, onerror: null };
+      setTimeout(() => req.onerror(), 0);
+      return req;
+    });
+    await expect(cachedDb()).rejects.toThrow('open failed');
+    spy.mockRestore();
+    expect(await cachedDb()).toBeTruthy();
+  });
 });
 
 // med-90w.1 Task 2 — sync.js routes every DB access through withDb, which reuses
