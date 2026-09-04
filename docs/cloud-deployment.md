@@ -604,9 +604,9 @@ full local loop including passkeys on desktop.
 ### Local CI via act (optional)
 
 `scripts/ci-local.sh` runs the act-friendly subset of GitHub Actions locally
-with [nektos/act](https://github.com/nektos/act) — `frontend-tests.yml`,
-`golangci-lint.yml`, and `deploy.yml`'s `test` job — stopping at the first
-failure and naming it. `.actrc` pins the runner image
+with [nektos/act](https://github.com/nektos/act) — `deploy.yml`'s `test` job,
+`golangci-lint.yml`, and `frontend-tests.yml` — stopping at the first failure
+and naming it. `.actrc` pins the runner image
 (`catthehacker/ubuntu:act-latest`) and `linux/amd64`, which Apple Silicon needs,
 and points `--env-file`/`--secret-file` at `/dev/null` — otherwise act defaults
 to loading the root `.env` from §2 above and would hand `CF_DNS_API_TOKEN` to
@@ -621,6 +621,18 @@ in the three cases where those commands cannot help:
   before pushing,
 - CI is red but everything passes locally,
 - you added a new action or step and want a sanity run.
+
+Two things the script works around, worth knowing when you read its output:
+
+- **`node` disappears mid-job.** Once an action writes to `GITHUB_PATH`
+  (`pnpm/action-setup` and `setup-go` both do), act rebuilds `PATH` from its own
+  default and drops the image's node in `/opt/acttoolcache`, so the *next* JS
+  action dies with `exec: "node": executable file not found in $PATH`. The
+  script seeds `--env PATH=` from the image's own `PATH` to keep it.
+- **The vitest shards can go red under emulation.** amd64-on-ARM is slow enough
+  to blow the suite's 10s hook timeouts, which is a local artifact, not a real
+  failure. That leg therefore runs last; treat a `Hook timed out` there as noise
+  and let CI be the frontend gate.
 
 The rest of the workflows are not worth running locally: the docker
 build/push jobs need DinD plus registry secrets, and the scanning/audit
