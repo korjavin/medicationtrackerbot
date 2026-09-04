@@ -9,7 +9,6 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
-const WG_RING_STACK_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-ring-stack.js');
 const JOURNEY_JS = path.join(REPO_ROOT, 'web/static/js/features/journey.js');
 
 function loadEnv() {
@@ -21,7 +20,6 @@ function loadEnv() {
     const { window } = dom;
     window.eval(fs.readFileSync(WG_ICONS_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_SPARKLINE_JS, 'utf8'));
-    window.eval(fs.readFileSync(WG_RING_STACK_JS, 'utf8'));
     window.eval(fs.readFileSync(JOURNEY_JS, 'utf8'));
     return { window, document: window.document, cleanup: () => dom.window.close() };
 }
@@ -64,79 +62,85 @@ describe('Journey render', () => {
     beforeEach(() => { env = loadEnv(); });
     afterEach(() => { env.cleanup(); });
 
-    it('rings card frames the day as a goal: N of 3 closed + why-line + per-ring how/check', () => {
+    // med-edxz.1 — the CUT. Today already owns the rings tile (today.js
+    // renderRingsTile) and the user deep-links here FROM it, so the duplicate
+    // rings card is gone; so are the HP sparkline (decoration), the Strengths
+    // card (overlaps Traits + the Health Score adherence contributor) and the
+    // 8-row static explainer. Their payload fields are still served — this
+    // screen simply stops rendering them.
+    it('no rings card, no points-history card, no strengths card, no explainer', () => {
         env.window.Gamification.render(journey());
         const { document } = env;
 
-        const label = document.querySelector('.wg-journey-rings .wg-section-label');
-        expect(label.textContent).toContain('2 OF 3 CLOSED');
-        expect(document.querySelector('.wg-journey-rings__why').textContent).toMatch(/one per area/i);
-
-        // 2 closed rings → 2 checks.
-        expect(document.querySelectorAll('.wg-journey-ring__check').length).toBe(2);
-        // Open actionable rings remain → stack center shows the "2/3" count.
-        expect(document.querySelector('.wg-ring-stack__center').textContent).toBe('2/3');
-
-        // Rows follow canonical order: bedtime(closed), movement(closed), nourishment(open).
-        const subs = document.querySelectorAll('.wg-journey-ring__sub');
-        expect(subs[0].textContent).toBe('Closed for today');      // bedtime
-        expect(subs[2].textContent).toBe('Log a meal');            // nourishment (open)
+        expect(document.querySelector('.wg-journey-rings')).toBeNull();
+        expect(document.getElementById('journey-rings-card')).toBeNull();
+        expect(document.querySelector('.wg-ring-stack')).toBeNull();
+        expect(document.querySelector('.wg-journey-history')).toBeNull();
+        expect(document.querySelector('.wg-journey-strengths')).toBeNull();
+        expect(document.querySelector('.wg-journey-explainer')).toBeNull();
+        // The old streak/strengths footnote went with the card.
+        expect(document.querySelector('.wg-journey-streak')).toBeNull();
+        expect(document.body.textContent).not.toMatch(/HealthPoints/);
     });
 
-    it('renders the previously-discarded hp_history as a sparkline + summed caption', () => {
+    // Level/HP is demoted from the hero card to ONE muted line, last on the
+    // screen — levels never decay (gamification §13), they're just not news.
+    it('level/HP renders once, as a muted line after the last card', () => {
         env.window.Gamification.render(journey());
-        const { document } = env;
+        const content = env.document.getElementById('journey-content');
 
-        const card = document.querySelector('.wg-journey-history');
-        expect(card).not.toBeNull();
-        expect(card.querySelector('.wg-sparkline')).not.toBeNull();
-        const caption = card.querySelector('.wg-journey-history__caption').textContent;
-        expect(caption).toContain('Last 2 days');
-        expect(caption).toContain('205 HP'); // 110 + 95
+        expect(content.querySelector('.wg-journey-header')).toBeNull();
+        const lines = content.querySelectorAll('.wg-journey-level-line');
+        expect(lines.length).toBe(1);
+        expect(lines[0].textContent).toBe(`Lvl 7 · ${(4820).toLocaleString()} HP`);
+        expect(lines[0].classList.contains('wg-muted')).toBe(true);
+        expect(content.lastElementChild).toBe(lines[0]);
+        // It is a footnote, not a card — it doesn't count against the budget.
+        expect(lines[0].classList.contains('wg-card')).toBe(false);
     });
 
-    it('omits the history card entirely when no points have been earned', () => {
-        env.window.Gamification.render(journey({ hp_history: [] }));
-        expect(env.document.querySelector('.wg-journey-history')).toBeNull();
-    });
-
-    // Sync-pending rings (Plan 6, Task 3): a device-synced ring (Bedtime/Movement)
-    // with no sample yet reads as "waiting", not "failed" — dimmed row + a
-    // "Syncs later" sub-line instead of the usual open-ring "how" text.
-    it('sync-pending ring renders dimmed with a "Syncs later" sub-line', () => {
+    // The why-lines were static forever and rendered on every visit.
+    it('drops the per-card why-lines', () => {
         env.window.Gamification.render(journey({
-            today_rings: [
-                { ring: 'bedtime', hp: 0, closed: false, sync_pending: true },
-                { ring: 'movement', hp: 25, closed: true },
-                { ring: 'nourishment', hp: 10, closed: false }
-            ]
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
+            gauges: { enabled: true, weight: { status: 'insufficient_data' }, bp: { status: 'insufficient_data' }, resting_hr: { status: 'insufficient_data' } },
+            traits: { enabled: true, traits: [{ id: 't', title: 'T', state: 'held', on_28d: 24, lever_label: 'nights' }] },
+            keystones: { enabled: true, keystones: [{ id: 'k', title: 'K', earned_at: Date.UTC(2026, 4, 1) }] },
         }));
         const { document } = env;
-
-        const rows = document.querySelectorAll('.wg-journey-ring');
-        const bedtimeRow = Array.from(rows).find((r) => r.querySelector('.wg-journey-ring__label').textContent === 'Bedtime');
-        expect(bedtimeRow.classList.contains('wg-journey-ring--sync-pending')).toBe(true);
-        expect(bedtimeRow.querySelector('.wg-journey-ring__sub').textContent).toBe('Syncs later');
-        // Nourishment is still open/actionable here, so a lone sync-pending ring
-        // must NOT prematurely flip the center to a celebration check.
-        expect(document.querySelector('.wg-ring-stack__center').textContent).toBe('1/3');
+        expect(document.querySelector('.wg-journey-atlas__why')).toBeNull();
+        expect(document.querySelector('.wg-journey-gauges__why')).toBeNull();
+        expect(document.querySelector('.wg-journey-traits__why')).toBeNull();
+        expect(document.querySelector('.wg-journey-keystones__why')).toBeNull();
     });
 
-    // Finding 2 (Plan 7, Task 1): the center check appears once every
-    // *actionable* ring is closed — a ring still waiting on a device sample
-    // doesn't block celebration.
-    it('all actionable rings closed with one sync-pending → center celebrates with a check', () => {
+    // Personal content first, at most 8 cards with every payload present. The
+    // first slot is reserved for the "since you last looked" strip
+    // (med-edxz.3); until that lands, the Discovery Atlas leads.
+    it('renders at most 8 cards, Atlas first, in the personal-first order', () => {
         env.window.Gamification.render(journey({
-            today_rings: [
-                { ring: 'bedtime', hp: 0, closed: false, sync_pending: true },
-                { ring: 'movement', hp: 25, closed: true },
-                { ring: 'nourishment', hp: 10, closed: true }
-            ]
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
+            weekly_review: { enabled: true, quiet: true, levers: [], gauges: {}, health_score: {} },
+            gauges: { enabled: true, weight: { status: 'insufficient_data' }, bp: { status: 'insufficient_data' }, resting_hr: { status: 'insufficient_data' } },
+            traits: { enabled: true, traits: [{ id: 't', title: 'T', state: 'held', on_28d: 24, lever_label: 'nights' }] },
+            experiments: { enabled: true, can_start: true, templates: [] },
+            chapter: { enabled: true, active: null, can_start: true, review: { title: 'The Steady Month', text: 'recap' }, themes: [{ id: 'x', title: 'X', blurb: 'b' }] },
+            keystones: { enabled: true, keystones: [{ id: 'k', title: 'K', earned_at: Date.UTC(2026, 4, 1) }] },
+            narration: { enabled: true },
         }));
-        const center = env.document.querySelector('.wg-ring-stack__center');
-        expect(center).not.toBeNull();
-        expect(center.querySelector('svg')).not.toBeNull();
-        expect(center.textContent).not.toMatch(/\d/);
+        const cards = [...env.document.querySelectorAll('#journey-content > .wg-card')];
+        expect(cards.length).toBeLessThanOrEqual(8);
+        expect(cards[0].classList.contains('wg-journey-atlas')).toBe(true);
+        expect(cards.map((c) => c.className.split(' ').pop())).toEqual([
+            'wg-journey-atlas',
+            'wg-journey-weekly',
+            'wg-journey-gauges',
+            'wg-journey-score',
+            'wg-journey-traits',
+            'wg-journey-chapter',
+            'wg-journey-keystones',
+            'wg-journey-narrator',
+        ]);
     });
 
     // The insight-ladder card was retired in the gamification redesign (Phase
@@ -276,7 +280,13 @@ describe('Journey render', () => {
         expect(card.querySelector('.wg-journey-score__value').textContent).toBe('78');
         expect(card.querySelector('.wg-tag').textContent).toBe('Good');
 
-        const rows = card.querySelectorAll('.wg-journey-score__row');
+        // The contributor list is the detail behind the hero: collapsed by
+        // default, so the card reads as one number + one word at a glance.
+        const details = card.querySelector('.wg-journey-score__details');
+        expect(details.open).toBe(false);
+        expect(details.querySelector('summary').textContent).toBe('Contributors');
+
+        const rows = details.querySelectorAll('.wg-journey-score__row');
         expect(rows.length).toBe(2);
         expect(rows[0].querySelector('.wg-journey-score__row-label').textContent).toBe('Blood pressure');
         expect(rows[0].querySelector('.wg-journey-score__row-value').textContent).toBe('90%');
@@ -289,6 +299,8 @@ describe('Journey render', () => {
         const card = env.document.querySelector('.wg-journey-score');
         expect(card.querySelector('.wg-journey-score__value').textContent).toBe('—');
         expect(card.textContent).toMatch(/not enough data/i);
+        // Nothing to collapse when there are no contributors.
+        expect(card.querySelector('.wg-journey-score__details')).toBeNull();
     });
 
     // "Your week" card (gamification-12 §Task3) — sourced from
@@ -358,10 +370,10 @@ describe('Journey render', () => {
         expect(env.document.querySelector('.wg-journey-weekly')).toBeNull();
     });
 
-    // Strengths card (Task 8): replaces the weekly streak card — one
-    // habit-strength EMA gauge per pillar, derived streak demoted to a
-    // footnote line.
-    it('Strengths card renders one gauge per pillar and demotes the streak to a footnote, replacing the streak card', () => {
+    // The Strengths card is cut even when the payload carries strengths
+    // (owner decision, med-edxz.1): it overlapped Traits for habit
+    // consistency and the Health Score's adherence contributor.
+    it('does not render a Strengths card even when the payload has strengths', () => {
         env.window.Gamification.render(journey({
             strengths: [
                 { key: 'meds', label: 'Medication', value: 0.92, frequency: 1 },
@@ -370,19 +382,9 @@ describe('Journey render', () => {
             ]
         }));
         const { document } = env;
-
-        expect(document.querySelector('.wg-journey-streak')).toBeNull();
-
-        const card = document.querySelector('.wg-journey-strengths');
-        expect(card).not.toBeNull();
-        const rows = card.querySelectorAll('.wg-journey-strength');
-        expect(rows.length).toBe(3);
-        expect(rows[0].querySelector('.wg-journey-strength__label').textContent).toBe('Medication');
-        expect(rows[0].querySelector('.wg-journey-strength__value').textContent).toBe('92%');
-
-        const footnote = card.querySelector('.wg-journey-strengths__footnote').textContent;
-        expect(footnote).toContain('12-week streak');
-        expect(footnote).toContain('best 21');
+        expect(document.querySelector('.wg-journey-strengths')).toBeNull();
+        expect(document.querySelector('.wg-journey-strength')).toBeNull();
+        expect(document.body.textContent).not.toContain('Medication');
     });
 
     // Gauges panel (gamification-11 §Task4): weight/BP/resting-HR read as
@@ -588,7 +590,12 @@ describe('Journey render', () => {
         }));
         const card = env.document.getElementById('journey-chapter-card');
         expect(card.querySelector('.wg-journey-chapter__recap').textContent).toMatch(/Steady Month/);
-        expect(card.querySelectorAll('.wg-journey-chapter__theme').length).toBe(1);
+        // The theme library is a menu you open, not a wall you read.
+        const details = card.querySelector('.wg-journey-chapter__details');
+        expect(details.open).toBe(false);
+        expect(details.querySelector('summary').textContent).toBe('Start a 4-week chapter');
+        expect(card.querySelector('.wg-journey-chapter__prompt')).toBeNull();
+        expect(details.querySelectorAll('.wg-journey-chapter__theme').length).toBe(1);
     });
 
     it('renders the traits shelf: held, dormant (with rekindle cost), developing', () => {
@@ -639,7 +646,8 @@ describe('Journey render', () => {
         const card = env.document.getElementById('journey-narrator-card');
         expect(card).not.toBeNull();
         // Honest leakage note is present, and the weekly/workout buttons always show.
-        expect(card.querySelector('.wg-journey-narrator__note').textContent).toMatch(/never raw logs/i);
+        expect(card.querySelector('.wg-journey-narrator__note').textContent)
+            .toBe('Optional — sends computed summaries, never raw logs, to your own AI key.');
         const labels = [...card.querySelectorAll('button')].map((b) => b.textContent);
         expect(labels).toContain('Narrate my week');
         expect(labels).toContain('Workout insight');

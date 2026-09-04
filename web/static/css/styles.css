@@ -5342,20 +5342,20 @@ textarea.wg-input {
 }
 
 /* ============================================================
-   Gamification Journey screen (Plan 3, Task 2; rings honestified
-   in Plan 5, Task 5). Stacked gloss cards: a level/HP header with
-   a sun progress bar, a 3-stat streak row, the five domain rings
-   (wg-ring SVG arc gauges, see above — closed = full ring, open =
-   real progress toward closing), and the insight-ladder rows with
-   a locked/unlocked state. All visuals resolve to --wg-* tokens;
-   the header's level-progress bar still uses the --fill-pct fill
-   width (same convention as the weight-goal card + macro bar).
+   Gamification Journey screen (Plan 3, Task 2; cut back to
+   personal-first cards in med-edxz.1). Stacked gloss cards, in
+   render order: Discovery Atlas, your week, gauges, health score,
+   traits, experiment/chapter, keystones, AI story — closed with a
+   muted level/HP line. The rings live on Today, not here. All
+   visuals resolve to --wg-* tokens; progress bars use the
+   --fill-pct fill width (same convention as the weight-goal card
+   and the macro bar).
    ============================================================ */
 #journey-content > .wg-card {
     margin-bottom: var(--space-md);
 }
 
-/* Shared progress bar (header HP + per-ring). */
+/* Shared progress bar (health-score contributors, atlas, chapter, trial). */
 .wg-journey-bar__track {
     position: relative;
     height: 10px;
@@ -5375,82 +5375,18 @@ textarea.wg-input {
     background: var(--wg-sun);
 }
 
-/* Header card — level badge + lifetime HP, progress to next level. */
-.wg-journey-header {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-}
-
-.wg-journey-header__top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-md);
-}
-
-.wg-journey-level-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
-    color: var(--wg-sun);
-}
-
-.wg-journey-level-badge__num {
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-lg);
-    letter-spacing: 0.04em;
-    color: var(--wg-fg-1);
-}
-
-.wg-journey-header__lifetime {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    line-height: 1.1;
-}
-
-.wg-journey-header__hp {
-    font-size: var(--font-size-lg);
-    color: var(--wg-fg-1);
-}
-
-.wg-journey-header__hp-label,
-.wg-journey-header__caption {
+/* Level/HP footer line (med-edxz.1) — the last thing on the screen, not the
+   hero card it used to be. */
+.wg-journey-level-line {
+    margin: var(--space-sm) 0 0;
     font-size: var(--font-size-xs);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-}
-
-/* "How this works" explainer card (Plan 5, Task 5) — static term/desc rows,
-   the first-run primer that was never shipped. */
-.wg-journey-explainer__list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-}
-
-.wg-journey-explainer__row {
-    display: flex;
-    gap: var(--space-sm);
-}
-
-.wg-journey-explainer__term {
-    flex: 0 0 auto;
-    width: 96px;
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-    color: var(--wg-fg-2);
-}
-
-.wg-journey-explainer__desc {
-    flex: 1;
-    font-size: var(--font-size-sm);
+    text-align: center;
+    letter-spacing: 0.04em;
 }
 
 /* Health Score card (Task 8): big number + band tag, then one mini-bar row
-   per named contributor. Reuses .wg-journey-bar__track/__fill (the header's
-   HP-progress bar) for the contributor bars. */
+   per named contributor, collapsed behind a <summary> (med-edxz.1). Reuses
+   .wg-journey-bar__track/__fill for the contributor bars. */
 .wg-journey-score__hero {
     display: flex;
     align-items: baseline;
@@ -5490,9 +5426,11 @@ textarea.wg-input {
 }
 
 /* "Your week" card (gamification-12 §Task3): a native <details>/<summary>
-   collapsible between Health Score and Gauges. Every line is wg-muted
+   collapsible, second in the feed after the Atlas. Every line is wg-muted
    regardless of direction — no red styling for a down week (tone rules). */
-.wg-journey-weekly__summary {
+.wg-journey-weekly__summary,
+.wg-journey-score__summary,
+.wg-journey-chapter__summary {
     cursor: pointer;
     user-select: none;
 }
@@ -5514,15 +5452,9 @@ textarea.wg-input {
     margin-top: var(--space-sm);
 }
 
-/* Gauges panel (gamification-11 §Task4): weight/BP/resting-HR trends, below
-   Health Score and above Strengths/Rings. Token-neutral throughout — no
-   variant classes tint a row by "good"/"bad" state; a slowing trend reads
-   the same visual weight as an on-pace one. */
-.wg-journey-gauges__why {
-    font-size: var(--font-size-sm);
-    margin: 0 0 var(--space-sm);
-}
-
+/* Gauges panel (gamification-11 §Task4): weight/BP/resting-HR trends.
+   Token-neutral throughout — no variant classes tint a row by "good"/"bad"
+   state; a slowing trend reads the same visual weight as an on-pace one. */
 .wg-journey-gauges__list {
     display: flex;
     flex-direction: column;
@@ -5555,91 +5487,6 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
     color: var(--wg-fg-3);
     cursor: pointer;
-}
-
-/* Strengths card (Task 8) — replaces the weekly streak card as the
-   continuity mechanic: one habit-strength EMA gauge per pillar, plus the
-   derived streak demoted to a single footnote line. */
-.wg-journey-strengths__list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-}
-
-.wg-journey-strength__head {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-    margin-bottom: var(--space-xs);
-}
-
-.wg-journey-strength__icon {
-    display: inline-flex;
-    color: var(--wg-sun);
-}
-
-.wg-journey-strength__label {
-    flex: 1;
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-2);
-}
-
-.wg-journey-strength__value {
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-1);
-}
-
-.wg-journey-strengths__footnote {
-    margin-top: var(--space-sm);
-    font-size: var(--font-size-xs);
-}
-
-/* Rings card (Plan 7, Task 3): wg-ring-stack on the left, legend list of
-   icon/label/check/goal rows on the right. Stack is a fixed-size flex item
-   so it doesn't get squeezed by long goal text in the legend column. */
-.wg-journey-rings__body {
-    display: flex;
-    align-items: center;
-    gap: var(--space-md);
-}
-
-.wg-journey-rings__legend {
-    flex: 1;
-    min-width: 0;
-}
-
-.wg-journey-rings__list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-}
-
-.wg-journey-ring {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.wg-journey-ring__head {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-}
-
-.wg-journey-ring__icon {
-    display: inline-flex;
-    color: var(--wg-fg-3);
-}
-
-.wg-journey-ring__label {
-    flex: 1;
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-2);
-}
-
-.wg-journey-ring__hp {
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-1);
 }
 
 /* Today rings summary tile: full-width card — stack centered over a
@@ -5809,47 +5656,7 @@ textarea.wg-input {
     border-top: 1px solid var(--wg-border-hairline);
 }
 
-/* Check mark on a closed ring row (landed in range, not just logged). */
-.wg-journey-ring__check {
-    display: inline-flex;
-    color: var(--wg-sun);
-}
-
-/* "Why" line under the rings label + per-ring "how to fill" subtitle. */
-.wg-journey-rings__why {
-    font-size: var(--font-size-sm);
-    margin: 0 0 var(--space-sm);
-}
-
-.wg-journey-ring__sub {
-    font-size: var(--wg-font-size-tag);
-    margin: 2px 0 var(--space-xs);
-}
-
-/* Sync-pending ring row (Plan 6, Task 3): no device sample has arrived yet
-   for a device-synced ring (Mind/Movement). Dimmed like other disabled
-   affordances (opacity 0.6, see .wg-call-card__btn[disabled]) rather than
-   drawn as a failed/empty ring — the device just hasn't reported in. */
-.wg-journey-ring--sync-pending {
-    opacity: 0.6;
-}
-
-/* Points-history card — sparkline trend of HP per active day + caption. */
-.wg-journey-history__chart {
-    margin: var(--space-xs) 0 var(--space-sm);
-}
-
-.wg-journey-history__chart .wg-sparkline {
-    width: 100%;
-    height: auto;
-}
-
-.wg-journey-history__caption {
-    font-size: var(--font-size-sm);
-}
-
-/* Tier-3 insight card (Task 3) — one plain-language line, same rhythm as the
-   points-history caption. */
+/* Tier-3 insight card (Task 3) — one plain-language line. */
 .wg-journey-insight__body {
     font-size: var(--font-size-sm);
     margin: 0;
@@ -5887,8 +5694,7 @@ textarea.wg-input {
 
 .wg-journey-chapter__focus,
 .wg-journey-chapter__tracker,
-.wg-journey-chapter__recap,
-.wg-journey-chapter__prompt {
+.wg-journey-chapter__recap {
     font-size: var(--font-size-sm);
 }
 
@@ -5933,11 +5739,6 @@ textarea.wg-input {
 }
 
 /* Traits — levers-only identity shelf. Dormant dims (never deleted). */
-.wg-journey-traits__why {
-    font-size: var(--font-size-sm);
-    margin-bottom: var(--space-sm);
-}
-
 .wg-journey-traits__list {
     display: flex;
     flex-direction: column;
@@ -5980,11 +5781,6 @@ textarea.wg-input {
 }
 
 /* Keystones — the permanent milestone timeline. */
-.wg-journey-keystones__why {
-    font-size: var(--font-size-sm);
-    margin-bottom: var(--space-sm);
-}
-
 .wg-journey-keystones__list {
     display: flex;
     flex-direction: column;
@@ -6071,11 +5867,6 @@ textarea.wg-input {
 
 /* Discovery Atlas feed (gamification redesign Phase 1). One card per probe in
    three states — developing / revealed / no_effect — stacked in the section. */
-.wg-journey-atlas__why {
-    font-size: var(--font-size-sm);
-    margin-bottom: var(--space-sm);
-}
-
 .wg-journey-atlas__list {
     display: flex;
     flex-direction: column;
