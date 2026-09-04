@@ -526,11 +526,14 @@ async function loadToday() {
             // call card; mountCard now reattaches live state for the whole
             // in-flight window ('connecting' included, med-k8m6), so this is
             // belt-and-braces — skipping the repaint also avoids churning the
-            // card's DOM under an active session.
+            // card's DOM under an active session. Match the live states
+            // explicitly: 'error' sticks until the next call, so a `!== 'idle'`
+            // test left one failed call killing the repaint tick (and the
+            // visibilitychange re-render) for the rest of the session.
             const call = window.WGCallAgent && typeof window.WGCallAgent.getState === 'function'
                 ? window.WGCallAgent.getState()
                 : null;
-            if (call && call.state && call.state !== 'idle') return;
+            if (call && (call.state === 'connecting' || call.state === 'in_call')) return;
             _todayRender(todayFoodKey(new Date()));
         };
         _todayLoaderState.repaintTick = setInterval(repaint, TODAY_REPAINT_INTERVAL_MS);
