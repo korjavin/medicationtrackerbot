@@ -368,7 +368,9 @@
     // Reads `journey.atlas` (attached by load() from GET /api/gamification/atlas,
     // recomputed client-side from vault records in cloud mode). Three card
     // states, all rendered as first-class findings:
-    //   developing — locked; a progress meter names the EXACT next log action.
+    //   developing — locked; one line, question + an inline "6/8 · 2 more"
+    //                meter. Only the card closest to revealing also names the
+    //                EXACT next log action.
     //   revealed   — the gate cleared; the finding with its numbers.
     //   no_effect  — the gate cleared and found nothing; a genuine, dignified
     //                result, not a hidden failure (the §14.8 honesty gate).
@@ -389,25 +391,40 @@
         } catch (_) { /* best-effort */ }
     }
 
-    function atlasCardEl(card, expCtx) {
-        const item = el('div', 'wg-journey-atlas__card wg-journey-atlas__card--' + card.state);
-        item.appendChild(el('p', 'wg-journey-atlas__question', card.question));
+    // Terminal = the probe gate cleared, either way (revealed / no_effect share
+    // equal dignity). An unseen terminal card is the one genuinely new thing on
+    // the screen: `seen` comes off the payload, so markDiscoverySeen() firing on
+    // this paint only demotes the card on the NEXT load.
+    function isTerminal(card) { return card.state === 'revealed' || card.state === 'no_effect'; }
+    function isNewFinding(card) { return isTerminal(card) && !card.seen; }
+
+    // Sort key: unseen findings (0) → developing (1) → findings already read (2).
+    function atlasRank(card) { return isTerminal(card) ? (card.seen ? 2 : 0) : 1; }
+
+    // One line per card (med-edxz.2). `showNext` is true only for the developing
+    // card closest to revealing — that single action sentence is the daily hook.
+    function atlasCardEl(card, expCtx, showNext) {
+        const isNew = isNewFinding(card);
+        const item = el('div', 'wg-journey-atlas__card wg-journey-atlas__card--' + card.state
+            + (isNew ? ' wg-journey-atlas__card--new' : ''));
 
         if (card.state === 'developing') {
-            const needed = Number(card.needed) || 0;
-            const have = Number(card.have) || 0;
-            item.appendChild(progressBar(needed > 0 ? have / needed : 0, 'wg-journey-bar__fill--sun'));
-            item.appendChild(el('p', 'wg-journey-atlas__meter wg-muted',
-                `${have} of ${needed} paired observations · ${Number(card.remaining) || 0} more to develop`));
-            if (card.next) item.appendChild(el('p', 'wg-journey-atlas__next wg-muted', card.next));
+            const question = el('p', 'wg-journey-atlas__question', card.question);
+            question.appendChild(el('span', 'wg-journey-atlas__meter wg-muted',
+                `${Number(card.have) || 0}/${Number(card.needed) || 0} · ${Number(card.remaining) || 0} more`));
+            item.appendChild(question);
+            if (card.next && showNext) item.appendChild(el('p', 'wg-journey-atlas__next wg-muted', card.next));
             return item;
         }
 
-        // revealed / no_effect — both terminal findings with equal dignity.
+        // revealed / no_effect — both terminal findings with equal dignity. The
+        // finding states the question, so there is no separate question line.
         item.appendChild(el('p', 'wg-journey-atlas__finding', card.text || card.question));
-        const revealed = card.state === 'revealed';
-        item.appendChild(el('span', 'wg-tag wg-tag--mono wg-journey-atlas__tag',
-            revealed ? 'Discovery' : 'No effect — a finding'));
+        const tags = el('div', 'wg-journey-atlas__tags');
+        if (isNew) tags.appendChild(el('span', 'wg-tag wg-tag--mono wg-tag--sun wg-journey-atlas__tag--new', 'New'));
+        tags.appendChild(el('span', 'wg-tag wg-tag--mono wg-journey-atlas__tag',
+            card.state === 'revealed' ? 'Discovery' : 'No effect — a finding'));
+        item.appendChild(tags);
 
         // "Test it" (Phase 4): a terminal discovery with a matching lever
         // template can become a 14-day N-of-1 trial — but only one experiment
@@ -430,7 +447,8 @@
 
         const card = el('section', 'wg-card wg-journey-atlas');
         card.id = 'journey-atlas-card';
-        card.appendChild(el('div', 'wg-section-label', 'DISCOVERY ATLAS'));
+        const label = el('div', 'wg-section-label', 'DISCOVERIES');
+        card.appendChild(label);
 
         if (atlas.emptyState) {
             card.appendChild(el('p', 'wg-journey-atlas__empty wg-muted', atlas.emptyState));
@@ -449,8 +467,27 @@
         }
         const expCtx = { templateByProbe, canStart: !!(exp && exp.can_start) };
 
+        // Unseen findings lead, then the developing cards closest to revealing,
+        // then the findings already read. sort() is stable, so the catalog order
+        // survives inside each group.
+        const ordered = cards.slice().sort((a, b) => atlasRank(a) - atlasRank(b)
+            || (atlasRank(a) === 1 ? (Number(a.remaining) || 0) - (Number(b.remaining) || 0) : 0));
+
+        const newCount = cards.filter(isNewFinding).length;
+        const revealedCount = cards.filter(isTerminal).length;
+        const parts = ['DISCOVERIES'];
+        if (newCount > 0) parts.push(`${newCount} NEW`);
+        if (revealedCount > 0) parts.push(`${revealedCount} revealed`);
+        if (cards.length > revealedCount) parts.push(`${cards.length - revealedCount} developing`);
+        label.textContent = parts.join(' · ');
+
         const list = el('div', 'wg-journey-atlas__list');
-        cards.forEach((c) => list.appendChild(atlasCardEl(c, expCtx)));
+        let nextShown = false;
+        ordered.forEach((c) => {
+            const showNext = c.state === 'developing' && !nextShown;
+            if (showNext) nextShown = true;
+            list.appendChild(atlasCardEl(c, expCtx, showNext));
+        });
         card.appendChild(list);
         return card;
     }
