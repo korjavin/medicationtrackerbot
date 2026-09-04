@@ -308,10 +308,17 @@ export function createApiRouter(ctx, {
   // reminder's Telegram chain — the same mechanism as an in-app dose confirm or
   // workout transition (med-9bmb). measureReminderStem returns '' (a no-op
   // cancel) when the reminder is off or today's slot has not fired yet.
-  // Awaited only to read the pref; cancelReminderRefire is fire-and-forget and
-  // never throws into the write that just landed in the vault.
+  //
+  // Awaited only to read the pref, and the whole thing is swallowed: the vault
+  // row is already durable by the time we get here, so a failed pref read must
+  // not reject the write and send the UI into an optimistic rollback + retry
+  // (a duplicate reading). Same fire-and-forget contract as postRefire itself.
   async function cancelMeasureRefire(prefix, getStatus) {
-    cancelReminderRefire(measureReminderStem(prefix, await getStatus(), timeZone, now()));
+    try {
+      cancelReminderRefire(measureReminderStem(prefix, await getStatus(), timeZone, now()));
+    } catch (e) {
+      console.warn('[cloud shim] measure refire cancel failed', prefix, e);
+    }
   }
 
   // shimCall implements the window.offlineAwareApiCall(endpoint, method, body,
@@ -327,6 +334,12 @@ export function createApiRouter(ctx, {
       if (method === 'POST') {
         const res = await bp.create(body);
         await cancelMeasureRefire('bp', reminders.getBPStatus);
+        // Cancelling only ends the chain already in the chat. The horizon the
+        // relay still holds was computed BEFORE this reading, so it keeps every
+        // upcoming slot the reading now satisfies (the 12h / 7d gates) — and
+        // only the browser can recompute it. Every other mutating route already
+        // does this; BP/weight were the outliers.
+        scheduleReminderRecompute(ctx, { records, timeZone });
         return res;
       }
       if (method === 'GET') {
@@ -345,6 +358,9 @@ export function createApiRouter(ctx, {
       if (method === 'POST') {
         const res = await weight.create(body, { replacesId: params.get('replaces') || undefined });
         await cancelMeasureRefire('wt', reminders.getWeightStatus);
+        // See the BP route: the relay's horizon predates this reading, so the
+        // weekly weight slots it satisfies are still queued there.
+        scheduleReminderRecompute(ctx, { records, timeZone });
         return res;
       }
       if (method === 'GET') {
