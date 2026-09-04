@@ -114,10 +114,13 @@ describe('Journey render', () => {
         expect(document.querySelector('.wg-journey-keystones__why')).toBeNull();
     });
 
-    // Personal content first, at most 8 cards with every payload present. The
-    // first slot is reserved for the "since you last looked" strip
-    // (med-edxz.3); until that lands, the Discovery Atlas leads.
-    it('renders at most 8 cards, Atlas first, in the personal-first order', () => {
+    // Personal content first: at most 8 cards with every payload present and
+    // no active chapter or trial (the bead's budget). A running experiment
+    // adds a transient 9th card by design — it's the live thing the user came
+    // to see, and it disappears when the trial ends. The first slot is
+    // reserved for the "since you last looked" strip (med-edxz.3); until that
+    // lands, the Discovery Atlas leads.
+    it('with no active chapter or trial, renders at most 8 cards, Atlas first, in the personal-first order', () => {
         env.window.Gamification.render(journey({
             atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
             weekly_review: { enabled: true, quiet: true, levers: [], gauges: {}, health_score: {} },
