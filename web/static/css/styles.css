@@ -5930,15 +5930,14 @@ textarea.wg-input {
     white-space: nowrap;
 }
 
+/* Tags sit on one row (a NEW badge ahead of the state tag) and hug the left
+   edge of the column card rather than stretching across it. */
 .wg-journey-atlas__tags {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-xs);
-}
-
-.wg-journey-atlas__tag {
     align-self: flex-start;
+    gap: var(--space-xs);
 }
 
 .wg-journey-atlas__testit {
