@@ -23,9 +23,10 @@
 // window.TodayLoader for discoverability; the bare function names are the live
 // call path.
 
-// module-state: the Today subscription handle (unsubscribe) and the refetch
-// in-flight guard (refreshInFlight) that coalesces concurrent loadToday() runs.
-let _todayLoaderState = { unsubscribe: null, refreshInFlight: false }; // module-state: Today subscription handle + refetch in-flight guard
+// module-state: the Today subscription handle (unsubscribe), the refetch
+// in-flight guard (refreshInFlight) that coalesces concurrent loadToday() runs,
+// and the wall-clock repaint interval handle (repaintTick).
+let _todayLoaderState = { unsubscribe: null, refreshInFlight: false, repaintTick: null }; // module-state: Today subscription handle + refetch in-flight guard + repaint tick handle
 
 function todayFoodKey(nowDate) {
     const d = nowDate || new Date();
@@ -480,6 +481,14 @@ async function _todayRender(foodKey) {
     return { rendered: true, bootstrap, swrCaches, online };
 }
 
+// Today is full of time-derived UI that no data change ever invalidates: the
+// "in Xh Ym" next-dose kicker, the timezone-transition card past its last step,
+// dose-boundary states. Nothing dispatches an event when the wall clock simply
+// moves, so a tab left open keeps painting the past. One minute-ish tick
+// re-renders from the caches already in hand — _todayRender, never loadToday,
+// so a tick can never trigger a refetch (revalidation stays event-driven).
+const TODAY_REPAINT_INTERVAL_MS = 60 * 1000;
+
 async function loadToday() {
     const foodKey = todayFoodKey(new Date());
     const ctx = await _todayRender(foodKey);
@@ -501,6 +510,33 @@ async function loadToday() {
                 }
             }
         });
+    }
+
+    // Wall-clock repaint tick — see TODAY_REPAINT_INTERVAL_MS above. Set up once
+    // alongside the subscription and kept for the life of the page (the
+    // subscription is never torn down either). Inert while the tab is hidden or
+    // another tab is current; the visibilitychange re-render covers the ticks a
+    // backgrounded tab's throttled timers slept through. The food key is
+    // recomputed per tick so a repaint across midnight reads the new day.
+    if (!_todayLoaderState.repaintTick) {
+        const repaint = () => {
+            if (typeof document !== 'undefined' && document.hidden) return;
+            if (!window.AppStore || window.AppStore.get('currentTab') !== 'today') return;
+            // Don't repaint under a live voice call. renderToday rebuilds the
+            // call card, and WGCallAgent.mountCard only reattaches state once
+            // activeConversation exists — so a repaint landing in the
+            // 'connecting' window would swap the card back to an idle-looking
+            // trigger the user can tap into a second, untracked session. The
+            // event-driven render paths have the same hole (narrower, because
+            // they're rare); closing it in mountCard is its own fix.
+            const call = window.WGCallAgent && typeof window.WGCallAgent.getState === 'function'
+                ? window.WGCallAgent.getState()
+                : null;
+            if (call && call.state && call.state !== 'idle') return;
+            _todayRender(todayFoodKey(new Date()));
+        };
+        _todayLoaderState.repaintTick = setInterval(repaint, TODAY_REPAINT_INTERVAL_MS);
+        document.addEventListener('visibilitychange', repaint);
     }
 
     // Refetch any cache that's missing — e.g. just evicted by a change poll.

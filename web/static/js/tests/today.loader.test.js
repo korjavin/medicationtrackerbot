@@ -8,7 +8,9 @@
 //   1. offline render straight from caches,
 //   2. the refetch in-flight guard coalescing concurrent loadToday() calls,
 //   3. the next-intake fetch error paths (204 sentinel, OfflineNoCacheError,
-//      generic-error rethrow, cachedFetch-absent fallback).
+//      generic-error rethrow, cachedFetch-absent fallback),
+//   4. the wall-clock repaint tick (bd med-pn8g) that keeps time-derived UI
+//      from going stale on a Today tab left open with no data changes.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -285,6 +287,124 @@ describe('Today loader — features/today-loader.js', () => {
             expect(nextIntakeCalls).toBe(2);
             deferred.resolve({ scheduled_at: null, medication_names: [] });
             await p3;
+        });
+    });
+
+    // bd med-pn8g: Today is full of time-derived UI ("in Xh Ym", the tz
+    // transition card, dose boundaries) that no data change ever invalidates.
+    // loadToday installs a one-minute repaint tick that re-renders from the
+    // caches already in hand. These tests capture the interval callback by
+    // stubbing the JSDOM window's setInterval (vitest fake timers patch the
+    // outer realm, not this nested window).
+    describe('wall-clock repaint tick', () => {
+        // Renders Today offline from a warm cache and returns the captured tick
+        // callback plus a spy wrapping renderToday (installed after the first
+        // render, so it only sees repaints).
+        async function loadAndCaptureTick() {
+            setOnline(window, false);
+            const ts = Date.now() - 10 * 60 * 1000;
+            window.MedTrackerDB = makeApiCache({
+                settings_bundle: {
+                    data: {
+                        featureSettings: { ...FEATURES_MED_ONLY },
+                        foodTargets: { calories: 0, carbs: 0, protein: 0, fat: 0 },
+                        tabOrder: ['today', 'meds'],
+                        weightUnitPreference: 'kg'
+                    },
+                    timestamp: ts
+                },
+                next_intake: {
+                    data: {
+                        scheduled_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+                        medication_names: ['Aspirin'],
+                        medication_ids: [11]
+                    },
+                    timestamp: ts
+                }
+            });
+
+            let tick = null;
+            let intervalMs = null;
+            window.setInterval = (fn, ms) => { tick = fn; intervalMs = ms; return 42; };
+
+            await window.loadToday();
+
+            // Spy installed after the first render, so it only sees repaints.
+            // `nextRender()` resolves on the next renderToday call: the tick
+            // fires _todayRender without awaiting it, so there is no promise to
+            // await and microtask-spinning would be flaky.
+            const realRender = window.TodayDashboard.renderToday;
+            let signal = null;
+            const renderToday = vi.fn((state, root, opts) => {
+                const out = realRender(state, root, opts);
+                if (signal) signal();
+                return out;
+            });
+            window.TodayDashboard.renderToday = renderToday;
+            const nextRender = () => new Promise((resolve) => { signal = resolve; });
+            return { tick, intervalMs, renderToday, nextRender };
+        }
+
+        it('re-renders about once a minute with a later now, without refetching', async () => {
+            const { tick, intervalMs, renderToday, nextRender } = await loadAndCaptureTick();
+            expect(typeof tick).toBe('function');
+            expect(intervalMs).toBe(60 * 1000);
+
+            // Advance the clock the loader reads so the repaint's `now` is
+            // provably later than the initial render's.
+            const realNow = window.Date.now;
+            window.Date.now = () => realNow() + 90 * 60 * 1000;
+            const painted = nextRender();
+            tick();
+            await painted;
+            window.Date.now = realNow;
+
+            expect(renderToday).toHaveBeenCalledTimes(1);
+            expect(renderToday.mock.calls[0][2].now).toBeGreaterThan(realNow());
+            // A tick repaints from cache only — revalidation stays event-driven.
+            expect(window.DataStore.fetchFresh).not.toHaveBeenCalled();
+            expect(window.apiCall).not.toHaveBeenCalled();
+        });
+
+        it('is inert while a voice call is connecting or live', async () => {
+            const { tick, renderToday } = await loadAndCaptureTick();
+
+            // A repaint mid-connect would swap the call card back to an idle
+            // trigger the user can tap into a second session.
+            window.WGCallAgent = { getState: () => ({ state: 'connecting' }) };
+            tick();
+            await new Promise((r) => setTimeout(r, 0));
+            expect(renderToday).not.toHaveBeenCalled();
+
+            window.WGCallAgent = { getState: () => ({ state: 'idle' }) };
+            tick();
+            await new Promise((r) => setTimeout(r, 0));
+            expect(renderToday).toHaveBeenCalledTimes(1);
+        });
+
+        it('is inert while the tab is hidden or another tab is current', async () => {
+            const { tick, renderToday } = await loadAndCaptureTick();
+
+            Object.defineProperty(env.document, 'hidden', { value: true, configurable: true });
+            tick();
+            await new Promise((r) => setTimeout(r, 0));
+            expect(renderToday).not.toHaveBeenCalled();
+
+            Object.defineProperty(env.document, 'hidden', { value: false, configurable: true });
+            window.AppStore = { get: () => 'meds' };
+            tick();
+            await new Promise((r) => setTimeout(r, 0));
+            expect(renderToday).not.toHaveBeenCalled();
+        });
+
+        it('repaints on visibilitychange so a backgrounded tab is current again immediately', async () => {
+            const { renderToday, nextRender } = await loadAndCaptureTick();
+
+            const painted = nextRender();
+            env.document.dispatchEvent(new window.Event('visibilitychange'));
+            await painted;
+
+            expect(renderToday).toHaveBeenCalledTimes(1);
         });
     });
 
