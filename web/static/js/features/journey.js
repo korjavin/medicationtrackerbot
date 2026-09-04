@@ -441,6 +441,44 @@
         return item;
     }
 
+    // --- "Since you last looked" strip (med-edxz.3) ------------------------
+    // The Journey's first card: the handful of things that changed since the
+    // last visit, as tappable one-liners that scroll to the card that owns
+    // each one. The list is computed in the domain (getWhatsNew) and rides
+    // along on the Atlas payload, so it costs no extra fetch. Empty list (a
+    // fresh account, or an offline cold cache) → no card at all.
+    function renderWhatsNew(j) {
+        const atlas = j && j.atlas;
+        const items = (atlas && Array.isArray(atlas.whats_new)) ? atlas.whats_new : [];
+        if (items.length === 0) return null;
+
+        const card = el('section', 'wg-card wg-journey-whatsnew');
+        card.id = 'journey-whatsnew-card';
+        // Only the anticipation fallback survived → nothing actually changed,
+        // so the label promises today's next step instead of news.
+        const onlyFallback = items.every((it) => it.kind === 'anticipation');
+        card.appendChild(el('div', 'wg-section-label',
+            onlyFallback ? 'TODAY' : 'SINCE YOU LAST LOOKED'));
+
+        const list = el('div', 'wg-journey-whatsnew__list');
+        items.forEach((it) => {
+            const row = el('p', 'wg-journey-whatsnew__item', it.text);
+            const target = it.target;
+            if (target) {
+                row.className += ' wg-journey-whatsnew__item--tappable';
+                row.setAttribute('role', 'button');
+                row.tabIndex = 0;
+                row.addEventListener('click', () => goToCard(target));
+                row.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToCard(target); }
+                });
+            }
+            list.appendChild(row);
+        });
+        card.appendChild(list);
+        return card;
+    }
+
     function renderAtlas(j) {
         const atlas = j && j.atlas;
         if (!atlas) return null;
@@ -709,12 +747,14 @@
     // Scrolls to the sleep→BP insight card rendered above (renderInsightCard).
     // A no-op if the card wasn't rendered (e.g. `journey.insight` hasn't
     // loaded yet). Reached from the Gauges "why is this moving?" link.
-    function goToInsightCard() {
-        const target = document.getElementById('journey-insight-card');
+    function goToCard(id) {
+        const target = document.getElementById(id);
         if (target && typeof target.scrollIntoView === 'function') {
             target.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     }
+
+    function goToInsightCard() { goToCard('journey-insight-card'); }
 
     // --- Chapters (Phase 5) -----------------------------------------------
     // Opt-in 4-week themed arcs. Reads `journey.chapter` (GET
@@ -953,13 +993,14 @@
         // in cloud mode the HP/levels substrate is a later phase (returns
         // {enabled:false}), so a disabled substrate with a live narrative
         // layer still renders it rather than the "gamification is off" state.
+        const whatsNewCard = journey ? renderWhatsNew(journey) : null;
         const atlasCard = journey ? renderAtlas(journey) : null;
         const traitsCard = journey ? renderTraits(journey) : null;
         const experimentCard = journey ? renderExperiment(journey) : null;
         const chapterCard = journey ? renderChapter(journey) : null;
         const keystonesCard = journey ? renderKeystones(journey) : null;
         const narratorCard = journey ? renderNarrator(journey) : null;
-        const narrativeCards = [atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard, narratorCard];
+        const narrativeCards = [whatsNewCard, atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard, narratorCard];
 
         if (!journey || journey.enabled === false) {
             const live = narrativeCards.filter(Boolean);
@@ -972,8 +1013,9 @@
         }
 
         const cards = [
-            // The first slot belongs to the "since you last looked" strip
-            // (med-edxz.3); until it lands, Atlas is the first card.
+            // What changed since the last visit leads (med-edxz.3); the
+            // Discovery Atlas follows it.
+            whatsNewCard,
             atlasCard,
             renderWeeklyReview(journey),
             renderGauges(journey),

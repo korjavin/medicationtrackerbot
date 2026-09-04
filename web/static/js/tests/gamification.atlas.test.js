@@ -187,3 +187,89 @@ describe('gamification Discovery Atlas — probe evaluator', () => {
     expect(cardById(atlas, 'short_sleep_next_day_steps').state).toBe('developing');
   });
 });
+
+// --- "Since you last looked" strip (med-edxz.3) ---------------------------
+// getWhatsNew composes the existing narrative reads and rides on the Atlas
+// payload, so these drive the real getAtlas() path over fixture vaults.
+describe('gamification "since you last looked" strip', () => {
+  const PROBE_IDS = [
+    'workout_next_morning_bp', 'short_sleep_next_morning_bp', 'weekend_systolic',
+    'workout_next_day_resting_hr', 'short_sleep_next_day_steps', 'late_dinner_sleep_duration',
+  ];
+
+  function journalRec(fields) {
+    return { recordId: 'journal', deleted: false, clientTs: NOW, ...fields };
+  }
+
+  function wordCount(text) {
+    return text.split(/\s+/).filter((w) => /[\w\d]/.test(w)).length;
+  }
+
+  it('leads with the unseen discovery, then the trait earned two days ago', async () => {
+    // 26 days with a planted workout -> next-morning-BP effect (~-16 mmHg), and
+    // 13 workout days in the trailing 28 so Consistent Mover is held. Systolics
+    // sit ABOVE the default 130 target band, so no BP keystone is minted; every
+    // other probe's finding is already marked read. What is left is exactly one
+    // unseen discovery and one trait earned two days ago.
+    const bp = [];
+    const workoutsession = [];
+    const count = 26;
+    for (let i = 0; i < count; i++) {
+      const offset = count - 1 - i;
+      const prevWorkout = i > 0 && ((i - 1) % 2 === 0);
+      bp.push(bpRec(offset, i === 0 ? 134 : (prevWorkout ? 126 : 142)));
+      if (i % 2 === 0) workoutsession.push(workoutRec(offset));
+    }
+    const { gam } = domainOver({
+      bp,
+      workoutsession,
+      gamificationjournal: [journalRec({
+        seen_discoveries: PROBE_IDS.filter((id) => id !== 'workout_next_morning_bp'),
+        traits: { consistent_mover: { earned_at: NOW - 2 * DAY_MS } },
+      })],
+    });
+
+    const atlas = await gam.getAtlas();
+    expect(cardById(atlas, 'workout_next_morning_bp').state).toBe('revealed');
+
+    const items = atlas.whats_new;
+    expect(items.map((it) => it.kind)).toEqual(['discovery', 'trait']);
+    expect(items[0].text).toContain('New: ');
+    expect(items[0].text).toContain('16 mmHg lower');
+    expect(items[0].target).toBe('journey-atlas-card');
+    expect(items[1].text).toBe('You\u2019re now a Consistent Mover.');
+    expect(items[1].target).toBe('journey-traits-card');
+
+    // The strip stays skimmable: at most four lines, each a short one-liner.
+    expect(items.length).toBeLessThanOrEqual(4);
+    items.forEach((it) => expect(wordCount(it.text)).toBeLessThanOrEqual(20));
+  });
+
+  it('falls back to one anticipation line naming the closest developing probe', async () => {
+    // Three weeks of BP and nothing else: no finding has cleared its gate, no
+    // trait, no keystone (the readings sit above the target band), no trial.
+    // The weekend probe is the only one with real pairs, so it headlines.
+    const bp = [];
+    for (let offset = 40; offset <= 60; offset++) bp.push(bpRec(offset, 140));
+    const { gam } = domainOver({ bp });
+
+    const atlas = await gam.getAtlas();
+    const items = atlas.whats_new;
+    expect(items).toHaveLength(1);
+    expect(items[0].kind).toBe('anticipation');
+    expect(items[0].target).toBe('journey-atlas-card');
+
+    // The count is the real remaining, read off the same card the line names.
+    const closest = atlas.cards
+      .filter((c) => c.state === 'developing' && c.have > 0)
+      .sort((a, b) => a.remaining - b.remaining)[0];
+    expect(closest).toBeDefined();
+    expect(items[0].text).toBe(`${closest.remaining} more paired days until: ${closest.question}`);
+    expect(wordCount(items[0].text)).toBeLessThanOrEqual(20);
+  });
+
+  it('shows nothing at all on a fresh account', async () => {
+    const { gam } = domainOver({});
+    expect((await gam.getAtlas()).whats_new).toEqual([]);
+  });
+});
