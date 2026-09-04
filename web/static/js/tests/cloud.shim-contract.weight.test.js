@@ -7,6 +7,7 @@
 // features.weight.test.js keeps running unshimmed.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { calculateWeightTrend } from '../../../domain/weight.js';
+import { computeReminderHorizon } from '../../../domain/reminders.js';
 import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 
 function installApiCache(window, seed = {}) {
@@ -50,9 +51,9 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
     // right after a submit/delete are deterministic.
     let realLoadWeightLogs;
 
-    function setupEnv(seedRecords) {
+    function setupEnv(seedRecords, clock) {
         if (env) env.cleanup();
-        env = loadCloudShimFrontendEnv({ seedRecords });
+        env = loadCloudShimFrontendEnv({ seedRecords, ...clock });
         cache = installApiCache(env.window);
         env.window.loadToday = vi.fn();
         env.window.setWeightUnitPreference = vi.fn();
@@ -160,6 +161,72 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
     // Unmapped-route fallback behavior moved to
     // cloud.shim-contract.catchall.test.js (bd med-9b8.1) — unmapped writes now
     // throw instead of resolving null.
+
+    // med-9bmb: same mechanism as BP (see cloud.shim-contract.bp.test.js) —
+    // weighing in inside the app satisfies today's measure reminder, so the
+    // Telegram chain the relay already sent has to end rather than sit in the
+    // chat with live Snooze/Skip buttons.
+    describe('logging a weight cancels the Telegram measure chain', () => {
+        // Pinned clock: 18:30 UTC in UTC, so a 09:00 slot is past (sent) and a
+        // 20:00 slot is still ahead (nothing to cancel).
+        const NOW = Date.parse('2026-09-05T18:30:00Z');
+        const PAST_HOUR = 9;
+        const PAST_SLOT_UNIX = Date.parse('2026-09-05T09:00:00Z') / 1000;
+        const FUTURE_HOUR = 20;
+
+        let fetchMock;
+
+        function withWeightPref(pref) {
+            setupEnv(
+                pref ? { weightreminderpref: [{ recordId: 'weightreminderpref', clientTs: 1, deleted: false, ...pref }] } : undefined,
+                { now: () => NOW, timeZone: 'UTC' }
+            );
+            fetchMock = vi.fn().mockResolvedValue({ ok: true });
+            globalThis.fetch = fetchMock;
+        }
+
+        function cancelCallbacks() {
+            return fetchMock.mock.calls
+                .filter(([url]) => url === '/api/telegram/cancel-refire')
+                .map(([, init]) => JSON.parse(init.body).callback);
+        }
+
+        afterEach(() => {
+            delete globalThis.fetch;
+        });
+
+        it('posts exactly one cancel-refire for the stem the horizon would have pushed', async () => {
+            withWeightPref({ enabled: true, preferred_reminder_hour: PAST_HOUR });
+
+            await env.window.apiCall('/api/weight', 'POST', { weight: 80.0, measured_at: new Date(NOW).toISOString() });
+
+            expect(cancelCallbacks()).toEqual([`wt:${PAST_SLOT_UNIX}`]);
+            const horizon = computeReminderHorizon({
+                timeZone: 'UTC',
+                now: NOW - 24 * 60 * 60 * 1000,
+                weightStatus: { enabled: true, preferred_reminder_hour: PAST_HOUR }
+            });
+            expect(horizon.some((e) => e.callback === `wt:${PAST_SLOT_UNIX}`)).toBe(true);
+        });
+
+        it('does not cancel when today\'s slot has not fired yet', async () => {
+            withWeightPref({ enabled: true, preferred_reminder_hour: FUTURE_HOUR });
+
+            await env.window.apiCall('/api/weight', 'POST', { weight: 80.0, measured_at: new Date(NOW).toISOString() });
+
+            expect(cancelCallbacks()).toEqual([]);
+        });
+
+        it('does not cancel when weight reminders are disabled or unconfigured', async () => {
+            withWeightPref({ enabled: false, preferred_reminder_hour: PAST_HOUR });
+            await env.window.apiCall('/api/weight', 'POST', { weight: 80.0, measured_at: new Date(NOW).toISOString() });
+            expect(cancelCallbacks()).toEqual([]);
+
+            withWeightPref(null);
+            await env.window.apiCall('/api/weight', 'POST', { weight: 80.0, measured_at: new Date(NOW).toISOString() });
+            expect(cancelCallbacks()).toEqual([]);
+        });
+    });
 
     it('_deleteWeightApi removes the log from the shim-backed store', async () => {
         const { window, document } = env;

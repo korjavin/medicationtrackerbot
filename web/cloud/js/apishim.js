@@ -7,7 +7,7 @@ import { createWeightDomain } from '../../domain/weight.js';
 import { createNotesDomain } from '../../domain/notes.js';
 import { createSettingsDomain } from '../../domain/settings.js';
 import { createVitalsDomain } from '../../domain/vitals.js';
-import { createRemindersDomain } from '../../domain/reminders.js';
+import { createRemindersDomain, measureReminderStem } from '../../domain/reminders.js';
 import { createMedicationsDomain } from '../../domain/medications.js';
 import { createIntakeDomain } from '../../domain/medintake.js';
 import { createTzPlanDomain } from '../../domain/tzplan.js';
@@ -304,6 +304,16 @@ export function createApiRouter(ctx, {
     'GET /api/weight/reminder/status': async () => reminders.getWeightStatus(),
   };
 
+  // A reading logged IN THE APP satisfies today's measure reminder, so end that
+  // reminder's Telegram chain — the same mechanism as an in-app dose confirm or
+  // workout transition (med-9bmb). measureReminderStem returns '' (a no-op
+  // cancel) when the reminder is off or today's slot has not fired yet.
+  // Awaited only to read the pref; cancelReminderRefire is fire-and-forget and
+  // never throws into the write that just landed in the vault.
+  async function cancelMeasureRefire(prefix, getStatus) {
+    cancelReminderRefire(measureReminderStem(prefix, await getStatus(), timeZone, now()));
+  }
+
   // shimCall implements the window.offlineAwareApiCall(endpoint, method, body,
   // opts) contract (see api.js apiCall/apiCallDirect): resolves to the parsed
   // JSON payload, or throws an Error with .status on failure. Writes resolve
@@ -314,7 +324,11 @@ export function createApiRouter(ctx, {
     const { path, params } = parseQuery(endpoint);
 
     if (path === '/api/bp') {
-      if (method === 'POST') return bp.create(body);
+      if (method === 'POST') {
+        const res = await bp.create(body);
+        await cancelMeasureRefire('bp', reminders.getBPStatus);
+        return res;
+      }
       if (method === 'GET') {
         const { limit, offset, take } = pageParams(params, 100);
         return pageOf(await bp.list({ days: intParam(params, 'days', 30), limit: take }), limit, offset);
@@ -328,7 +342,11 @@ export function createApiRouter(ctx, {
     if (path === '/api/bp/stats' && method === 'GET') return bp.getStats();
 
     if (path === '/api/weight') {
-      if (method === 'POST') return weight.create(body, { replacesId: params.get('replaces') || undefined });
+      if (method === 'POST') {
+        const res = await weight.create(body, { replacesId: params.get('replaces') || undefined });
+        await cancelMeasureRefire('wt', reminders.getWeightStatus);
+        return res;
+      }
       if (method === 'GET') {
         const { limit, offset, take } = pageParams(params, 100);
         return pageOf(await weight.list({ days: intParam(params, 'days', 30), limit: take }), limit, offset);
@@ -1107,7 +1125,12 @@ export function createApiRouter(ctx, {
 // web/static/js/core/api.js delegates through) plus the browser-direct globals
 // that bypass /api entirely, and starts the materialization sweep. Signature
 // and return value unchanged: it resolves to the router itself.
-export function installApiShim(ctx, { records, win } = {}) {
+// now/timeZone are forwarded straight to createApiRouter (both routers, so the
+// two agree on the clock) — the same test-only override it documents, reachable
+// from the shim-contract harness so a suite can pin the wall clock.
+export function installApiShim(ctx, {
+  records, win, now: nowOverride, timeZone: timeZoneOverride,
+} = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   // Two routers over the same records store, differing only in the origin they
   // stamp on writes (med-dvr):
@@ -1122,8 +1145,13 @@ export function installApiShim(ctx, { records, win } = {}) {
   //
   // A test's injected `records` port carries its own origin and is shared by
   // both, which keeps the harness a drop-in swap.
-  const shimCall = createApiRouter(ctx, { records, win, origin: ORIGIN_UI });
-  const bgCall = records ? shimCall : createApiRouter(ctx, { win, origin: ORIGIN_EXTERNAL });
+  const clock = { now: nowOverride, timeZone: timeZoneOverride };
+  const shimCall = createApiRouter(ctx, {
+    records, win, origin: ORIGIN_UI, ...clock,
+  });
+  const bgCall = records ? shimCall : createApiRouter(ctx, {
+    win, origin: ORIGIN_EXTERNAL, ...clock,
+  });
   const {
     settings, foodDb, now,
   } = shimCall.domains;

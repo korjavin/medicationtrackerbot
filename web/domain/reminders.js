@@ -245,6 +245,34 @@ export function nextWeeklyDigestFireUnix(now, timeZone) {
   return Math.floor(fireMs / 1000);
 }
 
+// measureSlotMs is the instant of a daily measure-reminder slot: the local day
+// `dayOffset` days after `now`, at `preferredHour` local wall time. Sole home of
+// the measure schedule maths — the BP/weight horizon loops below walk it forward
+// over FORECAST_DAYS, and the in-app cancel path asks for day 0 (via
+// measureReminderStem) so both agree on the instant a stem names.
+export function measureSlotMs(now, timeZone, preferredHour, dayOffset = 0) {
+  const { year, month, day } = localDateParts(now, timeZone);
+  return localWallToUtcMs(Date.UTC(year, month - 1, day + dayOffset, preferredHour, 0), timeZone);
+}
+
+// measureReminderStem rebuilds the Telegram callback stem the horizon put on
+// TODAY's measure reminder — `bp:<slotUnix>` / `wt:<slotUnix>` — so a reading
+// logged in the app can end that chain (med-9bmb). `prefix` is 'bp' or 'wt';
+// `status` is a get{BP,Weight}Status() result.
+//
+// Returns '' when there is nothing live to cancel: reminders off, or today's
+// slot is still in the future, which means the relay has not sent it yet.
+// Deliberately ignores the horizon's mute gate: a Snooze tapped in Telegram
+// mutes the pref precisely BECAUSE a message is live, so gating on it would skip
+// the case this exists for.
+export function measureReminderStem(prefix, status, timeZone, now) {
+  if (!status || !status.enabled) return '';
+  const hour = status.preferred_reminder_hour;
+  if (!Number.isFinite(hour)) return '';
+  const slotMs = measureSlotMs(now, timeZone, hour);
+  return slotMs > now ? '' : `${prefix}:${Math.floor(slotMs / 1000)}`;
+}
+
 // computeReminderHorizon is pure: medications/intakes are raw records
 // (server field names), timeZone is an IANA string, now is ms epoch, tzPlan
 // is the optional active tzplan record (a passthrough, see tzplan.js).
@@ -328,11 +356,8 @@ export function computeReminderHorizon({
     const lastBPMs = lastBP ? new Date(lastBP.measured_at || lastBP.measuredAt).getTime() : 0;
     const preferredHour = bpStatus.preferred_reminder_hour !== undefined ? bpStatus.preferred_reminder_hour : 20;
 
-    const { year, month, day } = localDateParts(now, timeZone);
-
     for (let d = 0; d < FORECAST_DAYS; d++) {
-      const wallAsUtc = Date.UTC(year, month - 1, day + d, preferredHour, 0);
-      const targetMs = localWallToUtcMs(wallAsUtc, timeZone);
+      const targetMs = measureSlotMs(now, timeZone, preferredHour, d);
 
       // Fire if no reading within 12h before target, and the target lands
       // outside any active snooze / don't-bug window.
@@ -351,11 +376,8 @@ export function computeReminderHorizon({
     const lastWeightMs = lastWeight ? new Date(lastWeight.measured_at || lastWeight.measuredAt).getTime() : 0;
     const preferredHour = weightStatus.preferred_reminder_hour !== undefined ? weightStatus.preferred_reminder_hour : 9;
 
-    const { year, month, day } = localDateParts(now, timeZone);
-
     for (let d = 0; d < FORECAST_DAYS; d++) {
-      const wallAsUtc = Date.UTC(year, month - 1, day + d, preferredHour, 0);
-      const targetMs = localWallToUtcMs(wallAsUtc, timeZone);
+      const targetMs = measureSlotMs(now, timeZone, preferredHour, d);
 
       // Fire if no reading within 7 days before target
       // Same mute gate as BP: skip targets inside an active snooze / don't-bug window.
