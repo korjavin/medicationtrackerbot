@@ -155,11 +155,15 @@ describe('cloud shim contract — BP flows (features/bp.js over web/domain/bp.js
             delete globalThis.fetch;
         });
 
+        const reading = (measuredAtMs = NOW) => ({
+            systolic: 118, diastolic: 76, pulse: 70, measured_at: new Date(measuredAtMs).toISOString()
+        });
+
         it('posts exactly one cancel-refire for the stem the horizon would have pushed', async () => {
             withBPPref({ enabled: true, preferred_reminder_hour: PAST_HOUR });
             const { window } = env;
 
-            await window.apiCall('/api/bp', 'POST', { systolic: 118, diastolic: 76, pulse: 70 });
+            await window.apiCall('/api/bp', 'POST', reading());
 
             expect(cancelCallbacks()).toEqual([`bp:${PAST_SLOT_UNIX}`]);
             // The stem must be the one computeReminderHorizon emits for that
@@ -176,20 +180,30 @@ describe('cloud shim contract — BP flows (features/bp.js over web/domain/bp.js
 
         it('does not cancel when today\'s slot has not fired yet', async () => {
             withBPPref({ enabled: true, preferred_reminder_hour: FUTURE_HOUR });
-            const { window } = env;
 
-            await window.apiCall('/api/bp', 'POST', { systolic: 118, diastolic: 76 });
+            await env.window.apiCall('/api/bp', 'POST', reading());
+
+            expect(cancelCallbacks()).toEqual([]);
+        });
+
+        it('does not cancel for a reading backdated past the 12h window', async () => {
+            // Catching up on yesterday's readings must not delete a reminder
+            // the user has not actually answered — and today's slot is already
+            // past, so the recompute that follows cannot put the message back.
+            withBPPref({ enabled: true, preferred_reminder_hour: PAST_HOUR });
+
+            await env.window.apiCall('/api/bp', 'POST', reading(NOW - 30 * 60 * 60 * 1000));
 
             expect(cancelCallbacks()).toEqual([]);
         });
 
         it('does not cancel when BP reminders are disabled or unconfigured', async () => {
             withBPPref({ enabled: false, preferred_reminder_hour: PAST_HOUR });
-            await env.window.apiCall('/api/bp', 'POST', { systolic: 118, diastolic: 76 });
+            await env.window.apiCall('/api/bp', 'POST', reading());
             expect(cancelCallbacks()).toEqual([]);
 
             withBPPref(null);
-            await env.window.apiCall('/api/bp', 'POST', { systolic: 118, diastolic: 76 });
+            await env.window.apiCall('/api/bp', 'POST', reading());
             expect(cancelCallbacks()).toEqual([]);
         });
     });

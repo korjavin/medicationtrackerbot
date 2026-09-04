@@ -255,22 +255,40 @@ export function measureSlotMs(now, timeZone, preferredHour, dayOffset = 0) {
   return localWallToUtcMs(Date.UTC(year, month - 1, day + dayOffset, preferredHour, 0), timeZone);
 }
 
+// How recent a reading has to be for a measure slot to count as satisfied. The
+// horizon fires a target only when the last reading is OLDER than this, so a
+// reading inside the window is exactly the one that answers the reminder. Keyed
+// by callback prefix; the horizon loops below read the same constants.
+const MEASURE_SATISFIED_MS = {
+  bp: 12 * 60 * 60 * 1000,
+  wt: 7 * 24 * 60 * 60 * 1000,
+};
+
 // measureReminderStem rebuilds the Telegram callback stem the horizon put on
 // TODAY's measure reminder — `bp:<slotUnix>` / `wt:<slotUnix>` — so a reading
 // logged in the app can end that chain (med-9bmb). `prefix` is 'bp' or 'wt';
-// `status` is a get{BP,Weight}Status() result.
+// `status` is a get{BP,Weight}Status() result; `measuredAtMs` is when the new
+// reading was actually taken, which is NOT `now` — both forms accept a
+// backdated `measured_at`.
 //
-// Returns '' when there is nothing live to cancel: reminders off, or today's
-// slot is still in the future, which means the relay has not sent it yet.
+// Returns '' when there is nothing to cancel:
+//   - reminders off;
+//   - today's slot is still in the future, so the relay has not sent it yet;
+//   - the reading is too old to satisfy that slot (a BP backdated past 12h, a
+//     weight past 7d). The horizon would still fire the target for such a
+//     reading, and cancelling deletes a message no recompute can put back.
 // Deliberately ignores the horizon's mute gate: a Snooze tapped in Telegram
 // mutes the pref precisely BECAUSE a message is live, so gating on it would skip
 // the case this exists for.
-export function measureReminderStem(prefix, status, timeZone, now) {
+export function measureReminderStem(prefix, status, timeZone, now, measuredAtMs = now) {
   if (!status || !status.enabled) return '';
   const hour = status.preferred_reminder_hour;
   if (!Number.isFinite(hour)) return '';
   const slotMs = measureSlotMs(now, timeZone, hour);
-  return slotMs > now ? '' : `${prefix}:${Math.floor(slotMs / 1000)}`;
+  if (slotMs > now) return '';
+  // Negative when the reading came after the slot — the ordinary case.
+  if (!(slotMs - measuredAtMs <= MEASURE_SATISFIED_MS[prefix])) return '';
+  return `${prefix}:${Math.floor(slotMs / 1000)}`;
 }
 
 // computeReminderHorizon is pure: medications/intakes are raw records
@@ -361,7 +379,7 @@ export function computeReminderHorizon({
 
       // Fire if no reading within 12h before target, and the target lands
       // outside any active snooze / don't-bug window.
-      if (targetMs > now && targetMs > bpMutedUntil && targetMs - lastBPMs > 12 * 60 * 60 * 1000) {
+      if (targetMs > now && targetMs > bpMutedUntil && targetMs - lastBPMs > MEASURE_SATISFIED_MS.bp) {
         const fireAtUnix = Math.floor(targetMs / 1000);
         entries.push({ fireAtUnix, kind: 'bp', text: "📊 **Time to measure your blood pressure**\n\nPlease take a moment to measure and record your BP.", genericText: GENERIC_BP_TEXT, callback: `bp:${fireAtUnix}` });
       }
@@ -381,7 +399,7 @@ export function computeReminderHorizon({
 
       // Fire if no reading within 7 days before target
       // Same mute gate as BP: skip targets inside an active snooze / don't-bug window.
-      if (targetMs > now && targetMs > weightMutedUntil && targetMs - lastWeightMs > 7 * 24 * 60 * 60 * 1000) {
+      if (targetMs > now && targetMs > weightMutedUntil && targetMs - lastWeightMs > MEASURE_SATISFIED_MS.wt) {
         const fireAtUnix = Math.floor(targetMs / 1000);
         entries.push({ fireAtUnix, kind: 'weight', text: "⚖️ **Time to track your weight**\n\nIt's been about a week since your last measurement. Regular tracking helps you stay on top of your goals!", genericText: GENERIC_WEIGHT_TEXT, callback: `wt:${fireAtUnix}` });
       }

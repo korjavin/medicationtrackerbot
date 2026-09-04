@@ -220,7 +220,10 @@ scrubbed on the same 48h sweep, which is also Telegram's bot-delete window).
 For the measure reminders the shim rebuilds the stem from the pref itself
 (`measureReminderStem`, `web/domain/reminders.js`): today's slot at the
 configured local hour, and only once that hour has passed — a slot still ahead
-has not been sent, so there is nothing live to cancel (med-9bmb).
+has not been sent, so there is nothing live to cancel. It also applies the
+horizon's own satisfaction window (12h for BP, 7d for weight) to the reading's
+`measured_at`, so backdating a catch-up entry does not delete a reminder the
+user never answered (med-9bmb).
 
 The sent row keeps the callback stem and the ids (only `ct`/`tg_text` are
 scrubbed on send), so a tap resolves for 48h after the last send —

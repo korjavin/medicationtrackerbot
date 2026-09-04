@@ -195,10 +195,14 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
             delete globalThis.fetch;
         });
 
+        const log = (measuredAtMs = NOW) => ({
+            weight: 80.0, measured_at: new Date(measuredAtMs).toISOString()
+        });
+
         it('posts exactly one cancel-refire for the stem the horizon would have pushed', async () => {
             withWeightPref({ enabled: true, preferred_reminder_hour: PAST_HOUR });
 
-            await env.window.apiCall('/api/weight', 'POST', { weight: 80.0, measured_at: new Date(NOW).toISOString() });
+            await env.window.apiCall('/api/weight', 'POST', log());
 
             expect(cancelCallbacks()).toEqual([`wt:${PAST_SLOT_UNIX}`]);
             const horizon = computeReminderHorizon({
@@ -212,18 +216,28 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
         it('does not cancel when today\'s slot has not fired yet', async () => {
             withWeightPref({ enabled: true, preferred_reminder_hour: FUTURE_HOUR });
 
-            await env.window.apiCall('/api/weight', 'POST', { weight: 80.0, measured_at: new Date(NOW).toISOString() });
+            await env.window.apiCall('/api/weight', 'POST', log());
+
+            expect(cancelCallbacks()).toEqual([]);
+        });
+
+        it('does not cancel for a log backdated past the 7d window', async () => {
+            // Same reason as BP: a catch-up entry has not answered today's
+            // reminder, and the message cannot be restored once deleted.
+            withWeightPref({ enabled: true, preferred_reminder_hour: PAST_HOUR });
+
+            await env.window.apiCall('/api/weight', 'POST', log(NOW - 9 * 24 * 60 * 60 * 1000));
 
             expect(cancelCallbacks()).toEqual([]);
         });
 
         it('does not cancel when weight reminders are disabled or unconfigured', async () => {
             withWeightPref({ enabled: false, preferred_reminder_hour: PAST_HOUR });
-            await env.window.apiCall('/api/weight', 'POST', { weight: 80.0, measured_at: new Date(NOW).toISOString() });
+            await env.window.apiCall('/api/weight', 'POST', log());
             expect(cancelCallbacks()).toEqual([]);
 
             withWeightPref(null);
-            await env.window.apiCall('/api/weight', 'POST', { weight: 80.0, measured_at: new Date(NOW).toISOString() });
+            await env.window.apiCall('/api/weight', 'POST', log());
             expect(cancelCallbacks()).toEqual([]);
         });
     });
