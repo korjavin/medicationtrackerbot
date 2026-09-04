@@ -781,11 +781,24 @@ type Message struct {
 	Date int64 `json:"date,omitempty"`
 }
 
+// maxMessageDateSkew bounds how far ahead of the relay's own clock a message's
+// date may be. Telegram stamps date on receipt, so it is never meaningfully
+// ahead of us; anything beyond plain clock skew is garbage, and a wildly large
+// value would make the drain's `new Date(at_unix * 1000).toISOString()` throw on
+// every poll, wedging that one event in the mailbox forever.
+const maxMessageDateSkew = 5 * time.Minute
+
 // AtUnix returns the message's own send time, falling back to the caller's clock
 // when Telegram omitted date (documented as always present, but a sealed event
-// with a zero timestamp is worse than one stamped at arrival).
+// with a zero timestamp is worse than one stamped at arrival) or when the date
+// is implausibly in the future. Old dates are NOT clamped — a webhook retried
+// after relay downtime carries a genuinely old date, which is the whole point
+// (bd med-3hr).
+//
+// Only for real inbound messages: a CallbackQuery's Message is the BOT's own
+// reminder, so a tap must keep being stamped with the relay's clock.
 func (m *Message) AtUnix(fallback time.Time) int64 {
-	if m.Date > 0 {
+	if m.Date > 0 && m.Date <= fallback.Add(maxMessageDateSkew).Unix() {
 		return m.Date
 	}
 	return fallback.Unix()
