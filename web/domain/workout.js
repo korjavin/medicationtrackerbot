@@ -2218,6 +2218,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // active range that saw a completed or skipped session. Sparse by design (a
   // rest day is simply absent, exactly like an untrained week in
   // weekly_activity); the Consistency calendar fills the gaps itself.
+  //
+  // med-904.3 adds `hard_set_band` — the user's OWN trailing-3-window average
+  // of hard sets and the ±20% band around it, so the Balance view can say "in
+  // range / below / above" instead of an uncalibrated absolute. `null` until
+  // there is enough history to have a baseline at all (see below).
   async function getStats(opts) {
     // '180d' has no range pill in the Stats view — it exists because the
     // doctor-visit brief (brief.js) offers a 180-day window and folds its
@@ -2319,6 +2324,25 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const volumeWeeks = new Map();
     for (const week of weekKeys) volumeWeeks.set(week, { week, volume_kg: 0, hard_sets: 0, reps: 0 });
 
+    // med-904.3 — the own-baseline band on weekly hard sets (JEFIT's Stimulus
+    // Volume Engine / Strava's Relative Effort): the last 7 days' hard sets
+    // against the average of the three 7-day windows before them, so the
+    // headline is "in range / below / above" instead of an absolute number no
+    // user can calibrate. windowHardSets[0] is the current window, [1..3] the
+    // baseline ones.
+    //
+    // ROLLING 7-day windows, not the ISO weeks weekly_volume buckets by: a
+    // calendar week is partial until Sunday, so an ISO-week comparison would
+    // report "below" every Monday through Thursday for someone training
+    // exactly as much as they always do.
+    //
+    // Range-independent, like current_streak_weeks — "am I training my usual
+    // amount" is a property of recent history, not of the window the range
+    // pills happen to show.
+    const WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+    const windowHardSets = [0, 0, 0, 0];
+    let oldestLogMs = Infinity;
+
     const agg = new Map();
     const heaviestSoFar = new Map(); // exercise_name -> heaviest working set seen
     let rangeVolume = 0;
@@ -2334,6 +2358,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       if (work.max_weight_kg > (heaviestSoFar.get(log.exercise_name) || 0)) {
         heaviestSoFar.set(log.exercise_name, work.max_weight_kg);
         if (schedMs >= since30) prCount++;
+      }
+
+      if (Number.isFinite(schedMs)) {
+        if (schedMs < oldestLogMs) oldestLogMs = schedMs;
+        // A future-dated session lands at a negative age and is excluded.
+        const age = nowMs - schedMs;
+        if (age >= 0 && age < 4 * WINDOW_MS) windowHardSets[Math.floor(age / WINDOW_MS)] += work.hard_sets;
       }
 
       const week = sessionWeek.get(log.session_id);
@@ -2425,6 +2456,25 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       ? Array.from(dayMap.keys()).sort().map((day) => dayMap.get(day))
       : null;
 
+    // A baseline needs three whole trailing windows of history behind it: a
+    // two-week-old account has no "usual" yet, and averaging a partial history
+    // would call every honest session "above". `null` (never a zero band) when
+    // there isn't one — the UI says "keep logging" rather than judging.
+    // ±20% around the average, floored/ceiled OUTWARD so a small baseline
+    // (avg 2 → 1–3) still leaves a band rather than collapsing to a point.
+    const baseline = (windowHardSets[1] + windowHardSets[2] + windowHardSets[3]) / 3;
+    const bandLow = Math.floor(baseline * 0.8);
+    const bandHigh = Math.ceil(baseline * 1.2);
+    const hardSetBand = (baseline > 0 && nowMs - oldestLogMs >= 4 * WINDOW_MS)
+      ? {
+        current: windowHardSets[0],
+        baseline: Math.round(baseline * 10) / 10,
+        low: bandLow,
+        high: bandHigh,
+        status: windowHardSets[0] < bandLow ? 'below' : (windowHardSets[0] > bandHigh ? 'above' : 'in_range'),
+      }
+      : null;
+
     return {
       range,
       total_sessions: totalSessions,
@@ -2447,6 +2497,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       },
       weekly_volume: weeklyVolume,
       exercise_totals: exerciseTotals,
+      hard_set_band: hardSetBand,
     };
   }
 

@@ -72,6 +72,32 @@ function _computeBodyPartSets(exerciseTotals, resolveFn) {
         .sort((a, b) => b.sets - a.sets);
 }
 
+// Balance view v2 (med-904.3) — movement-pattern balance, the JEFIT Movement
+// Balance Engine axis. Two opposing pairs over the SAME working sets the
+// body-part split folds, so the two sections always agree. A pair with no sets
+// on either side is dropped rather than drawn as an empty 0:0 row.
+const WORKOUTS_MOVEMENT_PAIRS = [
+    ['Pull : Push', 'pull', 'push'],
+    ['Hinge : Squat', 'hinge', 'squat'],
+];
+
+// Own-baseline band headline (med-904.3). The domain computes the band; the UI
+// only names the verdict.
+const WORKOUTS_HARD_SET_BAND_LABELS = {
+    below: 'Below your usual',
+    in_range: 'In your usual range',
+    above: 'Above your usual',
+};
+
+function _computeMovementSets(exerciseTotals, resolveFn) {
+    const totals = { push: 0, pull: 0, hinge: 0, squat: 0 };
+    for (const ex of (exerciseTotals || [])) {
+        const move = resolveFn(ex.exercise_name);
+        if (move && totals[move.pattern] !== undefined) totals[move.pattern] += (ex.sets || 0);
+    }
+    return totals;
+}
+
 function _bodyPartLabel(bodyPart) {
     return window.WorkoutExerciseCatalog.friendlyBodyPart(bodyPart)
         || (bodyPart.charAt(0).toUpperCase() + bodyPart.slice(1));
@@ -348,6 +374,57 @@ function _appendTopExercises(section, exercises) {
     section.appendChild(list);
 }
 
+// Pull:Push and Hinge:Squat as split bars — the fill is the FIRST pattern's
+// share of the pair, so a balanced pair sits at half and the eye reads the
+// lean without doing the division.
+function _appendMovementBalance(section, exercises) {
+    section.appendChild(_buildSectionLabel('Movement Balance'));
+
+    const sets = _computeMovementSets(exercises, window.WorkoutExerciseCatalog.resolveMovementPattern);
+    const pairs = WORKOUTS_MOVEMENT_PAIRS.filter(([, a, b]) => sets[a] + sets[b] > 0);
+    if (pairs.length === 0) {
+        // Not an error: nothing logged in this range maps to a push/pull/
+        // hinge/squat pattern yet (core and cardio never will).
+        section.appendChild(_buildHint('Keep logging to unlock movement balance'));
+        return;
+    }
+
+    const list = document.createElement('ul');
+    list.className = 'wg-workouts-stats__top-exercises wg-workouts-stats__movement-balance';
+    pairs.forEach(([label, a, b]) => {
+        const left = sets[a];
+        const right = sets[b];
+        const ratio = right > 0 ? ` · ${(left / right).toFixed(1)}:1` : '';
+        list.appendChild(_buildBarRow({
+            name: label,
+            summary: `${left} : ${right} sets${ratio}`,
+            pct: (left / (left + right) * 100).toFixed(1),
+        }));
+    });
+    section.appendChild(list);
+}
+
+// The own-baseline band: this week's hard sets against the user's own trailing
+// average, so the number is calibrated to them and not to a population.
+function _appendHardSetBand(section, band) {
+    section.appendChild(_buildSectionLabel('Hard Sets · Last 7 Days'));
+    if (!band) {
+        section.appendChild(_buildHint('Keep logging to unlock your usual range'));
+        return;
+    }
+
+    const list = document.createElement('ul');
+    list.className = 'wg-workouts-stats__top-exercises wg-workouts-stats__hard-set-band';
+    list.appendChild(_buildBarRow({
+        name: WORKOUTS_HARD_SET_BAND_LABELS[band.status] || WORKOUTS_HARD_SET_BAND_LABELS.in_range,
+        summary: `${band.current} sets · usual ${band.low}–${band.high}`,
+        // Scaled against the top of the band, so "in range" fills most of the
+        // track and "above" pins it full rather than overflowing.
+        pct: (Math.min(1, band.high > 0 ? band.current / band.high : 0) * 100).toFixed(1),
+    }));
+    section.appendChild(list);
+}
+
 // -- The three views ------------------------------------------------------
 
 // 1. Consistency — "did I show up". med-zte swapped the sessions-per-week line
@@ -418,9 +495,20 @@ function _renderLoadView(section, stats, range) {
 
 // 3. Balance — "what am I neglecting". Sets per body part plus, crucially, the
 // body parts with ZERO sets in the range (JEFIT's BodyMap framing: absence is
-// the insight nobody else surfaces).
+// the insight nobody else surfaces). med-904.3 adds two follow-ups below it.
+//
+// The movement-pattern ratios sit behind the same guards as the split — they
+// read the same rows through the same catalog, so a view that has just said
+// "no exercises logged" must not then argue about ratios. The hard-set band
+// does NOT: it is whole-history, range-independent and needs no catalog, so
+// hiding it behind an empty range or a failed catalog fetch would suppress a
+// perfectly good answer for an unrelated reason.
 async function _renderBalanceView(section, stats) {
-    const exercises = stats.exercise_totals || [];
+    await _appendBodyPartBalance(section, stats.exercise_totals || []);
+    _appendHardSetBand(section, stats.hard_set_band);
+}
+
+async function _appendBodyPartBalance(section, exercises) {
     if (exercises.length === 0) {
         section.appendChild(_buildHint('No exercises logged in this range'));
         return;
@@ -461,18 +549,23 @@ async function _renderBalanceView(section, stats) {
         .filter((bp) => !trained.has(bp))
         .map(_bodyPartLabel)
         .sort();
-    if (untrained.length === 0) return;
 
-    section.appendChild(_buildSectionLabel('Not Trained'));
-    const chips = document.createElement('div');
-    chips.className = 'wg-workouts-stats__untrained';
-    untrained.forEach((label) => {
-        const chip = document.createElement('span');
-        chip.className = 'wg-workouts-stats__untrained-chip';
-        chip.textContent = label;
-        chips.appendChild(chip);
-    });
-    section.appendChild(chips);
+    if (untrained.length > 0) {
+        section.appendChild(_buildSectionLabel('Not Trained'));
+        const chips = document.createElement('div');
+        chips.className = 'wg-workouts-stats__untrained';
+        untrained.forEach((label) => {
+            const chip = document.createElement('span');
+            chip.className = 'wg-workouts-stats__untrained-chip';
+            chip.textContent = label;
+            chips.appendChild(chip);
+        });
+        section.appendChild(chips);
+    }
+
+    // The ratios come last: the body-part split is still the headline, and
+    // "balanced how?" is the follow-up question.
+    _appendMovementBalance(section, exercises);
 }
 
 // -- Loader + shell -------------------------------------------------------
