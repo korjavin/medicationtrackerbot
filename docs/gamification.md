@@ -901,6 +901,10 @@ affordance, and each ring's per-section logging deeplink are unchanged — only 
 ring visualization and its legend layout moved. `wg-ring` itself is untouched and
 stays available for other surfaces; the stack is a sibling component, not a rewrite.
 
+> Superseded for Journey (bd med-edxz.1): the Journey rings card was cut as a
+> duplicate of the Today tile — Today is the only surface rendering the ring
+> stack. The Today tile description above still holds.
+
 Per direction this plan added no tests beyond `tests/wg-ring-stack.test.js`;
 verification was `go test ./...` (untouched), `pnpm test` (architecture guards:
 globals allowlist incl. `window.WGRingStack`, design tokens, SW precache; existing

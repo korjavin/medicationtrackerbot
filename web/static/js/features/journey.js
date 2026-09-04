@@ -4,11 +4,12 @@
 // reads GET /api/gamification/journey through cachedFetch (local-first +
 // freshness chip) and a pure-ish render(journey) that paints #journey-content
 // from the Plan 2 Journey read model:
-//   { enabled, level, lifetime_hp, hp_into_level, level_span_hp, hp_to_next_level,
-//     current_streak, longest_streak, freezes, today_hp, today_rings:[{ring,hp}],
-//     period_rings:[{ring,hp}], unlocked_tiers:[1..], level_curve:[{level,hp_to_reach}],
-//     health_score:{value,contributors:[{key,label,score,weight,missing}],missing:[]},
-//     strengths:[{key,label,value,frequency}] }  (Task 8, the two additive score layers)
+//   { enabled, level, lifetime_hp, unlocked_tiers:[1..],
+//     health_score:{value,contributors:[{key,label,score,weight,missing}],missing:[]} }
+// plus the separately-fetched atlas / weekly_review / gauges / insight /
+// traits / experiments / chapter / keystones / narration layers. The rings,
+// strengths and hp_history fields are still served but no longer rendered
+// here — Today owns the rings tile (med-edxz.1).
 //
 // Visuals come only from CSS classes + --wg-* tokens; the only inline style is
 // `style.setProperty('--fill-pct', …)` for progress fills (allowed by the
@@ -28,10 +29,9 @@
 
     // Ring display metadata in canonical order (matches the backend's
     // ringScores ordering) — the three daily levers (gamification-10 §2.5).
-    // Icons come from the WGIcons registry. `how` is the plain-language action
-    // that fills the ring — answers "how do I get this?" right on the row
-    // (mirrors today.js RING_MOVE_META verbs; no HP number, which lives in the
-    // backend Config and would drift if duplicated here).
+    // Today owns the rings card now (med-edxz.1); what survives here is the
+    // key→label map the weekly-review lever line reads. `icon`/`how` are kept
+    // as the canonical lever description, mirroring today.js RING_MOVE_META.
     const RINGS = [
         { ring: 'bedtime', label: 'Bedtime', icon: 'moon', how: 'Keep a steady lights-out time' },
         { ring: 'movement', label: 'Movement', icon: 'activity', how: 'Log a workout' },
@@ -44,13 +44,6 @@
             catch (_) { return null; }
         }
         return null;
-    }
-
-    function ringStackOrNull(opts) {
-        if (typeof window === 'undefined' || !window.WGRingStack || typeof window.WGRingStack.render !== 'function') {
-            return null;
-        }
-        return window.WGRingStack.render(opts);
     }
 
     function el(tag, className, text) {
@@ -77,61 +70,13 @@
         content.replaceChildren(el('p', 'wg-journey-empty wg-muted', message));
     }
 
-    function renderHeader(j) {
-        const card = el('section', 'wg-card wg-journey-header');
-
-        const top = el('div', 'wg-journey-header__top');
-        const badge = el('div', 'wg-journey-level-badge');
-        const bolt = icon('bolt', 20);
-        if (bolt) badge.appendChild(bolt);
-        badge.appendChild(el('span', 'wg-journey-level-badge__num', `Lvl ${Number(j.level) || 0}`));
-        top.appendChild(badge);
-
-        const lifetime = el('div', 'wg-journey-header__lifetime');
-        lifetime.appendChild(el('span', 'wg-mono-display wg-journey-header__hp', String(Number(j.lifetime_hp) || 0)));
-        lifetime.appendChild(el('span', 'wg-journey-header__hp-label', 'lifetime HP'));
-        top.appendChild(lifetime);
-        card.appendChild(top);
-
-        const span = Number(j.level_span_hp) || 0;
-        const into = Number(j.hp_into_level) || 0;
-        card.appendChild(progressBar(span > 0 ? into / span : 1, 'wg-journey-bar__fill--sun'));
-
-        const toNext = Number(j.hp_to_next_level) || 0;
-        const caption = toNext > 0
-            ? `${toNext} HP to Level ${(Number(j.level) || 0) + 1}`
-            : 'Max level reached';
-        card.appendChild(el('div', 'wg-journey-header__caption wg-muted', caption));
-        return card;
-    }
-
-    // First-run explainer (Plan 5, Task 5) — a short, static term/desc card
-    // covering HP, rings, closing, levels and the insight ladder in plain
-    // language. No collapse/expand JS: it's five short lines, not worth the
-    // state.
-    const EXPLAINER_TERMS = [
-        ['HP', 'Healthy actions earn HealthPoints (HP).'],
-        ['Rings', 'Each ring tracks one daily decision you make — bedtime, movement, nourishment.'],
-        ['Closing a ring', 'A ring closes when today’s number lands in your target range, not just from logging.'],
-        ['Levers vs. gauges', 'Bedtime, movement and nourishment are levers you choose today, so they close rings daily. Weight, BP and heart readings are gauges — read as trends over time, never graded day to day.'],
-        ['Health Score', 'A 0–100 score built from your recent readings — a gap in the data dilutes it, it never counts as a zero.'],
-        ['Strengths', 'Each habit’s strength rises when you keep it up and eases off on a miss — no all-or-nothing streak to lose.'],
-        ['Levels', 'HP adds up across days; enough HP levels you up.'],
-        ['Discoveries', 'Log honestly and your body’s patterns develop into findings — no level gate.'],
-    ];
-
-    function renderExplainer() {
-        const card = el('section', 'wg-card wg-journey-explainer');
-        card.appendChild(el('div', 'wg-section-label', 'HOW THIS WORKS'));
-        const list = el('div', 'wg-journey-explainer__list');
-        EXPLAINER_TERMS.forEach(([term, desc]) => {
-            const row = el('div', 'wg-journey-explainer__row');
-            row.appendChild(el('span', 'wg-journey-explainer__term', term));
-            row.appendChild(el('span', 'wg-journey-explainer__desc wg-muted', desc));
-            list.appendChild(row);
-        });
-        card.appendChild(list);
-        return card;
+    // Level/HP, demoted to one muted line at the very bottom of the screen
+    // (med-edxz.1). Levels never decay (gamification §13) so the number stays,
+    // but it is a footnote, not the hero of the Journey.
+    function renderLevelLine(j) {
+        const level = Number(j.level) || 0;
+        const hp = Number(j.lifetime_hp) || 0;
+        return el('p', 'wg-journey-level-line wg-muted', `Lvl ${level} · ${hp.toLocaleString()} HP`);
     }
 
     // Qualitative band for the 0-100 Health Score composite (Task 8). Duplicated
@@ -166,6 +111,13 @@
         card.appendChild(hero);
 
         const contributors = Array.isArray(hs.contributors) ? hs.contributors : [];
+        if (contributors.length === 0) return card;
+
+        // Contributors are the detail behind the hero number — collapsed by
+        // default so the screen reads in a glance (med-edxz.1). Native
+        // <details>, same convention as the weekly review; no JS state.
+        const details = el('details', 'wg-journey-score__details');
+        details.appendChild(el('summary', 'wg-journey-score__summary wg-muted', 'Contributors'));
         const list = el('div', 'wg-journey-score__list');
         contributors.forEach((c) => {
             const row = el('div', 'wg-journey-score__row');
@@ -177,7 +129,8 @@
             row.appendChild(progressBar(c.missing ? 0 : c.score, 'wg-journey-bar__fill--sun'));
             list.appendChild(row);
         });
-        card.appendChild(list);
+        details.appendChild(list);
+        card.appendChild(details);
         return card;
     }
 
@@ -390,9 +343,6 @@
         }
         if (gauges.enabled === false) return null;
 
-        card.appendChild(el('p', 'wg-journey-gauges__why wg-muted',
-            'Your body reports back slowly — these read as trends, never a daily grade.'));
-
         const list = el('div', 'wg-journey-gauges__list');
         list.appendChild(renderGaugeRow('Weight', weightGaugeCopy(gauges.weight), gauges.weight && gauges.weight.trend_history));
         list.appendChild(renderGaugeRow('Blood pressure', bpGaugeCopy(gauges.bp)));
@@ -411,59 +361,6 @@
         });
         card.appendChild(link);
 
-        return card;
-    }
-
-    // Strengths pillar metadata — icon only; label comes from the backend so
-    // wording changes don't need a frontend deploy.
-    const STRENGTHS_META = {
-        meds: { icon: 'pill' },
-        movement: { icon: 'activity' },
-        measurement: { icon: 'chart' },
-    };
-
-    // Strengths card (Task 8): replaces the weekly streak card as the
-    // continuity mechanic — one Loop-Habit-Tracker EMA gauge per pillar
-    // (meds/movement/measurement). The derived streak from Phase A is
-    // demoted to a single footnote line here rather than dropped outright,
-    // since "N-week streak" is still a legible, familiar number. The streak
-    // is weekly-cadence (derived per met week in streak.go), so it reads in
-    // weeks, not days.
-    function renderStrengths(j) {
-        const card = el('section', 'wg-card wg-journey-strengths');
-        card.appendChild(el('div', 'wg-section-label', 'STRENGTHS'));
-
-        const strengths = Array.isArray(j.strengths) ? j.strengths : [];
-        if (strengths.length === 0) {
-            card.appendChild(el('p', 'wg-journey-strengths__empty wg-muted', 'No habit data yet.'));
-        } else {
-            const list = el('div', 'wg-journey-strengths__list');
-            strengths.forEach((s) => {
-                const meta = STRENGTHS_META[s.key] || {};
-                const row = el('div', 'wg-journey-strength');
-                const head = el('div', 'wg-journey-strength__head');
-                const ic = icon(meta.icon || 'bolt', 16);
-                if (ic) {
-                    const wrap = el('span', 'wg-journey-strength__icon');
-                    wrap.appendChild(ic);
-                    head.appendChild(wrap);
-                }
-                head.appendChild(el('span', 'wg-journey-strength__label', s.label || s.key));
-                const pct = Math.round((Number(s.value) || 0) * 100);
-                head.appendChild(el('span', 'wg-mono-display wg-journey-strength__value', `${pct}%`));
-                row.appendChild(head);
-                row.appendChild(progressBar(s.value, 'wg-journey-bar__fill--sun'));
-                list.appendChild(row);
-            });
-            card.appendChild(list);
-        }
-
-        const current = Number(j.current_streak) || 0;
-        const longest = Number(j.longest_streak) || 0;
-        const footnote = current > 0
-            ? `${current}-week streak · best ${longest}`
-            : (longest > 0 ? `Best streak: ${longest} weeks` : 'Close a ring weekly to start a streak.');
-        card.appendChild(el('div', 'wg-journey-strengths__footnote wg-muted', footnote));
         return card;
     }
 
@@ -552,8 +449,6 @@
         }
         const expCtx = { templateByProbe, canStart: !!(exp && exp.can_start) };
 
-        card.appendChild(el('p', 'wg-journey-atlas__why wg-muted',
-            'Log honestly and your body’s patterns develop — each card is a question your own data answers.'));
         const list = el('div', 'wg-journey-atlas__list');
         cards.forEach((c) => list.appendChild(atlasCardEl(c, expCtx)));
         card.appendChild(list);
@@ -644,135 +539,6 @@
         done.type = 'button';
         done.addEventListener('click', () => cancelExperiment(v.id));
         card.appendChild(done);
-        return card;
-    }
-
-    function renderRings(j) {
-        const card = el('section', 'wg-card wg-journey-rings');
-        card.id = 'journey-rings-card';
-
-        const rings = Array.isArray(j.today_rings) ? j.today_rings : [];
-        const hpByRing = {};
-        const progressByRing = {};
-        const goalByRing = {};
-        const closedByRing = {};
-        const syncPendingByRing = {};
-        let closedCount = 0;
-        rings.forEach((r) => {
-            if (!r || typeof r.ring !== 'string') return;
-            const hp = Number(r.hp) || 0;
-            hpByRing[r.ring] = hp;
-            progressByRing[r.ring] = r.progress;
-            goalByRing[r.ring] = r.goal;
-            if (r.closed) { closedByRing[r.ring] = true; closedCount += 1; }
-            if (r.sync_pending) { syncPendingByRing[r.ring] = true; }
-        });
-
-        // Closed count in the section label turns the rings from a scoreboard
-        // into a goal ("3 of 5 closed"); the why-line says what a ring *is*.
-        card.appendChild(el('div', 'wg-section-label',
-            `TODAY’S RINGS · ${closedCount} OF ${RINGS.length} CLOSED`));
-        card.appendChild(el('p', 'wg-journey-rings__why wg-muted',
-            'Close each ring daily — one per area of your health.'));
-
-        // One big concentric stack (Plan 7) replaces the old per-row wg-ring
-        // gauges; outer→inner follows RINGS' canonical order. Larger size
-        // modifier than the Today tile — this is the screen dedicated to it.
-        // The center check appears once every *actionable* ring is closed (each
-        // ring is either closed or waiting on a device sync) — sync-pending
-        // rings don't block celebration, matching the Today tile and the
-        // wg-ring-stack contract (Plan 7, Task 1).
-        const body = el('div', 'wg-journey-rings__body');
-        const allActionableClosed = RINGS.every((meta) =>
-            closedByRing[meta.ring] || syncPendingByRing[meta.ring]);
-        const stack = ringStackOrNull({
-            rings: RINGS.map((meta) => ({
-                key: meta.ring,
-                progress: progressByRing[meta.ring],
-                closed: !!closedByRing[meta.ring],
-                syncPending: !!syncPendingByRing[meta.ring]
-            })),
-            centerLabel: allActionableClosed ? icon('check', 24) : `${closedCount}/${RINGS.length}`,
-            label: 'Today’s rings'
-        });
-        if (stack) {
-            stack.classList.add('wg-ring-stack--lg');
-            body.appendChild(stack);
-        }
-
-        const legend = el('div', 'wg-journey-rings__legend');
-        const list = el('div', 'wg-journey-rings__list');
-        RINGS.forEach((meta) => {
-            const hp = hpByRing[meta.ring] || 0;
-            const isClosed = !!closedByRing[meta.ring];
-            const isSyncPending = !!syncPendingByRing[meta.ring];
-            const row = el('div', 'wg-journey-ring' + (isSyncPending ? ' wg-journey-ring--sync-pending' : ''));
-
-            const head = el('div', 'wg-journey-ring__head');
-            const ic = icon(meta.icon, 16);
-            if (ic) {
-                const wrap = el('span', 'wg-journey-ring__icon');
-                wrap.appendChild(ic);
-                head.appendChild(wrap);
-            }
-            head.appendChild(el('span', 'wg-journey-ring__label', meta.label));
-            // A check marks a closed ring (landed in range, not just logged).
-            if (isClosed) {
-                const chk = icon('check', 14);
-                if (chk) {
-                    const cw = el('span', 'wg-journey-ring__check');
-                    cw.setAttribute('aria-label', 'closed');
-                    cw.appendChild(chk);
-                    head.appendChild(cw);
-                }
-            }
-            head.appendChild(el('span', 'wg-mono-display wg-journey-ring__hp', String(hp)));
-            row.appendChild(head);
-
-            // The subtitle answers "what closes this ring?" with the user's
-            // real goal numbers (falls back to the generic "how" when the
-            // backend hasn't sent a goal). Once closed it switches to a done
-            // note instead of nagging; a sync-pending ring (no device sample
-            // yet) reads as waiting, not failing.
-            row.appendChild(el('p', 'wg-journey-ring__sub wg-muted',
-                isSyncPending ? 'Syncs later' : (isClosed ? 'Closed for today' : (goalByRing[meta.ring] || meta.how))));
-
-            list.appendChild(row);
-        });
-        legend.appendChild(list);
-        body.appendChild(legend);
-        card.appendChild(body);
-        return card;
-    }
-
-    // Points-history card — turns the already-fetched (but previously discarded)
-    // hp_history into a sparkline trend + caption. Each entry is one day that
-    // earned HP (sparse), so "N days" counts active days, not calendar days.
-    // Returns null when there's no history so a fresh account skips the card.
-    function renderHistory(j) {
-        const hist = Array.isArray(j.hp_history) ? j.hp_history : [];
-        if (hist.length === 0) return null;
-
-        const WINDOW = 30;
-        const recent = hist.slice(-WINDOW);
-        const points = recent.map((d) => Number(d && d.hp) || 0);
-        const total = points.reduce((a, b) => a + b, 0);
-
-        const card = el('section', 'wg-card wg-journey-history');
-        card.appendChild(el('div', 'wg-section-label', 'POINTS HISTORY'));
-
-        if (window.WGSparkline && typeof window.WGSparkline.render === 'function') {
-            const spark = window.WGSparkline.render({ points, variant: 'sun', width: 300, height: 56 });
-            if (spark) {
-                const chart = el('div', 'wg-journey-history__chart');
-                chart.appendChild(spark);
-                card.appendChild(chart);
-            }
-        }
-
-        const days = recent.length;
-        card.appendChild(el('div', 'wg-journey-history__caption wg-muted',
-            `Last ${days} day${days === 1 ? '' : 's'} · ${total.toLocaleString()} HP`));
         return card;
     }
 
@@ -934,9 +700,11 @@
         card.appendChild(el('p', 'wg-journey-chapter__recap wg-muted', review.text || ''));
     }
 
+    // The theme library is a menu you open, not a wall you read: collapsed
+    // behind one summary line (med-edxz.1), native <details>, no JS state.
     function renderChapterThemes(card, themes) {
-        card.appendChild(el('p', 'wg-journey-chapter__prompt wg-muted',
-            'Start a four-week chapter — a theme to focus on, closed with a written review. Opt-in, never a deadline.'));
+        const details = el('details', 'wg-journey-chapter__details');
+        details.appendChild(el('summary', 'wg-journey-chapter__summary wg-muted', 'Start a 4-week chapter'));
         const list = el('div', 'wg-journey-chapter__themes');
         (Array.isArray(themes) ? themes : []).forEach((t) => {
             const row = el('div', 'wg-journey-chapter__theme');
@@ -950,7 +718,8 @@
             row.appendChild(el('p', 'wg-journey-chapter__theme-blurb wg-muted', t.blurb || t.focus || ''));
             list.appendChild(row);
         });
-        card.appendChild(list);
+        details.appendChild(list);
+        card.appendChild(details);
     }
 
     function renderChapter(j) {
@@ -1018,9 +787,6 @@
         const card = el('section', 'wg-card wg-journey-traits');
         card.id = 'journey-traits-card';
         card.appendChild(el('div', 'wg-section-label', 'TRAITS'));
-        card.appendChild(el('p', 'wg-journey-traits__why wg-muted',
-            'Identities you earn by keeping a lever steady — they go dormant, never disappear.'));
-
         const list = el('div', 'wg-journey-traits__list');
         traits.forEach((t) => {
             const row = el('div', 'wg-journey-trait wg-journey-trait--' + t.state);
@@ -1057,9 +823,6 @@
         const card = el('section', 'wg-card wg-journey-keystones');
         card.id = 'journey-keystones-card';
         card.appendChild(el('div', 'wg-section-label', 'KEYSTONES'));
-        card.appendChild(el('p', 'wg-journey-keystones__why wg-muted',
-            'Rare, permanent milestones — earned because reality made them rare.'));
-
         const list = el('div', 'wg-journey-keystones__list');
         entries.forEach((k) => {
             const row = el('div', 'wg-journey-keystone');
@@ -1125,7 +888,7 @@
         card.id = 'journey-narrator-card';
         card.appendChild(el('div', 'wg-section-label', 'AI STORY'));
         card.appendChild(el('p', 'wg-journey-narrator__note wg-muted',
-            'Optional. Each button sends your already-computed health summaries — never raw logs — to your own AI provider for a few sentences of prose. Every number above stays deterministic.'));
+            'Optional — sends computed summaries, never raw logs, to your own AI key.'));
 
         const out = el('div', 'wg-journey-narrator__out');
         const buttons = el('div', 'wg-journey-narrator__buttons');
@@ -1146,18 +909,20 @@
         const content = document.getElementById('journey-content');
         if (!content) return;
 
-        // The narrative layer (chapter / atlas / experiment / traits /
-        // keystones) leads the feed and stands on its own: in cloud mode the HP/
-        // levels/rings substrate is a later phase (returns {enabled:false}), so a
-        // disabled substrate with a live narrative layer still renders it rather
-        // than the "gamification is off" empty state (insight leads).
-        const chapterCard = journey ? renderChapter(journey) : null;
+        // Personal content leads (med-edxz.1): Atlas → your week → gauges →
+        // health score → traits → experiment/chapter → keystones → AI story,
+        // with level/HP as a muted footer line. The narrative layer (atlas /
+        // traits / experiment / chapter / keystones) also stands on its own:
+        // in cloud mode the HP/levels substrate is a later phase (returns
+        // {enabled:false}), so a disabled substrate with a live narrative
+        // layer still renders it rather than the "gamification is off" state.
         const atlasCard = journey ? renderAtlas(journey) : null;
-        const experimentCard = journey ? renderExperiment(journey) : null;
         const traitsCard = journey ? renderTraits(journey) : null;
+        const experimentCard = journey ? renderExperiment(journey) : null;
+        const chapterCard = journey ? renderChapter(journey) : null;
         const keystonesCard = journey ? renderKeystones(journey) : null;
         const narratorCard = journey ? renderNarrator(journey) : null;
-        const narrativeCards = [chapterCard, experimentCard, atlasCard, traitsCard, keystonesCard, narratorCard];
+        const narrativeCards = [atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard, narratorCard];
 
         if (!journey || journey.enabled === false) {
             const live = narrativeCards.filter(Boolean);
@@ -1170,22 +935,20 @@
         }
 
         const cards = [
-            chapterCard,
-            experimentCard,
+            // The first slot belongs to the "since you last looked" strip
+            // (med-edxz.3); until it lands, Atlas is the first card.
             atlasCard,
-            renderHeader(journey),
-            renderExplainer(),
-            renderHealthScore(journey),
             renderWeeklyReview(journey),
             renderGauges(journey),
-            renderStrengths(journey),
+            renderHealthScore(journey),
             traitsCard,
-            renderRings(journey),
-            renderHistory(journey),
+            experimentCard,
+            chapterCard,
             renderInsightCard(journey),
             renderGoodDayCard(journey),
             keystonesCard,
             narratorCard,
+            renderLevelLine(journey),
         ].filter(Boolean);
         content.replaceChildren(...cards);
     }
