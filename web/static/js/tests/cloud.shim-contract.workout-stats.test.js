@@ -290,6 +290,78 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         });
     });
 
+    // med-904.3 — hard_set_band: the user's OWN trailing baseline, in rolling
+    // 7-day windows rather than ISO weeks (a calendar week is partial until
+    // Sunday and would read "below" every Monday).
+    describe('own-baseline hard-set band (med-904.3)', () => {
+        // One completed session per entry, aged by rewriting its scheduled_date
+        // — the same backdating the range tests use.
+        async function seedWindows(env, plan) {
+            const { window } = env;
+            const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Squat' });
+            for (const { daysAgo, sets } of plan) {
+                const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+                await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                    session_id: session.id, exercise_id: item.id, exercise_name: item.name, source: 'library',
+                    status: 'completed',
+                    sets: Array.from({ length: sets }, () => ({ weight_kg: 100, reps: 5 })),
+                });
+                await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+                const rec = (await env.records.list('workoutsession')).find((r) => r.id === session.id);
+                await env.records.put('workoutsession', {
+                    ...rec, scheduled_date: new Date(Date.now() - daysAgo * 86400000).toISOString(),
+                });
+            }
+        }
+
+        it('is null until there are three whole trailing windows behind it', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const empty = await env.window.apiCallDirect('/api/workout/stats');
+            // Present-but-null, same contract as daily_activity.
+            expect('hard_set_band' in empty).toBe(true);
+            expect(empty.hard_set_band).toBeNull();
+
+            // A two-week-old account has no "usual" yet: averaging its partial
+            // history would call every honest session "above".
+            await seedWindows(env, [{ daysAgo: 1, sets: 10 }, { daysAgo: 8, sets: 10 }]);
+            expect((await env.window.apiCallDirect('/api/workout/stats')).hard_set_band).toBeNull();
+        });
+
+        it('bands the last 7 days against the average of the three windows before it', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await seedWindows(env, [
+                { daysAgo: 1, sets: 10 },   // current window
+                { daysAgo: 8, sets: 10 },   // baseline windows…
+                { daysAgo: 15, sets: 10 },
+                { daysAgo: 22, sets: 10 },
+                { daysAgo: 30, sets: 7 },   // older history: anchors the baseline gate, outside every window
+            ]);
+
+            const stats = await env.window.apiCallDirect('/api/workout/stats');
+            expect(stats.hard_set_band).toEqual({
+                current: 10, baseline: 10, low: 8, high: 12, status: 'in_range',
+            });
+            // Range-independent, like current_streak_weeks — "am I training my
+            // usual amount" is not a property of the pill you tapped.
+            const week = await env.window.apiCallDirect('/api/workout/stats?range=7d');
+            expect(week.hard_set_band).toEqual(stats.hard_set_band);
+        });
+
+        it('calls a light week below the band', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await seedWindows(env, [
+                { daysAgo: 1, sets: 2 },
+                { daysAgo: 8, sets: 10 },
+                { daysAgo: 15, sets: 10 },
+                { daysAgo: 22, sets: 10 },
+                { daysAgo: 30, sets: 7 },
+            ]);
+
+            const stats = await env.window.apiCallDirect('/api/workout/stats');
+            expect(stats.hard_set_band).toMatchObject({ current: 2, low: 8, status: 'below' });
+        });
+    });
+
     it('range scopes the load aggregates, while weekly_volume keeps the wider heatmap span', async () => {
         env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
         const { window } = env;

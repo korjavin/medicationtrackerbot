@@ -176,6 +176,141 @@ describe('features/workout/stats.js — split-file integration', () => {
     });
   });
 
+  // med-904.3 — Balance view v2: the movement-pattern ratios and the
+  // own-baseline hard-set band, both appended below the body-part split.
+  describe('balance view v2 (med-904.3)', () => {
+    // One entry per pattern the ratios fold, plus a core move that has none.
+    const PATTERN_CATALOG = {
+      exercises: [
+        { name: 'Barbell Row', body_part: 'back' },          // pull
+        { name: 'Bench Press', body_part: 'chest' },         // push
+        { name: 'Romanian Deadlift', body_part: 'upper legs' }, // hinge
+        { name: 'Barbell Squat', body_part: 'upper legs' },  // squat
+        { name: 'Front Plank', body_part: 'waist' },         // no pattern
+      ],
+    };
+
+    function stubCatalog(window, exercises) {
+      window.fetch = vi.fn(async (url) => {
+        if (String(url).includes('/static/data/exercises-catalog.json')) {
+          return { ok: true, status: 200, json: async () => ({ exercises }) };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      });
+    }
+
+    function renderBalanceV2(window, document, stats) {
+      window.WorkoutStats.setView('balance');
+      const container = document.getElementById('workout-stats-display');
+      window._renderWorkoutStats(container, { total_sessions: 6, ...stats });
+      return container;
+    }
+
+    function rowsIn(container, block) {
+      return Array.from(container.querySelectorAll(`.wg-workouts-stats__${block} .wg-workouts-stats__top-row`))
+        .map((r) => r.textContent);
+    }
+
+    it('folds working sets into Pull:Push and Hinge:Squat rows', async () => {
+      const { window, document } = env;
+      stubCatalog(window, PATTERN_CATALOG.exercises);
+
+      const container = renderBalanceV2(window, document, {
+        exercise_totals: [
+          { exercise_name: 'Barbell Row', session_count: 4, sets: 12, total_volume_kg: 1200 },
+          { exercise_name: 'Bench Press', session_count: 3, sets: 10, total_volume_kg: 1000 },
+          { exercise_name: 'Barbell Squat', session_count: 3, sets: 9, total_volume_kg: 2000 },
+          { exercise_name: 'Romanian Deadlift', session_count: 2, sets: 6, total_volume_kg: 1500 },
+          { exercise_name: 'Front Plank', session_count: 2, sets: 4, total_volume_kg: 0 }, // no pattern
+        ],
+      });
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.wg-workouts-stats__movement-balance')).toBeTruthy();
+      });
+      const rows = rowsIn(container, 'movement-balance');
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toContain('Pull : Push');
+      expect(rows[0]).toContain('12 : 10 sets · 1.2:1');
+      expect(rows[1]).toContain('Hinge : Squat');
+      expect(rows[1]).toContain('6 : 9 sets · 0.7:1');
+    });
+
+    it('reads as designed copy, not an error, when nothing maps to a pattern', async () => {
+      const { window, document } = env;
+      stubCatalog(window, PATTERN_CATALOG.exercises);
+
+      const container = renderBalanceV2(window, document, {
+        exercise_totals: [
+          { exercise_name: 'Front Plank', session_count: 2, sets: 4, total_volume_kg: 0 },
+        ],
+      });
+
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain('Movement Balance');
+      });
+      expect(container.querySelector('.wg-workouts-stats__movement-balance')).toBeNull();
+      expect(container.textContent).toContain('Keep logging to unlock movement balance');
+    });
+
+    it('names the band verdict and the user\'s own range', async () => {
+      const { window, document } = env;
+      stubCatalog(window, PATTERN_CATALOG.exercises);
+
+      const container = renderBalanceV2(window, document, {
+        exercise_totals: [
+          { exercise_name: 'Barbell Squat', session_count: 3, sets: 9, total_volume_kg: 2000 },
+        ],
+        hard_set_band: { current: 26, baseline: 25.3, low: 20, high: 30, status: 'in_range' },
+      });
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.wg-workouts-stats__hard-set-band')).toBeTruthy();
+      });
+      const rows = rowsIn(container, 'hard-set-band');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toContain('In your usual range');
+      expect(rows[0]).toContain('26 sets · usual 20–30');
+      expect(container.textContent).toContain('Hard Sets · Last 7 Days');
+    });
+
+    it('says "below"/"above" off the domain-computed status', async () => {
+      const { window, document } = env;
+      stubCatalog(window, PATTERN_CATALOG.exercises);
+
+      for (const [status, copy] of [['below', 'Below your usual'], ['above', 'Above your usual']]) {
+        const container = renderBalanceV2(window, document, {
+          exercise_totals: [
+            { exercise_name: 'Barbell Squat', session_count: 3, sets: 9, total_volume_kg: 2000 },
+          ],
+          hard_set_band: { current: 4, baseline: 25.3, low: 20, high: 30, status },
+        });
+        await vi.waitFor(() => {
+          expect(container.querySelector('.wg-workouts-stats__hard-set-band')).toBeTruthy();
+        });
+        expect(rowsIn(container, 'hard-set-band')[0]).toContain(copy);
+      }
+    });
+
+    it('invites more logging rather than erroring when there is no baseline yet', async () => {
+      const { window, document } = env;
+      stubCatalog(window, PATTERN_CATALOG.exercises);
+
+      const container = renderBalanceV2(window, document, {
+        exercise_totals: [
+          { exercise_name: 'Barbell Squat', session_count: 3, sets: 9, total_volume_kg: 2000 },
+        ],
+        hard_set_band: null,
+      });
+
+      await vi.waitFor(() => {
+        expect(container.textContent).toContain('Hard Sets · Last 7 Days');
+      });
+      expect(container.querySelector('.wg-workouts-stats__hard-set-band')).toBeNull();
+      expect(container.textContent).toContain('Keep logging to unlock your usual range');
+    });
+  });
+
   // med-mj4 — shared catalog helper: single-flight fetch + medical→friendly
   // body-part translation reused by the Stats split and the session-card chip.
   describe('WorkoutExerciseCatalog', () => {
@@ -277,6 +412,37 @@ describe('features/workout/stats.js — split-file integration', () => {
       }));
       await window.WorkoutExerciseCatalog.load();
       expect(window.WorkoutExerciseCatalog.resolveBodyPart('barbell')).toBe('upper legs');
+    });
+
+    // med-904.3 — the movement pattern is derived from the name, so the leg
+    // rules have to win over the arm ones: "leg curl" is a hinge, not a pull,
+    // and "leg press" is a squat, not a push. Body parts that have no pattern
+    // at all (core, calves, cardio) resolve to null rather than to a guess.
+    it('resolveMovementPattern derives push/pull/hinge/squat, legs before arms', async () => {
+      const { window } = env;
+      window.fetch = vi.fn(async () => ({
+        ok: true, status: 200,
+        json: async () => ({ exercises: [
+          { name: 'Lying Leg Curl', body_part: 'upper legs' },
+          { name: 'Machine Leg Press', body_part: 'upper legs' },
+          { name: 'Barbell Biceps Curl', body_part: 'upper arms' },
+          { name: 'Lat Pulldown', body_part: 'back' },
+          { name: 'Overhead Press', body_part: 'shoulders' },
+          { name: 'Standing Calf Raise', body_part: 'lower legs' },
+          { name: 'Front Plank', body_part: 'waist' },
+        ] }),
+      }));
+      await window.WorkoutExerciseCatalog.load();
+      const move = window.WorkoutExerciseCatalog.resolveMovementPattern;
+      expect(move('Lying Leg Curl')).toEqual({ pattern: 'hinge', axis: null });
+      expect(move('Machine Leg Press')).toEqual({ pattern: 'squat', axis: null });
+      expect(move('Barbell Biceps Curl')).toEqual({ pattern: 'pull', axis: null });
+      expect(move('Lat Pulldown')).toEqual({ pattern: 'pull', axis: 'vertical' });
+      expect(move('Overhead Press')).toEqual({ pattern: 'push', axis: 'vertical' });
+      // No pattern: not every exercise is one of the four.
+      expect(move('Standing Calf Raise')).toBeNull();
+      expect(move('Front Plank')).toBeNull();
+      expect(move('Unknown Move')).toBeNull();
     });
 
     it('fetches the catalog at most once across repeated getBodyPart/load calls', async () => {
