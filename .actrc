@@ -1,0 +1,13 @@
+# Runner image + arch for nektos/act. Apple Silicon needs the explicit
+# linux/amd64 emulation; act's default micro image has no pnpm/go toolchain.
+# Used by scripts/ci-local.sh — see docs/cloud-deployment.md.
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+--container-architecture linux/amd64
+
+# act otherwise defaults to --env-file .env / --secret-file .secrets, and §2 of
+# docs/cloud-deployment.md has you `cp .env.infra.cloud.example .env` in this
+# very directory. That would hand CF_DNS_API_TOKEN & co. to every workflow step
+# and third-party action. None of the three workflows ci-local.sh runs needs a
+# secret, so read from empty files.
+--env-file /dev/null
+--secret-file /dev/null
