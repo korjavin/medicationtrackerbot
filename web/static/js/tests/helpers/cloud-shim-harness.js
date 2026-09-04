@@ -52,7 +52,9 @@ export function createInMemoryRecordsPort(seed = {}) {
 }
 
 export function loadCloudShimFrontendEnv(opts = {}) {
-    const { seedRecords, wrapApiCallDirect, ...frontendOpts } = opts;
+    const {
+        seedRecords, wrapApiCallDirect, now, timeZone, ...frontendOpts
+    } = opts;
     const env = loadFrontendEnv(frontendOpts);
     // Exposed on env so a suite can assert HOW the domain layer read (e.g. that
     // vitals bounds its window via listRange rather than listing every batch).
@@ -65,7 +67,12 @@ export function loadCloudShimFrontendEnv(opts = {}) {
     // called its pushSchedule mock — an extra, empty-entry call the later test
     // read as its own. Hold the ctx so cleanup can cancel. See bd med-tc1.3.
     const ctx = {};
-    const shimCall = installApiShim(ctx, { records, win: env.window });
+    // opts.now/opts.timeZone pin the router's wall clock (see createApiRouter),
+    // which is what lets a suite assert a schedule instant — a reminder slot, a
+    // date boundary — without depending on when CI happens to run.
+    const shimCall = installApiShim(ctx, {
+        records, win: env.window, now, timeZone,
+    });
     const innerCleanup = env.cleanup;
     env.cleanup = () => {
         cancelReminderRecompute(ctx);
