@@ -292,6 +292,27 @@ describe('features/workout/stats.js — split-file integration', () => {
       }
     });
 
+    // The band is whole-history, range-independent and catalog-free, so an
+    // unrelated failure on the body-part side must not take it down with it.
+    it('still shows the band when the catalog fetch fails', async () => {
+      const { window, document } = env;
+      window.fetch = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }));
+
+      const container = renderBalanceV2(window, document, {
+        exercise_totals: [
+          { exercise_name: 'Barbell Squat', session_count: 3, sets: 9, total_volume_kg: 2000 },
+        ],
+        hard_set_band: { current: 40, baseline: 25.3, low: 20, high: 30, status: 'above' },
+      });
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.wg-workouts-stats__hard-set-band')).toBeTruthy();
+      });
+      // The body-part side still says why it skipped.
+      expect(container.textContent).toContain('Body-part catalog unavailable');
+      expect(rowsIn(container, 'hard-set-band')[0]).toContain('Above your usual');
+    });
+
     it('invites more logging rather than erroring when there is no baseline yet', async () => {
       const { window, document } = env;
       stubCatalog(window, PATTERN_CATALOG.exercises);
@@ -428,6 +449,9 @@ describe('features/workout/stats.js — split-file integration', () => {
           { name: 'Barbell Biceps Curl', body_part: 'upper arms' },
           { name: 'Lat Pulldown', body_part: 'back' },
           { name: 'Overhead Press', body_part: 'shoulders' },
+          { name: 'Glute-Ham Raise', body_part: 'upper legs' },
+          { name: 'Sled Leg Wide Press', body_part: 'upper legs' },
+          { name: 'Machine Chest Press', body_part: 'chest' },
           { name: 'Standing Calf Raise', body_part: 'lower legs' },
           { name: 'Front Plank', body_part: 'waist' },
         ] }),
@@ -436,6 +460,13 @@ describe('features/workout/stats.js — split-file integration', () => {
       const move = window.WorkoutExerciseCatalog.resolveMovementPattern;
       expect(move('Lying Leg Curl')).toEqual({ pattern: 'hinge', axis: null });
       expect(move('Machine Leg Press')).toEqual({ pattern: 'squat', axis: null });
+      expect(move('Glute-Ham Raise')).toEqual({ pattern: 'hinge', axis: null });
+      // A leg exercise no leg rule matches goes UNCOUNTED — falling through to
+      // the generic upper-body rules would file this "press" as a push,
+      // inflating Pull:Push with sets that belong to Hinge:Squat.
+      expect(move('Sled Leg Wide Press')).toBeNull();
+      // "maCHINe" must not read as a chin-up.
+      expect(move('Machine Chest Press')).toEqual({ pattern: 'push', axis: 'horizontal' });
       expect(move('Barbell Biceps Curl')).toEqual({ pattern: 'pull', axis: null });
       expect(move('Lat Pulldown')).toEqual({ pattern: 'pull', axis: 'vertical' });
       expect(move('Overhead Press')).toEqual({ pattern: 'push', axis: 'vertical' });

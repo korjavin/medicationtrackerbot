@@ -97,9 +97,11 @@
     //      calf raise and a treadmill walk are none of the four, and gating on
     //      the body part kills all of them in one line instead of a growing
     //      blacklist of name fragments.
-    //   2. an ordered rule table over the name. LEG patterns come first
-    //      because "leg curl" / "leg press" / "leg extension" carry upper-body
-    //      verbs that would otherwise file them under pull/push.
+    //   2. two ordered rule tables over the name. The LEG table runs first and
+    //      an upper-leg exercise never reaches the upper-body one: "leg curl",
+    //      "leg press", "leg extension" and "glute-ham raise" all carry
+    //      upper-body verbs that would otherwise file them under pull/push, and
+    //      a leg exercise is a squat, a hinge, or nothing — never either.
     // Anything unmatched falls back to the body part where it is unambiguous
     // (chest and shoulders push, backs pull) and is left out otherwise —
     // silence beats a wrong ratio.
@@ -108,9 +110,11 @@
     // it doesn't (a biceps curl has no meaningful axis). Nothing renders it
     // yet; it is the field a hex radar would read.
     const PATTERN_BODY_PARTS = new Set(['chest', 'back', 'shoulders', 'upper arms', 'upper legs']);
-    const MOVEMENT_RULES = [
+    const LEG_MOVEMENT_RULES = [
         [/squat|lunge|leg press|hack|step[- ]?up|sissy|leg extension/, 'squat', null],
-        [/deadlift|hip thrust|glute bridge|good morning|romanian|\brdl\b|swing|back extension|hyperextension|leg curl|nordic|hip extension|pull[- ]?through/, 'hinge', null],
+        [/deadlift|hip thrust|glute bridge|glute[- ]?ham|good morning|romanian|\brdl\b|swing|back extension|hyper[- ]?extension|leg curl|nordic|hip extension|pull[- ]?through/, 'hinge', null],
+    ];
+    const UPPER_MOVEMENT_RULES = [
         [/pull[- ]?up|chin[- ]?up|pull[- ]?down|lat pull|muscle[- ]?up/, 'pull', 'vertical'],
         // `\b` on the short fragments is load-bearing: a bare /row/ files
         // "narrow-grip bench press" as a pull, and a bare /chin/ does the same
@@ -123,15 +127,28 @@
     ];
     const BODY_PART_PATTERN = { chest: 'push', shoulders: 'push', back: 'pull' };
 
+    function _matchRules(rules, name) {
+        for (const [re, pattern, axis] of rules) {
+            if (re.test(name)) return { pattern, axis };
+        }
+        return null;
+    }
+
     // → { pattern, axis } or null. Same "assumes load() has resolved" contract
     // as resolveBodyPart, which it delegates the first gate to.
     function resolveMovementPattern(name) {
         const bodyPart = resolveBodyPart(name);
         if (!bodyPart || !PATTERN_BODY_PARTS.has(bodyPart)) return null;
         const n = _norm(name);
-        for (const [re, pattern, axis] of MOVEMENT_RULES) {
-            if (re.test(n)) return { pattern, axis };
-        }
+        const leg = _matchRules(LEG_MOVEMENT_RULES, n);
+        if (leg) return leg;
+        // An unmatched leg exercise goes UNCOUNTED rather than falling through
+        // to the upper-body rules — a wrong pattern is worse than a missing one
+        // twice over, since it inflates one pair and starves the other.
+        if (bodyPart === 'upper legs') return null;
+
+        const upper = _matchRules(UPPER_MOVEMENT_RULES, n);
+        if (upper) return upper;
         const fallback = BODY_PART_PATTERN[bodyPart];
         return fallback ? { pattern: fallback, axis: null } : null;
     }

@@ -495,13 +495,20 @@ function _renderLoadView(section, stats, range) {
 
 // 3. Balance — "what am I neglecting". Sets per body part plus, crucially, the
 // body parts with ZERO sets in the range (JEFIT's BodyMap framing: absence is
-// the insight nobody else surfaces). med-904.3 adds two follow-ups below it:
-// the movement-pattern ratios and the own-baseline hard-set band. Both sit
-// behind the same "is there anything in this range at all" guards as the split
-// — a view that has already said "no exercises logged" must not then argue
-// about ratios.
+// the insight nobody else surfaces). med-904.3 adds two follow-ups below it.
+//
+// The movement-pattern ratios sit behind the same guards as the split — they
+// read the same rows through the same catalog, so a view that has just said
+// "no exercises logged" must not then argue about ratios. The hard-set band
+// does NOT: it is whole-history, range-independent and needs no catalog, so
+// hiding it behind an empty range or a failed catalog fetch would suppress a
+// perfectly good answer for an unrelated reason.
 async function _renderBalanceView(section, stats) {
-    const exercises = stats.exercise_totals || [];
+    await _appendBodyPartBalance(section, stats.exercise_totals || []);
+    _appendHardSetBand(section, stats.hard_set_band);
+}
+
+async function _appendBodyPartBalance(section, exercises) {
     if (exercises.length === 0) {
         section.appendChild(_buildHint('No exercises logged in this range'));
         return;
@@ -556,10 +563,9 @@ async function _renderBalanceView(section, stats) {
         section.appendChild(chips);
     }
 
-    // v2 sections last: the body-part split is still the headline, and both of
-    // these answer a follow-up question ("balanced how?" / "enough?").
+    // The ratios come last: the body-part split is still the headline, and
+    // "balanced how?" is the follow-up question.
     _appendMovementBalance(section, exercises);
-    _appendHardSetBand(section, stats.hard_set_band);
 }
 
 // -- Loader + shell -------------------------------------------------------
