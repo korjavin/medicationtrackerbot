@@ -22,7 +22,9 @@
 //     references the namespaced recordId.
 //   - workout group/variant/exercise/library/session/miband/exerciselog: a
 //     separate numeric body `id` (workout.js mintNumericId); recordId is a
-//     distinct string. Scheduled sessions re-mint `session-<groupId>-<date>`,
+//     distinct string. Scheduled sessions re-mint `session-<groupId>-<date>`
+//     and derive their numeric id from that recordId (workout.js
+//     derivedNumericId, bd med-8j12) so every device mints the same body;
 //     rotation is one-per-group `rotation-<groupId>`.
 //   - intake: scheduled slots re-mint `intake-<medId>-<slotUnixSeconds>`;
 //     manual (taken_at == scheduled_at) mint `intake-manual-...`.

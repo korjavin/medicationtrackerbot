@@ -8,36 +8,98 @@ import { describe, expect, it } from 'vitest';
 import { createWorkoutDomain } from '../../../domain/workout.js';
 import { createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
 
-describe('two-instance lazy getNext convergence', () => {
-    it('two devices resolving next for the same group+day converge on one session record', async () => {
-        const nowMs = Date.now();
-        const records = createInMemoryRecordsPort({
-            workoutgroup: [{
-                recordId: 'group-1', clientTs: nowMs, deleted: false, id: 1, user_id: 1, name: 'Push',
-                is_rotating: false, days_of_week: '[0,1,2,3,4,5,6]', scheduled_time: '23:59',
-                notification_advance_minutes: 0, active: true,
-                created_at: new Date(nowMs).toISOString(), updated_at: new Date(nowMs).toISOString()
-            }],
-            workoutvariant: [{
-                recordId: 'variant-1', clientTs: nowMs, deleted: false, id: 1, group_id: 1, name: 'A',
-                rotation_order: 0, created_at: new Date(nowMs).toISOString()
-            }]
+// A local REPLICA of the comparison web/cloud/js/sync.js applyIncoming makes on
+// every pulled record: strict `>` on clientTs, so equal stamps leave the
+// existing row in place. Shared by the two-port suites below.
+const applyIncoming = (existing, incoming) => (
+    !existing || incoming.clientTs > existing.clientTs ? incoming : existing
+);
+
+const seedGroup = (nowMs) => ({
+    workoutgroup: [{
+        recordId: 'group-1', clientTs: nowMs, deleted: false, id: 1, user_id: 1, name: 'Push',
+        is_rotating: false, days_of_week: '[0,1,2,3,4,5,6]', scheduled_time: '23:59',
+        notification_advance_minutes: 0, active: true,
+        created_at: new Date(nowMs).toISOString(), updated_at: new Date(nowMs).toISOString()
+    }],
+    workoutvariant: [{
+        recordId: 'variant-1', clientTs: nowMs, deleted: false, id: 1, group_id: 1, name: 'A',
+        rotation_order: 0, created_at: new Date(nowMs).toISOString()
+    }]
+});
+
+// bd med-8j12: the schedule-materialized session's numeric body id used to come
+// from mintNumericId (now() + Math.random()), so two devices filling the same
+// deterministic `session-<group>-<date>` slot produced two DIFFERENT bodies. At
+// the med-9a87 clientTs floor both sit at 0 and applyIncoming's strict `>` means
+// neither displaces the other: each device keeps its own numeric id, exercise
+// logs attach to both, and the loser's orphan on the first real transition.
+describe('two-device getNext materialization (two ports, applyIncoming merge)', () => {
+    it('two independent domains materializing the same slot produce byte-identical bodies', async () => {
+        const nowMs = Date.UTC(2026, 7, 31, 10, 0, 0);
+        // Two devices, two separate stores — nothing is shared but the schedule.
+        const portA = createInMemoryRecordsPort(seedGroup(nowMs));
+        const portB = createInMemoryRecordsPort(seedGroup(nowMs));
+        const deviceA = createWorkoutDomain({ records: portA, now: () => nowMs, timeZone: 'UTC' });
+        // Different clock: the id must not depend on when the device derived it.
+        const deviceB = createWorkoutDomain({
+            records: portB, now: () => nowMs + 7 * 60 * 60 * 1000, timeZone: 'UTC'
         });
 
-        const deviceA = createWorkoutDomain({ records, now: () => nowMs, timeZone: 'UTC' });
-        const deviceB = createWorkoutDomain({ records, now: () => nowMs + 5, timeZone: 'UTC' });
-
         const [resA, resB] = await Promise.all([deviceA.getNext(), deviceB.getNext()]);
-
         expect(resA).not.toBeNull();
         expect(resB).not.toBeNull();
-        // Same deterministic slot: both writes hit the same recordId, so only
-        // one session record survives regardless of which write landed last.
-        const sessions = await records.list('workoutsession');
-        expect(sessions).toHaveLength(1);
-        // Whichever body won, both devices' next resolution names its id —
-        // there is no second, orphaned session lurking under a different id.
-        expect([resA.session.id, resB.session.id]).toContain(sessions[0].id);
+
+        const bodyA = (await portA.list('workoutsession'))[0];
+        const bodyB = (await portB.list('workoutsession'))[0];
+        expect(bodyA.recordId).toBe(bodyB.recordId);
+        expect(bodyA.clientTs).toBe(0); // still the derived-state floor (med-9a87)
+        expect(bodyA.id).toBe(bodyB.id);
+        expect(bodyB).toEqual(bodyA); // byte-identical, id included
+        expect(Number.isSafeInteger(bodyA.id)).toBe(true);
+        expect(resA.session.id).toBe(resB.session.id);
+
+        // Sync each device's row into the other: with identical bodies at the
+        // floor, applyIncoming's strict `>` is a no-op and both mirrors agree.
+        expect(applyIncoming(bodyA, bodyB)).toEqual(bodyA);
+        expect(applyIncoming(bodyB, bodyA)).toEqual(bodyB);
+    });
+
+    it('a log written on one device resolves against the other device\'s session', async () => {
+        const nowMs = Date.UTC(2026, 7, 31, 10, 0, 0);
+        const portA = createInMemoryRecordsPort(seedGroup(nowMs));
+        const portB = createInMemoryRecordsPort(seedGroup(nowMs));
+        const deviceA = createWorkoutDomain({ records: portA, now: () => nowMs, timeZone: 'UTC' });
+        const deviceB = createWorkoutDomain({ records: portB, now: () => nowMs + 1000, timeZone: 'UTC' });
+
+        const resA = await deviceA.getNext();
+        const resB = await deviceB.getNext();
+
+        // Device A starts the workout; that real write (clientTs = now()) beats
+        // the floor and propagates to B.
+        await deviceA.startSession(resA.session.id);
+        const started = (await portA.list('workoutsession'))[0];
+        const bMirror = (await portB.list('workoutsession'))[0];
+        const mergedOnB = applyIncoming(bMirror, started);
+        expect(mergedOnB.status).toBe('in_progress');
+        // The surviving body carries the id B had already been logging against,
+        // so nothing B attached to its session orphans.
+        expect(mergedOnB.id).toBe(resB.session.id);
+    });
+
+    it('derived session ids sit in a band mintNumericId can never reach', async () => {
+        const nowMs = Date.UTC(2026, 7, 31, 10, 0, 0);
+        const records = createInMemoryRecordsPort(seedGroup(nowMs));
+        const domain = createWorkoutDomain({ records, now: () => nowMs, timeZone: 'UTC' });
+
+        const derivedId = (await domain.getNext()).session.id;
+        // Ad-hoc sessions keep the minted (clock-stamped) id.
+        const adhoc = await domain.createAdHocSession();
+
+        expect(derivedId).toBeLessThan(1e14);
+        expect(derivedId).toBeGreaterThanOrEqual(1e12);
+        expect(adhoc.id).toBeGreaterThan(1e14);
+        expect(Number.isSafeInteger(adhoc.id)).toBe(true);
     });
 });
 
@@ -61,10 +123,6 @@ describe('createMiBand deterministic recordId convergence', () => {
     });
 });
 
-// NOTE: the two-instance test above shares ONE in-memory port between both
-// domains, so it pins the deterministic recordId, NOT cross-device
-// convergence of the two bodies — bd med-8j12 tracks the real two-port case.
-//
 // bd med-9a87: getNext is a READ that WRITES — it materializes the day's
 // session into the deterministic sessionRecordId slot. In production a second
 // browser whose mirror predated the workout re-derived today's slot as PENDING
@@ -72,14 +130,10 @@ describe('createMiBand deterministic recordId convergence', () => {
 // newest write, so LWW erased the finished session (history lost it, its
 // exercise logs orphaned onto a dead session id, and the reminder
 // un-suppressed). A materialized row must lose every merge against a real one.
+// This is a domain-layer test: it does not go through the records port, so
+// nextClientTs' skew correction and its promotion of a floored row over an
+// existing raw row (tombstone included) are NOT covered here — see bd med-qhpu.
 describe('stale-device re-materialization vs. a completed session', () => {
-    // A local REPLICA of the comparison sync.js applyIncoming makes on every
-    // pulled record. This is a domain-layer test: it does not go through the
-    // records port, so nextClientTs' skew correction and its promotion of a
-    // floored row over an existing raw row (tombstone included) are NOT covered
-    // here — see bd med-qhpu.
-    const lww = (existing, incoming) => (!existing || incoming.clientTs > existing.clientTs ? incoming : existing);
-
     it('materializes the day slot at the LWW floor, so a stale device cannot erase a completed workout', async () => {
         const nowMs = Date.UTC(2026, 7, 31, 16, 0, 0);
         const seed = () => ({
@@ -116,7 +170,7 @@ describe('stale-device re-materialization vs. a completed session', () => {
         expect(placeholder.status).toBe('pending');
 
         // Merging the stale placeholder must not disturb the completed session.
-        const merged = lww(completed, placeholder);
+        const merged = applyIncoming(completed, placeholder);
         expect(merged.status).toBe('completed');
         expect(merged.id).toBe(completed.id);
     });
