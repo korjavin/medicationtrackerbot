@@ -35,6 +35,7 @@ go test ./...                         # must stay green tree-wide, cmd/bot inclu
 pnpm test                             # frontend (Vitest + jsdom)
 pnpm privacy:docs                     # regenerate privacy boundary table after editing the manifest
 go run ./cmd/genmcpcatalog            # regenerate cloud MCP catalog after registry changes
+scripts/ci-local.sh                   # optional: act-friendly CI subset locally (workflow changes / green-here-red-there only)
 docker compose -f docker-compose.cloud.yml up
 ```
 

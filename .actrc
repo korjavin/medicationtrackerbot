@@ -1,0 +1,5 @@
+# Runner image + arch for nektos/act. Apple Silicon needs the explicit
+# linux/amd64 emulation; act's default micro image has no pnpm/go toolchain.
+# Used only by scripts/ci-local.sh — see docs/cloud-deployment.md.
+-P ubuntu-latest=catthehacker/ubuntu:act-latest
+--container-architecture linux/amd64

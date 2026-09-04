@@ -601,6 +601,30 @@ unlock/claim/recovery wizard moved to explicit paths — `/unlock`, `/claim`,
 subdomains are secure contexts and resolve without configuration, giving a
 full local loop including passkeys on desktop.
 
+### Local CI via act (optional)
+
+`scripts/ci-local.sh` runs the act-friendly subset of GitHub Actions locally
+with [nektos/act](https://github.com/nektos/act) — `frontend-tests.yml`,
+`golangci-lint.yml`, and `deploy.yml`'s `test` job — stopping at the first
+failure and naming it. `.actrc` pins the runner image
+(`catthehacker/ubuntu:act-latest`) and `linux/amd64`, which Apple Silicon needs.
+
+It is **not** a required step and deliberately has no git hook. For code checks
+it is redundant with `go build ./... && TZ=UTC go test ./...`, `pnpm test` and
+`golangci-lint run`, minus a multi-GB image and emulation overhead. Reach for it
+in the three cases where those commands cannot help:
+
+- you changed something under `.github/workflows/` and want the wiring checked
+  before pushing,
+- CI is red but everything passes locally,
+- you added a new action or step and want a sanity run.
+
+The rest of the workflows are not worth running locally: the docker
+build/push jobs need DinD plus registry secrets, and the scanning/audit
+workflows (`trivy`, `secrets-scanning-native`, `go-dependency-check`,
+`go-licenses-audit`) all lean on `github-script`, `upload-sarif`, or the GitHub
+API and partial-fail off GitHub.
+
 ## API endpoints (`internal/cloudserver`)
 
 All routes are host-routed off the account's subdomain except where noted.
