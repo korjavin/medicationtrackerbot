@@ -5891,6 +5891,24 @@ textarea.wg-input {
     border-left-color: var(--wg-sun);
 }
 
+/* A finding the user has not seen yet (med-edxz.2): one gentle emphasis — a
+   brighter rail, a hairline ring, and a single fade-in. No modal, no reward
+   theatre; on the next load `seen` is true and the card renders as ordinary. */
+.wg-journey-atlas__card--new {
+    border-left-color: var(--wg-mint-soft);
+    box-shadow: 0 0 0 1px var(--wg-tag-normal-border);
+    animation: wg-journey-atlas-new-in 320ms ease-out;
+}
+
+@keyframes wg-journey-atlas-new-in {
+    from { opacity: 0; transform: translateY(-2px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .wg-journey-atlas__card--new { animation: none; }
+}
+
 .wg-journey-atlas__question {
     font-weight: var(--font-weight-medium);
     color: var(--wg-fg-1);
@@ -5906,8 +5924,20 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
 }
 
-.wg-journey-atlas__tag {
+/* The meter rides inline at the end of the question line — one line per card. */
+.wg-journey-atlas__meter {
+    margin-left: var(--space-xs);
+    white-space: nowrap;
+}
+
+/* Tags sit on one row (a NEW badge ahead of the state tag) and hug the left
+   edge of the column card rather than stretching across it. */
+.wg-journey-atlas__tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     align-self: flex-start;
+    gap: var(--space-xs);
 }
 
 .wg-journey-atlas__testit {

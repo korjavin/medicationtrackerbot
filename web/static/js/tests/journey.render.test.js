@@ -493,7 +493,7 @@ describe('Journey render', () => {
 
     // --- Discovery Atlas feed (gamification redesign Phase 1) ---
 
-    it('developing Atlas card shows a progress meter naming the exact next log action', () => {
+    it('developing Atlas card is one line — question + inline meter — plus the next action on the closest card', () => {
         env.window.Gamification.render(journey({
             atlas: {
                 cards: [{
@@ -508,10 +508,13 @@ describe('Journey render', () => {
         const card = atlas.querySelector('.wg-journey-atlas__card--developing');
         expect(card.querySelector('.wg-journey-atlas__question').textContent)
             .toContain('next-morning blood pressure');
-        expect(card.querySelector('.wg-journey-atlas__meter').textContent)
-            .toContain('6 of 8 paired observations');
+        // The meter rides inline on the question line, not on its own row.
+        const meter = card.querySelector('.wg-journey-atlas__meter');
+        expect(meter.parentElement.classList.contains('wg-journey-atlas__question')).toBe(true);
+        expect(meter.textContent).toBe('6/8 · 2 more');
         expect(card.querySelector('.wg-journey-atlas__next').textContent).toMatch(/Log a workout/);
-        expect(card.querySelector('.wg-journey-bar__fill')).not.toBeNull();
+        // The bar was the third line on a card that has to skim in one — gone.
+        expect(card.querySelector('.wg-journey-bar__fill')).toBeNull();
     });
 
     it('revealed Atlas card shows the finding and a Discovery tag', () => {
@@ -528,6 +531,10 @@ describe('Journey render', () => {
         const card = env.document.querySelector('.wg-journey-atlas__card--revealed');
         expect(card.querySelector('.wg-journey-atlas__finding').textContent).toContain('16 mmHg lower');
         expect(card.querySelector('.wg-journey-atlas__tag').textContent).toBe('Discovery');
+        // The finding states the question — no separate question line.
+        expect(card.querySelector('.wg-journey-atlas__question')).toBeNull();
+        // Already seen: no NEW treatment.
+        expect(card.classList.contains('wg-journey-atlas__card--new')).toBe(false);
     });
 
     it('no_effect Atlas card is rendered as a genuine finding, not a blank', () => {
@@ -544,6 +551,94 @@ describe('Journey render', () => {
         const card = env.document.querySelector('.wg-journey-atlas__card--no_effect');
         expect(card.querySelector('.wg-journey-atlas__finding').textContent).toContain('holds steady');
         expect(card.querySelector('.wg-journey-atlas__tag').textContent).toBe('No effect — a finding');
+        expect(card.querySelector('.wg-journey-atlas__question')).toBeNull();
+    });
+
+    // --- Atlas skim: NEW findings first, closest-to-reveal next (med-edxz.2) ---
+
+    // Deliberately shuffled relative to the expected order, so a pass means the
+    // sort ran and not that the catalog order happened to match.
+    function atlasSkimCards(allSeen) {
+        return [
+            {
+                id: 'd1', question: 'Do workout days lower next-morning blood pressure?',
+                state: 'developing', have: 7, needed: 8, remaining: 1,
+                next: 'Log a workout, then your BP next morning.',
+            },
+            {
+                id: 't-seen', question: 'Q seen?', state: 'revealed', seen: true,
+                text: 'Steady sleep weeks track a lower resting heart rate · 31 weeks',
+            },
+            { id: 'd4', question: 'Does a higher-protein day change next-day weight?', state: 'developing', have: 4, needed: 8, remaining: 4 },
+            {
+                id: 't-new-a', question: 'Q new a?', state: 'revealed', seen: !!allSeen,
+                text: 'Workout days: next-morning systolic ~16 mmHg lower · 23 pairs',
+            },
+            { id: 'd2', question: 'Do earlier bedtimes lower resting heart rate?', state: 'developing', have: 6, needed: 8, remaining: 2 },
+            {
+                id: 't-new-b', question: 'Q new b?', state: 'no_effect', seen: !!allSeen,
+                text: 'Next-morning BP holds steady with or without a workout · 40 days',
+            },
+        ];
+    }
+
+    function renderedAtlasOrder(doc) {
+        return [...doc.querySelectorAll('.wg-journey-atlas__card')].map((c) => (
+            (c.querySelector('.wg-journey-atlas__finding') || c.querySelector('.wg-journey-atlas__question')).textContent
+        ));
+    }
+
+    it('orders the Atlas unseen-findings-first, then developing closest to revealing, then findings already read', () => {
+        env.window.Gamification.render(journey({ atlas: { cards: atlasSkimCards(false) } }));
+        const { document } = env;
+
+        const texts = renderedAtlasOrder(document);
+        expect(texts[0]).toContain('16 mmHg lower');        // unseen revealed
+        expect(texts[1]).toContain('holds steady');          // unseen no_effect — equal dignity
+        expect(texts[2]).toContain('next-morning blood pressure'); // developing, 1 to go
+        expect(texts[3]).toContain('resting heart rate?');   // developing, 2 to go
+        expect(texts[4]).toContain('next-day weight');       // developing, 4 to go
+        expect(texts[5]).toContain('31 weeks');              // the finding already read
+
+        // Both unseen terminal cards are marked NEW; nothing else is.
+        const flagged = [...document.querySelectorAll('.wg-journey-atlas__card--new')];
+        expect(flagged.length).toBe(2);
+        expect(flagged.map((c) => c.querySelector('.wg-journey-atlas__tag--new').textContent)).toEqual(['New', 'New']);
+        expect(document.querySelectorAll('.wg-journey-atlas__tag--new').length).toBe(2);
+
+        // Only the developing card closest to revealing carries the action line.
+        const nexts = [...document.querySelectorAll('.wg-journey-atlas__next')];
+        expect(nexts.length).toBe(1);
+        expect(nexts[0].parentElement).toBe(document.querySelectorAll('.wg-journey-atlas__card--developing')[0]);
+
+        expect(document.querySelector('.wg-journey-atlas .wg-section-label').textContent)
+            .toBe('DISCOVERIES · 2 NEW · 3 revealed · 3 developing');
+    });
+
+    it('keeps the whole Atlas skimmable — under 90 words for a full six-probe payload', () => {
+        env.window.Gamification.render(journey({ atlas: { cards: atlasSkimCards(false) } }));
+        const atlas = env.document.querySelector('.wg-journey-atlas');
+        // Count per text node: adjacent elements ("…pressure?" + "7/8 · 1 more")
+        // must not fuse into one token.
+        const walker = env.document.createTreeWalker(atlas, env.window.NodeFilter.SHOW_TEXT);
+        let words = 0;
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            words += (node.textContent.match(/[\p{L}\p{N}][\p{L}\p{N}'’.%/-]*/gu) || []).length;
+        }
+        expect(words).toBeLessThanOrEqual(90);
+    });
+
+    it('drops the NEW markers on the next load, once the findings are seen', () => {
+        env.window.Gamification.render(journey({ atlas: { cards: atlasSkimCards(true) } }));
+        const { document } = env;
+        expect(document.querySelector('.wg-journey-atlas__card--new')).toBeNull();
+        expect(document.querySelector('.wg-journey-atlas__tag--new')).toBeNull();
+        expect(document.querySelector('.wg-journey-atlas .wg-section-label').textContent)
+            .toBe('DISCOVERIES · 3 revealed · 3 developing');
+        // All three findings are seen now, so they sink below the developing
+        // cards, keeping catalog order among themselves.
+        expect(renderedAtlasOrder(document).slice(3).map((t) => t.slice(0, 12)))
+            .toEqual(['Steady sleep', 'Workout days', 'Next-morning']);
     });
 
     it('renders the Atlas feed even when the HP/levels substrate is disabled (cloud POC)', () => {
