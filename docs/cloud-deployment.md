@@ -607,7 +607,10 @@ full local loop including passkeys on desktop.
 with [nektos/act](https://github.com/nektos/act) — `frontend-tests.yml`,
 `golangci-lint.yml`, and `deploy.yml`'s `test` job — stopping at the first
 failure and naming it. `.actrc` pins the runner image
-(`catthehacker/ubuntu:act-latest`) and `linux/amd64`, which Apple Silicon needs.
+(`catthehacker/ubuntu:act-latest`) and `linux/amd64`, which Apple Silicon needs,
+and points `--env-file`/`--secret-file` at `/dev/null` — otherwise act defaults
+to loading the root `.env` from §2 above and would hand `CF_DNS_API_TOKEN` to
+every workflow step and third-party action. None of the three needs a secret.
 
 It is **not** a required step and deliberately has no git hook. For code checks
 it is redundant with `go build ./... && TZ=UTC go test ./...`, `pnpm test` and
