@@ -366,6 +366,22 @@ describe('Today loader — features/today-loader.js', () => {
             expect(window.apiCall).not.toHaveBeenCalled();
         });
 
+        it('is inert while a voice call is connecting or live', async () => {
+            const { tick, renderToday } = await loadAndCaptureTick();
+
+            // A repaint mid-connect would swap the call card back to an idle
+            // trigger the user can tap into a second session.
+            window.WGCallAgent = { getState: () => ({ state: 'connecting' }) };
+            tick();
+            await new Promise((r) => setTimeout(r, 0));
+            expect(renderToday).not.toHaveBeenCalled();
+
+            window.WGCallAgent = { getState: () => ({ state: 'idle' }) };
+            tick();
+            await new Promise((r) => setTimeout(r, 0));
+            expect(renderToday).toHaveBeenCalledTimes(1);
+        });
+
         it('is inert while the tab is hidden or another tab is current', async () => {
             const { tick, renderToday } = await loadAndCaptureTick();
 
