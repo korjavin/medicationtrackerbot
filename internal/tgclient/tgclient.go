@@ -775,6 +775,20 @@ type Message struct {
 	Document          *Document          `json:"document,omitempty"`
 	Voice             *Voice             `json:"voice,omitempty"`
 	Caption           string             `json:"caption,omitempty"`
+	// Date is when the SENDER sent the message (unix seconds, UTC), which is not
+	// when the relay received it: Telegram retries a webhook for hours after
+	// relay downtime (bd med-3hr).
+	Date int64 `json:"date,omitempty"`
+}
+
+// AtUnix returns the message's own send time, falling back to the caller's clock
+// when Telegram omitted date (documented as always present, but a sealed event
+// with a zero timestamp is worse than one stamped at arrival).
+func (m *Message) AtUnix(fallback time.Time) int64 {
+	if m.Date > 0 {
+		return m.Date
+	}
+	return fallback.Unix()
 }
 
 // Voice is the subset of a Telegram voice message we read: the file_id to

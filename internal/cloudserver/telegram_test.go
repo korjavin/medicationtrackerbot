@@ -2443,6 +2443,51 @@ func TestChildWebhook_SealsPhotoFileIDNotBytes(t *testing.T) {
 	}
 }
 
+// TestChildWebhook_StampsMessageDate (bd med-3hr) pins at_unix to the message's
+// OWN date, not relay-arrival: Telegram retries a webhook for hours after relay
+// downtime, and stamping arrival backdates the meal to the wrong time. A message
+// without date still falls back to the relay clock.
+func TestChildWebhook_StampsMessageDate(t *testing.T) {
+	top, _, host, childPath, session, accountID, priv := tgCommandFixture(t)
+	secret := childPath[strings.LastIndex(childPath, "/")+1:]
+
+	sentAt := time.Now().Add(-6 * time.Hour).Unix()
+	dated := `{"update_id":21,"message":{"message_id":31,"date":` + strconv.FormatInt(sentAt, 10) +
+		`,"chat":{"id":12345,"type":"private"},` +
+		`"photo":[{"file_id":"large","file_size":9000,"width":900,"height":900}]}}`
+	if rec := postWebhook(t, top, childPath, secret, dated); rec.Code != http.StatusOK {
+		t.Fatalf("dated photo webhook status = %d", rec.Code)
+	}
+	undated := `{"update_id":22,"message":{"message_id":32,"chat":{"id":12345,"type":"private"},` +
+		`"photo":[{"file_id":"large","file_size":9000,"width":900,"height":900}]}}`
+	if rec := postWebhook(t, top, childPath, secret, undated); rec.Code != http.StatusOK {
+		t.Fatalf("undated photo webhook status = %d", rec.Code)
+	}
+
+	res := listInbox(t, top, host, session)
+	if len(res.Events) != 2 {
+		t.Fatalf("inbox events = %d, want 2", len(res.Events))
+	}
+	stamps := make([]int64, 0, 2)
+	for _, e := range res.Events {
+		pt, err := openInbox(priv.Bytes(), accountID, e.CT)
+		if err != nil {
+			t.Fatalf("openInbox: %v", err)
+		}
+		var ev tgPhotoEvent
+		if err := json.Unmarshal(pt, &ev); err != nil {
+			t.Fatalf("unmarshal sealed event: %v", err)
+		}
+		stamps = append(stamps, ev.AtUnix)
+	}
+	if stamps[0] != sentAt {
+		t.Errorf("dated photo at_unix = %d, want the message's date %d", stamps[0], sentAt)
+	}
+	if delta := time.Now().Unix() - stamps[1]; delta < 0 || delta > 60 {
+		t.Errorf("undated photo at_unix = %d, want a fallback near now", stamps[1])
+	}
+}
+
 // TestGetPhoto_StreamsBytesForOwnAccount (bd med-vcv.1) pins the byte-proxy: a
 // session resolves a file_id through its OWN bot token and gets the raw image
 // streamed back, with a missing file_id and a missing session both rejected.

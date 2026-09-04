@@ -1018,7 +1018,7 @@ func (t *TelegramAPI) sealCommand(w http.ResponseWriter, r *http.Request, ref st
 	plaintext, err := json.Marshal(tgCommandEvent{
 		Kind:           inboxEventKindTGCommand,
 		Text:           msg.Text,
-		AtUnix:         now.Unix(),
+		AtUnix:         msg.AtUnix(now),
 		ReplyMessageID: replyID,
 	})
 	if err != nil {
@@ -1080,7 +1080,7 @@ func (t *TelegramAPI) sealPhoto(w http.ResponseWriter, r *http.Request, ref stri
 		FileID:         photo.FileID,
 		Mime:           "image/jpeg",
 		Size:           photo.FileSize,
-		AtUnix:         now.Unix(),
+		AtUnix:         msg.AtUnix(now),
 		Caption:        msg.Caption,
 		ReplyMessageID: replyID,
 	})
@@ -1139,7 +1139,7 @@ func (t *TelegramAPI) sealText(w http.ResponseWriter, r *http.Request, ref strin
 	plaintext, err := json.Marshal(tgTextEvent{
 		Kind:           inboxEventKindTGText,
 		Text:           msg.Text,
-		AtUnix:         now.Unix(),
+		AtUnix:         msg.AtUnix(now),
 		ReplyMessageID: replyID,
 	})
 	if err != nil {
