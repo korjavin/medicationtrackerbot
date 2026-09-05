@@ -142,6 +142,8 @@ function debugOnce(key, ...args) {
 // "New data is available" banner for the user's own action.
 // opts.now/opts.timeZone override the clock the domain instances read, which is
 // what lets a test drive the router across a date boundary deterministically.
+// opts.timeZone stands in for the DEVICE zone specifically: a settings.timezone
+// the user pinned in Settings still wins over it (bd med-7ujt).
 export function createApiRouter(ctx, {
   records: recordsOverride, win, now: nowOverride, timeZone: timeZoneOverride, origin,
 } = {}) {
@@ -152,46 +154,83 @@ export function createApiRouter(ctx, {
   // getRecordsChangeCount, so pass null there to keep those reads always-fresh.
   const recordsChangeCount = recordsOverride ? null : getRecordsChangeCount;
   const now = nowOverride || (() => Date.now());
-  const timeZone = timeZoneOverride
+  // The DEVICE zone — only a fallback. A manually pinned settings.timezone (a
+  // vault record, so only readable asynchronously) wins over it everywhere this
+  // router does wall-clock math; see ensureTimeZone below (bd med-7ujt).
+  const deviceTimeZone = timeZoneOverride
     || (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
-  const bp = createBPDomain({ records, now, timeZone });
-  const weight = createWeightDomain({ records, now, timeZone });
-  const notes = createNotesDomain({ records, now });
-  const settings = createSettingsDomain({ records, now, timeZone });
-  const vitals = createVitalsDomain({ records, now, timeZone });
-  const reminders = createRemindersDomain({ records, now });
-  const medications = createMedicationsDomain({
-    records, now, timeZone, rxnorm: createRxnormPort(),
-  });
-  const intake = createIntakeDomain({ records, now, timeZone });
-  const tzplan = createTzPlanDomain({ records, now, timeZone });
-  const foodDb = createFoodDbClient({ settingsDomain: settings });
-  const food = createFoodDomain({
-    records, now, timeZone, foodDb,
-  });
-  // One aiClient (reads the vault's unmasked openai record) shared by food AI
-  // and the gamification narrator. With a BYO key both send device → the user's
-  // own provider, never through /api; with NO key both fall back to the
-  // operator-proxied trial path (POST /api/trial/openai), gated on an explicit
-  // consent scope — `ai` for food, `tg` for the narrator. See
-  // docs/cloud-mode.md → Privacy boundary (bd med-eas.80).
-  const aiClient = createAIClient({ settingsDomain: settings });
-  const foodAI = createFoodAIDomain({ aiClient, foodDomain: food, now });
-  const workout = createWorkoutDomain({ records, now, timeZone });
-  const gamification = createGamificationDomain({
-    records, now, timeZone, getRecordsChangeCount: recordsChangeCount,
-  });
-  // Phase 6 AI narration layer — prose OVER the deterministic engine. Gets the
-  // computed stats-JSON only (assembled below from the domain read-models) and
-  // returns prose; any no-key/error path returns { text: null } so every
-  // narrate route degrades to the deterministic card journey.js already shows.
-  const narrator = createGamificationNarrator({ aiClient });
-  // Composite health analyses (analyze_cardiovascular / analyze_fitness) —
-  // pure aggregation over the domains built above, served as cloud-only MCP
-  // ops (docs/plans/20260717-cloud-analysis-pathb.md).
-  const analysis = createAnalysis({
-    bp, vitals, medications, intake, food, weight, workout, notes, now, timeZone,
-  });
+  // `let`, not `const`: every route handler below and every domain instance
+  // reads through these bindings, so reassigning them in buildDomains() is what
+  // makes the resolved zone reach the whole router without touching a single
+  // domain module's signature (they all take timeZone as a captured string).
+  let timeZone = deviceTimeZone;
+  let bp; let weight; let notes; let settings; let vitals; let reminders;
+  let medications; let intake; let tzplan; let foodDb; let food; let aiClient;
+  let foodAI; let workout; let gamification; let narrator; let analysis;
+  function buildDomains(tz) {
+    timeZone = tz;
+    bp = createBPDomain({ records, now, timeZone });
+    weight = createWeightDomain({ records, now, timeZone });
+    notes = createNotesDomain({ records, now });
+    settings = createSettingsDomain({ records, now, timeZone });
+    vitals = createVitalsDomain({ records, now, timeZone });
+    reminders = createRemindersDomain({ records, now });
+    medications = createMedicationsDomain({
+      records, now, timeZone, rxnorm: createRxnormPort(),
+    });
+    intake = createIntakeDomain({ records, now, timeZone });
+    tzplan = createTzPlanDomain({ records, now, timeZone });
+    foodDb = createFoodDbClient({ settingsDomain: settings });
+    food = createFoodDomain({
+      records, now, timeZone, foodDb,
+    });
+    // One aiClient (reads the vault's unmasked openai record) shared by food AI
+    // and the gamification narrator. With a BYO key both send device → the user's
+    // own provider, never through /api; with NO key both fall back to the
+    // operator-proxied trial path (POST /api/trial/openai), gated on an explicit
+    // consent scope — `ai` for food, `tg` for the narrator. See
+    // docs/cloud-mode.md → Privacy boundary (bd med-eas.80).
+    aiClient = createAIClient({ settingsDomain: settings });
+    foodAI = createFoodAIDomain({ aiClient, foodDomain: food, now });
+    workout = createWorkoutDomain({ records, now, timeZone });
+    gamification = createGamificationDomain({
+      records, now, timeZone, getRecordsChangeCount: recordsChangeCount,
+    });
+    // Phase 6 AI narration layer — prose OVER the deterministic engine. Gets the
+    // computed stats-JSON only (assembled below from the domain read-models) and
+    // returns prose; any no-key/error path returns { text: null } so every
+    // narrate route degrades to the deterministic card journey.js already shows.
+    narrator = createGamificationNarrator({ aiClient });
+    // Composite health analyses (analyze_cardiovascular / analyze_fitness) —
+    // pure aggregation over the domains built above, served as cloud-only MCP
+    // ops (docs/plans/20260717-cloud-analysis-pathb.md).
+    analysis = createAnalysis({
+      bp, vitals, medications, intake, food, weight, workout, notes, now, timeZone,
+    });
+  }
+  buildDomains(deviceTimeZone);
+
+  // ensureTimeZone reads the pinned settings.timezone once and rebuilds the
+  // domains on it when it differs from the device zone. getGeneral() already
+  // falls back to the injected zone when the record carries none, so an account
+  // that never pinned a zone resolves to deviceTimeZone and nothing is rebuilt.
+  // Memoized; shimCall re-arms it after a settings/tz-plan write, which is the
+  // only way the pinned zone changes from inside this tab.
+  // ponytail: a zone arriving from SYNC (another device pinned it) lands on the
+  // next reload. Drop the memo and re-resolve per call if that ever bites.
+  let tzReady = null;
+  function ensureTimeZone() {
+    if (!tzReady) {
+      tzReady = settings.getGeneral()
+        .then((general) => {
+          if (general && general.timezone && general.timezone !== timeZone) {
+            buildDomains(general.timezone);
+          }
+        })
+        .catch((e) => console.error('[cloud shim] timezone resolve failed', e));
+    }
+    return tzReady;
+  }
 
   // PORTED_SET: the feature domains this shim can actually serve end-to-end
   // (records + domain module + shim routes wired). Clamped onto every read
@@ -331,13 +370,14 @@ export function createApiRouter(ctx, {
     }
   }
 
-  // shimCall implements the window.offlineAwareApiCall(endpoint, method, body,
-  // opts) contract (see api.js apiCall/apiCallDirect): resolves to the parsed
-  // JSON payload, or throws an Error with .status on failure. Writes resolve
-  // as soon as the domain call (and its underlying writeRecord) returns —
-  // writeRecord's oplog flush already happens inline, matching the current
+  // route is the table itself; shimCall (below) wraps it with the timezone
+  // resolve and is what implements the window.offlineAwareApiCall(endpoint,
+  // method, body, opts) contract (see api.js apiCall/apiCallDirect): resolves to
+  // the parsed JSON payload, or throws an Error with .status on failure. Writes
+  // resolve as soon as the domain call (and its underlying writeRecord) returns
+  // — writeRecord's oplog flush already happens inline, matching the current
   // optimistic local-first UX.
-  async function shimCall(endpoint, method = 'GET', body = null, _opts = {}) {
+  async function route(endpoint, method = 'GET', body = null, _opts = {}) {
     const { path, params } = parseQuery(endpoint);
 
     if (path === '/api/bp') {
@@ -1151,9 +1191,31 @@ export function createApiRouter(ctx, {
     throw err;
   }
 
-  shimCall.domains = {
-    bp, weight, notes, settings, food, foodAI, foodDb, intake, tzplan, now,
-  };
+  // Writes under /api/settings and /api/tz-plan are the only in-tab way the
+  // pinned zone changes, so re-arm the memo after one lands rather than
+  // re-reading the settings record on every single route call.
+  const TZ_WRITING_PATH = /^\/api\/(settings|tz-plan)\b/;
+
+  async function shimCall(endpoint, method = 'GET', body = null, opts = {}) {
+    await ensureTimeZone();
+    const result = await route(endpoint, method, body, opts);
+    if (method !== 'GET' && TZ_WRITING_PATH.test(parseQuery(endpoint).path)) {
+      tzReady = null;
+      await ensureTimeZone();
+    }
+    return result;
+  }
+
+  // A getter, not a snapshot: buildDomains() replaces the instances, so a
+  // property read must land on the current set (installApiShim's materialization
+  // sweep re-reads it on every tick for exactly this reason).
+  Object.defineProperty(shimCall, 'domains', {
+    enumerable: true,
+    get: () => ({
+      bp, weight, notes, settings, food, foodAI, foodDb, intake, tzplan, now,
+    }),
+  });
+  shimCall.ensureTimeZone = ensureTimeZone;
   return shimCall;
 }
 
@@ -1188,11 +1250,15 @@ export function installApiShim(ctx, {
   const bgCall = records ? shimCall : createApiRouter(ctx, {
     win, origin: ORIGIN_EXTERNAL, ...clock,
   });
+  // Snapshotted on purpose — none of these four reads wall-clock time, so they
+  // survive a buildDomains() rebuild when the pinned settings.timezone resolves
+  // (bd med-7ujt). Anything TIME-sensitive must go through `.domains` at call
+  // time instead, the way runMaterializationSweep does below.
   const {
     settings, foodDb, now,
   } = shimCall.domains;
   const {
-    food, foodAI, intake, tzplan,
+    food, foodAI,
   } = bgCall.domains;
 
   // Task 4's frontend bypass guards (photo.js/log.js/products.js — raw fetch
@@ -1223,8 +1289,13 @@ export function installApiShim(ctx, {
   // Due-dose materialization + tz-plan status refresh: neither domain module
   // owns a timer (Task 3/4's modules stay pure functions of their inputs), so
   // the shim runs both once on install and again every MATERIALIZE_INTERVAL_MS.
+  // Both compute dose slots in wall time, so they must run on the RESOLVED zone:
+  // await the settings.timezone read and re-read `.domains` each tick, since a
+  // rebuild replaces the instances (bd med-7ujt).
   async function runMaterializationSweep() {
     try {
+      await bgCall.ensureTimeZone();
+      const { intake, tzplan } = bgCall.domains;
       await intake.materializeDueDoses();
       await tzplan.refreshPlanStatus();
     } catch (e) {
@@ -1270,7 +1341,10 @@ export function installApiShim(ctx, {
     }
     return result;
   }
-  offlineAwareApiCall.domains = shimCall.domains;
+  // Getter, mirroring shimCall.domains — a snapshot here would pin the pre-
+  // timezone-resolve instances for every consumer of the installed seam.
+  Object.defineProperty(offlineAwareApiCall, 'domains', { enumerable: true, get: () => shimCall.domains });
+  offlineAwareApiCall.ensureTimeZone = shimCall.ensureTimeZone;
 
   targetWindow.offlineAwareApiCall = offlineAwareApiCall;
   return offlineAwareApiCall;
