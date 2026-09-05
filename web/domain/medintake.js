@@ -213,7 +213,10 @@ export function adherencePct(counts, empty = null) {
 
 // createIntakeDomain builds the intake state-machine API over the injected
 // ports:
-//   records — { list(type), put(type, record), del(type, id) }
+//   records — { list(type), put(type, record), putIfAbsent(type, record),
+//              del(type, id) }. putIfAbsent is not optional: the dose sweep
+//              materializes through it (bd med-j2ku), so a port without it
+//              throws on the first due slot.
 //   now()   — current time in ms epoch
 //   timeZone — IANA zone string, passed straight through to planDoses
 export function createIntakeDomain({ records, now, timeZone }) {
@@ -304,7 +307,10 @@ export function createIntakeDomain({ records, now, timeZone }) {
         // confirmed dose silently reverting to Pending hours later, on every
         // device (bd med-d4w). A floor clientTs makes materialization lose
         // every merge against a real write, which is exactly its standing: it
-        // only ever needs to win against nothing at all.
+        // only ever needs to win against nothing at all. The floor alone was not
+        // enough — writeRecord promoted it to `existing.clientTs + 1` over any
+        // raw row already in the slot — so this goes in through putIfAbsent
+        // below (bd med-qhpu, bd med-j2ku).
         clientTs: 0,
         deleted: false,
         medication_id: target.medicationId,
@@ -314,9 +320,25 @@ export function createIntakeDomain({ records, now, timeZone }) {
         snoozed_until: null,
         source: target.source === 'tz_step' ? 'tz_step' : 'schedule',
       };
-      await putIntake(record);
-      intakes.push(record);
-      created.push(record);
+      // put-if-absent, not put: the RAW slot decides. Two ways it can already be
+      // taken, and neither is ours to overwrite:
+      //   - a TOMBSTONE: that dose was dropped on purpose. A plain put promoted
+      //     this floored placeholder to `tombstone.clientTs + 1`, so the deleted
+      //     dose came back on the very next sweep (bd med-j2ku). Two paths write
+      //     one — deleteFutureIntakes (future PENDING only) and medications.js's
+      //     cancelPendingIntakesForMedication on archive (any PENDING, today's
+      //     already-due slot included). Un-archiving the same day therefore no
+      //     longer hands back the dose that archiving cancelled; the next day's
+      //     slots have their own ids and materialize normally.
+      //   - a REAL ROW that landed between loadIntakes() above and this write —
+      //     applyIncoming pulling in a confirm tapped elsewhere. It is the truth;
+      //     the placeholder is not.
+      const stored = await records.putIfAbsent(INTAKE_RECORD_TYPE, record);
+      if (stored.deleted) continue;
+      // The stored winner, not the proposal, is what the ±band dedup below must
+      // see for the rest of this sweep.
+      intakes.push(stored);
+      if (stored.status === 'PENDING') created.push(stored);
     }
     return created.map(toResponse);
   }

@@ -10,6 +10,7 @@ import {
 } from 'vitest';
 import { loadCloudShimFrontendEnv, createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
 import { createApiRouter } from '../../../cloud/js/apishim.js';
+import { createIntakeDomain } from '../../../domain/medintake.js';
 
 // Fake rxnorm port (Task 8: "warning alert (fake rxnorm port)") — the real
 // browser impl does live RxNav fetches (Task 6); tests substitute a
@@ -405,5 +406,120 @@ describe('cloud shim contract — plan-aware upcoming doses (web/domain/medintak
         expect(await call('/api/medications/upcoming?days=0', 'GET')).toHaveLength(7);
         expect(await call('/api/medications/upcoming?days=abc', 'GET')).toHaveLength(7);
         expect(await call('/api/medications/upcoming?days=999', 'GET')).toHaveLength(30);
+    });
+});
+
+// bd med-j2ku — the dose sweep is the last read-path-that-writes to move onto
+// records.putIfAbsent. Pure domain (no jsdom, no router): the deterministic
+// `intake-<medId>-<slotUnix>` slot and what happens when it is already taken is
+// the load-bearing property, not any browser wiring. Mirrors
+// cloud.shim-contract.workout-convergence.test.js for getNext.
+describe('materializeDueDoses is put-if-absent (bd med-j2ku)', () => {
+    const TZ = 'UTC';
+    // 08:00 daily; "now" sits at 09:00 UTC so today's slot is already due.
+    const SLOT_MS = Date.UTC(2026, 7, 16, 8, 0);
+    const NOW = Date.UTC(2026, 7, 16, 9, 0);
+    const SLOT_ID = `intake-1-${SLOT_MS / 1000}`;
+
+    const med = () => ({
+        recordId: 1,
+        clientTs: Date.UTC(2026, 0, 1),
+        deleted: false,
+        name: 'Metformin',
+        dosage: '500mg',
+        schedule: JSON.stringify({ type: 'daily', times: ['08:00'] }),
+        archived: false,
+        start_date: null,
+        end_date: null,
+        inventory_count: null,
+        tz_shift_policy: 'strict',
+        created_at: '2026-01-01T00:00:00.000Z'
+    });
+
+    // A local REPLICA of the comparison web/cloud/js/sync.js applyIncoming makes
+    // on every pulled record: strict `>` on clientTs, so equal stamps leave the
+    // existing row in place.
+    const applyIncoming = (existing, incoming) => (
+        !existing || incoming.clientTs > existing.clientTs ? incoming : existing
+    );
+
+    const domainOver = (records, now) => createIntakeDomain({ records, now, timeZone: TZ });
+
+    it('two devices materializing the same slot write byte-identical bodies that never displace each other', async () => {
+        const portA = createInMemoryRecordsPort({ medication: [med()] });
+        const portB = createInMemoryRecordsPort({ medication: [med()] });
+        const deviceA = domainOver(portA, () => NOW);
+        // Different clock: the body must not depend on when the device derived it.
+        const deviceB = domainOver(portB, () => NOW + 3 * 3600_000);
+
+        await Promise.all([deviceA.materializeDueDoses(), deviceB.materializeDueDoses()]);
+
+        const bodyA = (await portA.list('intake'))[0];
+        const bodyB = (await portB.list('intake'))[0];
+        expect(bodyA.recordId).toBe(SLOT_ID);
+        expect(bodyA.clientTs).toBe(0); // still the derived-state floor (med-d4w)
+        expect(bodyB).toEqual(bodyA);
+        // Equal stamps, identical bodies: the merge is a no-op in both directions.
+        expect(applyIncoming(bodyB, bodyA)).toBe(bodyB);
+        expect(applyIncoming(bodyA, bodyB)).toBe(bodyA);
+    });
+
+    it('a deleteFutureIntakes tombstone keeps the slot deleted once it comes due', async () => {
+        const records = createInMemoryRecordsPort({
+            medication: [med()],
+            intake: [{
+                recordId: SLOT_ID,
+                clientTs: Date.UTC(2026, 7, 16, 7, 0),
+                deleted: false,
+                medication_id: 1,
+                scheduled_at: new Date(SLOT_MS).toISOString(),
+                taken_at: null,
+                status: 'PENDING',
+                snoozed_until: null,
+                source: 'schedule'
+            }]
+        });
+        let nowMs = Date.UTC(2026, 7, 16, 7, 0); // an hour before the slot
+        const domain = domainOver(records, () => nowMs);
+
+        expect((await domain.deleteFutureIntakes([SLOT_ID])).deleted_count).toBe(1);
+
+        // The sweep runs again once the slot is due. Pre-fix the floored
+        // placeholder was promoted to `tombstone.clientTs + 1`, so the dose the
+        // user deleted came straight back as PENDING on the next tick.
+        nowMs = NOW;
+        expect(await domain.materializeDueDoses()).toEqual([]);
+        expect(await records.list('intake')).toEqual([]);
+        // Probe the raw slot (putIfAbsent never overwrites): still a tombstone.
+        const raw = await records.putIfAbsent('intake', { recordId: SLOT_ID, clientTs: 0 });
+        expect(raw.deleted).toBe(true);
+    });
+
+    it('a confirm that lands mid-sweep wins — the placeholder never overwrites it', async () => {
+        const records = createInMemoryRecordsPort({ medication: [med()] });
+        const domain = domainOver(records, () => NOW);
+
+        // Build the confirmed row on a peer device, exactly as a real confirm does.
+        const peer = createInMemoryRecordsPort({ medication: [med()] });
+        const peerDomain = domainOver(peer, () => NOW);
+        await peerDomain.materializeDueDoses();
+        await peerDomain.confirm(SLOT_ID, NOW);
+        const confirmed = (await peer.list('intake'))[0];
+        expect(confirmed.status).toBe('TAKEN');
+
+        // Force the losing interleaving: applyIncoming lands the op between the
+        // sweep's loadIntakes() and its write. withRecordsLock only makes the
+        // write itself atomic — loadIntakes runs outside it — so this window is
+        // real in production, not hypothetical, and putIfAbsent is what closes it.
+        const inner = records.putIfAbsent.bind(records);
+        records.putIfAbsent = async (type, record) => {
+            await records.put(type, confirmed);
+            return inner(type, record);
+        };
+
+        expect(await domain.materializeDueDoses()).toEqual([]);
+        const row = (await records.list('intake'))[0];
+        expect(row.status).toBe('TAKEN');
+        expect(row.clientTs).toBe(confirmed.clientTs);
     });
 });
