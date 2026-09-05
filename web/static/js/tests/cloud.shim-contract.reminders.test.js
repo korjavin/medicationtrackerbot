@@ -220,9 +220,11 @@ describe('cloud shim horizon — a tombstoned dose slot', () => {
         expect(slots).toContain(TOMORROW_SLOT);
     });
 
-    // Archiving runs cancelPendingIntakesForMedication over every PENDING dose;
-    // the med itself also drops out of the forecast (`!m.archived`). Both ends
-    // of that must leave the horizon silent for it.
+    // Archiving runs cancelPendingIntakesForMedication over every PENDING dose,
+    // and the med itself drops out of the forecast (`!m.archived`). This pins
+    // the SECOND half — it holds on either side of the tombstone change, which
+    // is the point: the archive path must stay silent even if the slot key ever
+    // stops matching.
     it('drops every slot of an archived medication', async () => {
         const records = createInMemoryRecordsPort({ medication: [med({ archived: true })] });
         await records.del('intake', `intake-med-a-${TODAY_SLOT}`);

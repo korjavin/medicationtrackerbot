@@ -333,8 +333,11 @@ export function computeReminderHorizon({
     }
   }
   // A dose deleted on purpose leaves a TOMBSTONE at the deterministic
-  // `intake-<medId>-<slotUnix>` id, and materializeDueDoses will never
-  // re-create it (putIfAbsent treats a tombstone as occupied, bd med-j2ku).
+  // `intake-<medId>-<slotUnix>` id, and the dose sweep never re-creates it
+  // (materializeDueDoses' putIfAbsent treats a tombstone as occupied, bd
+  // med-j2ku). medintake.js's in-app forecast readers (upcomingDoses /
+  // nextIntake / triggerNextIntake) still read live-only and do NOT yet honour
+  // the tombstone — a separate defect, not this horizon's.
   // This horizon used to see live rows only, so it read that slot as "not
   // materialized yet" and kept pushing "Time to take" for a dose the app no
   // longer offers — and the Confirm on that push then found nothing to confirm
