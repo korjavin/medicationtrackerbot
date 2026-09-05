@@ -268,6 +268,56 @@ describe('gamification "since you last looked" strip', () => {
     expect(wordCount(items[0].text)).toBeLessThanOrEqual(20);
   });
 
+  // A vault rich enough to fire every candidate at once: four unseen terminal
+  // findings, a BP keystone, a freshly held trait, and a calibrated forecast
+  // resolution. Both caps have to bite.
+  function saturatedVault() {
+    const bp = [];
+    const workoutsession = [];
+    const sleep = [];
+    const count = 30;
+    for (let i = 0; i < count; i++) {
+      const offset = count - 1 - i;
+      const prevWorkout = i > 0 && ((i - 1) % 2 === 0);
+      bp.push(bpRec(offset, i === 0 ? 118 : (prevWorkout ? 110 : 126)));
+      if (i % 2 === 0) workoutsession.push(workoutRec(offset));
+      sleep.push(sleepRec(offset, i % 2 === 0 ? 450 : 360));
+    }
+    return { bp, workoutsession, sleep };
+  }
+
+  it('caps the strip at four lines and at two discoveries, dropping the lowest priority', async () => {
+    const { gam } = domainOver(saturatedVault());
+    const atlas = await gam.getAtlas();
+
+    // Four findings have cleared their gate and none has been read yet...
+    expect(atlas.cards.filter((c) => c.seen === false)).toHaveLength(4);
+    // ...but only two reach the strip, and the whole strip is four lines.
+    expect(atlas.whats_new.map((it) => it.kind)).toEqual(['discovery', 'discovery', 'keystone', 'trait']);
+
+    // The forecast resolution is real and calibrated — it lost the last slot
+    // to higher-priority news rather than being absent.
+    expect((await gam.getForecast()).resolution).not.toBeNull();
+  });
+
+  it('drops the forecast line when the gamification flag is off, and the whole strip on demand', async () => {
+    const { gam } = domainOver(saturatedVault());
+    // Read every finding so the strip falls through to the lower-priority items.
+    for (const c of (await gam.getAtlas()).cards) {
+      if (c.seen === false) await gam.markDiscoverySeen(c.id);
+    }
+
+    expect((await gam.getAtlas()).whats_new.map((it) => it.kind))
+      .toEqual(['keystone', 'trait', 'forecast']);
+    // The shim passes the feature flag down, because getForecast() itself
+    // always reports enabled (the same reason /forecast is gated there).
+    expect((await gam.getAtlas({ forecast: false })).whats_new.map((it) => it.kind))
+      .toEqual(['keystone', 'trait']);
+    // The narrate handlers hold these payloads already and drop whats_new, so
+    // they opt out of composing it entirely.
+    expect(await gam.getAtlas({ whatsNew: false })).not.toHaveProperty('whats_new');
+  });
+
   it('shows nothing at all on a fresh account', async () => {
     const { gam } = domainOver({});
     expect((await gam.getAtlas()).whats_new).toEqual([]);

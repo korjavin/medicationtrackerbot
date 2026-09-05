@@ -1093,7 +1093,13 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // getAtlas evaluates the whole catalog and stamps reveal-once seen flags on
   // the two terminal states. Developing cards are never "seen" (nothing revealed
   // yet). Returns { enabled, cards } — the shape journey.js's Atlas feed reads.
-  async function getAtlas() {
+  // `whatsNew: false` keeps this the cheap, read-only Atlas it has always been
+  // — the narrate handlers hold their own copies of every payload getWhatsNew
+  // composes and drop `whats_new`, so they must not pay for it. `forecast`
+  // carries the gamification feature flag down from the shim: /forecast is
+  // gated there because getForecast() always reports enabled, and the strip's
+  // forecast line has to honour the same gate.
+  async function getAtlas({ whatsNew = true, forecast = true } = {}) {
     const [days, seen] = await Promise.all([buildDays(), readSeen()]);
     const seenSet = new Set(seen);
     const cards = PROBES.map((probe) => {
@@ -1103,10 +1109,17 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       }
       return card;
     });
-    return { enabled: true, cards, whats_new: await getWhatsNew(cards) };
+    if (!whatsNew) return { enabled: true, cards };
+    return { enabled: true, cards, whats_new: await getWhatsNew(cards, forecast) };
   }
 
   // --- "Since you last looked" (med-edxz.3) -------------------------------
+  function verdictLabel(v) {
+    if (v === 'effect') return 'an effect';
+    if (v === 'no_effect') return 'a clean null result';
+    return 'not enough contrast to call it';
+  }
+
   // getWhatsNew composes the existing narrative reads into at most four short
   // event lines for the Journey's first card. Nothing new is computed or
   // persisted: every candidate is a field that already exists on a payload the
@@ -1120,25 +1133,22 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // the developing probe closest to revealing (goal gradient) — and only once
   // that probe has real data, so a fresh account shows no strip at all.
   //
-  // ponytail: composing the reads costs four extra buildDays() passes per
-  // Journey open (each read recomputes the window). Fine for one vault
+  // ponytail: composing the reads costs four extra buildDays() passes on the
+  // Atlas read (~6x its record reads), and journey.js fetches traits /
+  // keystones / experiments again for their own cards. Fine for one vault
   // in-browser; memoize buildDays the way loadForRead memoizes ctx if a real
   // device measurably stutters.
-  function verdictLabel(v) {
-    if (v === 'effect') return 'an effect';
-    if (v === 'no_effect') return 'a clean null result';
-    return 'not enough contrast to call it';
-  }
-
-  async function getWhatsNew(cards) {
+  async function getWhatsNew(cards, includeForecast) {
     const nowMs = now();
     // Sequential, not Promise.all: getTraits / getKeystones / listExperiments
-    // each read-modify-write the journal singleton, so running them together
-    // would race one another's merge (bd med-y4ue) inside a single read.
+    // each read-modify-write the journal singleton, so awaiting them in turn
+    // at least keeps ONE read from racing its own merges. It does not fix the
+    // real hazard — journey.js and the narrate handler already call these
+    // concurrently with the Atlas — which is bd med-y4ue, not this bead.
     const traits = await getTraits();
     const keystones = await getKeystones();
     const experiments = await listExperiments();
-    const forecast = await getForecast();
+    const forecast = includeForecast ? await getForecast() : null;
     const items = [];
 
     // 1. Unseen findings — the genuinely new thing on the screen.
@@ -1193,16 +1203,21 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
         ? dormant.rekindle_remaining : (Number(dormant.rekindle) || 0);
       items.push({
         kind: 'trait',
-        text: `${dormant.title} is dormant — ${left} more ${dormant.lever_label} rekindles it.`,
+        // Verbatim the card's own rekindle copy (journey.js traitSubtitle),
+        // reassurance included — a dormant trait is an invitation back, and
+        // dropping "Nothing was lost" would turn it into a loss notice.
+        text: `${dormant.title} is dormant — ${left} more ${dormant.lever_label} rekindles it. Nothing was lost.`,
         target: 'journey-traits-card',
       });
     }
 
     // 5. This morning's forecast resolution, hidden in exactly the states
-    // forecast-card.js hides it (disabled payload, or below the calibration
-    // gate — getForecast only sets `resolution` once calibrated). Never a
-    // weight reference: the text is the forecast card's own sleep/BP line.
-    // No Journey card owns the forecast, so this line has no scroll target.
+    // forecast-card.js hides it: the gamification flag off (carried in as
+    // includeForecast, since getForecast always reports enabled — the same
+    // reason the /forecast route gates it at the shim) and below the
+    // calibration gate (getForecast only sets `resolution` once calibrated).
+    // Never a weight reference: the text is the forecast card's own sleep/BP
+    // line. No Journey card owns the forecast, so this line has no target.
     const resolution = forecast && forecast.enabled ? forecast.resolution : null;
     if (resolution && resolution.text) {
       items.push({ kind: 'forecast', text: resolution.text, target: null });

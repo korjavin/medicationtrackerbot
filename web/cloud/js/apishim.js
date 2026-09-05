@@ -973,7 +973,14 @@ export function createApiRouter(ctx, {
     // the Atlas is live: getAtlas() recomputes discovery cards client-side from
     // vault records (zero server-side health reads), and /atlas/seen persists
     // reveal-once flags. journey.js renders the feed above the (empty) substrate.
-    if (path === '/api/gamification/atlas' && method === 'GET') return gamification.getAtlas();
+    // The payload also carries the Journey's "since you last looked" strip
+    // (whats_new). Its forecast line is the one item drawn from a route that
+    // IS flag-gated below, so the flag rides along rather than leaking a
+    // forecast through the ungated Atlas.
+    if (path === '/api/gamification/atlas' && method === 'GET') {
+      const flags = await settings.getFeatures();
+      return gamification.getAtlas({ forecast: !!flags.gamification });
+    }
     if (path === '/api/gamification/atlas/seen' && method === 'POST') {
       return gamification.markDiscoverySeen(body && body.id);
     }
@@ -1048,8 +1055,10 @@ export function createApiRouter(ctx, {
     // returns { text: null } and journey.js keeps its deterministic cards.
     if (path === '/api/gamification/narrate' && method === 'GET') return { enabled: true };
     if (path === '/api/gamification/narrate/weekly' && method === 'POST') {
+      // whatsNew:false — the narrator never reads the strip, and computing it
+      // would re-derive the five payloads this Promise.all already holds.
       const [atlas, forecast, experiments, chapter, traits, keystones] = await Promise.all([
-        gamification.getAtlas(), gamification.getForecast(), gamification.listExperiments(),
+        gamification.getAtlas({ whatsNew: false }), gamification.getForecast(), gamification.listExperiments(),
         gamification.getChapter(), gamification.getTraits(), gamification.getKeystones(),
       ]);
       return narrator.narrateWeekly({ atlas, forecast, experiments, chapter, traits, keystones });
@@ -1059,7 +1068,7 @@ export function createApiRouter(ctx, {
     }
     if (path === '/api/gamification/narrate/experiments' && method === 'POST') {
       const [experiments, atlas] = await Promise.all([
-        gamification.listExperiments(), gamification.getAtlas(),
+        gamification.listExperiments(), gamification.getAtlas({ whatsNew: false }),
       ]);
       return narrator.suggestExperiments({ experiments, atlas });
     }

@@ -861,6 +861,33 @@ describe('Journey render', () => {
         expect(env.document.querySelector('.wg-journey-whatsnew .wg-section-label').textContent).toBe('TODAY');
     });
 
+    it('activates a strip item from the keyboard, not just a tap', () => {
+        env.window.Gamification.render(withStrip(WHATS_NEW));
+        const { document } = env;
+        const scrollIntoView = vi.fn();
+        document.getElementById('journey-atlas-card').scrollIntoView = scrollIntoView;
+        const row = document.querySelectorAll('.wg-journey-whatsnew__item')[0];
+        expect(row.getAttribute('tabindex')).toBe('0');
+        const ev = new env.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
+        row.dispatchEvent(ev);
+        expect(scrollIntoView).toHaveBeenCalled();
+    });
+
+    // Offline with a warm Atlas cache is the routine case: the strip's payload
+    // survives but the sibling cards' fetches returned null, so their cards are
+    // never built. A role="button" that scrolls nowhere is worse than a line.
+    it('leaves an item plain when the card it points at did not render', () => {
+        env.window.Gamification.render(journey({
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: WHATS_NEW },
+            traits: null,
+        }));
+        const rows = [...env.document.querySelectorAll('.wg-journey-whatsnew__item')];
+        // The Atlas card rendered, so item 0 stays a button; the traits card
+        // did not, so the trait line is no longer interactive.
+        expect(rows.map((r) => r.getAttribute('role'))).toEqual(['button', null, null]);
+        expect(rows[1].classList.contains('wg-journey-whatsnew__item--tappable')).toBe(false);
+    });
+
     it('omits the strip entirely when there is nothing to say', () => {
         env.window.Gamification.render(withStrip([]));
         expect(env.document.querySelector('.wg-journey-whatsnew')).toBeNull();

@@ -447,7 +447,13 @@
     // each one. The list is computed in the domain (getWhatsNew) and rides
     // along on the Atlas payload, so it costs no extra fetch. Empty list (a
     // fresh account, or an offline cold cache) → no card at all.
-    function renderWhatsNew(j) {
+    //
+    // `builtIds` is the set of card ids that actually rendered this pass. Each
+    // target's card is omitted whenever its own fetch failed (offline with a
+    // warm Atlas cache is the routine case), so only a line whose destination
+    // exists becomes a button — a role="button" that scrolls nowhere is a
+    // worse control than a plain line.
+    function renderWhatsNew(j, builtIds) {
         const atlas = j && j.atlas;
         const items = (atlas && Array.isArray(atlas.whats_new)) ? atlas.whats_new : [];
         if (items.length === 0) return null;
@@ -462,12 +468,12 @@
 
         const list = el('div', 'wg-journey-whatsnew__list');
         items.forEach((it) => {
-            const row = el('p', 'wg-journey-whatsnew__item', it.text);
-            const target = it.target;
+            const target = (it.target && builtIds && builtIds.has(it.target)) ? it.target : null;
+            const row = el('p', 'wg-journey-whatsnew__item'
+                + (target ? ' wg-journey-whatsnew__item--tappable' : ''), it.text);
             if (target) {
-                row.className += ' wg-journey-whatsnew__item--tappable';
                 row.setAttribute('role', 'button');
-                row.tabIndex = 0;
+                row.setAttribute('tabindex', '0');
                 row.addEventListener('click', () => goToCard(target));
                 row.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToCard(target); }
@@ -744,9 +750,9 @@
         return card;
     }
 
-    // Scrolls to the sleep→BP insight card rendered above (renderInsightCard).
-    // A no-op if the card wasn't rendered (e.g. `journey.insight` hasn't
-    // loaded yet). Reached from the Gauges "why is this moving?" link.
+    // Scrolls to another card on this screen. A no-op if that card wasn't
+    // rendered this pass — every caller's destination is conditional on its
+    // own payload having loaded.
     function goToCard(id) {
         const target = document.getElementById(id);
         if (target && typeof target.scrollIntoView === 'function') {
@@ -754,6 +760,8 @@
         }
     }
 
+    // The sleep→BP insight card (renderInsightCard), reached from the Gauges
+    // "why is this moving?" link.
     function goToInsightCard() { goToCard('journey-insight-card'); }
 
     // --- Chapters (Phase 5) -----------------------------------------------
@@ -993,13 +1001,17 @@
         // in cloud mode the HP/levels substrate is a later phase (returns
         // {enabled:false}), so a disabled substrate with a live narrative
         // layer still renders it rather than the "gamification is off" state.
-        const whatsNewCard = journey ? renderWhatsNew(journey) : null;
         const atlasCard = journey ? renderAtlas(journey) : null;
         const traitsCard = journey ? renderTraits(journey) : null;
         const experimentCard = journey ? renderExperiment(journey) : null;
         const chapterCard = journey ? renderChapter(journey) : null;
         const keystonesCard = journey ? renderKeystones(journey) : null;
         const narratorCard = journey ? renderNarrator(journey) : null;
+        // The strip is built LAST and placed FIRST: it can only link to a card
+        // that this pass actually produced.
+        const builtIds = new Set([atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard]
+            .filter(Boolean).map((c) => c.id));
+        const whatsNewCard = journey ? renderWhatsNew(journey, builtIds) : null;
         const narrativeCards = [whatsNewCard, atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard, narratorCard];
 
         if (!journey || journey.enabled === false) {

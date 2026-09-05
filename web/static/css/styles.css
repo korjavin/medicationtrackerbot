@@ -5885,6 +5885,18 @@ textarea.wg-input {
     cursor: pointer;
 }
 
+/* Keyboard focus needs a visible target of its own, not just the hover lift —
+   same reasoning as .wg-exercise-suggest__row:focus-visible below. The ring is
+   outset here: the strip is not inside a scroller, so nothing clips it. */
+.wg-journey-whatsnew__item--tappable:hover {
+    background: var(--wg-border-strong);
+}
+
+.wg-journey-whatsnew__item--tappable:focus-visible {
+    background: var(--wg-border-strong);
+    outline: 2px solid var(--wg-toggle-border-focus);
+}
+
 /* Discovery Atlas feed (gamification redesign Phase 1). One card per probe in
    three states — developing / revealed / no_effect — stacked in the section. */
 .wg-journey-atlas__list {
