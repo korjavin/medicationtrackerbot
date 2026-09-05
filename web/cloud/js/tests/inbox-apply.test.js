@@ -35,6 +35,15 @@ function fakeRecords(seed = {}) {
             store[type].push({ ...record });
             return record;
         },
+        // Mirrors sync.js recordsPort.putIfAbsent (bd med-qhpu) — the raw slot
+        // decides, and the stored winner comes back either way.
+        putIfAbsent: async (type, record) => {
+            const existing = (store[type] || []).find((r) => r.recordId === record.recordId);
+            if (existing) return { ...existing };
+            store[type] = store[type] || [];
+            store[type].push({ ...record });
+            return record;
+        },
         del: async (type, id) => {
             store[type] = (store[type] || []).filter((r) => r.recordId !== id);
         },
