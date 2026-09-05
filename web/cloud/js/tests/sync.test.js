@@ -2104,3 +2104,163 @@ describe('plaintext records memo (med-90w.1)', () => {
     expect(getRecordsChangeCount()).toBeGreaterThan(afterPut);
   });
 });
+
+// med-qhpu — a derived row (a read path materializing into a deterministic
+// recordId) is stamped clientTs: 0 so it loses every LWW merge against a real
+// write. That floor was NOT enough on the local write path: writeRecord's
+// nextClientTs promotes any write to `existing.clientTs + 1` when a raw row —
+// tombstone included — already occupies the slot, which is exactly how a stale
+// device's placeholder ends up outranking the completed workout it should have
+// lost to (bd med-9a87). recordsPort.putIfAbsent is the fix: write only into an
+// EMPTY raw slot, stamp verbatim, and hand back the stored winner.
+describe('derived writes are put-if-absent, not floor-then-hope (med-qhpu)', () => {
+  const accountId = 'acct-qhpu';
+  const SLOT = 'session-7-2026-08-31';
+
+  const seed = async (records, meta = { localLastSeq: 5, lastSnapshotSeq: 0 }) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'sync_meta'], 'readwrite');
+        for (const r of records) tx.objectStore('records').put(r);
+        for (const [k, v] of Object.entries(meta)) tx.objectStore('sync_meta').put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const getRaw = async (recordId) => {
+    const db = await openDb();
+    try {
+      const tx = db.transaction('records', 'readonly');
+      return await new Promise((resolve, reject) => {
+        const req = tx.objectStore('records').get(recordId);
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  let ctx;
+  let posted;
+  let pulledOps;
+
+  const derived = (extra = {}) => ({
+    recordId: SLOT, clientTs: 0, deleted: false, id: 1000000000001, status: 'pending', ...extra,
+  });
+
+  beforeEach(async () => {
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, dek: await generateDEK() };
+    posted = [];
+    pulledOps = [];
+    let assignNext = 100;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && !init?.method) return new Response(null, { status: 204 });
+      if (u.startsWith('/api/sync/ops?')) {
+        const ops = pulledOps.splice(0, pulledOps.length);
+        return new Response(JSON.stringify({ ops, next: false }), { status: 200 });
+      }
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        const { ops } = JSON.parse(init.body);
+        posted.push(...ops.map((o) => o.record_type_tag));
+        return new Response(JSON.stringify({ assigned: ops.map(() => assignNext++) }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+  });
+
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('writes an empty slot verbatim — the floor survives, un-skewed', async () => {
+    // A learned clock skew must NOT shift a derived stamp: two devices deriving
+    // the same slot have to produce byte-identical bodies (bd med-8j12), and
+    // `0 - skewMs` is not.
+    await seed([], { localLastSeq: 5, lastSnapshotSeq: 0, clockSkewMs: 10 * 60 * 1000 });
+
+    const stored = await recordsPort(ctx).putIfAbsent('workoutsession', derived());
+
+    expect(stored.clientTs).toBe(0);
+    expect((await getRaw(SLOT)).clientTs).toBe(0);
+    expect((await getRaw(SLOT)).status).toBe('pending');
+  });
+
+  it('a TOMBSTONE counts as occupied: no write, no promotion, no oplog op', async () => {
+    await seed([{ recordId: SLOT, recordType: 'workoutsession', clientTs: 7000, deleted: true }]);
+
+    const stored = await recordsPort(ctx).putIfAbsent('workoutsession', derived());
+
+    // Pre-fix this came back at 7001 — promoted above the tombstone and above
+    // every real write a peer had made since.
+    expect(stored.deleted).toBe(true);
+    expect(stored.clientTs).toBe(7000);
+    const raw = await getRaw(SLOT);
+    expect(raw.deleted).toBe(true);
+    expect(raw.clientTs).toBe(7000);
+    expect(posted).toEqual([]); // nothing changed, so nothing to push
+  });
+
+  it('a real row already in the slot is returned untouched', async () => {
+    await seed([{
+      recordId: SLOT, recordType: 'workoutsession', clientTs: 9000, deleted: false,
+      id: 42, status: 'completed',
+    }]);
+
+    const stored = await recordsPort(ctx).putIfAbsent('workoutsession', derived());
+
+    expect(stored.status).toBe('completed');
+    expect(stored.id).toBe(42);
+    expect((await getRaw(SLOT)).status).toBe('completed');
+    expect(posted).toEqual([]);
+  });
+
+  it('a plain put of the same body IS still promoted — that is the contrast', async () => {
+    await seed([{ recordId: SLOT, recordType: 'workoutsession', clientTs: 7000, deleted: true }]);
+
+    // Guard 2 is intact for REAL writes: an edit of a record you can see must
+    // outrank the version it replaces. Only derived writes opt out.
+    const stored = await recordsPort(ctx).put('workoutsession', derived());
+
+    expect(stored.clientTs).toBe(7001);
+    expect((await getRaw(SLOT)).status).toBe('pending');
+  });
+
+  it('a materialization racing an incoming completed row keeps the completed row', async () => {
+    await seed([]);
+    const kData = await deriveKData(ctx.dek);
+    const completed = { recordId: SLOT, clientTs: 9000, deleted: false, id: 42, status: 'completed' };
+    const { nonce, ct } = await encryptRecord({
+      kData, accountId, recordType: 'workoutsession', recordId: SLOT, seq: 6,
+      plaintext: new TextEncoder().encode(JSON.stringify(completed)),
+    });
+    pulledOps.push({
+      seq: 6, record_type_tag: `workoutsession:${SLOT}`,
+      nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)),
+    });
+
+    // applyIncoming and writeRecord share withRecordsLock, so the two get/put
+    // pairs cannot interleave. Whichever wins the lock, the completed row is the
+    // survivor: it either blocks the put-if-absent outright, or lands on top of a
+    // floored placeholder that cannot outrank it.
+    await Promise.all([
+      pullOnOpen(ctx),
+      recordsPort(ctx).putIfAbsent('workoutsession', derived()),
+    ]);
+
+    const raw = await getRaw(SLOT);
+    expect(raw.status).toBe('completed');
+    expect(raw.clientTs).toBe(9000);
+    expect(raw.id).toBe(42);
+  });
+});

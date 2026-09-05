@@ -77,8 +77,17 @@ const kDataCache = new WeakMap();
 // preservation in replaceAllRecords misses it, the clear wipes it, and
 // flushPending's getRecord() returns null → the write is silently lost and its
 // 'pending' row orphaned. A single-slot promise queue makes the two regions
-// mutually exclusive. The two locked regions never nest, so this can't
-// deadlock. ponytail: module-global lock; fine for one device's serial sync.
+// mutually exclusive.
+//
+// applyIncoming is held here too (bd med-qhpu): it is the OTHER get-then-put on
+// the same rows, so unlocked it could interleave with writeRecord's — and
+// writeRecord's put-if-absent mode (derived materialization) is only atomic if
+// nothing can land a row between its absence check and its put.
+//
+// The locked regions never nest, so this can't deadlock: nothing inside one
+// calls pullTail/flushPending/replaceAllRecords (writeRecord fires its flush
+// AFTER the region closes; resetLocalSync calls pullOnOpen after its own).
+// ponytail: module-global lock; fine for one device's serial sync.
 let recordsLock = Promise.resolve();
 function withRecordsLock(fn) {
   const run = recordsLock.then(fn, fn);
@@ -474,13 +483,18 @@ async function noteServerDate(res) {
 // Returns the recordType when the incoming record actually won (LWW on
 // clientTs), so the caller can batch one repaint per pulled page rather than one
 // per record.
+// Serialized against writeRecord (withRecordsLock): a derived put-if-absent
+// checks the slot and writes it, and an op landing between those two steps would
+// be silently overwritten by a placeholder (bd med-qhpu).
 async function applyIncoming(recordType, record) {
-  const existing = await getRecord(record.recordId);
-  if (!existing || record.clientTs > existing.clientTs) {
-    await putRecord({ ...record, recordType });
-    return recordType;
-  }
-  return null;
+  return withRecordsLock(async () => {
+    const existing = await getRecord(record.recordId);
+    if (!existing || record.clientTs > existing.clientTs) {
+      await putRecord({ ...record, recordType });
+      return recordType;
+    }
+    return null;
+  });
 }
 
 // Returns true once the local mirror is at a known cursor. False means "did not
@@ -1232,19 +1246,42 @@ export async function isSyncWedged() {
 // the whole batch in chunks, turning ~1330 one-op POSTs into a handful of
 // ≤500-op ones (med-0ol.2). Repaint still fires per write; the caller decides
 // pushing, not painting.
-export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTERNAL, { flush = true } = {}) {
+//
+// `ifAbsent` is the DERIVED-write mode (bd med-qhpu): put-if-absent, returning
+// the stored winner untouched when any RAW row — tombstone included — already
+// occupies the recordId. A read path that lazily materializes a row into a
+// deterministic recordId must use it, because the clientTs floor alone is not
+// enough: nextClientTs promotes a floored placeholder to `existing.clientTs + 1`
+// whenever a raw row is there, which is exactly how a placeholder ends up
+// outranking the real write it was supposed to lose to. The floored clientTs is
+// also written VERBATIM in this mode — no skew correction — because derived
+// bodies must be byte-identical on every device that derives them (bd med-8j12),
+// and `0 - skewMs` is not.
+export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTERNAL, { flush = true, ifAbsent = false } = {}) {
   await bootstrapIfNeeded(ctx);
   const meta = await readMeta();
   let stamped = record;
+  let wrote = true;
   // Atomic w.r.t. replaceAllRecords' clear (see withRecordsLock): the record
   // and its 'pending' row must both be visible, or neither, when a concurrent
   // bootstrap snapshots what to preserve.
   await withRecordsLock(async () => {
     const existing = await getRecord(record.recordId);
-    stamped = { ...record, clientTs: nextClientTs(existing, record.clientTs, meta.clockSkewMs), recordType };
+    if (ifAbsent && existing) {
+      stamped = existing;
+      wrote = false;
+      return;
+    }
+    stamped = {
+      ...record,
+      clientTs: ifAbsent ? record.clientTs : nextClientTs(existing, record.clientTs, meta.clockSkewMs),
+      recordType,
+    };
     await putRecord(stamped);
     await markPending(record.recordId, recordType);
   });
+  // Nothing changed — no op to push, nothing to repaint.
+  if (!wrote) return stamped;
   // Local-first (med-eas.77): the write is already durable in 'pending'
   // (markPending, above) and apiCall returns the LOCAL stamped record, never a
   // server ack — so the eager oplog push must NOT be awaited or the confirm
@@ -1279,6 +1316,12 @@ export function recordsPort(ctx, origin = ORIGIN_EXTERNAL, { deferFlush = false 
     list: (recordType) => listRecords(ctx, recordType),
     listRange: (recordType, fromId, toId) => listRecordsInRange(ctx, recordType, fromId, toId),
     put: (recordType, record) => writeRecord(ctx, recordType, record, origin, { flush }),
+    // Derived materialization (see writeRecord's `ifAbsent`): writes only into an
+    // EMPTY raw slot and always resolves to the stored winner, so a read path can
+    // never promote its placeholder over a tombstone or over a real row that
+    // landed first. Callers decide what a losing verdict means for them — a
+    // tombstoned slot is a deliberate delete, not something to re-fill.
+    putIfAbsent: (recordType, record) => writeRecord(ctx, recordType, record, origin, { flush, ifAbsent: true }),
     del: (recordType, recordId) => writeRecord(ctx, recordType, { recordId, clientTs: Date.now(), deleted: true }, origin, { flush }),
   };
 }
