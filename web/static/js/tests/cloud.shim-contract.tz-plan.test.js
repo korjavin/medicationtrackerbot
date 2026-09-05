@@ -383,4 +383,16 @@ describe('cloud shim contract — settings.timezone drives the router clock', ()
         const stats = await window.offlineAwareApiCall('/api/bp/stats', 'GET');
         expect(stats.stats_14.days).toBe(2);
     });
+
+    it('a mid-session pin re-buckets without a reload', async () => {
+        const { window } = setup(seedBP());
+
+        expect((await window.offlineAwareApiCall('/api/bp/stats', 'GET')).stats_14.days).toBe(2);
+
+        // No medications seeded, so this writes settings.timezone straight
+        // through instead of staging a transition plan.
+        await window.offlineAwareApiCall('/api/settings', 'POST', { timezone: 'Asia/Tokyo' });
+
+        expect((await window.offlineAwareApiCall('/api/bp/stats', 'GET')).stats_14.days).toBe(1);
+    });
 });

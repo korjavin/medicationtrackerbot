@@ -172,7 +172,12 @@ export function createApiRouter(ctx, {
     bp = createBPDomain({ records, now, timeZone });
     weight = createWeightDomain({ records, now, timeZone });
     notes = createNotesDomain({ records, now });
-    settings = createSettingsDomain({ records, now, timeZone });
+    // deviceTimeZone, NOT the resolved one: this domain's only use of the zone
+    // is getGeneral()'s fallback for "no timezone pinned", which must stay the
+    // device's — feeding it the resolved zone would make a later un-pinning
+    // resolve to the old pin forever, and would make ensureTimeZone's
+    // comparison below tautological.
+    settings = createSettingsDomain({ records, now, timeZone: deviceTimeZone });
     vitals = createVitalsDomain({ records, now, timeZone });
     reminders = createRemindersDomain({ records, now });
     medications = createMedicationsDomain({
@@ -210,24 +215,42 @@ export function createApiRouter(ctx, {
   }
   buildDomains(deviceTimeZone);
 
-  // ensureTimeZone reads the pinned settings.timezone once and rebuilds the
-  // domains on it when it differs from the device zone. getGeneral() already
-  // falls back to the injected zone when the record carries none, so an account
-  // that never pinned a zone resolves to deviceTimeZone and nothing is rebuilt.
-  // Memoized; shimCall re-arms it after a settings/tz-plan write, which is the
-  // only way the pinned zone changes from inside this tab.
-  // ponytail: a zone arriving from SYNC (another device pinned it) lands on the
-  // next reload. Drop the memo and re-resolve per call if that ever bites.
+  // ensureTimeZone reads the pinned settings.timezone and rebuilds the domains
+  // on it when it differs from the device zone. getGeneral() already falls back
+  // to the injected zone when the record carries none, so an account that never
+  // pinned a zone resolves to deviceTimeZone and nothing is rebuilt.
+  //
+  // Memoized against the records-change counter, NOT once-only: cloud-boot.js
+  // installs the shim (and fires the first materialization sweep) BEFORE
+  // pullOnOpen has landed this account's records, so a once-only memo would pin
+  // a freshly-unlocked device to its own zone for the whole session — exactly
+  // the user this fix is for. Every sync pull and every local write bumps the
+  // counter, so the first call after the pull re-reads. list('settings') is
+  // itself memoized per record type in sync.js, so the re-read is nearly free.
+  //
+  // A test's injected records port is not tracked by the counter (see
+  // recordsChangeCount above), so the memo is once-only there; shimCall's
+  // re-arm after a settings/tz-plan write covers an in-tab change on that path.
+  // ponytail: no cross-tab invalidation. Reload covers it.
   let tzReady = null;
+  let tzStamp = -1;
   function ensureTimeZone() {
-    if (!tzReady) {
+    const stamp = recordsChangeCount ? recordsChangeCount() : 0;
+    if (!tzReady || tzStamp !== stamp) {
+      tzStamp = stamp;
       tzReady = settings.getGeneral()
         .then((general) => {
           if (general && general.timezone && general.timezone !== timeZone) {
             buildDomains(general.timezone);
           }
         })
-        .catch((e) => console.error('[cloud shim] timezone resolve failed', e));
+        .catch((e) => {
+          // Clear the memo rather than leave it resolved: one transient read
+          // failure (IndexedDB locked mid-unlock) must not pin the tab to the
+          // device zone for the rest of the session.
+          tzReady = null;
+          console.error('[cloud shim] timezone resolve failed', e);
+        });
     }
     return tzReady;
   }
@@ -1192,14 +1215,19 @@ export function createApiRouter(ctx, {
   }
 
   // Writes under /api/settings and /api/tz-plan are the only in-tab way the
-  // pinned zone changes, so re-arm the memo after one lands rather than
-  // re-reading the settings record on every single route call.
+  // pinned zone changes. On the real records port the change counter already
+  // catches them; this re-arm is what covers an injected (test/headless) port,
+  // which the counter does not track.
   const TZ_WRITING_PATH = /^\/api\/(settings|tz-plan)\b/;
 
+  // ponytail: a rebuild triggered by a concurrent zone change can land between
+  // two awaits of an in-flight handler, serving one request across both zones.
+  // Needs a real zone change concurrent with a read, and the next request is
+  // consistent; add a rebuild latch if that ever shows up in practice.
   async function shimCall(endpoint, method = 'GET', body = null, opts = {}) {
     await ensureTimeZone();
     const result = await route(endpoint, method, body, opts);
-    if (method !== 'GET' && TZ_WRITING_PATH.test(parseQuery(endpoint).path)) {
+    if (method !== 'GET' && TZ_WRITING_PATH.test(endpoint)) {
       tzReady = null;
       await ensureTimeZone();
     }
@@ -1250,10 +1278,11 @@ export function installApiShim(ctx, {
   const bgCall = records ? shimCall : createApiRouter(ctx, {
     win, origin: ORIGIN_EXTERNAL, ...clock,
   });
-  // Snapshotted on purpose — none of these four reads wall-clock time, so they
-  // survive a buildDomains() rebuild when the pinned settings.timezone resolves
-  // (bd med-7ujt). Anything TIME-sensitive must go through `.domains` at call
-  // time instead, the way runMaterializationSweep does below.
+  // Snapshotted on purpose — every use below reads integrations or a product
+  // search, never the wall clock, so these survive a buildDomains() rebuild when
+  // the pinned settings.timezone resolves (bd med-7ujt). Anything TIME-sensitive
+  // must go through `.domains` at call time, the way runMaterializationSweep
+  // does below.
   const {
     settings, foodDb, now,
   } = shimCall.domains;
