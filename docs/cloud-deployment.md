@@ -331,12 +331,20 @@ that would have let anyone back in. There is no second copy anywhere else.
 So the `litestream` service in `docker-compose.cloud.yml` is not optional for
 a real deployment. It continuously replicates `cloud.db` to an S3-compatible
 bucket (Cloudflare R2). Set `R2_BUCKET`, `R2_ENDPOINT`,
-`LITESTREAM_ACCESS_KEY_ID` and `LITESTREAM_SECRET_ACCESS_KEY` in `.env`;
-leaving the first two unset makes the container print `skipping` and exit
-cleanly — intended for local dev, **not** for production. **Whether a given
-deployment has them set is the one thing this repository cannot tell you**, so
-confirm it rather than assuming: `docker compose ps litestream` should show a
-running container, not an exited one.
+`LITESTREAM_ACCESS_KEY_ID` and `LITESTREAM_SECRET_ACCESS_KEY` in the stack env.
+
+**Missing credentials fail the container, on purpose.** If `R2_BUCKET`,
+`LITESTREAM_ACCESS_KEY_ID` or `LITESTREAM_SECRET_ACCESS_KEY` is unset, the
+entrypoint prints which ones are missing and exits **1**, so the service sits
+visibly restarting instead of quietly exited. It used to exit `0` — and on
+this deployment it did exactly that, on every stack start, for weeks: nobody
+noticed, and the cloud DB had no off-host copy at all (bd med-lhee). An
+unbacked-up deployment must not look like a healthy one.
+
+To run deliberately without replication (local dev, a throwaway stack), set
+`LITESTREAM_DISABLED=1`. That prints a one-line notice and exits `0`, and
+`restart: on-failure` leaves it exited. This is an acknowledgement, not a
+default — never set it on the production stack.
 
 `LITESTREAM_SYNC_INTERVAL` (default `1h`) is your worst-case data-loss window.
 
@@ -355,6 +363,90 @@ Litestream requires WAL journaling. `cloud.db` is opened through
 this holds by construction — verify with
 `docker exec medtracker-cloud sqlite3 /app/data/cloud.db 'PRAGMA journal_mode;'`
 if you ever change how the DB is opened.
+
+### Verify replication is live
+
+"The container is running" is necessary, not sufficient — and "exited (0)"
+reads as success at a glance, which is precisely how this went unnoticed for
+weeks. Check both the process and the bytes:
+
+```bash
+# 1. Process: expect "Up". "Restarting" means it is shouting about missing
+#    creds (read the log). "Exited (0)" now only happens with
+#    LITESTREAM_DISABLED=1 — on prod that is itself the bug.
+docker compose -f docker-compose.cloud.yml ps litestream
+docker logs --tail 20 medtracker-cloud-litestream
+
+# 2. Bytes: list what actually reached the bucket. The running container
+#    already holds the generated config at /tmp/litestream.yml.
+docker exec medtracker-cloud-litestream \
+  litestream ltx -config /tmp/litestream.yml -level all /app/data/cloud.db
+```
+
+Step 2 must print rows (files, sizes, transaction ids). **Empty output means
+configured-but-never-replicated** — credentials accepted, nothing stored — with
+one caveat: nothing is uploaded until the first sync, so empty output is
+expected for up to `LITESTREAM_SYNC_INTERVAL` (default `1h`) after a fresh
+start or a restart. Empty an hour later is the real alarm.
+
+> **Version gotcha.** The image is tagged `0.3.13` but ships **litestream
+> v0.5.9** (`docker run --rm ghcr.io/korjavin/litestream:0.3.13 version`).
+> Litestream 0.3-era commands you'll find in older notes — `litestream
+> snapshots`, `litestream generations` — **do not exist** in this binary. The
+> v0.5 equivalents are `ltx` (above), `databases`, and `status`; that is also
+> why the compose config uses the v0.5 `levels:` / `l0-retention:` keys.
+
+### Restore drill (non-destructive)
+
+Run this periodically — it is the only thing that turns "backups are
+configured" into "backups work". It touches neither the live container nor the
+`cloud_data` volume: the replica is restored into a scratch directory on the
+host and opened there.
+
+These commands read `R2_*` / `LITESTREAM_*` from *your shell*, but on this
+deployment they live in the Portainer stack env — **export them in the shell
+first** or every step fails confusingly.
+
+```bash
+# Self-contained: the drill writes its own config, so it does not depend on the
+# runbook below (whose step 1 stops the app — do NOT run that for a drill).
+mkdir -p /var/tmp/ls-drill && rm -rf /var/tmp/ls-drill/*
+cat > /var/tmp/ls-drill/restore.yml <<EOF
+dbs:
+  - path: /app/data/cloud.db
+    replica:
+      type: s3
+      bucket: ${R2_BUCKET}
+      path: ${LITESTREAM_PATH:-medtracker-cloud}
+      endpoint: ${R2_ENDPOINT}
+EOF
+
+# The scratch dir is mounted at /app/data — NOT the cloud_data volume. The app
+# image's entrypoint drops to uid 1000 and chowns only /app/data, so restoring
+# anywhere else leaves a root-owned file the next step cannot open.
+docker run --rm \
+  -e LITESTREAM_ACCESS_KEY_ID -e LITESTREAM_SECRET_ACCESS_KEY \
+  -v /var/tmp/ls-drill:/app/data \
+  ghcr.io/korjavin/litestream:0.3.13 \
+  restore -config /app/data/restore.yml -o /app/data/drill.db /app/data/cloud.db
+
+# Integrity: the app image has no sqlite3, so open the file with the app's own
+# admin CLI — it migrates and lists accounts. Accounts printed = schema and
+# rows survived the round trip.
+docker run --rm -v /var/tmp/ls-drill:/app/data \
+  -e CLOUD_BASE_DOMAIN -e SESSION_SECRET \
+  -e CLOUD_DB_PATH=/app/data/drill.db \
+  ghcr.io/korjavin/medicationtrackerbot:latest ./cloud admin list
+
+# If the host has sqlite3, also:
+sqlite3 /var/tmp/ls-drill/drill.db 'PRAGMA integrity_check;'   # -> ok
+
+rm -rf /var/tmp/ls-drill
+```
+
+A drill that prints the expected account count and `ok` is a pass. A drill that
+prints nothing, or fewer accounts than `docker exec medtracker-cloud ./cloud
+admin list` shows, is an incident — go to the runbook below.
 
 ### Bucket security
 
@@ -432,7 +524,12 @@ with the *old* WAL is a corrupted database, and SQLite will not always say so.
 ### Verified
 
 Rehearsed on 2026-07-10 with litestream v0.3.13 against a file replica (the
-S3 replica differs only in transport):
+S3 replica differs only in transport). **Note the drift:** the image tagged
+`0.3.13` now ships v0.5.9 (see the version gotcha above), so this rehearsal
+predates the binary currently deployed — the restore *commands* below were
+re-checked against v0.5.9 on 2026-09-05, but the end-to-end round trip has not
+been repeated since. That is what the [restore drill](#restore-drill-non-destructive)
+is for.
 
 1. Created a real `cloud.db` via `cloud admin invite`, confirmed
    `PRAGMA journal_mode` → `wal`, and seeded a known `envelope_rec` ciphertext.
@@ -482,8 +579,9 @@ docker image prune -a && docker builder prune     # reclaim first, investigate a
 ```
 
 `cloud.db-wal` growing without bound means litestream is **not** checkpointing —
-check that the `litestream` container is up and not sitting in its
-"R2_BUCKET not set, skipping" clean exit (§6).
+run the [verify check](#verify-replication-is-live) (§6). `Restarting` means the
+credentials are missing and it is saying so; `Exited (0)` means someone set
+`LITESTREAM_DISABLED=1`. Either way there is no off-host backup right now.
 
 A single runaway account cannot do this: `CLOUD_ACCOUNT_QUOTA_BYTES` is on by
 default (50MB per account) and the server answers an over-quota write with 413,

@@ -135,13 +135,19 @@ today, and neither is required by the current threat model.
 **What the repository defines** (verified 2026-07-31): `docker-compose.cloud.yml`
 ships a `litestream` service wired into the stack (`depends_on: cloud`, mounting
 the same `cloud_data` volume) that continuously replicates `cloud.db` to an
-S3-compatible bucket. It is **env-gated, not absent**: with `R2_BUCKET` or
-`LITESTREAM_ACCESS_KEY_ID` unset it prints `skipping` and exits cleanly.
+S3-compatible bucket. It is **env-gated, not absent**: with `R2_BUCKET`,
+`LITESTREAM_ACCESS_KEY_ID` or `LITESTREAM_SECRET_ACCESS_KEY` unset it names the
+missing variables and exits **non-zero** (updated 2026-09-05, bd med-lhee — it
+previously exited `0`, which is how a deployment ran unreplicated for weeks
+without anyone noticing). `LITESTREAM_DISABLED=1` is the explicit opt-out and
+the only configuration in which a clean exit means "no backup, on purpose".
 
 **What the repository cannot tell you** is whether any given deployment sets
 those variables. Backups are therefore an operator fact, and this document does
 not assert one. **Determine it for your deployment before answering a user's
-"is my deleted data gone?" question**, because the answer differs:
+"is my deleted data gone?" question** — check it with
+[cloud-deployment.md → Verify replication is live](cloud-deployment.md#verify-replication-is-live),
+not by assuming — because the answer differs:
 
 - **Litestream not configured** → no backup copy, snapshot, or off-box replica
   exists, and account deletion is physically immediate (modulo §2's free
@@ -169,6 +175,11 @@ not assert one. **Determine it for your deployment before answering a user's
   any other stack.
 - **No plaintext, no keys.** A backup holds exactly what `cloud.db` holds —
   ciphertext, wrapped envelopes, verifiers — and never a DEK/NK.
+- **Rehearsed, not assumed.** An unrestored backup is a rumour, and a
+  replicator that has silently stopped looks identical to one that is working.
+  Run the non-destructive
+  [restore drill](cloud-deployment.md#restore-drill-non-destructive)
+  periodically; it neither touches the live volume nor needs downtime.
 
 ## 4. Deletion propagation
 
