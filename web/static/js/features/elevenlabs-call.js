@@ -6,7 +6,8 @@
 //
 // State machine:
 //   idle       — primary button reads "Call agent"; click → startCall()
-//   connecting — button disabled, status line shows "Connecting…"
+//   connecting — button disabled, status line shows "Connecting…"; bounded by
+//                CONNECT_TIMEOUT_MS, and the indicator's hang-up cancels it
 //   in_call    — primary button reads "End call"; click → endCall()
 //                status line reflects agent mode (Listening… / Speaking…)
 //   error      — primary button reads "Try again"; click → startCall()
@@ -764,7 +765,10 @@
                 return;
             }
             // Keep the generation: the SDK callbacks above belong to this
-            // now-adopted session and must stay live.
+            // now-adopted session and must stay live. Never `await` between
+            // the !live() check and this clear — the watchdog is still armed
+            // and a stall there would flip us to 'error' while the line below
+            // still adopts the session, i.e. med-i5wi all over again.
             clearConnectWatchdog();
             activeConversation = conv;
         } catch (err) {

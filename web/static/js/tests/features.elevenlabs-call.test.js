@@ -1444,7 +1444,7 @@ describe('features/elevenlabs-call.js — connect watchdog + cancel token', () =
         }
     });
 
-    it('clears the watchdog once the call connects (no late timeout mid-call)', async () => {
+    it('clears the watchdog once startSession resolves (no late timeout mid-call)', async () => {
         const { window, document, cleanup } = createConversationEnv();
         try {
             bridgeTimers(window);
