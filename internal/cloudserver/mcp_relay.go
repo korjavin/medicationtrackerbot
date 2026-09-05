@@ -524,16 +524,36 @@ func deliverDeferred(legCtx context.Context, queue <-chan deferredFrame, record 
 		case <-legCtx.Done():
 			return
 		case frame := <-queue:
-			if !deliverWhenPeerAttaches(legCtx, frame, record, isDevice, peerCh) {
+			switch deliverWhenPeerAttaches(legCtx, frame, record, isDevice, peerCh) {
+			case deferredExpired:
 				slog.Warn("mcp relay: frame dropped, peer never attached", "leg", leg,
+					"account_id", record.accountID, "pairing", endpointFingerprint(record.id))
+			case deferredShutdown:
+				// Same fate for the frame — lost — but a different diagnosis:
+				// this leg is going away, not a peer that never showed up.
+				// Info, not Warn: it is expected on every teardown with a
+				// frame still queued.
+				slog.Info("mcp relay: frame abandoned, leg shutting down", "leg", leg,
 					"account_id", record.accountID, "pairing", endpointFingerprint(record.id))
 			}
 		}
 	}
 }
 
+// deferredOutcome is how a deferred frame ended. It exists so a frame abandoned
+// because its own leg was tearing down is not counted — or logged — as the
+// "nobody ever attached" pathology: both lose the frame, but only the second is
+// a symptom worth chasing.
+type deferredOutcome int
+
+const (
+	deferredDelivered deferredOutcome = iota // written to the peer
+	deferredExpired                          // budget ran out, peer never took it
+	deferredShutdown                         // this leg went away mid-wait
+)
+
 // deliverWhenPeerAttaches places one frame, retrying until its deadline, and
-// reports whether it went out. It retries rather than waiting once because the
+// reports how it ended. It retries rather than waiting once because the
 // peer slot can hold a conn that is already dead but not yet cleared: a phone
 // drops its leg and reconnects, and both the nil window and the dead-conn
 // window have to be ridden out.
@@ -543,7 +563,7 @@ func deliverDeferred(legCtx context.Context, queue <-chan deferredFrame, record 
 // frame, and a repeated read is idempotent.
 func deliverWhenPeerAttaches(legCtx context.Context, frame deferredFrame, record *pairingRecord,
 	isDevice bool, peerCh chan *websocket.Conn,
-) bool {
+) deferredOutcome {
 	expiry := time.NewTimer(time.Until(frame.deadline))
 	defer expiry.Stop()
 	// peerCh is a one-shot hint from join, so it can miss a peer that attached,
@@ -557,16 +577,16 @@ func deliverWhenPeerAttaches(legCtx context.Context, frame deferredFrame, record
 			err := peer.Write(wctx, frame.typ, frame.data)
 			cancel()
 			if err == nil {
-				return true
+				return deferredDelivered
 			}
 		}
 		select {
 		case <-peerCh:
 		case <-poll.C:
 		case <-expiry.C:
-			return false
+			return deferredExpired
 		case <-legCtx.Done():
-			return true // shutting down, not a delivery failure worth logging
+			return deferredShutdown
 		}
 	}
 }

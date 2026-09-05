@@ -392,9 +392,7 @@ func TestTrialProxy_UpstreamStatusRelayed(t *testing.T) {
 // http.NewRequestWithContext's error text embeds it verbatim.
 func TestTrialProxy_BadUpstreamURLLogs(t *testing.T) {
 	var logBuf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
+	captureSlog(t, slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
 	// A control character is what makes http.NewRequestWithContext fail; this
 	// is the shape a typo'd TRIAL_OPENAI_URL takes (trailing newline, quotes).

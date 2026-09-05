@@ -161,9 +161,7 @@ func TestRxNavProxyAPI(t *testing.T) {
 // the unwrapped cause only.
 func TestRxNavProxy_UpstreamFailureLogsNoQuery(t *testing.T) {
 	var logBuf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, nil)))
-	t.Cleanup(func() { slog.SetDefault(prev) })
+	captureSlog(t, slog.NewJSONHandler(&logBuf, nil))
 
 	// A closed server yields a connection-refused *url.Error from client.Do.
 	dead := httptest.NewServer(http.NotFoundHandler())
