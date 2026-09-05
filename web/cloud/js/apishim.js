@@ -239,7 +239,12 @@ export function createApiRouter(ctx, {
     if (!tzReady || tzStamp !== stamp) {
       tzStamp = stamp;
       tzReady = settings.getGeneral()
+        // `tzStamp !== stamp` means a newer resolve superseded this one while
+        // its read was in flight. Two reads are separate IDB transactions and
+        // can settle out of order, so without this the older one could rebuild
+        // to the pre-write zone and stick until the next counter bump.
         .then((general) => {
+          if (tzStamp !== stamp) return;
           if (general && general.timezone && general.timezone !== timeZone) {
             buildDomains(general.timezone);
           }
@@ -248,7 +253,7 @@ export function createApiRouter(ctx, {
           // Clear the memo rather than leave it resolved: one transient read
           // failure (IndexedDB locked mid-unlock) must not pin the tab to the
           // device zone for the rest of the session.
-          tzReady = null;
+          if (tzStamp === stamp) tzReady = null;
           console.error('[cloud shim] timezone resolve failed', e);
         });
     }
