@@ -281,7 +281,9 @@ describe('gamification "since you last looked" strip', () => {
       const prevWorkout = i > 0 && ((i - 1) % 2 === 0);
       bp.push(bpRec(offset, i === 0 ? 118 : (prevWorkout ? 110 : 126)));
       if (i % 2 === 0) workoutsession.push(workoutRec(offset));
-      sleep.push(sleepRec(offset, i % 2 === 0 ? 450 : 360));
+      // A constant resting HR makes the workout→resting-HR probe a no_effect
+      // finding, which is the fourth unseen terminal card.
+      sleep.push(sleepRec(offset, i % 2 === 0 ? 450 : 360, 60));
     }
     return { bp, workoutsession, sleep };
   }
