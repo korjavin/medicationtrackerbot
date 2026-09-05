@@ -458,9 +458,10 @@
         return Boolean(activeConversation) || activeState === 'connecting';
     }
 
-    // The connect chain (signed URL → SDK → startSession, which awaits
-    // getUserMedia) is unbounded: an unanswered mic prompt never settles and
-    // pins activeState at 'connecting' forever (bd med-i5wi). Two pieces:
+    // The connect chain (signed URL → SDK → startSession, which awaits the
+    // browser's mic-permission prompt inside the SDK) is unbounded: an
+    // unanswered prompt never settles and pins activeState at 'connecting'
+    // forever (bd med-i5wi). Two pieces:
     //
     //   callGeneration — bumped by every startCall/endCall and by the
     //     watchdog. The pending chain captures its generation; a stale one
