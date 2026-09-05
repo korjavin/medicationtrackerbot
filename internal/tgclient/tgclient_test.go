@@ -810,3 +810,30 @@ func TestDownloadFileLocalAbsolutePath(t *testing.T) {
 		t.Error("missing local file: want error, got nil")
 	}
 }
+
+// TestMessageAtUnix (bd med-3hr) pins the three branches: a real date wins even
+// when it is hours old (the webhook-retry case this exists for), a missing one
+// falls back to the caller's clock, and an implausibly future one is refused —
+// it would otherwise make the client's Date() math throw on every drain.
+func TestMessageAtUnix(t *testing.T) {
+	now := time.Now()
+	old := now.Add(-6 * time.Hour).Unix()
+	for _, tc := range []struct {
+		name string
+		date int64
+		want int64
+	}{
+		{"retried webhook keeps the send time", old, old},
+		{"missing date falls back", 0, now.Unix()},
+		{"negative date falls back", -5, now.Unix()},
+		{"far-future date falls back", now.Add(48 * time.Hour).Unix(), now.Unix()},
+		{"garbage date falls back", 1 << 50, now.Unix()},
+		{"small skew is kept", now.Add(time.Minute).Unix(), now.Add(time.Minute).Unix()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := (&Message{Date: tc.date}).AtUnix(now); got != tc.want {
+				t.Errorf("AtUnix(%d) = %d, want %d", tc.date, got, tc.want)
+			}
+		})
+	}
+}

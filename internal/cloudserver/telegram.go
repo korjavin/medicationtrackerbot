@@ -79,8 +79,10 @@ const inboxEventKindTGCommand = "tg_command"
 type tgCommandEvent struct {
 	Kind string `json:"kind"`
 	// Text is the message verbatim, including the leading command token.
-	Text   string `json:"text"`
-	AtUnix int64  `json:"at_unix"`
+	Text string `json:"text"`
+	// AtUnix is the MESSAGE's own Telegram date, not webhook arrival — a webhook
+	// retried after relay downtime must not backdate the reading (bd med-3hr).
+	AtUnix int64 `json:"at_unix"`
 	// ReplyMessageID is the "queued" message the client should edit once it has
 	// applied this command. 0 when the reply could not be sent.
 	ReplyMessageID int64 `json:"reply_message_id"`
@@ -101,7 +103,9 @@ type tgPhotoEvent struct {
 	FileID string `json:"file_id"`
 	Mime   string `json:"mime"`
 	Size   int64  `json:"size"`
-	AtUnix int64  `json:"at_unix"`
+	// AtUnix is the MESSAGE's own Telegram date, not webhook arrival — a webhook
+	// retried after relay downtime must not backdate the meal (bd med-3hr).
+	AtUnix int64 `json:"at_unix"`
 	// Caption is the photo's caption verbatim, sealed like every other inbound
 	// plaintext and never parsed here. The client passes it to the vision model
 	// as a hint ("chicken salad, 300g" beats guessing portions from pixels).
@@ -122,8 +126,9 @@ const inboxEventKindTGText = "tg_text"
 type tgTextEvent struct {
 	Kind string `json:"kind"`
 	// Text is the message verbatim.
-	Text   string `json:"text"`
-	AtUnix int64  `json:"at_unix"`
+	Text string `json:"text"`
+	// AtUnix is the MESSAGE's own Telegram date, not webhook arrival (bd med-3hr).
+	AtUnix int64 `json:"at_unix"`
 	// ReplyMessageID is the "queued" message the client edits into the agent's
 	// answer once the drain runs. 0 when the reply could not be sent.
 	ReplyMessageID int64 `json:"reply_message_id"`
@@ -1018,7 +1023,7 @@ func (t *TelegramAPI) sealCommand(w http.ResponseWriter, r *http.Request, ref st
 	plaintext, err := json.Marshal(tgCommandEvent{
 		Kind:           inboxEventKindTGCommand,
 		Text:           msg.Text,
-		AtUnix:         now.Unix(),
+		AtUnix:         msg.AtUnix(now),
 		ReplyMessageID: replyID,
 	})
 	if err != nil {
@@ -1080,7 +1085,7 @@ func (t *TelegramAPI) sealPhoto(w http.ResponseWriter, r *http.Request, ref stri
 		FileID:         photo.FileID,
 		Mime:           "image/jpeg",
 		Size:           photo.FileSize,
-		AtUnix:         now.Unix(),
+		AtUnix:         msg.AtUnix(now),
 		Caption:        msg.Caption,
 		ReplyMessageID: replyID,
 	})
@@ -1139,7 +1144,7 @@ func (t *TelegramAPI) sealText(w http.ResponseWriter, r *http.Request, ref strin
 	plaintext, err := json.Marshal(tgTextEvent{
 		Kind:           inboxEventKindTGText,
 		Text:           msg.Text,
-		AtUnix:         now.Unix(),
+		AtUnix:         msg.AtUnix(now),
 		ReplyMessageID: replyID,
 	})
 	if err != nil {
