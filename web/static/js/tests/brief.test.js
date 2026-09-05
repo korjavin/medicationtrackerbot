@@ -37,6 +37,7 @@ function spyingPort(seed) {
         port: {
             async list(type) { listed.push(type); return inner.list(type); },
             async listRange(type, from, to) { listed.push(type); return inner.listRange(type, from, to); },
+            async listRaw(type) { listed.push(type); return inner.listRaw(type); },
             async put(type, record) { return inner.put(type, record); },
             async putIfAbsent(type, record) { return inner.putIfAbsent(type, record); },
             async del(type, id) { return inner.del(type, id); }

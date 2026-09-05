@@ -918,8 +918,9 @@ export function createApiRouter(ctx, {
     if (path === '/api/workout/sessions/delete' && method === 'DELETE') {
       await workout.deleteSession(intParam(params, 'id', 0));
       // Deleting a planned ad-hoc session drops the reminder it emitted, and
-      // deleting a materialized recurring session un-suppresses that day's fire —
-      // re-push so the relay reflects the change (matches session status above).
+      // deleting a materialized recurring session suppresses that day's fire
+      // (bd med-w0fe) — re-push so the relay reflects the change (matches
+      // session status above).
       scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }

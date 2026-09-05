@@ -294,6 +294,44 @@ describe('cloud shim — workout mutations re-push the horizon', () => {
     });
 });
 
+// bd med-w0fe — deleting a materialized day removes it from the card (getNext
+// treats the tombstone as an occupied slot), so the uploaded horizon must stop
+// asking about it too. End-to-end over the real delete route: the horizon reads
+// the RAW session rows, and a tombstone is the only trace the delete leaves.
+describe('cloud shim horizon — a deleted workout day stops firing (med-w0fe)', () => {
+    // Mon Jun 15 2026, 06:00 UTC; group fires every day at 18:00, 0 advance.
+    const NOW = Date.UTC(2026, 5, 15, 6, 0, 0);
+    let env;
+    beforeEach(() => {
+        vi.useFakeTimers(); vi.setSystemTime(NOW);
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true, timeZone: 'UTC' });
+    });
+    afterEach(() => { env.cleanup(); env = null; vi.useRealTimers(); });
+
+    const workoutCallbacks = async () => (
+        await computeReminderEntries({}, { records: env.records, timeZone: 'UTC' })
+    ).filter((e) => e.kind === 'workout').map((e) => e.callback);
+
+    it('drops the deleted day and still emits the next one', async () => {
+        const { window } = env;
+        const group = await window.apiCall('/api/workout/groups/create', 'POST', {
+            name: 'Push Day', is_rotating: false, days_of_week: '[0,1,2,3,4,5,6]', scheduled_time: '18:00',
+        });
+        await window.apiCall('/api/workout/variants/create', 'POST', {
+            group_id: group.id, name: 'Variant A', rotation_order: 0,
+        });
+        // Materialize today's slot exactly as opening the card does.
+        const next = await window.apiCallDirect('/api/workout/sessions/next');
+        expect(await workoutCallbacks()).toContain(`w:${group.id}:20260615`);
+
+        await window.apiCall(`/api/workout/sessions/delete?id=${next.session.id}`, 'DELETE');
+
+        const callbacks = await workoutCallbacks();
+        expect(callbacks).not.toContain(`w:${group.id}:20260615`);
+        expect(callbacks).toContain(`w:${group.id}:20260616`);
+    });
+});
+
 // The bot-mode /api/bp/reminder/test route fans a BP card out through every
 // notifier. Cloud has no server-side notifier, so the shim maps it onto the
 // encrypted this-device-only push the Settings test button already uses.

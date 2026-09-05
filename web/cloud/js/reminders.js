@@ -69,7 +69,10 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     records.list(WORKOUT_VARIANT_RECORD_TYPE),
     records.list(WORKOUT_EXERCISE_RECORD_TYPE),
     records.list(WORKOUT_ROTATION_RECORD_TYPE),
-    records.list(WORKOUT_SESSION_RECORD_TYPE),
+    // RAW, tombstones included: a deleted workout day must suppress its
+    // recurring reminder, and a tombstone is the only trace it leaves
+    // (bd med-w0fe). buildHorizon filters the live rows itself.
+    records.listRaw(WORKOUT_SESSION_RECORD_TYPE),
   ]);
   const tzPlan = tzplans.find((r) => r.recordId === TZPLAN_RECORD_ID && !r.deleted) || null;
 
@@ -82,7 +85,7 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     workoutVariants: workoutVariants.filter((r) => !r.deleted),
     workoutExercises: workoutExercises.filter((r) => !r.deleted),
     workoutRotations: workoutRotations.filter((r) => !r.deleted),
-    workoutSessions: workoutSessions.filter((r) => !r.deleted),
+    workoutSessions,
     workoutEnabled: features.workout,
     timeZone,
     tzPlan,

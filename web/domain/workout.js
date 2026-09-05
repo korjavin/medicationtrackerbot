@@ -1468,7 +1468,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       // advance on re-completion. A second workout on a finished day IS an
       // ad-hoc session, so mint one instead (it also adopts a session already
       // running today rather than duplicating).
-      if (slot.status === 'completed' || slot.status === 'skipped') {
+      // A null slot is today's day deleted on purpose (bd med-w0fe) — like a
+      // finished one, it is not available to start, so today's workout is an
+      // ad-hoc session.
+      if (!slot || slot.status === 'completed' || slot.status === 'skipped') {
         await createAdHocSession();
         return;
       }
@@ -1511,6 +1514,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // `variantIdOverride` pins the created session's variant instead of resolving
   // the group's rotation cursor — startSession's re-key path carries the variant
   // the user tapped Start on, so re-dating the workout doesn't also swap it.
+  // Returns null when the slot is TOMBSTONED (bd med-w0fe) — see the
+  // putIfAbsent below.
   async function findOrCreateScheduledSession(groupId, date, variantIdOverride) {
     const recordId = sessionRecordId(groupId, date);
     const existing = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION)).find((s) => s.recordId === recordId);
@@ -1523,7 +1528,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // would render the next-workout card as "Unknown" variant, 0 exercises, no time.
     const group = await findByNumericId(records, WORKOUT_RECORD_TYPES.GROUP, groupId);
     const variantId = variantIdOverride || (group ? await resolveVariantId(group) : 0);
-    return {
+    const record = {
       recordId,
       clientTs: nowMs,
       deleted: false,
@@ -1544,6 +1549,16 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       notification_message_id: null,
       notes: '',
     };
+    // No LIVE row means one of two raw states, and only putIfAbsent can tell
+    // them apart — list() filters tombstones out (bd med-w0fe):
+    //   - an EMPTY slot: materialize it, exactly as getNext does.
+    //   - a TOMBSTONE from a deliberate deleteSession: the user removed that
+    //     day, so a Telegram Snooze/Skip tap on the already-sent reminder must
+    //     not resurrect it. Return null and let the caller no-op.
+    // Written here rather than left to the caller so the check and the create
+    // are the same atomic slot decision (bd med-qhpu).
+    const stored = await records.putIfAbsent(WORKOUT_RECORD_TYPES.SESSION, record);
+    return stored.deleted ? null : stored;
   }
 
   // snoozeScheduledSession / skipScheduledSession are the Telegram-drain twins of
@@ -1552,6 +1567,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // server tap time (like the med path), so these read now() like their twins.
   async function snoozeScheduledSession({ groupId, date, minutes }) {
     const session = await findOrCreateScheduledSession(groupId, date);
+    // Day deleted on purpose — the reminder that carried this button was already
+    // in flight (bd med-w0fe). Nothing to snooze.
+    if (!session) return;
     const nowMs = now();
     const snoozedUntil = new Date(nowMs + Number(minutes) * 60 * 1000).toISOString();
     // The inbox drain is at-least-once (inbox.js drain rule 2): a crash between
@@ -1570,6 +1588,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
   async function skipScheduledSession({ groupId, date }) {
     const session = await findOrCreateScheduledSession(groupId, date);
+    // Deleted day: already "not happening", and re-creating it to mark it
+    // skipped would also advance the rotation (bd med-w0fe).
+    if (!session) return;
     // Same at-least-once re-apply guard: advanceRotation is NOT idempotent, so
     // only advance on a real transition into a terminal state. A redelivery — or
     // a session already terminal (skipped OR completed elsewhere) — must no-op:

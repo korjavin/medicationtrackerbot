@@ -1889,6 +1889,21 @@ describe('inbox-apply.js — a Telegram workout Snooze/Skip tap', () => {
         expect(s.status).toBe('completed');
     });
 
+    // bd med-w0fe — the day was deleted in the app (deleteSession tombstones the
+    // slot), but the reminder carrying these buttons was already in the chat. A
+    // tap must not resurrect a day the card and the horizon both treat as gone,
+    // and a Skip must not advance the rotation for it either.
+    it('snooze and skip both no-op on a slot the user deleted', async () => {
+        for (const event of [snooze1hEvent, skipEvent]) {
+            const records = fakeRecords({
+                workoutsession: [{ recordId: WRECORD, clientTs: WTAP_MS - 1000, deleted: true }],
+            });
+            await applyWorkoutSessionAction(event, { workout: workoutFor(records), editReply: vi.fn() });
+            const live = (await records.list('workoutsession')).filter((r) => !r.deleted);
+            expect(live).toHaveLength(0);
+        }
+    });
+
     it('edits the Telegram reply to a receipt via the tap message id', async () => {
         const records = fakeRecords();
         const editReply = vi.fn(async () => {});

@@ -39,6 +39,12 @@ export function createInMemoryRecordsPort(seed = {}) {
             return [...bucket(recordType).values()]
                 .filter((r) => !r.deleted && r.recordId >= fromId && r.recordId <= toId);
         },
+        // Mirrors sync.js recordsPort.listRaw: tombstones included, for the
+        // readers whose state includes "this row was deliberately deleted"
+        // (the reminder horizon, bd med-w0fe).
+        async listRaw(recordType) {
+            return [...bucket(recordType).values()];
+        },
         async put(recordType, record) {
             bucket(recordType).set(record.recordId, record);
             return record;
