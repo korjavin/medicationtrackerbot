@@ -158,9 +158,14 @@ services:
   # *is* the vault: losing the volume loses the data AND every recovery code
   # that would let an account back in. There is no second copy anywhere else.
   #
-  # Skipped via clean exit when R2_BUCKET / LITESTREAM_ACCESS_KEY_ID are unset;
-  # combined with restart: on-failure, a clean exit stays exited.
-  # Restore runbook: docs/cloud-deployment.md → Backups and restore.
+  # Missing credentials therefore FAIL the container (exit 1, restarting
+  # forever under restart: on-failure) rather than exiting 0: this service
+  # silently skipped for weeks on prod and "exited (0)" read as healthy at a
+  # glance, so the cloud DB had no off-host copy at all (bd med-lhee).
+  # LITESTREAM_DISABLED=1 is the explicit opt-out — a clean exit that, under
+  # restart: on-failure, stays exited (that is why the policy is on-failure and
+  # not unless-stopped, which would restart even a deliberate exit 0).
+  # Verify + restore runbook: docs/cloud-deployment.md → Backups and restore.
   litestream:
     image: ghcr.io/korjavin/litestream:0.3.13
     pull_policy: if_not_present
@@ -170,9 +175,20 @@ services:
     command:
       - -c
       - |
-        if [ -z "$${R2_BUCKET}" ] || [ -z "$${LITESTREAM_ACCESS_KEY_ID}" ]; then
-          echo "[litestream] R2_BUCKET / LITESTREAM_ACCESS_KEY_ID not set, skipping"
+        if [ -n "$${LITESTREAM_DISABLED}" ]; then
+          echo "[litestream] LITESTREAM_DISABLED set: replication OFF, this deployment has NO off-host backup of cloud.db"
           exit 0
+        fi
+        missing=""
+        [ -n "$${R2_BUCKET}" ] || missing="$${missing} R2_BUCKET"
+        [ -n "$${LITESTREAM_ACCESS_KEY_ID}" ] || missing="$${missing} LITESTREAM_ACCESS_KEY_ID"
+        [ -n "$${LITESTREAM_SECRET_ACCESS_KEY}" ] || missing="$${missing} LITESTREAM_SECRET_ACCESS_KEY"
+        if [ -n "$${missing}" ]; then
+          echo "[litestream] FATAL: cloud.db has NO off-host backup. Missing env:$${missing}"
+          echo "[litestream] Set them on the cloud-server stack, or set LITESTREAM_DISABLED=1 to acknowledge running with no backup."
+          # Slow the restart loop so the reason stays readable in `docker logs`.
+          sleep 30
+          exit 1
         fi
         cat << EOF > /tmp/litestream.yml
         retention:
@@ -200,6 +216,9 @@ services:
       - cloud_data:/app/data
     environment:
       - CLOUD_DB_PATH=${CLOUD_DB_PATH:-/app/data/cloud.db}
+      # Explicit opt-out for local dev / a deployment that knowingly runs with
+      # no off-host backup. Anything else is a hard failure, on purpose.
+      - LITESTREAM_DISABLED=${LITESTREAM_DISABLED:-}
       - LITESTREAM_ACCESS_KEY_ID=${LITESTREAM_ACCESS_KEY_ID}
       - LITESTREAM_SECRET_ACCESS_KEY=${LITESTREAM_SECRET_ACCESS_KEY}
       - R2_ENDPOINT=${R2_ENDPOINT}
