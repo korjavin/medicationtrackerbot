@@ -233,6 +233,53 @@ describe('gamification Self-Experiments — recovery-mode auto-pause seam', () =
   });
 });
 
+// bd med-y4ue — resolveElapsed freezes a verdict from a READ path, so a device
+// whose mirror is stale must not be able to overwrite a newer terminal state
+// (the user's cancellation) with its own resolution. Two ports + local replicas
+// of web/cloud/js/sync.js: writeRecord's nextClientTs promotion (which turns
+// the derived floor into "beats exactly what I read") and applyIncoming's
+// strict `>` merge.
+function stampingPort(seed) {
+  const port = createInMemoryRecordsPort(seed);
+  const rawPut = port.put;
+  port.put = async (recordType, record) => {
+    const existing = (await port.list(recordType)).find((r) => r.recordId === record.recordId);
+    const clientTs = existing ? Math.max(record.clientTs, existing.clientTs + 1) : record.clientTs;
+    return rawPut(recordType, { ...record, clientTs });
+  };
+  return port;
+}
+const applyIncoming = (existing, incoming) => (
+  !existing || incoming.clientTs > existing.clientTs ? incoming : existing
+);
+
+describe('gamification Self-Experiments — a stale resolution cannot overwrite a cancellation (bd med-y4ue)', () => {
+  const SEED_TS = NOW - 30 * DAY_MS;
+
+  it('the read-side freeze loses the merge against the cancellation it never saw', async () => {
+    const seed = () => ({ gamificationexperiment: [expRec({ clientTs: SEED_TS })] });
+    const freshPort = stampingPort(seed());
+    const stalePort = stampingPort(seed());
+
+    // Fresh device: the user cancels the running trial — a real write, now().
+    const fresh = createGamificationDomain({ records: freshPort, now: () => NOW, timeZone: TZ });
+    expect(await fresh.cancelExperiment('exp-1')).toEqual({ ok: true, status: 'cancelled' });
+    const cancelled = (await freshPort.list('gamificationexperiment'))[0];
+
+    // Stale device: never pulled that op, clock an hour later, and merely READS
+    // the experiments surface — which auto-freezes the elapsed trial.
+    const stale = createGamificationDomain({
+      records: stalePort, now: () => NOW + 3600_000, timeZone: TZ,
+    });
+    await stale.listExperiments();
+    const resolved = (await stalePort.list('gamificationexperiment'))[0];
+    expect(resolved.status).toBe('resolved');       // still frozen locally
+    expect(resolved.clientTs).toBe(SEED_TS + 1);    // floored to what it read
+
+    expect(applyIncoming(cancelled, resolved).status).toBe('cancelled');
+  });
+});
+
 describe('gamification Self-Experiments — curated lever-only template library', () => {
   it('every template is a lever tied to a probe, never a restriction or weight target', () => {
     expect(EXPERIMENT_TEMPLATES.length).toBeGreaterThan(0);

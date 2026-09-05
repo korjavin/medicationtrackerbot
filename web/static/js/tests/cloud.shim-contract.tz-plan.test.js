@@ -7,7 +7,7 @@
 import {
     afterEach, beforeEach, describe, expect, it, vi
 } from 'vitest';
-import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { createInMemoryRecordsPort, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { createTzPlanDomain, planDosesWithTzPlan } from '../../../domain/tzplan.js';
 
 // Apply/Cancel round-trip twice — the POST, then the re-read refresh() does so
@@ -324,5 +324,72 @@ describe('planDosesWithTzPlan — per-med future-step suppression (web/domain/tz
         });
 
         expect(targets).toEqual([]);
+    });
+});
+
+// bd med-y4ue — refreshPlanStatus is a TIMER-side read/write on the singleton
+// plan record, so a device whose mirror is stale must not be able to complete a
+// plan another device has already replaced with a fresh PENDING_APPROVAL. Two
+// ports + local replicas of web/cloud/js/sync.js: writeRecord's nextClientTs
+// promotion (which turns the derived floor into "beats exactly what I read")
+// and applyIncoming's strict `>` merge.
+function stampingPort(seed) {
+    const port = createInMemoryRecordsPort(seed);
+    const rawPut = port.put;
+    port.put = async (recordType, record) => {
+        const existing = (await port.list(recordType)).find((r) => r.recordId === record.recordId);
+        const clientTs = existing ? Math.max(record.clientTs, existing.clientTs + 1) : record.clientTs;
+        return rawPut(recordType, { ...record, clientTs });
+    };
+    return port;
+}
+const applyIncoming = (existing, incoming) => (
+    !existing || incoming.clientTs > existing.clientTs ? incoming : existing
+);
+
+describe('TZ plan — a stale refreshPlanStatus cannot complete a newer pending plan (bd med-y4ue)', () => {
+    const T0 = Date.UTC(2026, 0, 15, 8, 0);
+
+    // The approved plan both devices hold, every step already in the past.
+    const approvedPlan = () => ({
+        recordId: 'tzplan-current', clientTs: T0, deleted: false,
+        old_tz: 'America/New_York', new_tz: 'Asia/Tokyo', status: 'APPROVED',
+        created_at: new Date(T0).toISOString(),
+        approved_at: new Date(T0).toISOString(),
+        steps: [{
+            medicationId: 1, medName: 'Metformin', stepNumber: 1, totalSteps: 1,
+            scheduledAtMs: T0 - 3600_000, note: 'Shift dose 1h'
+        }]
+    });
+
+    it('the timer-side COMPLETED write loses the merge against a PENDING_APPROVAL it never saw', async () => {
+        const freshPort = stampingPort({ tzplan: [approvedPlan()] });
+        const stalePort = stampingPort({ tzplan: [approvedPlan()] });
+
+        // Fresh device: the user travels again, so proposeTimezoneChange
+        // overwrites the singleton with a new pending plan (a real write).
+        await freshPort.put('tzplan', {
+            ...approvedPlan(),
+            clientTs: T0 + 60_000, new_tz: 'Europe/Berlin', status: 'PENDING_APPROVAL',
+            approved_at: undefined,
+            steps: [{
+                medicationId: 1, medName: 'Metformin', stepNumber: 1, totalSteps: 1,
+                scheduledAtMs: T0 + 7200_000, note: 'Shift dose 2h'
+            }]
+        });
+        const pending = (await freshPort.list('tzplan'))[0];
+
+        // Stale device: never pulled that op; its materialization sweep fires a
+        // day later and sees only past steps on an APPROVED plan.
+        await createTzPlanDomain({
+            records: stalePort, now: () => T0 + 24 * 3600_000, timeZone: 'UTC'
+        }).refreshPlanStatus();
+        const completed = (await stalePort.list('tzplan'))[0];
+        expect(completed.status).toBe('COMPLETED');  // still flipped locally
+        expect(completed.clientTs).toBe(T0 + 1);     // floored to what it read
+
+        const merged = applyIncoming(pending, completed);
+        expect(merged.status).toBe('PENDING_APPROVAL');
+        expect(merged.new_tz).toBe('Europe/Berlin');
     });
 });

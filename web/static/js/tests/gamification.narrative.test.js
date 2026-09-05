@@ -271,3 +271,99 @@ describe('gamification narrative layer — catalogs are curated', () => {
     }
   });
 });
+
+// bd med-y4ue — the gamificationjournal singleton is a whole-blob
+// read-modify-write, so a READ-side transition (resolveElapsedChapter,
+// getTraits, appendKeystone) on a device whose mirror is stale used to push a
+// blob stamped now() and LWW-erase every field it never saw. The same shape as
+// med-9a87 one layer up, so the same floor closes it. Two ports + local
+// replicas of the two web/cloud/js/sync.js rules the guard leans on:
+//   - writeRecord stamps max(proposed, existing.clientTs + 1) (nextClientTs),
+//     which turns the derived floor into "beats exactly what I read";
+//   - applyIncoming is strict `>` on clientTs, so a tie leaves the local row.
+function stampingPort(seed) {
+  const port = createInMemoryRecordsPort(seed);
+  const rawPut = port.put;
+  port.put = async (recordType, record) => {
+    const existing = (await port.list(recordType)).find((r) => r.recordId === record.recordId);
+    const clientTs = existing ? Math.max(record.clientTs, existing.clientTs + 1) : record.clientTs;
+    return rawPut(recordType, { ...record, clientTs });
+  };
+  return port;
+}
+const applyIncoming = (existing, incoming) => (
+  !existing || incoming.clientTs > existing.clientTs ? incoming : existing
+);
+
+describe('gamification journal — a stale read-side write cannot clobber newer fields (bd med-y4ue)', () => {
+  const SEED_TS = NOW - 60 * DAY_MS;
+
+  function seed() {
+    const bp = [];
+    for (let offset = 1; offset <= 25; offset++) bp.push(bpRec(offset, 118));
+    return {
+      bp,
+      sleep: windowNights(24),
+      gamificationjournal: [{
+        recordId: 'journal', deleted: false, clientTs: SEED_TS,
+        // Started 30 days ago → the 28-day arc has elapsed, so any read of the
+        // chapter surface freezes it into a review.
+        chapter: { theme_id: 'early_sleeper', started_at: NOW - 30 * DAY_MS },
+      }],
+    };
+  }
+
+  it('a stale resolveElapsedChapter loses the merge against newer traits and keystones', async () => {
+    const freshPort = stampingPort(seed());
+    const stalePort = stampingPort(seed());
+    const fresh = createGamificationDomain({ records: freshPort, now: () => NOW, timeZone: TZ });
+    // The stale device's clock runs an hour LATER — pre-fix that alone won.
+    const stale = createGamificationDomain({
+      records: stalePort, now: () => NOW + 3600_000, timeZone: TZ,
+    });
+
+    await fresh.getTraits();    // earns early_sleeper    → journal.traits
+    await fresh.getKeystones(); // mints bp_in_target_band → journal.keystones
+    const freshJournal = (await freshPort.list('gamificationjournal'))[0];
+    expect(freshJournal.traits.early_sleeper).toBeTruthy();
+    expect(freshJournal.keystones).toHaveLength(1);
+    // Its own derived writes still advance: the floor is promoted per write.
+    expect(freshJournal.clientTs).toBe(SEED_TS + 2);
+
+    // The stale device pulled neither op; opening the Journey screen freezes
+    // its (elapsed) chapter — a read that writes.
+    const chapter = await stale.getChapter();
+    expect(chapter.review.theme_id).toBe('early_sleeper');
+    const staleJournal = (await stalePort.list('gamificationjournal'))[0];
+    expect(staleJournal.chapter).toBeNull();         // still frozen locally
+    expect(staleJournal.traits).toBeUndefined();     // it never saw the trait
+    expect(staleJournal.clientTs).toBe(SEED_TS + 1); // floored to what it read
+
+    // The merge the fresh device makes when that op arrives.
+    expect(applyIncoming(freshJournal, staleJournal)).toBe(freshJournal);
+  });
+
+  it('a stale first-earn trait write cannot erase a newer chapter enrollment', async () => {
+    const freshPort = stampingPort(seed());
+    const stalePort = stampingPort(seed());
+    const fresh = createGamificationDomain({ records: freshPort, now: () => NOW, timeZone: TZ });
+    const stale = createGamificationDomain({
+      records: stalePort, now: () => NOW + 3600_000, timeZone: TZ,
+    });
+
+    // Fresh device: the user closes the elapsed arc and starts a new one — a
+    // deliberate write, stamped now().
+    await fresh.closeChapter();
+    await fresh.startChapter('the_rebuild');
+    const freshJournal = (await freshPort.list('gamificationjournal'))[0];
+    expect(freshJournal.chapter.theme_id).toBe('the_rebuild');
+
+    // Stale device: getTraits persists a first-earn stamp off its old blob,
+    // which still carries the chapter the user has already replaced.
+    await stale.getTraits();
+    const staleJournal = (await stalePort.list('gamificationjournal'))[0];
+    expect(staleJournal.traits.early_sleeper).toBeTruthy();
+
+    expect(applyIncoming(freshJournal, staleJournal).chapter.theme_id).toBe('the_rebuild');
+  });
+});
