@@ -1331,6 +1331,136 @@ describe('features/elevenlabs-call.js — mount during connecting', () => {
     });
 });
 
+describe('features/elevenlabs-call.js — connect watchdog + cancel token', () => {
+    // The connect chain (signed URL → SDK → startSession, which awaits
+    // getUserMedia) is unbounded. An unanswered mic prompt used to pin
+    // activeState at 'connecting' until reload: card button disabled,
+    // indicator hang-up disabled, callInFlight() refusing a retry (med-i5wi).
+
+    // The controller's setTimeout resolves off the inner JSDOM window, which
+    // vi's fake timers (installed on globalThis) never see. Bridge it so
+    // vi.advanceTimersByTime drives the watchdog.
+    function bridgeTimers(window) {
+        window.setTimeout = (...args) => globalThis.setTimeout(...args);
+        window.clearTimeout = (...args) => globalThis.clearTimeout(...args);
+    }
+
+    // The connect chain is microtask-only under these stubs (apiCallDirect +
+    // a pre-resolved SDK), so draining microtasks is enough to reach
+    // startSession — and unlike a setTimeout(0) drain it works with fake
+    // timers installed.
+    async function drain(n = 30) {
+        for (let i = 0; i < n; i += 1) await Promise.resolve();
+    }
+
+    // A startSession whose resolution the test controls: settle() hands the
+    // controller a live conversation, however late.
+    function pendingSession() {
+        const conversation = makeFakeConversation();
+        let deliver = null;
+        const thenable = { then(resolve) { deliver = () => resolve(conversation); } };
+        return { thenable, conversation, settle: () => deliver && deliver() };
+    }
+
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('times out a never-settling connect, and a retry is allowed after', async () => {
+        const { window, document, cleanup } = createConversationEnv({ conv: { then() { /* never settles */ } } });
+        try {
+            bridgeTimers(window);
+            const container = document.createElement('div');
+            document.body.appendChild(container);
+            const card = window.WGCallAgent.mountCard(container);
+            window.WGCallAgent.startCall(card);
+            await drain();
+            expect(window.WGCallAgent.getState().state).toBe('connecting');
+
+            vi.advanceTimersByTime(29000);
+            expect(window.WGCallAgent.getState().state).toBe('connecting');
+
+            vi.advanceTimersByTime(1000);
+            const state = window.WGCallAgent.getState();
+            expect(state.state).toBe('error');
+            expect(state.message).toMatch(/microphone/i);
+            expect(card.querySelector('.wg-call-card__btn').disabled).toBe(false);
+            expect(card.querySelector('.wg-call-card__label').textContent).toBe('Try again');
+
+            // No longer in flight: the user can try again without a reload.
+            window.WGCallAgent.startCall(card);
+            await drain();
+            expect(window.__TEST_START_SESSION_CALLS__).toBe(2);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('ends a session that resolves after the watchdog fired, instead of adopting it', async () => {
+        const pending = pendingSession();
+        const { window, document, cleanup } = createConversationEnv({ conv: pending.thenable });
+        try {
+            bridgeTimers(window);
+            const card = window.WGCallAgent.mountCard(document.body);
+            window.WGCallAgent.startCall(card);
+            await drain();
+            vi.advanceTimersByTime(30000);
+            expect(window.WGCallAgent.getState().state).toBe('error');
+
+            // The mic prompt is finally answered and the SDK hands us a live
+            // session. Nothing tracks it, so it must be hung up, not adopted.
+            pending.settle();
+            await drain();
+            expect(pending.conversation.endSession).toHaveBeenCalledTimes(1);
+            expect(window.WGCallAgent.getState().state).toBe('error');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('hang-up during connecting returns to idle and disowns the late session', async () => {
+        const pending = pendingSession();
+        const { window, document, cleanup } = createConversationEnv({ conv: pending.thenable });
+        try {
+            bridgeTimers(window);
+            const card = window.WGCallAgent.mountCard(document.body);
+            window.WGCallAgent.startCall(card);
+            await drain();
+            expect(window.WGCallAgent.getState().state).toBe('connecting');
+
+            await window.WGCallAgent.endCall();
+            expect(window.WGCallAgent.getState().state).toBe('idle');
+
+            pending.settle();
+            await drain();
+            expect(pending.conversation.endSession).toHaveBeenCalledTimes(1);
+            expect(window.WGCallAgent.getState().state).toBe('idle');
+
+            // …and the disowned session's SDK callbacks must not repaint state.
+            window.__TEST_CONVERSATION_OPTS__.onConnect();
+            window.__TEST_CONVERSATION_OPTS__.onError(new Error('late boom'));
+            expect(window.WGCallAgent.getState().state).toBe('idle');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('clears the watchdog once the call connects (no late timeout mid-call)', async () => {
+        const { window, document, cleanup } = createConversationEnv();
+        try {
+            bridgeTimers(window);
+            const card = window.WGCallAgent.mountCard(document.body);
+            await window.WGCallAgent.startCall(card);
+            window.__TEST_CONVERSATION_OPTS__.onConnect();
+            expect(window.WGCallAgent.getState().state).toBe('in_call');
+
+            vi.advanceTimersByTime(60000);
+            expect(window.WGCallAgent.getState().state).toBe('in_call');
+        } finally {
+            cleanup();
+        }
+    });
+});
+
 describe('features/elevenlabs-call.js — trial-voice fallback precedence (cloud)', () => {
     // Wire a cloud env around fetchSignedURL(): vault-key presence via
     // CloudElevenLabs.hasKey, trial availability via the injected meta flag,

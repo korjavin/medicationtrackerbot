@@ -47,12 +47,14 @@
         rootEl.dataset.state = state;
         const fallback = STATUS_TEXT[state] || '';
         if (textEl) textEl.textContent = message || fallback;
-        // Mirror the Today card's behavior: disable hang-up during
-        // 'connecting' to avoid a race where startSession() is still in
-        // flight (activeConversation is null), endCall() would no-op the
-        // teardown, and the live conversation gets assigned afterwards
-        // with no UI left to end it.
-        if (hangUpEl) hangUpEl.disabled = state === 'connecting';
+        // Hang-up stays enabled during 'connecting' — it is the only escape
+        // from a connect chain that never settles (an unanswered mic prompt),
+        // which otherwise pins the whole controller until reload (bd med-i5wi).
+        // The race that used to make this unsafe (endCall() no-ops the teardown
+        // while startSession is in flight, then adopts a live session with no UI
+        // to end it) is closed by the cancel generation in elevenlabs-call.js:
+        // a late resolution after endCall() ends itself.
+        if (hangUpEl) hangUpEl.disabled = false;
         if (muteEl) {
             muteEl.hidden = hideControls;
             const isMuted = Boolean(muted);

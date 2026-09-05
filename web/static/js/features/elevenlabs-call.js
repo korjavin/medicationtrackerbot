@@ -458,6 +458,35 @@
         return Boolean(activeConversation) || activeState === 'connecting';
     }
 
+    // The connect chain (signed URL → SDK → startSession, which awaits
+    // getUserMedia) is unbounded: an unanswered mic prompt never settles and
+    // pins activeState at 'connecting' forever (bd med-i5wi). Two pieces:
+    //
+    //   callGeneration — bumped by every startCall/endCall and by the
+    //     watchdog. The pending chain captures its generation; a stale one
+    //     must not paint state and must end a session it belatedly receives
+    //     rather than adopting it (that session is live and untracked).
+    //   connectTimer   — one watchdog per attempt, cleared when the chain
+    //     settles. Deliberately NOT cleared by onConnect: if the promise
+    //     hangs after connecting we still have no conversation handle to end.
+    const CONNECT_TIMEOUT_MS = 30000;
+    let callGeneration = 0;
+    let connectTimer = null;
+
+    function clearConnectWatchdog() {
+        if (connectTimer !== null) {
+            clearTimeout(connectTimer);
+            connectTimer = null;
+        }
+    }
+
+    // Abandon whatever connect chain is in flight: the bump makes its late
+    // resolution (and its SDK callbacks) stale.
+    function cancelConnect() {
+        callGeneration += 1;
+        clearConnectWatchdog();
+    }
+
     function applyState(card, state, message) {
         if (!card) return;
         card.dataset.state = state;
@@ -668,6 +697,7 @@
     }
 
     async function endCall() {
+        cancelConnect();
         const conv = activeConversation;
         activeConversation = null;
         if (conv && typeof conv.endSession === 'function') {
@@ -679,7 +709,16 @@
     async function startCall(card) {
         if (callInFlight()) return;
         activeCard = card;
+        cancelConnect();
+        const gen = callGeneration;
+        const live = () => gen === callGeneration;
         setState('connecting', 'Connecting…');
+        connectTimer = setTimeout(() => {
+            connectTimer = null;
+            if (!live()) return;
+            callGeneration += 1;
+            setState('error', 'Connection timed out — allow microphone access and try again.');
+        }, CONNECT_TIMEOUT_MS);
         try {
             const [signedUrl, sdk] = await Promise.all([
                 fetchSignedURL(),
@@ -691,28 +730,45 @@
             }
             const clientTools = buildClientTools();
             redirectLibsamplerateWorklet();
-            activeConversation = await Conversation.startSession({
+            const conv = await Conversation.startSession({
                 signedUrl,
                 workletPaths: WORKLET_PATHS,
                 libsampleratePath: LIBSAMPLERATE_PATH,
                 ...(clientTools ? { clientTools } : {}),
-                onConnect: () => setState('in_call', 'Connected'),
+                onConnect: () => { if (live()) setState('in_call', 'Connected'); },
                 onDisconnect: () => {
+                    if (!live()) return;
                     activeConversation = null;
                     setState('idle', '');
                 },
                 onError: (err) => {
+                    if (!live()) return;
                     activeConversation = null;
                     const msg = (err && (err.message || err.error)) || 'Call error';
                     setState('error', msg);
                 },
                 onModeChange: (m) => {
+                    if (!live()) return;
                     const mode = m && (m.mode || m);
                     if (mode === 'speaking') setState('in_call', 'Agent speaking…');
                     else if (mode === 'listening') setState('in_call', 'Listening…');
                 },
             });
+            if (!live()) {
+                // Timed out or hung up while this was pending: the session is
+                // live but nothing tracks it. End it instead of adopting it.
+                if (conv && typeof conv.endSession === 'function') {
+                    try { await conv.endSession(); } catch (_) { /* ignore */ }
+                }
+                return;
+            }
+            // Keep the generation: the SDK callbacks above belong to this
+            // now-adopted session and must stay live.
+            clearConnectWatchdog();
+            activeConversation = conv;
         } catch (err) {
+            if (!live()) return;
+            clearConnectWatchdog();
             activeConversation = null;
             const msg = err && err.status === 503
                 ? 'Voice agent is not configured on this server.'
