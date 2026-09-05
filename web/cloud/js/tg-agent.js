@@ -123,8 +123,10 @@ export function createTGAgent({ chat, dispatcher, prefs = NOOP_PREFS, history = 
   // SENT the message, not when this drain runs — a backlog drained after the tab
   // was closed applies days of messages within one second, and aging the history
   // by the drain clock would make all of them look like one live conversation.
-  // Same convention as every other inbound kind (telegram.go: "AtUnix is the
-  // SERVER's tap timestamp, not the drain's").
+  // Same convention as every other inbound MESSAGE kind: at_unix is the
+  // message's own Telegram date (tgclient.Message.AtUnix), not the drain's and
+  // not the webhook's. Callback-query taps are the exception — they hang off the
+  // bot's OWN reminder, so they keep the relay's tap clock.
   async function run(userText, atMs) {
     const note = (await prefs.get()) || '';
     const systemContent = note
