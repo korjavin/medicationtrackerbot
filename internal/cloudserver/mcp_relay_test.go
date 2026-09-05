@@ -47,11 +47,18 @@ func newTestMCPRelayAPI(t *testing.T) (*MCPRelayAPI, http.Handler, string, strin
 	return relayAPI, New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false), host, claimToken
 }
 
-// waitForDeviceLegCleared blocks until the relay has finished tearing down the
-// dropped device leg. pairingRecord.clear runs in serveLeg's defer chain —
-// after cancelLeg() and before the leg's own CloseNow — so an empty device slot
-// is the happens-after edge for "the relay has processed this drop", including
-// every teardown side effect that could have reached across to the peer.
+// waitForDeviceLegCleared blocks until the relay has torn down the dropped
+// device leg. pairingRecord.clear runs in serveLeg's defer chain, after
+// cancelLeg(), so an empty device slot means exactly this: serveLeg's
+// read-error branch has run to completion and the leg's context is cancelled.
+// That is where a synchronous drop-propagation regression lives, which is what
+// this edge is for.
+//
+// It is NOT a barrier for everything the teardown set in motion: cancelLeg only
+// signals, it does not join the leg's keepalive or deliverDeferred goroutines,
+// and deliverWhenPeerAttaches writes through peerWriteContext, which is
+// deliberately immune to legCtx. A queued frame can therefore still reach the
+// peer after this returns (not in this test — the queue is empty at drop time).
 //
 // peerConn(false) is "the shim's peer", i.e. the device slot.
 func waitForDeviceLegCleared(t *testing.T, ctx context.Context, record *pairingRecord) {
@@ -512,7 +519,7 @@ func TestMCPRelay_DeviceDropLeavesShimLegOpen(t *testing.T) {
 	go func() {
 		_, _, err := shimConn.Read(ctx)
 		if err == nil {
-			err = errors.New("the relay forwarded a frame nobody sent")
+			err = errStrayRelayedFrame
 		}
 		readErr <- err
 	}()
@@ -543,17 +550,37 @@ func TestMCPRelay_DeviceDropLeavesShimLegOpen(t *testing.T) {
 	// AND its pipe is still being served, so it pins the contract positively
 	// instead of inferring it from the absence of an error. Raced against the
 	// reader so a torn-down leg fails here immediately rather than waiting the
-	// pong out against the test's whole context.
+	// pong out against the test's whole context — and the reader is re-checked
+	// once the ping lands, so a teardown that overtook the round trip is caught
+	// too.
 	pingErr := make(chan error, 1)
 	go func() { pingErr <- shimConn.Ping(ctx) }()
 	select {
 	case err := <-readErr:
-		t.Fatalf("shim leg closed after the device dropped: %v", err)
+		failShimLegDied(t, err)
 	case err := <-pingErr:
 		if err != nil {
-			t.Fatalf("shim leg closed after the device dropped: %v", err)
+			failShimLegDied(t, err)
+		}
+		select {
+		case err := <-readErr:
+			failShimLegDied(t, err)
+		default:
 		}
 	}
+}
+
+// errStrayRelayedFrame marks the other way the shim's read can return: not a
+// dead leg but a frame the relay invented, which deserves its own wording
+// rather than being reported as a close.
+var errStrayRelayedFrame = errors.New("the relay forwarded a frame nobody sent")
+
+func failShimLegDied(t *testing.T, err error) {
+	t.Helper()
+	if errors.Is(err, errStrayRelayedFrame) {
+		t.Fatalf("after the device dropped, %v", err)
+	}
+	t.Fatalf("shim leg closed after the device dropped: %v", err)
 }
 
 // TestMCPRelay_FrameWaitsForADeviceThatIsNotThereYet is the payoff of the
