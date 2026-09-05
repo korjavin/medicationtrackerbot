@@ -159,26 +159,20 @@ describe('features/call-indicator.js — persistent call-state pill', () => {
         }
     });
 
-    it('disables the hang-up button while connecting and re-enables for in_call / error / idle', () => {
+    // Hang-up must stay tappable in every state, 'connecting' included: it is
+    // the user's only escape from a connect chain that never settles, e.g. an
+    // unanswered mic prompt (bd med-i5wi). The mute/photo controls still wait
+    // for a conversation object, so those stay disabled while connecting.
+    it('keeps the hang-up button enabled in every state, connecting included', () => {
         const { window, document, cleanup } = createEnv();
         try {
             window.WGCallIndicator.mount(document.body);
             const button = document.querySelector('.wg-call-indicator__hang-up');
 
-            dispatchState(window, { state: 'connecting' });
-            expect(button.disabled).toBe(true);
-
-            dispatchState(window, { state: 'in_call' });
-            expect(button.disabled).toBe(false);
-
-            dispatchState(window, { state: 'connecting' });
-            expect(button.disabled).toBe(true);
-
-            dispatchState(window, { state: 'error', message: 'boom' });
-            expect(button.disabled).toBe(false);
-
-            dispatchState(window, { state: 'idle' });
-            expect(button.disabled).toBe(false);
+            ['connecting', 'in_call', 'error', 'idle'].forEach((state) => {
+                dispatchState(window, { state, message: state === 'error' ? 'boom' : '' });
+                expect(button.disabled).toBe(false);
+            });
         } finally {
             cleanup();
         }
