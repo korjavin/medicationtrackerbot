@@ -384,7 +384,10 @@ docker exec medtracker-cloud-litestream \
 ```
 
 Step 2 must print rows (files, sizes, transaction ids). **Empty output means
-configured-but-never-replicated** — credentials accepted, nothing stored.
+configured-but-never-replicated** — credentials accepted, nothing stored — with
+one caveat: nothing is uploaded until the first sync, so empty output is
+expected for up to `LITESTREAM_SYNC_INTERVAL` (default `1h`) after a fresh
+start or a restart. Empty an hour later is the real alarm.
 
 > **Version gotcha.** The image is tagged `0.3.13` but ships **litestream
 > v0.5.9** (`docker run --rm ghcr.io/korjavin/litestream:0.3.13 version`).
@@ -400,26 +403,43 @@ configured" into "backups work". It touches neither the live container nor the
 `cloud_data` volume: the replica is restored into a scratch directory on the
 host and opened there.
 
-```bash
-# Uses the same /tmp/restore.yml as the runbook below (step 2).
-mkdir -p /var/tmp/ls-drill && rm -f /var/tmp/ls-drill/*
+These commands read `R2_*` / `LITESTREAM_*` from *your shell*, but on this
+deployment they live in the Portainer stack env — **export them in the shell
+first** or every step fails confusingly.
 
+```bash
+# Self-contained: the drill writes its own config, so it does not depend on the
+# runbook below (whose step 1 stops the app — do NOT run that for a drill).
+mkdir -p /var/tmp/ls-drill && rm -rf /var/tmp/ls-drill/*
+cat > /var/tmp/ls-drill/restore.yml <<EOF
+dbs:
+  - path: /app/data/cloud.db
+    replica:
+      type: s3
+      bucket: ${R2_BUCKET}
+      path: ${LITESTREAM_PATH:-medtracker-cloud}
+      endpoint: ${R2_ENDPOINT}
+EOF
+
+# The scratch dir is mounted at /app/data — NOT the cloud_data volume. The app
+# image's entrypoint drops to uid 1000 and chowns only /app/data, so restoring
+# anywhere else leaves a root-owned file the next step cannot open.
 docker run --rm \
   -e LITESTREAM_ACCESS_KEY_ID -e LITESTREAM_SECRET_ACCESS_KEY \
-  -v /tmp/restore.yml:/tmp/restore.yml:ro -v /var/tmp/ls-drill:/drill \
+  -v /var/tmp/ls-drill:/app/data \
   ghcr.io/korjavin/litestream:0.3.13 \
-  restore -config /tmp/restore.yml -o /drill/cloud.db /app/data/cloud.db
+  restore -config /app/data/restore.yml -o /app/data/drill.db /app/data/cloud.db
 
 # Integrity: the app image has no sqlite3, so open the file with the app's own
 # admin CLI — it migrates and lists accounts. Accounts printed = schema and
 # rows survived the round trip.
-docker run --rm -v /var/tmp/ls-drill:/drill \
+docker run --rm -v /var/tmp/ls-drill:/app/data \
   -e CLOUD_BASE_DOMAIN -e SESSION_SECRET \
-  -e CLOUD_DB_PATH=/drill/cloud.db \
+  -e CLOUD_DB_PATH=/app/data/drill.db \
   ghcr.io/korjavin/medicationtrackerbot:latest ./cloud admin list
 
 # If the host has sqlite3, also:
-sqlite3 /var/tmp/ls-drill/cloud.db 'PRAGMA integrity_check;'   # -> ok
+sqlite3 /var/tmp/ls-drill/drill.db 'PRAGMA integrity_check;'   # -> ok
 
 rm -rf /var/tmp/ls-drill
 ```
@@ -504,7 +524,12 @@ with the *old* WAL is a corrupted database, and SQLite will not always say so.
 ### Verified
 
 Rehearsed on 2026-07-10 with litestream v0.3.13 against a file replica (the
-S3 replica differs only in transport):
+S3 replica differs only in transport). **Note the drift:** the image tagged
+`0.3.13` now ships v0.5.9 (see the version gotcha above), so this rehearsal
+predates the binary currently deployed — the restore *commands* below were
+re-checked against v0.5.9 on 2026-09-05, but the end-to-end round trip has not
+been repeated since. That is what the [restore drill](#restore-drill-non-destructive)
+is for.
 
 1. Created a real `cloud.db` via `cloud admin invite`, confirmed
    `PRAGMA journal_mode` → `wal`, and seeded a known `envelope_rec` ciphertext.
@@ -554,8 +579,9 @@ docker image prune -a && docker builder prune     # reclaim first, investigate a
 ```
 
 `cloud.db-wal` growing without bound means litestream is **not** checkpointing —
-check that the `litestream` container is up and not sitting in its
-"R2_BUCKET not set, skipping" clean exit (§6).
+run the [verify check](#verify-replication-is-live) (§6). `Restarting` means the
+credentials are missing and it is saying so; `Exited (0)` means someone set
+`LITESTREAM_DISABLED=1`. Either way there is no off-host backup right now.
 
 A single runaway account cannot do this: `CLOUD_ACCOUNT_QUOTA_BYTES` is on by
 default (50MB per account) and the server answers an over-quota write with 413,

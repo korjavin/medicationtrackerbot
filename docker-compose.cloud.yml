@@ -175,7 +175,7 @@ services:
     command:
       - -c
       - |
-        if [ -n "$${LITESTREAM_DISABLED}" ]; then
+        if [ "$${LITESTREAM_DISABLED}" = "1" ] || [ "$${LITESTREAM_DISABLED}" = "true" ]; then
           echo "[litestream] LITESTREAM_DISABLED set: replication OFF, this deployment has NO off-host backup of cloud.db"
           exit 0
         fi
@@ -186,8 +186,12 @@ services:
         if [ -n "$${missing}" ]; then
           echo "[litestream] FATAL: cloud.db has NO off-host backup. Missing env:$${missing}"
           echo "[litestream] Set them on the cloud-server stack, or set LITESTREAM_DISABLED=1 to acknowledge running with no backup."
-          # Slow the restart loop so the reason stays readable in `docker logs`.
-          sleep 30
+          # Exit immediately, and do NOT sleep first. Docker resets its restart
+          # backoff once a container has run for 10s, so a sleep would keep this
+          # container reporting "Up" forever — the exact "looks healthy while
+          # unbacked-up" state this whole change exists to abolish. Failing in
+          # under a second makes the backoff grow and parks it in "Restarting".
+          # The log is appended across restarts, so nothing is lost by exiting.
           exit 1
         fi
         cat << EOF > /tmp/litestream.yml
