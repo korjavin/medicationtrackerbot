@@ -61,7 +61,11 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     workoutGroups, workoutVariants, workoutExercises, workoutRotations, workoutSessions,
   ] = await Promise.all([
     records.list(MEDICATION_RECORD_TYPE),
-    records.list(INTAKE_RECORD_TYPE),
+    // RAW, tombstones included: a dose slot deleted on purpose must suppress
+    // its "Time to take" push, and a tombstone is the only trace it leaves
+    // (bd med-x7x2, the intake twin of the workout case below).
+    // computeReminderHorizon filters the live rows itself.
+    records.listRaw(INTAKE_RECORD_TYPE),
     records.list(TZPLAN_RECORD_TYPE),
     records.list(BP_RECORD_TYPE),
     records.list(WEIGHT_RECORD_TYPE),
@@ -78,7 +82,7 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
 
   const entries = await remindersDomain.buildHorizon({
     medications: medications.filter((m) => !m.deleted),
-    intakes: intakes.filter((i) => !i.deleted),
+    intakes,
     bps: bps.filter((b) => !b.deleted),
     weights: weights.filter((w) => !w.deleted),
     workoutGroups: workoutGroups.filter((r) => !r.deleted),

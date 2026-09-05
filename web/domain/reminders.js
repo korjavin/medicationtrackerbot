@@ -294,6 +294,8 @@ export function measureReminderStem(prefix, status, timeZone, now, measuredAtMs 
 // computeReminderHorizon is pure: medications/intakes are raw records
 // (server field names), timeZone is an IANA string, now is ms epoch, tzPlan
 // is the optional active tzplan record (a passthrough, see tzplan.js).
+// `intakes` and `workoutSessions` are the two inputs that WANT tombstones —
+// pass them raw (recordsPort.listRaw); everything else is filtered live.
 export function computeReminderHorizon({
   medications = [], intakes = [], bps = [], weights = [],
   workoutGroups = [], workoutVariants = [], workoutExercises = [],
@@ -330,6 +332,19 @@ export function computeReminderHorizon({
       handledByMed.set(intake.medication_id, list);
     }
   }
+  // A dose deleted on purpose leaves a TOMBSTONE at the deterministic
+  // `intake-<medId>-<slotUnix>` id, and materializeDueDoses will never
+  // re-create it (putIfAbsent treats a tombstone as occupied, bd med-j2ku).
+  // This horizon used to see live rows only, so it read that slot as "not
+  // materialized yet" and kept pushing "Time to take" for a dose the app no
+  // longer offers — and the Confirm on that push then found nothing to confirm
+  // (bd med-x7x2, the intake twin of the workout-session case below). Two
+  // writers tombstone a slot: deleteFutureIntakes (future PENDING only) and
+  // medications.js's cancelPendingIntakesForMedication on archive. The key IS
+  // the recordId, which is unique in the store, so a live row at that slot is
+  // simply not in this set — no live-wins tie-break needed. Manual log-past
+  // rows (`intake-manual-…`, random ids) never collide with a forecast target.
+  const deletedSlotIds = new Set(intakes.filter((i) => i.deleted).map((i) => String(i.recordId)));
   const isHandled = (t, med) => {
     const handled = handledByMed.get(t.medicationId);
     if (!handled) return false;
@@ -339,6 +354,7 @@ export function computeReminderHorizon({
   };
   const bySlot = new Map();
   for (const t of targets) {
+    if (deletedSlotIds.has(`intake-${t.medicationId}-${Math.floor(t.scheduledAtMs / 1000)}`)) continue;
     const med = medById.get(t.medicationId);
     if (isHandled(t, med)) continue;
     const slot = bySlot.get(t.scheduledAtMs) || { names: [], medicationIds: [] };

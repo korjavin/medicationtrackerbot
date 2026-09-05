@@ -2010,3 +2010,36 @@ describe('inbox-apply.js — a Telegram BP/weight reminder Snooze/Skip tap', () 
         expect(status.snoozed_until).toBe(MTAP_MS + MEASURE_SNOOZE_MS);
     });
 });
+
+// bd med-x7x2 — the residual race after the horizon fix: a "Time to take" push
+// was already in flight when the user deleted that dose. The tap must stay a
+// clean no-op — no row minted over the tombstone, no "Confirmed N" receipt.
+describe('inbox-apply.js — a tap on a deleted dose slot', () => {
+    it('creates nothing over the tombstone and reports no confirmation', async () => {
+        const records = fakeRecords({
+            medication: [
+                { recordId: 'med-a', deleted: false, name: 'Lisinopril', schedule: '{"type":"daily","times":["00:00"]}', inventory_count: 30 },
+            ],
+            // The tombstone deleteFutureIntakes leaves behind: recordId + deleted,
+            // no body (sync.js records.del).
+            intake: [{ recordId: `intake-med-a-${SLOT_UNIX}`, deleted: true }],
+        });
+        const now = () => DRAIN_MS;
+        const editReply = vi.fn(async () => {});
+        await applyIntakeSlotAction(
+            { ...medsNamed(confirmEvent, ['med-a']), message_id: 77 },
+            { intake: domainFor(records, now), records, now, editReply },
+        );
+
+        // The slot is still a tombstone — materializeDueDoses' putIfAbsent found
+        // it occupied and minted nothing.
+        expect(await records.listRaw('intake')).toEqual([
+            { recordId: `intake-med-a-${SLOT_UNIX}`, deleted: true },
+        ]);
+        expect((await records.list('intake')).filter((i) => !i.deleted)).toHaveLength(0);
+        // No receipt at all, and in particular never "✅ Confirmed …".
+        expect(editReply).not.toHaveBeenCalled();
+        // Nothing was taken, so nothing came off the shelf.
+        expect((await records.list('medication'))[0].inventory_count).toBe(30);
+    });
+});
