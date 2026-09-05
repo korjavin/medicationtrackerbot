@@ -1,8 +1,10 @@
 package cloudserver
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -46,6 +48,27 @@ func TestWorkletModulesAreEmbedded(t *testing.T) {
 	if !strings.Contains(string(b), "globalThis.LibSampleRate") {
 		t.Error("libsamplerate.worklet.js does not install globalThis.LibSampleRate")
 	}
+}
+
+// captureSlog points the default logger at h for the rest of the test, then
+// restores a plain stderr logger.
+//
+// The restore is explicitly a NEW stderr logger, never the slog.Default() that
+// was replaced — and that is the whole point of this helper. slog.SetDefault
+// also redirects the standard log package's output into the handler it is
+// given, and the built-in default handler writes back out through that same log
+// package; handing the original default logger back to SetDefault therefore
+// leaves the two wired into each other and every log line emitted afterwards in
+// the process is swallowed (golang/go#61892).
+//
+// That is not a cosmetic problem here: it silenced the whole package. The first
+// test to capture logs killed slog output for every test that ran after it, so
+// the MCP relay's slog — the only diagnostic there is for a relay flake — never
+// reached the CI log even when the run failed (bd med-tc1.12).
+func captureSlog(t *testing.T, h slog.Handler) {
+	t.Helper()
+	slog.SetDefault(slog.New(h))
+	t.Cleanup(func() { slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil))) })
 }
 
 func setupStore(t *testing.T) *cloudstore.Repo {

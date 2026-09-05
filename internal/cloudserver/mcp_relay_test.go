@@ -893,3 +893,29 @@ func TestMCPRelay_StaleDevicePairingCannotSquatCurrentSlot(t *testing.T) {
 		t.Fatalf("fresh device got %q, want %q", got, want)
 	}
 }
+
+// TestDeliverWhenPeerAttaches_ShutdownIsDistinctFromExpiry pins the
+// observability contract from med-tc1.12: a frame abandoned because its own leg
+// is tearing down must be reported differently from one that expired with
+// nobody ever attaching. Both lose the frame; only the second is a pathology,
+// and while they shared one return value the shutdown drops were invisible in
+// the logs, so a real never-attached problem could not be told from teardown
+// noise by log volume.
+func TestDeliverWhenPeerAttaches_ShutdownIsDistinctFromExpiry(t *testing.T) {
+	// No leg is ever joined, so peerConn stays nil and every attempt falls
+	// through to the wait — the state both outcomes are decided in.
+	record := &pairingRecord{id: "pairing-observability", accountID: "acct-observability"}
+	peerCh := make(chan *websocket.Conn, 1)
+
+	legCtx, cancelLeg := context.WithCancel(context.Background())
+	cancelLeg()
+	live := deferredFrame{deadline: time.Now().Add(relayTestDeadline), typ: websocket.MessageText, data: []byte("frame")}
+	if got := deliverWhenPeerAttaches(legCtx, live, record, false, peerCh); got != deferredShutdown {
+		t.Fatalf("cancelled leg ctx with budget left: outcome %d, want deferredShutdown (%d)", got, deferredShutdown)
+	}
+
+	expired := deferredFrame{deadline: time.Now().Add(-time.Second), typ: websocket.MessageText, data: []byte("frame")}
+	if got := deliverWhenPeerAttaches(context.Background(), expired, record, false, peerCh); got != deferredExpired {
+		t.Fatalf("expired budget on a live leg: outcome %d, want deferredExpired (%d)", got, deferredExpired)
+	}
+}

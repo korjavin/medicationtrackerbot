@@ -32,9 +32,7 @@ func TestNoRawPushEndpointInLogs_SendErrorUnwrapped(t *testing.T) {
 	const secret = "https://fcm.googleapis.com/fcm/send/SECRET-TOKEN-abc123"
 
 	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
-	defer slog.SetDefault(prev)
+	captureSlog(t, slog.NewTextHandler(&buf, nil))
 
 	rl := &Relay{sender: urlErrSender{}}
 	rl.send(context.Background(), cloudstore.PushSubscription{Endpoint: secret}, cloudstore.AccountVAPIDKeys{}, []byte("ct"))
@@ -45,6 +43,38 @@ func TestNoRawPushEndpointInLogs_SendErrorUnwrapped(t *testing.T) {
 	}
 	if !strings.Contains(out, "connection refused") {
 		t.Fatalf("send-failure log dropped the error cause; want \"connection refused\": %q", out)
+	}
+}
+
+// Every test that captures the default logger must do it through captureSlog.
+// The pattern it replaced — save slog.Default(), SetDefault a buffer, SetDefault
+// the saved logger back — does not restore anything: it wires the log package
+// and the default handler into each other, and every log line the process
+// emits afterwards is dropped (golang/go#61892). One test doing that silenced
+// slog for every test that ran after it in this package, which is why a relay
+// flake reached CI with no relay logs at all (bd med-tc1.12).
+func TestSlogCaptureGoesThroughHelper(t *testing.T) {
+	// A regexp, not a plain substring, so this scan does not match its own
+	// source line (the escapes keep the literal from spelling the call out).
+	installsDefault := regexp.MustCompile(`slog\.SetDefault\(`)
+
+	files, err := filepath.Glob("*_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range files {
+		if f == "router_test.go" {
+			continue // captureSlog's own definition
+		}
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, line := range strings.Split(string(src), "\n") {
+			if installsDefault.MatchString(line) {
+				t.Errorf("%s:%d sets the default logger directly; use captureSlog(t, handler) instead", f, i+1)
+			}
+		}
 	}
 }
 

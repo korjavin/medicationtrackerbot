@@ -62,12 +62,17 @@ jobs:
             go build ./...
           fi
 
+      # -v so the servers' slog output (the MCP relay's especially) is in the
+      # Actions log for every run, not only the ones go test decides to print.
+      # Measured at ~6.7k lines / ~430 KB for the whole suite with no change in
+      # wall time, which is the cheapest possible insurance against the next
+      # relay flake being unreadable the way med-tc1.11's two were.
       - name: Run tests
         run: |
           if [ -n "${{ matrix.tags }}" ]; then
-            go test -tags "${{ matrix.tags }}" -count=1 ./...
+            go test -tags "${{ matrix.tags }}" -count=1 -v ./...
           else
-            go test -count=1 ./...
+            go test -count=1 -v ./...
           fi
 
   docker-build:

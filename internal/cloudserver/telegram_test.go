@@ -2263,8 +2263,7 @@ func TestChildWebhook_SealsCommandVerbatim(t *testing.T) {
 	// a wall-clock time like 12:37:54.184196 contains "84" a fraction of the
 	// time. The clock is not what is under test.
 	var logBuf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{
+	captureSlog(t, slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.TimeKey {
@@ -2272,8 +2271,7 @@ func TestChildWebhook_SealsCommandVerbatim(t *testing.T) {
 			}
 			return a
 		},
-	})))
-	t.Cleanup(func() { slog.SetDefault(prev) })
+	}))
 
 	top, tg, host, childPath, session, accountID, priv := tgCommandFixture(t)
 
