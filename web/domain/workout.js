@@ -1514,12 +1514,24 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // `variantIdOverride` pins the created session's variant instead of resolving
   // the group's rotation cursor — startSession's re-key path carries the variant
   // the user tapped Start on, so re-dating the workout doesn't also swap it.
-  // Returns null when the slot is TOMBSTONED (bd med-w0fe) — see the
-  // putIfAbsent below.
+  // Returns null when the slot is TOMBSTONED (bd med-w0fe) — see the raw probe
+  // below.
   async function findOrCreateScheduledSession(groupId, date, variantIdOverride) {
     const recordId = sessionRecordId(groupId, date);
-    const existing = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION)).find((s) => s.recordId === recordId);
-    if (existing) return existing;
+    // The RAW slot decides, as it does for getNext's materialization: no LIVE
+    // row means either an empty slot — mint the body below — or a TOMBSTONE
+    // from a deliberate deleteSession, in which case the user removed that day
+    // and a Telegram Snooze/Skip tap on the already-sent reminder must not
+    // resurrect it (bd med-w0fe).
+    // A raw READ, not getNext's putIfAbsent: the row this mints is a real
+    // wall-clock user write, and it must reach the store through the caller's
+    // plain put so guard 1's skew correction still applies. putIfAbsent stamps
+    // clientTs VERBATIM — that contract exists for floored derived writes, and
+    // pre-writing here would also leave the caller's put facing an `existing`
+    // row, pushing it to existing.clientTs + 1 instead of the corrected stamp.
+    const existing = (await records.listRaw(WORKOUT_RECORD_TYPES.SESSION))
+      .find((s) => s.recordId === recordId);
+    if (existing) return existing.deleted ? null : existing;
     const nowMs = now();
     // Resolve the group's current variant + scheduled time exactly like getNext's
     // PRIORITY-2 materialization: this session is the one getNext surfaces (P0
@@ -1528,7 +1540,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // would render the next-workout card as "Unknown" variant, 0 exercises, no time.
     const group = await findByNumericId(records, WORKOUT_RECORD_TYPES.GROUP, groupId);
     const variantId = variantIdOverride || (group ? await resolveVariantId(group) : 0);
-    const record = {
+    return {
       recordId,
       clientTs: nowMs,
       deleted: false,
@@ -1549,16 +1561,6 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       notification_message_id: null,
       notes: '',
     };
-    // No LIVE row means one of two raw states, and only putIfAbsent can tell
-    // them apart — list() filters tombstones out (bd med-w0fe):
-    //   - an EMPTY slot: materialize it, exactly as getNext does.
-    //   - a TOMBSTONE from a deliberate deleteSession: the user removed that
-    //     day, so a Telegram Snooze/Skip tap on the already-sent reminder must
-    //     not resurrect it. Return null and let the caller no-op.
-    // Written here rather than left to the caller so the check and the create
-    // are the same atomic slot decision (bd med-qhpu).
-    const stored = await records.putIfAbsent(WORKOUT_RECORD_TYPES.SESSION, record);
-    return stored.deleted ? null : stored;
   }
 
   // snoozeScheduledSession / skipScheduledSession are the Telegram-drain twins of
@@ -2057,15 +2059,17 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   }
 
   // `suppressed` holds the deterministic slots this resolution has already found
-  // occupied in the RAW store (bd med-qhpu). The domain deliberately cannot read
-  // tombstones — records.list is live-only — so it learns a slot is spoken for
-  // only from putIfAbsent's verdict, and then re-runs the scan with that slot
-  // excluded so the card falls through to the next occurrence. Each round adds a
-  // slot and the candidate set is finite (14 days x active groups), so it ends.
+  // occupied in the RAW store (bd med-qhpu). records.list is live-only, so this
+  // path learns a slot is spoken for from putIfAbsent's verdict — which is also
+  // the write it wants when the slot IS free — and then re-runs the scan with
+  // that slot excluded so the card falls through to the next occurrence. Each
+  // round adds a slot and the candidate set is finite (14 days x active groups),
+  // so it ends.
   // ponytail: a deliberately deleted day costs one extra full scan on EVERY
   // getNext from then on (round 1 always re-loses the same putIfAbsent). Two
-  // passes over 14 days x a handful of groups; give the port a tombstone-aware
-  // read if that ever shows up in a profile.
+  // passes over 14 days x a handful of groups; pre-filter with records.listRaw
+  // (bd med-w0fe added it, and findOrCreateScheduledSession probes that way) if
+  // it ever shows up in a profile.
   async function resolveNext(suppressed) {
     const nowMs = now();
     const todayStr = localDateStr(nowMs, timeZone);

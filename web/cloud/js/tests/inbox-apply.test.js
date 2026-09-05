@@ -30,6 +30,9 @@ function fakeRecords(seed = {}) {
     return {
         dump: () => store,
         list: async (type) => (store[type] || []).map((r) => ({ ...r })),
+        // Mirrors sync.js recordsPort.listRaw: tombstones included, for the
+        // readers whose state includes "deliberately deleted" (bd med-w0fe).
+        listRaw: async (type) => (store[type] || []).map((r) => ({ ...r })),
         put: async (type, record) => {
             store[type] = (store[type] || []).filter((r) => r.recordId !== record.recordId);
             store[type].push({ ...record });
@@ -1891,8 +1894,7 @@ describe('inbox-apply.js — a Telegram workout Snooze/Skip tap', () => {
 
     // bd med-w0fe — the day was deleted in the app (deleteSession tombstones the
     // slot), but the reminder carrying these buttons was already in the chat. A
-    // tap must not resurrect a day the card and the horizon both treat as gone,
-    // and a Skip must not advance the rotation for it either.
+    // tap must not resurrect a day the card and the horizon both treat as gone.
     it('snooze and skip both no-op on a slot the user deleted', async () => {
         for (const event of [snooze1hEvent, skipEvent]) {
             const records = fakeRecords({

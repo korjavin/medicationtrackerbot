@@ -511,8 +511,10 @@ export function computeReminderHorizon({
     for (const s of workoutSessions) {
       if (!s.deleted) continue;
       const m = /^session-(\d+)-(\d{4}-\d{2}-\d{2})$/.exec(String(s.recordId));
-      // Never override a live row: a legacy session at a random recordId can
-      // hold the same day, and it is the one that decides.
+      // 'deleted' is a SENTINEL, not a session status — the only thing read off
+      // this map is "not pending", i.e. do not fire. Never override a live row:
+      // a legacy session at a random recordId can hold the same day, and it is
+      // the one that decides.
       if (m && !sessionStatusByKey.has(`${m[1]}|${m[2]}`)) {
         sessionStatusByKey.set(`${m[1]}|${m[2]}`, 'deleted');
       }

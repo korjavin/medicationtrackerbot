@@ -1226,13 +1226,16 @@ export async function listRecordsInRange(ctx, recordType, fromId, toId) {
 // row is itself state it must respect: the reminder horizon has to know that a
 // workout day was deliberately deleted, because a tombstoned slot means "no
 // workout that day", not "not materialized yet" (bd med-w0fe). Everything else
-// wants listRecords. Unmemoized and unsorted: it is a once-per-recompute read,
-// and the memo holds the live view every other caller shares.
+// wants listRecords. Unmemoized (a once-per-recompute read; the memo holds the
+// live view every other caller shares) but sorted the SAME way, newest first —
+// a caller swapping list for listRaw must not silently pick up a different
+// last-write-wins order in whatever loop it feeds.
 export async function listRawRecords(ctx, recordType) {
   await bootstrapIfNeeded(ctx);
-  return withStore('records', 'readonly', (store) => (
+  const records = await withStore('records', 'readonly', (store) => (
     reqToPromise(store.index('recordType').getAll(recordType))
   ));
+  return records.sort((a, b) => b.clientTs - a.clientTs);
 }
 
 // flushConfirmed is the ack barrier for the inbound mailbox drain: it resolves
