@@ -1632,3 +1632,154 @@ describe('bd med-gmyf: starting a not-today session logs the workout for today',
         expect(stored.find((s) => s.recordId === `session-1-${FRIDAY}`).status).toBe('pending');
     });
 });
+
+// bd med-my8f — a future day materialized off the OLD rotation cursor must
+// follow the cursor when the rotation advances, unless the user already
+// touched that day. Injected clock: the case needs a real future slot.
+describe('bd med-my8f: rotation advance re-points pending future sessions', () => {
+    // Wednesday 2026-08-26 17:40 UTC; the group fires Mon/Wed/Fri/Sun at 18:00,
+    // so Friday (D+2) is a genuine future slot.
+    const NOW = Date.UTC(2026, 7, 26, 17, 40);
+    const WEDNESDAY = '2026-08-26';
+    const FRIDAY = '2026-08-28';
+
+    function seed({ sessions = [], logs = [], currentVariantId = 1 } = {}) {
+        return createInMemoryRecordsPort({
+            workoutgroup: [{
+                recordId: 'group-1', clientTs: NOW, deleted: false, id: 1, user_id: 1, name: 'Evening',
+                is_rotating: true, days_of_week: '[1,3,5,0]', scheduled_time: '18:00',
+                notification_advance_minutes: 0, active: true,
+                created_at: new Date(NOW).toISOString(), updated_at: new Date(NOW).toISOString()
+            }],
+            workoutvariant: [{
+                recordId: 'variant-1', clientTs: NOW, deleted: false, id: 1, group_id: 1, name: 'Legs',
+                rotation_order: 0, created_at: new Date(NOW).toISOString()
+            }, {
+                recordId: 'variant-2', clientTs: NOW, deleted: false, id: 2, group_id: 1, name: 'Push',
+                rotation_order: 1, created_at: new Date(NOW).toISOString()
+            }],
+            workoutexercise: [{
+                recordId: 'exercise-2', clientTs: NOW, deleted: false, id: 12, variant_id: 2,
+                exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, order_index: 0
+            }],
+            workoutrotation: [{
+                recordId: 'rotation-1', clientTs: NOW, deleted: false, group_id: 1,
+                current_variant_id: currentVariantId, last_session_date: new Date(NOW).toISOString(),
+                updated_at: new Date(NOW).toISOString()
+            }],
+            workoutsession: sessions,
+            exerciselog: logs
+        });
+    }
+
+    // clientTs 0 mirrors how getNext materializes a future slot (rule 12 floor).
+    function session(date, status, { id = 900, variantId = 1, ...rest } = {}) {
+        return {
+            recordId: `session-1-${date}`, clientTs: 0, deleted: false, id, user_id: 1,
+            group_id: 1, variant_id: variantId, scheduled_date: `${date}T00:00:00Z`, scheduled_time: '18:00',
+            status, started_at: null, completed_at: null, snoozed_until: null, snooze_count: 0,
+            notification_message_id: null, notes: '', ...rest
+        };
+    }
+
+    function domainOver(records) {
+        return createWorkoutDomain({ records, now: () => NOW, timeZone: 'UTC' });
+    }
+
+    async function storedFriday(records) {
+        return (await records.list('workoutsession')).find((s) => s.recordId === `session-1-${FRIDAY}`);
+    }
+
+    it('re-points a pending future session to the advanced cursor on completion', async () => {
+        const records = seed({
+            sessions: [session(WEDNESDAY, 'pending', { id: 901 }), session(FRIDAY, 'pending')]
+        });
+
+        await domainOver(records).completeSession(901);
+
+        const friday = await storedFriday(records);
+        expect(friday.variant_id).toBe(2);
+        // The re-point follows a user action, so it must beat the rule-12 floor
+        // the materialization wrote at — otherwise it never propagates.
+        expect(friday.clientTs).toBe(NOW);
+        expect(friday.exercise_snapshot).toBeUndefined();
+        expect(friday.status).toBe('pending');
+
+        // Card and record now agree, and the plan renders off the new variant.
+        const next = await domainOver(records).getNext();
+        expect(next.session.id).toBe(900);
+        expect(next.session.scheduled_date.startsWith(FRIDAY)).toBe(true);
+        expect(next.variant_id).toBe(2);
+        expect(next.variant_name).toBe('Push');
+        expect(next.exercises_count).toBe(1);
+    });
+
+    it('re-points on a skip-driven advance too', async () => {
+        const records = seed({
+            sessions: [session(WEDNESDAY, 'pending', { id: 901 }), session(FRIDAY, 'pending')]
+        });
+
+        await domainOver(records).skipSession(901);
+
+        expect((await storedFriday(records)).variant_id).toBe(2);
+    });
+
+    it('leaves an already-started future session alone', async () => {
+        const records = seed({
+            sessions: [
+                session(WEDNESDAY, 'pending', { id: 901 }),
+                session(FRIDAY, 'in_progress', { started_at: new Date(NOW).toISOString() })
+            ]
+        });
+
+        await domainOver(records).completeSession(901);
+
+        expect((await storedFriday(records)).variant_id).toBe(1);
+    });
+
+    it('leaves a future session with a customized snapshot alone', async () => {
+        const snapshot = [{
+            exercise_id: 7, exercise_name: 'Squat', target_sets: 3, target_reps_min: 5,
+            target_reps_max: null, target_weight_kg: null, order_index: 0
+        }];
+        const records = seed({
+            sessions: [
+                session(WEDNESDAY, 'pending', { id: 901 }),
+                session(FRIDAY, 'pending', { exercise_snapshot: snapshot })
+            ]
+        });
+
+        await domainOver(records).completeSession(901);
+
+        const friday = await storedFriday(records);
+        expect(friday.variant_id).toBe(1);
+        expect(friday.exercise_snapshot).toEqual(snapshot);
+    });
+
+    it('leaves a future session that already has logs alone', async () => {
+        const records = seed({
+            sessions: [session(WEDNESDAY, 'pending', { id: 901 }), session(FRIDAY, 'pending')],
+            logs: [{
+                recordId: 'log-99', clientTs: NOW, deleted: false, id: 99, session_id: 900,
+                exercise_id: 5, exercise_name: 'Row', status: 'completed', sets_completed: 3,
+                reps_completed: 8, weight_kg: 40, logged_at: new Date(NOW).toISOString()
+            }]
+        });
+
+        await domainOver(records).completeSession(901);
+
+        expect((await storedFriday(records)).variant_id).toBe(1);
+    });
+
+    it('leaves a past pending day alone — only future slots follow the cursor', async () => {
+        const records = seed({
+            sessions: [session('2026-08-24', 'pending', { id: 902 }), session(WEDNESDAY, 'pending', { id: 901 })]
+        });
+
+        await domainOver(records).completeSession(901);
+
+        const monday = (await records.list('workoutsession')).find((s) => s.recordId === 'session-1-2026-08-24');
+        expect(monday.variant_id).toBe(1);
+        expect(monday.clientTs).toBe(0);
+    });
+});

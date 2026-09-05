@@ -1186,13 +1186,33 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       last_session_date: new Date(nowMs).toISOString(),
       updated_at: new Date(nowMs).toISOString(),
     });
-    // ponytail: a future day materialized off the OLD cursor keeps its stale
-    // variant_id, which getNext's PRIORITY 2 already overrides with the live
-    // cursor when it renders that day — a pre-existing split between what the
-    // card names and what the record stores (reachable through any skip with a
-    // future day materialized). Re-pointing those records here also has to
-    // migrate their exercise_snapshot/logs, so it is its own bead, not a rider
-    // on bd med-gmyf.
+    // A future day materialized off the OLD cursor keeps its stale variant_id.
+    // getNext's PRIORITY 2 renders the LIVE cursor for that day, so the card and
+    // the record disagree, and everything that reads the record instead of the
+    // card — startSession, completeSession's exercise_snapshot, listSessions,
+    // the session modal's plan prefill — uses the stale variant (bd med-my8f).
+    // Re-point the sessions it is safe to move and only those: same group, still
+    // in the future, never acted on (pending/notified, no started_at/completed_at),
+    // no per-session plan copy, no logs. A started, customized or logged session
+    // keeps its variant — swapping it under an existing exercise_snapshot or logs
+    // is exactly the corruption that reverted the first attempt at this fix.
+    // Nothing to rebuild on the ones that do move: a session only grows an
+    // exercise_snapshot at completion or on a planned-exercise removal, and both
+    // are excluded here, so the moved session keeps falling back to the live
+    // variant's exercises.
+    // clientTs is now(), NOT the rule-12 derived floor: this rewrite follows a
+    // user action (the completion/skip — or next-variant tap — that advanced the
+    // rotation), so it must WIN LWW over the floor-stamped materialization it
+    // corrects, and over a stale device that later re-materializes the same slot.
+    const todayStr = localDateStr(nowMs, timeZone);
+    for (const s of await activeRecords(WORKOUT_RECORD_TYPES.SESSION)) {
+      if (s.group_id !== groupId || s.variant_id === nextVariantId) continue;
+      if (s.status !== 'pending' && s.status !== 'notified') continue;
+      if (s.started_at || s.completed_at || s.exercise_snapshot) continue;
+      if (localDateStr(new Date(s.scheduled_date).getTime(), timeZone) <= todayStr) continue;
+      if ((await countSessionExerciseLogs(s.id)) > 0) continue;
+      await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...s, variant_id: nextVariantId, clientTs: nowMs });
+    }
   }
 
   // tryAdvanceRotation is the best-effort wrapper service.go's SkipSession/
