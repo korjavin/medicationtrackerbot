@@ -1844,6 +1844,37 @@ describe('cachedDb shared handle + drop-listener (med-90w.1)', () => {
     spy.mockRestore();
     expect(await cachedDb()).toBeTruthy();
   });
+
+  // med-2ros — a drop landing while an open is IN FLIGHT leaves that open
+  // resolving an orphan handle that is never cached. Its onclose/onversionchange
+  // must not clear the NEWER cached promise or fire the drop listeners (which
+  // would blow sync.js's records memo and reset `bootstrapped`).
+  it('an orphaned in-flight open never drops the newer cached handle', async () => {
+    let resolveOpen;
+    const orphan = { onversionchange: null, onclose: null, close: vi.fn() };
+    const spy = vi.spyOn(indexedDB, 'open').mockImplementationOnce(() => {
+      const req = { result: orphan, onupgradeneeded: null, onsuccess: null, onerror: null };
+      resolveOpen = () => req.onsuccess();
+      return req;
+    });
+    const pending = cachedDb(); // open in flight, not yet resolved
+    spy.mockRestore();
+    dropCachedDb(); // drop lands mid-open
+    const fresh = await cachedDb(); // real open, now the cached one
+    resolveOpen(); // the stale open finally resolves the orphan
+    expect(await pending).toBe(orphan);
+
+    let fired = 0;
+    const unsub = onCachedDbDropped(() => { fired += 1; });
+    // The orphan still closes itself on versionchange (never blocks
+    // deleteDatabase) but must not touch the cache.
+    orphan.onversionchange();
+    expect(orphan.close).toHaveBeenCalled();
+    orphan.onclose();
+    expect(fired).toBe(0);
+    expect(await cachedDb()).toBe(fresh);
+    unsub();
+  });
 });
 
 // med-90w.1 Task 2 — sync.js routes every DB access through withDb, which reuses
