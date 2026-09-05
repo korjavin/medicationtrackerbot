@@ -1186,13 +1186,45 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       last_session_date: new Date(nowMs).toISOString(),
       updated_at: new Date(nowMs).toISOString(),
     });
-    // ponytail: a future day materialized off the OLD cursor keeps its stale
-    // variant_id, which getNext's PRIORITY 2 already overrides with the live
-    // cursor when it renders that day — a pre-existing split between what the
-    // card names and what the record stores (reachable through any skip with a
-    // future day materialized). Re-pointing those records here also has to
-    // migrate their exercise_snapshot/logs, so it is its own bead, not a rider
-    // on bd med-gmyf.
+    // A future day materialized off the OLD cursor keeps its stale variant_id.
+    // getNext's PRIORITY 2 renders the LIVE cursor for that day, so the card and
+    // the record disagree, and everything that reads the record instead of the
+    // card — startSession, completeSession's exercise_snapshot, listSessions,
+    // the session modal's plan prefill — uses the stale variant (bd med-my8f).
+    // Re-point the sessions it is safe to move and only those: same group, still
+    // in the future, never acted on (pending/notified, no started_at/completed_at),
+    // no per-session plan copy, no logs. A started, customized or logged session
+    // keeps its variant — swapping it under an existing exercise_snapshot or logs
+    // is exactly the corruption that reverted the first attempt at this fix.
+    // Nothing to rebuild on the ones that do move: a session only grows an
+    // exercise_snapshot at completion or on a planned-exercise removal, and both
+    // are excluded here, so the moved session keeps falling back to the live
+    // variant's exercises.
+    // clientTs is the rule-12 DERIVED FLOOR (0), even though the rotation record
+    // above is stamped now(): the user acted on the rotation, but this is a blind
+    // read-modify-write of a DIFFERENT record they never touched, and LWW replaces
+    // the whole body (sync.js applyIncoming), not the one field. Stamped now(),
+    // this device's possibly-stale mirror of the session would win — resurrecting
+    // a tombstone another device wrote (next-variant deletes the slot), reverting
+    // a pre-skip, or dropping a snooze. The floor still propagates: writeRecord's
+    // nextClientTs promotes it to `existing.clientTs + 1`, so it beats the
+    // floor-stamped materialization it corrects while losing to any real,
+    // wall-clock-stamped action on the same slot. Exactly its standing.
+    // The rotation cursor is the source of truth either way — getNext, the card
+    // and reminders.js all render from it — so a lost re-point is cosmetic drift
+    // in the record, not a wrong workout.
+    const todayStr = localDateStr(nowMs, timeZone);
+    for (const s of await activeRecords(WORKOUT_RECORD_TYPES.SESSION)) {
+      if (s.group_id !== groupId || s.variant_id === nextVariantId) continue;
+      if (s.status !== 'pending' && s.status !== 'notified') continue;
+      if (s.started_at || s.completed_at || s.exercise_snapshot) continue;
+      // Date prefix as a STRING, never via UTC parts: scheduled_date is local
+      // midnight stamped with the minting device's offset, so re-rendering it in
+      // another zone shifts the day (same rule reminders.js documents).
+      if (String(s.scheduled_date).slice(0, 10) <= todayStr) continue;
+      if ((await countSessionExerciseLogs(s.id)) > 0) continue;
+      await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...s, variant_id: nextVariantId, clientTs: 0 });
+    }
   }
 
   // tryAdvanceRotation is the best-effort wrapper service.go's SkipSession/
@@ -1675,8 +1707,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return { session, terminal: status === 'skipped' || status === 'completed' };
   }
 
-  // nextVariant ports transitions.go's NextVariant: advance the rotation then
-  // delete the current (not-yet-started) session so the next resolution
+  // nextVariant ports transitions.go's NextVariant: delete the current
+  // (not-yet-started) session and advance the rotation, so the next resolution
   // surfaces the new variant. Errors propagate (unlike tryAdvanceRotation).
   // Since med-8j12 the re-materialized session reuses the slot's derived numeric
   // id, so a log ANOTHER device wrote against the pre-swap session (deleteSession
@@ -1693,11 +1725,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (!group) throw invalidRequest('workout group not found', 'not_found');
     if (!group.is_rotating) throw invalidRequest('workout group does not use rotation', 'invalid_request');
 
-    await advanceRotation(group.id);
+    // Delete BEFORE advancing: advanceRotation re-points pending future sessions
+    // of the group, and on a future card this is one of them — advancing first
+    // would write it with the new variant and then immediately tombstone it.
     // Cascade-delete the session's exercise logs first, matching Go's
     // DeleteSession (repo.go:1029) — FK cascade is disabled, so records.del
     // on the session alone would orphan any logs created against it.
     await deleteSession(id);
+    await advanceRotation(group.id);
   }
 
   // -- Exercise logs --
