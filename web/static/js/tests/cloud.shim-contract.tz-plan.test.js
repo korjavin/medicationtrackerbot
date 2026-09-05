@@ -381,3 +381,73 @@ describe('TZ plan — a stale refreshPlanStatus cannot complete a newer pending 
         expect(merged.new_tz).toBe('Europe/Berlin');
     });
 });
+
+// bd med-7ujt — the shim used to hand the DEVICE zone to every domain factory,
+// so a user who pinned a zone in Settings still got device-zone wall-clock math
+// everywhere (day buckets, forecasts, the reminders horizon). The pinned zone
+// lives in the vault, so the router resolves it asynchronously and rebuilds its
+// domains on it; these two cases pin the precedence in both directions.
+describe('cloud shim contract — settings.timezone drives the router clock', () => {
+    // 13:00 in Berlin, 21:00 in Tokyo.
+    const NOW = Date.UTC(2026, 2, 10, 12, 0, 0);
+    // One Tokyo day (both readings fall on Mar 10 JST), two Berlin days (Mar 9 +
+    // Mar 10) — which is exactly what stats_14.days counts.
+    const seedBP = () => ({
+        bp: [
+            {
+                recordId: 'bp-1', clientTs: NOW, deleted: false, measured_at: '2026-03-09T16:30:00.000Z', systolic: 120, diastolic: 80
+            },
+            {
+                recordId: 'bp-2', clientTs: NOW, deleted: false, measured_at: '2026-03-10T08:00:00.000Z', systolic: 130, diastolic: 85
+            }
+        ]
+    });
+    const pinned = (timezone) => ({
+        settings: [{
+            recordId: 'settings', clientTs: NOW, deleted: false, timezone
+        }]
+    });
+
+    let tzEnv;
+
+    function setup(seedRecords) {
+        tzEnv = loadCloudShimFrontendEnv({
+            seedRecords, now: () => NOW, timeZone: 'Europe/Berlin'
+        });
+        return tzEnv;
+    }
+
+    afterEach(() => {
+        if (tzEnv) tzEnv.cleanup();
+        tzEnv = null;
+    });
+
+    it('buckets a BP day on the pinned zone, not the device zone', async () => {
+        const { window } = setup({ ...seedBP(), ...pinned('Asia/Tokyo') });
+
+        const stats = await window.offlineAwareApiCall('/api/bp/stats', 'GET');
+        expect(stats.stats_14.days).toBe(1);
+
+        const settings = await window.offlineAwareApiCall('/api/settings', 'GET');
+        expect(settings.timezone).toBe('Asia/Tokyo');
+    });
+
+    it('falls back to the device zone when no timezone is pinned', async () => {
+        const { window } = setup(seedBP());
+
+        const stats = await window.offlineAwareApiCall('/api/bp/stats', 'GET');
+        expect(stats.stats_14.days).toBe(2);
+    });
+
+    it('a mid-session pin re-buckets without a reload', async () => {
+        const { window } = setup(seedBP());
+
+        expect((await window.offlineAwareApiCall('/api/bp/stats', 'GET')).stats_14.days).toBe(2);
+
+        // No medications seeded, so this writes settings.timezone straight
+        // through instead of staging a transition plan.
+        await window.offlineAwareApiCall('/api/settings', 'POST', { timezone: 'Asia/Tokyo' });
+
+        expect((await window.offlineAwareApiCall('/api/bp/stats', 'GET')).stats_14.days).toBe(1);
+    });
+});
