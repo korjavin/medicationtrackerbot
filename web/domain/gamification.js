@@ -1070,11 +1070,23 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return all.find((r) => r.recordId === JOURNAL_RECORD_ID) || null;
   }
 
-  async function writeJournal(patch) {
+  // `derived: true` marks a READ/RENDER/TIMER-side transition — every writer
+  // here except startChapter/closeChapter, which are buttons. Those rebuild the
+  // whole singleton blob out of a read that may be stale, so stamping now()
+  // let a device whose mirror lagged clobber chapter/trait/keystone fields it
+  // never observed (bd med-y4ue, same shape as med-9a87). The med-9a87 floor
+  // fixes it here too: proposing 0 makes the local write path stamp
+  // `existing.clientTs + 1` (sync.js nextClientTs) whenever the record already
+  // exists — "beats exactly the version I read, and nothing newer" — so a stale
+  // derived write loses the merge and is simply re-derived after the newer blob
+  // lands. (On a device with no journal at all the stamp stays at the floor,
+  // which is the right standing: there is nothing to lose to.) User actions keep
+  // now(): a deliberate edit on a stale device is ordinary LWW.
+  async function writeJournal(patch, { derived = false } = {}) {
     const cur = await readJournal();
     const next = {
       ...(cur || {}),
-      recordId: JOURNAL_RECORD_ID, deleted: false, clientTs: now(),
+      recordId: JOURNAL_RECORD_ID, deleted: false, clientTs: derived ? 0 : now(),
       ...patch,
     };
     await records.put(JOURNAL_RECORD_TYPE, next);
@@ -1243,11 +1255,14 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
 
   // markDiscoverySeen records that the user has seen a card's reveal, so the UI
   // never re-fires the one-time reveal moment (§5 guardrail). Idempotent.
+  // Derived, despite looking like a user action: journey.js fires it from
+  // atlasCardEl() as a terminal card RENDERS, not from a gesture, so it is a
+  // read-side write like the rest — and losing it costs one extra reveal.
   async function markDiscoverySeen(id) {
     if (!id) return { seen: [] };
     const seen = await readSeen();
     if (!seen.includes(id)) seen.push(id);
-    await writeJournal({ seen_discoveries: seen });
+    await writeJournal({ seen_discoveries: seen }, { derived: true });
     return { seen };
   }
 
@@ -1260,7 +1275,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const list = Array.isArray(journal && journal.keystones) ? journal.keystones.slice() : [];
     if (list.some((k) => k.id === entry.id)) return list;
     list.push(entry);
-    await writeJournal({ keystones: list });
+    // Both callers are read paths (resolveElapsed, maybeDetectBpBandKeystone),
+    // and both re-detect on the next read, so this takes the derived floor.
+    await writeJournal({ keystones: list }, { derived: true });
     return list;
   }
 
@@ -1450,9 +1467,15 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const todayKey = localDayString(nowMs, timeZone);
     if (paused || !template || todayKey <= endDay) return { active, resolved: null };
     const verdict = evaluateExperimentWindow(template, days, startDay, endDay);
+    // clientTs 0, not nowMs: this is a READ-side transition on a record the
+    // device may hold a stale copy of (bd med-y4ue). The local write path
+    // promotes the floor to `existing.clientTs + 1`, so freezing a verdict
+    // beats exactly the active trial this device read — and loses to a newer
+    // cancellation or a better-informed verdict from another device, which is
+    // then re-resolved from the winning record on the next read.
     const resolved = {
       ...active, status: 'resolved', resolved_at: nowMs, verdict,
-      acknowledged: false, clientTs: nowMs, deleted: false,
+      acknowledged: false, clientTs: 0, deleted: false,
     };
     await records.put(EXPERIMENT_RECORD_TYPE, resolved);
     // A completed clean trial is a keystone — the milestone is running it, not
@@ -1679,7 +1702,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const review = buildChapterReview(chapter, days, nowMs);
     const closed = Array.isArray(journal.closed_chapters) ? journal.closed_chapters.slice() : [];
     closed.push(review);
-    await writeJournal({ chapter: null, closed_chapters: closed });
+    // Read-side transition: floored, so a stale mirror can neither erase newer
+    // traits/keystones nor close a chapter the user has since restarted.
+    await writeJournal({ chapter: null, closed_chapters: closed }, { derived: true });
     return null;
   }
 
@@ -1830,7 +1855,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       }
       return view;
     });
-    if (dirty) await writeJournal({ traits: next });
+    // Read-side first-earn stamp: floored (re-earned on the next read if the
+    // 28-day bar still clears), so it never outranks newer journal state.
+    if (dirty) await writeJournal({ traits: next }, { derived: true });
     return { enabled: true, recovery_paused: paused, traits };
   }
 
