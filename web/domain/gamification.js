@@ -857,6 +857,12 @@ const TRAIT_REKINDLE_WINDOW_DAYS = 7;
 // A trend keystone needs a real sample, not a lucky week, before it's declared.
 const KEYSTONE_BP_MIN_DAYS = 20;
 
+// "Since you last looked" strip (med-edxz.3): at most four lines, at most two
+// of them unseen discoveries, and an event counts as recent for 7 days.
+const WHATS_NEW_MAX = 4;
+const WHATS_NEW_MAX_DISCOVERIES = 2;
+const WHATS_NEW_RECENT_MS = 7 * DAY_MS;
+
 // evaluateExperimentWindow is evaluateProbe scoped to a trial's day range with
 // an experiment-appropriate gate. Buckets the window's classified days into two
 // arms by the user's OWN behavior (lever), reads the outcome (gauge, honoring
@@ -1087,7 +1093,13 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // getAtlas evaluates the whole catalog and stamps reveal-once seen flags on
   // the two terminal states. Developing cards are never "seen" (nothing revealed
   // yet). Returns { enabled, cards } — the shape journey.js's Atlas feed reads.
-  async function getAtlas() {
+  // `whatsNew: false` keeps this the cheap, read-only Atlas it has always been
+  // — the narrate handlers hold their own copies of every payload getWhatsNew
+  // composes and drop `whats_new`, so they must not pay for it. `forecast`
+  // carries the gamification feature flag down from the shim: /forecast is
+  // gated there because getForecast() always reports enabled, and the strip's
+  // forecast line has to honour the same gate.
+  async function getAtlas({ whatsNew = true, forecast = true } = {}) {
     const [days, seen] = await Promise.all([buildDays(), readSeen()]);
     const seenSet = new Set(seen);
     const cards = PROBES.map((probe) => {
@@ -1097,7 +1109,136 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       }
       return card;
     });
-    return { enabled: true, cards };
+    if (!whatsNew) return { enabled: true, cards };
+    return { enabled: true, cards, whats_new: await getWhatsNew(cards, forecast) };
+  }
+
+  // --- "Since you last looked" (med-edxz.3) -------------------------------
+  function verdictLabel(v) {
+    if (v === 'effect') return 'an effect';
+    if (v === 'no_effect') return 'a clean null result';
+    return 'not enough contrast to call it';
+  }
+
+  // getWhatsNew composes the existing narrative reads into at most four short
+  // event lines for the Journey's first card. Nothing new is computed or
+  // persisted: every candidate is a field that already exists on a payload the
+  // screen fetches, and "seen" reuses what exists — the Atlas seen flags plus a
+  // 7-day earned_at window for keystones and traits. No last-visit timestamp,
+  // no localStorage, so items age out on their own.
+  //
+  // Priority: unseen discoveries (max 2) -> a resolved trial -> a fresh
+  // keystone -> a trait (freshly earned, else dormant) -> this morning's
+  // forecast resolution. When none of those fired, ONE anticipation line for
+  // the developing probe closest to revealing (goal gradient) — and only once
+  // that probe has real data, so a fresh account shows no strip at all.
+  //
+  // ponytail: composing the reads costs four extra buildDays() passes on the
+  // Atlas read (~6x its record reads), and journey.js fetches traits /
+  // keystones / experiments again for their own cards. Fine for one vault
+  // in-browser; memoize buildDays the way loadForRead memoizes ctx if a real
+  // device measurably stutters.
+  async function getWhatsNew(cards, includeForecast) {
+    const nowMs = now();
+    // Sequential, not Promise.all: getTraits / getKeystones / listExperiments
+    // each read-modify-write the journal singleton, so awaiting them in turn
+    // at least keeps ONE read from racing its own merges. It does not fix the
+    // real hazard — journey.js and the narrate handler already call these
+    // concurrently with the Atlas — which is bd med-y4ue, not this bead.
+    const traits = await getTraits();
+    const keystones = await getKeystones();
+    const experiments = await listExperiments();
+    const forecast = includeForecast ? await getForecast() : null;
+    const items = [];
+
+    // 1. Unseen findings — the genuinely new thing on the screen.
+    for (const c of cards) {
+      if (items.length >= WHATS_NEW_MAX_DISCOVERIES) break;
+      if (c.state !== 'revealed' && c.state !== 'no_effect') continue;
+      if (c.seen) continue;
+      items.push({
+        kind: 'discovery',
+        text: `New: ${c.text || c.question}`,
+        target: 'journey-atlas-card',
+      });
+    }
+
+    // 2. A trial that resolved and hasn't been acknowledged. no_effect reads
+    // exactly like effect (§3.3) — the milestone is running a clean trial.
+    const verdict = experiments && experiments.verdict;
+    if (verdict) {
+      items.push({
+        kind: 'experiment',
+        text: `Your trial finished — ${verdict.title || 'your trial'}: ${verdictLabel(verdict.verdict)}.`,
+        target: 'journey-experiment-card',
+      });
+    }
+
+    // 3. The newest keystone from the last 7 days (the list is sorted desc).
+    const keystone = ((keystones && keystones.keystones) || [])
+      .find((k) => Number.isFinite(k && k.earned_at) && nowMs - k.earned_at <= WHATS_NEW_RECENT_MS);
+    if (keystone) {
+      items.push({
+        kind: 'keystone',
+        text: keystone.title || 'A new keystone.',
+        target: 'journey-keystones-card',
+      });
+    }
+
+    // 4. One trait line: a freshly earned identity wins; otherwise a dormant
+    // one carries the existing rekindle copy — an invitation, never a loss.
+    const traitList = (traits && traits.traits) || [];
+    const fresh = traitList.find((t) => t.state === 'held'
+      && Number.isFinite(t.earned_at) && nowMs - t.earned_at <= WHATS_NEW_RECENT_MS);
+    const dormant = traitList.find((t) => t.state === 'dormant');
+    if (fresh) {
+      const an = /^[aeiou]/i.test(fresh.title || '') ? 'an' : 'a';
+      items.push({
+        kind: 'trait',
+        text: `You’re now ${an} ${fresh.title}.`,
+        target: 'journey-traits-card',
+      });
+    } else if (dormant) {
+      const left = Number.isFinite(dormant.rekindle_remaining)
+        ? dormant.rekindle_remaining : (Number(dormant.rekindle) || 0);
+      items.push({
+        kind: 'trait',
+        // Verbatim the card's own rekindle copy (journey.js traitSubtitle),
+        // reassurance included — a dormant trait is an invitation back, and
+        // dropping "Nothing was lost" would turn it into a loss notice.
+        text: `${dormant.title} is dormant — ${left} more ${dormant.lever_label} rekindles it. Nothing was lost.`,
+        target: 'journey-traits-card',
+      });
+    }
+
+    // 5. This morning's forecast resolution, hidden in exactly the states
+    // forecast-card.js hides it: the gamification flag off (carried in as
+    // includeForecast, since getForecast always reports enabled — the same
+    // reason the /forecast route gates it at the shim) and below the
+    // calibration gate (getForecast only sets `resolution` once calibrated).
+    // Never a weight reference: the text is the forecast card's own sleep/BP
+    // line. No Journey card owns the forecast, so this line has no target.
+    const resolution = forecast && forecast.enabled ? forecast.resolution : null;
+    if (resolution && resolution.text) {
+      items.push({ kind: 'forecast', text: resolution.text, target: null });
+    }
+
+    // 6. Fallback — the closest-to-reveal developing probe, but only one that
+    // has actually started collecting pairs (a fresh account gets no strip).
+    if (items.length === 0) {
+      const closest = cards
+        .filter((c) => c.state === 'developing' && (Number(c.have) || 0) > 0)
+        .sort((a, b) => (Number(a.remaining) || 0) - (Number(b.remaining) || 0))[0];
+      if (closest) {
+        items.push({
+          kind: 'anticipation',
+          text: `${Number(closest.remaining) || 0} more paired days until: ${closest.question}`,
+          target: 'journey-atlas-card',
+        });
+      }
+    }
+
+    return items.slice(0, WHATS_NEW_MAX);
   }
 
   // markDiscoverySeen records that the user has seen a card's reveal, so the UI

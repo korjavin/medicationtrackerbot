@@ -117,9 +117,9 @@ describe('Journey render', () => {
     // Personal content first: at most 8 cards with every payload present and
     // no active chapter or trial (the bead's budget). A running experiment
     // adds a transient 9th card by design — it's the live thing the user came
-    // to see, and it disappears when the trial ends. The first slot is
-    // reserved for the "since you last looked" strip (med-edxz.3); until that
-    // lands, the Discovery Atlas leads.
+    // to see, and it disappears when the trial ends. The "since you last
+    // looked" strip (med-edxz.3) takes the first slot when it has something to
+    // say; with no whats_new items the Discovery Atlas leads, as here.
     it('with no active chapter or trial, renders at most 8 cards, Atlas first, in the personal-first order', () => {
         env.window.Gamification.render(journey({
             atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
@@ -810,5 +810,89 @@ describe('Journey render', () => {
         expect(env.document.querySelector('.wg-journey-narrator__prose')).toBeNull();
         // The rest of the Journey rendered normally.
         expect(env.document.querySelector('.wg-journey-atlas, .wg-card')).not.toBeNull();
+    });
+
+    // --- "Since you last looked" strip (med-edxz.3) ----------------------
+    // The strip rides on the Atlas payload (atlas.whats_new), so these render
+    // the same shape web/domain/gamification.js getWhatsNew returns.
+
+    const WHATS_NEW = [
+        { kind: 'discovery', text: 'New: Workout mornings run 16 mmHg lower · 25 pairs', target: 'journey-atlas-card' },
+        { kind: 'trait', text: 'You\u2019re now a Consistent Mover.', target: 'journey-traits-card' },
+        { kind: 'forecast', text: 'Last night 7h 30m · this morning 118 — in range. Your body agreed.', target: null },
+    ];
+
+    function withStrip(items) {
+        return journey({
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: items },
+            traits: { enabled: true, traits: [{ id: 't', title: 'T', state: 'held', on_28d: 24, lever_label: 'nights' }] },
+        });
+    }
+
+    it('leads the Journey with the strip, one tappable line per item', () => {
+        env.window.Gamification.render(withStrip(WHATS_NEW));
+        const { document } = env;
+
+        const cards = [...document.querySelectorAll('#journey-content > .wg-card')];
+        expect(cards[0].classList.contains('wg-journey-whatsnew')).toBe(true);
+        expect(document.querySelector('.wg-journey-whatsnew .wg-section-label').textContent)
+            .toBe('SINCE YOU LAST LOOKED');
+
+        const rows = [...document.querySelectorAll('.wg-journey-whatsnew__item')];
+        expect(rows.map((r) => r.textContent)).toEqual(WHATS_NEW.map((i) => i.text));
+        // Every item with a target card is a real button; the forecast line has
+        // no Journey card to scroll to, so it stays a plain line.
+        expect(rows.map((r) => r.getAttribute('role'))).toEqual(['button', 'button', null]);
+    });
+
+    it('scrolls to the card an item names when it is tapped', () => {
+        env.window.Gamification.render(withStrip(WHATS_NEW));
+        const { document } = env;
+        const scrollIntoView = vi.fn();
+        document.getElementById('journey-traits-card').scrollIntoView = scrollIntoView;
+        document.querySelectorAll('.wg-journey-whatsnew__item')[1].click();
+        expect(scrollIntoView).toHaveBeenCalled();
+    });
+
+    it('labels the strip TODAY when only the anticipation fallback is left', () => {
+        env.window.Gamification.render(withStrip([
+            { kind: 'anticipation', text: '2 more paired days until: Q?', target: 'journey-atlas-card' },
+        ]));
+        expect(env.document.querySelector('.wg-journey-whatsnew .wg-section-label').textContent).toBe('TODAY');
+    });
+
+    it('activates a strip item from the keyboard, not just a tap', () => {
+        env.window.Gamification.render(withStrip(WHATS_NEW));
+        const { document } = env;
+        const scrollIntoView = vi.fn();
+        document.getElementById('journey-atlas-card').scrollIntoView = scrollIntoView;
+        const row = document.querySelectorAll('.wg-journey-whatsnew__item')[0];
+        expect(row.getAttribute('tabindex')).toBe('0');
+        const ev = new env.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
+        row.dispatchEvent(ev);
+        expect(scrollIntoView).toHaveBeenCalled();
+    });
+
+    // Offline with a warm Atlas cache is the routine case: the strip's payload
+    // survives but the sibling cards' fetches returned null, so their cards are
+    // never built. A role="button" that scrolls nowhere is worse than a line.
+    it('leaves an item plain when the card it points at did not render', () => {
+        env.window.Gamification.render(journey({
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: WHATS_NEW },
+            traits: null,
+        }));
+        const rows = [...env.document.querySelectorAll('.wg-journey-whatsnew__item')];
+        // The Atlas card rendered, so item 0 stays a button; the traits card
+        // did not, so the trait line is no longer interactive.
+        expect(rows.map((r) => r.getAttribute('role'))).toEqual(['button', null, null]);
+        expect(rows[1].classList.contains('wg-journey-whatsnew__item--tappable')).toBe(false);
+    });
+
+    it('omits the strip entirely when there is nothing to say', () => {
+        env.window.Gamification.render(withStrip([]));
+        expect(env.document.querySelector('.wg-journey-whatsnew')).toBeNull();
+        // A payload from before the strip existed (no whats_new) omits it too.
+        env.window.Gamification.render(journey({ atlas: { cards: [{ id: 'p', question: 'Q', state: 'developing', have: 1, needed: 8, remaining: 7 }] } }));
+        expect(env.document.querySelector('.wg-journey-whatsnew')).toBeNull();
     });
 });
