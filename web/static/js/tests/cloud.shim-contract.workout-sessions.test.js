@@ -187,11 +187,15 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         const next = await window.apiCallDirect('/api/workout/sessions/next');
         expect(next.variant_id).toBe(variants[1].id);
         expect(next.session.is_today).toBe(true);
-        // Self-heal: a brand new numeric id at the same deterministic slot,
-        // not a dangling reference to the deleted session.
-        expect(next.session.id).not.toBe(first.session.id);
+        // bd med-8j12: the numeric id is derived from the deterministic slot, so
+        // re-materializing the same group+day reuses it. That is the point — the
+        // old id is not dangling, it now names the fresh pending session for the
+        // same day, carrying the advanced variant.
+        expect(next.session.id).toBe(first.session.id);
 
-        await expect(window.apiCall(`/api/workout/sessions/details?id=${first.session.id}`, 'GET')).resolves.toBeNull();
+        const details = await window.apiCall(`/api/workout/sessions/details?id=${first.session.id}`, 'GET');
+        expect(details.session.status).toBe('pending');
+        expect(details.session.variant_id).toBe(variants[1].id);
     });
 
     it('preskip/cancel-preskip round-trip the session status without touching rotation', async () => {

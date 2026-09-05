@@ -89,6 +89,40 @@ function sessionRecordId(groupId, date) {
   return `session-${groupId}-${date}`;
 }
 
+// A body written into a deterministic recordId slot must be byte-identical on
+// every device that derives it, numeric `id` included. mintNumericId reads
+// now() + Math.random(), so two devices materializing `session-<g>-<date>`
+// produced two different bodies; with med-9a87's clientTs: 0 floor BOTH sit at
+// the floor and applyIncoming's strict `>` means neither displaces the other,
+// so exercise logs can attach to both numeric ids and the loser's orphan on the
+// first real transition (bd med-8j12).
+//
+// derivedNumericId hashes the recordId into a reserved band mintNumericId does
+// not reach: mint stamps nowMs * 1000 (~1.8e15 in 2026, monotonically rising),
+// ~50x above the band's [1e12, 1e12 + 2^45) ≈ [1e12, 3.6e13], comfortably
+// safe-integer. 45 bits gives ~3.5e13 slots — birthday collision odds across
+// even 1e5 sessions in one vault are ~1e-4.
+// The one hole is mint's localMax + 1 fallback: a device whose clock reads
+// before ~1973 stamps below 1e14 and falls back to localMax + 1, which on a
+// vault holding derived ids lands inside the band. Bounded (a ~2^-45 chance of
+// aliasing some other day's slot) and it needs a clock that broken, so it buys
+// no guard here.
+// ponytail: two 32-bit FNV-1a passes combined, not a real digest; a WebCrypto
+// hash is async and this sits on a sync read path. Widen the combine if the
+// band ever needs more than 45 bits.
+const DERIVED_ID_BASE = 1e12;
+
+function derivedNumericId(recordId) {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  for (let i = 0; i < recordId.length; i++) {
+    const c = recordId.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193);
+    h2 = Math.imul(h2 ^ c, 0x85ebca6b);
+  }
+  return DERIVED_ID_BASE + ((h1 >>> 0) * 8192 + ((h2 >>> 0) & 0x1fff));
+}
+
 // rotationRecordId is the deterministic one-row-per-group slot for rotation
 // cursor state, mirroring the server's one-row-per-group table.
 function rotationRecordId(groupId) {
@@ -1460,7 +1494,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       recordId,
       clientTs: nowMs,
       deleted: false,
-      id: mintNumericId(await records.list(WORKOUT_RECORD_TYPES.SESSION), nowMs),
+      // Same deterministic slot as getNext's materialization, so the same
+      // deterministic id — a Telegram drain and an app device that both
+      // materialize this day must agree on the body, not just the recordId.
+      id: derivedNumericId(recordId),
       user_id: CLOUD_USER_ID,
       group_id: groupId,
       variant_id: variantId || 0,
@@ -1641,6 +1678,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // nextVariant ports transitions.go's NextVariant: advance the rotation then
   // delete the current (not-yet-started) session so the next resolution
   // surfaces the new variant. Errors propagate (unlike tryAdvanceRotation).
+  // Since med-8j12 the re-materialized session reuses the slot's derived numeric
+  // id, so a log ANOTHER device wrote against the pre-swap session (deleteSession
+  // only cascades the logs this device can see) re-attaches to the new one and
+  // shows under the advanced variant. That beats the pre-fix behavior — orphaning
+  // onto a numeric id naming no session at all — but it is a real semantic change.
   async function nextVariant(id) {
     const session = await findSession(id);
     if (!session) throw invalidRequest('session not found', 'not_found');
@@ -2023,9 +2065,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (!best) return null;
 
     if (!best.sessionId) {
-      const nowMs2 = now();
+      const recordId = sessionRecordId(best.groupId, best.dateStr);
       const record = {
-        recordId: sessionRecordId(best.groupId, best.dateStr),
+        recordId,
         // DERIVED state, so it takes the LOWEST possible LWW precedence — not
         // now() (same rule as medintake.js's dose materialization, bd med-d4w).
         // getNext is a READ that writes: every device re-derives this row from
@@ -2042,7 +2084,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         // already at the recordId (tombstones included) — bd med-qhpu.
         clientTs: 0,
         deleted: false,
-        id: mintNumericId(await records.list(WORKOUT_RECORD_TYPES.SESSION), nowMs2),
+        // Derived from the slot, not now()/Math.random(): at the clientTs floor
+        // two differing bodies never displace each other, so they must not
+        // differ in the first place (bd med-8j12).
+        id: derivedNumericId(recordId),
         user_id: CLOUD_USER_ID,
         group_id: best.groupId,
         variant_id: best.variantId,

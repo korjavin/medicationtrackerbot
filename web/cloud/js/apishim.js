@@ -887,7 +887,8 @@ export function createApiRouter(ctx, {
         // start/skip/preskip take the session out of 'pending', so its Telegram
         // reminder is answered and must go (med-r3dm). These actions return void,
         // so read the session BEFORE the write — group_id/scheduled_date don't
-        // change, and after a next-variant the session is gone entirely. snooze
+        // change, and next-variant deletes the session (getNext later re-derives
+        // the same slot, numeric id included — bd med-8j12). snooze
         // (the chain re-fires on purpose), cancel-preskip (back to pending) and
         // next-variant (same slot, new variant) deliberately keep it.
         //
