@@ -1699,9 +1699,11 @@ describe('bd med-my8f: rotation advance re-points pending future sessions', () =
 
         const friday = await storedFriday(records);
         expect(friday.variant_id).toBe(2);
-        // The re-point follows a user action, so it must beat the rule-12 floor
-        // the materialization wrote at — otherwise it never propagates.
-        expect(friday.clientTs).toBe(NOW);
+        // Rule-12 floor: this is a blind rewrite of a record the user never
+        // touched, so it must lose to any real action on that slot. It still
+        // propagates — the real store's writeRecord promotes a floor write to
+        // existing.clientTs + 1 (the in-memory port here stores it raw).
+        expect(friday.clientTs).toBe(0);
         expect(friday.exercise_snapshot).toBeUndefined();
         expect(friday.status).toBe('pending');
 
