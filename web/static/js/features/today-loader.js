@@ -523,16 +523,17 @@ async function loadToday() {
             if (typeof document !== 'undefined' && document.hidden) return;
             if (!window.AppStore || window.AppStore.get('currentTab') !== 'today') return;
             // Don't repaint under a live voice call. renderToday rebuilds the
-            // call card, and WGCallAgent.mountCard only reattaches state once
-            // activeConversation exists — so a repaint landing in the
-            // 'connecting' window would swap the card back to an idle-looking
-            // trigger the user can tap into a second, untracked session. The
-            // event-driven render paths have the same hole (narrower, because
-            // they're rare); closing it in mountCard is its own fix.
+            // call card; mountCard now reattaches live state for the whole
+            // in-flight window ('connecting' included, med-k8m6), so this is
+            // belt-and-braces — skipping the repaint also avoids churning the
+            // card's DOM under an active session. Match the live states
+            // explicitly: 'error' sticks until the next call, so a `!== 'idle'`
+            // test left one failed call killing the repaint tick (and the
+            // visibilitychange re-render) for the rest of the session.
             const call = window.WGCallAgent && typeof window.WGCallAgent.getState === 'function'
                 ? window.WGCallAgent.getState()
                 : null;
-            if (call && call.state && call.state !== 'idle') return;
+            if (call && (call.state === 'connecting' || call.state === 'in_call')) return;
             _todayRender(todayFoodKey(new Date()));
         };
         _todayLoaderState.repaintTick = setInterval(repaint, TODAY_REPAINT_INTERVAL_MS);

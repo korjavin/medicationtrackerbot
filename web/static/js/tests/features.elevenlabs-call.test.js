@@ -172,6 +172,7 @@ function createConversationEnv({ conv } = {}) {
             Conversation: {
                 startSession: async (opts) => {
                     window.__TEST_CONVERSATION_OPTS__ = opts;
+                    window.__TEST_START_SESSION_CALLS__ = (window.__TEST_START_SESSION_CALLS__ || 0) + 1;
                     return window.__TEST_CONVERSATION__;
                 },
             },
@@ -1253,6 +1254,77 @@ describe('features/elevenlabs-call.js — Today card markup', () => {
             }
             // Conversation methods were exercised by setMute.
             expect(conversation.setMicMuted).toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+});
+
+describe('features/elevenlabs-call.js — mount during connecting', () => {
+    // A Today re-render (sync poll, tab switch, repaint tick) landing in the
+    // 'connecting' window used to rebuild the card as an idle trigger, because
+    // mountCard only reattached live state once activeConversation existed —
+    // and a second tap then started an untracked concurrent session (med-k8m6).
+    // A never-settling startSession holds the controller in 'connecting'.
+    function createConnectingEnv() {
+        return createConversationEnv({ conv: { then() { /* never settles */ } } });
+    }
+
+    // startCall() awaits the signed URL + SDK before calling startSession;
+    // drain microtasks until it has (never resolves, so we can't await it).
+    async function waitForSessionStart(window) {
+        for (let i = 0; i < 50 && !window.__TEST_START_SESSION_CALLS__; i += 1) {
+            await new Promise((r) => setTimeout(r, 0));
+        }
+    }
+
+    it('mounts the connecting card, and a tap starts no second session', async () => {
+        const { window, document, cleanup } = createConnectingEnv();
+        try {
+            const first = document.createElement('div');
+            document.body.appendChild(first);
+            const card = window.WGCallAgent.mountCard(first);
+            window.WGCallAgent.startCall(card); // stays pending in 'connecting'
+            await waitForSessionStart(window);
+            expect(window.WGCallAgent.getState().state).toBe('connecting');
+            expect(window.__TEST_START_SESSION_CALLS__).toBe(1);
+
+            // Re-render: fresh container, previous card node dropped.
+            const second = document.createElement('div');
+            document.body.appendChild(second);
+            const remounted = window.WGCallAgent.mountCard(second);
+            expect(remounted.dataset.state).toBe('connecting');
+            const label = remounted.querySelector('.wg-call-card__label');
+            const btn = remounted.querySelector('.wg-call-card__btn');
+            expect(label.textContent).toBe('Connecting…');
+            expect(btn.disabled).toBe(true);
+
+            // Even if the tap gets through (disabled is a DOM-level guard
+            // only), startCall must refuse while a call is in flight.
+            await window.WGCallAgent.startCall(remounted);
+            expect(window.__TEST_START_SESSION_CALLS__).toBe(1);
+
+            // The remounted card is the one live state now paints onto.
+            window.__TEST_CONVERSATION_OPTS__.onConnect();
+            expect(remounted.dataset.state).toBe('in_call');
+            expect(remounted.querySelector('.wg-call-card__label').textContent).toBe('End call');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('reattaches connecting state to an existing card node', async () => {
+        const { window, document, cleanup } = createConnectingEnv();
+        try {
+            const container = document.createElement('div');
+            document.body.appendChild(container);
+            const card = window.WGCallAgent.mountCard(container);
+            window.WGCallAgent.startCall(card);
+            await waitForSessionStart(window);
+            // Same node re-queried: applyState must still run over it.
+            card.dataset.state = 'idle';
+            expect(window.WGCallAgent.mountCard(container)).toBe(card);
+            expect(card.dataset.state).toBe('connecting');
         } finally {
             cleanup();
         }

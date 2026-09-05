@@ -450,6 +450,14 @@
     let activeMuted = false;
     let activeUploading = false;
 
+    // A call is "in flight" from the moment startCall() flips to 'connecting',
+    // before activeConversation exists. Both the mount path and the start guard
+    // need that window: a re-render landing in it must not rebuild an
+    // idle-looking trigger the user can tap into a second, untracked session.
+    function callInFlight() {
+        return Boolean(activeConversation) || activeState === 'connecting';
+    }
+
     function applyState(card, state, message) {
         if (!card) return;
         card.dataset.state = state;
@@ -669,7 +677,7 @@
     }
 
     async function startCall(card) {
-        if (activeConversation) return;
+        if (callInFlight()) return;
         activeCard = card;
         setState('connecting', 'Connecting…');
         try {
@@ -803,7 +811,7 @@
         if (existing) {
             // Re-bind the live call state to the existing card (e.g. when the
             // same DOM node is queried again without a re-render).
-            if (activeConversation) {
+            if (callInFlight()) {
                 activeCard = existing;
                 applyState(existing, activeState, activeMessage);
             }
@@ -815,7 +823,7 @@
         // Today) drop the previous DOM node. Reattach the live call state to
         // the freshly built card so the user still sees "End call" and can
         // hang up.
-        if (activeConversation) {
+        if (callInFlight()) {
             activeCard = card;
             applyState(card, activeState, activeMessage);
         }
