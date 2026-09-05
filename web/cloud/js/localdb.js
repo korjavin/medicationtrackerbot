@@ -48,7 +48,15 @@ export function openDb() {
 let dbPromise = null;
 const dropListeners = new Set();
 
-function dropCache() {
+// `owner` is the cachedDb() promise the handle firing this belongs to. A drop
+// that lands while an open is in flight leaves that open resolving an ORPHAN
+// handle — never cached, but still wired to onversionchange/onclose. Without
+// this guard the orphan's eventual close would clear the NEWER cached promise
+// and spuriously fire the drop listeners (blowing sync.js's records memo and
+// resetting `bootstrapped`). Explicit dropCachedDb() passes no owner and always
+// drops. Mirrors the p.catch identity guard on the reject side.
+function dropCache(owner) {
+  if (owner && dbPromise !== owner) return;
   dbPromise = null;
   for (const cb of dropListeners) {
     try { cb(); } catch { /* one bad listener can't break the rest */ }
@@ -74,8 +82,10 @@ export function cachedDb() {
     req.onupgradeneeded = () => applyUpgrade(req);
     req.onsuccess = () => {
       const db = req.result;
-      db.onversionchange = () => { db.close(); dropCache(); };
-      db.onclose = () => dropCache();
+      // An orphaned handle still closes on versionchange (so it can never block
+      // deleteDatabase), it just no longer touches the cache — see dropCache.
+      db.onversionchange = () => { db.close(); dropCache(p); };
+      db.onclose = () => dropCache(p);
       resolve(db);
     };
     req.onerror = () => reject(req.error);
