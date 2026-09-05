@@ -180,6 +180,58 @@ describe('cloud shim horizon — weekly digest entry', () => {
     });
 });
 
+// bd med-x7x2 — a dose slot deliberately deleted leaves only a TOMBSTONE at
+// `intake-<medId>-<slotUnix>`, and materializeDueDoses never re-creates it
+// (putIfAbsent, bd med-j2ku). The horizon must read that as "no dose that
+// slot", not as "not materialized yet" — otherwise it keeps pushing "Time to
+// take" for a dose the app no longer offers, and the Confirm on that push has
+// nothing to confirm. The intake twin of the workout-session case (bd med-w0fe).
+describe('cloud shim horizon — a tombstoned dose slot', () => {
+    // Mon Jun 15 2026, 06:00 UTC; med due daily at 12:00 UTC.
+    const NOW = Date.UTC(2026, 5, 15, 6, 0, 0);
+    const TODAY_SLOT = Date.UTC(2026, 5, 15, 12, 0, 0) / 1000;
+    const TOMORROW_SLOT = TODAY_SLOT + 86400;
+
+    beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    const med = (extra = {}) => ({
+        recordId: 'med-a', clientTs: NOW, deleted: false, name: 'Lisinopril', dosage: '10mg',
+        schedule: '{"type":"daily","times":["12:00"]}', inventory_count: 30, ...extra,
+    });
+    const medSlots = async (records) => {
+        const entries = await computeReminderEntries({}, { records, timeZone: 'UTC' });
+        return entries.filter((e) => e.kind === 'medication').map((e) => e.fireAtUnix);
+    };
+
+    it('emits both slots when nothing is deleted (control)', async () => {
+        const slots = await medSlots(createInMemoryRecordsPort({ medication: [med()] }));
+        expect(slots).toContain(TODAY_SLOT);
+        expect(slots).toContain(TOMORROW_SLOT);
+    });
+
+    it('drops the deleted slot and keeps the next one', async () => {
+        const records = createInMemoryRecordsPort({ medication: [med()] });
+        // What records.del writes: recordId + deleted, no body.
+        await records.del('intake', `intake-med-a-${TODAY_SLOT}`);
+
+        const slots = await medSlots(records);
+        expect(slots).not.toContain(TODAY_SLOT);
+        expect(slots).toContain(TOMORROW_SLOT);
+    });
+
+    // Archiving runs cancelPendingIntakesForMedication over every PENDING dose,
+    // and the med itself drops out of the forecast (`!m.archived`). This pins
+    // the SECOND half — it holds on either side of the tombstone change, which
+    // is the point: the archive path must stay silent even if the slot key ever
+    // stops matching.
+    it('drops every slot of an archived medication', async () => {
+        const records = createInMemoryRecordsPort({ medication: [med({ archived: true })] });
+        await records.del('intake', `intake-med-a-${TODAY_SLOT}`);
+        expect(await medSlots(records)).toHaveLength(0);
+    });
+});
+
 // med-eas.59 — workout reminders ride the workout feature flag (matching the
 // bot's GetWorkoutEnabled gate), not a dedicated pref, so they must reach the
 // uploaded horizon by default and vanish when the feature is off.

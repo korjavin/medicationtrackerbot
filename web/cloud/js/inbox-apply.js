@@ -280,6 +280,12 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // from (medintake.js's slotId, not exported), else its nearest PENDING dose
   // within its own band. `list` is passed in because the still-due check below
   // must see the writes this tap just made.
+  //
+  // A slot the user DELETED is tombstoned: materializeDueDoses creates nothing
+  // over it, the tombstone is filtered out of `list`, and (for a once-daily med)
+  // the band fallback has no candidate — so the tap applies nothing and edits no
+  // receipt. That is the wanted outcome, and since bd med-x7x2 the horizon no
+  // longer schedules such a slot at all, leaving only the in-flight-push race.
   const findPending = (list, medId) => {
     const exact = list.find((i) => i.recordId === `intake-${medId}-${slotUnix}` && !i.deleted);
     if (exact && exact.status === 'PENDING') return exact;
