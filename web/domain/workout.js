@@ -1205,8 +1205,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // read-modify-write of a DIFFERENT record they never touched, and LWW replaces
     // the whole body (sync.js applyIncoming), not the one field. Stamped now(),
     // this device's possibly-stale mirror of the session would win — resurrecting
-    // a tombstone another device wrote (next-variant deletes the slot), reverting
-    // a pre-skip, or dropping a snooze. The floor still propagates: writeRecord's
+    // a tombstone another device wrote (deleteSession; next-variant no longer
+    // leaves one, bd med-qhpu), reverting a pre-skip, or dropping a snooze. The floor still propagates: writeRecord's
     // nextClientTs promotes it to `existing.clientTs + 1`, so it beats the
     // floor-stamped materialization it corrects while losing to any real,
     // wall-clock-stamped action on the same slot. Exactly its standing.
@@ -1751,11 +1751,16 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     }
     // advanceRotation may itself re-point this session (it sweeps the group's
     // untouched future pendings at the derived floor); the explicit write below
-    // lands after it and wins, so the order is safe either way.
+    // lands after it and wins, so the order is safe either way. The doubled
+    // local write costs no extra oplog op — 'pending' is keyed by recordId, so
+    // the flush sends the final body once.
     const nextVariantId = await advanceRotation(group.id);
     await records.put(WORKOUT_RECORD_TYPES.SESSION, {
       ...session,
       variant_id: nextVariantId,
+      // The re-materialization this replaces read the LIVE group row, so a
+      // scheduled_time edited since the slot was minted took effect here.
+      scheduled_time: group.scheduled_time,
       status: 'pending',
       started_at: null,
       completed_at: null,
@@ -2036,6 +2041,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // only from putIfAbsent's verdict, and then re-runs the scan with that slot
   // excluded so the card falls through to the next occurrence. Each round adds a
   // slot and the candidate set is finite (14 days x active groups), so it ends.
+  // ponytail: a deliberately deleted day costs one extra full scan on EVERY
+  // getNext from then on (round 1 always re-loses the same putIfAbsent). Two
+  // passes over 14 days x a handful of groups; give the port a tombstone-aware
+  // read if that ever shows up in a profile.
   async function resolveNext(suppressed) {
     const nowMs = now();
     const todayStr = localDateStr(nowMs, timeZone);
