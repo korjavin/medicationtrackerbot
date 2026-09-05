@@ -176,7 +176,7 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         });
     });
 
-    it('next-variant advances the cursor and deletes the current pending session so it re-materializes fresh', async () => {
+    it('next-variant advances the cursor and replaces the current pending session in place', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push', 'Pull']);
         const first = await window.apiCallDirect('/api/workout/sessions/next');
@@ -187,10 +187,10 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         const next = await window.apiCallDirect('/api/workout/sessions/next');
         expect(next.variant_id).toBe(variants[1].id);
         expect(next.session.is_today).toBe(true);
-        // bd med-8j12: the numeric id is derived from the deterministic slot, so
-        // re-materializing the same group+day reuses it. That is the point — the
-        // old id is not dangling, it now names the fresh pending session for the
-        // same day, carrying the advanced variant.
+        // bd med-8j12 / med-qhpu: the slot keeps its recordId and its derived
+        // numeric id — next-variant now REPLACES the session rather than deleting
+        // it and letting getNext re-materialize over the tombstone. The old id is
+        // not dangling; it names the same day's session, on the advanced variant.
         expect(next.session.id).toBe(first.session.id);
 
         const details = await window.apiCall(`/api/workout/sessions/details?id=${first.session.id}`, 'GET');

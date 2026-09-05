@@ -43,6 +43,16 @@ export function createInMemoryRecordsPort(seed = {}) {
             bucket(recordType).set(record.recordId, record);
             return record;
         },
+        // Mirrors sync.js recordsPort.putIfAbsent (bd med-qhpu): the RAW slot
+        // decides — a tombstone counts as occupied — and the stored winner comes
+        // back either way.
+        async putIfAbsent(recordType, record) {
+            const byId = bucket(recordType);
+            const existing = byId.get(record.recordId);
+            if (existing) return existing;
+            byId.set(record.recordId, record);
+            return record;
+        },
         async del(recordType, recordId) {
             const byId = bucket(recordType);
             const existing = byId.get(recordId) || { recordId };

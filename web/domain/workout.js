@@ -1205,8 +1205,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // read-modify-write of a DIFFERENT record they never touched, and LWW replaces
     // the whole body (sync.js applyIncoming), not the one field. Stamped now(),
     // this device's possibly-stale mirror of the session would win — resurrecting
-    // a tombstone another device wrote (next-variant deletes the slot), reverting
-    // a pre-skip, or dropping a snooze. The floor still propagates: writeRecord's
+    // a tombstone another device wrote (deleteSession; next-variant no longer
+    // leaves one, bd med-qhpu), reverting a pre-skip, or dropping a snooze. The floor still propagates: writeRecord's
     // nextClientTs promotes it to `existing.clientTs + 1`, so it beats the
     // floor-stamped materialization it corrects while losing to any real,
     // wall-clock-stamped action on the same slot. Exactly its standing.
@@ -1225,6 +1225,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       if ((await countSessionExerciseLogs(s.id)) > 0) continue;
       await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...s, variant_id: nextVariantId, clientTs: 0 });
     }
+    return nextVariantId;
   }
 
   // tryAdvanceRotation is the best-effort wrapper service.go's SkipSession/
@@ -1707,14 +1708,30 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return { session, terminal: status === 'skipped' || status === 'completed' };
   }
 
-  // nextVariant ports transitions.go's NextVariant: delete the current
-  // (not-yet-started) session and advance the rotation, so the next resolution
-  // surfaces the new variant. Errors propagate (unlike tryAdvanceRotation).
-  // Since med-8j12 the re-materialized session reuses the slot's derived numeric
-  // id, so a log ANOTHER device wrote against the pre-swap session (deleteSession
-  // only cascades the logs this device can see) re-attaches to the new one and
-  // shows under the advanced variant. That beats the pre-fix behavior — orphaning
-  // onto a numeric id naming no session at all — but it is a real semantic change.
+  // nextVariant ports transitions.go's NextVariant: advance the rotation and put
+  // the day's slot on the new variant, so the card shows the swapped workout.
+  // Errors propagate (unlike tryAdvanceRotation).
+  //
+  // It is an explicit REPLACEMENT of the slot, not a delete (bd med-qhpu). The Go
+  // original deleted the row and let the next resolution re-create it, and the
+  // port inherited that: nextVariant tombstoned the session and getNext — whose
+  // scan is live-only, so it cannot see tombstones — re-materialized it. That
+  // made the rotation swap depend on a FLOORED derived write being promoted above
+  // a tombstone by writeRecord's nextClientTs, i.e. on the very promotion that
+  // lets a stale device's placeholder outrank a real write (bd med-9a87). Once
+  // materialization became an honest put-if-absent the tombstone would have
+  // suppressed the slot outright and the Next Day button would skip the day, so
+  // the delete had to go: the user pressed a button, so this is a real,
+  // wall-clock-stamped write and it should look like one.
+  //
+  // The slot keeps its recordId AND its numeric id, so a log ANOTHER device wrote
+  // against the pre-swap session (the cascade below only reaches the logs this
+  // device can see) re-attaches to the replacement and shows under the advanced
+  // variant — same outcome the delete-then-re-materialize path had since med-8j12,
+  // and still better than orphaning onto an id naming no session at all.
+  // Everything the old variant's plan produced is reset (status, timestamps,
+  // snooze, notes, exercise_snapshot), matching the body the re-materialization
+  // used to hand back.
   async function nextVariant(id) {
     const session = await findSession(id);
     if (!session) throw invalidRequest('session not found', 'not_found');
@@ -1725,14 +1742,35 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (!group) throw invalidRequest('workout group not found', 'not_found');
     if (!group.is_rotating) throw invalidRequest('workout group does not use rotation', 'invalid_request');
 
-    // Delete BEFORE advancing: advanceRotation re-points pending future sessions
-    // of the group, and on a future card this is one of them — advancing first
-    // would write it with the new variant and then immediately tombstone it.
-    // Cascade-delete the session's exercise logs first, matching Go's
-    // DeleteSession (repo.go:1029) — FK cascade is disabled, so records.del
-    // on the session alone would orphan any logs created against it.
-    await deleteSession(id);
-    await advanceRotation(group.id);
+    // Cascade the session's exercise logs, matching Go's DeleteSession
+    // (repo.go:1029) — FK cascade is disabled, and they were planned against the
+    // variant being swapped out, so leaving them would show the old workout's
+    // sets under the new one.
+    for (const l of (await activeRecords(WORKOUT_RECORD_TYPES.LOG)).filter((l) => l.session_id === id)) {
+      await records.del(WORKOUT_RECORD_TYPES.LOG, l.recordId);
+    }
+    // advanceRotation may itself re-point this session (it sweeps the group's
+    // untouched future pendings at the derived floor); the explicit write below
+    // lands after it and wins, so the order is safe either way. The doubled
+    // local write costs no extra oplog op — 'pending' is keyed by recordId, so
+    // the flush sends the final body once.
+    const nextVariantId = await advanceRotation(group.id);
+    await records.put(WORKOUT_RECORD_TYPES.SESSION, {
+      ...session,
+      variant_id: nextVariantId,
+      // The re-materialization this replaces read the LIVE group row, so a
+      // scheduled_time edited since the slot was minted took effect here.
+      scheduled_time: group.scheduled_time,
+      status: 'pending',
+      started_at: null,
+      completed_at: null,
+      snoozed_until: null,
+      snooze_count: 0,
+      notification_message_id: null,
+      exercise_snapshot: null,
+      notes: '',
+      clientTs: now(),
+    });
   }
 
   // -- Exercise logs --
@@ -1994,6 +2032,20 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // outcome (a group with no variants, or an unparseable scheduled_time,
   // never produces a candidate), fewer lookups.
   async function getNext() {
+    return resolveNext(new Set());
+  }
+
+  // `suppressed` holds the deterministic slots this resolution has already found
+  // occupied in the RAW store (bd med-qhpu). The domain deliberately cannot read
+  // tombstones — records.list is live-only — so it learns a slot is spoken for
+  // only from putIfAbsent's verdict, and then re-runs the scan with that slot
+  // excluded so the card falls through to the next occurrence. Each round adds a
+  // slot and the candidate set is finite (14 days x active groups), so it ends.
+  // ponytail: a deliberately deleted day costs one extra full scan on EVERY
+  // getNext from then on (round 1 always re-loses the same putIfAbsent). Two
+  // passes over 14 days x a handful of groups; give the port a tombstone-aware
+  // read if that ever shows up in a profile.
+  async function resolveNext(suppressed) {
     const nowMs = now();
     const todayStr = localDateStr(nowMs, timeZone);
 
@@ -2067,6 +2119,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
           const exercises = await listExercises(variantId);
           const dateStr = `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
           const existingRecordId = sessionRecordId(group.id, dateStr);
+          if (suppressed.has(existingRecordId)) continue;
           const existing = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION))
             .find((s) => s.recordId === existingRecordId) || null;
 
@@ -2115,8 +2168,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         // exists, and the reminder un-suppresses (bd med-9a87). A floor clientTs
         // makes materialization lose every merge against a real write, which is
         // exactly its standing: it only ever needs to win against nothing at all.
-        // Not absolute through writeRecord, which promotes this over any raw row
-        // already at the recordId (tombstones included) — bd med-qhpu.
+        // The floor alone was not enough — writeRecord promoted it to
+        // `existing.clientTs + 1` over any raw row already at the recordId — so
+        // this goes in through putIfAbsent below (bd med-qhpu).
         clientTs: 0,
         deleted: false,
         // Derived from the slot, not now()/Math.random(): at the clientTs floor
@@ -2136,9 +2190,22 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         notification_message_id: null,
         notes: '',
       };
-      await records.put(WORKOUT_RECORD_TYPES.SESSION, record);
-      best.sessionId = record.id;
-      best.status = record.status;
+      // put-if-absent, not put: the RAW slot decides. Two ways it can already be
+      // taken, and neither is ours to overwrite:
+      //   - a TOMBSTONE. Only a deliberate deleteSession leaves one now that
+      //     nextVariant replaces the slot instead of deleting it, so the day was
+      //     removed on purpose and must stay removed.
+      //   - a REAL ROW that landed between the live-only scan above and this
+      //     write (applyIncoming pulling the completed session in). It is the
+      //     truth; the placeholder is not.
+      // Either way, drop the day and let the scan surface the next occurrence.
+      const stored = await records.putIfAbsent(WORKOUT_RECORD_TYPES.SESSION, record);
+      if (stored.deleted || stored.status === 'completed' || stored.status === 'skipped') {
+        suppressed.add(recordId);
+        return resolveNext(suppressed);
+      }
+      best.sessionId = stored.id;
+      best.status = stored.status;
     }
 
     return {
