@@ -508,9 +508,9 @@ describe('materializeDueDoses is put-if-absent (bd med-j2ku)', () => {
         expect(confirmed.status).toBe('TAKEN');
 
         // Force the losing interleaving: applyIncoming lands the op between the
-        // sweep's loadIntakes() and its write. sync.js makes that impossible
-        // (both take withRecordsLock); staging it here pins what putIfAbsent
-        // must do if it ever happens.
+        // sweep's loadIntakes() and its write. withRecordsLock only makes the
+        // write itself atomic — loadIntakes runs outside it — so this window is
+        // real in production, not hypothetical, and putIfAbsent is what closes it.
         const inner = records.putIfAbsent.bind(records);
         records.putIfAbsent = async (type, record) => {
             await records.put(type, confirmed);

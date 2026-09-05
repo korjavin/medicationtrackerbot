@@ -213,7 +213,10 @@ export function adherencePct(counts, empty = null) {
 
 // createIntakeDomain builds the intake state-machine API over the injected
 // ports:
-//   records — { list(type), put(type, record), del(type, id) }
+//   records — { list(type), put(type, record), putIfAbsent(type, record),
+//              del(type, id) }. putIfAbsent is not optional: the dose sweep
+//              materializes through it (bd med-j2ku), so a port without it
+//              throws on the first due slot.
 //   now()   — current time in ms epoch
 //   timeZone — IANA zone string, passed straight through to planDoses
 export function createIntakeDomain({ records, now, timeZone }) {
@@ -319,10 +322,14 @@ export function createIntakeDomain({ records, now, timeZone }) {
       };
       // put-if-absent, not put: the RAW slot decides. Two ways it can already be
       // taken, and neither is ours to overwrite:
-      //   - a TOMBSTONE, which only deleteFutureIntakes leaves: that dose was
-      //     dropped on purpose. A plain put promoted this floored placeholder to
-      //     `tombstone.clientTs + 1`, so the deleted dose came back on the very
-      //     next sweep (bd med-j2ku).
+      //   - a TOMBSTONE: that dose was dropped on purpose. A plain put promoted
+      //     this floored placeholder to `tombstone.clientTs + 1`, so the deleted
+      //     dose came back on the very next sweep (bd med-j2ku). Two paths write
+      //     one — deleteFutureIntakes (future PENDING only) and medications.js's
+      //     cancelPendingIntakesForMedication on archive (any PENDING, today's
+      //     already-due slot included). Un-archiving the same day therefore no
+      //     longer hands back the dose that archiving cancelled; the next day's
+      //     slots have their own ids and materialize normally.
       //   - a REAL ROW that landed between loadIntakes() above and this write —
       //     applyIncoming pulling in a confirm tapped elsewhere. It is the truth;
       //     the placeholder is not.
