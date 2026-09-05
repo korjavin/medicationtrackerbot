@@ -40,10 +40,21 @@ function defaultTimeZone() {
 
 export async function computeReminderEntries(ctx, { records: recordsOverride, timeZone: tzOverride } = {}) {
   const records = recordsOverride || recordsPort(ctx);
-  const timeZone = tzOverride || defaultTimeZone();
   const now = () => Date.now();
   const remindersDomain = createRemindersDomain({ records, now });
-  const features = await createSettingsDomain({ records, now, timeZone }).getFeatures();
+  // A manually pinned settings.timezone beats both the caller's zone and the
+  // device's — same precedence apishim's router applies (bd med-7ujt). This is
+  // resolved HERE rather than trusted from opts because cloud-boot.js and the
+  // inbox drain both call recomputeAndPush(ctx) with no zone at all, and the
+  // horizon they push is exactly the wall-clock-sensitive output. getGeneral()
+  // falls back to the injected zone when no record pins one, so this is a
+  // no-op for an account that never set it.
+  const settingsDomain = createSettingsDomain({ records, now, timeZone: tzOverride || defaultTimeZone() });
+  const [features, general] = await Promise.all([
+    settingsDomain.getFeatures(),
+    settingsDomain.getGeneral(),
+  ]);
+  const timeZone = general.timezone;
 
   const [
     medications, intakes, tzplans, bps, weights,

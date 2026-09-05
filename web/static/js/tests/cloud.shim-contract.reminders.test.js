@@ -315,3 +315,42 @@ describe('cloud shim contract — POST /api/bp/reminder/test', () => {
             .rejects.toThrow(/Enable push notifications/);
     });
 });
+
+// bd med-7ujt — cloud-boot.js and the inbox drain both call recomputeAndPush(ctx)
+// with no zone at all, so the horizon (pure wall-clock output) has to resolve a
+// pinned settings.timezone itself rather than trusting the device zone.
+describe('cloud shim horizon — pinned settings.timezone', () => {
+    // 13:00 in Berlin, 21:00 in Tokyo — past the 20:00 BP slot in Tokyo but not
+    // in Berlin, so the two zones disagree on the DAY as well as the instant.
+    const NOW = Date.UTC(2026, 2, 10, 12, 0, 0);
+
+    beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    const bpPref = {
+        recordId: 'bpreminderpref', clientTs: NOW, deleted: false, enabled: true, preferred_reminder_hour: 20
+    };
+    const pinned = (timezone) => ({
+        recordId: 'settings', clientTs: NOW, deleted: false, timezone
+    });
+    const firstBPFire = (entries) => {
+        const bp = entries.filter((e) => e.kind === 'bp');
+        expect(bp.length).toBeGreaterThan(0);
+        return new Date(bp[0].fireAtUnix * 1000).toISOString();
+    };
+
+    it('fires the 20:00 BP slot in the pinned zone, not the caller/device zone', async () => {
+        const records = createInMemoryRecordsPort({ bpreminderpref: [bpPref], settings: [pinned('Asia/Tokyo')] });
+        const entries = await computeReminderEntries({}, { records, timeZone: 'Europe/Berlin' });
+        // 20:00 JST is 11:00Z year-round (Japan has no DST); today's already
+        // passed, so the next slot is tomorrow's.
+        expect(firstBPFire(entries)).toBe('2026-03-11T11:00:00.000Z');
+    });
+
+    it('falls back to the caller/device zone when nothing is pinned', async () => {
+        const records = createInMemoryRecordsPort({ bpreminderpref: [bpPref] });
+        const entries = await computeReminderEntries({}, { records, timeZone: 'Europe/Berlin' });
+        // 20:00 CET (March, pre-DST) is 19:00Z, still ahead of NOW.
+        expect(firstBPFire(entries)).toBe('2026-03-10T19:00:00.000Z');
+    });
+});
