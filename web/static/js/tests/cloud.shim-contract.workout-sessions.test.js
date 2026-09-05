@@ -1695,7 +1695,7 @@ describe('bd med-my8f: rotation advance re-points pending future sessions', () =
             sessions: [session(WEDNESDAY, 'pending', { id: 901 }), session(FRIDAY, 'pending')]
         });
 
-        await domainOver(records).completeSession(901);
+        await domainOver(records).setSessionStatus(901, 'completed');
 
         const friday = await storedFriday(records);
         expect(friday.variant_id).toBe(2);
@@ -1732,7 +1732,7 @@ describe('bd med-my8f: rotation advance re-points pending future sessions', () =
             ]
         });
 
-        await domainOver(records).completeSession(901);
+        await domainOver(records).setSessionStatus(901, 'completed');
 
         expect((await storedFriday(records)).variant_id).toBe(1);
     });
@@ -1749,7 +1749,7 @@ describe('bd med-my8f: rotation advance re-points pending future sessions', () =
             ]
         });
 
-        await domainOver(records).completeSession(901);
+        await domainOver(records).setSessionStatus(901, 'completed');
 
         const friday = await storedFriday(records);
         expect(friday.variant_id).toBe(1);
@@ -1766,7 +1766,7 @@ describe('bd med-my8f: rotation advance re-points pending future sessions', () =
             }]
         });
 
-        await domainOver(records).completeSession(901);
+        await domainOver(records).setSessionStatus(901, 'completed');
 
         expect((await storedFriday(records)).variant_id).toBe(1);
     });
@@ -1776,7 +1776,7 @@ describe('bd med-my8f: rotation advance re-points pending future sessions', () =
             sessions: [session('2026-08-24', 'pending', { id: 902 }), session(WEDNESDAY, 'pending', { id: 901 })]
         });
 
-        await domainOver(records).completeSession(901);
+        await domainOver(records).setSessionStatus(901, 'completed');
 
         const monday = (await records.list('workoutsession')).find((s) => s.recordId === 'session-1-2026-08-24');
         expect(monday.variant_id).toBe(1);
