@@ -18,6 +18,8 @@ function fakeRecords(seed = {}) {
   return {
     dump: () => store,
     list: async (type) => (store[type] || []).map((r) => ({ ...r })),
+    // Tombstones included, like sync.js recordsPort.listRaw (bd med-w0fe).
+    listRaw: async (type) => (store[type] || []).map((r) => ({ ...r })),
     put: async (type, record) => {
       store[type] = (store[type] || []).filter((r) => r.recordId !== record.recordId);
       store[type].push({ ...record });

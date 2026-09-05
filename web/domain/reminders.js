@@ -499,6 +499,26 @@ export function computeReminderHorizon({
       const p = /^(\d{4}-\d{2}-\d{2})/.exec(String(s.scheduled_date));
       if (p) sessionStatusByKey.set(`${s.group_id}|${p[1]}`, s.status);
     }
+    // A day deleted via deleteSession leaves a TOMBSTONE at the deterministic
+    // slot, and getNext treats that as occupied — the card skips the day. This
+    // horizon used to see only live rows, so it read the day as "never
+    // materialized" and kept firing its recurring reminder: Telegram asked about
+    // a workout the app no longer offered, and the Snooze/Skip buttons on that
+    // push re-materialized the slot (bd med-w0fe). A tombstone carries no body
+    // (records.del writes {recordId, clientTs, deleted}), so the day comes off
+    // the slot id. Ad-hoc sessions have random recordIds and group_id -1, so
+    // neither shape matches — they are left alone.
+    for (const s of workoutSessions) {
+      if (!s.deleted) continue;
+      const m = /^session-(\d+)-(\d{4}-\d{2}-\d{2})$/.exec(String(s.recordId));
+      // 'deleted' is a SENTINEL, not a session status — the only thing read off
+      // this map is "not pending", i.e. do not fire. Never override a live row:
+      // a legacy session at a random recordId can hold the same day, and it is
+      // the one that decides.
+      if (m && !sessionStatusByKey.has(`${m[1]}|${m[2]}`)) {
+        sessionStatusByKey.set(`${m[1]}|${m[2]}`, 'deleted');
+      }
+    }
 
     const { year, month, day } = localDateParts(now, timeZone);
 

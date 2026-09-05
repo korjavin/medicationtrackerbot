@@ -2236,6 +2236,22 @@ describe('derived writes are put-if-absent, not floor-then-hope (med-qhpu)', () 
     expect((await getRaw(SLOT)).status).toBe('pending');
   });
 
+  // bd med-w0fe — putIfAbsent is not the only reader that must see a tombstone:
+  // the reminder horizon has to know the day was deliberately deleted, and
+  // listRecords filters tombstones out. listRaw is that view.
+  it('listRaw returns tombstones; list does not', async () => {
+    await seed([
+      { recordId: SLOT, recordType: 'workoutsession', clientTs: 7000, deleted: true },
+      { recordId: 'session-1-2026-06-16', recordType: 'workoutsession', clientTs: 8000, deleted: false, id: 43 },
+    ]);
+
+    const port = recordsPort(ctx);
+    expect((await port.list('workoutsession')).map((r) => r.recordId)).toEqual(['session-1-2026-06-16']);
+    const raw = await port.listRaw('workoutsession');
+    expect(raw.map((r) => r.recordId).sort()).toEqual([SLOT, 'session-1-2026-06-16'].sort());
+    expect(raw.find((r) => r.recordId === SLOT).deleted).toBe(true);
+  });
+
   it('a materialization racing an incoming completed row keeps the completed row', async () => {
     await seed([]);
     const kData = await deriveKData(ctx.dek);

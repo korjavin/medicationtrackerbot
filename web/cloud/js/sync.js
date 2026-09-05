@@ -1221,6 +1221,23 @@ export async function listRecordsInRange(ctx, recordType, fromId, toId) {
     .sort((a, b) => b.clientTs - a.clientTs);
 }
 
+// listRawRecords is listRecords WITHOUT the tombstone filter — the same raw view
+// putIfAbsent's slot check sees. A reader needs it only when the ABSENCE of a
+// row is itself state it must respect: the reminder horizon has to know that a
+// workout day was deliberately deleted, because a tombstoned slot means "no
+// workout that day", not "not materialized yet" (bd med-w0fe). Everything else
+// wants listRecords. Unmemoized (a once-per-recompute read; the memo holds the
+// live view every other caller shares) but sorted the SAME way, newest first —
+// a caller swapping list for listRaw must not silently pick up a different
+// last-write-wins order in whatever loop it feeds.
+export async function listRawRecords(ctx, recordType) {
+  await bootstrapIfNeeded(ctx);
+  const records = await withStore('records', 'readonly', (store) => (
+    reqToPromise(store.index('recordType').getAll(recordType))
+  ));
+  return records.sort((a, b) => b.clientTs - a.clientTs);
+}
+
 // flushConfirmed is the ack barrier for the inbound mailbox drain: it resolves
 // true only once every locally-pending op is durably on the server. Callers that
 // must not ack until their writes are safe (drainInbox) await this AFTER the
@@ -1315,6 +1332,9 @@ export function recordsPort(ctx, origin = ORIGIN_EXTERNAL, { deferFlush = false 
   return {
     list: (recordType) => listRecords(ctx, recordType),
     listRange: (recordType, fromId, toId) => listRecordsInRange(ctx, recordType, fromId, toId),
+    // Tombstones included — only for readers that must respect a deliberate
+    // delete (see listRawRecords).
+    listRaw: (recordType) => listRawRecords(ctx, recordType),
     put: (recordType, record) => writeRecord(ctx, recordType, record, origin, { flush }),
     // Derived materialization (see writeRecord's `ifAbsent`): writes only into an
     // EMPTY raw slot and always resolves to the stored winner, so a read path can

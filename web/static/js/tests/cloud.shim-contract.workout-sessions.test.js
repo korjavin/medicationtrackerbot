@@ -1599,6 +1599,48 @@ describe('bd med-gmyf: starting a not-today session logs the workout for today',
         expect(adhoc[0].scheduled_date.startsWith(WEDNESDAY)).toBe(true);
     });
 
+    // bd med-w0fe — a DELETED day is as unavailable as a finished one: the slot
+    // holds a tombstone, so re-keying onto it would resurrect a day the user
+    // removed. Same outcome as the completed case above: an ad-hoc session.
+    it('mints an ad-hoc session rather than reopening a deleted day', async () => {
+        const records = seed([
+            session(WEDNESDAY, 'pending', { id: 901, variantId: 1 }),
+            session(FRIDAY, 'pending')
+        ]);
+        await domainOver(records).deleteSession(901);
+
+        await domainOver(records).startSession(900);
+
+        const stored = await records.list('workoutsession');
+        expect(stored.find((s) => s.recordId === `session-1-${WEDNESDAY}`)).toBeUndefined();
+        expect(stored.find((s) => s.recordId === `session-1-${FRIDAY}`).status).toBe('pending');
+        const adhoc = stored.filter((s) => s.group_id === -1);
+        expect(adhoc).toHaveLength(1);
+        expect(adhoc[0].status).toBe('in_progress');
+    });
+
+    // bd med-w0fe — deleting a day must silence its recurring reminder too. The
+    // horizon used to see only live rows, so the deleted day read as "not
+    // materialized yet" and kept firing while the card skipped it.
+    it('drops the deleted day from the horizon and keeps the next occurrence', async () => {
+        const records = seed([session(WEDNESDAY, 'pending', { id: 901, variantId: 1 })]);
+        await domainOver(records).deleteSession(901);
+
+        const entries = computeReminderHorizon({
+            timeZone: 'UTC', now: NOW,
+            workoutStatus: { enabled: true },
+            workoutGroups: await records.list('workoutgroup'),
+            workoutVariants: await records.list('workoutvariant'),
+            workoutExercises: [],
+            workoutRotations: await records.list('workoutrotation'),
+            workoutSessions: await records.listRaw('workoutsession'),
+        });
+
+        const callbacks = entries.filter((e) => e.kind === 'workout').map((e) => e.callback);
+        expect(callbacks).not.toContain('w:1:20260826');
+        expect(callbacks).toContain('w:1:20260828');
+    });
+
     it('starts today\'s own session in place, with no duplicate record', async () => {
         const records = seed([session(WEDNESDAY, 'pending', { id: 901, variantId: 1 })]);
 
