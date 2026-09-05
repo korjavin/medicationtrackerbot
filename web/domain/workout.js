@@ -97,12 +97,16 @@ function sessionRecordId(groupId, date) {
 // so exercise logs can attach to both numeric ids and the loser's orphan on the
 // first real transition (bd med-8j12).
 //
-// derivedNumericId hashes the recordId into a reserved band that mintNumericId
-// can never reach: mint stamps nowMs * 1000 (~1.8e15 in 2026, monotonically
-// rising) or localMax + 1, so anything below 1e14 is unreachable for a
-// user-created session. The band here is [1e12, 1e12 + 2^45) ≈ [1e12, 3.6e13],
-// comfortably safe-integer. 45 bits gives ~3.5e13 slots — birthday collision
-// odds across even 1e5 sessions in one vault are ~1e-4.
+// derivedNumericId hashes the recordId into a reserved band mintNumericId does
+// not reach: mint stamps nowMs * 1000 (~1.8e15 in 2026, monotonically rising),
+// ~50x above the band's [1e12, 1e12 + 2^45) ≈ [1e12, 3.6e13], comfortably
+// safe-integer. 45 bits gives ~3.5e13 slots — birthday collision odds across
+// even 1e5 sessions in one vault are ~1e-4.
+// The one hole is mint's localMax + 1 fallback: a device whose clock reads
+// before ~1973 stamps below 1e14 and falls back to localMax + 1, which on a
+// vault holding derived ids lands inside the band. Bounded (a ~2^-45 chance of
+// aliasing some other day's slot) and it needs a clock that broken, so it buys
+// no guard here.
 // ponytail: two 32-bit FNV-1a passes combined, not a real digest; a WebCrypto
 // hash is async and this sits on a sync read path. Widen the combine if the
 // band ever needs more than 45 bits.
@@ -1674,6 +1678,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // nextVariant ports transitions.go's NextVariant: advance the rotation then
   // delete the current (not-yet-started) session so the next resolution
   // surfaces the new variant. Errors propagate (unlike tryAdvanceRotation).
+  // Since med-8j12 the re-materialized session reuses the slot's derived numeric
+  // id, so a log ANOTHER device wrote against the pre-swap session (deleteSession
+  // only cascades the logs this device can see) re-attaches to the new one and
+  // shows under the advanced variant. That beats the pre-fix behavior — orphaning
+  // onto a numeric id naming no session at all — but it is a real semantic change.
   async function nextVariant(id) {
     const session = await findSession(id);
     if (!session) throw invalidRequest('session not found', 'not_found');

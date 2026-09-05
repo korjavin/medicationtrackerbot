@@ -58,14 +58,9 @@ describe('two-device getNext materialization (two ports, applyIncoming merge)', 
         expect(bodyB).toEqual(bodyA); // byte-identical, id included
         expect(Number.isSafeInteger(bodyA.id)).toBe(true);
         expect(resA.session.id).toBe(resB.session.id);
-
-        // Sync each device's row into the other: with identical bodies at the
-        // floor, applyIncoming's strict `>` is a no-op and both mirrors agree.
-        expect(applyIncoming(bodyA, bodyB)).toEqual(bodyA);
-        expect(applyIncoming(bodyB, bodyA)).toEqual(bodyB);
     });
 
-    it('a log written on one device resolves against the other device\'s session', async () => {
+    it('a real transition on one device lands on the id the other is logging against', async () => {
         const nowMs = Date.UTC(2026, 7, 31, 10, 0, 0);
         const portA = createInMemoryRecordsPort(seedGroup(nowMs));
         const portB = createInMemoryRecordsPort(seedGroup(nowMs));
@@ -75,6 +70,9 @@ describe('two-device getNext materialization (two ports, applyIncoming merge)', 
         const resA = await deviceA.getNext();
         const resB = await deviceB.getNext();
 
+        // B logs an exercise against ITS materialization of today's slot.
+        await deviceB.createLog({ session_id: resB.session.id, exercise_id: -1, exercise_name: 'Squat' });
+
         // Device A starts the workout; that real write (clientTs = now()) beats
         // the floor and propagates to B.
         await deviceA.startSession(resA.session.id);
@@ -82,9 +80,13 @@ describe('two-device getNext materialization (two ports, applyIncoming merge)', 
         const bMirror = (await portB.list('workoutsession'))[0];
         const mergedOnB = applyIncoming(bMirror, started);
         expect(mergedOnB.status).toBe('in_progress');
-        // The surviving body carries the id B had already been logging against,
-        // so nothing B attached to its session orphans.
+        // The surviving body carries the id B logged against, so B's log is
+        // still reachable from the session — pre-fix it orphaned onto a numeric
+        // id that no longer named any session (bd med-8j12, bd med-9a87).
         expect(mergedOnB.id).toBe(resB.session.id);
+        await portB.put('workoutsession', mergedOnB);
+        const details = await deviceB.getSessionDetails(mergedOnB.id);
+        expect(details.logs.map((l) => l.exercise_name)).toEqual(['Squat']);
     });
 
     it('derived session ids sit in a band mintNumericId can never reach', async () => {

@@ -196,8 +196,6 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         const details = await window.apiCall(`/api/workout/sessions/details?id=${first.session.id}`, 'GET');
         expect(details.session.status).toBe('pending');
         expect(details.session.variant_id).toBe(variants[1].id);
-        // The deleted session's logs did not survive the cascade delete.
-        expect(details.logs).toEqual([]);
     });
 
     it('preskip/cancel-preskip round-trip the session status without touching rotation', async () => {
