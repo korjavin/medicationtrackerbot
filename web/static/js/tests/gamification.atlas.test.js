@@ -151,6 +151,11 @@ describe('gamification Discovery Atlas — probe evaluator', () => {
     const journal = await records.list('gamificationjournal');
     expect(journal).toHaveLength(1);
     expect(journal[0].seen_discoveries).toEqual(['workout_next_morning_bp']);
+    // journey.js fires this as a terminal card RENDERS, so it is a read-side
+    // write on the shared journal blob and takes the derived floor rather than
+    // now() — otherwise a stale tab's repaint erases newer traits/keystones
+    // (bd med-y4ue). Losing it costs exactly one extra reveal.
+    expect(journal[0].clientTs).toBe(0);
   });
 
   it('opens a full Atlas showing all three states at once (acceptance)', async () => {

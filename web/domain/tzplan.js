@@ -528,7 +528,13 @@ export function createTzPlanDomain({ records, now, timeZone }) {
     const nowMs = now();
     const hasFuture = Array.isArray(plan.steps) && plan.steps.some((s) => s.scheduledAtMs > nowMs);
     if (!hasFuture) {
-      await putPlanRecord({ ...plan, clientTs: nowMs, status: 'COMPLETED' });
+      // clientTs 0, not nowMs: a timer-side transition on the singleton plan,
+      // written from a read that may be stale (bd med-y4ue). The floor is
+      // promoted to `existing.clientTs + 1` by the write path, so completing
+      // the plan beats exactly the APPROVED record this device saw and loses
+      // to a newer PENDING_APPROVAL another device staged in the meantime —
+      // which used to be overwritten straight to COMPLETED.
+      await putPlanRecord({ ...plan, clientTs: 0, status: 'COMPLETED' });
     }
   }
 
