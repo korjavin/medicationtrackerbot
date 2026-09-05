@@ -111,9 +111,14 @@ const TG_CHAT_RECORD_ID = 'tgchat';
 const TG_CHAT_MAX_TURNS = 5;
 const TG_CHAT_MAX_AGE_MS = 60 * 60 * 1000;
 
+// Sorted by ts rather than by append order: each turn is aged by its message's
+// OWN send time, so a backlog drain can append a turn older than one already
+// stored. Without the sort that turn reads last in the prompt and the count
+// prune would drop the wrong end.
 function pruneTurns(turns, nowMs) {
   return turns
     .filter((t) => t && typeof t.ts === 'number' && t.ts >= nowMs - TG_CHAT_MAX_AGE_MS)
+    .sort((a, b) => a.ts - b.ts)
     .slice(-TG_CHAT_MAX_TURNS);
 }
 
@@ -553,9 +558,11 @@ export async function applyTGCommand(event, eventId, { bp, weight, notes, intake
   };
   const intent = parseCommand(event.text);
   const recordId = `tg-${eventId}`;
-  // at_unix is the SERVER's timestamp for when the message arrived, so a /bp
-  // sent at 09:00 and drained at noon is recorded as measured at 09:00 — the
-  // same backdating rule the Confirm/Snooze tap follows (drain rule 4).
+  // at_unix is the message's OWN Telegram date (tgclient.Message.AtUnix — relay
+  // clock only as a fallback, +5min skew cap), so a /bp sent at 09:00 is recorded
+  // as measured at 09:00 whether it drains at noon or the webhook was retried
+  // after relay downtime. Same backdating rule as a Confirm/Snooze tap (drain
+  // rule 4), except a tap's at_unix IS the relay clock.
   const atIso = new Date(event.at_unix * 1000).toISOString();
 
   let result = null;
@@ -622,8 +629,8 @@ export async function applyTGCommand(event, eventId, { bp, weight, notes, intake
       // there is one implementation of what logging a workout means. The
       // deterministic recordId keeps a re-drain overwriting the same session
       // instead of appending a second workout (drain idempotency, like /bp).
-      // The domain is built on the arrival clock (see createInboxApplier), so
-      // the session lands on the day the message was sent (drain rule 4).
+      // The domain is built on the message's SENT time (see createInboxApplier),
+      // so the session lands on the day the message was sent (drain rule 4).
       const session = await workout.createAdHocSession({ recordId, notes: intent.name });
       await workout.setSessionStatus(session.id, 'completed');
       break;
@@ -669,7 +676,8 @@ export async function applyTGPhoto(event, eventId, { foodAI, verbosity = 'detail
       console.warn('[inbox] could not update the Telegram reply', e);
     }
   };
-  // Backdated to when the photo arrived (drain rule 4), like every other command.
+  // Backdated to when the photo was SENT — at_unix is the message's own Telegram
+  // date, not webhook arrival (drain rule 4) — like every other command.
   const atIso = new Date(event.at_unix * 1000).toISOString();
 
   let blob;
@@ -897,10 +905,10 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
       const reminders = createRemindersDomain({ records, now });
       const { verbosity } = await reminders.getDeliveryPref();
       // The workout domain stamps its ad-hoc session from its own clock, so
-      // build it on the arrival time (drain rule 4) — a /workout texted at 11pm
-      // and drained after midnight still lands on the day it was sent, matching
-      // how /bp backdates via atIso.
-      const arrivalMs = event.at_unix * 1000;
+      // build it on the message's SENT time (drain rule 4) — a /workout texted at
+      // 11pm and drained after midnight still lands on the day it was sent,
+      // matching how /bp backdates via atIso.
+      const sentMs = event.at_unix * 1000;
       await applyTGCommand(event, eventId, {
         bp: createBPDomain({ records, now, timeZone }),
         weight: createWeightDomain({ records, now, timeZone }),
@@ -908,7 +916,7 @@ export function createInboxApplier(ctx, { records: recordsOverride, now = Date.n
         intake,
         foodAI,
         activityAI,
-        workout: createWorkoutDomain({ records, now: () => arrivalMs, timeZone }),
+        workout: createWorkoutDomain({ records, now: () => sentMs, timeZone }),
         records,
         verbosity,
         now,

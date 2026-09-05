@@ -157,9 +157,11 @@ const draining = new Set();
 // drainInbox applies every pending event, then acks it. The binding rules
 // (docs/cloud-mode.md → "Drain protocol") in the order they appear here:
 //
-//   4. Apply in SERVER-timestamp order. The mailbox returns rows in arrival
-//      order; `at_unix` is the sealed instant Telegram's tap actually happened.
-//      Those differ if the relay queued out of order, so we sort.
+//   4. Apply in sealed-`at_unix` order. The mailbox returns rows in arrival
+//      order; `at_unix` is the sealed instant the event actually happened — the
+//      relay's clock for a callback-query tap, the message's own Telegram date
+//      for an inbound message. Either can differ from arrival order (a retried
+//      webhook, an out-of-order queue), so we sort.
 //   1. Ack strictly AFTER flush. `apply` writes through the domain layer, then
 //      flushConfirmed() must resolve true — meaning the ops reached the sync
 //      log — before the event is deleted. A crash anywhere earlier leaves the

@@ -1641,7 +1641,7 @@ describe('inbox-apply.js — self-refining tgprefs (med-vcv.3)', () => {
     const REPLY_ID = 4343;
     const now = () => DRAIN_MS;
     const stubDispatcher = { handle: vi.fn() }; // no mcp_* tool is exercised here
-    const textEvent = (text) => ({ kind: TG_TEXT, text, at_unix: TXT_UNIX, reply_message_id: REPLY_ID });
+    const textEvent = (text, atUnix = TXT_UNIX) => ({ kind: TG_TEXT, text, at_unix: atUnix, reply_message_id: REPLY_ID });
     const rememberCall = (note, id = 't1') => ({
         content: '',
         tool_calls: [{ id, function: { name: 'remember_preference', arguments: JSON.stringify({ note }) } }],
@@ -1783,6 +1783,21 @@ describe('inbox-apply.js — self-refining tgprefs (med-vcv.3)', () => {
         expect(userTexts(captured[0])).toEqual(['recent', 'still there?']);
         // Pruned on write too, so an idle tab cannot resurrect it later.
         expect((await chatRecord(records)).turns.map((t) => t.user)).toEqual(['recent', 'still there?']);
+    });
+
+    // bd med-egxt — turns are aged by the message's OWN send time (med-3hr), so a
+    // backlog drain can append a turn OLDER than one already stored. The
+    // transcript must still read oldest-first, or the next prompt replays the
+    // conversation out of order.
+    it('keeps the transcript oldest-first when a backdated message is appended', async () => {
+        const stored = { ts: TXT_MS, user: 'newer', assistant: 'newer answer' };
+        const records = fakeRecords({ tgchat: [{ recordId: 'tgchat', deleted: false, turns: [stored] }] });
+        const chat = vi.fn(async () => ({ content: 'ok' }));
+        const agent = createTGAgent({ chat, dispatcher: stubDispatcher, history: makeTGHistoryPort(records, now) });
+
+        await applyTGText(textEvent('older', TXT_UNIX - 600), 65, { agent, records, editReply: vi.fn(), now });
+
+        expect((await chatRecord(records)).turns.map((t) => t.user)).toEqual(['older', 'newer']);
     });
 
     it('stores ONLY the final plain-text pair — a persisted tool_calls round would 400 the next request', async () => {
