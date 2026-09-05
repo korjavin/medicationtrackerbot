@@ -1070,15 +1070,17 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return all.find((r) => r.recordId === JOURNAL_RECORD_ID) || null;
   }
 
-  // `derived: true` marks a READ/TIMER-side transition (resolveElapsedChapter,
-  // getTraits, appendKeystone) rather than a user action. Those rebuild the
+  // `derived: true` marks a READ/RENDER/TIMER-side transition — every writer
+  // here except startChapter/closeChapter, which are buttons. Those rebuild the
   // whole singleton blob out of a read that may be stale, so stamping now()
   // let a device whose mirror lagged clobber chapter/trait/keystone fields it
   // never observed (bd med-y4ue, same shape as med-9a87). The med-9a87 floor
   // fixes it here too: proposing 0 makes the local write path stamp
-  // `existing.clientTs + 1` (sync.js nextClientTs), i.e. "beats exactly the
-  // version I read, and nothing newer" — a stale derived write loses the merge
-  // and is simply re-derived after the newer blob lands. User actions keep
+  // `existing.clientTs + 1` (sync.js nextClientTs) whenever the record already
+  // exists — "beats exactly the version I read, and nothing newer" — so a stale
+  // derived write loses the merge and is simply re-derived after the newer blob
+  // lands. (On a device with no journal at all the stamp stays at the floor,
+  // which is the right standing: there is nothing to lose to.) User actions keep
   // now(): a deliberate edit on a stale device is ordinary LWW.
   async function writeJournal(patch, { derived = false } = {}) {
     const cur = await readJournal();
@@ -1253,11 +1255,14 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
 
   // markDiscoverySeen records that the user has seen a card's reveal, so the UI
   // never re-fires the one-time reveal moment (§5 guardrail). Idempotent.
+  // Derived, despite looking like a user action: journey.js fires it from
+  // atlasCardEl() as a terminal card RENDERS, not from a gesture, so it is a
+  // read-side write like the rest — and losing it costs one extra reveal.
   async function markDiscoverySeen(id) {
     if (!id) return { seen: [] };
     const seen = await readSeen();
     if (!seen.includes(id)) seen.push(id);
-    await writeJournal({ seen_discoveries: seen });
+    await writeJournal({ seen_discoveries: seen }, { derived: true });
     return { seen };
   }
 

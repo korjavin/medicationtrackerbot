@@ -51,6 +51,33 @@ export function createInMemoryRecordsPort(seed = {}) {
     };
 }
 
+// createStampingRecordsPort — createInMemoryRecordsPort plus the ONE write-path
+// rule the derived-state floor leans on: sync.js's nextClientTs promotes a
+// write to `max(proposed, existing.clientTs + 1)`, which turns a proposed 0
+// into "beats exactly the version this device read, and nothing newer" (bd
+// med-9a87 / med-y4ue). Use it with `applyIncomingReplica` for two-device
+// convergence suites; the plain port is right for everything else.
+// Deliberately narrower than the real thing: no clock-skew correction, and
+// `existing` is looked up among live rows rather than the raw store (real
+// writeRecord's getRecord sees tombstones too — the med-qhpu nuance). Neither
+// is reachable for the singletons these suites drive, which never tombstone.
+export function createStampingRecordsPort(seed = {}) {
+    const port = createInMemoryRecordsPort(seed);
+    const rawPut = port.put;
+    port.put = async (recordType, record) => {
+        const existing = (await port.list(recordType)).find((r) => r.recordId === record.recordId);
+        const clientTs = existing ? Math.max(record.clientTs, existing.clientTs + 1) : record.clientTs;
+        return rawPut(recordType, { ...record, clientTs });
+    };
+    return port;
+}
+
+// The comparison applyIncoming makes on every pulled record: strict `>` on
+// clientTs, so equal stamps leave the existing row in place (sync.js:479).
+export const applyIncomingReplica = (existing, incoming) => (
+    !existing || incoming.clientTs > existing.clientTs ? incoming : existing
+);
+
 export function loadCloudShimFrontendEnv(opts = {}) {
     const {
         seedRecords, wrapApiCallDirect, now, timeZone, ...frontendOpts

@@ -19,7 +19,11 @@ import {
   CHAPTER_THEMES,
   TRAITS,
 } from '../../../../web/domain/gamification.js';
-import { createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
+import {
+  applyIncomingReplica,
+  createInMemoryRecordsPort,
+  createStampingRecordsPort,
+} from './helpers/cloud-shim-harness.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 5, 15, 12, 0, 0); // fixed clock, all offsets < 90d
@@ -276,25 +280,8 @@ describe('gamification narrative layer — catalogs are curated', () => {
 // read-modify-write, so a READ-side transition (resolveElapsedChapter,
 // getTraits, appendKeystone) on a device whose mirror is stale used to push a
 // blob stamped now() and LWW-erase every field it never saw. The same shape as
-// med-9a87 one layer up, so the same floor closes it. Two ports + local
-// replicas of the two web/cloud/js/sync.js rules the guard leans on:
-//   - writeRecord stamps max(proposed, existing.clientTs + 1) (nextClientTs),
-//     which turns the derived floor into "beats exactly what I read";
-//   - applyIncoming is strict `>` on clientTs, so a tie leaves the local row.
-function stampingPort(seed) {
-  const port = createInMemoryRecordsPort(seed);
-  const rawPut = port.put;
-  port.put = async (recordType, record) => {
-    const existing = (await port.list(recordType)).find((r) => r.recordId === record.recordId);
-    const clientTs = existing ? Math.max(record.clientTs, existing.clientTs + 1) : record.clientTs;
-    return rawPut(recordType, { ...record, clientTs });
-  };
-  return port;
-}
-const applyIncoming = (existing, incoming) => (
-  !existing || incoming.clientTs > existing.clientTs ? incoming : existing
-);
-
+// med-9a87 one layer up, so the same floor closes it. Two ports + the harness
+// replicas of sync.js's nextClientTs promotion and applyIncoming's strict `>`.
 describe('gamification journal — a stale read-side write cannot clobber newer fields (bd med-y4ue)', () => {
   const SEED_TS = NOW - 60 * DAY_MS;
 
@@ -314,8 +301,8 @@ describe('gamification journal — a stale read-side write cannot clobber newer 
   }
 
   it('a stale resolveElapsedChapter loses the merge against newer traits and keystones', async () => {
-    const freshPort = stampingPort(seed());
-    const stalePort = stampingPort(seed());
+    const freshPort = createStampingRecordsPort(seed());
+    const stalePort = createStampingRecordsPort(seed());
     const fresh = createGamificationDomain({ records: freshPort, now: () => NOW, timeZone: TZ });
     // The stale device's clock runs an hour LATER — pre-fix that alone won.
     const stale = createGamificationDomain({
@@ -340,12 +327,12 @@ describe('gamification journal — a stale read-side write cannot clobber newer 
     expect(staleJournal.clientTs).toBe(SEED_TS + 1); // floored to what it read
 
     // The merge the fresh device makes when that op arrives.
-    expect(applyIncoming(freshJournal, staleJournal)).toBe(freshJournal);
+    expect(applyIncomingReplica(freshJournal, staleJournal)).toBe(freshJournal);
   });
 
   it('a stale first-earn trait write cannot erase a newer chapter enrollment', async () => {
-    const freshPort = stampingPort(seed());
-    const stalePort = stampingPort(seed());
+    const freshPort = createStampingRecordsPort(seed());
+    const stalePort = createStampingRecordsPort(seed());
     const fresh = createGamificationDomain({ records: freshPort, now: () => NOW, timeZone: TZ });
     const stale = createGamificationDomain({
       records: stalePort, now: () => NOW + 3600_000, timeZone: TZ,
@@ -364,6 +351,6 @@ describe('gamification journal — a stale read-side write cannot clobber newer 
     const staleJournal = (await stalePort.list('gamificationjournal'))[0];
     expect(staleJournal.traits.early_sleeper).toBeTruthy();
 
-    expect(applyIncoming(freshJournal, staleJournal).chapter.theme_id).toBe('the_rebuild');
+    expect(applyIncomingReplica(freshJournal, staleJournal).chapter.theme_id).toBe('the_rebuild');
   });
 });

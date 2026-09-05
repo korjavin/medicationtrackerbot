@@ -18,7 +18,11 @@ import {
   createGamificationDomain,
   EXPERIMENT_TEMPLATES,
 } from '../../../../web/domain/gamification.js';
-import { createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
+import {
+  applyIncomingReplica,
+  createInMemoryRecordsPort,
+  createStampingRecordsPort,
+} from './helpers/cloud-shim-harness.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 5, 15, 12, 0, 0); // fixed clock, all offsets < 90d
@@ -235,31 +239,16 @@ describe('gamification Self-Experiments — recovery-mode auto-pause seam', () =
 
 // bd med-y4ue — resolveElapsed freezes a verdict from a READ path, so a device
 // whose mirror is stale must not be able to overwrite a newer terminal state
-// (the user's cancellation) with its own resolution. Two ports + local replicas
-// of web/cloud/js/sync.js: writeRecord's nextClientTs promotion (which turns
-// the derived floor into "beats exactly what I read") and applyIncoming's
-// strict `>` merge.
-function stampingPort(seed) {
-  const port = createInMemoryRecordsPort(seed);
-  const rawPut = port.put;
-  port.put = async (recordType, record) => {
-    const existing = (await port.list(recordType)).find((r) => r.recordId === record.recordId);
-    const clientTs = existing ? Math.max(record.clientTs, existing.clientTs + 1) : record.clientTs;
-    return rawPut(recordType, { ...record, clientTs });
-  };
-  return port;
-}
-const applyIncoming = (existing, incoming) => (
-  !existing || incoming.clientTs > existing.clientTs ? incoming : existing
-);
-
+// (the user's cancellation) with its own resolution. Two ports + the harness
+// replicas of sync.js's nextClientTs promotion (which turns the derived floor
+// into "beats exactly what I read") and applyIncoming's strict `>` merge.
 describe('gamification Self-Experiments — a stale resolution cannot overwrite a cancellation (bd med-y4ue)', () => {
   const SEED_TS = NOW - 30 * DAY_MS;
 
   it('the read-side freeze loses the merge against the cancellation it never saw', async () => {
     const seed = () => ({ gamificationexperiment: [expRec({ clientTs: SEED_TS })] });
-    const freshPort = stampingPort(seed());
-    const stalePort = stampingPort(seed());
+    const freshPort = createStampingRecordsPort(seed());
+    const stalePort = createStampingRecordsPort(seed());
 
     // Fresh device: the user cancels the running trial — a real write, now().
     const fresh = createGamificationDomain({ records: freshPort, now: () => NOW, timeZone: TZ });
@@ -276,7 +265,7 @@ describe('gamification Self-Experiments — a stale resolution cannot overwrite 
     expect(resolved.status).toBe('resolved');       // still frozen locally
     expect(resolved.clientTs).toBe(SEED_TS + 1);    // floored to what it read
 
-    expect(applyIncoming(cancelled, resolved).status).toBe('cancelled');
+    expect(applyIncomingReplica(cancelled, resolved).status).toBe('cancelled');
   });
 });
 
