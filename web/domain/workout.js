@@ -789,7 +789,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       days_of_week: (input && input.days_of_week) || '[]',
       scheduled_time: (input && input.scheduled_time) || '',
       notification_advance_minutes: Number(input && input.notification_advance_minutes) || 0,
-      training_goal: normalizeGoal(input && input.training_goal),
+      // Key PRESENT → normalize (invalid/blank falls back to the default, as the
+      // editor's select always sends a value). Key ABSENT (a non-editor writer
+      // such as an MCP groups.update call built from the group list) → keep
+      // the stored goal rather than silently resetting it (bd med-qj4.8).
+      training_goal: input && 'training_goal' in input
+        ? normalizeGoal(input.training_goal)
+        : group.training_goal,
       active: !!(input && input.active),
       clientTs: nowMs,
       updated_at: new Date(nowMs).toISOString(),

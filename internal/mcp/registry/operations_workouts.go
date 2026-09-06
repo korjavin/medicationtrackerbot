@@ -55,9 +55,9 @@ output(result)`,
   }
 }`),
 			Description:     "List all exercises in a workout variant. Returns exercises with their default sets, reps, and weight.",
-			ResponseSummary: "JSON array of exercise objects with id, variant_id, exercise_name, target_sets, target_reps_min, order_index, exercise_library_id (the canonical library row the name resolves through); target_reps_max, target_weight_kg, and exercise_library_id are omitted when unset.",
+			ResponseSummary: "JSON array of exercise objects with id, variant_id, exercise_name, target_sets, target_reps_min, order_index, exercise_library_id (the canonical library row the name resolves through); target_reps_max, target_weight_kg, and exercise_library_id are omitted when unset. progression_rule {type, increment_kg, min_reps?, max_reps?} is present only when a linear/double rule is set; training_goal is present only when the exercise overrides its group's goal (absent = inherits).",
 			ResponseExample: `[
-  {"id": 42, "variant_id": 2, "exercise_name": "Bench Press", "target_sets": 4, "target_reps_min": 6, "target_reps_max": 8, "target_weight_kg": 65.0, "order_index": 0, "exercise_library_id": 17}
+  {"id": 42, "variant_id": 2, "exercise_name": "Bench Press", "target_sets": 4, "target_reps_min": 6, "target_reps_max": 8, "target_weight_kg": 65.0, "order_index": 0, "exercise_library_id": 17, "progression_rule": {"type": "linear", "increment_kg": 2.5}, "training_goal": "strength"}
 ]`,
 			Example: `result = api.call("workouts.exercises.list", params={"variant_id": 2})
 output(result)`,
@@ -114,11 +114,11 @@ output(result)`,
 output(result)`,
 		},
 		{
-			ID:              "workouts.stats.read",
-			Topic:           "workouts",
-			Method:          "GET",
-			Path:            "/api/workout/stats",
-			Risk: RiskRead,
+			ID:     "workouts.stats.read",
+			Topic:  "workouts",
+			Method: "GET",
+			Path:   "/api/workout/stats",
+			Risk:   RiskRead,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
@@ -176,10 +176,22 @@ output(result)`,
     "target_reps_min":  {"type": "integer"},
     "target_reps_max":  {"type": ["integer", "null"]},
     "target_weight_kg": {"type": ["number", "null"]},
-    "order_index":      {"type": "integer"}
+    "order_index":      {"type": "integer"},
+    "progression_rule": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type":         {"type": "string", "enum": ["none", "linear", "double"], "description": "none = no automatic progression (just mirrors last performance); linear = add increment_kg once every work set hits the rep target; double = reps climb from min_reps to max_reps first, then weight bumps by increment_kg and reps reset to min_reps."},
+        "increment_kg": {"type": "number", "description": "Load step per progression, 0-1000. Default 2.5."},
+        "min_reps":     {"type": "integer", "description": "double only: floor of the rep window. Defaults to target_reps_min."},
+        "max_reps":     {"type": "integer", "description": "double only: ceiling of the rep window. Defaults to target_reps_max."}
+      },
+      "description": "Opt-in automatic progression applied when a session completes (see workouts.progression_preview for the dry run). Load bumps are RIR-gated by the effective training goal."
+    },
+    "training_goal":    {"type": "string", "enum": ["strength", "hypertrophy", "endurance", "general", ""], "description": "Per-exercise override of the routine's training goal. Omit to keep the stored override; send \"\" to drop it and inherit the group's goal."}
   }
 }`),
-			Description:     "Update the configuration of a workout exercise (name, target sets/reps, weight, ordering). Goes through backend domain validation; the existing exercise must belong to a variant the user owns.",
+			Description:     "Update the configuration of a workout exercise (name, target sets/reps, weight, ordering, progression rule, training-goal override). The plain fields are a FULL REPLACEMENT — fetch the current exercise via workouts.exercises.list and send every field back. progression_rule and training_goal are the exception: OMIT the key to keep the stored value; send progression_rule {\"type\": \"none\"} to clear the rule, or training_goal \"\" to drop the override and inherit the group's goal. Goes through backend domain validation; the existing exercise must belong to a variant the user owns.",
 			ResponseSummary: "Empty body on success (HTTP 200); 4xx with error message on validation failure.",
 			Example: `api.call(
     "workouts.exercises.update",
@@ -191,6 +203,8 @@ output(result)`,
         "target_reps_max": 8,
         "target_weight_kg": 65.0,
         "order_index": 0,
+        "progression_rule": {"type": "linear", "increment_kg": 2.5},
+        "training_goal": "strength",
     },
 )
 output({"updated": 42})`,
@@ -212,11 +226,12 @@ output({"updated": 42})`,
     "is_rotating":                  {"type": "boolean", "description": "If true, variants rotate through scheduled days"},
     "days_of_week":                 {"type": "string", "description": "JSON array of weekday indices, e.g. \"[1,3,5]\""},
     "scheduled_time":               {"type": "string", "description": "HH:MM 24-hour clock"},
-    "notification_advance_minutes": {"type": "integer"}
+    "notification_advance_minutes": {"type": "integer"},
+    "training_goal":                {"type": "string", "enum": ["strength", "hypertrophy", "endurance", "general"], "description": "Training goal of the routine; drives the RIR gate and default rep ranges of its exercises' progression rules. Defaults to hypertrophy on create."}
   }
 }`),
 			Description:     "Create a workout group (named collection of variants).",
-			ResponseSummary: "WorkoutGroup object with id, name, description, is_rotating, days_of_week, scheduled_time (HTTP 201).",
+			ResponseSummary: "WorkoutGroup object with id, name, description, is_rotating, days_of_week, scheduled_time, training_goal (HTTP 201).",
 			Example: `result = api.call(
     "workouts.groups.create",
     body={
@@ -226,6 +241,7 @@ output({"updated": 42})`,
         "days_of_week": "[1,3,5]",
         "scheduled_time": "07:00",
         "notification_advance_minutes": 15,
+        "training_goal": "strength",
     },
 )
 output(result)`,
@@ -253,10 +269,11 @@ output(result)`,
     "days_of_week":                 {"type": "string"},
     "scheduled_time":               {"type": "string"},
     "notification_advance_minutes": {"type": "integer"},
-    "active":                       {"type": "boolean"}
+    "active":                       {"type": "boolean"},
+    "training_goal":                {"type": "string", "enum": ["strength", "hypertrophy", "endurance", "general"], "description": "Training goal of the routine. Omit to keep the stored goal; send a value to change it."}
   }
 }`),
-			Description:     "Update a workout group via FULL REPLACEMENT (not partial update). The schema marks all fields required because they cannot be sent empty; every field in the body overwrites the stored value, and omitted fields decode to zero values (false / empty string / 0) — including active=false, which DEACTIVATES the group. Required workflow: (1) fetch the current group via workouts.groups.list, (2) mutate only the field(s) you want to change, (3) send the merged COMPLETE object back.",
+			Description:     "Update a workout group via FULL REPLACEMENT (not partial update). The schema marks all fields required because they cannot be sent empty; every field in the body overwrites the stored value, and omitted fields decode to zero values (false / empty string / 0) — including active=false, which DEACTIVATES the group. The one exception is training_goal: omitting it keeps the stored goal. Required workflow: (1) fetch the current group via workouts.groups.list, (2) mutate only the field(s) you want to change, (3) send the merged COMPLETE object back.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `groups = api.call("workouts.groups.list")
 current = next(g for g in groups if g["id"] == 1)
@@ -272,6 +289,7 @@ api.call(
         "scheduled_time":               current["scheduled_time"],
         "notification_advance_minutes": current.get("notification_advance_minutes", 0),
         "active":                       current.get("active", True),
+        "training_goal":                current.get("training_goal", "hypertrophy"),
     },
 )
 output({"updated": current["id"]})`,
@@ -354,10 +372,22 @@ output({"updated": current["id"]})`,
     "target_reps_min":  {"type": "integer"},
     "target_reps_max":  {"type": ["integer", "null"]},
     "target_weight_kg": {"type": ["number", "null"]},
-    "order_index":      {"type": "integer"}
+    "order_index":      {"type": "integer"},
+    "progression_rule": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type":         {"type": "string", "enum": ["none", "linear", "double"], "description": "none = no automatic progression (just mirrors last performance); linear = add increment_kg once every work set hits the rep target; double = reps climb from min_reps to max_reps first, then weight bumps by increment_kg and reps reset to min_reps."},
+        "increment_kg": {"type": "number", "description": "Load step per progression, 0-1000. Default 2.5."},
+        "min_reps":     {"type": "integer", "description": "double only: floor of the rep window. Defaults to target_reps_min."},
+        "max_reps":     {"type": "integer", "description": "double only: ceiling of the rep window. Defaults to target_reps_max."}
+      },
+      "description": "Opt-in automatic progression applied when a session completes (see workouts.progression_preview for the dry run). Load bumps are RIR-gated by the effective training goal."
+    },
+    "training_goal":    {"type": "string", "enum": ["strength", "hypertrophy", "endurance", "general"], "description": "Per-exercise override of the routine's training goal. Omit to inherit the group's goal."}
   }
 }`),
-			Description:     "Add a new exercise to a workout variant.",
+			Description:     "Add a new exercise to a workout variant. Optionally attach a progression_rule and/or a per-exercise training_goal override; both are omitted from the stored exercise when not sent.",
 			ResponseSummary: "Empty body on success (HTTP 200/201) with the created exercise persisted.",
 			Example: `api.call(
     "workouts.exercises.create",
@@ -368,6 +398,7 @@ output({"updated": current["id"]})`,
         "target_reps_min": 8,
         "target_reps_max": 12,
         "order_index": 0,
+        "progression_rule": {"type": "double", "increment_kg": 2.5},
     },
 )
 output({"created": "Pull-ups"})`,
