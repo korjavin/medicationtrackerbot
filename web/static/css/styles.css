@@ -9307,6 +9307,17 @@ textarea.wg-input {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
+/* Week-over-week caption under the Load chart legend (med-djsa.5). Sits with the
+   legend, not the tiles: it reads the chart, so the legend's bottom margin is the
+   gap it borrows. */
+.wg-workouts-stats__delta {
+    margin: 0 0 var(--space-md);
+    text-align: center;
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-font-size-mini);
+    color: var(--wg-fg-2);
+}
+
 /* Hard-set headline (med-djsa.3) — the one coach-voiced line on the Stats tab,
    above the view strip because it is range-independent. One row on a phone,
    wrapping instead of truncating: the verdict is the half that must survive. */
