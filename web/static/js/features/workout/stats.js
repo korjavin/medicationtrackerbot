@@ -225,22 +225,28 @@ function _buildBarRow({ name, summary, pct, onOpen }) {
 
 // -- Consistency calendar (med-zte) ---------------------------------------
 //
-// GitHub-contribution-style day grid: 7 rows (Mon…Sun) × N week columns,
-// oldest week leftmost, one cell per day of the ACTIVE range. It replaces the
-// sessions-per-week line — a 2-vs-3 line is jagged noise, and the grid
-// strictly contains the line's information (per-week totals are just a column
-// read vertically) plus which days you trained.
+// Day grid, GitHub's marks on the opposite axis: N week ROWS × 7 weekday
+// columns (Mon…Sun), NEWEST week on top, one cell per day of the ACTIVE range.
+// It replaces the sessions-per-week line — a 2-vs-3 line is jagged noise, and
+// the grid strictly contains the line's information (per-week totals are just
+// a row read horizontally) plus which days you trained.
 //
-// ponytail: hard cap of 53 week columns (~1 year). `range=all` on a multi-year
-// history would otherwise emit thousands of cells for a strip nobody can read
-// on a phone; widen (or add horizontal paging) only if someone asks for a
-// multi-year wall.
-const CALENDAR_MAX_WEEKS = 53;
+// Transposed (med-djsa.1) because time ran along the phone's NARROW axis:
+// GitHub's 7-rows-×-N-columns wall either squeezed the cells or scrolled
+// sideways at 375px. Weeks-as-rows puts time on the long, natively scrollable
+// axis, and the 7-wide axis always fits. Newest week first so the row you act
+// on sits under the pills; older weeks read as scroll-down history.
+//
+// ponytail: hard cap of 26 week rows (~6 months). Rows cost height now — 53
+// would push the tiles two screens down — and `range=all` on a multi-year
+// history would emit thousands of cells nobody scrolls to; raise it (or add
+// paging) only if someone asks for a multi-year wall.
+const CALENDAR_MAX_WEEKS = 26;
 const CALENDAR_RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90 };
-// One initial per row, no month labels. GitHub labels Mon/Wed/Fri only and
+// One initial per column, no month labels. GitHub labels Mon/Wed/Fri only and
 // lets the reader interpolate, which works on a desktop-width wall; on a phone
-// strip the four blank rows just read as anonymous. Single letters cost the
-// same column width as "Mon" and leave no row unlabelled.
+// the four blank slots just read as anonymous. Single letters cost the same
+// column width as "Mon" and leave no column unlabelled.
 const CALENDAR_WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const DAY_MS = 86400000;
 
@@ -256,7 +262,7 @@ function _buildActivityCalendar(daily, range) {
     // every step below is plain ms arithmetic that can't drift a timezone.
     const local = new Date();
     const todayMs = Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
-    // Grid ends on the Sunday of the current week so the last column is whole.
+    // Grid ends on the Sunday of the current week so the top row is whole.
     const endMs = todayMs + (6 - _sinceMonday(todayMs)) * DAY_MS;
 
     const days = CALENDAR_RANGE_DAYS[range];
@@ -291,40 +297,38 @@ function _buildActivityCalendar(daily, range) {
     grid.className = 'wg-workouts-stats__calendar-grid';
     grid.dataset.range = range || 'all';
     grid.dataset.weeks = String(weekCount);
-    // Cell size is fluid (the grid divides the card's width by the column
-    // count); the stylesheet needs the count to cap that growth. Deliberately
-    // NOT `--wg-`-prefixed: that namespace is design tokens, which
-    // architecture.design-tokens.test.js keeps CSS-only. This is a per-render
-    // structural integer, so it follows `--fill-pct` / `--ring-progress` and
-    // goes out unprefixed through the sanctioned `setProperty` hatch.
-    grid.style.setProperty('--calendar-weeks', String(weekCount));
 
-    // Cells stream in chronological order; the grid flows column-first over 7
-    // rows, so each column is one Mon→Sun week.
+    // Cells stream row-first, newest week FIRST: row w starts on the Monday w
+    // weeks back from the current week and runs Mon→Sun. The grid is 7 columns
+    // wide, so each row is one whole week and row 0 is this one.
     let trainedDays = 0;
     let skippedDays = 0;
-    for (let ms = startMs; ms <= endMs; ms += DAY_MS) {
-        const date = new Date(ms).toISOString().slice(0, 10);
-        const entry = entries.get(date);
-        // Shade by STATUS, never volume: a bodyweight session logs zero
-        // tonnage and would render as a rest day on a volume-shaded grid.
-        let state = 'empty';
-        let what = 'nothing logged';
-        if (entry && entry.completed > 0) {
-            state = 'done';
-            what = entry.completed === 1 ? 'completed' : `${entry.completed} completed`;
-            trainedDays++;
-        } else if (entry && entry.skipped > 0) {
-            state = 'skipped';
-            what = entry.skipped === 1 ? 'skipped' : `${entry.skipped} skipped`;
-            skippedDays++;
+    for (let w = 0; w < weekCount; w++) {
+        const monday = endMs - (w * 7 + 6) * DAY_MS;
+        for (let d = 0; d < 7; d++) {
+            const ms = monday + d * DAY_MS;
+            const date = new Date(ms).toISOString().slice(0, 10);
+            const entry = entries.get(date);
+            // Shade by STATUS, never volume: a bodyweight session logs zero
+            // tonnage and would render as a rest day on a volume-shaded grid.
+            let state = 'empty';
+            let what = 'nothing logged';
+            if (entry && entry.completed > 0) {
+                state = 'done';
+                what = entry.completed === 1 ? 'completed' : `${entry.completed} completed`;
+                trainedDays++;
+            } else if (entry && entry.skipped > 0) {
+                state = 'skipped';
+                what = entry.skipped === 1 ? 'skipped' : `${entry.skipped} skipped`;
+                skippedDays++;
+            }
+            const cell = document.createElement('div');
+            cell.className = `wg-workouts-stats__calendar-cell wg-workouts-stats__calendar-cell--${state}`;
+            // Days past today pad the top row to a full week; they aren't a
+            // rest day yet, so they get no label.
+            if (ms <= todayMs) cell.title = `${date} · ${what}`;
+            grid.appendChild(cell);
         }
-        const cell = document.createElement('div');
-        cell.className = `wg-workouts-stats__calendar-cell wg-workouts-stats__calendar-cell--${state}`;
-        // Days past today pad the final column to a full week; they aren't a
-        // rest day yet, so they get no label.
-        if (ms <= todayMs) cell.title = `${date} · ${what}`;
-        grid.appendChild(cell);
     }
 
     // The per-cell titles are tooltips, not an accessible name — screen
