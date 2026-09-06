@@ -194,8 +194,8 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(cells(container).length).toBe(weeks * 7);
 
             // med-wu7: every column carries an initial (GitHub's Mon/Wed/Fri-
-            // only convention left four anonymous tracks at phone width). Still
-            // no month row.
+            // only convention left four anonymous tracks at phone width). The
+            // month row med-zte skipped is now a gutter COLUMN (med-djsa.4).
             const labels = Array.from(container.querySelectorAll('.wg-workouts-stats__calendar-weekday'))
                 .map((n) => n.textContent);
             expect(labels).toEqual(['M', 'T', 'W', 'T', 'F', 'S', 'S']);
@@ -297,6 +297,109 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(all.every((c) => c.classList.contains('wg-workouts-stats__calendar-cell--empty'))).toBe(true);
             const grid = container.querySelector('.wg-workouts-stats__calendar-grid');
             expect(grid.getAttribute('aria-label')).toMatch(/0 days trained, 0 skipped/);
+        });
+
+        // med-djsa.4 — the gutter the transpose freed up. Oracle rather than a
+        // hardcoded expectation: the grid is anchored on the real "today", so
+        // which rows open a month moves with the wall clock, and a fixture
+        // month would rot the day the calendar crossed it.
+        const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        function expectedMonthLabels(weeks) {
+            const local = new Date();
+            const todayMs = Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
+            const sinceMonday = (ms) => (new Date(ms).getUTCDay() + 6) % 7;
+            const endMs = todayMs + (6 - sinceMonday(todayMs)) * 86400000;
+            const out = [];
+            let prev = -1;
+            for (let w = 0; w < weeks; w++) {
+                const m = new Date(endMs - (w * 7 + 6) * 86400000).getUTCMonth();
+                out.push(m === prev ? '' : MONTH_ABBR[m]);
+                prev = m;
+            }
+            return out;
+        }
+
+        function monthLabels(container) {
+            return Array.from(container.querySelectorAll('.wg-workouts-stats__calendar-month'))
+                .map((n) => n.textContent);
+        }
+
+        it('labels a row in the gutter whenever its week opens a new month', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, {
+                ...populatedStats(),
+                daily_activity: [
+                    { date: dayStr(69), completed: 1, skipped: 0 },
+                    { date: dayStr(0), completed: 1, skipped: 0 },
+                ],
+            });
+
+            const grid = container.querySelector('.wg-workouts-stats__calendar-grid');
+            const weeks = Number(grid.dataset.weeks);
+            expect(weeks).toBeGreaterThanOrEqual(10);
+
+            // One span per row, blanks included — that is what keeps the label
+            // column in step with the 7 day columns beside it.
+            const labels = monthLabels(container);
+            expect(labels).toHaveLength(weeks);
+            expect(labels).toEqual(expectedMonthLabels(weeks));
+
+            // The first row is always labelled, and ~10 weeks always straddle
+            // at least one month boundary.
+            expect(labels[0]).not.toBe('');
+            expect(labels.filter(Boolean).length).toBeGreaterThanOrEqual(2);
+        });
+
+        it('labels the 7d grid once when its weeks sit inside one month', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window.localStorage.setItem('mt-workouts-stats-range', '7d');
+            window._renderWorkoutStats(container, populatedStats());
+
+            const grid = container.querySelector('.wg-workouts-stats__calendar-grid');
+            const weeks = Number(grid.dataset.weeks);
+            const expected = expectedMonthLabels(weeks);
+            expect(monthLabels(container)).toEqual(expected);
+            // 7d is one or two rows, so it carries one label unless those rows
+            // straddle a month — never more.
+            expect(expected.filter(Boolean).length).toBeLessThanOrEqual(2);
+        });
+
+        // med-djsa.4 — the column sum answers "which days do I actually train".
+        it('closes the grid with per-weekday trained-day totals', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, {
+                ...populatedStats(),
+                daily_activity: [
+                    { date: dayStr(0), completed: 1, skipped: 0 },
+                    { date: dayStr(1), completed: 2, skipped: 0 },
+                    // Skipped is not trained — it must not reach the footer.
+                    { date: dayStr(2), completed: 0, skipped: 1 },
+                    { date: dayStr(3), completed: 1, skipped: 0 },
+                ],
+            });
+
+            const totals = Array.from(container.querySelectorAll('.wg-workouts-stats__calendar-total'));
+            expect(totals).toHaveLength(7);
+
+            const done = cells(container)
+                .filter((c) => c.classList.contains('wg-workouts-stats__calendar-cell--done')).length;
+            expect(done).toBe(3);
+            expect(totals.reduce((sum, t) => sum + Number(t.textContent), 0)).toBe(done);
+
+            // Untrained weekdays render a muted 0, not a blank.
+            const zeros = totals.filter((t) => t.textContent === '0');
+            expect(zeros.length).toBe(4);
+            zeros.forEach((t) =>
+                expect(t.classList.contains('wg-workouts-stats__calendar-total--zero')).toBe(true));
+            totals.forEach((t) => expect(t.getAttribute('style')).toBeNull());
+
+            // Seven bare digits read aloud are noise, so the row names them.
+            const row = container.querySelector('.wg-workouts-stats__calendar-totals');
+            expect(row.getAttribute('role')).toBe('img');
+            expect(row.getAttribute('aria-label')).toMatch(/Trained days per weekday: Mon \d+, .*Sun \d+\./);
         });
     });
 
@@ -619,6 +722,102 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(values[1]).toBe('0');
             expect(Array.from(container.querySelectorAll('.wg-workouts-stats__tile-label'))
                 .map((t) => t.textContent)[1]).toBe('Hard sets · 4 easy');
+        });
+
+        // med-djsa.5 — the week-over-week caption under the tonnage chart.
+        //
+        // `week` on the real payload is the ISO Monday as "YYYY-MM-DD" (domain
+        // mondayOf), which is what the caption buckets on; loadStats()'s ISO
+        // timestamps predate this and are left alone, so these fixtures speak
+        // the production dialect.
+        function mondayStr(weeksAgo) {
+            const local = new Date();
+            const todayMs = Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
+            const sinceMonday = (new Date(todayMs).getUTCDay() + 6) % 7;
+            return new Date(todayMs - (sinceMonday + weeksAgo * 7) * 86400000)
+                .toISOString().slice(0, 10);
+        }
+
+        function statsWithWeeks(weekly_volume) {
+            return {
+                ...loadStats(),
+                weekly_volume,
+                prs: null,
+            };
+        }
+
+        function caption(container) {
+            const el = container.querySelector('.wg-workouts-stats__delta');
+            return el && el.textContent;
+        }
+
+        it('the load view captions the last complete week against the one before it', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, statsWithWeeks([
+                { week: mondayStr(2), volume_kg: 10000, hard_sets: 20, reps: 200 },
+                { week: mondayStr(1), volume_kg: 12345, hard_sets: 18, reps: 180 },
+                // The current Monday's bucket is partial until Sunday — counting
+                // it would report a crash every Tuesday, so it is excluded and
+                // its absurd numbers must not appear.
+                { week: mondayStr(0), volume_kg: 999999, hard_sets: 99, reps: 900 },
+            ]));
+            clickView(container, 'load');
+
+            expect(caption(container))
+                .toBe('Last week 12.3t · 18 hard sets · +23% vs the week before');
+        });
+
+        it('the load view signs a down week and drops the delta when the week before is a gap', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+
+            window._renderWorkoutStats(container, statsWithWeeks([
+                { week: mondayStr(2), volume_kg: 10000, hard_sets: 20, reps: 200 },
+                { week: mondayStr(1), volume_kg: 800, hard_sets: 1, reps: 10 },
+            ]));
+            clickView(container, 'load');
+            expect(caption(container))
+                .toBe('Last week 800 kg · 1 hard set · -92% vs the week before');
+
+            // weekly_volume is sparse: an untrained week is ABSENT, not a zero
+            // row, so there is nothing to divide by — the line stays, the delta
+            // goes.
+            window._renderWorkoutStats(container, statsWithWeeks([
+                { week: mondayStr(3), volume_kg: 10000, hard_sets: 20, reps: 200 },
+                { week: mondayStr(1), volume_kg: 12345, hard_sets: 18, reps: 180 },
+            ]));
+            clickView(container, 'load');
+            expect(caption(container)).toBe('Last week 12.3t · 18 hard sets');
+        });
+
+        // The sparse-payload trap: coming back from a week off, the newest
+        // complete bucket is TWO weeks old. Labelling it "Last week" would
+        // attribute a fortnight-old session's tonnage to a week the user spent
+        // on the sofa.
+        it('the load view names a rest week instead of relabelling older tonnage', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, statsWithWeeks([
+                { week: mondayStr(3), volume_kg: 10000, hard_sets: 20, reps: 200 },
+                { week: mondayStr(2), volume_kg: 12345, hard_sets: 18, reps: 180 },
+            ]));
+            clickView(container, 'load');
+
+            expect(caption(container)).toBe('Last week no training');
+        });
+
+        it('the load view omits the caption when no complete week exists', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, statsWithWeeks([
+                { week: mondayStr(0), volume_kg: 4000, hard_sets: 9, reps: 90 },
+            ]));
+            clickView(container, 'load');
+
+            expect(caption(container)).toBeNull();
+            // The chart itself still draws the partial week.
+            expect(container.querySelector('.wg-workouts-stats__legend-label')).not.toBeNull();
         });
 
         it('the balance view splits sets per body part and lists untrained ones', async () => {
