@@ -2434,8 +2434,16 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const sessionWeek = new Map();
 
     // Weeks (ISO Monday) holding at least one completed session, over the whole
-    // history rather than the active range — the streak below walks it.
+    // history rather than the active range — the streaks below walk it. Fed
+    // from `allSessions`, NOT the 500-capped `sessions` the counts use: both
+    // streaks promise whole-history, and a vault past the cap would otherwise
+    // silently lose its oldest — possibly best — run (med-djsa.6 review).
     const completedWeeks = new Set();
+    for (const session of allSessions) {
+      if (session.status !== 'completed') continue;
+      if (Number.isNaN(new Date(session.scheduled_date).getTime())) continue;
+      completedWeeks.add(mondayOf(String(session.scheduled_date).slice(0, 10)));
+    }
 
     for (const session of sessions) {
       const schedMs = new Date(session.scheduled_date).getTime();
@@ -2448,9 +2456,6 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         const dayEntry = dayMap.get(day);
         if (session.status === 'completed') { completedSessions++; dayEntry.completed++; }
         else { skippedSessions++; dayEntry.skipped++; }
-      }
-      if (session.status === 'completed' && !Number.isNaN(schedMs)) {
-        completedWeeks.add(mondayOf(String(session.scheduled_date).slice(0, 10)));
       }
       if (schedMs >= cutoff12w) {
         const week = mondayOf(String(session.scheduled_date).slice(0, 10));
