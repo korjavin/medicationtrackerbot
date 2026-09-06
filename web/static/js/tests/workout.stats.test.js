@@ -177,7 +177,7 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
     // GitHub-contribution day grid strictly contains what the line showed (a
     // column read vertically IS the week's session count) and adds which days.
     describe('activity calendar (med-zte)', () => {
-        it('renders a 7-row day grid with every row labelled, instead of a line chart', () => {
+        it('renders a 7-column day grid with every column labelled, instead of a line chart', () => {
             const { document, window } = env;
             const container = document.getElementById('workout-stats-display');
             window._renderWorkoutStats(container, populatedStats({ weeks: 10 }));
@@ -187,20 +187,14 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(grid.getAttribute('role')).toBe('img');
             expect(grid.getAttribute('aria-label')).toMatch(/workout calendar/i);
 
-            // 7 rows × N whole week columns, oldest leftmost.
+            // N whole week rows × 7 weekday columns.
             const weeks = Number(grid.dataset.weeks);
             expect(weeks).toBeGreaterThan(0);
             expect(cells(container).length).toBe(weeks * 7);
 
-            // Cells are fluid, and the stylesheet caps their growth off this
-            // count (max-width = weeks × max cell). A wrong or missing value
-            // silently un-caps the grid, so pin it to the column count.
-            expect(grid.style.getPropertyValue('--calendar-weeks'))
-                .toBe(String(weeks));
-
-            // med-wu7: every row carries an initial (GitHub's Mon/Wed/Fri-only
-            // convention left four anonymous rows at phone width). Still no
-            // month row.
+            // med-wu7: every column carries an initial (GitHub's Mon/Wed/Fri-
+            // only convention left four anonymous tracks at phone width). Still
+            // no month row.
             const labels = Array.from(container.querySelectorAll('.wg-workouts-stats__calendar-weekday'))
                 .map((n) => n.textContent);
             expect(labels).toEqual(['M', 'T', 'W', 'T', 'F', 'S', 'S']);
@@ -209,6 +203,29 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(container.querySelector('.wg-workouts-stats__chart-panel')).toBeNull();
             expect(container.querySelector('path.wg-workout-chart__line')).toBeNull();
             expect(container.querySelector('.wg-workouts-stats__legend')).toBeNull();
+        });
+
+        // med-djsa.1 — the whole point of the transpose. If the rows were ever
+        // emitted oldest-first again, today's cell would land in the LAST row.
+        it('puts the newest week in the first row', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, {
+                ...populatedStats(),
+                daily_activity: [
+                    { date: dayStr(30), completed: 0, skipped: 1 },
+                    { date: dayStr(0), completed: 1, skipped: 0 },
+                ],
+            });
+
+            const all = cells(container);
+            expect(all.length).toBeGreaterThan(7 * 4);
+            const done = all.findIndex((c) => c.classList.contains('wg-workouts-stats__calendar-cell--done'));
+            const skipped = all.findIndex((c) => c.classList.contains('wg-workouts-stats__calendar-cell--skipped'));
+            // Today sits in row 0 (the first 7 cells); a month back is further
+            // down the grid, not further left.
+            expect(done).toBeLessThan(7);
+            expect(skipped).toBeGreaterThanOrEqual(7 * 4);
         });
 
         it('shades cells by status with three distinct classes and labels each day', () => {
@@ -234,13 +251,16 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(new Set(['done', 'skipped', 'empty']).size).toBe(3);
             cells(container).forEach((c) => expect(c.getAttribute('style')).toBeNull());
 
-            expect(byClass('done')[1].title).toBe(`${dayStr(1)} · completed`);
+            // Order-independent: rows run newest-first, so which of the two
+            // done cells comes first depends on today's weekday.
+            expect(byClass('done').map((c) => c.title).sort())
+                .toEqual([`${dayStr(5)} · completed`, `${dayStr(1)} · completed`].sort());
             expect(byClass('skipped')[0].title).toBe(`${dayStr(3)} · 2 skipped`);
             const untrained = byClass('empty').find((c) => c.title);
             expect(untrained.title).toMatch(/nothing logged$/);
         });
 
-        it('caps the grid at 53 week columns so range=all on a long history stays readable', () => {
+        it('caps the grid at 26 week rows so range=all on a long history stays readable', () => {
             const { document, window } = env;
             const container = document.getElementById('workout-stats-display');
             window.localStorage.setItem('mt-workouts-stats-range', 'all');
@@ -253,8 +273,8 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             });
 
             const grid = container.querySelector('.wg-workouts-stats__calendar-grid');
-            expect(Number(grid.dataset.weeks)).toBe(53);
-            expect(cells(container).length).toBe(53 * 7);
+            expect(Number(grid.dataset.weeks)).toBe(26);
+            expect(cells(container).length).toBe(26 * 7);
         });
 
         it('renders an all-empty grid (not a crash) when nothing was logged', () => {

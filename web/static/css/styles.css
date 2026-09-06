@@ -651,10 +651,10 @@
     --wg-workouts-chart-last-stroke-width: 2px;
     --wg-workouts-stats-legend-swatch-size: 10px;
     /* Calendar cells are FLUID between these two bounds — the grid takes the
-       card's width and divides it by the range's week count. -min is the floor
-       a 53-column range=all wall shrinks to before the card starts scrolling;
-       -max stops a 2-column 7d range from inflating into a tower (7 rows tall
-       is the binding constraint, not the width). */
+       card's width and divides it by the fixed 7 weekday columns. -max stops
+       those 7 columns from inflating into wall-sized squares on a wide card
+       (cells are squared by aspect-ratio, so width is height); -min is the
+       floor they'd shrink to on a card too narrow even for that. */
     --wg-workouts-calendar-cell-min: 11px;
     --wg-workouts-calendar-cell-max: 24px;
     --wg-workouts-calendar-gap: 3px;
@@ -9044,74 +9044,55 @@ textarea.wg-input {
 }
 
 /* Consistency-view activity calendar (med-zte) — GitHub-contribution grid
-   that replaced the sessions-per-week line. A weekday label column (one
-   initial per row, no month row) sits beside a 7-row × N-column day grid flowing
-   column-first, so each column is one Mon→Sun week, oldest leftmost. The grid
-   scrolls horizontally on narrow screens rather than shrinking the cells. */
+   that replaced the sessions-per-week line, TRANSPOSED (med-djsa.1): a weekday
+   header row (one initial per column, no month row) sits above an N-row × 7-
+   column day grid flowing row-first, so each row is one Mon→Sun week and the
+   newest week is on top. Time runs down the phone's long axis, which scrolls
+   natively; the 7-wide axis is a constant and always fits, so nothing here
+   overflows horizontally. */
 .wg-workouts-stats__calendar {
     display: flex;
+    flex-direction: column;
     /* Centred in the card the same way the Load view's chart is
-       (.wg-workout-chart { margin-inline: auto }) — a short range leaves the
-       grid narrower than the card, and left-aligned it read as a layout bug.
-
-       `safe` is load-bearing, not decoration: plain `center` would push the
-       leading columns past scrollLeft: 0 once the grid outgrows the card
-       (range=all runs to 53 columns), making them permanently unreachable.
-       `safe center` falls back to start alignment exactly in that case. A
-       browser that doesn't know the keyword drops the declaration and gets
-       today's flex-start, so there is no worse-than-current path. */
-    justify-content: safe center;
+       (.wg-workout-chart { margin-inline: auto }) — the grid is capped at 7
+       max-size cells wide, narrower than the card, and left-aligned it read as
+       a layout bug. */
+    align-items: center;
     gap: var(--space-xs);
     padding: var(--wg-card-pad);
     background: var(--wg-bg-card);
     border: 1px solid var(--wg-border-hairline);
     border-radius: var(--wg-radius-card);
-    overflow-x: auto;
 }
 
-/* The label column stretches to the grid's height (both are flex items in the
-   same row) and splits it into the same 7 equal tracks, so the initials track
-   the cells at whatever size the grid settled on — no shared fixed height. */
-.wg-workouts-stats__calendar-weekdays {
+/* Header row and day grid share one 7-column template and one width bound, so
+   each initial sits over its own column at whatever size the cells settled on.
+
+   Fluid cells: the grid takes the card's width (width: 100%) and `1fr` splits
+   it seven ways, so a narrow card gets smaller cells rather than a scrollbar.
+   Two bounds keep it honest — the `minmax()` floor stops the columns
+   collapsing on a very narrow card, and max-width re-derives the grid's
+   natural width at -cell-max so a wide card doesn't inflate the cells into
+   wall-sized squares (aspect-ratio makes width height, and 26 rows of those
+   would be a very tall card). */
+.wg-workouts-stats__calendar-weekdays,
+.wg-workouts-stats__calendar-grid {
     display: grid;
-    grid-template-rows: repeat(7, 1fr);
+    grid-template-columns: repeat(7, minmax(var(--wg-workouts-calendar-cell-min), 1fr));
     gap: var(--wg-workouts-calendar-gap);
-    flex-shrink: 0;
+    width: 100%;
+    max-width: calc(
+        7 * (var(--wg-workouts-calendar-cell-max) + var(--wg-workouts-calendar-gap))
+        - var(--wg-workouts-calendar-gap)
+    );
 }
 
 .wg-workouts-stats__calendar-weekday {
     display: flex;
-    align-items: center;
+    justify-content: center;
     font-family: var(--wg-font-mono);
     font-size: var(--wg-font-size-mini);
     color: var(--wg-fg-4);
-}
-
-/* Fluid cells. The grid grows into the card (flex-grow) and `1fr` auto-columns
-   divide that width by the week count, so a 30d range fills the card instead of
-   leaving a pinprick in the corner. Two bounds keep it honest:
-
-   • the `minmax()` floor stops a 53-column range=all from shrinking cells to
-     nothing — it hits the floor, overflows, and the wrap scrolls instead;
-   • max-width re-derives the grid's natural width at -cell-max from the week
-     count the renderer wrote into --calendar-weeks, capping growth.
-     Without it a 2-column 7d range would split the whole card between two
-     columns, and square cells would make the card ~400px tall.
-
-   Cells are sized by width and squared by aspect-ratio, so the rows follow the
-   columns and stay square at every size. */
-.wg-workouts-stats__calendar-grid {
-    display: grid;
-    grid-auto-flow: column;
-    grid-template-rows: repeat(7, auto);
-    grid-auto-columns: minmax(var(--wg-workouts-calendar-cell-min), 1fr);
-    gap: var(--wg-workouts-calendar-gap);
-    flex-grow: 1;
-    max-width: calc(
-        var(--calendar-weeks, 53) *
-        (var(--wg-workouts-calendar-cell-max) + var(--wg-workouts-calendar-gap))
-        - var(--wg-workouts-calendar-gap)
-    );
 }
 
 /* Three states, shaded by session STATUS and never by volume — a bodyweight
