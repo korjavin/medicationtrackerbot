@@ -364,6 +364,26 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             expect(stats.prs.map((p) => p.previous_kg)).toEqual([65, 60, 0]);
         });
 
+        // scheduled_date is day-granular, so two sessions on one day tie on it
+        // and the scan has to fall through to scheduled_time — the canonical
+        // within-day order. Log id is CREATION order, and a backfill inverts it.
+        it('walks same-day sessions in scheduled_time order, not creation order', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            // The evening session is entered first; the morning one is backfilled
+            // after it, so its log carries the HIGHER id.
+            await logOn(env, 'Clean', [{ weight_kg: 90, reps: 3 }]);
+            await logOn(env, 'Clean', [{ weight_kg: 80, reps: 3 }]);
+            const sessions = (await env.records.list('workoutsession')).sort((a, b) => a.id - b.id);
+            await env.records.put('workoutsession', { ...sessions[0], scheduled_time: '18:00' });
+            await env.records.put('workoutsession', { ...sessions[1], scheduled_time: '07:00' });
+
+            const stats = await env.window.apiCallDirect('/api/workout/stats?range=30d');
+            // 80 kg in the morning is the first record; the 90 kg that evening
+            // beats it. Creation order would have reported one PR, not two.
+            expect(stats.totals.pr_count).toBe(2);
+            expect(stats.prs.map((p) => [p.weight_kg, p.previous_kg])).toEqual([[90, 80], [80, 0]]);
+        });
+
         it('never sets a record off a warm-up: the max_weight_kg fold already excludes them', async () => {
             env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
             // Ramp-only session: nobody trained, so there is no record here.
