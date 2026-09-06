@@ -374,6 +374,47 @@ function _appendTopExercises(section, exercises) {
     section.appendChild(list);
 }
 
+// Records (med-djsa.2) — the names behind the "PRs" tile. The tile alone says
+// "3"; seeing WHICH lift you beat is the retention lever. Rows open the same
+// per-exercise detail view Top Exercises does. Omitted entirely when there are
+// none: an empty "no PRs" panel is a nag, not information.
+//
+// The bar reads "how far past the old record" — the beaten weight as a share of
+// the new one — so a near-miss improvement is nearly full and a first-ever
+// weighted lift (previous_kg 0) is empty.
+function _appendRecords(section, prs) {
+    if (!Array.isArray(prs) || prs.length === 0) return;
+    section.appendChild(_buildSectionLabel('Records · this range'));
+
+    const list = document.createElement('ul');
+    list.className = 'wg-workouts-stats__top-exercises';
+    prs.forEach((pr) => {
+        const was = pr.previous_kg > 0 ? `was ${pr.previous_kg}` : 'first';
+        list.appendChild(_buildBarRow({
+            name: pr.exercise_name,
+            summary: `${pr.weight_kg} kg · ${was} · ${_formatRecordDate(pr.date)}`,
+            pct: pr.weight_kg > 0 ? (pr.previous_kg / pr.weight_kg * 100).toFixed(1) : 0,
+            onOpen: () => {
+                if (window.WorkoutExerciseDetail && typeof window.WorkoutExerciseDetail.open === 'function') {
+                    window.WorkoutExerciseDetail.open(pr.exercise_name);
+                }
+            },
+        }));
+    });
+
+    section.appendChild(list);
+}
+
+// 'YYYY-MM-DD' (a LOCAL day, already) -> 'Sep 2'. The explicit T00:00:00 keeps
+// it local: a bare date string parses as UTC midnight and would render the day
+// before west of Greenwich.
+function _formatRecordDate(day) {
+    const d = new Date(`${day}T00:00:00`);
+    return Number.isNaN(d.getTime())
+        ? String(day)
+        : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 // Pull:Push and Hinge:Squat as split bars — the fill is the FIRST pattern's
 // share of the pair, so a balanced pair sits at half and the eye reads the
 // lean without doing the division.
@@ -484,6 +525,8 @@ function _renderLoadView(section, stats, range) {
         [String(totals.reps || 0), 'Reps'],
         [String(totals.pr_count || 0), 'PRs'],
     ]));
+
+    _appendRecords(section, stats.prs);
 
     // exercise_totals carries the same per-exercise rows with warm-ups excluded
     // and per-set weights honoured, so the list adds up to the Volume tile above

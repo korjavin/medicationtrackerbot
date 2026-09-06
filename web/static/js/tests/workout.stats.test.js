@@ -493,6 +493,57 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(rows[0].textContent).toContain('Barbell Squat');
         });
 
+        // med-djsa.2 — the names behind the "PRs" tile. The tile alone is a bare
+        // number; which lift you beat is the point.
+        it('the load view lists the named records and opens the detail view on tap', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            const opened = [];
+            window.WorkoutExerciseDetail = { open: (name) => opened.push(name) };
+            window._renderWorkoutStats(container, {
+                ...loadStats(),
+                prs: [
+                    { exercise_name: 'Barbell Squat', date: '2026-09-02', weight_kg: 140, previous_kg: 135 },
+                    { exercise_name: 'Bench', date: '2026-08-30', weight_kg: 100, previous_kg: 0 }
+                ]
+            });
+            clickView(container, 'load');
+
+            const labels = Array.from(container.querySelectorAll('.wg-workouts-stats__section-label'))
+                .map((l) => l.textContent);
+            expect(labels).toContain('Records · this range');
+
+            const lists = Array.from(container.querySelectorAll('.wg-workouts-stats__top-exercises'));
+            const rows = Array.from(lists[0].querySelectorAll('.wg-workouts-stats__top-row'));
+            expect(rows).toHaveLength(2);
+            // Locale-sensitive: mirror the production toLocaleDateString call
+            // shape rather than hardcoding "Sep 2" (same convention as
+            // bp.history / weight.history).
+            const day = (iso) => new Date(`${iso}T00:00:00`)
+                .toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            expect(rows[0].textContent).toContain('Barbell Squat');
+            expect(rows[0].textContent).toContain(`140 kg · was 135 · ${day('2026-09-02')}`);
+            // A first-ever weighted lift has no old record to name.
+            expect(rows[1].textContent).toContain(`100 kg · first · ${day('2026-08-30')}`);
+
+            rows[0].click();
+            expect(opened).toEqual(['Barbell Squat']);
+        });
+
+        it('the load view omits the records section entirely when there are none', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, { ...loadStats(), prs: null });
+            clickView(container, 'load');
+
+            const labels = Array.from(container.querySelectorAll('.wg-workouts-stats__section-label'))
+                .map((l) => l.textContent);
+            // No "no PRs yet" nag either — the section is simply absent, so the
+            // only rows left are Top Exercises'.
+            expect(labels).not.toContain('Records · this range');
+            expect(container.querySelectorAll('.wg-workouts-stats__top-row')).toHaveLength(2);
+        });
+
         it('the load view says so when the range holds no logged sets', () => {
             const { document, window } = env;
             const container = document.getElementById('workout-stats-display');

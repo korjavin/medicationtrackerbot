@@ -2481,6 +2481,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     while (completedWeeks.has(cursor)) { currentStreakWeeks++; cursor = weekBefore(cursor); }
 
     const sessionSchedule = new Map(allSessions.map((s) => [s.id, new Date(s.scheduled_date).getTime()]));
+    // Same local-date-prefix rule as mondayOf/dayMap — the PR list below dates
+    // a record by the session's local day, not by the log's logged_at instant.
+    const sessionDay = new Map(allSessions.map((s) => [s.id, String(s.scheduled_date).slice(0, 10)]));
 
     // Completed logs, oldest session first. The PR pass below needs a running
     // heaviest-per-exercise over the WHOLE history (an in-range log only counts
@@ -2528,14 +2531,28 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     let rangeEasySets = 0;
     let rangeReps = 0;
     let prCount = 0;
+    // The named records behind pr_count (med-djsa.2) — WHICH lift was beaten,
+    // which is the actual retention lever. Collected oldest-first here and
+    // reversed below. Weight PRs only: est-1RM / rep records live in
+    // web/domain/workout-analysis.js and the per-exercise detail view.
+    const prRecords = [];
 
     for (const { log, schedMs, work } of completedLogs) {
       // PR check runs before any window test: "beat every earlier set" spans
       // the full history, we only *count* the ones landing inside the range.
       // A zero-weight (bodyweight) log can never set a weight PR.
-      if (work.max_weight_kg > (heaviestSoFar.get(log.exercise_name) || 0)) {
+      const previousKg = heaviestSoFar.get(log.exercise_name) || 0;
+      if (work.max_weight_kg > previousKg) {
         heaviestSoFar.set(log.exercise_name, work.max_weight_kg);
-        if (schedMs >= since30) prCount++;
+        if (schedMs >= since30) {
+          prCount++;
+          prRecords.push({
+            exercise_name: log.exercise_name,
+            date: sessionDay.get(log.session_id),
+            weight_kg: work.max_weight_kg,
+            previous_kg: previousKg,
+          });
+        }
       }
 
       if (Number.isFinite(schedMs)) {
@@ -2673,6 +2690,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         reps: rangeReps,
         pr_count: prCount,
       },
+      // Newest first; `null` (never `[]`) on an empty window, matching every
+      // other list on this payload.
+      prs: prRecords.length ? prRecords.reverse() : null,
       weekly_volume: weeklyVolume,
       exercise_totals: exerciseTotals,
       hard_set_band: hardSetBand,
