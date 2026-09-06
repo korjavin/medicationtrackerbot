@@ -14,7 +14,7 @@ const AGENTS_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/agents';
 
 // Bump this whenever TOOL_SPECS or the agent config below changes so unlocked
 // devices reprovision on their next connect.
-export const TOOLSET_VERSION = 3;
+export const TOOLSET_VERSION = 4;
 
 // Rachel — a warm ElevenLabs female voice (med-eas.27).
 const VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
@@ -28,26 +28,17 @@ const SYSTEM_PROMPT = [
   'encouraging — you offer brief, insightful reflections, not commands, and you',
   'look for the story behind the numbers. Precise, never clinical.',
   '',
-  'ALWAYS use your tools for any question about the data — never guess, never say',
-  'you cannot access it:',
-  '- Blood pressure → get_blood_pressure to read, log_blood_pressure to record.',
-  '- Weight → get_weight to read, log_weight to record.',
+  "Answer every question about the user's data by calling a tool — the data lives only behind them:",
   "- Workouts → get_workout to read today's session and its exercises,",
   '  log_exercise to record the actual sets/reps/weight on one of them, and',
   '  set_workout_status to start, finish or skip the session. To change anything',
   '  about a workout you MUST call get_workout first — it returns the session id',
   '  and, per exercise, a log_id and an exercise_id that the write tools need.',
   '  If the session it returns is not for today, start it before logging into it.',
-  '- Diary notes → get_notes to read, add_note to record.',
-  '- ANYTHING ELSE — medications, food, sleep, vitals, statistics, settings —',
+  '- Anything without a dedicated tool — medications, food, sleep, vitals, statistics, settings —',
   '  call mcp_help to find the operation you need, then mcp_call to run it. Do',
   '  that instead of saying you cannot do something, and never file one kind of',
   '  record as a diary note just because add_note was the tool that fit.',
-  '',
-  'mcp_call takes flat strings: op is the operation id mcp_help gave you,',
-  'params_json is a JSON object encoded as a string (e.g. {"days": 7}), and any',
-  'operation that changes data also needs mode "write" plus a short intent.',
-  'path_params_json fills a {slot} in an operation path.',
   '',
   'After recording something, confirm it back in one short line. When you read',
   'data, add a brief bit of context if useful — a gentle comparison or observation.',
@@ -128,7 +119,7 @@ export const TOOL_SPECS = [
       type: 'object',
       properties: {
         text: { type: 'string', description: 'note content' },
-        tag: { type: 'string', description: 'optional: one of SLEEP, STRESS, HR, SPO2, STEPS, NOTE' },
+        tag: { type: 'string', enum: ['SLEEP', 'STRESS', 'HR', 'SPO2', 'STEPS', 'NOTE'], description: 'optional note category' },
       },
       required: ['text'],
     },
@@ -156,7 +147,7 @@ export const TOOL_SPECS = [
         reps: { type: 'integer', description: 'reps actually completed per set' },
         weight_kg: { type: 'number', description: 'weight used, in kilograms' },
         notes: { type: 'string', description: 'optional short note about this exercise' },
-        status: { type: 'string', description: 'optional: "completed" or "skipped"' },
+        status: { type: 'string', enum: ['completed', 'skipped'], description: 'optional: mark the exercise done or deliberately skipped' },
       },
       required: [],
     },
@@ -168,7 +159,7 @@ export const TOOL_SPECS = [
       type: 'object',
       properties: {
         session_id: { type: 'integer', description: 'workout session id, from get_workout' },
-        status: { type: 'string', description: 'one of in_progress, completed, skipped' },
+        status: { type: 'string', enum: ['in_progress', 'completed', 'skipped'], description: 'new session status' },
       },
       required: ['session_id', 'status'],
     },
@@ -210,7 +201,7 @@ export const TOOL_SPECS = [
           type: 'string',
           description: 'the operation\'s parameters as a JSON object encoded in a string, e.g. {"days": 7}. Omit or "{}" when it takes none.',
         },
-        mode: { type: 'string', description: 'set to "write" for any operation that changes data; omit for reads' },
+        mode: { type: 'string', enum: ['read_only', 'write'], description: '"write" for any operation that changes data; omit for reads' },
         intent: { type: 'string', description: 'required with mode "write": one short line on why, e.g. "user asked during a voice call"' },
         path_params_json: {
           type: 'string',

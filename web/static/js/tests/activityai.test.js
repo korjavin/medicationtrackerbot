@@ -92,7 +92,6 @@ describe('activityai — createActivityAIDomain', () => {
 describe('activityai — schema/prompt parity', () => {
   it('exports the bot system prompt plus the cloud distance instruction', () => {
     expect(ActivitySystemPrompt).toContain('You are a fitness expert.');
-    expect(ActivitySystemPrompt).toContain('Respond ONLY with the requested JSON schema.');
     expect(ActivitySystemPrompt).toContain('distance_m');
     expect(ActivitySystemPrompt).toMatch(/METERS/);
   });

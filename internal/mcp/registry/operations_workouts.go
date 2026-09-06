@@ -865,7 +865,7 @@ output(result)`,
     "status":         {"type": "string", "enum": ["", "completed", "skipped"], "description": "Optional. Explicit status to set; if omitted, a placeholder log (status==\"\") with sets_completed>=1 auto-promotes to \"completed\". Existing non-empty status is left untouched unless this field is set."}
   }
 }`),
-			Description:     "Update an exercise log row with completed sets/reps/weight. SIDE EFFECT: non-zero values propagate to the schedule's defaults so the NEXT session inherits them (e.g. consistently doing 12 reps bumps the planned target up). Zero/null values are treated as 'no data' and do NOT overwrite existing defaults. For scheduled ad-hoc workouts (placeholder logs with empty status), supplying sets_completed >= 1 also flips the row's status to \"completed\" so it counts in stats and history; pass status=\"skipped\" to mark a planned exercise as deliberately skipped instead. Equivalent functionality is also available via the workout_log MCP tool's \"log\" operation; this registry op is for callers building scripts via mcp_execute.",
+			Description:     "Update an exercise log row with completed sets/reps/weight. SIDE EFFECT: non-zero values propagate to the schedule's defaults so the NEXT session inherits them (e.g. consistently doing 12 reps bumps the planned target up). Zero/null values are treated as 'no data' and do NOT overwrite existing defaults. For scheduled ad-hoc workouts (placeholder logs with empty status), supplying sets_completed >= 1 also flips the row's status to \"completed\" so it counts in stats and history; pass status=\"skipped\" to mark a planned exercise as deliberately skipped instead.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `api.call(
     "workouts.sessions.logs.update",
@@ -935,7 +935,7 @@ output({"completed": 42})`,
     "id": {"type": "integer", "description": "Workout group id"}
   }
 }`),
-			Description:     "Delete a workout group. Variants and exercises beneath it must already be removed (or the handler returns a constraint error).",
+			Description:     "Delete a workout group. Refused while any exercise remains in its variants or any session is still pending/in-progress — remove exercises (workouts.exercises.delete) and finish or skip open sessions first. Its variants and rotation state are then deleted with it.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `api.call("workouts.groups.delete", params={"id": 1})
 output({"deleted": 1})`,
@@ -953,7 +953,7 @@ output({"deleted": 1})`,
     "id": {"type": "integer", "description": "Workout variant id"}
   }
 }`),
-			Description:     "Delete a workout variant. Exercises beneath it must already be removed.",
+			Description:     "Delete a workout variant and every exercise beneath it (cascade). Sessions already logged against it are not touched.",
 			ResponseSummary: "Empty body on success (HTTP 200).",
 			Example: `api.call("workouts.variants.delete", params={"id": 5})
 output({"deleted": 5})`,

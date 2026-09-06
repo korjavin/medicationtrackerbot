@@ -1,6 +1,6 @@
 # Workout depth — intentions & design
 
-Status: **design proposal** (epic `med-qj4`, 2026-07-18). Cloud-first (bot mode is legacy).
+Status: **implemented** — all four phases of epic `med-qj4` are closed; this document is the design rationale and the reference for the per-set data model. Cloud-first (bot mode is legacy).
 
 ## Why this exists
 
