@@ -2480,6 +2480,19 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     let currentStreakWeeks = 0;
     while (completedWeeks.has(cursor)) { currentStreakWeeks++; cursor = weekBefore(cursor); }
 
+    // The longest such run anywhere in the history — what makes the current
+    // streak worth protecting. >= currentStreakWeeks by construction (the
+    // current streak is itself one of the runs walked here), 0 when nothing
+    // was ever completed. Whole-history and range-independent, same as above.
+    let longestStreakWeeks = 0;
+    let runWeeks = 0;
+    let prevWeek = null;
+    for (const week of Array.from(completedWeeks).sort()) {
+      runWeeks = prevWeek !== null && weekBefore(week) === prevWeek ? runWeeks + 1 : 1;
+      prevWeek = week;
+      if (runWeeks > longestStreakWeeks) longestStreakWeeks = runWeeks;
+    }
+
     const sessionSchedule = new Map(allSessions.map((s) => [s.id, new Date(s.scheduled_date).getTime()]));
     // `day` follows the same local-date-prefix rule as mondayOf/dayMap — the PR
     // list below dates a record by the session's local day, not by the log's
@@ -2699,6 +2712,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       completion_rate: totalSessions > 0 ? (completedSessions / totalSessions) * 100 : 0,
       active_weeks: activeWeeks,
       current_streak_weeks: currentStreakWeeks,
+      longest_streak_weeks: longestStreakWeeks,
       top_exercises: topExercises,
       weekly_activity: weeklyActivity,
       daily_activity: dailyActivity,
