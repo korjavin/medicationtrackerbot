@@ -658,6 +658,11 @@
     --wg-workouts-calendar-cell-min: 11px;
     --wg-workouts-calendar-cell-max: 24px;
     --wg-workouts-calendar-gap: 3px;
+    /* Month gutter (med-djsa.4): a FIXED first column, not `auto` — the header
+       and totals rows have nothing in theirs, and an auto track would size
+       each row's gutter to its own content and knock the three out of
+       alignment. Wide enough for "Sep" at --wg-font-size-mini in mono. */
+    --wg-workouts-calendar-gutter: 22px;
     /* Contribution-grid cells are squares. --radius-sm (6px) is more than half
        even a min-size cell, so it rounded every cell into a dot. */
     --wg-workouts-calendar-radius: 2px;
@@ -9059,9 +9064,9 @@ textarea.wg-input {
 
 /* Consistency-view activity calendar (med-zte) — GitHub-contribution grid
    that replaced the sessions-per-week line, TRANSPOSED (med-djsa.1): a weekday
-   header row (one initial per column, no month row) sits above an N-row × 7-
-   column day grid flowing row-first, so each row is one Mon→Sun week and the
-   newest week is on top. Time runs down the phone's long axis, which scrolls
+   header row (one initial per column) sits above an N-row × 7-column day grid
+   flowing row-first, so each row is one Mon→Sun week and the newest week is on
+   top, and a per-weekday totals row closes it (med-djsa.4). Time runs down the phone's long axis, which scrolls
    natively; the 7-wide axis is a constant and always fits, so nothing here
    overflows horizontally. */
 .wg-workouts-stats__calendar {
@@ -9079,8 +9084,9 @@ textarea.wg-input {
     border-radius: var(--wg-radius-card);
 }
 
-/* Header row and day grid share one 7-column template and one width bound, so
-   each initial sits over its own column at whatever size the cells settled on.
+/* Header row, day grid and totals row share one template and one width bound,
+   so each initial and each column sum sits over its own column at whatever
+   size the cells settled on. Column 1 is the month gutter (med-djsa.4).
 
    Fluid cells: the grid takes the card's width (width: 100%) and `1fr` splits
    it seven ways, so a narrow card gets smaller cells rather than a scrollbar.
@@ -9090,23 +9096,59 @@ textarea.wg-input {
    wall-sized squares (aspect-ratio makes width height, and 26 rows of those
    would be a very tall card). */
 .wg-workouts-stats__calendar-weekdays,
-.wg-workouts-stats__calendar-grid {
+.wg-workouts-stats__calendar-grid,
+.wg-workouts-stats__calendar-totals {
     display: grid;
-    grid-template-columns: repeat(7, minmax(var(--wg-workouts-calendar-cell-min), 1fr));
+    grid-template-columns:
+        var(--wg-workouts-calendar-gutter)
+        repeat(7, minmax(var(--wg-workouts-calendar-cell-min), 1fr));
     gap: var(--wg-workouts-calendar-gap);
     width: 100%;
     max-width: calc(
-        7 * (var(--wg-workouts-calendar-cell-max) + var(--wg-workouts-calendar-gap))
+        var(--wg-workouts-calendar-gutter) + var(--wg-workouts-calendar-gap)
+        + 7 * (var(--wg-workouts-calendar-cell-max) + var(--wg-workouts-calendar-gap))
         - var(--wg-workouts-calendar-gap)
     );
 }
 
-.wg-workouts-stats__calendar-weekday {
-    display: flex;
-    justify-content: center;
+/* The month gutter is column 1 OF THE DAY GRID (med-djsa.4) rather than a
+   separate element beside it: one grid means a label can never drift out of
+   step with the week it names. The day grid emits a label span per row, so its
+   cells flow into columns 2-8 on their own; the header and totals rows carry
+   only their seven items, so their first child is pushed off column 1. */
+.wg-workouts-stats__calendar-weekday:first-child,
+.wg-workouts-stats__calendar-total:first-child {
+    grid-column-start: 2;
+}
+
+.wg-workouts-stats__calendar-weekday,
+.wg-workouts-stats__calendar-month,
+.wg-workouts-stats__calendar-total {
     font-family: var(--wg-font-mono);
     font-size: var(--wg-font-size-mini);
     color: var(--wg-fg-4);
+}
+
+.wg-workouts-stats__calendar-weekday,
+.wg-workouts-stats__calendar-total {
+    display: flex;
+    justify-content: center;
+}
+
+/* line-height 1 keeps a label from setting its row's height: rows are as tall
+   as a cell is wide (aspect-ratio), which at the -cell-min floor is 11px, and
+   a taller label would stretch that row's squares into rectangles. Aligned to
+   the grid edge so the labels read as one column, not a ragged margin. */
+.wg-workouts-stats__calendar-month {
+    align-self: center;
+    line-height: 1;
+    text-align: end;
+}
+
+/* Zero is the point of this row — "you never train on Wednesday" — so it stays
+   on screen, one step back from the counts that carry a number. */
+.wg-workouts-stats__calendar-total--zero {
+    color: var(--wg-fg-5);
 }
 
 /* Three states, shaded by session STATUS and never by volume — a bodyweight
