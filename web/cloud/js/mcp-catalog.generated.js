@@ -1646,7 +1646,7 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/workout/exercises/create",
     "risk": "write",
-    "description": "Add a new exercise to a workout variant.",
+    "description": "Add a new exercise to a workout variant. Optionally attach a progression_rule and/or a per-exercise training_goal override; both are omitted from the stored exercise when not sent.",
     "response_summary": "Empty body on success (HTTP 200/201) with the created exercise persisted.",
     "required": [
       "variant_id",
@@ -1691,6 +1691,46 @@ export const CATALOG = [
         },
         "order_index": {
           "type": "integer"
+        },
+        "progression_rule": {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "none",
+                "linear",
+                "double"
+              ],
+              "description": "none = no automatic progression (just mirrors last performance); linear = add increment_kg once every work set hits the rep target; double = reps climb from min_reps to max_reps first, then weight bumps by increment_kg and reps reset to min_reps."
+            },
+            "increment_kg": {
+              "type": "number",
+              "description": "Load step per progression, 0-1000. Default 2.5."
+            },
+            "min_reps": {
+              "type": "integer",
+              "description": "double only: floor of the rep window. Defaults to target_reps_min."
+            },
+            "max_reps": {
+              "type": "integer",
+              "description": "double only: ceiling of the rep window. Defaults to target_reps_max."
+            }
+          },
+          "description": "Opt-in automatic progression applied when a session completes (see workouts.progression_preview for the dry run). Load bumps are RIR-gated by the effective training goal."
+        },
+        "training_goal": {
+          "type": "string",
+          "enum": [
+            "strength",
+            "hypertrophy",
+            "endurance",
+            "general"
+          ],
+          "description": "Per-exercise override of the routine's training goal. Omit to inherit the group's goal."
         }
       }
     }
@@ -1726,7 +1766,7 @@ export const CATALOG = [
     "path": "/api/workout/exercises",
     "risk": "read",
     "description": "List all exercises in a workout variant. Returns exercises with their default sets, reps, and weight.",
-    "response_summary": "JSON array of exercise objects with id, variant_id, exercise_name, target_sets, target_reps_min, order_index, exercise_library_id (the canonical library row the name resolves through); target_reps_max, target_weight_kg, and exercise_library_id are omitted when unset.",
+    "response_summary": "JSON array of exercise objects with id, variant_id, exercise_name, target_sets, target_reps_min, order_index, exercise_library_id (the canonical library row the name resolves through); target_reps_max, target_weight_kg, and exercise_library_id are omitted when unset. progression_rule {type, increment_kg, min_reps?, max_reps?} is present only when a linear/double rule is set; training_goal is present only when the exercise overrides its group's goal (absent = inherits).",
     "params_schema": {
       "type": "object",
       "required": [
@@ -1739,7 +1779,7 @@ export const CATALOG = [
         }
       }
     },
-    "response_example": "[\n  {\"id\": 42, \"variant_id\": 2, \"exercise_name\": \"Bench Press\", \"target_sets\": 4, \"target_reps_min\": 6, \"target_reps_max\": 8, \"target_weight_kg\": 65.0, \"order_index\": 0, \"exercise_library_id\": 17}\n]"
+    "response_example": "[\n  {\"id\": 42, \"variant_id\": 2, \"exercise_name\": \"Bench Press\", \"target_sets\": 4, \"target_reps_min\": 6, \"target_reps_max\": 8, \"target_weight_kg\": 65.0, \"order_index\": 0, \"exercise_library_id\": 17, \"progression_rule\": {\"type\": \"linear\", \"increment_kg\": 2.5}, \"training_goal\": \"strength\"}\n]"
   },
   {
     "id": "workouts.exercises.unique",
@@ -1757,7 +1797,7 @@ export const CATALOG = [
     "method": "PUT",
     "path": "/api/workout/exercises/update",
     "risk": "write",
-    "description": "Update the configuration of a workout exercise (name, target sets/reps, weight, ordering). Goes through backend domain validation; the existing exercise must belong to a variant the user owns.",
+    "description": "Update the configuration of a workout exercise (name, target sets/reps, weight, ordering, progression rule, training-goal override). The plain fields are a FULL REPLACEMENT — fetch the current exercise via workouts.exercises.list and send every field back. progression_rule and training_goal are the exception: OMIT the key to keep the stored value; send progression_rule {\"type\": \"none\"} to clear the rule, or training_goal \"\" to drop the override and inherit the group's goal. Goes through backend domain validation; the existing exercise must belong to a variant the user owns.",
     "response_summary": "Empty body on success (HTTP 200); 4xx with error message on validation failure.",
     "required": [
       "id",
@@ -1810,6 +1850,46 @@ export const CATALOG = [
         },
         "order_index": {
           "type": "integer"
+        },
+        "progression_rule": {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "none",
+                "linear",
+                "double"
+              ],
+              "description": "none = no automatic progression (just mirrors last performance); linear = add increment_kg once every work set hits the rep target; double = reps climb from min_reps to max_reps first, then weight bumps by increment_kg and reps reset to min_reps."
+            },
+            "increment_kg": {
+              "type": "number",
+              "description": "Load step per progression, 0-1000. Default 2.5."
+            },
+            "min_reps": {
+              "type": "integer",
+              "description": "double only: floor of the rep window. Defaults to target_reps_min."
+            },
+            "max_reps": {
+              "type": "integer",
+              "description": "double only: ceiling of the rep window. Defaults to target_reps_max."
+            }
+          },
+          "description": "Opt-in automatic progression applied when a session completes (see workouts.progression_preview for the dry run). Load bumps are RIR-gated by the effective training goal."
+        },
+        "training_goal": {
+          "type": "string",
+          "enum": [
+            "strength",
+            "hypertrophy",
+            "endurance",
+            "general"
+          ],
+          "description": "Per-exercise override of the routine's training goal. Omit to inherit the group's goal."
         }
       }
     }
@@ -1821,7 +1901,7 @@ export const CATALOG = [
     "path": "/api/workout/groups/create",
     "risk": "write",
     "description": "Create a workout group (named collection of variants).",
-    "response_summary": "WorkoutGroup object with id, name, description, is_rotating, days_of_week, scheduled_time (HTTP 201).",
+    "response_summary": "WorkoutGroup object with id, name, description, is_rotating, days_of_week, scheduled_time, training_goal (HTTP 201).",
     "required": [
       "name"
     ],
@@ -1851,6 +1931,16 @@ export const CATALOG = [
         },
         "notification_advance_minutes": {
           "type": "integer"
+        },
+        "training_goal": {
+          "type": "string",
+          "enum": [
+            "strength",
+            "hypertrophy",
+            "endurance",
+            "general"
+          ],
+          "description": "Training goal of the routine; drives the RIR gate and default rep ranges of its exercises' progression rules. Defaults to hypertrophy on create."
         }
       }
     }
@@ -1895,7 +1985,7 @@ export const CATALOG = [
     "method": "PUT",
     "path": "/api/workout/groups/update",
     "risk": "write",
-    "description": "Update a workout group via FULL REPLACEMENT (not partial update). The schema marks all fields required because they cannot be sent empty; every field in the body overwrites the stored value, and omitted fields decode to zero values (false / empty string / 0) — including active=false, which DEACTIVATES the group. Required workflow: (1) fetch the current group via workouts.groups.list, (2) mutate only the field(s) you want to change, (3) send the merged COMPLETE object back.",
+    "description": "Update a workout group via FULL REPLACEMENT (not partial update). The schema marks all fields required because they cannot be sent empty; every field in the body overwrites the stored value, and omitted fields decode to zero values (false / empty string / 0) — including active=false, which DEACTIVATES the group. The one exception is training_goal: omitting it keeps the stored goal. Required workflow: (1) fetch the current group via workouts.groups.list, (2) mutate only the field(s) you want to change, (3) send the merged COMPLETE object back.",
     "response_summary": "Empty body on success (HTTP 200).",
     "required": [
       "id",
@@ -1951,6 +2041,16 @@ export const CATALOG = [
         },
         "active": {
           "type": "boolean"
+        },
+        "training_goal": {
+          "type": "string",
+          "enum": [
+            "strength",
+            "hypertrophy",
+            "endurance",
+            "general"
+          ],
+          "description": "Training goal of the routine. Omit to keep the stored goal; send a value to change it."
         }
       }
     }

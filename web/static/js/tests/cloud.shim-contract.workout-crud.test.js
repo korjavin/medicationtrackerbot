@@ -66,6 +66,23 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
         expect(list.find(g => g.id === dflt.id).training_goal).toBe('hypertrophy');
     });
 
+    it('training_goal: an update that OMITS the key (e.g. the MCP groups.update op) preserves the stored goal', async () => {
+        const { window } = env;
+        const strong = await window.apiCall('/api/workout/groups/create', 'POST', {
+            name: 'Strength Block', training_goal: 'strength'
+        });
+        // A writer that rebuilds the body from the group list without
+        // training_goal must not reset the routine to the default goal
+        // (bd med-qj4.8).
+        await window.apiCall(`/api/workout/groups/update?id=${strong.id}`, 'PUT', {
+            name: 'Strength Block', is_rotating: false, days_of_week: '[1,3,5]',
+            scheduled_time: '18:00', notification_advance_minutes: 0, active: true
+        });
+        const list = await window.apiCallDirect('/api/workout/groups');
+        expect(list.find(g => g.id === strong.id).name).toBe('Strength Block');
+        expect(list.find(g => g.id === strong.id).training_goal).toBe('strength');
+    });
+
     it('deleting a group with variants still holding exercises is rejected', async () => {
         const { window } = env;
         const group = await window.apiCall('/api/workout/groups/create', 'POST', { name: 'Push' });
