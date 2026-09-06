@@ -193,8 +193,8 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(cells(container).length).toBe(weeks * 7);
 
             // med-wu7: every column carries an initial (GitHub's Mon/Wed/Fri-
-            // only convention left four anonymous tracks at phone width). Still
-            // no month row.
+            // only convention left four anonymous tracks at phone width). The
+            // month row med-zte skipped is now a gutter COLUMN (med-djsa.4).
             const labels = Array.from(container.querySelectorAll('.wg-workouts-stats__calendar-weekday'))
                 .map((n) => n.textContent);
             expect(labels).toEqual(['M', 'T', 'W', 'T', 'F', 'S', 'S']);
@@ -296,6 +296,109 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(all.every((c) => c.classList.contains('wg-workouts-stats__calendar-cell--empty'))).toBe(true);
             const grid = container.querySelector('.wg-workouts-stats__calendar-grid');
             expect(grid.getAttribute('aria-label')).toMatch(/0 days trained, 0 skipped/);
+        });
+
+        // med-djsa.4 — the gutter the transpose freed up. Oracle rather than a
+        // hardcoded expectation: the grid is anchored on the real "today", so
+        // which rows open a month moves with the wall clock, and a fixture
+        // month would rot the day the calendar crossed it.
+        const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        function expectedMonthLabels(weeks) {
+            const local = new Date();
+            const todayMs = Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
+            const sinceMonday = (ms) => (new Date(ms).getUTCDay() + 6) % 7;
+            const endMs = todayMs + (6 - sinceMonday(todayMs)) * 86400000;
+            const out = [];
+            let prev = -1;
+            for (let w = 0; w < weeks; w++) {
+                const m = new Date(endMs - (w * 7 + 6) * 86400000).getUTCMonth();
+                out.push(m === prev ? '' : MONTH_ABBR[m]);
+                prev = m;
+            }
+            return out;
+        }
+
+        function monthLabels(container) {
+            return Array.from(container.querySelectorAll('.wg-workouts-stats__calendar-month'))
+                .map((n) => n.textContent);
+        }
+
+        it('labels a row in the gutter whenever its week opens a new month', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, {
+                ...populatedStats(),
+                daily_activity: [
+                    { date: dayStr(69), completed: 1, skipped: 0 },
+                    { date: dayStr(0), completed: 1, skipped: 0 },
+                ],
+            });
+
+            const grid = container.querySelector('.wg-workouts-stats__calendar-grid');
+            const weeks = Number(grid.dataset.weeks);
+            expect(weeks).toBeGreaterThanOrEqual(10);
+
+            // One span per row, blanks included — that is what keeps the label
+            // column in step with the 7 day columns beside it.
+            const labels = monthLabels(container);
+            expect(labels).toHaveLength(weeks);
+            expect(labels).toEqual(expectedMonthLabels(weeks));
+
+            // The first row is always labelled, and ~10 weeks always straddle
+            // at least one month boundary.
+            expect(labels[0]).not.toBe('');
+            expect(labels.filter(Boolean).length).toBeGreaterThanOrEqual(2);
+        });
+
+        it('labels the 7d grid once when its weeks sit inside one month', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window.localStorage.setItem('mt-workouts-stats-range', '7d');
+            window._renderWorkoutStats(container, populatedStats());
+
+            const grid = container.querySelector('.wg-workouts-stats__calendar-grid');
+            const weeks = Number(grid.dataset.weeks);
+            const expected = expectedMonthLabels(weeks);
+            expect(monthLabels(container)).toEqual(expected);
+            // 7d is one or two rows, so it carries one label unless those rows
+            // straddle a month — never more.
+            expect(expected.filter(Boolean).length).toBeLessThanOrEqual(2);
+        });
+
+        // med-djsa.4 — the column sum answers "which days do I actually train".
+        it('closes the grid with per-weekday trained-day totals', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, {
+                ...populatedStats(),
+                daily_activity: [
+                    { date: dayStr(0), completed: 1, skipped: 0 },
+                    { date: dayStr(1), completed: 2, skipped: 0 },
+                    // Skipped is not trained — it must not reach the footer.
+                    { date: dayStr(2), completed: 0, skipped: 1 },
+                    { date: dayStr(3), completed: 1, skipped: 0 },
+                ],
+            });
+
+            const totals = Array.from(container.querySelectorAll('.wg-workouts-stats__calendar-total'));
+            expect(totals).toHaveLength(7);
+
+            const done = cells(container)
+                .filter((c) => c.classList.contains('wg-workouts-stats__calendar-cell--done')).length;
+            expect(done).toBe(3);
+            expect(totals.reduce((sum, t) => sum + Number(t.textContent), 0)).toBe(done);
+
+            // Untrained weekdays render a muted 0, not a blank.
+            const zeros = totals.filter((t) => t.textContent === '0');
+            expect(zeros.length).toBe(4);
+            zeros.forEach((t) =>
+                expect(t.classList.contains('wg-workouts-stats__calendar-total--zero')).toBe(true));
+            totals.forEach((t) => expect(t.getAttribute('style')).toBeNull());
+
+            // Seven bare digits read aloud are noise, so the row names them.
+            const row = container.querySelector('.wg-workouts-stats__calendar-totals');
+            expect(row.getAttribute('role')).toBe('img');
+            expect(row.getAttribute('aria-label')).toMatch(/Trained days per weekday: Mon \d+, .*Sun \d+\./);
         });
     });
 
