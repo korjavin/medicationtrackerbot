@@ -1431,6 +1431,10 @@ describe('cloud MCP response_example conformance', () => {
       target_reps_max: 8,
       target_weight_kg: 65,
       order_index: 0,
+      // The create op's body schema advertises both (med-qj4.8); seeding them
+      // here is what lets the exercises.list conformance check see the shape.
+      progression_rule: { type: 'linear', increment_kg: 2.5 },
+      training_goal: 'strength',
     });
     // Creating the "Bench Press" plan exercise above now also promotes a
     // notes-less "Bench Press" library entry (med-spp). exercise_library.list is
