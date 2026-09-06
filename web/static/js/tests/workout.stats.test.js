@@ -60,6 +60,7 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             range: 'all',
             active_weeks: 5,
             current_streak_weeks: 4,
+            longest_streak_weeks: 9,
             total_sessions: 20,
             completed_sessions: 17,
             skipped_sessions: 3,
@@ -413,12 +414,21 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
         const labels = Array.from(tiles).map((t) =>
             t.querySelector('.wg-workouts-stats__tile-label').textContent
         );
-        expect(labels).toEqual(['Streak', 'Sessions', 'Done', 'Skipped']);
+        expect(labels).toEqual(['Streak \u00b7 best 9', 'Sessions', 'Done', 'Skipped']);
 
         const values = Array.from(tiles).map((t) =>
             t.querySelector('.wg-workouts-stats__tile-value').textContent
         );
         expect(values).toEqual(['4 wk', '20', '85%', '3']);
+    });
+
+    it('drops the "best" echo when the current streak IS the best', () => {
+        const { document, window } = env;
+        const container = document.getElementById('workout-stats-display');
+        window._renderWorkoutStats(container, { ...populatedStats(), longest_streak_weeks: 4 });
+
+        const label = container.querySelector('.wg-workouts-stats__tile-label');
+        expect(label.textContent).toBe('Streak');
     });
 
     it('renders the Top Exercises section when top_exercises is non-empty', () => {
@@ -546,7 +556,9 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(active.dataset.view).toBe('consistency');
             expect(active.getAttribute('aria-pressed')).toBe('true');
             // Consistency is today's screen: the Streak tile is still first.
-            expect(container.querySelector('.wg-workouts-stats__tile-label').textContent).toBe('Streak');
+            // Prefix match — the label carries a "· best N" suffix whenever the
+            // fixture's best-ever run beats its current streak (med-djsa.6).
+            expect(container.querySelector('.wg-workouts-stats__tile-label').textContent).toMatch(/^Streak/);
         });
 
         it('switching views persists the choice and re-renders without refetching', () => {

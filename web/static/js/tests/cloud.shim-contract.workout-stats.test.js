@@ -837,4 +837,42 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         expect(list).toHaveLength(1);
         expect(list[0].id).toBe(1);
     });
+    // med-djsa.6 — longest_streak_weeks: the best-ever run of consecutive
+    // trained weeks, so the Streak tile has something to measure against.
+    describe('best-ever weekly streak (med-djsa.6)', () => {
+        // One completed session per entry, aged by rewriting its
+        // scheduled_date — the same backdating the range tests use. Whole
+        // weeks (multiples of 7 days) so each entry lands in its own ISO week.
+        async function trainWeeksAgo(env, weeksAgo) {
+            const { window } = env;
+            for (const w of weeksAgo) {
+                const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+                await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+                const rec = (await env.records.list('workoutsession')).find((r) => r.id === session.id);
+                await env.records.put('workoutsession', {
+                    ...rec, scheduled_date: new Date(Date.now() - w * 7 * 86400000).toISOString(),
+                });
+            }
+        }
+
+        it('reports the longest historical run, not the current one', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            // 3 trained weeks, an untrained week, then 2 trained weeks ending now.
+            await trainWeeksAgo(env, [5, 4, 3, 1, 0]);
+
+            const stats = await env.window.apiCallDirect('/api/workout/stats');
+            expect(stats.current_streak_weeks).toBe(2);
+            expect(stats.longest_streak_weeks).toBe(3);
+        });
+
+        it('equals the current streak when the run is unbroken, and is 0 on an empty vault', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            expect((await env.window.apiCallDirect('/api/workout/stats')).longest_streak_weeks).toBe(0);
+
+            await trainWeeksAgo(env, [2, 1, 0]);
+            const stats = await env.window.apiCallDirect('/api/workout/stats');
+            expect(stats.current_streak_weeks).toBe(3);
+            expect(stats.longest_streak_weeks).toBe(3);
+        });
+    });
 });

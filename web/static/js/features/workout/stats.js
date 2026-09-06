@@ -606,8 +606,13 @@ function _renderConsistencyView(section, stats, range) {
     // computes them from the `range` query param); Streak is whole-history by
     // design — consecutive weeks holding ≥1 completed session, so one skipped
     // workout inside a trained week doesn't break it.
+    const streakWeeks = stats.current_streak_weeks || 0;
+    const bestStreakWeeks = stats.longest_streak_weeks || 0;
     section.appendChild(_buildTileGrid([
-        [`${stats.current_streak_weeks || 0} wk`, 'Streak'],
+        // The best-ever run only earns label space when it beats the current
+        // one: a current streak that IS the best needs no "best 4" echo, and a
+        // 0/0 account gets no noise.
+        [`${streakWeeks} wk`, bestStreakWeeks > streakWeeks ? `Streak · best ${bestStreakWeeks}` : 'Streak'],
         [String(stats.total_sessions || 0), 'Sessions'],
         [`${Math.round(stats.completion_rate || 0)}%`, 'Done'],
         [String(stats.skipped_sessions || 0), 'Skipped'],
