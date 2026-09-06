@@ -556,7 +556,9 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(active.dataset.view).toBe('consistency');
             expect(active.getAttribute('aria-pressed')).toBe('true');
             // Consistency is today's screen: the Streak tile is still first.
-            expect(container.querySelector('.wg-workouts-stats__tile-label').textContent).toBe('Streak');
+            // Prefix match — the label carries a "· best N" suffix whenever the
+            // fixture's best-ever run beats its current streak (med-djsa.6).
+            expect(container.querySelector('.wg-workouts-stats__tile-label').textContent).toMatch(/^Streak/);
         });
 
         it('switching views persists the choice and re-renders without refetching', () => {
