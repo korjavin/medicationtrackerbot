@@ -611,6 +611,86 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
                 .map((t) => t.textContent)[1]).toBe('Hard sets · 4 easy');
         });
 
+        // med-djsa.5 — the week-over-week caption under the tonnage chart.
+        //
+        // `week` on the real payload is the ISO Monday as "YYYY-MM-DD" (domain
+        // mondayOf), which is what the caption buckets on; loadStats()'s ISO
+        // timestamps predate this and are left alone, so these fixtures speak
+        // the production dialect.
+        function mondayStr(weeksAgo) {
+            const local = new Date();
+            const todayMs = Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
+            const sinceMonday = (new Date(todayMs).getUTCDay() + 6) % 7;
+            return new Date(todayMs - (sinceMonday + weeksAgo * 7) * 86400000)
+                .toISOString().slice(0, 10);
+        }
+
+        function statsWithWeeks(weekly_volume) {
+            return {
+                ...loadStats(),
+                weekly_volume,
+                prs: null,
+            };
+        }
+
+        function caption(container) {
+            const el = container.querySelector('.wg-workouts-stats__delta');
+            return el && el.textContent;
+        }
+
+        it('the load view captions the last complete week against the one before it', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, statsWithWeeks([
+                { week: mondayStr(2), volume_kg: 10000, hard_sets: 20, reps: 200 },
+                { week: mondayStr(1), volume_kg: 12345, hard_sets: 18, reps: 180 },
+                // The current Monday's bucket is partial until Sunday — counting
+                // it would report a crash every Tuesday, so it is excluded and
+                // its absurd numbers must not appear.
+                { week: mondayStr(0), volume_kg: 999999, hard_sets: 99, reps: 900 },
+            ]));
+            clickView(container, 'load');
+
+            expect(caption(container))
+                .toBe('Last week 12.3t · 18 hard sets · +23% vs the week before');
+        });
+
+        it('the load view signs a down week and drops the delta when the week before is a gap', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+
+            window._renderWorkoutStats(container, statsWithWeeks([
+                { week: mondayStr(2), volume_kg: 10000, hard_sets: 20, reps: 200 },
+                { week: mondayStr(1), volume_kg: 800, hard_sets: 1, reps: 10 },
+            ]));
+            clickView(container, 'load');
+            expect(caption(container))
+                .toBe('Last week 800 kg · 1 hard set · -92% vs the week before');
+
+            // weekly_volume is sparse: an untrained week is ABSENT, not a zero
+            // row, so there is nothing to divide by — the line stays, the delta
+            // goes.
+            window._renderWorkoutStats(container, statsWithWeeks([
+                { week: mondayStr(3), volume_kg: 10000, hard_sets: 20, reps: 200 },
+                { week: mondayStr(1), volume_kg: 12345, hard_sets: 18, reps: 180 },
+            ]));
+            clickView(container, 'load');
+            expect(caption(container)).toBe('Last week 12.3t · 18 hard sets');
+        });
+
+        it('the load view omits the caption when no complete week exists', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, statsWithWeeks([
+                { week: mondayStr(0), volume_kg: 4000, hard_sets: 9, reps: 90 },
+            ]));
+            clickView(container, 'load');
+
+            expect(caption(container)).toBeNull();
+            // The chart itself still draws the partial week.
+            expect(container.querySelector('.wg-workouts-stats__legend-label')).not.toBeNull();
+        });
+
         it('the balance view splits sets per body part and lists untrained ones', async () => {
             const { document, window } = env;
             stubCatalog(window, [

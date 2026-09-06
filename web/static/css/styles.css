@@ -9265,6 +9265,17 @@ textarea.wg-input {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
+/* Week-over-week caption under the Load chart legend (med-djsa.5). Sits with the
+   legend, not the tiles: it reads the chart, so the legend's bottom margin is the
+   gap it borrows. */
+.wg-workouts-stats__delta {
+    margin: 0 0 var(--space-md);
+    text-align: center;
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-font-size-mini);
+    color: var(--wg-fg-2);
+}
+
 /* WGSleepChart base shell (Phase 8, Task 4). The SVG carries the shared
    class; empty-state returns a <div> with the same class + --empty modifier.
    Stacked-bar fills resolve via the per-stage variant classes (deep / light /

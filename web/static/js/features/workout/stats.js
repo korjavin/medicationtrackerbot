@@ -341,6 +341,50 @@ function _buildActivityCalendar(daily, range) {
     return wrap;
 }
 
+// Week-over-week caption under the Load chart (med-djsa.5). Compares the last
+// two COMPLETE ISO weeks — the current Monday's bucket is partial until Sunday,
+// and counting it would report a drop every Tuesday for someone training exactly
+// as usual (the honesty rule med-904.3 applied to the hard-set band). Presentation
+// tier like _computeMovementSets: a two-entry subtraction on a payload the view
+// already holds, not a domain field.
+function _buildWeekOverWeek(weekly) {
+    const local = new Date();
+    const todayMs = Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
+    const currentMonday = new Date(todayMs - _sinceMonday(todayMs) * DAY_MS)
+        .toISOString().slice(0, 10);
+
+    // `week` is the ISO Monday as "YYYY-MM-DD", so a lexical compare IS a date
+    // compare. weekly_volume arrives ascending; the filter preserves that.
+    const complete = (weekly || [])
+        .filter((w) => w && typeof w.week === 'string' && w.week.slice(0, 10) < currentMonday);
+    if (complete.length === 0) return null;
+
+    const last = complete[complete.length - 1];
+    // weekly_volume is SPARSE — an untrained week is absent, not a zero row — so
+    // the previous entry is only the "week before" when its Monday is exactly one
+    // week back. Otherwise that week is a real zero: drop the delta rather than
+    // divide by it (and rather than print a meaningless +∞).
+    const priorMonday = new Date(Date.parse(`${last.week.slice(0, 10)}T00:00:00Z`) - 7 * DAY_MS)
+        .toISOString().slice(0, 10);
+    const before = complete[complete.length - 2];
+    const prior = before && before.week.slice(0, 10) === priorMonday ? before : null;
+
+    const sets = last.hard_sets || 0;
+    const parts = [
+        `Last week ${_formatVolume(last.volume_kg)}`,
+        `${sets} hard ${sets === 1 ? 'set' : 'sets'}`,
+    ];
+    if (prior && prior.volume_kg > 0) {
+        const pct = Math.round(((last.volume_kg || 0) - prior.volume_kg) / prior.volume_kg * 100);
+        parts.push(`${pct >= 0 ? '+' : ''}${pct}% vs the week before`);
+    }
+
+    const p = document.createElement('p');
+    p.className = 'wg-workouts-stats__delta';
+    p.textContent = parts.join(' · ');
+    return p;
+}
+
 function _buildHint(text) {
     const p = document.createElement('p');
     p.className = 'text-center text-hint wg-workouts-stats__empty';
@@ -519,6 +563,9 @@ function _renderLoadView(section, stats, range) {
         variant: 'bars',
     }));
     section.appendChild(_buildLegend('volume', 'Volume · per week'));
+
+    const wow = _buildWeekOverWeek(weekly);
+    if (wow) section.appendChild(wow);
 
     section.appendChild(_buildTileGrid([
         [_formatVolume(totals.volume_kg), 'Volume'],
