@@ -279,7 +279,7 @@ describe('features/workout/stats.js — split-file integration', () => {
     it('names the count and the user\'s own range on every view', () => {
       for (const view of ['consistency', 'load', 'balance']) {
         const text = headlineText(renderStats(view, { hard_set_band: BAND }));
-        expect(text).toContain('This week');
+        expect(text).toContain('Last 7 days');
         expect(text).toContain('26 hard sets');
         expect(text).toContain('In your usual range (20–30)');
       }

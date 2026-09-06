@@ -419,7 +419,10 @@ function _buildHardSetHeadline(band) {
 
     const label = document.createElement('span');
     label.className = 'wg-workouts-stats__headline-label';
-    label.textContent = 'This week';
+    // 'Last 7 days', not 'This week': the band is a ROLLING 7×24h window
+    // (workout.js windowHardSets[0]), so on a Monday "this week" would be
+    // claiming last Tuesday's sets for the current calendar week.
+    label.textContent = 'Last 7 days';
 
     const count = document.createElement('span');
     count.className = 'wg-workouts-stats__headline-count wg-mono-display';
