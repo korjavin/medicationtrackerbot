@@ -289,3 +289,169 @@ describe('features/workout/groups.js — split-file integration', () => {
     expect(window.WorkoutEdit.rotatingGuardPending).toBe(0);
   });
 });
+
+// bd med-ac5h — the printable Plan sheet. Same machinery as the doctor brief:
+// a pure string builder plus a handoff to web/cloud/js/print-doc.js, so the
+// assertions here are about what reaches paper, never about a print dialog.
+describe('features/workout/groups.js — printable plan sheet (med-ac5h)', () => {
+  let env;
+  let consoleErrorSpy;
+
+  const GROUP = {
+    id: 5,
+    name: 'Push / Pull / Legs',
+    is_rotating: true,
+    active: true,
+    training_goal: 'hypertrophy',
+    days_of_week: '[1,3,5]',
+    scheduled_time: '18:00',
+  };
+
+  const VARIANTS = [
+    { id: 22, group_id: 5, name: 'Pull day', rotation_order: 2 },
+    { id: 21, group_id: 5, name: 'Push day', rotation_order: 1, description: 'Chest + shoulders' },
+  ];
+
+  const EXERCISES = {
+    21: [
+      { id: 2, exercise_name: 'Overhead press', order_index: 1, target_sets: 3, target_reps_min: 6 },
+      { id: 1, exercise_name: 'Bench press', order_index: 0, target_sets: 4, target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60 },
+    ],
+    22: [
+      { id: 3, exercise_name: 'Barbell row', order_index: 0, target_sets: 3, target_reps_min: 10 },
+    ],
+  };
+
+  function stubApi(window, { variants = VARIANTS, exercises = EXERCISES } = {}) {
+    window.apiCall = vi.fn(async (url) => {
+      if (url.startsWith('/api/workout/variants?group_id=')) return variants;
+      const m = /\/api\/workout\/exercises\?variant_id=(\d+)/.exec(url);
+      if (m) return exercises[m[1]] || [];
+      return null;
+    });
+  }
+
+  // Captures the printDoc(document, html, className, css) handoff.
+  function stubPrintDoc(window) {
+    const printed = [];
+    window.WorkoutGroups.loadPrintDoc = async () => ({
+      printDoc: (d, html, cls, css) => printed.push({ html, cls, css }),
+    });
+    return printed;
+  }
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    env = loadFrontendEnv({ withWorkout: true });
+    env.window.Telegram.WebApp.showAlert = vi.fn();
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+    env.cleanup();
+    env = null;
+  });
+
+  it('every Plan row gets a Print button that does not open the Edit modal', () => {
+    const { window, document } = env;
+    const container = document.getElementById('workout-groups-list');
+    window._renderWorkoutGroups(container, [GROUP, { ...GROUP, id: 6, name: 'Full body' }]);
+
+    const buttons = container.querySelectorAll('button[aria-label="Print plan"]');
+    expect(buttons.length).toBe(2);
+
+    const printSpy = vi.fn();
+    window.WorkoutGroups.print = printSpy;
+    const openEdit = vi.fn();
+    window.showEditWorkoutGroupModal = openEdit;
+    buttons[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+    expect(printSpy).toHaveBeenCalledTimes(1);
+    expect(printSpy.mock.calls[0][0].id).toBe(5);
+    expect(openEdit).not.toHaveBeenCalled();
+  });
+
+  it('printing a rotating plan hands print-doc.js the whole sheet in rotation order', async () => {
+    const { window } = env;
+    stubApi(window);
+    const printed = stubPrintDoc(window);
+
+    await window.WorkoutGroups.print(GROUP);
+
+    expect(printed.length).toBe(1);
+    const { html, cls, css } = printed[0];
+    expect(cls).toBe('wg-print-frame');
+
+    // Header: name, goal, schedule.
+    expect(html).toContain('Push / Pull / Legs');
+    expect(html).toContain('Hypertrophy');
+    expect(html).toContain('Repeats on Mon, Wed, Fri · 18:00');
+    expect(html).toContain('Rotates through 2 days');
+
+    // Day headings in rotation_order, not fetch order.
+    expect(html.indexOf('Push day')).toBeLessThan(html.indexOf('Pull day'));
+    expect(html).toContain('Chest + shoulders');
+
+    // Exercises in order_index, with sets × reps[-range][ @ weight].
+    expect(html.indexOf('Bench press')).toBeLessThan(html.indexOf('Overhead press'));
+    expect(html).toContain('4 × 8–12 @ 60 kg');
+    expect(html).toContain('3 × 6');
+
+    // Hand-logging cells: one per target set, floored at 3.
+    const cells = (html.match(/class="cell"/g) || []).length;
+    expect(cells).toBe(4 + 3 + 3);
+
+    // Dark theme is irrelevant by construction — the document owns its colors.
+    expect(css).not.toContain('var(--wg-');
+    expect(html).toContain('nothing was sent to a server');
+  });
+
+  it('a flat plan prints its exercises with no Day heading', async () => {
+    const { window } = env;
+    stubApi(window, {
+      variants: [{ id: 30, group_id: 7, name: 'Main' }],
+      exercises: { 30: [{ id: 9, exercise_name: 'Squat', order_index: 0, target_sets: 3, target_reps_min: 5 }] },
+    });
+    const printed = stubPrintDoc(window);
+
+    await window.WorkoutGroups.print({
+      id: 7, name: 'Full body', is_rotating: false, active: false, days_of_week: '[]',
+    });
+
+    const { html } = printed[0];
+    expect(html).toContain('Squat');
+    expect(html).not.toContain('Main');
+    expect(html).not.toContain('<h2>');
+    expect(html).not.toContain('Rotates through');
+    expect(html).toContain('Inactive');
+  });
+
+  it('weights print in the user preference unit', async () => {
+    const { window } = env;
+    window.weightUnitPreference = 'lb';
+    stubApi(window, {
+      variants: [{ id: 30, name: 'Main' }],
+      exercises: { 30: [{ id: 9, exercise_name: 'Bench press', order_index: 0, target_sets: 3, target_reps_min: 5, target_weight_kg: 60 }] },
+    });
+    const printed = stubPrintDoc(window);
+
+    await window.WorkoutGroups.print({ id: 7, name: 'Strength', is_rotating: false, active: true, days_of_week: '[]' });
+
+    // 60 kg → 132.3 lb (utils.js formatWeight), never a bare kg number.
+    expect(printed[0].html).toContain('@ 132.3 lb');
+    expect(printed[0].html).not.toContain('60 kg');
+    expect(printed[0].html).toContain('lb × reps');
+  });
+
+  it('a failed read prints nothing and says so', async () => {
+    const { window } = env;
+    // apiCall returns null offline/5xx; a half-loaded plan must never print.
+    window.apiCall = vi.fn(async (url) => (url.includes('/variants?') ? [{ id: 30, name: 'Main' }] : null));
+    const printed = stubPrintDoc(window);
+
+    await window.WorkoutGroups.print(GROUP);
+
+    expect(printed.length).toBe(0);
+    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
+  });
+});

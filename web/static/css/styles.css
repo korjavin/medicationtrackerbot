@@ -10038,7 +10038,13 @@ textarea.wg-input {
 /* Offscreen rather than display:none — a hidden iframe does not lay out, and
    the print dialog needs a rendered document. Mirrors `.kit-print-frame` in
    web/cloud/css/cloud.css; both are driven by web/cloud/js/print-doc.js. */
-.wg-brief-print-frame {
+/* Offscreen frame print-doc.js renders a standalone document into. Off-canvas
+   rather than display:none — a hidden iframe does not lay out and the print
+   dialog needs a rendered document. `.wg-print-frame` is the shared name for
+   new callers (workout plan sheet, bd med-ac5h); `.wg-brief-print-frame` is
+   the doctor brief's original class, kept so its call site keeps working. */
+.wg-brief-print-frame,
+.wg-print-frame {
     position: absolute;
     width: 1px;
     height: 1px;
