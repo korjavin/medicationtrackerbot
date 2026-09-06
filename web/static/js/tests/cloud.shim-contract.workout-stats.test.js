@@ -290,6 +290,118 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         });
     });
 
+    // med-djsa.2 — `prs` names the records behind `totals.pr_count`. The
+    // "beat every earlier set" test spans the WHOLE history while only in-range
+    // beats are listed, so every case below is about that seam.
+    describe('named PR records (med-djsa.2)', () => {
+        // One completed ad-hoc session, optionally aged by rewriting its
+        // scheduled_date — the same backdating the range tests use. Returns the
+        // local day the session landed on, which is what `prs[].date` carries.
+        async function logOn(env, name, sets, daysAgo) {
+            const { window } = env;
+            const item = (await window.apiCall('/api/workout/exercise-library')).find((e) => e.name === name)
+                || await window.apiCall('/api/workout/exercise-library/create', 'POST', { name });
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: item.id, exercise_name: name,
+                source: 'library', status: 'completed', sets,
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+            if (!daysAgo) return String(session.scheduled_date).slice(0, 10);
+            const backdated = new Date(Date.now() - daysAgo * 86400000).toISOString();
+            for (const rec of await env.records.list('workoutsession')) {
+                if (rec.id === session.id) await env.records.put('workoutsession', { ...rec, scheduled_date: backdated });
+            }
+            return backdated.slice(0, 10);
+        }
+
+        it('names an in-range beat over out-of-range history, carrying the record it broke', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await logOn(env, 'Deadlift', [{ weight_kg: 100, reps: 5 }], 120);
+            const today = await logOn(env, 'Deadlift', [{ weight_kg: 110, reps: 5 }]);
+
+            const stats = await env.window.apiCallDirect('/api/workout/stats?range=30d');
+            expect(stats.totals.pr_count).toBe(1);
+            // previous_kg is what heaviestSoFar held BEFORE the beat — the
+            // 120-day-old lift, which the 30d window never shows anywhere else.
+            expect(stats.prs).toEqual([
+                { exercise_name: 'Deadlift', date: today, weight_kg: 110, previous_kg: 100 },
+            ]);
+        });
+
+        it('does not count a tie, and reports null rather than [] when nothing beats', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await logOn(env, 'Bench', [{ weight_kg: 80, reps: 5 }], 60);
+            await logOn(env, 'Bench', [{ weight_kg: 80, reps: 5 }]);
+
+            const stats = await env.window.apiCallDirect('/api/workout/stats?range=30d');
+            expect(stats.totals.pr_count).toBe(0);
+            expect('prs' in stats).toBe(true);
+            expect(stats.prs).toBeNull();
+        });
+
+        it('leaves an out-of-range beat out of the range list but keeps it in a wider one', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const then = await logOn(env, 'Squat', [{ weight_kg: 100, reps: 5 }], 60);
+
+            const near = await env.window.apiCallDirect('/api/workout/stats?range=30d');
+            expect(near.prs).toBeNull();
+
+            const far = await env.window.apiCallDirect('/api/workout/stats?range=90d');
+            expect(far.prs).toEqual([
+                { exercise_name: 'Squat', date: then, weight_kg: 100, previous_kg: 0 },
+            ]);
+        });
+
+        it('orders records newest first', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            await logOn(env, 'Row', [{ weight_kg: 60, reps: 5 }], 20);
+            await logOn(env, 'Row', [{ weight_kg: 65, reps: 5 }], 10);
+            await logOn(env, 'Row', [{ weight_kg: 70, reps: 5 }], 3);
+
+            const stats = await env.window.apiCallDirect('/api/workout/stats?range=30d');
+            expect(stats.prs.map((p) => p.weight_kg)).toEqual([70, 65, 60]);
+            expect(stats.prs.map((p) => p.previous_kg)).toEqual([65, 60, 0]);
+        });
+
+        // scheduled_date is day-granular, so two sessions on one day tie on it
+        // and the scan has to fall through to scheduled_time — the canonical
+        // within-day order. Log id is CREATION order, and a backfill inverts it.
+        it('walks same-day sessions in scheduled_time order, not creation order', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            // The evening session is entered first; the morning one is backfilled
+            // after it, so its log carries the HIGHER id.
+            await logOn(env, 'Clean', [{ weight_kg: 90, reps: 3 }]);
+            await logOn(env, 'Clean', [{ weight_kg: 80, reps: 3 }]);
+            const sessions = (await env.records.list('workoutsession')).sort((a, b) => a.id - b.id);
+            await env.records.put('workoutsession', { ...sessions[0], scheduled_time: '18:00' });
+            await env.records.put('workoutsession', { ...sessions[1], scheduled_time: '07:00' });
+
+            const stats = await env.window.apiCallDirect('/api/workout/stats?range=30d');
+            // 80 kg in the morning is the first record; the 90 kg that evening
+            // beats it. Creation order would have reported one PR, not two.
+            expect(stats.totals.pr_count).toBe(2);
+            expect(stats.prs.map((p) => [p.weight_kg, p.previous_kg])).toEqual([[90, 80], [80, 0]]);
+        });
+
+        it('never sets a record off a warm-up: the max_weight_kg fold already excludes them', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            // Ramp-only session: nobody trained, so there is no record here.
+            await logOn(env, 'Curl', [{ weight_kg: 50, reps: 10, set_type: 'warmup' }]);
+            // A heavy ramp above the working set: the record is the WORK weight.
+            await logOn(env, 'Press', [
+                { weight_kg: 100, reps: 3, set_type: 'warmup' },
+                { weight_kg: 60, reps: 5 },
+            ]);
+
+            const stats = await env.window.apiCallDirect('/api/workout/stats?range=30d');
+            expect(stats.prs).toEqual([
+                { exercise_name: 'Press', date: expect.any(String), weight_kg: 60, previous_kg: 0 },
+            ]);
+            expect(stats.totals.pr_count).toBe(1);
+        });
+    });
+
     // med-904.3 — hard_set_band: the user's OWN trailing baseline, in rolling
     // 7-day windows rather than ISO weeks (a calendar week is partial until
     // Sunday and would read "below" every Monday).

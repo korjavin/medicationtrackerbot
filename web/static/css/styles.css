@@ -7536,9 +7536,23 @@ textarea.wg-input {
     border: 1px solid var(--wg-tag-normal-border);
 }
 
-/* Top Exercises rows open the per-exercise detail view on tap. */
+/* Top Exercises and Records rows open the per-exercise detail view on tap. The
+   trailing chevron is the ONLY thing signalling that surface exists (med-djsa.2)
+   — without it the whole detail view sits behind an unadvertised tap. The name
+   takes the slack so the summary and the chevron stay paired at the right edge
+   instead of being spread apart by the head's space-between. */
 .wg-workouts-stats__top-row--tappable {
     cursor: pointer;
+}
+
+.wg-workouts-stats__top-row--tappable .wg-workouts-stats__top-row-name {
+    flex: 1;
+}
+
+.wg-workouts-stats__top-row--tappable .wg-workouts-stats__top-row-head::after {
+    content: '›';
+    color: var(--wg-fg-4);
+    flex-shrink: 0;
 }
 
 /* Per-exercise detail view (records + est-1RM/top-weight graphs). */

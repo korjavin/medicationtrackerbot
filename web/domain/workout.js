@@ -2481,6 +2481,16 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     while (completedWeeks.has(cursor)) { currentStreakWeeks++; cursor = weekBefore(cursor); }
 
     const sessionSchedule = new Map(allSessions.map((s) => [s.id, new Date(s.scheduled_date).getTime()]));
+    // `day` follows the same local-date-prefix rule as mondayOf/dayMap — the PR
+    // list below dates a record by the session's local day, not by the log's
+    // logged_at instant. `time` is the canonical WITHIN-day key (sortSessions /
+    // sortedLogsByName use it too): scheduled_date is day-granular, so two
+    // sessions on one day tie on it, and the PR scan below has to walk them in
+    // the order they were trained or `previous_kg` chains to the wrong lift.
+    const sessionMeta = new Map(allSessions.map((s) => [s.id, {
+      day: String(s.scheduled_date).slice(0, 10),
+      time: s.scheduled_time || '',
+    }]));
 
     // Completed logs, oldest session first. The PR pass below needs a running
     // heaviest-per-exercise over the WHOLE history (an in-range log only counts
@@ -2493,9 +2503,23 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       // A corrupt/unparseable scheduled_date sorts to the epoch rather than
       // poisoning the comparator; the window tests still use the raw value so
       // NaN keeps failing them exactly as it did before.
-      completedLogs.push({ log, schedMs, sortAt: Number.isFinite(schedMs) ? schedMs : 0, work: logWorkTotals(log) });
+      completedLogs.push({
+        log,
+        schedMs,
+        sortAt: Number.isFinite(schedMs) ? schedMs : 0,
+        meta: sessionMeta.get(log.session_id) || { day: '', time: '' },
+        work: logWorkTotals(log),
+      });
     }
-    completedLogs.sort((a, b) => (a.sortAt - b.sortAt) || (a.log.id - b.log.id));
+    // scheduled_date is day-granular, so same-day sessions tie on sortAt: break
+    // on scheduled_time (the canonical within-day order, same as sortSessions /
+    // sortedLogsByName) before falling back to ids. Log id alone is CREATION
+    // order, so a backfilled morning session would otherwise walk after the
+    // evening one it preceded and hand the PR chain the wrong predecessor.
+    completedLogs.sort((a, b) => (a.sortAt - b.sortAt)
+      || (a.meta.time < b.meta.time ? -1 : a.meta.time > b.meta.time ? 1 : 0)
+      || (a.log.session_id - b.log.session_id)
+      || (a.log.id - b.log.id));
 
     // weekly_volume mirrors weekly_activity's buckets exactly — a trained week
     // with no logged load is a real zero, not a gap in the trend line.
@@ -2528,14 +2552,28 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     let rangeEasySets = 0;
     let rangeReps = 0;
     let prCount = 0;
+    // The named records behind pr_count (med-djsa.2) — WHICH lift was beaten,
+    // which is the actual retention lever. Collected oldest-first here and
+    // reversed below. Weight PRs only: est-1RM / rep records live in
+    // web/domain/workout-analysis.js and the per-exercise detail view.
+    const prRecords = [];
 
-    for (const { log, schedMs, work } of completedLogs) {
+    for (const { log, schedMs, meta, work } of completedLogs) {
       // PR check runs before any window test: "beat every earlier set" spans
       // the full history, we only *count* the ones landing inside the range.
       // A zero-weight (bodyweight) log can never set a weight PR.
-      if (work.max_weight_kg > (heaviestSoFar.get(log.exercise_name) || 0)) {
+      const previousKg = heaviestSoFar.get(log.exercise_name) || 0;
+      if (work.max_weight_kg > previousKg) {
         heaviestSoFar.set(log.exercise_name, work.max_weight_kg);
-        if (schedMs >= since30) prCount++;
+        if (schedMs >= since30) {
+          prCount++;
+          prRecords.push({
+            exercise_name: log.exercise_name,
+            date: meta.day,
+            weight_kg: work.max_weight_kg,
+            previous_kg: previousKg,
+          });
+        }
       }
 
       if (Number.isFinite(schedMs)) {
@@ -2673,6 +2711,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         reps: rangeReps,
         pr_count: prCount,
       },
+      // Newest first; `null` (never `[]`) on an empty window, matching every
+      // other list on this payload.
+      prs: prRecords.length ? prRecords.reverse() : null,
       weekly_volume: weeklyVolume,
       exercise_totals: exerciseTotals,
       hard_set_band: hardSetBand,
