@@ -348,26 +348,46 @@ function _buildActivityCalendar(daily, range) {
 // tier like _computeMovementSets: a two-entry subtraction on a payload the view
 // already holds, not a domain field.
 function _buildWeekOverWeek(weekly) {
+    // Same browser-local-day anchor as _buildActivityCalendar, for the same
+    // reason: every step below is then plain ms arithmetic that can't drift a
+    // timezone. It can disagree with the domain's configured-timezone bucketing
+    // for a few hours around a Sunday midnight when the two differ — the
+    // calendar grid has always had that property, and closing it would mean a
+    // new domain field this tier is explicitly not allowed to add.
     const local = new Date();
     const todayMs = Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
-    const currentMonday = new Date(todayMs - _sinceMonday(todayMs) * DAY_MS)
-        .toISOString().slice(0, 10);
+    const monday = (ms) => new Date(ms).toISOString().slice(0, 10);
+    const currentMondayMs = todayMs - _sinceMonday(todayMs) * DAY_MS;
+    const currentMonday = monday(currentMondayMs);
 
     // `week` is the ISO Monday as "YYYY-MM-DD", so a lexical compare IS a date
     // compare. weekly_volume arrives ascending; the filter preserves that.
-    const complete = (weekly || [])
-        .filter((w) => w && typeof w.week === 'string' && w.week.slice(0, 10) < currentMonday);
+    const weekOf = (w) => (w && typeof w.week === 'string' ? w.week.slice(0, 10) : '');
+    const complete = (weekly || []).filter((w) => weekOf(w) && weekOf(w) < currentMonday);
+    // No complete week at all = no history to talk about yet, so say nothing
+    // rather than nag a brand-new user about a week they were never here for.
     if (complete.length === 0) return null;
 
+    const p = document.createElement('p');
+    p.className = 'wg-workouts-stats__delta';
+
+    // weekly_volume is SPARSE — a week with nothing logged is ABSENT, not a zero
+    // row — so the newest complete bucket is only *last week* when its Monday is
+    // exactly one week back. Otherwise last week was a rest week, and naming it
+    // beats both lying about which week the tonnage came from and silently
+    // dropping the line.
+    const lastMonday = monday(currentMondayMs - 7 * DAY_MS);
     const last = complete[complete.length - 1];
-    // weekly_volume is SPARSE — an untrained week is absent, not a zero row — so
-    // the previous entry is only the "week before" when its Monday is exactly one
-    // week back. Otherwise that week is a real zero: drop the delta rather than
-    // divide by it (and rather than print a meaningless +∞).
-    const priorMonday = new Date(Date.parse(`${last.week.slice(0, 10)}T00:00:00Z`) - 7 * DAY_MS)
-        .toISOString().slice(0, 10);
+    if (weekOf(last) !== lastMonday) {
+        p.textContent = 'Last week no training';
+        return p;
+    }
+
+    // Same rule one week further back: an absent week before is a real zero, so
+    // drop the delta rather than divide by it (and rather than print +∞).
+    const priorMonday = monday(currentMondayMs - 14 * DAY_MS);
     const before = complete[complete.length - 2];
-    const prior = before && before.week.slice(0, 10) === priorMonday ? before : null;
+    const prior = before && weekOf(before) === priorMonday ? before : null;
 
     const sets = last.hard_sets || 0;
     const parts = [
@@ -379,8 +399,6 @@ function _buildWeekOverWeek(weekly) {
         parts.push(`${pct >= 0 ? '+' : ''}${pct}% vs the week before`);
     }
 
-    const p = document.createElement('p');
-    p.className = 'wg-workouts-stats__delta';
     p.textContent = parts.join(' · ');
     return p;
 }

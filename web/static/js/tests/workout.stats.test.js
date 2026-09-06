@@ -678,6 +678,22 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(caption(container)).toBe('Last week 12.3t · 18 hard sets');
         });
 
+        // The sparse-payload trap: coming back from a week off, the newest
+        // complete bucket is TWO weeks old. Labelling it "Last week" would
+        // attribute a fortnight-old session's tonnage to a week the user spent
+        // on the sofa.
+        it('the load view names a rest week instead of relabelling older tonnage', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, statsWithWeeks([
+                { week: mondayStr(3), volume_kg: 10000, hard_sets: 20, reps: 200 },
+                { week: mondayStr(2), volume_kg: 12345, hard_sets: 18, reps: 180 },
+            ]));
+            clickView(container, 'load');
+
+            expect(caption(container)).toBe('Last week no training');
+        });
+
         it('the load view omits the caption when no complete week exists', () => {
             const { document, window } = env;
             const container = document.getElementById('workout-stats-display');
