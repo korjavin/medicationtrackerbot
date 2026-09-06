@@ -1887,9 +1887,10 @@ export const CATALOG = [
             "strength",
             "hypertrophy",
             "endurance",
-            "general"
+            "general",
+            ""
           ],
-          "description": "Per-exercise override of the routine's training goal. Omit to inherit the group's goal."
+          "description": "Per-exercise override of the routine's training goal. Omit to keep the stored override; send \"\" to drop it and inherit the group's goal."
         }
       }
     }

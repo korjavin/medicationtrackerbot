@@ -188,7 +188,7 @@ output(result)`,
       },
       "description": "Opt-in automatic progression applied when a session completes (see workouts.progression_preview for the dry run). Load bumps are RIR-gated by the effective training goal."
     },
-    "training_goal":    {"type": "string", "enum": ["strength", "hypertrophy", "endurance", "general"], "description": "Per-exercise override of the routine's training goal. Omit to inherit the group's goal."}
+    "training_goal":    {"type": "string", "enum": ["strength", "hypertrophy", "endurance", "general", ""], "description": "Per-exercise override of the routine's training goal. Omit to keep the stored override; send \"\" to drop it and inherit the group's goal."}
   }
 }`),
 			Description:     "Update the configuration of a workout exercise (name, target sets/reps, weight, ordering, progression rule, training-goal override). The plain fields are a FULL REPLACEMENT — fetch the current exercise via workouts.exercises.list and send every field back. progression_rule and training_goal are the exception: OMIT the key to keep the stored value; send progression_rule {\"type\": \"none\"} to clear the rule, or training_goal \"\" to drop the override and inherit the group's goal. Goes through backend domain validation; the existing exercise must belong to a variant the user owns.",
