@@ -8,7 +8,7 @@ version: '3'
 
 services:
   cloud:
-    image: ghcr.io/korjavin/medicationtrackerbot:latest
+    image: ghcr.io/korjavin/medicationtrackerbot:57a9eab954b972f37e91e754edd1b1d49b3acee2
     container_name: medtracker-cloud
     restart: unless-stopped
     command: ["./cloud"]
