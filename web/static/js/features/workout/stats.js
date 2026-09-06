@@ -225,23 +225,43 @@ function _buildBarRow({ name, summary, pct, onOpen }) {
 
 // -- Consistency calendar (med-zte) ---------------------------------------
 //
-// GitHub-contribution-style day grid: 7 rows (Mon…Sun) × N week columns,
-// oldest week leftmost, one cell per day of the ACTIVE range. It replaces the
-// sessions-per-week line — a 2-vs-3 line is jagged noise, and the grid
-// strictly contains the line's information (per-week totals are just a column
-// read vertically) plus which days you trained.
+// Day grid, GitHub's marks on the opposite axis: N week ROWS × 7 weekday
+// columns (Mon…Sun), NEWEST week on top, one cell per day of the ACTIVE range.
+// It replaces the sessions-per-week line — a 2-vs-3 line is jagged noise, and
+// the grid strictly contains the line's information (per-week totals are just
+// a row read horizontally) plus which days you trained.
 //
-// ponytail: hard cap of 53 week columns (~1 year). `range=all` on a multi-year
-// history would otherwise emit thousands of cells for a strip nobody can read
-// on a phone; widen (or add horizontal paging) only if someone asks for a
-// multi-year wall.
-const CALENDAR_MAX_WEEKS = 53;
+// Transposed (med-djsa.1) because time ran along the phone's NARROW axis:
+// GitHub's 7-rows-×-N-columns wall either squeezed the cells or scrolled
+// sideways at 375px. Weeks-as-rows puts time on the long, natively scrollable
+// axis, and the 7-wide axis always fits. Newest week first so the row you act
+// on sits under the pills; older weeks read as scroll-down history.
+//
+// med-djsa.4 spends the two spaces the transpose opened up, both folds of the
+// same entries map: a month label in the left gutter whenever a row opens a
+// new month ("when was that?"), and a per-weekday trained-day total under each
+// column ("which days do I actually train?").
+//
+// ponytail: hard cap of 26 week rows (~6 months). Rows cost height now — 53
+// would push the tiles two screens down — and `range=all` on a multi-year
+// history would emit thousands of cells nobody scrolls to; raise it (or add
+// paging) only if someone asks for a multi-year wall.
+const CALENDAR_MAX_WEEKS = 26;
 const CALENDAR_RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90 };
-// One initial per row, no month labels. GitHub labels Mon/Wed/Fri only and
-// lets the reader interpolate, which works on a desktop-width wall; on a phone
-// strip the four blank rows just read as anonymous. Single letters cost the
-// same column width as "Mon" and leave no row unlabelled.
+// One initial per column. GitHub labels Mon/Wed/Fri only and lets the reader
+// interpolate, which works on a desktop-width wall; on a phone the four blank
+// slots just read as anonymous. Single letters cost the same column width as
+// "Mon" and leave no column unlabelled.
 const CALENDAR_WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+// Spelled out for the totals footer's aria-label — "3 0 2 1 0 4 0" read aloud
+// is noise, and the visible header is seven ambiguous initials.
+const CALENDAR_WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+// med-djsa.4: the transpose freed a left gutter, so rows can finally carry the
+// month the horizontal layout had no room for (med-zte skipped it). Static
+// abbreviations rather than toLocaleString — the grid is UTC-anchored ms
+// arithmetic throughout and a locale month name would be the one part of it
+// that moves under the user's locale.
+const CALENDAR_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAY_MS = 86400000;
 
 // Days since the Monday of this day's week (UTC-anchored; getUTCDay 0 = Sun).
@@ -256,7 +276,7 @@ function _buildActivityCalendar(daily, range) {
     // every step below is plain ms arithmetic that can't drift a timezone.
     const local = new Date();
     const todayMs = Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
-    // Grid ends on the Sunday of the current week so the last column is whole.
+    // Grid ends on the Sunday of the current week so the top row is whole.
     const endMs = todayMs + (6 - _sinceMonday(todayMs)) * DAY_MS;
 
     const days = CALENDAR_RANGE_DAYS[range];
@@ -291,40 +311,56 @@ function _buildActivityCalendar(daily, range) {
     grid.className = 'wg-workouts-stats__calendar-grid';
     grid.dataset.range = range || 'all';
     grid.dataset.weeks = String(weekCount);
-    // Cell size is fluid (the grid divides the card's width by the column
-    // count); the stylesheet needs the count to cap that growth. Deliberately
-    // NOT `--wg-`-prefixed: that namespace is design tokens, which
-    // architecture.design-tokens.test.js keeps CSS-only. This is a per-render
-    // structural integer, so it follows `--fill-pct` / `--ring-progress` and
-    // goes out unprefixed through the sanctioned `setProperty` hatch.
-    grid.style.setProperty('--calendar-weeks', String(weekCount));
 
-    // Cells stream in chronological order; the grid flows column-first over 7
-    // rows, so each column is one Mon→Sun week.
+    // Cells stream row-first, newest week FIRST: row w starts on the Monday w
+    // weeks back from the current week and runs Mon→Sun. The grid is 7 columns
+    // wide, so each row is one whole week and row 0 is this one.
     let trainedDays = 0;
     let skippedDays = 0;
-    for (let ms = startMs; ms <= endMs; ms += DAY_MS) {
-        const date = new Date(ms).toISOString().slice(0, 10);
-        const entry = entries.get(date);
-        // Shade by STATUS, never volume: a bodyweight session logs zero
-        // tonnage and would render as a rest day on a volume-shaded grid.
-        let state = 'empty';
-        let what = 'nothing logged';
-        if (entry && entry.completed > 0) {
-            state = 'done';
-            what = entry.completed === 1 ? 'completed' : `${entry.completed} completed`;
-            trainedDays++;
-        } else if (entry && entry.skipped > 0) {
-            state = 'skipped';
-            what = entry.skipped === 1 ? 'skipped' : `${entry.skipped} skipped`;
-            skippedDays++;
+    // Column sums for the footer: trained days on each weekday over the whole
+    // rendered span. "You never train on Wednesday" is a rest-day pattern the
+    // grid makes people squint for, and it is just a column sum.
+    const perWeekday = [0, 0, 0, 0, 0, 0, 0];
+    let prevMonth = -1;
+    for (let w = 0; w < weekCount; w++) {
+        const monday = endMs - (w * 7 + 6) * DAY_MS;
+
+        // Gutter label in column 1. Rows run newest-first, so "the row above"
+        // is w-1 — a NEWER week; a row opens a month whenever its Monday
+        // differs from that one. Row 0 is always labelled, and every row emits
+        // a span (blank ones included) so the 8-column flow stays in step.
+        const month = new Date(monday).getUTCMonth();
+        const monthLabel = document.createElement('span');
+        monthLabel.className = 'wg-workouts-stats__calendar-month';
+        if (month !== prevMonth) monthLabel.textContent = CALENDAR_MONTHS[month];
+        prevMonth = month;
+        grid.appendChild(monthLabel);
+
+        for (let d = 0; d < 7; d++) {
+            const ms = monday + d * DAY_MS;
+            const date = new Date(ms).toISOString().slice(0, 10);
+            const entry = entries.get(date);
+            // Shade by STATUS, never volume: a bodyweight session logs zero
+            // tonnage and would render as a rest day on a volume-shaded grid.
+            let state = 'empty';
+            let what = 'nothing logged';
+            if (entry && entry.completed > 0) {
+                state = 'done';
+                what = entry.completed === 1 ? 'completed' : `${entry.completed} completed`;
+                trainedDays++;
+                perWeekday[d]++;
+            } else if (entry && entry.skipped > 0) {
+                state = 'skipped';
+                what = entry.skipped === 1 ? 'skipped' : `${entry.skipped} skipped`;
+                skippedDays++;
+            }
+            const cell = document.createElement('div');
+            cell.className = `wg-workouts-stats__calendar-cell wg-workouts-stats__calendar-cell--${state}`;
+            // Days past today pad the top row to a full week; they aren't a
+            // rest day yet, so they get no label.
+            if (ms <= todayMs) cell.title = `${date} · ${what}`;
+            grid.appendChild(cell);
         }
-        const cell = document.createElement('div');
-        cell.className = `wg-workouts-stats__calendar-cell wg-workouts-stats__calendar-cell--${state}`;
-        // Days past today pad the final column to a full week; they aren't a
-        // rest day yet, so they get no label.
-        if (ms <= todayMs) cell.title = `${date} · ${what}`;
-        grid.appendChild(cell);
     }
 
     // The per-cell titles are tooltips, not an accessible name — screen
@@ -334,6 +370,23 @@ function _buildActivityCalendar(daily, range) {
         `Workout calendar, last ${weekCount} weeks: ${trainedDays} ${trainedDays === 1 ? 'day' : 'days'} trained, ${skippedDays} skipped.`);
 
     wrap.appendChild(grid);
+
+    const totals = document.createElement('div');
+    totals.className = 'wg-workouts-stats__calendar-totals';
+    perWeekday.forEach((count, d) => {
+        const cell = document.createElement('span');
+        cell.className = 'wg-workouts-stats__calendar-total';
+        // A zero is the insight, not an absence — it stays on screen, muted.
+        if (!count) cell.classList.add('wg-workouts-stats__calendar-total--zero');
+        cell.textContent = String(count);
+        cell.title = `${CALENDAR_WEEKDAY_NAMES[d]} · ${count} trained`;
+        totals.appendChild(cell);
+    });
+    totals.setAttribute('role', 'img');
+    totals.setAttribute('aria-label', `Trained days per weekday: ${
+        perWeekday.map((c, d) => `${CALENDAR_WEEKDAY_NAMES[d]} ${c}`).join(', ')}.`);
+    wrap.appendChild(totals);
+
     return wrap;
 }
 
@@ -372,6 +425,47 @@ function _appendTopExercises(section, exercises) {
     });
 
     section.appendChild(list);
+}
+
+// Records (med-djsa.2) — the names behind the "PRs" tile. The tile alone says
+// "3"; seeing WHICH lift you beat is the retention lever. Rows open the same
+// per-exercise detail view Top Exercises does. Omitted entirely when there are
+// none: an empty "no PRs" panel is a nag, not information.
+//
+// The bar reads "how far past the old record" — the beaten weight as a share of
+// the new one — so a near-miss improvement is nearly full and a first-ever
+// weighted lift (previous_kg 0) is empty.
+function _appendRecords(section, prs) {
+    if (!Array.isArray(prs) || prs.length === 0) return;
+    section.appendChild(_buildSectionLabel('Records · this range'));
+
+    const list = document.createElement('ul');
+    list.className = 'wg-workouts-stats__top-exercises';
+    prs.forEach((pr) => {
+        const was = pr.previous_kg > 0 ? `was ${pr.previous_kg}` : 'first';
+        list.appendChild(_buildBarRow({
+            name: pr.exercise_name,
+            summary: `${pr.weight_kg} kg · ${was} · ${_formatRecordDate(pr.date)}`,
+            pct: pr.weight_kg > 0 ? (pr.previous_kg / pr.weight_kg * 100).toFixed(1) : 0,
+            onOpen: () => {
+                if (window.WorkoutExerciseDetail && typeof window.WorkoutExerciseDetail.open === 'function') {
+                    window.WorkoutExerciseDetail.open(pr.exercise_name);
+                }
+            },
+        }));
+    });
+
+    section.appendChild(list);
+}
+
+// 'YYYY-MM-DD' (a LOCAL day, already) -> 'Sep 2'. The explicit T00:00:00 keeps
+// it local: a bare date string parses as UTC midnight and would render the day
+// before west of Greenwich.
+function _formatRecordDate(day) {
+    const d = new Date(`${day}T00:00:00`);
+    return Number.isNaN(d.getTime())
+        ? String(day)
+        : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 // Pull:Push and Hinge:Squat as split bars — the fill is the FIRST pattern's
@@ -496,6 +590,8 @@ function _renderLoadView(section, stats, range) {
         [String(totals.reps || 0), 'Reps'],
         [String(totals.pr_count || 0), 'PRs'],
     ]));
+
+    _appendRecords(section, stats.prs);
 
     // exercise_totals carries the same per-exercise rows with warm-ups excluded
     // and per-set weights honoured, so the list adds up to the Volume tile above
