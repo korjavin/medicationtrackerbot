@@ -90,7 +90,7 @@ func buildHostedMCPServer(client *mcpshim.Client) *sdkmcp.Server {
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        "mcp_call",
-		Description: "Run exactly one Med Tracker operation by id — see mcp_help for the catalog." + hostedToolDescriptionSuffix,
+		Description: "Run exactly one Med Tracker operation by id (ids and schemas come from mcp_help). Pass params for query fields, path_params for {placeholder} slots in the route, and body as a JSON object for writes. Any operation that changes data requires mode='write' and a one-sentence intent; reads never mutate. Returns the operation's result, or an error naming the reason (no device unlocked and online, unknown operation, validation failure)." + hostedToolDescriptionSuffix,
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, input mcpshim.CallInput) (*sdkmcp.CallToolResult, any, error) {
 		return call(ctx, "mcp_call", input)
 	})

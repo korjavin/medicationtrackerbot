@@ -28,7 +28,7 @@ The user prioritizes getting a working proof-of-concept before hardening. Encode
 - **Priority (P0–P4):** POC-path work gets high priority (P0–P1). Polish, hardening, edge cases, and nice-to-haves get low priority (P3–P4).
 - **Label:** tag POC work `poc` and follow-up work `polish` (`--label`).
 
-So the natural POC/polish split is one high-priority `poc` issue plus a low-priority `polish` follow-up (often `bd dep add <polish> <poc>` so polish stays blocked until the POC lands). Right now the project is focused on bringing **cloud mode** to parity with bot mode — favor that framing when relevant.
+So the natural POC/polish split is one high-priority `poc` issue plus a low-priority `polish` follow-up (often `bd dep add <polish> <poc>` so polish stays blocked until the POC lands). Cloud mode (`cmd/cloud`) is the product; bot mode is legacy maintenance, so don't file bot-mode parity or backport work.
 
 ## Multi-user dolt sync — REQUIRED around every bd state change
 

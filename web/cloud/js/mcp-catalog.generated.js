@@ -92,7 +92,7 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/food/log/from-description",
     "risk": "write",
-    "description": "Log one or more food intake entries from a natural-language meal description. Uses the same AI parser as the bot's /food command — pass the user's words verbatim. Unlike food.log.create, this endpoint does NOT upsert into food_products; AI-parsed items are stored as standalone FoodLog rows without joining the user's product catalog. Prefer food.log.create with a product_id when the user is logging a single known food and you want the entry to roll up under an existing product. Returns the created logs so they can be displayed or undone.",
+    "description": "Log one or more food intake entries from a natural-language meal description — pass the user's words verbatim; the AI parser estimates items and macros. Unlike food.log.create, this endpoint does NOT upsert into food_products; AI-parsed items are stored as standalone FoodLog rows without joining the user's product catalog. Prefer food.log.create with a product_id when the user is logging a single known food and you want the entry to roll up under an existing product. Returns the created logs so they can be displayed or undone.",
     "response_summary": "{status, items:[{id, name, weight, carbs, protein, fat, calories}], failed}.",
     "required": [
       "description"
@@ -611,7 +611,7 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/bp/reminder/test",
     "risk": "write",
-    "description": "Send a test BP reminder notification through the configured channels (Telegram + web push). Useful for validating notification setup.",
+    "description": "Send a test BP reminder notification to this account's configured push channel. Useful for validating notification setup.",
     "response_summary": "Object {status:\"success\"}."
   },
   {
@@ -739,7 +739,7 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/health/overview",
     "risk": "read",
-    "description": "Aggregate dashboard read over a 7d/30d window. THIS IS THE SOURCE FOR DEVICE-IMPORTED SLEEP AND VITALS. Returns per-night sleep with phase breakdown (light/deep/REM/awake minutes + avg heart rate), continuous heart-rate / SpO2 / stress histories, and daily step aggregates — plus their 7d/30d averages. Use this for any sleep-recovery, sleep-phase, or vitals-trend analysis (it replaces the older get_sleep_logs endpoint). For manual sleep journaling instead, see health.notes.*.",
+    "description": "Aggregate dashboard read over a 7d/30d window. This is the source for device-imported sleep and vitals. Returns per-night sleep with phase breakdown (light/deep/REM/awake minutes + avg heart rate), continuous heart-rate / SpO2 / stress histories, and daily step aggregates — plus their 7d/30d averages. Use this for any sleep-recovery, sleep-phase, or vitals-trend analysis. For manual sleep journaling instead, see health.notes.*.",
     "response_summary": "Object with sleep_stats_7d/sleep_stats_30d (per-night {date, light_mins, deep_mins, rem_mins, awake_mins, total_mins, heart_rate_avg}), average_sleep_hours_7d/30d, heart_rate_history_7d/30d, spo2_history_7d/30d, stress_history_7d/30d (each [{timestamp, min, max, avg}]), step_stats_7d/30d, and average_heart_rate/spo2/stress/steps_7d/30d.",
     "response_example": "{\n  \"sleep_stats_7d\": [\n    {\"date\": \"2026-04-29\", \"light_mins\": 240, \"deep_mins\": 90, \"rem_mins\": 70, \"awake_mins\": 20, \"total_mins\": 420, \"heart_rate_avg\": 56}\n  ],\n  \"average_sleep_hours_7d\": 7.1,\n  \"average_sleep_hours_30d\": 6.8,\n  \"heart_rate_history_7d\": [{\"timestamp\": \"2026-04-29T03:00:00Z\", \"min\": 52, \"max\": 61, \"avg\": 56}],\n  \"spo2_history_7d\": [{\"timestamp\": \"2026-04-29T03:00:00Z\", \"min\": 95, \"max\": 99, \"avg\": 97}],\n  \"stress_history_7d\": [{\"timestamp\": \"2026-04-29T12:00:00Z\", \"min\": 22, \"max\": 48, \"avg\": 33}],\n  \"step_stats_7d\": [{\"date\": \"2026-04-29\", \"steps\": 8421}],\n  \"average_heart_rate_7d\": 62, \"average_spo2_7d\": 97, \"average_stress_7d\": 34, \"average_steps_7d\": 7800\n}"
   },
@@ -749,7 +749,7 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/health/sleep",
     "risk": "read",
-    "description": "List raw device-imported sleep sessions, newest first, each with full phase breakdown (light/deep/REM/awake minutes), total minutes, turn-over count, and HR/SpO2 averages. This is the detailed, range-queryable sleep source — use it (NOT health.notes.*) for sleep-recovery / phase analysis, and prefer it over health.overview when you need a window other than the trailing 7/30 days (e.g. a past trip). Provide an explicit from/to range or a days look-back. This replaces the older get_sleep_logs endpoint.",
+    "description": "List raw device-imported sleep sessions, newest first, each with full phase breakdown (light/deep/REM/awake minutes), total minutes, turn-over count, and HR/SpO2 averages. This is the detailed, range-queryable sleep source — use it (not health.notes.*, which is manual journaling) for sleep-recovery / phase analysis, and prefer it over health.overview when you need a window other than the trailing 7/30 days (e.g. a past trip). Provide an explicit from/to range or a days look-back.",
     "response_summary": "JSON array of sleep sessions: {id, user_id, start_time, end_time, timezone_offset, day (YYYY-MM-DD), light_minutes, deep_minutes, rem_minutes, awake_minutes, total_minutes, turn_over_count, heart_rate_avg, spo2_avg, user_modified, notes}. Phase/HR fields are omitted when the device did not report them.",
     "params_schema": {
       "type": "object",
@@ -911,7 +911,7 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/weight/reminder/snooze",
     "risk": "write",
-    "description": "Snooze the weight reminder and clear any pending notification.",
+    "description": "Snooze the weight reminder for 2 hours and clear any pending notification.",
     "response_summary": "Object {status:\"success\", message}."
   },
   {
@@ -1147,7 +1147,7 @@ export const CATALOG = [
     "path": "/api/intakes/update",
     "risk": "write",
     "description": "Bulk status update for one or more intakes. Inventory is adjusted automatically when a status transitions to/from TAKEN. Use medications.confirm_schedule for the simpler \"mark taken\" path.",
-    "response_summary": "JSON (HTTP 200): `updated` (count persisted), `failed` (count), and `failures` ([{id, reason}] for each row that did NOT persist; reasons: not_found_or_forbidden, no_row_matched, update_error). Check `failed \u003e 0` — failed rows are reported, not silently skipped. A legacy empty body means an older server that always succeeds.",
+    "response_summary": "JSON (HTTP 200): `updated` (count persisted), `failed` (count), and `failures` ([{id, reason}] for each row that did NOT persist; reasons: not_found_or_forbidden, no_row_matched, update_error). Check `failed \u003e 0` — failed rows are reported, not silently skipped.",
     "required": [
       "updates"
     ],
@@ -1266,7 +1266,7 @@ export const CATALOG = [
     "path": "/api/medications/next-intake",
     "risk": "read",
     "description": "Compute the next scheduled intake across all active medications, in the user's timezone.",
-    "response_summary": "Object with scheduled_at (RFC3339) and medication_ids/names; empty fields when nothing is upcoming.",
+    "response_summary": "Object {scheduled_at (RFC3339), medication_ids[], medication_names[]}; null when no active medication has an upcoming dose.",
     "response_example": "{\"scheduled_at\": \"2026-05-06T10:00:00Z\", \"medication_ids\": [1], \"medication_names\": [\"Mounjaro\"]}"
   },
   {
@@ -1321,7 +1321,7 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/medications/skip",
     "risk": "write",
-    "description": "Mark a pending intake as SKIPPED via the domain service (same path as the bot's skip flow). Errors with 409 if the intake is no longer pending.",
+    "description": "Mark a pending intake as SKIPPED. Errors with 409 if the intake is no longer pending.",
     "response_summary": "Empty body on success (HTTP 200); 409 if not pending.",
     "required": [
       "intake_id"
@@ -1952,7 +1952,7 @@ export const CATALOG = [
     "method": "DELETE",
     "path": "/api/workout/groups/delete",
     "risk": "write",
-    "description": "Delete a workout group. Variants and exercises beneath it must already be removed (or the handler returns a constraint error).",
+    "description": "Delete a workout group. Refused while any exercise remains in its variants or any session is still pending/in-progress — remove exercises (workouts.exercises.delete) and finish or skip open sessions first. Its variants and rotation state are then deleted with it.",
     "response_summary": "Empty body on success (HTTP 200).",
     "required": [
       "id"
@@ -2365,7 +2365,7 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/workout/sessions/logs/update",
     "risk": "write",
-    "description": "Update an exercise log row with completed sets/reps/weight. SIDE EFFECT: non-zero values propagate to the schedule's defaults so the NEXT session inherits them (e.g. consistently doing 12 reps bumps the planned target up). Zero/null values are treated as 'no data' and do NOT overwrite existing defaults. For scheduled ad-hoc workouts (placeholder logs with empty status), supplying sets_completed \u003e= 1 also flips the row's status to \"completed\" so it counts in stats and history; pass status=\"skipped\" to mark a planned exercise as deliberately skipped instead. Equivalent functionality is also available via the workout_log MCP tool's \"log\" operation; this registry op is for callers building scripts via mcp_execute.",
+    "description": "Update an exercise log row with completed sets/reps/weight. SIDE EFFECT: non-zero values propagate to the schedule's defaults so the NEXT session inherits them (e.g. consistently doing 12 reps bumps the planned target up). Zero/null values are treated as 'no data' and do NOT overwrite existing defaults. For scheduled ad-hoc workouts (placeholder logs with empty status), supplying sets_completed \u003e= 1 also flips the row's status to \"completed\" so it counts in stats and history; pass status=\"skipped\" to mark a planned exercise as deliberately skipped instead.",
     "response_summary": "Empty body on success (HTTP 200).",
     "required": [
       "id"
@@ -2693,7 +2693,7 @@ export const CATALOG = [
     "method": "DELETE",
     "path": "/api/workout/variants/delete",
     "risk": "write",
-    "description": "Delete a workout variant. Exercises beneath it must already be removed.",
+    "description": "Delete a workout variant and every exercise beneath it (cascade). Sessions already logged against it are not touched.",
     "response_summary": "Empty body on success (HTTP 200).",
     "required": [
       "id"

@@ -394,7 +394,7 @@ func (s *Server) registerTools() {
 				"properties": {
 					"topic": {
 						"type": "string",
-						"description": "Domain to filter by (e.g. 'workouts', 'food', 'health'). Returns full detail for that topic. Omit or pass 'all' for the terse full catalog."
+						"description": "Domain to filter by (e.g. 'workouts', 'food', 'health'). Returns that topic's operations in terse form (id, method, risk, description, required fields); drill in with operation_id for schemas. Omit or pass 'all' for the full catalog."
 					},
 					"operation_id": {
 						"type": "string",
@@ -407,7 +407,7 @@ func (s *Server) registerTools() {
 					},
 					"query": {
 						"type": "string",
-						"description": "Case-insensitive keyword search across operation id, description, topic, and response summary. When 3 or fewer ops match, results auto-expand to full detail (schemas + example); larger result sets stay terse (drill in with operation_id)."
+						"description": "Case-insensitive keyword search across operation id, description, topic, and response summary. Always returns the terse list; drill in with operation_id for one op's full schema and example."
 					}
 				}
 			}`),
@@ -460,7 +460,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "mcp_call",
-			Description: "Run ONE backend operation directly — use this for single reads/writes (e.g. 'list my blood pressure', 'archive a medication'). Use mcp_execute when you need a multi-step script (loops, joining several operations, computed values). Do NOT fetch a list with mcp_call and then compute an aggregate (average/sum/count/min/max/grouping) by hand — push that math into an mcp_execute script so the result is exact. Discover operations and their schemas via mcp_help first; mcp_help also returns current_time, which you should use for relative dates ('today'/'now') instead of guessing the date or year. Pass operation_id plus params/path_params/body as needed. Writes require mode='write' AND a non-empty intent (a one-sentence human-readable summary of the change). Returns {status, result, error, api_calls}; status is one of ok/proxy_denied/backend_application_error/backend_transport_error.",
+			Description: "Run ONE backend operation directly — use this for single reads/writes (e.g. 'list my blood pressure', 'archive a medication'). Use mcp_execute when you need a multi-step script (loops, joining several operations, computed values); for an aggregate over many rows (average, sum, count, grouping) use mcp_execute so the arithmetic runs in the script. Discover operations and their schemas via mcp_help first; mcp_help also returns current_time, which you should use for relative dates ('today'/'now') instead of guessing the date or year. Pass operation_id plus params/path_params/body as needed. Writes require mode='write' AND a non-empty intent (a one-sentence human-readable summary of the change). Returns {status, result, error, api_calls}; status is one of ok/proxy_denied/backend_application_error/backend_transport_error.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"required": ["operation_id"],

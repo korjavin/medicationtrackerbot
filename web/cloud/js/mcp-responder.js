@@ -47,7 +47,7 @@ const decoder = new TextDecoder();
 export const USAGE_PROTOCOL = 'Decision rule: (1) Discover — call mcp_help with no args (or topic=/query=) for the '
   + 'terse catalog, then drill in with operation_id=/operation_ids=[...] for full schemas. The catalog is too large '
   + 'to return in full; only an id drill-in returns schemas. (2) Run exactly ONE operation per call with '
-  + 'mcp_call({op, params}). There is no mcp_execute in cloud mode: cloud mode runs no server-side domain or script '
+  + 'mcp_call({operation_id, params, path_params, body}). There is no mcp_execute in cloud mode: cloud mode runs no server-side domain or script '
   + 'runtime — chain mcp_call instead. Two composite analyses (health.analyze_cardiovascular, '
   + 'health.analyze_fitness) aggregate multi-row health data in one mcp_call as a shortcut for that chaining. Every call is answered by '
   + 'your unlocked Med Tracker browser tab over an end-to-end encrypted channel; the relay server sees only frame '
@@ -211,7 +211,7 @@ function buildHelp(params) {
       operations: kept.map((id) => BY_ID[id]),
       count: kept.length,
       note,
-      next_step: 'Review the operation details, then run one with mcp_call({op, params}).',
+      next_step: 'Review the operation details, then run one with mcp_call({operation_id, params, path_params, body}).',
     };
   }
 
@@ -230,7 +230,7 @@ function buildHelp(params) {
       compact_operations: matches.map(compactEntry),
       count: matches.length,
       note: `Showing ${matches.length} match(es) for query "${query}". These are OPERATIONS you can run, not the data itself — re-running the same search makes no progress.`,
-      next_step: `ACT NOW — don't search again: call mcp_call({op: "${matches[0].id}", params: {…}}), or pick whichever id above matches the request. Need a field's exact type? Call mcp_help({operation_id: "${matches[0].id}"}) for the full schema.`,
+      next_step: `Matches are operations, not data. Run one with mcp_call({operation_id: "${matches[0].id}", params: {…}}) — or whichever id above fits the request; writes need mode "write" and an intent. For a field's exact type call mcp_help({operation_id: "${matches[0].id}"}).`,
     };
   }
 

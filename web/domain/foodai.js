@@ -18,8 +18,7 @@ Rules:
 - Do not over-split composed dishes that the user named as a single unit. A sandwich stays one item ("ham and cheese sandwich"); do not break it into bread + cheese + ham. Soup or stew stays one item.
 - For each item return: name, weight_grams (estimated total eaten), and macronutrients PER 100 GRAMS (carbs_100g, protein_100g, fat_100g).
 - Preserve the order the user mentioned the items in.
-- The "items" array must contain at least one entry.
-Respond ONLY with the requested JSON schema.`;
+- The "items" array must contain at least one entry.`;
 
 // Copied verbatim from internal/ai/openai.go's MealPhotoSystemPrompt.
 export const MealPhotoSystemPrompt = MealSystemPrompt + `
@@ -28,7 +27,7 @@ You are looking at a single photograph of a meal. Identify each visible food
 item, estimate its eaten weight in grams from the apparent portion size, and
 report typical macronutrients per 100 grams for that food. If multiple distinct
 foods share a plate, list each as its own item. If the photo does not show
-food, return an empty items array.`;
+food, return an empty items array — that is the one case where "items" may be empty.`;
 
 // Copied verbatim (JSON-Schema shape) from internal/ai/openai.go's mealSchema.
 export const mealSchema = {

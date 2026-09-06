@@ -71,7 +71,7 @@ output(result)`,
 			Path:            "/api/medications/next-intake",
 			Risk:            RiskRead,
 			Description:     "Compute the next scheduled intake across all active medications, in the user's timezone.",
-			ResponseSummary: "Object with scheduled_at (RFC3339) and medication_ids/names; empty fields when nothing is upcoming.",
+			ResponseSummary: "Object {scheduled_at (RFC3339), medication_ids[], medication_names[]}; null when no active medication has an upcoming dose.",
 			ResponseExample: `{"scheduled_at": "2026-05-06T10:00:00Z", "medication_ids": [1], "medication_names": ["Mounjaro"]}`,
 			Example: `result = api.call("medications.next_intake")
 output(result)`,
@@ -268,7 +268,7 @@ output({"snoozed": 123})`,
     "intake_id": {"type": "integer", "description": "Pending intake to mark as skipped"}
   }
 }`),
-			Description:     "Mark a pending intake as SKIPPED via the domain service (same path as the bot's skip flow). Errors with 409 if the intake is no longer pending.",
+			Description:     "Mark a pending intake as SKIPPED. Errors with 409 if the intake is no longer pending.",
 			ResponseSummary: "Empty body on success (HTTP 200); 409 if not pending.",
 			Example: `api.call("medications.skip", body={"intake_id": 123})
 output({"skipped": 123})`,
@@ -364,7 +364,7 @@ output({"confirmed": 123})`,
   }
 }`),
 			Description:     "Bulk status update for one or more intakes. Inventory is adjusted automatically when a status transitions to/from TAKEN. Use medications.confirm_schedule for the simpler \"mark taken\" path.",
-			ResponseSummary: "JSON (HTTP 200): `updated` (count persisted), `failed` (count), and `failures` ([{id, reason}] for each row that did NOT persist; reasons: not_found_or_forbidden, no_row_matched, update_error). Check `failed > 0` — failed rows are reported, not silently skipped. A legacy empty body means an older server that always succeeds.",
+			ResponseSummary: "JSON (HTTP 200): `updated` (count persisted), `failed` (count), and `failures` ([{id, reason}] for each row that did NOT persist; reasons: not_found_or_forbidden, no_row_matched, update_error). Check `failed > 0` — failed rows are reported, not silently skipped.",
 			ResponseExample: `{"updated": 1, "failed": 0, "failures": []}`,
 			Example: `result = api.call(
     "medications.intake.update",

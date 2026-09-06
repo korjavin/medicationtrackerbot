@@ -62,9 +62,9 @@ implemented.** Do not describe their contents as behavior.
 | Doc | Status |
 |---|---|
 | [cloud-key-rotation.md](cloud-key-rotation.md) | Compromised-device eviction via DEK/NK rotation. **Proposal.** Closes the gap named in [threat-model.md §7.3](security/threat-model.md#73-device-removal-is-not-compromise-recovery). |
-| [onboarding-wizard.md](onboarding-wizard.md) | A vault-backed first-run overlay. **Proposal.** |
-| [gamification.md](gamification.md) | HealthPoints / outcome-in-range scoring. **Proposal.** |
-| [workout-depth.md](workout-depth.md) | Per-set logging → est-1RM/PR → opt-in progression. **Proposal**, phase 1 in progress. |
+| [onboarding-wizard.md](onboarding-wizard.md) | A vault-backed first-run overlay. **Partially implemented** — see the status header for what has landed. |
+| [gamification.md](gamification.md) | HealthPoints / outcome-in-range scoring. **MVP shipped**; Phase-2 sections remain a proposal (see the status header). |
+| [workout-depth.md](workout-depth.md) | Per-set logging → est-1RM/PR → opt-in progression. **Implemented** (epic `med-qj4`, phases 1–4 closed); the doc is the design rationale. |
 
 ## Historical
 

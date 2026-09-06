@@ -142,7 +142,7 @@ output({"silenced": True})`,
 			Method:          "POST",
 			Path:            "/api/bp/reminder/test",
 			Risk:            RiskWrite,
-			Description:     "Send a test BP reminder notification through the configured channels (Telegram + web push). Useful for validating notification setup.",
+			Description:     "Send a test BP reminder notification to this account's configured push channel. Useful for validating notification setup.",
 			ResponseSummary: "Object {status:\"success\"}.",
 			Example: `api.call("health.bp.reminder.test")
 output({"sent": True})`,
@@ -288,7 +288,7 @@ output({"enabled": True})`,
 			Method:          "POST",
 			Path:            "/api/weight/reminder/snooze",
 			Risk:            RiskWrite,
-			Description:     "Snooze the weight reminder and clear any pending notification.",
+			Description:     "Snooze the weight reminder for 2 hours and clear any pending notification.",
 			ResponseSummary: "Object {status:\"success\", message}.",
 			Example: `api.call("health.weight.reminder.snooze")
 output({"snoozed": True})`,
@@ -337,7 +337,7 @@ output(result)`,
 			Method:          "GET",
 			Path:            "/api/health/overview",
 			Risk:            RiskRead,
-			Description:     "Aggregate dashboard read over a 7d/30d window. THIS IS THE SOURCE FOR DEVICE-IMPORTED SLEEP AND VITALS. Returns per-night sleep with phase breakdown (light/deep/REM/awake minutes + avg heart rate), continuous heart-rate / SpO2 / stress histories, and daily step aggregates — plus their 7d/30d averages. Use this for any sleep-recovery, sleep-phase, or vitals-trend analysis (it replaces the older get_sleep_logs endpoint). For manual sleep journaling instead, see health.notes.*.",
+			Description:     "Aggregate dashboard read over a 7d/30d window. This is the source for device-imported sleep and vitals. Returns per-night sleep with phase breakdown (light/deep/REM/awake minutes + avg heart rate), continuous heart-rate / SpO2 / stress histories, and daily step aggregates — plus their 7d/30d averages. Use this for any sleep-recovery, sleep-phase, or vitals-trend analysis. For manual sleep journaling instead, see health.notes.*.",
 			ResponseSummary: "Object with sleep_stats_7d/sleep_stats_30d (per-night {date, light_mins, deep_mins, rem_mins, awake_mins, total_mins, heart_rate_avg}), average_sleep_hours_7d/30d, heart_rate_history_7d/30d, spo2_history_7d/30d, stress_history_7d/30d (each [{timestamp, min, max, avg}]), step_stats_7d/30d, and average_heart_rate/spo2/stress/steps_7d/30d.",
 			ResponseExample: `{
   "sleep_stats_7d": [
@@ -370,7 +370,7 @@ output(result["sleep_stats_30d"])`,
     "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Max sessions to return, newest first (default 100, max 1000). Absent or <= 0 means the default, never 'all sessions'; larger values are clamped to the max. A full page means there may be more — narrow the from/to range to see the rest."}
   }
 }`),
-			Description:     "List raw device-imported sleep sessions, newest first, each with full phase breakdown (light/deep/REM/awake minutes), total minutes, turn-over count, and HR/SpO2 averages. This is the detailed, range-queryable sleep source — use it (NOT health.notes.*) for sleep-recovery / phase analysis, and prefer it over health.overview when you need a window other than the trailing 7/30 days (e.g. a past trip). Provide an explicit from/to range or a days look-back. This replaces the older get_sleep_logs endpoint.",
+			Description:     "List raw device-imported sleep sessions, newest first, each with full phase breakdown (light/deep/REM/awake minutes), total minutes, turn-over count, and HR/SpO2 averages. This is the detailed, range-queryable sleep source — use it (not health.notes.*, which is manual journaling) for sleep-recovery / phase analysis, and prefer it over health.overview when you need a window other than the trailing 7/30 days (e.g. a past trip). Provide an explicit from/to range or a days look-back.",
 			ResponseSummary: "JSON array of sleep sessions: {id, user_id, start_time, end_time, timezone_offset, day (YYYY-MM-DD), light_minutes, deep_minutes, rem_minutes, awake_minutes, total_minutes, turn_over_count, heart_rate_avg, spo2_avg, user_modified, notes}. Phase/HR fields are omitted when the device did not report them.",
 			ResponseExample: `[
   {"id": 305, "user_id": 1, "start_time": "2026-04-28T23:10:00Z", "end_time": "2026-04-29T06:30:00Z", "timezone_offset": 0, "day": "2026-04-29", "light_minutes": 240, "deep_minutes": 90, "rem_minutes": 70, "awake_minutes": 20, "total_minutes": 420, "turn_over_count": 14, "heart_rate_avg": 56, "spo2_avg": 97, "user_modified": false, "notes": "restless"}

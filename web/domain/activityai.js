@@ -26,8 +26,7 @@ For each exercise include:
 - notes: any additional notes (empty string if none)
 
 For cardio/swimming/etc: use duration_minutes, leave sets/reps/weight_kg as null.
-For strength: use sets/reps and optionally weight_kg, leave duration_minutes as null.
-Respond ONLY with the requested JSON schema.`;
+For strength: use sets/reps and optionally weight_kg, leave duration_minutes as null.`;
 
 // Based on internal/ai/openai.go's activitySchema, extended with the cloud-only
 // distance_m field (see file header — deliberate divergence from the bot).
