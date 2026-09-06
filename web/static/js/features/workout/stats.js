@@ -404,25 +404,34 @@ function _appendMovementBalance(section, exercises) {
     section.appendChild(list);
 }
 
-// The own-baseline band: this week's hard sets against the user's own trailing
-// average, so the number is calibrated to them and not to a population.
-function _appendHardSetBand(section, band) {
-    section.appendChild(_buildSectionLabel('Hard Sets · Last 7 Days'));
-    if (!band) {
-        section.appendChild(_buildHint('Keep logging to unlock your usual range'));
-        return;
-    }
+// The own-baseline band as the page headline (med-djsa.3): this week's hard
+// sets against the user's own trailing average, so the number is calibrated to
+// them and not to a population. It sits ABOVE the view strip because it is
+// range-independent (rolling 7-day windows over whole history) — a range-scoped
+// view is the wrong place for a number the range pills don't move.
+// `null` (no baseline yet) renders nothing: an invitation to keep logging is
+// fine at the bottom of a view, not as the first thing on the tab.
+function _buildHardSetHeadline(band) {
+    if (!band) return null;
 
-    const list = document.createElement('ul');
-    list.className = 'wg-workouts-stats__top-exercises wg-workouts-stats__hard-set-band';
-    list.appendChild(_buildBarRow({
-        name: WORKOUTS_HARD_SET_BAND_LABELS[band.status] || WORKOUTS_HARD_SET_BAND_LABELS.in_range,
-        summary: `${band.current} sets · usual ${band.low}–${band.high}`,
-        // Scaled against the top of the band, so "in range" fills most of the
-        // track and "above" pins it full rather than overflowing.
-        pct: (Math.min(1, band.high > 0 ? band.current / band.high : 0) * 100).toFixed(1),
-    }));
-    section.appendChild(list);
+    const card = document.createElement('div');
+    card.className = 'wg-card wg-workouts-stats__headline';
+
+    const label = document.createElement('span');
+    label.className = 'wg-workouts-stats__headline-label';
+    label.textContent = 'This week';
+
+    const count = document.createElement('span');
+    count.className = 'wg-workouts-stats__headline-count wg-mono-display';
+    count.textContent = `${band.current} hard sets`;
+
+    const verdict = document.createElement('span');
+    verdict.className = 'wg-workouts-stats__headline-verdict';
+    const status = WORKOUTS_HARD_SET_BAND_LABELS[band.status] || WORKOUTS_HARD_SET_BAND_LABELS.in_range;
+    verdict.textContent = `${status} (${band.low}–${band.high})`;
+
+    card.append(label, count, verdict);
+    return card;
 }
 
 // -- The three views ------------------------------------------------------
@@ -495,17 +504,14 @@ function _renderLoadView(section, stats, range) {
 
 // 3. Balance — "what am I neglecting". Sets per body part plus, crucially, the
 // body parts with ZERO sets in the range (JEFIT's BodyMap framing: absence is
-// the insight nobody else surfaces). med-904.3 adds two follow-ups below it.
+// the insight nobody else surfaces), then the movement-pattern ratios.
 //
-// The movement-pattern ratios sit behind the same guards as the split — they
-// read the same rows through the same catalog, so a view that has just said
-// "no exercises logged" must not then argue about ratios. The hard-set band
-// does NOT: it is whole-history, range-independent and needs no catalog, so
-// hiding it behind an empty range or a failed catalog fetch would suppress a
-// perfectly good answer for an unrelated reason.
+// The ratios sit behind the same guards as the split — they read the same rows
+// through the same catalog, so a view that has just said "no exercises logged"
+// must not then argue about ratios. (The hard-set band used to live here too;
+// med-djsa.3 promoted it to the headline above the view strip.)
 async function _renderBalanceView(section, stats) {
     await _appendBodyPartBalance(section, stats.exercise_totals || []);
-    _appendHardSetBand(section, stats.hard_set_band);
 }
 
 async function _appendBodyPartBalance(section, exercises) {
@@ -668,6 +674,11 @@ function _renderWorkoutStats(container, stats) {
         root.replaceChild(next, section);
         section = next;
     };
+
+    // Above the strips: the one range-independent line on the tab, so it reads
+    // the same on every view instead of hiding at the bottom of Balance.
+    const headline = _buildHardSetHeadline(stats.hard_set_band);
+    if (headline) root.appendChild(headline);
 
     root.appendChild(_buildSegmentedStrip({
         block: 'view',

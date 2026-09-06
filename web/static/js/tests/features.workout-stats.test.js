@@ -252,83 +252,78 @@ describe('features/workout/stats.js — split-file integration', () => {
       expect(container.querySelector('.wg-workouts-stats__movement-balance')).toBeNull();
       expect(container.textContent).toContain('Keep logging to unlock movement balance');
     });
+  });
 
-    it('names the band verdict and the user\'s own range', async () => {
+  // med-djsa.3 — the hard-set band promoted out of Balance into the tab
+  // headline: rendered by _renderWorkoutStats ABOVE the view strip, so the one
+  // coach-voiced line on the tab is visible on every view. It is
+  // range-independent by construction (rolling 7-day windows over whole
+  // history), which is why it sits above the range pills rather than inside a
+  // range-scoped view.
+  describe('hard-set headline (med-djsa.3)', () => {
+    const BAND = { current: 26, baseline: 25.3, low: 20, high: 30, status: 'in_range' };
+
+    function renderStats(view, stats) {
       const { window, document } = env;
-      stubCatalog(window, PATTERN_CATALOG.exercises);
+      window.WorkoutStats.setView(view);
+      const container = document.getElementById('workout-stats-display');
+      window._renderWorkoutStats(container, { total_sessions: 6, ...stats });
+      return container;
+    }
 
-      const container = renderBalanceV2(window, document, {
-        exercise_totals: [
-          { exercise_name: 'Barbell Squat', session_count: 3, sets: 9, total_volume_kg: 2000 },
-        ],
-        hard_set_band: { current: 26, baseline: 25.3, low: 20, high: 30, status: 'in_range' },
-      });
+    function headlineText(container) {
+      const el = container.querySelector('.wg-workouts-stats__headline');
+      return el && el.textContent;
+    }
 
-      await vi.waitFor(() => {
-        expect(container.querySelector('.wg-workouts-stats__hard-set-band')).toBeTruthy();
-      });
-      const rows = rowsIn(container, 'hard-set-band');
-      expect(rows).toHaveLength(1);
-      expect(rows[0]).toContain('In your usual range');
-      expect(rows[0]).toContain('26 sets · usual 20–30');
-      expect(container.textContent).toContain('Hard Sets · Last 7 Days');
-    });
-
-    it('says "below"/"above" off the domain-computed status', async () => {
-      const { window, document } = env;
-      stubCatalog(window, PATTERN_CATALOG.exercises);
-
-      for (const [status, copy] of [['below', 'Below your usual'], ['above', 'Above your usual']]) {
-        const container = renderBalanceV2(window, document, {
-          exercise_totals: [
-            { exercise_name: 'Barbell Squat', session_count: 3, sets: 9, total_volume_kg: 2000 },
-          ],
-          hard_set_band: { current: 4, baseline: 25.3, low: 20, high: 30, status },
-        });
-        await vi.waitFor(() => {
-          expect(container.querySelector('.wg-workouts-stats__hard-set-band')).toBeTruthy();
-        });
-        expect(rowsIn(container, 'hard-set-band')[0]).toContain(copy);
+    it('names the count and the user\'s own range on every view', () => {
+      for (const view of ['consistency', 'load', 'balance']) {
+        const text = headlineText(renderStats(view, { hard_set_band: BAND }));
+        expect(text).toContain('This week');
+        expect(text).toContain('26 hard sets');
+        expect(text).toContain('In your usual range (20–30)');
       }
     });
 
-    // The band is whole-history, range-independent and catalog-free, so an
-    // unrelated failure on the body-part side must not take it down with it.
-    it('still shows the band when the catalog fetch fails', async () => {
-      const { window, document } = env;
-      window.fetch = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }));
-
-      const container = renderBalanceV2(window, document, {
-        exercise_totals: [
-          { exercise_name: 'Barbell Squat', session_count: 3, sets: 9, total_volume_kg: 2000 },
-        ],
-        hard_set_band: { current: 40, baseline: 25.3, low: 20, high: 30, status: 'above' },
-      });
-
-      await vi.waitFor(() => {
-        expect(container.querySelector('.wg-workouts-stats__hard-set-band')).toBeTruthy();
-      });
-      // The body-part side still says why it skipped.
-      expect(container.textContent).toContain('Body-part catalog unavailable');
-      expect(rowsIn(container, 'hard-set-band')[0]).toContain('Above your usual');
+    it('sits above the view strip, not inside the view body', () => {
+      const container = renderStats('balance', { hard_set_band: BAND });
+      const root = container.querySelector('.wg-workouts-stats');
+      expect(root.children[0].classList.contains('wg-workouts-stats__headline')).toBe(true);
+      expect(container.querySelector('.wg-workouts-stats__view-body .wg-workouts-stats__headline')).toBeNull();
     });
 
-    it('invites more logging rather than erroring when there is no baseline yet', async () => {
-      const { window, document } = env;
-      stubCatalog(window, PATTERN_CATALOG.exercises);
+    it('says "below"/"above" off the domain-computed status', () => {
+      for (const [status, copy] of [['below', 'Below your usual'], ['above', 'Above your usual']]) {
+        const container = renderStats('load', { hard_set_band: { ...BAND, current: 4, status } });
+        expect(headlineText(container)).toContain(copy);
+      }
+    });
 
-      const container = renderBalanceV2(window, document, {
+    // Catalog-free and whole-history, so an unrelated failure on the Balance
+    // body-part side must not take the headline down with it.
+    it('still shows when the body-part catalog fetch fails', async () => {
+      env.window.fetch = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }));
+
+      const container = renderStats('balance', {
         exercise_totals: [
           { exercise_name: 'Barbell Squat', session_count: 3, sets: 9, total_volume_kg: 2000 },
         ],
-        hard_set_band: null,
+        hard_set_band: { ...BAND, current: 40, status: 'above' },
       });
 
       await vi.waitFor(() => {
-        expect(container.textContent).toContain('Hard Sets · Last 7 Days');
+        expect(container.textContent).toContain('Body-part catalog unavailable');
       });
-      expect(container.querySelector('.wg-workouts-stats__hard-set-band')).toBeNull();
-      expect(container.textContent).toContain('Keep logging to unlock your usual range');
+      expect(headlineText(container)).toContain('Above your usual');
+    });
+
+    // No baseline yet -> render nothing. A "keep logging" nag was fine at the
+    // bottom of Balance; it is not the first thing anyone should read here.
+    it('renders nothing rather than nagging when there is no baseline yet', () => {
+      const container = renderStats('balance', { hard_set_band: null });
+      expect(container.querySelector('.wg-workouts-stats__headline')).toBeNull();
+      expect(container.textContent).not.toContain('usual');
+      expect(container.textContent).not.toContain('hard sets');
     });
   });
 
