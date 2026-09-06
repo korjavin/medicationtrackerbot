@@ -237,17 +237,31 @@ function _buildBarRow({ name, summary, pct, onOpen }) {
 // axis, and the 7-wide axis always fits. Newest week first so the row you act
 // on sits under the pills; older weeks read as scroll-down history.
 //
+// med-djsa.4 spends the two spaces the transpose opened up, both folds of the
+// same entries map: a month label in the left gutter whenever a row opens a
+// new month ("when was that?"), and a per-weekday trained-day total under each
+// column ("which days do I actually train?").
+//
 // ponytail: hard cap of 26 week rows (~6 months). Rows cost height now — 53
 // would push the tiles two screens down — and `range=all` on a multi-year
 // history would emit thousands of cells nobody scrolls to; raise it (or add
 // paging) only if someone asks for a multi-year wall.
 const CALENDAR_MAX_WEEKS = 26;
 const CALENDAR_RANGE_DAYS = { '7d': 7, '30d': 30, '90d': 90 };
-// One initial per column, no month labels. GitHub labels Mon/Wed/Fri only and
-// lets the reader interpolate, which works on a desktop-width wall; on a phone
-// the four blank slots just read as anonymous. Single letters cost the same
-// column width as "Mon" and leave no column unlabelled.
+// One initial per column. GitHub labels Mon/Wed/Fri only and lets the reader
+// interpolate, which works on a desktop-width wall; on a phone the four blank
+// slots just read as anonymous. Single letters cost the same column width as
+// "Mon" and leave no column unlabelled.
 const CALENDAR_WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+// Spelled out for the totals footer's aria-label — "3 0 2 1 0 4 0" read aloud
+// is noise, and the visible header is seven ambiguous initials.
+const CALENDAR_WEEKDAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+// med-djsa.4: the transpose freed a left gutter, so rows can finally carry the
+// month the horizontal layout had no room for (med-zte skipped it). Static
+// abbreviations rather than toLocaleString — the grid is UTC-anchored ms
+// arithmetic throughout and a locale month name would be the one part of it
+// that moves under the user's locale.
+const CALENDAR_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAY_MS = 86400000;
 
 // Days since the Monday of this day's week (UTC-anchored; getUTCDay 0 = Sun).
@@ -303,8 +317,25 @@ function _buildActivityCalendar(daily, range) {
     // wide, so each row is one whole week and row 0 is this one.
     let trainedDays = 0;
     let skippedDays = 0;
+    // Column sums for the footer: trained days on each weekday over the whole
+    // rendered span. "You never train on Wednesday" is a rest-day pattern the
+    // grid makes people squint for, and it is just a column sum.
+    const perWeekday = [0, 0, 0, 0, 0, 0, 0];
+    let prevMonth = -1;
     for (let w = 0; w < weekCount; w++) {
         const monday = endMs - (w * 7 + 6) * DAY_MS;
+
+        // Gutter label in column 1. Rows run newest-first, so "the row above"
+        // is w-1 — a NEWER week; a row opens a month whenever its Monday
+        // differs from that one. Row 0 is always labelled, and every row emits
+        // a span (blank ones included) so the 8-column flow stays in step.
+        const month = new Date(monday).getUTCMonth();
+        const monthLabel = document.createElement('span');
+        monthLabel.className = 'wg-workouts-stats__calendar-month';
+        if (month !== prevMonth) monthLabel.textContent = CALENDAR_MONTHS[month];
+        prevMonth = month;
+        grid.appendChild(monthLabel);
+
         for (let d = 0; d < 7; d++) {
             const ms = monday + d * DAY_MS;
             const date = new Date(ms).toISOString().slice(0, 10);
@@ -317,6 +348,7 @@ function _buildActivityCalendar(daily, range) {
                 state = 'done';
                 what = entry.completed === 1 ? 'completed' : `${entry.completed} completed`;
                 trainedDays++;
+                perWeekday[d]++;
             } else if (entry && entry.skipped > 0) {
                 state = 'skipped';
                 what = entry.skipped === 1 ? 'skipped' : `${entry.skipped} skipped`;
@@ -338,6 +370,23 @@ function _buildActivityCalendar(daily, range) {
         `Workout calendar, last ${weekCount} weeks: ${trainedDays} ${trainedDays === 1 ? 'day' : 'days'} trained, ${skippedDays} skipped.`);
 
     wrap.appendChild(grid);
+
+    const totals = document.createElement('div');
+    totals.className = 'wg-workouts-stats__calendar-totals';
+    perWeekday.forEach((count, d) => {
+        const cell = document.createElement('span');
+        cell.className = 'wg-workouts-stats__calendar-total';
+        // A zero is the insight, not an absence — it stays on screen, muted.
+        if (!count) cell.classList.add('wg-workouts-stats__calendar-total--zero');
+        cell.textContent = String(count);
+        cell.title = `${CALENDAR_WEEKDAY_NAMES[d]} · ${count} trained`;
+        totals.appendChild(cell);
+    });
+    totals.setAttribute('role', 'img');
+    totals.setAttribute('aria-label', `Trained days per weekday: ${
+        perWeekday.map((c, d) => `${CALENDAR_WEEKDAY_NAMES[d]} ${c}`).join(', ')}.`);
+    wrap.appendChild(totals);
+
     return wrap;
 }
 
@@ -511,25 +560,37 @@ function _appendMovementBalance(section, exercises) {
     section.appendChild(list);
 }
 
-// The own-baseline band: this week's hard sets against the user's own trailing
-// average, so the number is calibrated to them and not to a population.
-function _appendHardSetBand(section, band) {
-    section.appendChild(_buildSectionLabel('Hard Sets · Last 7 Days'));
-    if (!band) {
-        section.appendChild(_buildHint('Keep logging to unlock your usual range'));
-        return;
-    }
+// The own-baseline band as the page headline (med-djsa.3): this week's hard
+// sets against the user's own trailing average, so the number is calibrated to
+// them and not to a population. It sits ABOVE the view strip because it is
+// range-independent (rolling 7-day windows over whole history) — a range-scoped
+// view is the wrong place for a number the range pills don't move.
+// `null` (no baseline yet) renders nothing: an invitation to keep logging is
+// fine at the bottom of a view, not as the first thing on the tab.
+function _buildHardSetHeadline(band) {
+    if (!band) return null;
 
-    const list = document.createElement('ul');
-    list.className = 'wg-workouts-stats__top-exercises wg-workouts-stats__hard-set-band';
-    list.appendChild(_buildBarRow({
-        name: WORKOUTS_HARD_SET_BAND_LABELS[band.status] || WORKOUTS_HARD_SET_BAND_LABELS.in_range,
-        summary: `${band.current} sets · usual ${band.low}–${band.high}`,
-        // Scaled against the top of the band, so "in range" fills most of the
-        // track and "above" pins it full rather than overflowing.
-        pct: (Math.min(1, band.high > 0 ? band.current / band.high : 0) * 100).toFixed(1),
-    }));
-    section.appendChild(list);
+    const card = document.createElement('div');
+    card.className = 'wg-card wg-workouts-stats__headline';
+
+    const label = document.createElement('span');
+    label.className = 'wg-workouts-stats__headline-label';
+    // 'Last 7 days', not 'This week': the band is a ROLLING 7×24h window
+    // (workout.js windowHardSets[0]), so on a Monday "this week" would be
+    // claiming last Tuesday's sets for the current calendar week.
+    label.textContent = 'Last 7 days';
+
+    const count = document.createElement('span');
+    count.className = 'wg-workouts-stats__headline-count wg-mono-display';
+    count.textContent = `${band.current} hard sets`;
+
+    const verdict = document.createElement('span');
+    verdict.className = 'wg-workouts-stats__headline-verdict';
+    const status = WORKOUTS_HARD_SET_BAND_LABELS[band.status] || WORKOUTS_HARD_SET_BAND_LABELS.in_range;
+    verdict.textContent = `${status} (${band.low}–${band.high})`;
+
+    card.append(label, count, verdict);
+    return card;
 }
 
 // -- The three views ------------------------------------------------------
@@ -607,17 +668,14 @@ function _renderLoadView(section, stats, range) {
 
 // 3. Balance — "what am I neglecting". Sets per body part plus, crucially, the
 // body parts with ZERO sets in the range (JEFIT's BodyMap framing: absence is
-// the insight nobody else surfaces). med-904.3 adds two follow-ups below it.
+// the insight nobody else surfaces), then the movement-pattern ratios.
 //
-// The movement-pattern ratios sit behind the same guards as the split — they
-// read the same rows through the same catalog, so a view that has just said
-// "no exercises logged" must not then argue about ratios. The hard-set band
-// does NOT: it is whole-history, range-independent and needs no catalog, so
-// hiding it behind an empty range or a failed catalog fetch would suppress a
-// perfectly good answer for an unrelated reason.
+// The ratios sit behind the same guards as the split — they read the same rows
+// through the same catalog, so a view that has just said "no exercises logged"
+// must not then argue about ratios. (The hard-set band used to live here too;
+// med-djsa.3 promoted it to the headline above the view strip.)
 async function _renderBalanceView(section, stats) {
     await _appendBodyPartBalance(section, stats.exercise_totals || []);
-    _appendHardSetBand(section, stats.hard_set_band);
 }
 
 async function _appendBodyPartBalance(section, exercises) {
@@ -780,6 +838,11 @@ function _renderWorkoutStats(container, stats) {
         root.replaceChild(next, section);
         section = next;
     };
+
+    // Above the strips: the one range-independent line on the tab, so it reads
+    // the same on every view instead of hiding at the bottom of Balance.
+    const headline = _buildHardSetHeadline(stats.hard_set_band);
+    if (headline) root.appendChild(headline);
 
     root.appendChild(_buildSegmentedStrip({
         block: 'view',
