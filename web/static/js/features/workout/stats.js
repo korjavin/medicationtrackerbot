@@ -465,8 +465,13 @@ function _buildAutoTagButton(names) {
     btn.addEventListener('click', async () => {
         btn.disabled = true;
         try {
+            console.info('exercise auto-tag: sending', names);
             const res = await window.apiCallDirect('/api/workout/exercise-library/auto-tag', 'POST', { names });
+            console.info('exercise auto-tag: result', res);
             const n = res && Array.isArray(res.tagged) ? res.tagged.length : 0;
+            if (res && Array.isArray(res.skipped) && res.skipped.length) {
+                console.warn('exercise auto-tag: provider gave no usable body part for', res.skipped);
+            }
             if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
                 window.SyncManager.showToast(`Tagged ${n} of ${names.length}`, 'info');
             }

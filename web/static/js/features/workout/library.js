@@ -416,9 +416,10 @@ async function _autoTagIfUnresolved(name) {
     if (await window.WorkoutExerciseCatalog.getBodyPart(name)) return;
     try {
         const res = await apiCall('/api/workout/exercise-library/auto-tag', 'POST', { names: [name] });
+        console.info('exercise auto-tag (on create): result', res);
         if (res && Array.isArray(res.tagged) && res.tagged.length) loadExerciseLibrary();
     } catch (e) {
-        console.warn('Auto-tag skipped:', e);
+        console.warn('exercise auto-tag (on create) failed:', e);
     }
 }
 

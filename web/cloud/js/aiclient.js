@@ -566,19 +566,35 @@ export function createAIClient({ settingsDomain }) {
       ],
       response_format: EXERCISE_TAG_RESPONSE_FORMAT,
     };
+    // Diagnostics for the first prod runs: which path, which model, how many
+    // names, and what came back — names are the user's own vault data shown
+    // in their own console, nothing new crosses a boundary here.
+    console.info('exercise auto-tag: request', { trial: useTrial, model: useTrial ? '(operator)' : text.model, names: names.length });
+    let parsed;
     try {
-      return await post(body);
+      parsed = await post(body);
     } catch (err) {
-      if (!isResponseFormatRejection(err)) throw err;
-      return post({
-        model: text.model,
-        temperature: 0,
-        messages: [
-          { role: 'system', content: exerciseTagFenceInstruction(ExerciseTagSystemPrompt) },
-          { role: 'user', content: user },
-        ],
-      });
+      if (!isResponseFormatRejection(err)) {
+        console.error('exercise auto-tag: provider call failed', { status: err && err.status, message: err && err.message, body: err && err.body });
+        throw err;
+      }
+      console.warn('exercise auto-tag: response_format rejected, retrying with fenced prompt');
+      try {
+        parsed = await post({
+          model: text.model,
+          temperature: 0,
+          messages: [
+            { role: 'system', content: exerciseTagFenceInstruction(ExerciseTagSystemPrompt) },
+            { role: 'user', content: user },
+          ],
+        });
+      } catch (err2) {
+        console.error('exercise auto-tag: fenced retry failed', { status: err2 && err2.status, message: err2 && err2.message, body: err2 && err2.body });
+        throw err2;
+      }
     }
+    console.info('exercise auto-tag: response', parsed);
+    return parsed;
   }
 
   async function chat({ messages, tools, temperature = 0.2 }) {
