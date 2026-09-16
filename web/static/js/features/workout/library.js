@@ -394,7 +394,8 @@ async function saveExerciseLibraryItem() {
     };
 
     let result;
-    if (window.WorkoutEdit.editingLibraryItemId) {
+    const isCreate = !window.WorkoutEdit.editingLibraryItemId;
+    if (!isCreate) {
         result = await apiCall(`/api/workout/exercise-library/update?id=${window.WorkoutEdit.editingLibraryItemId}`, 'PUT', payload);
     } else {
         result = await apiCall('/api/workout/exercise-library/create', 'POST', payload);
@@ -403,6 +404,22 @@ async function saveExerciseLibraryItem() {
     if (result || result === true) {
         closeExerciseLibraryModal();
         loadExerciseLibrary();
+        if (isCreate && !bodyPart) _autoTagIfUnresolved(name);
+    }
+}
+
+// A freshly created row with "Auto" muscle group that the static catalog
+// cannot classify gets one LLM pass (names only). Best-effort: a failure just
+// leaves the row untagged, exactly where a manual tag would fix it.
+async function _autoTagIfUnresolved(name) {
+    if (!window.WorkoutExerciseCatalog || !window.__MEDTRACKER_CLOUD__) return;
+    if (await window.WorkoutExerciseCatalog.getBodyPart(name)) return;
+    try {
+        const res = await apiCall('/api/workout/exercise-library/auto-tag', 'POST', { names: [name] });
+        console.info('exercise auto-tag (on create): result', res);
+        if (res && Array.isArray(res.tagged) && res.tagged.length) loadExerciseLibrary();
+    } catch (e) {
+        console.warn('exercise auto-tag (on create) failed:', e);
     }
 }
 

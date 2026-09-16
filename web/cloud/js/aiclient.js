@@ -13,6 +13,7 @@
 // key always wins; no key and no trial flag keeps today's no_api_key error.
 import { MealSystemPrompt, MealPhotoSystemPrompt, mealSchema } from '../../domain/foodai.js';
 import { ActivitySystemPrompt, activitySchema } from '../../domain/activityai.js';
+import { ExerciseTagSystemPrompt, exerciseTagSchema } from '../../domain/exercisetag.js';
 
 const DEFAULT_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-4o-mini';
@@ -355,10 +356,17 @@ async function postTrialChatRaw(body) {
 
 const RESPONSE_FORMAT = { type: 'json_schema', json_schema: { name: 'parsed_meal', strict: true, schema: mealSchema } };
 const ACTIVITY_RESPONSE_FORMAT = { type: 'json_schema', json_schema: { name: 'activity_data', strict: true, schema: activitySchema } };
+const EXERCISE_TAG_RESPONSE_FORMAT = { type: 'json_schema', json_schema: { name: 'exercise_tags', strict: true, schema: exerciseTagSchema } };
 
 function fenceInstruction(systemPrompt) {
   return `${systemPrompt}
 Return only valid JSON with the shape {"items": [{"name": string, "weight_grams": number, "carbs_100g": number, "protein_100g": number, "fat_100g": number}, ...]}.
+Do not wrap the JSON in markdown fences or add explanations.`;
+}
+
+function exerciseTagFenceInstruction(systemPrompt) {
+  return `${systemPrompt}
+Return only valid JSON with the shape {"items": [{"name": string, "body_part": string}, ...]}.
 Do not wrap the JSON in markdown fences or add explanations.`;
 }
 
@@ -536,6 +544,59 @@ export function createAIClient({ settingsDomain }) {
   // vault-derived health data into the messages, which is exactly what the tg
   // disclosure names. The narrator's own error fallback turns a refusal into
   // deterministic prose, never a surfaced error.
+  // classifyExercises(names) → { items: [{ name, body_part }] }. Exercise
+  // NAMES only cross to the provider (web/domain/exercisetag.js). Same key /
+  // trial / `ai`-consent / fenced-retry contract as parseActivityFromDescription.
+  async function classifyExercises(names) {
+    const { text } = await credentials();
+    const useTrial = !text.apiKey;
+    if (useTrial && !trialAIAvailable()) throw noKeyError();
+    if (useTrial) await ensureTrialConsent('ai');
+    const post = (body) => (useTrial
+      ? postTrialChatCompletion(false, body)
+      : postChatCompletion(`${text.url.replace(/\/$/, '')}/chat/completions`, text.apiKey, body));
+
+    const user = JSON.stringify({ names });
+    const body = {
+      model: text.model,
+      temperature: 0,
+      messages: [
+        { role: 'system', content: ExerciseTagSystemPrompt },
+        { role: 'user', content: user },
+      ],
+      response_format: EXERCISE_TAG_RESPONSE_FORMAT,
+    };
+    // Diagnostics for the first prod runs: which path, which model, how many
+    // names, and what came back — names are the user's own vault data shown
+    // in their own console, nothing new crosses a boundary here.
+    console.info('exercise auto-tag: request', { trial: useTrial, model: useTrial ? '(operator)' : text.model, names: names.length });
+    let parsed;
+    try {
+      parsed = await post(body);
+    } catch (err) {
+      if (!isResponseFormatRejection(err)) {
+        console.error('exercise auto-tag: provider call failed', { status: err && err.status, message: err && err.message, body: err && err.body });
+        throw err;
+      }
+      console.warn('exercise auto-tag: response_format rejected, retrying with fenced prompt');
+      try {
+        parsed = await post({
+          model: text.model,
+          temperature: 0,
+          messages: [
+            { role: 'system', content: exerciseTagFenceInstruction(ExerciseTagSystemPrompt) },
+            { role: 'user', content: user },
+          ],
+        });
+      } catch (err2) {
+        console.error('exercise auto-tag: fenced retry failed', { status: err2 && err2.status, message: err2 && err2.message, body: err2 && err2.body });
+        throw err2;
+      }
+    }
+    console.info('exercise auto-tag: response', parsed);
+    return parsed;
+  }
+
   async function chat({ messages, tools, temperature = 0.2 }) {
     const { text } = await credentials();
     const useTrial = !text.apiKey;
@@ -551,5 +612,5 @@ export function createAIClient({ settingsDomain }) {
       : postChatRaw(`${text.url.replace(/\/$/, '')}/chat/completions`, text.apiKey, body);
   }
 
-  return { parseMealFromDescription, parseActivityFromDescription, parseMealFromImage, chat, listModels };
+  return { parseMealFromDescription, parseActivityFromDescription, parseMealFromImage, classifyExercises, chat, listModels };
 }

@@ -4,7 +4,7 @@
 // instead of the network. Divergences here are contract bugs in the JS domain
 // layer, not test bugs; the original workout.stats/miband test files keep
 // running unshimmed.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 
 describe('cloud shim contract — workout stats + mi-band', () => {
@@ -503,6 +503,89 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         expect(far.totals).toEqual({ volume_kg: 720, hard_sets: 2, easy_sets: 0, reps: 6, pr_count: 1 });
         expect(far.exercise_totals).toHaveLength(1);
         expect(far.exercise_totals[0]).toMatchObject({ exercise_name: 'Deadlift', sets: 2, max_weight_kg: 120 });
+    });
+
+    it('exercise_totals carries the library body_part tag (by name, case-insensitive) and omits it when unset', async () => {
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        const { window } = env;
+        const tagged = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Тяга блока', body_part: 'back' });
+        const plain = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Mystery' });
+        const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        for (const item of [tagged, plain]) {
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: item.id, exercise_name: item.name.toUpperCase(), source: 'library',
+                status: 'completed', sets: [{ weight_kg: 50, reps: 5 }],
+            });
+        }
+        await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+        const stats = await window.apiCallDirect('/api/workout/stats');
+        const byName = Object.fromEntries(stats.exercise_totals.map((e) => [e.exercise_name, e]));
+        expect(byName['ТЯГА БЛОКА'].body_part).toBe('back');
+        expect('body_part' in byName['MYSTERY']).toBe(false);
+    });
+
+    // POST /api/workout/exercise-library/auto-tag (web/domain/exercisetag.js):
+    // names → the user's own provider → library body_part. Only the exercise
+    // NAMES cross the wire; the provider's answer is validated against the
+    // catalog vocabulary before anything is written.
+    it('auto-tag sends only the names to the provider and writes accepted tags into the library', async () => {
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        const { window } = env;
+        await window.apiCall('/api/settings/integrations', 'PATCH', {
+            openai: { api_key: 'sk-test-dummy', url: 'https://api.example.test/v1' },
+        });
+        const existing = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Тяга блока', default_sets: 3 });
+
+        const fetchSpy = vi.fn(async () => ({
+            ok: true, status: 200,
+            async text() {
+                return JSON.stringify({ choices: [{ message: { content: JSON.stringify({ items: [
+                    { name: 'тяга блока', body_part: 'back' },       // case-insensitive match to the library row
+                    { name: 'Присед', body_part: 'upper legs' },     // no row yet -> bare row gets created
+                    { name: 'Not an exercise', body_part: 'unknown' },
+                    { name: 'Weird', body_part: 'tentacles' },       // outside the vocabulary -> skipped
+                ] }) } }] });
+            },
+        }));
+        vi.stubGlobal('fetch', fetchSpy);
+        try {
+            const res = await window.apiCallDirect('/api/workout/exercise-library/auto-tag', 'POST', {
+                names: ['Тяга блока', 'Присед', 'Not an exercise', 'Weird', ' ', 'Присед'],
+            });
+            expect(res).toEqual({
+                tagged: [{ name: 'Тяга блока', body_part: 'back' }, { name: 'Присед', body_part: 'upper legs' }],
+                skipped: ['Not an exercise', 'Weird'],
+            });
+
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            expect(fetchSpy.mock.calls[0][0]).toBe('https://api.example.test/v1/chat/completions');
+            const sent = JSON.parse(fetchSpy.mock.calls[0][1].body);
+            expect(sent.messages[1].content).toBe(JSON.stringify({ names: ['Тяга блока', 'Присед', 'Not an exercise', 'Weird'] }));
+            expect(sent.response_format.json_schema.name).toBe('exercise_tags');
+        } finally {
+            vi.unstubAllGlobals();
+        }
+
+        const library = await window.apiCall('/api/workout/exercise-library');
+        const byName = Object.fromEntries(library.map((i) => [i.name, i]));
+        // The existing row keeps its other fields and only gains the tag.
+        expect(byName['Тяга блока']).toMatchObject({ id: existing.id, default_sets: 3, body_part: 'back' });
+        expect(byName['Присед']).toMatchObject({ body_part: 'upper legs' });
+        expect(Object.keys(byName).sort()).toEqual(['Присед', 'Тяга блока']);
+    });
+
+    it('auto-tag rejects an empty name list without calling the provider', async () => {
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        const fetchSpy = vi.fn();
+        vi.stubGlobal('fetch', fetchSpy);
+        try {
+            await expect(env.window.apiCallDirect('/api/workout/exercise-library/auto-tag', 'POST', { names: [] }))
+                .rejects.toThrow(/names is required/);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+        expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it('exercise_totals covers every exercise trained, not just the top-8 slice', async () => {

@@ -1112,6 +1112,28 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     });
   }
 
+  // setLibraryBodyPart tags the library row named `name` (case-insensitive)
+  // and touches nothing else on it; a name with no row yet — an exercise
+  // logged straight into a session — gets a bare row so the tag has a home
+  // (listUniqueExercises already treats the library as the user's exercise
+  // vocabulary, so a bare row is consistent, not noise).
+  async function setLibraryBodyPart(name, bodyPart) {
+    const cleanName = String(name || '').trim();
+    const bp = String(bodyPart || '').trim();
+    if (!cleanName) throw invalidRequest('Name is required');
+    const key = cleanName.toLowerCase();
+    const existing = (await activeRecords(WORKOUT_RECORD_TYPES.LIBRARY))
+      .find((item) => String(item.name || '').trim().toLowerCase() === key);
+    if (existing) {
+      const nowMs = now();
+      await records.put(WORKOUT_RECORD_TYPES.LIBRARY, {
+        ...existing, body_part: bp, clientTs: nowMs, updated_at: new Date(nowMs).toISOString(),
+      });
+      return toLibraryResponse({ ...existing, body_part: bp });
+    }
+    return createLibraryItem({ name: cleanName, body_part: bp });
+  }
+
   async function deleteLibraryItem(id) {
     const item = await findByNumericId(records, WORKOUT_RECORD_TYPES.LIBRARY, id);
     if (!item) return;
@@ -2668,18 +2690,33 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       if (work.max_weight_kg > entry.max_weight_kg) entry.max_weight_kg = work.max_weight_kg;
     }
 
+    // The user's manual body-part tags (library `body_part`), keyed by
+    // normalized name — the Balance view reads this BEFORE the static
+    // catalog's name classifier, otherwise a custom-named exercise the user
+    // already tagged still lands in "Uncategorized".
+    const libraryBodyPart = new Map();
+    for (const item of await activeRecords(WORKOUT_RECORD_TYPES.LIBRARY)) {
+      const bp = String(item.body_part || '').trim();
+      if (bp) libraryBodyPart.set(String(item.name || '').trim().toLowerCase(), bp);
+    }
+
     // Every exercise trained in range, which is what lets the Balance view fold
     // a COMPLETE body-part split instead of guessing from eight rows.
     const totalRows = Array.from(agg.values())
-      .map((entry) => ({
-        exercise_name: entry.exercise_name,
-        session_count: entry.sessionIds.size,
-        sets: entry.sets,
-        hard_sets: entry.hard_sets,
-        reps: entry.reps,
-        total_volume_kg: entry.total_volume_kg,
-        max_weight_kg: entry.max_weight_kg,
-      }))
+      .map((entry) => {
+        const row = {
+          exercise_name: entry.exercise_name,
+          session_count: entry.sessionIds.size,
+          sets: entry.sets,
+          hard_sets: entry.hard_sets,
+          reps: entry.reps,
+          total_volume_kg: entry.total_volume_kg,
+          max_weight_kg: entry.max_weight_kg,
+        };
+        const bp = libraryBodyPart.get(String(entry.exercise_name || '').trim().toLowerCase());
+        if (bp) row.body_part = bp;
+        return row;
+      })
       .sort((a, b) => b.total_volume_kg - a.total_volume_kg);
 
     // top_exercises is now literally the top-8 slice of those same rows
@@ -3114,6 +3151,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     createLibraryItem,
     listLibrary,
     updateLibraryItem,
+    setLibraryBodyPart,
     deleteLibraryItem,
     listUniqueExercises,
     getRotationState,

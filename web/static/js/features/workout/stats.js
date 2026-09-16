@@ -60,10 +60,13 @@ function _formatVolume(kg) {
 // Balance view fold: per-body-part WORKING SETS (Hevy's "set count per muscle
 // group" — the volume unit the training-science literature prescribes against),
 // over every exercise trained in the range.
+// The user's own library tag (`ex.body_part`, stamped by the domain) beats the
+// catalog's name classifier — it is the only thing that can categorize a
+// custom-named exercise.
 function _computeBodyPartSets(exerciseTotals, resolveFn) {
     const totals = new Map();
     for (const ex of (exerciseTotals || [])) {
-        const bp = resolveFn(ex.exercise_name) || 'uncategorized';
+        const bp = ex.body_part || resolveFn(ex.exercise_name) || 'uncategorized';
         totals.set(bp, (totals.get(bp) || 0) + (ex.sets || 0));
     }
     return Array.from(totals.entries())
@@ -452,6 +455,37 @@ function _buildWeekOverWeek(weekly) {
     return p;
 }
 
+// One click sends the untagged NAMES (nothing else) to the user's AI provider
+// and writes the answers into the Library, then re-renders the stats.
+function _buildAutoTagButton(names) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-gloss wg-workouts-stats__auto-tag';
+    btn.textContent = `Tag ${names.length} with AI`;
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+            console.info('exercise auto-tag: sending', names);
+            const res = await window.apiCallDirect('/api/workout/exercise-library/auto-tag', 'POST', { names });
+            console.info('exercise auto-tag: result', res);
+            const n = res && Array.isArray(res.tagged) ? res.tagged.length : 0;
+            if (res && Array.isArray(res.skipped) && res.skipped.length) {
+                console.warn('exercise auto-tag: provider gave no usable body part for', res.skipped);
+            }
+            if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
+                window.SyncManager.showToast(`Tagged ${n} of ${names.length}`, 'info');
+            }
+            await invalidateWorkoutCache();
+            await loadWorkoutStatsTab();
+        } catch (e) {
+            console.error('Auto-tag failed:', e);
+            safeAlert('Auto-tag failed: ' + (e && e.message ? e.message : e));
+            btn.disabled = false;
+        }
+    });
+    return btn;
+}
+
 function _buildHint(text) {
     const p = document.createElement('p');
     p.className = 'text-center text-hint wg-workouts-stats__empty';
@@ -717,6 +751,16 @@ async function _appendBodyPartBalance(section, exercises) {
         }));
     });
     section.appendChild(list);
+
+    // Name the exercises behind "Uncategorized" so the user can tag them in
+    // the Library instead of guessing which rows the catalog failed on.
+    const untagged = exercises
+        .filter((ex) => (ex.sets || 0) > 0 && !ex.body_part && !window.WorkoutExerciseCatalog.resolveBodyPart(ex.exercise_name))
+        .map((ex) => ex.exercise_name);
+    if (untagged.length > 0) {
+        section.appendChild(_buildHint(`Uncategorized: ${untagged.join(', ')} — set the muscle group in Library, or:`));
+        section.appendChild(_buildAutoTagButton(untagged));
+    }
 
     // Every body part the catalog knows about, minus the ones trained.
     const trained = new Set(split.map((s) => s.body_part));
