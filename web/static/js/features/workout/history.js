@@ -253,8 +253,13 @@ function _formatHistoryDuration(minutes) {
 
 function _buildSessionCard(s) {
     const session = s.session || {};
+    const isAdHoc = session.group_id === -1;
     const slot = getRotationSlot(s.variant_name || '');
     const slotMod = _slotTagModifier(slot);
+    // getRotationSlot only knows PUSH/PULL/LEGS/REST; a planned session whose
+    // variant is named e.g. "Upper Back & Grip" must not be badged AD-HOC —
+    // show the plan (group) name instead. Real ad-hoc sessions keep AD-HOC.
+    const tagText = (!isAdHoc && slot === 'AD-HOC') ? (s.group_name || slot) : slot;
 
     const card = document.createElement('li');
     card.className = 'wg-card wg-workouts-history-row';
@@ -272,15 +277,17 @@ function _buildSessionCard(s) {
 
     const slotTag = document.createElement('span');
     slotTag.className = `wg-workouts-slot-tag wg-workouts-slot-tag--${slotMod} wg-workouts-history-row__slot`;
-    slotTag.textContent = slot;
+    slotTag.textContent = tagText;
     title.appendChild(slotTag);
 
     const name = document.createElement('span');
     name.className = 'wg-workouts-history-row__name';
     // Ad-hoc sessions (group_id === -1, e.g. Telegram `/workout walk`) store their
     // free-text label in session.notes; surface it as the row name so it isn't invisible.
-    const adhocLabel = (session.group_id === -1 && session.notes) ? String(session.notes).trim() : '';
-    name.textContent = adhocLabel || s.group_name || 'Workout';
+    // Otherwise the row is named by its variant ("Bench technique"), since the
+    // plan name already sits in the tag; group_name is the last resort.
+    const adhocLabel = (isAdHoc && session.notes) ? String(session.notes).trim() : '';
+    name.textContent = adhocLabel || s.variant_name || s.group_name || 'Workout';
     title.appendChild(name);
 
     body.appendChild(title);

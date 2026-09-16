@@ -110,6 +110,37 @@ describe('features/workout/history.js — split-file integration', () => {
     expect(nameEl.textContent).toBe('Ad-hoc Workout');
   });
 
+  it('badges a planned session with its plan name and names the row by variant, not AD-HOC', async () => {
+    const { window, document } = env;
+    window.apiCall = vi.fn(async (url) => {
+      if (url.includes('/api/workout/sessions')) {
+        return [{
+          group_name: 'Plan 3 — Daily Split',
+          variant_name: 'Upper Back & Grip',
+          exercises_completed: 3,
+          exercises_count: 3,
+          session: {
+            id: 503,
+            group_id: 3,
+            variant_id: 7,
+            status: 'completed',
+            started_at: '2026-07-20T10:00:00Z',
+            scheduled_date: '2026-07-20',
+          },
+        }];
+      }
+      if (url.includes('/api/workout/miband')) return [];
+      if (url.includes('/api/settings')) return { timezone: '' };
+      return null;
+    });
+
+    await window.loadWorkoutHistoryTab();
+
+    const row = document.getElementById('workout-history-display');
+    expect(row.querySelector('.wg-workouts-history-row__slot').textContent).toBe('Plan 3 — Daily Split');
+    expect(row.querySelector('.wg-workouts-history-row__name').textContent).toBe('Upper Back & Grip');
+  });
+
   it('deleteSession short-circuits when sessionId is falsy', async () => {
     const { window } = env;
     const apiCallSpy = vi.fn();
