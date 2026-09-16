@@ -1,7 +1,7 @@
 // Wandergeek Workouts groups sub-tab (Phase 7, Task 5).
 //
 // Exercises the rewritten `_renderWorkoutGroups` path. Each row is a
-// `.wg-card.wg-workouts-groups-row` carrying a rotation-slot tag, mono
+// `.wg-card.wg-workouts-groups-row` carrying a mono
 // group name, days + scheduled-time meta, and a trailing `.wg-icon-btn`
 // cluster (edit / delete). A full-width `.wg-gloss--sun` "Add workout
 // group" CTA replaces the paper-era FAB. The edit-group modal uses the
@@ -50,7 +50,7 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
         expect(empty.textContent).toMatch(/No plans yet/);
     });
 
-    it('renders .wg-card group rows with slot tag, mono name and meta', () => {
+    it('renders .wg-card group rows with mono name and meta', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-groups-list');
         window._renderWorkoutGroups(container, [makeGroup()]);
@@ -59,12 +59,7 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
         expect(row).not.toBeNull();
         expect(row.classList.contains('wg-card')).toBe(true);
         expect(row.dataset.groupId).toBe('1');
-        expect(row.dataset.slot).toBe('PUSH');
-
-        const slotTag = row.querySelector('.wg-workouts-slot-tag');
-        expect(slotTag).not.toBeNull();
-        expect(slotTag.classList.contains('wg-workouts-slot-tag--push')).toBe(true);
-        expect(slotTag.textContent).toBe('PUSH');
+        expect(row.querySelector('.wg-workouts-slot-tag')).toBeNull();
 
         const name = row.querySelector('.wg-workouts-groups-row__name');
         expect(name).not.toBeNull();

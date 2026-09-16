@@ -254,12 +254,6 @@ function _formatHistoryDuration(minutes) {
 function _buildSessionCard(s) {
     const session = s.session || {};
     const isAdHoc = session.group_id === -1;
-    const slot = getRotationSlot(s.variant_name || '');
-    const slotMod = _slotTagModifier(slot);
-    // getRotationSlot only knows PUSH/PULL/LEGS/REST; a planned session whose
-    // variant is named e.g. "Upper Back & Grip" must not be badged AD-HOC —
-    // show the plan (group) name instead. Real ad-hoc sessions keep AD-HOC.
-    const tagText = (!isAdHoc && slot === 'AD-HOC') ? (s.group_name || slot) : slot;
 
     const card = document.createElement('li');
     card.className = 'wg-card wg-workouts-history-row';
@@ -267,7 +261,6 @@ function _buildSessionCard(s) {
     if (s.isLocal) card.classList.add('wg-workouts-history-row--pending');
     if (s.isRejected) card.classList.add('wg-workouts-history-row--rejected');
     card.dataset.sessionId = String(session.id || '');
-    card.dataset.slot = slot;
 
     const body = document.createElement('div');
     body.className = 'wg-workouts-history-row__body';
@@ -275,10 +268,7 @@ function _buildSessionCard(s) {
     const title = document.createElement('div');
     title.className = 'wg-workouts-history-row__title';
 
-    const slotTag = document.createElement('span');
-    slotTag.className = `wg-workouts-slot-tag wg-workouts-slot-tag--${slotMod} wg-workouts-history-row__slot`;
-    slotTag.textContent = tagText;
-    title.appendChild(slotTag);
+    title.appendChild(workoutSlotTag(document, session, s.group_name, 'wg-workouts-history-row__slot'));
 
     const name = document.createElement('span');
     name.className = 'wg-workouts-history-row__name';
@@ -440,7 +430,6 @@ function _buildMiBandCard(w) {
     const card = document.createElement('li');
     card.className = 'wg-card wg-workouts-history-row wg-workouts-history-row--miband';
     card.dataset.mibandId = String(w.id || '');
-    card.dataset.slot = 'AD-HOC';
 
     const body = document.createElement('div');
     body.className = 'wg-workouts-history-row__body';

@@ -569,10 +569,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-workouts-subtab-pad-y',
     '--wg-workouts-subtab-pad-x',
     '--wg-workouts-subtab-gap',
-    '--wg-workouts-today-card-pad',
-    '--wg-workouts-today-subtitle-size',
-    '--wg-workouts-today-names-size',
-    '--wg-workouts-today-duration-size',
     '--wg-workouts-slot-tag-pad-y',
     '--wg-workouts-slot-tag-pad-x',
     '--wg-workouts-slot-tag-size',
@@ -621,23 +617,11 @@ const WANDERGEEK_TOKENS = [
     '--wg-workouts-modal-input-pad-x',
     '--wg-workouts-modal-label-size',
 
-    // Workouts rotation-slot aliases (Phase 7, Task 1) — wrap the shared
-    // sun / normal / mint tag triplets so the rotation-slot classifier
-    // (PUSH / PULL / LEGS / REST / AD-HOC) can return a token-group name
-    // without duplicating tag styles. Mirrors the --wg-bp-status-* /
-    // --wg-meds-status-* pattern.
-    '--wg-workouts-slot-push-bg',
-    '--wg-workouts-slot-push-fg',
-    '--wg-workouts-slot-push-border',
-    '--wg-workouts-slot-pull-bg',
-    '--wg-workouts-slot-pull-fg',
-    '--wg-workouts-slot-pull-border',
-    '--wg-workouts-slot-legs-bg',
-    '--wg-workouts-slot-legs-fg',
-    '--wg-workouts-slot-legs-border',
-    '--wg-workouts-slot-rest-bg',
-    '--wg-workouts-slot-rest-fg',
-    '--wg-workouts-slot-rest-border',
+    // Workout slot-tag aliases — PLAN (sun) / AD-HOC (normal) triplets for
+    // the tag that opens a history row / session header.
+    '--wg-workouts-slot-plan-bg',
+    '--wg-workouts-slot-plan-fg',
+    '--wg-workouts-slot-plan-border',
     '--wg-workouts-slot-adhoc-bg',
     '--wg-workouts-slot-adhoc-fg',
     '--wg-workouts-slot-adhoc-border',
