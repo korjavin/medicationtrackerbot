@@ -9094,6 +9094,15 @@ textarea.wg-input {
     gap: var(--space-xs);
 }
 
+.wg-workouts-stats__auto-tag {
+    display: block;
+    margin: var(--space-xs) auto var(--space-sm);
+    padding: var(--space-xs) var(--space-md);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    letter-spacing: 0.06em;
+}
+
 .wg-workouts-stats__untrained-chip {
     padding: 2px var(--space-xs);
     border-radius: var(--radius-sm);

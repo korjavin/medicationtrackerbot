@@ -1112,6 +1112,28 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     });
   }
 
+  // setLibraryBodyPart tags the library row named `name` (case-insensitive)
+  // and touches nothing else on it; a name with no row yet — an exercise
+  // logged straight into a session — gets a bare row so the tag has a home
+  // (listUniqueExercises already treats the library as the user's exercise
+  // vocabulary, so a bare row is consistent, not noise).
+  async function setLibraryBodyPart(name, bodyPart) {
+    const cleanName = String(name || '').trim();
+    const bp = String(bodyPart || '').trim();
+    if (!cleanName) throw invalidRequest('Name is required');
+    const key = cleanName.toLowerCase();
+    const existing = (await activeRecords(WORKOUT_RECORD_TYPES.LIBRARY))
+      .find((item) => String(item.name || '').trim().toLowerCase() === key);
+    if (existing) {
+      const nowMs = now();
+      await records.put(WORKOUT_RECORD_TYPES.LIBRARY, {
+        ...existing, body_part: bp, clientTs: nowMs, updated_at: new Date(nowMs).toISOString(),
+      });
+      return toLibraryResponse({ ...existing, body_part: bp });
+    }
+    return createLibraryItem({ name: cleanName, body_part: bp });
+  }
+
   async function deleteLibraryItem(id) {
     const item = await findByNumericId(records, WORKOUT_RECORD_TYPES.LIBRARY, id);
     if (!item) return;
@@ -3129,6 +3151,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     createLibraryItem,
     listLibrary,
     updateLibraryItem,
+    setLibraryBodyPart,
     deleteLibraryItem,
     listUniqueExercises,
     getRotationState,

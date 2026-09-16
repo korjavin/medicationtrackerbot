@@ -68,6 +68,46 @@ describe('features/workout/library.js — split-file integration', () => {
     expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
   });
 
+  // A new row saved with the "Auto" muscle group that the static catalog
+  // cannot classify gets one LLM pass over its name (cloud only); a catalog
+  // hit or a manual tag skips the call.
+  it('saveExerciseLibraryItem auto-tags a catalog-unresolved name on create, in cloud mode only', async () => {
+    const { window, document } = env;
+    window.__MEDTRACKER_CLOUD__ = true;
+    window.loadExerciseLibrary = vi.fn();
+    window.WorkoutExerciseCatalog.getBodyPart = vi.fn(async (name) => (name === 'Bench Press' ? 'chest' : null));
+    const calls = [];
+    window.apiCall = vi.fn(async (url, method, body) => {
+      calls.push([url, body]);
+      if (url.endsWith('/auto-tag')) return { tagged: [{ name: body.names[0], body_part: 'back' }], skipped: [] };
+      return { id: 7 };
+    });
+    window.WorkoutEdit.editingLibraryItemId = null;
+
+    document.getElementById('exercise-library-name').value = 'Тяга блока';
+    document.getElementById('exercise-library-body-part').value = '';
+    await window.saveExerciseLibraryItem();
+    await vi.waitFor(() => {
+      expect(calls.map(([u]) => u)).toEqual(['/api/workout/exercise-library/create', '/api/workout/exercise-library/auto-tag']);
+    });
+    expect(calls[1][1]).toEqual({ names: ['Тяга блока'] });
+
+    // Catalog resolves the name -> no LLM call.
+    calls.length = 0;
+    document.getElementById('exercise-library-name').value = 'Bench Press';
+    await window.saveExerciseLibraryItem();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls.map(([u]) => u)).toEqual(['/api/workout/exercise-library/create']);
+
+    // Edit path never auto-tags, even for an unresolved name.
+    calls.length = 0;
+    window.WorkoutEdit.editingLibraryItemId = 7;
+    document.getElementById('exercise-library-name').value = 'Присед';
+    await window.saveExerciseLibraryItem();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(calls.map(([u]) => u)).toEqual(['/api/workout/exercise-library/update?id=7']);
+  });
+
   it('closeExerciseLibraryModal clears the closure-private editingLibraryItemId', () => {
     const { window } = env;
     window.WorkoutEdit.editingLibraryItemId = 42;

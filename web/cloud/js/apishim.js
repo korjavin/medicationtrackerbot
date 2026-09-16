@@ -13,6 +13,7 @@ import { createIntakeDomain } from '../../domain/medintake.js';
 import { createTzPlanDomain } from '../../domain/tzplan.js';
 import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
+import { createExerciseTagDomain } from '../../domain/exercisetag.js';
 import { createWorkoutDomain } from '../../domain/workout.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
 import { createAnalysis } from '../../domain/analysis.js';
@@ -165,7 +166,7 @@ export function createApiRouter(ctx, {
   // domain module's signature (they all take timeZone as a captured string).
   let timeZone = deviceTimeZone;
   let bp; let weight; let notes; let settings; let vitals; let reminders;
-  let medications; let intake; let tzplan; let foodDb; let food; let aiClient;
+  let medications; let intake; let tzplan; let foodDb; let food; let aiClient; let exerciseTag;
   let foodAI; let workout; let gamification; let narrator; let analysis;
   function buildDomains(tz) {
     timeZone = tz;
@@ -198,6 +199,9 @@ export function createApiRouter(ctx, {
     aiClient = createAIClient({ settingsDomain: settings });
     foodAI = createFoodAIDomain({ aiClient, foodDomain: food, now });
     workout = createWorkoutDomain({ records, now, timeZone });
+    // LLM body-part tagging for exercise names the static catalog cannot
+    // classify (custom / non-English names). Names only; `ai` consent scope.
+    exerciseTag = createExerciseTagDomain({ aiClient, workoutDomain: workout });
     gamification = createGamificationDomain({
       records, now, timeZone, getRecordsChangeCount: recordsChangeCount,
     });
@@ -900,6 +904,9 @@ export function createApiRouter(ctx, {
     if (path === '/api/workout/exercise-library/update' && method === 'PUT') {
       await workout.updateLibraryItem(intParam(params, 'id', 0), body);
       return true;
+    }
+    if (path === '/api/workout/exercise-library/auto-tag' && method === 'POST') {
+      return exerciseTag.tagExercises(body && body.names);
     }
     if (path === '/api/workout/exercise-library/delete' && method === 'DELETE') {
       await workout.deleteLibraryItem(intParam(params, 'id', 0));

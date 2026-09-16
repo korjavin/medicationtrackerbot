@@ -128,6 +128,33 @@ describe('features/workout/stats.js — split-file integration', () => {
       expect(hints.some((t) => t.includes('Uncategorized: Mystery Move'))).toBe(true);
     });
 
+    it('the "Tag with AI" button posts only the untagged names and reloads the stats', async () => {
+      const { window, document } = env;
+      stubCatalog(window, { ok: true, status: 200, json: async () => CATALOG });
+      window.apiCallDirect = vi.fn(async () => ({ tagged: [{ name: 'Mystery Move', body_part: 'back' }], skipped: [] }));
+      window.invalidateWorkoutCache = vi.fn(async () => {});
+      window.WorkoutStats.load = vi.fn(async () => {});
+
+      const container = renderBalance(window, document, [
+        { exercise_name: 'Bench Press', session_count: 2, sets: 6, total_volume_kg: 800 },
+        { exercise_name: 'Тяга блока', session_count: 1, sets: 4, total_volume_kg: 300, body_part: 'back' },
+        { exercise_name: 'Mystery Move', session_count: 1, sets: 2, total_volume_kg: 50 },
+      ]);
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.wg-workouts-stats__auto-tag')).toBeTruthy();
+      });
+      const btn = container.querySelector('.wg-workouts-stats__auto-tag');
+      expect(btn.textContent).toBe('Tag 1 with AI');
+      btn.click();
+      await vi.waitFor(() => {
+        expect(window.apiCallDirect).toHaveBeenCalledWith(
+          '/api/workout/exercise-library/auto-tag', 'POST', { names: ['Mystery Move'] },
+        );
+      });
+      await vi.waitFor(() => expect(window.invalidateWorkoutCache).toHaveBeenCalled());
+    });
+
     it('renders no split section when the range holds no exercises (and does not fetch the catalog)', async () => {
       const { window, document } = env;
       stubCatalog(window, { ok: true, status: 200, json: async () => CATALOG });

@@ -455,6 +455,32 @@ function _buildWeekOverWeek(weekly) {
     return p;
 }
 
+// One click sends the untagged NAMES (nothing else) to the user's AI provider
+// and writes the answers into the Library, then re-renders the stats.
+function _buildAutoTagButton(names) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'wg-gloss wg-workouts-stats__auto-tag';
+    btn.textContent = `Tag ${names.length} with AI`;
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+            const res = await window.apiCallDirect('/api/workout/exercise-library/auto-tag', 'POST', { names });
+            const n = res && Array.isArray(res.tagged) ? res.tagged.length : 0;
+            if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
+                window.SyncManager.showToast(`Tagged ${n} of ${names.length}`, 'info');
+            }
+            await invalidateWorkoutCache();
+            await loadWorkoutStatsTab();
+        } catch (e) {
+            console.error('Auto-tag failed:', e);
+            safeAlert('Auto-tag failed: ' + (e && e.message ? e.message : e));
+            btn.disabled = false;
+        }
+    });
+    return btn;
+}
+
 function _buildHint(text) {
     const p = document.createElement('p');
     p.className = 'text-center text-hint wg-workouts-stats__empty';
@@ -727,7 +753,8 @@ async function _appendBodyPartBalance(section, exercises) {
         .filter((ex) => (ex.sets || 0) > 0 && !ex.body_part && !window.WorkoutExerciseCatalog.resolveBodyPart(ex.exercise_name))
         .map((ex) => ex.exercise_name);
     if (untagged.length > 0) {
-        section.appendChild(_buildHint(`Uncategorized: ${untagged.join(', ')} — set the muscle group in Library`));
+        section.appendChild(_buildHint(`Uncategorized: ${untagged.join(', ')} — set the muscle group in Library, or:`));
+        section.appendChild(_buildAutoTagButton(untagged));
     }
 
     // Every body part the catalog knows about, minus the ones trained.

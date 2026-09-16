@@ -4,7 +4,7 @@
 // instead of the network. Divergences here are contract bugs in the JS domain
 // layer, not test bugs; the original workout.stats/miband test files keep
 // running unshimmed.
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 
 describe('cloud shim contract — workout stats + mi-band', () => {
@@ -523,6 +523,69 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         const byName = Object.fromEntries(stats.exercise_totals.map((e) => [e.exercise_name, e]));
         expect(byName['ТЯГА БЛОКА'].body_part).toBe('back');
         expect('body_part' in byName['MYSTERY']).toBe(false);
+    });
+
+    // POST /api/workout/exercise-library/auto-tag (web/domain/exercisetag.js):
+    // names → the user's own provider → library body_part. Only the exercise
+    // NAMES cross the wire; the provider's answer is validated against the
+    // catalog vocabulary before anything is written.
+    it('auto-tag sends only the names to the provider and writes accepted tags into the library', async () => {
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        const { window } = env;
+        await window.apiCall('/api/settings/integrations', 'PATCH', {
+            openai: { api_key: 'sk-test-dummy', url: 'https://api.example.test/v1' },
+        });
+        const existing = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Тяга блока', default_sets: 3 });
+
+        const fetchSpy = vi.fn(async () => ({
+            ok: true, status: 200,
+            async text() {
+                return JSON.stringify({ choices: [{ message: { content: JSON.stringify({ items: [
+                    { name: 'тяга блока', body_part: 'back' },       // case-insensitive match to the library row
+                    { name: 'Присед', body_part: 'upper legs' },     // no row yet -> bare row gets created
+                    { name: 'Not an exercise', body_part: 'unknown' },
+                    { name: 'Weird', body_part: 'tentacles' },       // outside the vocabulary -> skipped
+                ] }) } }] });
+            },
+        }));
+        vi.stubGlobal('fetch', fetchSpy);
+        try {
+            const res = await window.apiCallDirect('/api/workout/exercise-library/auto-tag', 'POST', {
+                names: ['Тяга блока', 'Присед', 'Not an exercise', 'Weird', ' ', 'Присед'],
+            });
+            expect(res).toEqual({
+                tagged: [{ name: 'Тяга блока', body_part: 'back' }, { name: 'Присед', body_part: 'upper legs' }],
+                skipped: ['Not an exercise', 'Weird'],
+            });
+
+            expect(fetchSpy).toHaveBeenCalledTimes(1);
+            expect(fetchSpy.mock.calls[0][0]).toBe('https://api.example.test/v1/chat/completions');
+            const sent = JSON.parse(fetchSpy.mock.calls[0][1].body);
+            expect(sent.messages[1].content).toBe(JSON.stringify({ names: ['Тяга блока', 'Присед', 'Not an exercise', 'Weird'] }));
+            expect(sent.response_format.json_schema.name).toBe('exercise_tags');
+        } finally {
+            vi.unstubAllGlobals();
+        }
+
+        const library = await window.apiCall('/api/workout/exercise-library');
+        const byName = Object.fromEntries(library.map((i) => [i.name, i]));
+        // The existing row keeps its other fields and only gains the tag.
+        expect(byName['Тяга блока']).toMatchObject({ id: existing.id, default_sets: 3, body_part: 'back' });
+        expect(byName['Присед']).toMatchObject({ body_part: 'upper legs' });
+        expect(Object.keys(byName).sort()).toEqual(['Присед', 'Тяга блока']);
+    });
+
+    it('auto-tag rejects an empty name list without calling the provider', async () => {
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        const fetchSpy = vi.fn();
+        vi.stubGlobal('fetch', fetchSpy);
+        try {
+            await expect(env.window.apiCallDirect('/api/workout/exercise-library/auto-tag', 'POST', { names: [] }))
+                .rejects.toThrow(/names is required/);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+        expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it('exercise_totals covers every exercise trained, not just the top-8 slice', async () => {
