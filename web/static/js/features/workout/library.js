@@ -161,10 +161,9 @@ function _renderExerciseLibrary(container, items) {
     container.replaceChildren(...children);
 }
 
-// A library row is tagged by the exercise's TARGET MUSCLE GROUP, not by
-// getRotationSlot() — that classifier reads variant names ("Push day"), so on an
-// exercise name it tagged everything it didn't recognise "AD-HOC" ("Bulgarian
-// squat" included). Resolution order: the user's stored override, else the
+// A library row is tagged by the exercise's TARGET MUSCLE GROUP (a since-removed
+// variant-name classifier used to label most of the library "AD-HOC").
+// Resolution order: the user's stored override, else the
 // static catalog's body_part for this name (async — the catalog is a lazily
 // fetched asset), else an em dash.
 function _libraryBodyPartLabel(bodyPart) {

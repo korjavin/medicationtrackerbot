@@ -70,8 +70,8 @@ const DEEPLINK_ROUTER_JS = path.join(REPO_ROOT, 'web/static/js/features/deeplink
 const HEALTH_JS = path.join(REPO_ROOT, 'web/static/js/features/health.js');
 // features/workout.js was split into per-concern sub-files under
 // features/workout/ (2026-05-13). The harness loads them in dependency order:
-// next-card.js first (it provides getRotationSlot/_slotTagModifier shared
-// utils consumed by groups.js / history.js / library.js / sessions.js),
+// next-card.js first (it provides the workoutSlotTag shared helper
+// consumed by history.js / sessions.js),
 // followed by domain CRUD files, then sessions/history wiring, and finally
 // index.js (orchestrator) which binds controls + sub-tab routing.
 const WORKOUT_NEXT_CARD_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/next-card.js');
@@ -423,9 +423,8 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   evalFileCached(window, DEEPLINK_ROUTER_JS);
 
   if (withWorkout) {
-    // Order matters: next-card.js defines getRotationSlot / _slotTagModifier
-    // consumed by the renderer helpers in groups.js / history.js / library.js
-    // / sessions.js. The orchestrator (index.js) is loaded last because its
+    // Order matters: next-card.js defines workoutSlotTag consumed by the
+    // renderer helpers in history.js / sessions.js. The orchestrator (index.js) is loaded last because its
     // `bindWorkoutControls` IIFE attaches click handlers that reference
     // functions declared in the other sub-files.
     evalFileCached(window, WORKOUT_NEXT_CARD_JS);

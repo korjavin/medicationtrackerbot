@@ -81,10 +81,10 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
         expect(weight.textContent).toBe('45kg');
     });
 
-    // Regression: the row tag used to run the VARIANT-name classifier
-    // (getRotationSlot) over an EXERCISE name, so anything it didn't recognise
-    // — "Bulgarian squat" and most of the library — was labelled "AD-HOC".
-    it('never tags a library row from the rotation-slot classifier', () => {
+    // Regression: the row tag used to run a variant-name classifier over an
+    // EXERCISE name, so anything it didn't recognise — "Bulgarian squat" and
+    // most of the library — was labelled "AD-HOC".
+    it('never tags a library row from a variant-name classifier', () => {
         const { window, document } = env;
         const container = document.getElementById('exercise-library-list');
         window._renderExerciseLibrary(container, [
@@ -98,7 +98,6 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
         // starts as a neutral placeholder rather than a wrong rotation slot.
         tags.forEach((tag) => {
             expect(tag.textContent).toBe('—');
-            expect(tag.classList.contains('wg-workouts-slot-tag--push')).toBe(false);
         });
     });
 

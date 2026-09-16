@@ -109,12 +109,11 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         const row = container.querySelector('.wg-workouts-history-row');
         expect(row).not.toBeNull();
         expect(row.classList.contains('wg-card')).toBe(true);
-        expect(row.dataset.slot).toBe('LEGS');
 
         const slotTag = row.querySelector('.wg-workouts-slot-tag');
         expect(slotTag).not.toBeNull();
-        expect(slotTag.classList.contains('wg-workouts-slot-tag--legs')).toBe(true);
-        expect(slotTag.textContent).toBe('LEGS');
+        expect(slotTag.classList.contains('wg-workouts-slot-tag--plan')).toBe(true);
+        expect(slotTag.textContent).toBe('PPL');
 
         const duration = row.querySelector('.wg-workouts-history-row__duration');
         expect(duration).not.toBeNull();

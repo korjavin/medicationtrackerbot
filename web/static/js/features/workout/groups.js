@@ -136,13 +136,9 @@ function _workoutGroupDaysText(group) {
 }
 
 function _buildWorkoutGroupRow(doc, group) {
-    const slot = getRotationSlot(group.name || '');
-    const slotMod = _slotTagModifier(slot);
-
     const card = doc.createElement('li');
     card.className = 'wg-card wg-workouts-groups-row';
     card.dataset.groupId = String(group.id || '');
-    card.dataset.slot = slot;
     if (group.is_rotating) card.classList.add('wg-workouts-groups-row--rotating');
     if (!group.active) card.classList.add('wg-workouts-groups-row--inactive');
 
@@ -151,11 +147,6 @@ function _buildWorkoutGroupRow(doc, group) {
 
     const title = doc.createElement('div');
     title.className = 'wg-workouts-groups-row__title';
-
-    const slotTag = doc.createElement('span');
-    slotTag.className = `wg-workouts-slot-tag wg-workouts-slot-tag--${slotMod} wg-workouts-groups-row__slot`;
-    slotTag.textContent = slot;
-    title.appendChild(slotTag);
 
     const name = doc.createElement('span');
     name.className = 'wg-workouts-groups-row__name';

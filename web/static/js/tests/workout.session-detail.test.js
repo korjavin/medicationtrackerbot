@@ -63,8 +63,8 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         const heading = document.getElementById('workout-session-modal-heading');
         const slotTag = heading.querySelector('.wg-workouts-slot-tag');
         expect(slotTag).not.toBeNull();
-        expect(slotTag.textContent).toBe('PUSH');
-        expect(slotTag.classList.contains('wg-workouts-slot-tag--push')).toBe(true);
+        expect(slotTag.textContent).toBe('PPL');
+        expect(slotTag.classList.contains('wg-workouts-slot-tag--plan')).toBe(true);
 
         const title = heading.querySelector('.wg-workouts-session-modal__title');
         expect(title).not.toBeNull();

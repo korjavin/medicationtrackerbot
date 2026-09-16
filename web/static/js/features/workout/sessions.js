@@ -141,10 +141,7 @@ function renderWorkoutSessionHeader(session) {
     const heading = document.getElementById('workout-session-modal-heading');
     if (!heading) return;
 
-    const slot = getRotationSlot(session.variant_name || '');
-    const slotTag = document.createElement('span');
-    slotTag.className = `wg-workouts-slot-tag wg-workouts-slot-tag--${_slotTagModifier(slot)} wg-workouts-session-modal__slot`;
-    slotTag.textContent = slot;
+    const slotTag = workoutSlotTag(document, session, session.group_name, 'wg-workouts-session-modal__slot');
 
     const dateParts = (session.scheduled_date || '').split('T')[0].split('-').map(Number);
     const dateObj = dateParts.length === 3
@@ -718,7 +715,7 @@ async function showWorkoutSessionModal(sessionId) {
         // Clear any stale autosave error from a previously-open session.
         setAutosaveStatus('saved');
 
-        renderWorkoutSessionHeader(data.session);
+        renderWorkoutSessionHeader({ ...data.session, group_name: data.group_name });
         renderWorkoutSessionInfo(infoContainer, data.session);
         renderWorkoutSessionLogs(logsContainer);
         const actionsContainer = document.getElementById('workout-session-actions');

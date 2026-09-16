@@ -2348,7 +2348,22 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const logs = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
       .filter((l) => l.session_id === session.id)
       .sort((a, b) => a.id - b.id);
-    return { session: toSessionResponse(session), logs: logs.map(toLogResponse) };
+    // group_name/variant_name mirror listSessions so the session modal header
+    // can badge the plan without a second round-trip.
+    let groupName = 'Ad-hoc';
+    let variantName = '';
+    if (session.group_id !== ADHOC_ID) {
+      const group = await findByNumericId(records, WORKOUT_RECORD_TYPES.GROUP, session.group_id);
+      const variant = await findByNumericId(records, WORKOUT_RECORD_TYPES.VARIANT, session.variant_id);
+      groupName = group ? group.name : 'Unknown';
+      variantName = variant ? variant.name : '';
+    }
+    return {
+      session: toSessionResponse(session),
+      logs: logs.map(toLogResponse),
+      group_name: groupName,
+      variant_name: variantName,
+    };
   }
 
   // mondayOf ports stats.go's mondayOf, bucketing by the ISO Monday of the
