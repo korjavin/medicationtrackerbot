@@ -372,12 +372,15 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             const container = document.getElementById('workout-stats-display');
             window._renderWorkoutStats(container, {
                 ...populatedStats(),
+                // Oldest-first, as the API sorts it: the calendar reads the
+                // window start from daily[0], so a newest-first fixture drops
+                // the oldest day off the grid whenever it falls in last week.
                 daily_activity: [
-                    { date: dayStr(0), completed: 1, skipped: 0 },
-                    { date: dayStr(1), completed: 2, skipped: 0 },
+                    { date: dayStr(3), completed: 1, skipped: 0 },
                     // Skipped is not trained — it must not reach the footer.
                     { date: dayStr(2), completed: 0, skipped: 1 },
-                    { date: dayStr(3), completed: 1, skipped: 0 },
+                    { date: dayStr(1), completed: 2, skipped: 0 },
+                    { date: dayStr(0), completed: 1, skipped: 0 },
                 ],
             });
 
