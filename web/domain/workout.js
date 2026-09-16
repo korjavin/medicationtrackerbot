@@ -2668,18 +2668,33 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       if (work.max_weight_kg > entry.max_weight_kg) entry.max_weight_kg = work.max_weight_kg;
     }
 
+    // The user's manual body-part tags (library `body_part`), keyed by
+    // normalized name — the Balance view reads this BEFORE the static
+    // catalog's name classifier, otherwise a custom-named exercise the user
+    // already tagged still lands in "Uncategorized".
+    const libraryBodyPart = new Map();
+    for (const item of await activeRecords(WORKOUT_RECORD_TYPES.LIBRARY)) {
+      const bp = String(item.body_part || '').trim();
+      if (bp) libraryBodyPart.set(String(item.name || '').trim().toLowerCase(), bp);
+    }
+
     // Every exercise trained in range, which is what lets the Balance view fold
     // a COMPLETE body-part split instead of guessing from eight rows.
     const totalRows = Array.from(agg.values())
-      .map((entry) => ({
-        exercise_name: entry.exercise_name,
-        session_count: entry.sessionIds.size,
-        sets: entry.sets,
-        hard_sets: entry.hard_sets,
-        reps: entry.reps,
-        total_volume_kg: entry.total_volume_kg,
-        max_weight_kg: entry.max_weight_kg,
-      }))
+      .map((entry) => {
+        const row = {
+          exercise_name: entry.exercise_name,
+          session_count: entry.sessionIds.size,
+          sets: entry.sets,
+          hard_sets: entry.hard_sets,
+          reps: entry.reps,
+          total_volume_kg: entry.total_volume_kg,
+          max_weight_kg: entry.max_weight_kg,
+        };
+        const bp = libraryBodyPart.get(String(entry.exercise_name || '').trim().toLowerCase());
+        if (bp) row.body_part = bp;
+        return row;
+      })
       .sort((a, b) => b.total_volume_kg - a.total_volume_kg);
 
     // top_exercises is now literally the top-8 slice of those same rows

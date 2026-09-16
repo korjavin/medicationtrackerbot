@@ -60,10 +60,13 @@ function _formatVolume(kg) {
 // Balance view fold: per-body-part WORKING SETS (Hevy's "set count per muscle
 // group" — the volume unit the training-science literature prescribes against),
 // over every exercise trained in the range.
+// The user's own library tag (`ex.body_part`, stamped by the domain) beats the
+// catalog's name classifier — it is the only thing that can categorize a
+// custom-named exercise.
 function _computeBodyPartSets(exerciseTotals, resolveFn) {
     const totals = new Map();
     for (const ex of (exerciseTotals || [])) {
-        const bp = resolveFn(ex.exercise_name) || 'uncategorized';
+        const bp = ex.body_part || resolveFn(ex.exercise_name) || 'uncategorized';
         totals.set(bp, (totals.get(bp) || 0) + (ex.sets || 0));
     }
     return Array.from(totals.entries())
@@ -717,6 +720,15 @@ async function _appendBodyPartBalance(section, exercises) {
         }));
     });
     section.appendChild(list);
+
+    // Name the exercises behind "Uncategorized" so the user can tag them in
+    // the Library instead of guessing which rows the catalog failed on.
+    const untagged = exercises
+        .filter((ex) => (ex.sets || 0) > 0 && !ex.body_part && !window.WorkoutExerciseCatalog.resolveBodyPart(ex.exercise_name))
+        .map((ex) => ex.exercise_name);
+    if (untagged.length > 0) {
+        section.appendChild(_buildHint(`Uncategorized: ${untagged.join(', ')} — set the muscle group in Library`));
+    }
 
     // Every body part the catalog knows about, minus the ones trained.
     const trained = new Set(split.map((s) => s.body_part));

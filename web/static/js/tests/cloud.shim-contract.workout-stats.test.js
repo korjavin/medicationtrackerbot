@@ -505,6 +505,26 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         expect(far.exercise_totals[0]).toMatchObject({ exercise_name: 'Deadlift', sets: 2, max_weight_kg: 120 });
     });
 
+    it('exercise_totals carries the library body_part tag (by name, case-insensitive) and omits it when unset', async () => {
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        const { window } = env;
+        const tagged = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Тяга блока', body_part: 'back' });
+        const plain = await window.apiCall('/api/workout/exercise-library/create', 'POST', { name: 'Mystery' });
+        const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+        for (const item of [tagged, plain]) {
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: item.id, exercise_name: item.name.toUpperCase(), source: 'library',
+                status: 'completed', sets: [{ weight_kg: 50, reps: 5 }],
+            });
+        }
+        await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+        const stats = await window.apiCallDirect('/api/workout/stats');
+        const byName = Object.fromEntries(stats.exercise_totals.map((e) => [e.exercise_name, e]));
+        expect(byName['ТЯГА БЛОКА'].body_part).toBe('back');
+        expect('body_part' in byName['MYSTERY']).toBe(false);
+    });
+
     it('exercise_totals covers every exercise trained, not just the top-8 slice', async () => {
         env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
         const { window } = env;

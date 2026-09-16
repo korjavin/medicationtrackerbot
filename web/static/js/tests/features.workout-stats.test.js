@@ -107,6 +107,27 @@ describe('features/workout/stats.js — split-file integration', () => {
       expect(labels).toEqual(['Legs', 'Chest', 'Uncategorized']); // friendly labels, sorted by sets desc
     });
 
+    it('prefers the library body_part override over the catalog and names the still-untagged rows', async () => {
+      const { window, document } = env;
+      stubCatalog(window, { ok: true, status: 200, json: async () => CATALOG });
+
+      const container = renderBalance(window, document, [
+        { exercise_name: 'Bench Press', session_count: 2, sets: 6, total_volume_kg: 800, body_part: 'back' }, // override wins
+        { exercise_name: 'Тяга блока', session_count: 1, sets: 4, total_volume_kg: 300, body_part: 'back' },  // custom name, tagged
+        { exercise_name: 'Mystery Move', session_count: 1, sets: 2, total_volume_kg: 50 },                    // still untagged
+      ]);
+
+      await vi.waitFor(() => {
+        expect(container.querySelector('.wg-workouts-stats__body-split')).toBeTruthy();
+      });
+      const labels = Array.from(
+        container.querySelectorAll('.wg-workouts-stats__body-split .wg-workouts-stats__top-row-name')
+      ).map((n) => n.textContent);
+      expect(labels).toEqual(['Back', 'Uncategorized']);
+      const hints = Array.from(container.querySelectorAll('.wg-workouts-stats__empty')).map((n) => n.textContent);
+      expect(hints.some((t) => t.includes('Uncategorized: Mystery Move'))).toBe(true);
+    });
+
     it('renders no split section when the range holds no exercises (and does not fetch the catalog)', async () => {
       const { window, document } = env;
       stubCatalog(window, { ok: true, status: 200, json: async () => CATALOG });
