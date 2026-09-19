@@ -531,8 +531,9 @@ async function deleteWorkoutGroup(groupId, event) {
 // carrying openSessionCount (apiCall rethrows that code instead of swallowing
 // it to null — core/api.js), and the flow offers a second, count-naming
 // confirm before retrying with cancel_sessions=true. A null result is the
-// legacy swallowing path (bot-mode server 4xx, offline): its toast already
-// fired, so there is nothing to branch on and the plan stays, like before.
+// swallowed path (bot-mode server 4xx, offline/5xx) — the delete's own
+// suppressWriteAlert silenced apiCall's toast, so say so here (round-1
+// review) and leave the plan in place.
 async function _deleteWorkoutGroupApi(groupId, opts) {
     const cancelSessions = !!(opts && opts.cancelSessions);
     const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
@@ -569,6 +570,11 @@ async function _deleteWorkoutGroupApi(groupId, opts) {
         }
         await settle(false);
         safeAlert('Error: ' + (e && e.message ? e.message : e));
+        return;
+    }
+    if (result === null) {
+        await settle(false);
+        safeAlert("Couldn't delete the plan — try again online.");
         return;
     }
     await settle(!!result);

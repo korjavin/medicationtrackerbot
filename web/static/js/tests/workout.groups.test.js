@@ -213,6 +213,31 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
         expect(window.loadWorkoutGroups).toHaveBeenCalled();
     });
 
+    // Round-1 review: a swallowed failure (offline/5xx/legacy 4xx → null)
+    // must still explain itself — the delete's suppressWriteAlert silenced
+    // apiCall's own toast — and leave the plan listed.
+    it('a null delete result alerts and leaves the plan intact', async () => {
+        const { window } = env;
+        const apiSpy = vi.fn(async () => null);
+        window.apiCall = apiSpy;
+        window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
+        const alertSpy = vi.fn();
+        window.safeAlert = alertSpy;
+        window.loadWorkoutGroups = vi.fn();
+        const commit = vi.fn();
+        const rollback = vi.fn();
+        window.DataStore.applyOptimistic = vi.fn(async () => ({ commit, rollback }));
+
+        await window.deleteWorkoutGroup(99, { stopPropagation() {} });
+        for (let i = 0; i < 24; i += 1) await Promise.resolve();
+
+        expect(apiSpy).toHaveBeenCalledTimes(1);
+        expect(alertSpy).toHaveBeenCalledWith("Couldn't delete the plan — try again online.");
+        expect(commit).not.toHaveBeenCalled();
+        expect(rollback).toHaveBeenCalled();
+        expect(window.loadWorkoutGroups).not.toHaveBeenCalled();
+    });
+
     // bd med-qop3: declining the second confirm leaves the plan intact — no
     // retry, no reload, optimistic row rolled back.
     it('declining the cancel-sessions confirm leaves the plan intact', async () => {
