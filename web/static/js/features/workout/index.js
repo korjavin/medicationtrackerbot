@@ -125,6 +125,10 @@ function loadWorkouts() {
 
         bindClick('workout-group-cancel-btn', () => closeWorkoutGroupModal());
         bindClick('workout-group-save-btn', () => saveWorkoutGroup());
+        // Sheet scan-back review (bd med-qj4.9). Guarded: scan.js loads after
+        // groups.js, and the button only exists in cloud mode rows.
+        bindClick('workout-scan-cancel-btn', () => { if (window.WorkoutScan) window.WorkoutScan.close(); });
+        bindClick('workout-scan-confirm-btn', () => { if (window.WorkoutScan) window.WorkoutScan.confirm(); });
         bindClick('add-variant-btn', () => showAddVariantModal());
         bindClick('add-flat-exercise-btn', () => showAddExerciseModalFromGroup());
 

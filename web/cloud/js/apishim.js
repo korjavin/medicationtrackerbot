@@ -14,6 +14,7 @@ import { createTzPlanDomain } from '../../domain/tzplan.js';
 import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
 import { createExerciseTagDomain } from '../../domain/exercisetag.js';
+import { createWorkoutSheetAIDomain } from '../../domain/workoutsheet.js';
 import { createWorkoutDomain } from '../../domain/workout.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
 import { createAnalysis } from '../../domain/analysis.js';
@@ -167,7 +168,7 @@ export function createApiRouter(ctx, {
   let timeZone = deviceTimeZone;
   let bp; let weight; let notes; let settings; let vitals; let reminders;
   let medications; let intake; let tzplan; let foodDb; let food; let aiClient; let exerciseTag;
-  let foodAI; let workout; let gamification; let narrator; let analysis;
+  let foodAI; let workout; let workoutSheetAI; let gamification; let narrator; let analysis;
   function buildDomains(tz) {
     timeZone = tz;
     bp = createBPDomain({ records, now, timeZone });
@@ -202,6 +203,11 @@ export function createApiRouter(ctx, {
     // LLM body-part tagging for exercise names the static catalog cannot
     // classify (custom / non-English names). Names only; `ai` consent scope.
     exerciseTag = createExerciseTagDomain({ aiClient, workoutDomain: workout });
+    // Printed-sheet scan-back (bd med-qj4.9): the sheet photo plus the plan it
+    // was printed from go to the vision provider; only parsed numbers land in
+    // the vault, via the workout domain's own session writes. Same `ai`
+    // consent scope as food photos.
+    workoutSheetAI = createWorkoutSheetAIDomain({ aiClient, workoutDomain: workout });
     gamification = createGamificationDomain({
       records, now, timeZone, getRecordsChangeCount: recordsChangeCount,
     });
@@ -1253,7 +1259,7 @@ export function createApiRouter(ctx, {
   Object.defineProperty(shimCall, 'domains', {
     enumerable: true,
     get: () => ({
-      bp, weight, notes, settings, food, foodAI, foodDb, intake, tzplan, now,
+      bp, weight, notes, settings, food, foodAI, workoutSheetAI, foodDb, intake, tzplan, now,
     }),
   });
   shimCall.ensureTimeZone = ensureTimeZone;
@@ -1300,7 +1306,7 @@ export function installApiShim(ctx, {
     settings, foodDb, now,
   } = shimCall.domains;
   const {
-    food, foodAI,
+    food, foodAI, workoutSheetAI,
   } = bgCall.domains;
 
   // Task 4's frontend bypass guards (photo.js/log.js/products.js — raw fetch
@@ -1308,6 +1314,7 @@ export function installApiShim(ctx, {
   // router's route table: the AI provider call and the food-DB search both go
   // straight from the browser, never through any /api surface.
   targetWindow.CloudFoodAI = foodAI;
+  targetWindow.CloudWorkoutSheetAI = workoutSheetAI;
   // remoteConfigured lets products.js distinguish "no food DB configured" from
   // "no matches" — without it an unconfigured operator renders as an empty
   // result set and the user blames the search (med-1j1).

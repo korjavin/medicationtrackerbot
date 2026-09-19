@@ -76,6 +76,7 @@ const HEALTH_JS = path.join(REPO_ROOT, 'web/static/js/features/health.js');
 // index.js (orchestrator) which binds controls + sub-tab routing.
 const WORKOUT_NEXT_CARD_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/next-card.js');
 const WORKOUT_GROUPS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/groups.js');
+const WORKOUT_SCAN_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/scan.js');
 const WORKOUT_VARIANTS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/variants.js');
 const WORKOUT_EXERCISES_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/exercises.js');
 const WORKOUT_LIBRARY_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/library.js');
@@ -429,6 +430,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
     // functions declared in the other sub-files.
     evalFileCached(window, WORKOUT_NEXT_CARD_JS);
     evalFileCached(window, WORKOUT_GROUPS_JS);
+    evalFileCached(window, WORKOUT_SCAN_JS);
     evalFileCached(window, WORKOUT_VARIANTS_JS);
     evalFileCached(window, WORKOUT_EXERCISES_JS);
     evalFileCached(window, WORKOUT_LIBRARY_JS);

@@ -14,6 +14,7 @@
 import { MealSystemPrompt, MealPhotoSystemPrompt, mealSchema } from '../../domain/foodai.js';
 import { ActivitySystemPrompt, activitySchema } from '../../domain/activityai.js';
 import { ExerciseTagSystemPrompt, exerciseTagSchema } from '../../domain/exercisetag.js';
+import { WorkoutSheetPhotoSystemPrompt, workoutSheetSchema } from '../../domain/workoutsheet.js';
 
 const DEFAULT_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-4o-mini';
@@ -357,6 +358,7 @@ async function postTrialChatRaw(body) {
 const RESPONSE_FORMAT = { type: 'json_schema', json_schema: { name: 'parsed_meal', strict: true, schema: mealSchema } };
 const ACTIVITY_RESPONSE_FORMAT = { type: 'json_schema', json_schema: { name: 'activity_data', strict: true, schema: activitySchema } };
 const EXERCISE_TAG_RESPONSE_FORMAT = { type: 'json_schema', json_schema: { name: 'exercise_tags', strict: true, schema: exerciseTagSchema } };
+const WORKOUT_SHEET_RESPONSE_FORMAT = { type: 'json_schema', json_schema: { name: 'workout_sheet', strict: true, schema: workoutSheetSchema } };
 
 function fenceInstruction(systemPrompt) {
   return `${systemPrompt}
@@ -373,6 +375,12 @@ Do not wrap the JSON in markdown fences or add explanations.`;
 function activityFenceInstruction(systemPrompt) {
   return `${systemPrompt}
 Return only valid JSON with the shape {"name": string, "exercises": [{"name": string, "sets": number|null, "reps": number|null, "weight_kg": number|null, "duration_minutes": number|null, "distance_m": number|null, "notes": string}]}.
+Do not wrap the JSON in markdown fences or add explanations.`;
+}
+
+function workoutSheetFenceInstruction(systemPrompt) {
+  return `${systemPrompt}
+Return only valid JSON with the shape {"items": [{"exercise": string, "set_index": number, "reps": number, "weight": number|null, "unit": string}]}.
 Do not wrap the JSON in markdown fences or add explanations.`;
 }
 
@@ -597,6 +605,54 @@ export function createAIClient({ settingsDomain }) {
     return parsed;
   }
 
+  // parseWorkoutSheetImage(file, planContext) → { items: [{ exercise,
+  // set_index, reps, weight, unit }] }. Sheet-photo sibling of
+  // parseMealFromImage (bd med-qj4.9): same vision-credential / trial
+  // `?vision=1` / `ai`-consent / fenced-retry contract. planContext is the
+  // plan the sheet was printed from (group + days with exercise names) —
+  // passed as quoted data so the model repeats the printed exercise names
+  // exactly instead of guessing them from handwriting-adjacent pixels.
+  async function parseWorkoutSheetImage(file, planContext) {
+    const { vision } = await credentials();
+    const useTrial = !vision.apiKey;
+    if (useTrial && !trialAIAvailable()) throw noKeyError();
+    if (useTrial) await ensureTrialConsent('ai');
+    const post = (body) => (useTrial
+      ? postTrialChatCompletion(true, body)
+      : postChatCompletion(`${vision.url.replace(/\/$/, '')}/chat/completions`, vision.apiKey, body));
+    const dataURL = await fileToDataURL(file);
+
+    const planHint = ` The sheet was printed from this plan, as JSON data: ${JSON.stringify(planContext || {})} — repeat its exercise names exactly; only the handwritten numbers come from the photo.`;
+
+    const userContent = (text) => [
+      { type: 'text', text: text + planHint },
+      { type: 'image_url', image_url: { url: dataURL } },
+    ];
+
+    const body = {
+      model: vision.model,
+      temperature: 0.1,
+      messages: [
+        { role: 'system', content: WorkoutSheetPhotoSystemPrompt },
+        { role: 'user', content: userContent('Read the handwritten sets on this workout sheet and return the JSON described above.') },
+      ],
+      response_format: WORKOUT_SHEET_RESPONSE_FORMAT,
+    };
+    try {
+      return await post(body);
+    } catch (err) {
+      if (!isResponseFormatRejection(err)) throw err;
+      return post({
+        model: vision.model,
+        temperature: 0.1,
+        messages: [
+          { role: 'system', content: workoutSheetFenceInstruction(WorkoutSheetPhotoSystemPrompt) },
+          { role: 'user', content: userContent('Read the handwritten sets on this workout sheet and return JSON.') },
+        ],
+      });
+    }
+  }
+
   async function chat({ messages, tools, temperature = 0.2 }) {
     const { text } = await credentials();
     const useTrial = !text.apiKey;
@@ -612,5 +668,5 @@ export function createAIClient({ settingsDomain }) {
       : postChatRaw(`${text.url.replace(/\/$/, '')}/chat/completions`, text.apiKey, body);
   }
 
-  return { parseMealFromDescription, parseActivityFromDescription, parseMealFromImage, classifyExercises, chat, listModels };
+  return { parseMealFromDescription, parseActivityFromDescription, parseMealFromImage, parseWorkoutSheetImage, classifyExercises, chat, listModels };
 }

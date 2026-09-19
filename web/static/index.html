@@ -1228,6 +1228,29 @@
 
     </mt-modal>
 
+    <!-- Scan review modal (bd med-qj4.9). Shell mirrors the workout modals;
+         rows are rendered by features/workout/scan.js into #workout-scan-list. -->
+    <mt-modal id="workout-scan-modal" class="hidden wg-modal wg-workouts-group-modal wg-workouts-scan-modal">
+        <div class="wg-workouts-group-modal__header">
+            <div class="wg-workouts-group-modal__heading">
+                <span class="wg-section-label wg-workouts-group-modal__eyebrow">Scan</span>
+                <span class="wg-mono-display wg-workouts-group-modal__title" id="workout-scan-modal-title">Scan sheet</span>
+            </div>
+            <div class="wg-workouts-group-modal__header-actions">
+                <button type="button" id="workout-scan-cancel-btn"
+                    class="wg-gloss wg-workouts-group-modal__header-btn">Cancel</button>
+                <button type="button" id="workout-scan-confirm-btn"
+                    class="wg-gloss wg-gloss--sun wg-workouts-group-modal__header-btn wg-workouts-group-modal__header-btn--save">Log workout</button>
+            </div>
+        </div>
+
+        <div class="wg-workouts-group-modal__body">
+            <p id="workout-scan-status" class="wg-scan-status"></p>
+            <div id="workout-scan-list"></div>
+            <p id="workout-scan-skipped" class="wg-scan-skipped hidden"></p>
+        </div>
+    </mt-modal>
+
     <!-- Variant modal (Round-2, Task 6). Migrated to the shared .wg-modal
          shell so its background and chrome are driven by the --wg-bg-card
          teal-gloss tokens rather than the legacy paper-white modal block. -->
@@ -2352,6 +2375,7 @@
     <script src="/static/js/features/workout/modals.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/next-card.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/groups.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/workout/scan.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/variants.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/exercises.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/library.js?v=TIMESTAMP_PLACEHOLDER"></script>

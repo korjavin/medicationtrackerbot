@@ -12327,3 +12327,58 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
     color: var(--wg-fg-3);
 }
+
+/* Sheet scan-back review (bd med-qj4.9). Reuses the modal shell tokens;
+   rows are plain label + two numeric inputs per set. */
+.wg-workouts-scan-modal {
+    max-width: 420px;
+}
+
+.wg-scan-block {
+    margin-bottom: var(--space-md);
+}
+
+.wg-scan-block__title {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-md);
+    color: var(--wg-fg-1);
+    margin-bottom: var(--space-xs);
+}
+
+.wg-scan-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-xs);
+}
+
+.wg-scan-row__label {
+    flex: 0 0 52px;
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+}
+
+.wg-scan-row__input {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 36px;
+    padding: var(--space-xs) var(--space-sm);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-gloss);
+    background: var(--bg-color);
+    color: var(--text-color);
+    font-size: var(--font-size-md);
+    box-sizing: border-box;
+}
+
+.wg-scan-status,
+.wg-scan-skipped {
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+}
+
+.wg-scan-status:empty,
+.wg-scan-skipped:empty {
+    display: none;
+}
