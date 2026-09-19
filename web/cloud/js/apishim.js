@@ -818,7 +818,14 @@ export function createApiRouter(ctx, {
       return true;
     }
     if (path === '/api/workout/groups/delete' && method === 'DELETE') {
-      await workout.deleteGroup(intParam(params, 'id', 0));
+      // cancel_sessions=true (bd med-qop3) tombstones the group's open
+      // sessions via deleteSession before the cascade; absent it stays the
+      // legacy refusal. Reads strict 'true' like the other query booleans
+      // (exclude_notes, archived) — the MCP dispatcher serializes boolean
+      // true to exactly that.
+      await workout.deleteGroup(intParam(params, 'id', 0), {
+        cancelSessions: params.get('cancel_sessions') === 'true',
+      });
       scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }

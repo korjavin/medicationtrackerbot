@@ -807,7 +807,15 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // sessions are still pending/active — then cascades rotation state +
   // schedule-snapshot-equivalent (none ported, see plan) + variants before
   // deleting the group itself.
-  async function deleteGroup(id) {
+  //
+  // options.cancelSessions (bd med-qop3) opts into cancelling the group's
+  // not-yet-completed sessions first: each goes through the existing
+  // deleteSession path (tombstones logs + session), never `status: 'skipped'`
+  // — a skipped session of a deleted plan would keep haunting stats/history.
+  // Without the flag the precondition error stays byte-identical, and the
+  // exercises-remaining guard is untouched either way. Completed/skipped
+  // sessions always survive.
+  async function deleteGroup(id, options) {
     const variants = (await activeRecords(WORKOUT_RECORD_TYPES.VARIANT)).filter((v) => v.group_id === id);
     const variantIds = new Set(variants.map((v) => v.id));
     const exerciseCount = (await activeRecords(WORKOUT_RECORD_TYPES.EXERCISE))
@@ -815,11 +823,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (exerciseCount > 0) {
       throw invalidRequest(`cannot delete group: remove all exercises from its variants first (${exerciseCount} remaining)`, 'precondition_failed');
     }
-    const activeSessionCount = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION))
-      .filter((s) => s.group_id === id && s.status !== 'completed' && s.status !== 'skipped').length;
-    if (activeSessionCount > 0) {
-      throw invalidRequest(`cannot delete group: it has ${activeSessionCount} pending/active sessions`, 'precondition_failed');
+    const openSessions = (await activeRecords(WORKOUT_RECORD_TYPES.SESSION))
+      .filter((s) => s.group_id === id && s.status !== 'completed' && s.status !== 'skipped');
+    if (openSessions.length > 0 && !(options && options.cancelSessions)) {
+      const err = invalidRequest(`cannot delete group: it has ${openSessions.length} pending/active sessions`, 'precondition_failed');
+      err.openSessionCount = openSessions.length;
+      throw err;
     }
+    for (const s of openSessions) await deleteSession(s.id);
 
     await records.del(WORKOUT_RECORD_TYPES.ROTATION, rotationRecordId(id));
     for (const v of variants) await records.del(WORKOUT_RECORD_TYPES.VARIANT, v.recordId);

@@ -161,15 +161,86 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
         const apiSpy = vi.fn(async () => true);
         window.apiCall = apiSpy;
         window.loadWorkoutGroups = vi.fn();
+        const commit = vi.fn();
+        const rollback = vi.fn();
+        window.DataStore.applyOptimistic = vi.fn(async () => ({ commit, rollback }));
 
         window._renderWorkoutGroups(container, [makeGroup({ id: 99 })]);
         const deleteBtn = container.querySelector('.wg-workouts-groups-row__delete');
         deleteBtn.click();
-        for (let i = 0; i < 8; i += 1) await Promise.resolve();
+        for (let i = 0; i < 12; i += 1) await Promise.resolve();
 
-        expect(window.safeConfirm).toHaveBeenCalled();
-        expect(apiSpy).toHaveBeenCalledWith('/api/workout/groups/delete?id=99', 'DELETE');
+        expect(window.safeConfirm).toHaveBeenCalledTimes(1);
+        expect(apiSpy).toHaveBeenCalledWith(
+            '/api/workout/groups/delete?id=99', 'DELETE', null, { suppressWriteAlert: true });
+        expect(apiSpy.mock.calls.some((c) => String(c[0]).includes('cancel_sessions'))).toBe(false);
+        expect(commit).toHaveBeenCalled();
+        expect(rollback).not.toHaveBeenCalled();
         expect(window.loadWorkoutGroups).toHaveBeenCalled();
+    });
+
+    // bd med-qop3: a plan with open sessions refuses the plain delete, names
+    // the count in a second confirm, and retries with the flag on accept.
+    it('delete on a plan with open sessions confirms twice and retries with cancel_sessions', async () => {
+        const { window } = env;
+        const precondition = new Error('cannot delete group: it has 2 pending/active sessions');
+        precondition.code = 'precondition_failed';
+        precondition.openSessionCount = 2;
+        const apiSpy = vi.fn(async (url) => {
+            if (String(url).includes('cancel_sessions=true')) return true;
+            throw precondition;
+        });
+        window.apiCall = apiSpy;
+        const messages = [];
+        window.safeConfirm = vi.fn(async (msg, cb) => { messages.push(msg); await cb(true); });
+        window.loadWorkoutGroups = vi.fn();
+        const commit = vi.fn();
+        const rollback = vi.fn();
+        window.DataStore.applyOptimistic = vi.fn(async () => ({ commit, rollback }));
+
+        await window.deleteWorkoutGroup(99, { stopPropagation() {} });
+        for (let i = 0; i < 24; i += 1) await Promise.resolve();
+
+        expect(messages).toHaveLength(2);
+        expect(messages[0]).toBe('Delete this plan?');
+        expect(messages[1]).toBe('This plan has 2 pending/active sessions. Cancel them and delete the plan?');
+        expect(apiSpy).toHaveBeenCalledWith(
+            '/api/workout/groups/delete?id=99', 'DELETE', null, { suppressWriteAlert: true });
+        expect(apiSpy).toHaveBeenCalledWith(
+            '/api/workout/groups/delete?id=99&cancel_sessions=true', 'DELETE', null, { suppressWriteAlert: true });
+        expect(rollback).toHaveBeenCalled();
+        expect(commit).toHaveBeenCalled();
+        expect(window.loadWorkoutGroups).toHaveBeenCalled();
+    });
+
+    // bd med-qop3: declining the second confirm leaves the plan intact — no
+    // retry, no reload, optimistic row rolled back.
+    it('declining the cancel-sessions confirm leaves the plan intact', async () => {
+        const { window } = env;
+        const precondition = new Error('cannot delete group: it has 1 pending/active sessions');
+        precondition.code = 'precondition_failed';
+        precondition.openSessionCount = 1;
+        const apiSpy = vi.fn(async () => { throw precondition; });
+        window.apiCall = apiSpy;
+        const messages = [];
+        window.safeConfirm = vi.fn(async (msg, cb) => {
+            messages.push(msg);
+            await cb(messages.length === 1);
+        });
+        window.loadWorkoutGroups = vi.fn();
+        const commit = vi.fn();
+        const rollback = vi.fn();
+        window.DataStore.applyOptimistic = vi.fn(async () => ({ commit, rollback }));
+
+        await window.deleteWorkoutGroup(99, { stopPropagation() {} });
+        for (let i = 0; i < 24; i += 1) await Promise.resolve();
+
+        expect(messages).toHaveLength(2);
+        expect(messages[1]).toBe('This plan has 1 pending/active session. Cancel them and delete the plan?');
+        expect(apiSpy).toHaveBeenCalledTimes(1);
+        expect(commit).not.toHaveBeenCalled();
+        expect(rollback).toHaveBeenCalled();
+        expect(window.loadWorkoutGroups).not.toHaveBeenCalled();
     });
 
     it('renders a full-width Add workout group CTA in the Groups tab', () => {
