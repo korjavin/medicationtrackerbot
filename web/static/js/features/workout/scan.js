@@ -243,13 +243,18 @@ function closeWorkoutScanModal() {
 
 async function confirmWorkoutScan() {
     const pending = window.WorkoutScan._pending;
-    if (!pending) return;
+    // In-flight guard: session create + log conflict checks are read-then-
+    // write, so a second tap mid-save would mint a duplicate session.
+    if (!pending || pending.saving) return;
     const list = document.getElementById('workout-scan-list');
     const sets = window.WorkoutScan.readList(list, pending.unit);
     if (sets.length === 0) {
         safeAlert('Every row is empty — fill at least one set or cancel.');
         return;
     }
+    pending.saving = true;
+    const confirmBtn = document.getElementById('workout-scan-confirm-btn');
+    if (confirmBtn) confirmBtn.disabled = true;
     setScanStatus('Logging…');
     try {
         const res = await window.CloudWorkoutSheetAI.logSheetAsSession({
@@ -265,6 +270,9 @@ async function confirmWorkoutScan() {
         console.error('Sheet log failed:', e);
         setScanStatus('');
         safeAlert('Failed to log the scan: ' + (e.message || e));
+    } finally {
+        pending.saving = false;
+        if (confirmBtn) confirmBtn.disabled = false;
     }
 }
 

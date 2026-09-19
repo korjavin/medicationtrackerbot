@@ -207,7 +207,7 @@ export function createApiRouter(ctx, {
     // was printed from go to the vision provider; only parsed numbers land in
     // the vault, via the workout domain's own session writes. Same `ai`
     // consent scope as food photos.
-    workoutSheetAI = createWorkoutSheetAIDomain({ aiClient, workoutDomain: workout });
+    workoutSheetAI = createWorkoutSheetAIDomain({ aiClient, workoutDomain: workout, now });
     gamification = createGamificationDomain({
       records, now, timeZone, getRecordsChangeCount: recordsChangeCount,
     });

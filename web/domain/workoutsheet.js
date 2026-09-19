@@ -37,10 +37,11 @@ export function parseSheetQrText(text) {
   return { groupId };
 }
 
-export const WorkoutSheetPhotoSystemPrompt = `You are a strength coach reading a photographed hand-filled workout sheet. The sheet lists exercises, each followed by numbered boxes where the athlete hand-wrote one performed set per box as reps, optionally with weight (e.g. "8", "10 @ 60", "12x60kg").
+export const WorkoutSheetPhotoSystemPrompt = `You are a strength coach reading a photographed hand-filled workout sheet. The sheet lists exercises, optionally grouped under day headings, each exercise followed by numbered boxes where the athlete hand-wrote one performed set per box as reps, optionally with weight (e.g. "8", "10 @ 60", "12x60kg").
 
 Rules:
 - Return one item per handwritten set you can read, in sheet order.
+- "day" is the day heading the exercise sits under, exactly as printed, or "" when the sheet has no day headings.
 - "exercise" must repeat the exercise name exactly as printed on the sheet.
 - "set_index" is the 1-based box number within that exercise.
 - "reps" is the performed rep count as a non-negative integer. A crossed-out or empty box means the set was not performed — omit it, do not guess.
@@ -54,14 +55,17 @@ export const workoutSheetSchema = {
       type: 'array',
       items: {
         type: 'object',
+        // OpenAI strict mode: every property listed in required, nullables
+        // typed as ['number', 'null'] (same shape as activityai.js).
         properties: {
+          day: { type: 'string' },
           exercise: { type: 'string' },
           set_index: { type: 'number' },
           reps: { type: 'number' },
-          weight: { type: 'number' },
+          weight: { type: ['number', 'null'] },
           unit: { type: 'string' },
         },
-        required: ['exercise', 'set_index', 'reps'],
+        required: ['day', 'exercise', 'set_index', 'reps', 'weight', 'unit'],
         additionalProperties: false,
       },
     },
@@ -101,22 +105,29 @@ export function convertParsedSheet(parsed, planContext) {
   const items = parsed && Array.isArray(parsed.items) ? parsed.items : null;
   if (!items) throw invalid('AI returned no sheet items', 'no_items');
 
+  // Two lookups: day-qualified first (a rotating plan repeats an exercise
+  // across days, and its sheet prints day headings the model echoes back as
+  // "day"), then name-only as the fallback for sheets without headings.
+  const byDayName = new Map();
   const byName = new Map();
   const days = (planContext && Array.isArray(planContext.days)) ? planContext.days : [];
   for (const day of days) {
     const variantId = day && day.variant && day.variant.id;
+    const dayKey = normName(day && day.variant && day.variant.name);
     for (const ex of ((day && day.exercises) || [])) {
       const key = normName(ex && ex.exercise_name);
-      if (key && !byName.has(key)) {
-        byName.set(key, { variantId, exerciseId: ex.id, exerciseName: ex.exercise_name });
-      }
+      if (!key) continue;
+      const match = { variantId, exerciseId: ex.id, exerciseName: ex.exercise_name };
+      if (!byDayName.has(`${dayKey}|${key}`)) byDayName.set(`${dayKey}|${key}`, match);
+      if (!byName.has(key)) byName.set(key, match);
     }
   }
 
   const sets = [];
   const skipped = [];
   for (const item of items.slice(0, MAX_SETS_PER_SCAN)) {
-    const match = byName.get(normName(item && item.exercise));
+    const nameKey = normName(item && item.exercise);
+    const match = byDayName.get(`${normName(item && item.day)}|${nameKey}`) || byName.get(nameKey);
     if (!match) {
       const name = String((item && item.exercise) || '').trim();
       if (name && !skipped.includes(name)) skipped.push(name);
@@ -139,7 +150,7 @@ export function convertParsedSheet(parsed, planContext) {
   return { sets, skipped };
 }
 
-export function createWorkoutSheetAIDomain({ aiClient, workoutDomain }) {
+export function createWorkoutSheetAIDomain({ aiClient, workoutDomain, now }) {
   // parseSheetFromPhoto(file, planContext) → { sets, skipped }. Validates but
   // never writes: the UI shows this in the review sheet first.
   async function parseSheetFromPhoto(file, planContext) {
@@ -159,7 +170,12 @@ export function createWorkoutSheetAIDomain({ aiClient, workoutDomain }) {
   async function logSheetAsSession({ planContext, sets, notes } = {}) {
     const list = Array.isArray(sets) ? sets : [];
     if (list.length === 0) throw invalid('sets is required', 'no_items');
+    // Own recordId: createAdHocSession without one adopts today's in-progress
+    // session (bd med-9tx), and this path then completes it — a scan must
+    // never swallow and close a workout the user is mid-way through.
+    const nowMs = typeof now === 'function' ? now() : 0;
     const session = await workoutDomain.createAdHocSession({
+      recordId: `scan-${planContext && planContext.groupId}-${nowMs}`,
       notes: notes || 'Scanned from printed sheet',
     });
     const sessionId = session && session.id;

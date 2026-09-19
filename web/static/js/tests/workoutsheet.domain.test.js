@@ -81,6 +81,26 @@ describe('convertParsedSheet', () => {
     expect(skipped).toEqual(['Mystery lift']);
   });
 
+  it('a day-qualified item lands on that day\'s exercise; name-only falls back', () => {
+    const rotating = {
+      ...PLAN,
+      days: [
+        { variant: { id: 21, name: 'Day A' }, exercises: [{ id: 1, exercise_name: 'Squat' }] },
+        { variant: { id: 22, name: 'Day B' }, exercises: [{ id: 7, exercise_name: 'Squat' }] },
+      ],
+    };
+    const { sets } = convertParsedSheet(
+      {
+        items: [
+          { day: 'Day B', exercise: 'Squat', set_index: 1, reps: 5, weight: null, unit: '' },
+          { day: '', exercise: 'Squat', set_index: 1, reps: 5, weight: null, unit: '' },
+        ],
+      },
+      rotating,
+    );
+    expect(sets.map((s) => [s.variantId, s.exerciseId])).toEqual([[22, 7], [21, 1]]);
+  });
+
   it('throws on a missing items array', () => {
     expect(() => convertParsedSheet({}, PLAN)).toThrow(/no sheet items/);
     expect(() => convertParsedSheet(null, PLAN)).toThrow(/no sheet items/);
@@ -111,7 +131,7 @@ describe('createWorkoutSheetAIDomain', () => {
 
   it('logSheetAsSession groups sets per exercise with per-set arrays and completes', async () => {
     const workoutDomain = stubWorkoutDomain();
-    const domain = createWorkoutSheetAIDomain({ aiClient: {}, workoutDomain });
+    const domain = createWorkoutSheetAIDomain({ aiClient: {}, workoutDomain, now: () => 1700000000000 });
     const res = await domain.logSheetAsSession({
       planContext: PLAN,
       sets: [
@@ -122,6 +142,9 @@ describe('createWorkoutSheetAIDomain', () => {
     });
     expect(res).toEqual({ sessionId: 9, logged: 2, failed: 0 });
     expect(workoutDomain.createAdHocSession).toHaveBeenCalledTimes(1);
+    // Own recordId so the adopt-today's-in-progress guard is bypassed: a scan
+    // must never complete a workout the user is mid-way through.
+    expect(workoutDomain.createAdHocSession.mock.calls[0][0].recordId).toMatch(/^scan-5-\d+$/);
     expect(workoutDomain.createLog).toHaveBeenCalledTimes(2);
     const bench = workoutDomain.createLog.mock.calls[0][0];
     expect(bench.session_id).toBe(9);

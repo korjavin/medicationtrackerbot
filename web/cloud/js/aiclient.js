@@ -380,7 +380,7 @@ Do not wrap the JSON in markdown fences or add explanations.`;
 
 function workoutSheetFenceInstruction(systemPrompt) {
   return `${systemPrompt}
-Return only valid JSON with the shape {"items": [{"exercise": string, "set_index": number, "reps": number, "weight": number|null, "unit": string}]}.
+Return only valid JSON with the shape {"items": [{"day": string, "exercise": string, "set_index": number, "reps": number, "weight": number|null, "unit": string}]}.
 Do not wrap the JSON in markdown fences or add explanations.`;
 }
 

@@ -158,6 +158,28 @@ describe('features/workout/scan.js (med-qj4.9)', () => {
     delete window.CloudWorkoutSheetAI;
   });
 
+  it('a second confirm tap mid-save is ignored and the button is disabled', async () => {
+    const { window, document } = env;
+    window.WorkoutScan._pending = { group: GROUP, planContext: { groupId: 5 }, sets: SETS, skipped: [], unit: 'kg' };
+    window.WorkoutScan.renderReview();
+    let release;
+    const log = vi.fn(() => new Promise((resolve) => { release = resolve; }));
+    window.CloudWorkoutSheetAI = { logSheetAsSession: log };
+    window.loadWorkoutGroups = vi.fn();
+    const btn = document.getElementById('workout-scan-confirm-btn');
+
+    const first = window.WorkoutScan.confirm();
+    await Promise.resolve();
+    expect(btn.disabled).toBe(true);
+    await window.WorkoutScan.confirm();
+    expect(log).toHaveBeenCalledTimes(1);
+
+    release({ sessionId: 9, logged: 2, failed: 0 });
+    await first;
+    expect(btn.disabled).toBe(false);
+    delete window.CloudWorkoutSheetAI;
+  });
+
   it('confirm with every row emptied alerts instead of writing', async () => {
     const { window, document } = env;
     window.WorkoutScan._pending = { group: GROUP, planContext: { groupId: 5 }, sets: SETS, skipped: [], unit: 'kg' };
