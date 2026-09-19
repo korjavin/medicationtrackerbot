@@ -343,7 +343,10 @@ describe('workout.js session and stats flows', () => {
       confirmSpy = stubConfirm(true);
       await window.startWorkoutSession(10);
       expect(apiCallSpy).toHaveBeenCalledWith('/api/workout/sessions/10/start', 'POST');
-      expect(window.safeAlert).toHaveBeenCalledWith('✅ Workout started! You can now log exercises.');
+      // bd med-bp6t: success opens the session modal, no success alert.
+      expect(window.showWorkoutSessionModal).toHaveBeenCalledWith(10);
+      expect(window.safeAlert).not.toHaveBeenCalledWith('✅ Workout started! You can now log exercises.');
+      expect(window.safeAlert).not.toHaveBeenCalled();
       confirmSpy.mockRestore();
 
       confirmSpy = stubConfirm(true);

@@ -1239,22 +1239,44 @@ async function startAdHocWorkout() {
 }
 
 async function startWorkoutSession(sessionId) {
+    // The pre-confirm stays (bd med-bp6t judgement call): starting is a
+    // state-changing write — it stamps started_at, answers the session's
+    // reminder chain, and can re-key a future session onto today — so an
+    // accidental tap on Start keeps its guard. Only the success alert goes.
     await safeConfirm('Start this workout now?', async (ok) => {
         if (!ok) return;
 
+        // Optimistic cache projection, mirroring startAdHocWorkout: clear
+        // `workout_next` while the POST is in flight; commit on success,
+        // roll back on any failure.
+        const nextHandle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('workout_next', () => ({ session: null }), ['workout'])
+            : null;
+        const toastError = (msg) => {
+            if (window.SyncManager && typeof window.SyncManager.showToast === 'function') {
+                window.SyncManager.showToast(msg, 'error');
+            }
+        };
+
         try {
             const result = await apiCall(`/api/workout/sessions/${sessionId}/start`, 'POST');
-            if (result === null) return;
+            if (result === null) {
+                if (nextHandle) await nextHandle.rollback();
+                toastError('Failed to start workout');
+                return;
+            }
 
-            // Show success message
-            safeAlert('✅ Workout started! You can now log exercises.');
+            // Open the session modal directly — no success alert (bd med-bp6t).
+            // The start route returns true, so the id we already hold is used.
+            await showWorkoutSessionModal(sessionId);
 
-            // Refresh the next workout card
+            if (nextHandle) await nextHandle.commit(null);
             await invalidateWorkoutCache();
-            loadNextWorkout();
+            await loadNextWorkout();
         } catch (error) {
+            if (nextHandle) await nextHandle.rollback();
             console.error('Error starting workout:', error);
-            safeAlert('❌ Failed to start workout. Please try again.');
+            toastError('Error starting workout: ' + error.message);
         }
     });
 }
