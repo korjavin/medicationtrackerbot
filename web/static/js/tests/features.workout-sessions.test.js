@@ -1077,6 +1077,86 @@ describe('features/workout/sessions.js — split-file integration', () => {
     }
   });
 
+  // bd med-bp6t: starting a scheduled session opens the session modal for
+  // that id with no success alert, and refreshes the next card.
+  it('startWorkoutSession opens the session modal with no success alert', async () => {
+    const { window } = env;
+    installApiCache(window, {
+      workout_next: { session: { id: 42, status: 'pending' } }
+    });
+    window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
+    window.showWorkoutSessionModal = vi.fn();
+    window.loadNextWorkout = vi.fn();
+    window.safeAlert = vi.fn();
+    window.apiCall = vi.fn(async () => true);
+
+    await window.startWorkoutSession(42);
+
+    expect(window.apiCall).toHaveBeenCalledWith('/api/workout/sessions/42/start', 'POST');
+    expect(window.showWorkoutSessionModal).toHaveBeenCalledWith(42);
+    expect(window.safeAlert).not.toHaveBeenCalled();
+    expect(window.loadNextWorkout).toHaveBeenCalled();
+  });
+
+  // bd med-bp6t: a swallowed start failure rolls back workout_next and
+  // surfaces a guarded error toast — no modal, no alert, no refresh.
+  it('startWorkoutSession rolls back and toasts on POST failure', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, {
+      workout_next: { session: { id: 42, status: 'pending' } }
+    });
+    window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
+    window.showWorkoutSessionModal = vi.fn();
+    window.loadNextWorkout = vi.fn();
+    window.safeAlert = vi.fn();
+    const toastSpy = vi.fn();
+    window.SyncManager = { ...(window.SyncManager || {}), showToast: toastSpy };
+    window.apiCall = vi.fn(async () => null);
+
+    await window.startWorkoutSession(42);
+
+    expect(window.showWorkoutSessionModal).not.toHaveBeenCalled();
+    expect(toastSpy).toHaveBeenCalledWith('Failed to start workout', 'error');
+    expect(window.safeAlert).not.toHaveBeenCalled();
+    expect(window.loadNextWorkout).not.toHaveBeenCalled();
+    const cached = cache.get('workout_next');
+    if (cached) {
+      expect(cached.session.id).toBe(42);
+      expect(cached.session.status).toBe('pending');
+    }
+  });
+
+  // bd med-bp6t: a throwing start rolls back and toasts the error, and the
+  // toast stays silent (not a crash) when SyncManager has no showToast.
+  it('startWorkoutSession rolls back and toasts on POST throw, silently without SyncManager', async () => {
+    const { window } = env;
+    const cache = installApiCache(window, {
+      workout_next: { session: { id: 42, status: 'pending' } }
+    });
+    window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
+    window.showWorkoutSessionModal = vi.fn();
+    window.loadNextWorkout = vi.fn();
+    window.safeAlert = vi.fn();
+    const toastSpy = vi.fn();
+    window.SyncManager = { showToast: toastSpy };
+    window.apiCall = vi.fn(async () => { throw new Error('boom'); });
+
+    await window.startWorkoutSession(42);
+
+    expect(window.showWorkoutSessionModal).not.toHaveBeenCalled();
+    expect(toastSpy).toHaveBeenCalledWith('Error starting workout: boom', 'error');
+    expect(window.safeAlert).not.toHaveBeenCalled();
+    const cached = cache.get('workout_next');
+    if (cached) {
+      expect(cached.session.id).toBe(42);
+      expect(cached.session.status).toBe('pending');
+    }
+
+    window.SyncManager = {};
+    await window.startWorkoutSession(42);
+    expect(toastSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('snoozeWorkout stamps snoozed_until on workout_next.session optimistically', async () => {
     const { window } = env;
     const cache = installApiCache(window, {
