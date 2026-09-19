@@ -190,7 +190,7 @@ async function handleRestock() {
         document.getElementById('med-inventory-count').value = res.inventory_count;
         qtyInput.value = '';
         loadRestockHistory(editingMedId);
-        safeAlert(`Added ${qty} units. New total: ${res.inventory_count}`);
+        safeToast(`Added ${qty} units. New total: ${res.inventory_count}`, 'info');
     }
 }
 
@@ -443,7 +443,7 @@ async function triggerNextIntake() {
         await window.DataStore.invalidateTags(['history', 'medications', 'gamification']);
         await window.DataStore.invalidateKey('next_intake');
         const medNamesStr = res.medication_names ? res.medication_names.join(', ') : `${res.medication_count} medication(s)`;
-        safeAlert(`✅ Confirmed: ${medNamesStr}\n\nScheduled for: ${formatDate(res.scheduled_at)}\nTaken at: ${formatDate(res.taken_at)}`);
+        safeToast(`✅ Confirmed: ${medNamesStr}\n\nScheduled for: ${formatDate(res.scheduled_at)}\nTaken at: ${formatDate(res.taken_at)}`, 'info');
         await loadHistory();
     }
 }
@@ -615,7 +615,7 @@ async function confirmSelectedMedications() {
 
         if (res) {
             await _commitOptimistic(handles);
-            safeAlert("Confirmed!");
+            safeToast("Confirmed!", 'info');
             if (window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
             refreshMedsAfterMutation();
         } else {
@@ -709,9 +709,9 @@ async function skipSelectedMedications() {
 
         refreshMedsAfterMutation();
         if (!hasErrors) {
-            safeAlert("Skipped!");
+            safeToast("Skipped!", 'info');
         } else {
-            safeAlert("Error skipping some medications.");
+            safeToast("Error skipping some medications.", 'error');
         }
         closeMedicationConfirmModal();
     });
@@ -828,7 +828,7 @@ async function updateIntakeHistory() {
         const failed = isObjRes ? (Number(res.failed) || 0) : 0;
         if (res === true || (isObjRes && failed === 0)) {
             await _commitOptimistic(handles);
-            safeAlert("Updated!");
+            safeToast("Updated!", 'info');
             if (window.DataStore) await window.DataStore.invalidateTags(['gamification']).catch(() => {});
             refreshMedsAfterMutation();
         } else if (isObjRes && failed > 0) {
@@ -836,7 +836,7 @@ async function updateIntakeHistory() {
             // medication(s) that did not persist, then refresh from the server
             // so the list shows authoritative status (not the rolled-back guess).
             await _rollbackOptimistic(handles);
-            safeAlert(_describeIntakeUpdateFailures(res.failures));
+            safeToast(_describeIntakeUpdateFailures(res.failures), 'error');
             refreshMedsAfterMutation();
         } else {
             // res is falsy (null = apiCall handled an error internally) — roll
@@ -889,7 +889,7 @@ async function confirmLogPast() {
         await _commitOptimistic(handles);
 
         if (res) {
-            safeAlert("Intake logged!");
+            safeToast("Intake logged!", 'info');
             if (window.DataStore) {
                 await window.DataStore.invalidateByTag('history');
                 await window.DataStore.invalidateByTag('medications');

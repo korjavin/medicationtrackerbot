@@ -679,7 +679,7 @@ async function saveFoodLogFromDescription() {
             } catch (e) {
                 if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
                 console.error('Food AI parse failed:', e);
-                safeAlert('Failed to parse meal: ' + (e && e.message ? e.message : e));
+                safeToast('Failed to parse meal: ' + (e && e.message ? e.message : e), 'error');
                 return;
             }
             items = Array.isArray(result.items) ? result.items : [];
@@ -695,7 +695,7 @@ async function saveFoodLogFromDescription() {
             } catch (e) {
                 if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
                 console.error('Food AI parse network error:', e);
-                safeAlert('Failed to parse meal: ' + (e && e.message ? e.message : e));
+                safeToast('Failed to parse meal: ' + (e && e.message ? e.message : e), 'error');
                 return;
             }
 
@@ -710,7 +710,7 @@ async function saveFoodLogFromDescription() {
                 let msg = `HTTP ${res.status}`;
                 try { msg = (await res.text()) || msg; } catch (_) { /* keep status fallback */ }
                 if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-                safeAlert('Failed to parse meal: ' + msg);
+                safeToast('Failed to parse meal: ' + msg, 'error');
                 return;
             }
 
@@ -753,7 +753,7 @@ async function saveFoodLogFromDescription() {
             });
         } else if (items.length) {
             const suffix = failed > 0 ? ` (${failed} failed)` : '';
-            safeAlert(`Logged ${items.length} item${items.length === 1 ? '' : 's'}${suffix}.`);
+            safeToast(`Logged ${items.length} item${items.length === 1 ? '' : 's'}${suffix}.`, 'info');
         }
     });
 }
@@ -1289,7 +1289,7 @@ async function saveFoodTargets() {
         // Nourishment scoring reads calorie/protein targets (s.food.GetTargets), so a
         // target change shifts today's HP — evict the gamification rings/journey too.
         await window.DataStore.invalidateTags(['settings', 'food_targets', 'gamification']);
-        safeAlert('Food targets saved');
+        safeToast('Food targets saved', 'info');
         const currentTab = (window.AppStore && typeof window.AppStore.get === 'function' && window.AppStore.get('currentTab'))
             || document.querySelector('.view.active')?.id?.replace(/-view$/, '');
         if (currentTab === 'food') {
@@ -1297,7 +1297,7 @@ async function saveFoodTargets() {
         }
     } catch (e) {
         console.error('Failed to save food targets:', e);
-        safeAlert('Failed to save food targets');
+        safeToast('Failed to save food targets', 'error');
     }
 }
 

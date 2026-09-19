@@ -213,8 +213,8 @@
                     renderTrialConsentRows();
                 }
                 await loadTrialConsent();
-            } else if (typeof safeAlert === 'function') {
-                safeAlert('Consent dialog unavailable — reload and try again');
+            } else if (typeof safeToast === 'function') {
+                safeToast('Consent dialog unavailable — reload and try again', 'error');
             }
             return;
         }
@@ -238,7 +238,7 @@
             if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
             _trialConsent = prev;
             renderTrialConsentRows();
-            if (typeof safeAlert === 'function') safeAlert('Failed to update trial consent');
+            if (typeof safeToast === 'function') safeToast('Failed to update trial consent', 'error');
             return;
         }
         if (handle) { try { await handle.commit(fresh); } catch (_) { /* best-effort */ } }
@@ -460,7 +460,7 @@
         } catch (e) {
             if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
             console.error('Failed to save integrations:', e);
-            if (typeof safeAlert === 'function') safeAlert('Failed to save integrations');
+            if (typeof safeToast === 'function') safeToast('Failed to save integrations', 'error');
             return;
         }
 
@@ -486,10 +486,10 @@
         // locally-masked payload — never the raw cleartext keys.
         if (handle) { try { await handle.commit(fresh || maskPayload(payload)); } catch (_) { /* best-effort */ } }
 
-        if (typeof safeAlert === 'function') {
-            safeAlert(appliesLive()
+        if (typeof safeToast === 'function') {
+            safeToast(appliesLive()
                 ? 'Integrations saved.'
-                : 'Integrations saved. Restart the server for the new values to take effect.');
+                : 'Integrations saved. Restart the server for the new values to take effect.', 'info');
         }
     }
 

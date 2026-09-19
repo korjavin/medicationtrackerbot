@@ -17,6 +17,20 @@ function safeAlert(msg) {
     alert(msg);
 }
 
+// safeToast prefers the non-blocking SyncManager toast and falls back to
+// safeAlert when no toast surface exists (bd med-omvw — success/info
+// messages should not pop blocking alerts). Like safeAlert it resolves
+// window.SyncManager lazily at call time, so utils.js keeps no dependency
+// on sync.js load order. type is 'info' (default) or 'error'.
+function safeToast(msg, type) {
+    const sm = window.SyncManager;
+    if (sm && typeof sm.showToast === 'function') {
+        sm.showToast(msg, type || 'info');
+        return;
+    }
+    safeAlert(msg);
+}
+
 // opts (optional): { title, confirmLabel, cancelLabel } — custom wording for
 // the in-page modal. Passing it forces the in-page path, because the
 // messenger-native popup only renders generic Cancel/Confirm buttons.

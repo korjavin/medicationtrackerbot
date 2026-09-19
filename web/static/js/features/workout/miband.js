@@ -74,7 +74,7 @@ async function saveMiBandWorkout() {
         }
     } catch (err) {
         console.error('Error updating Mi Band workout:', err);
-        safeAlert('Failed to update workout. Please try again.');
+        safeToast('Failed to update workout. Please try again.', 'error');
     }
 }
 
@@ -92,7 +92,7 @@ async function deleteMiBandWorkoutById(id) {
             loadWorkoutHistoryTab();
         } catch (err) {
             console.error('Error deleting Mi Band workout:', err);
-            safeAlert('Failed to delete workout. Please try again.');
+            safeToast('Failed to delete workout. Please try again.', 'error');
         }
     });
 }

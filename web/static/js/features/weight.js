@@ -517,7 +517,7 @@ function renderWeightGoalCard(logs, goalData) {
                     }
                 }).catch(err => {
                     console.error("Failed to set weight goal:", err);
-                    safeAlert("Failed to set weight goal");
+                    safeToast("Failed to set weight goal", 'error');
                 });
             } else {
                 safeAlert("Invalid weight value");

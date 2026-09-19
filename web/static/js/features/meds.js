@@ -768,7 +768,7 @@ async function deleteFutureIntakes(intakeIds) {
             refreshMedsAfterMutation();
         }
         if (res && typeof res.deleted_count === 'number' && res.deleted_count < intakeIds.length) {
-            safeAlert(`Deleted ${res.deleted_count} of ${intakeIds.length}. Some intakes were not future PENDING doses and were skipped.`);
+            safeToast(`Deleted ${res.deleted_count} of ${intakeIds.length}. Some intakes were not future PENDING doses and were skipped.`, 'info');
         }
     });
 }
@@ -1356,7 +1356,7 @@ async function saveMedication() {
             if (e.status === 409) {
                 safeAlert("A medication with this name and dosage already exists. Please use a different name or dosage.");
             } else {
-                safeAlert("Error: " + e.message);
+                safeToast("Error: " + e.message, 'error');
             }
             return;
         }

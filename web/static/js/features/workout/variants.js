@@ -92,7 +92,7 @@ async function loadVariantsForGroup(groupId) {
 function showAddVariantModal() {
     const groupId = window.WorkoutEdit.groupForVariant || window.WorkoutEdit.editingGroupId;
     if (!groupId) {
-        safeAlert('Save this plan first to add days.');
+        safeToast('Save this plan first to add days.', 'info');
         return;
     }
 

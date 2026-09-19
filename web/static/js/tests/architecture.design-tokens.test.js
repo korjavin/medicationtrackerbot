@@ -1558,6 +1558,17 @@ describe('Architecture – design tokens', () => {
             );
         }
     });
+
+    it('.sync-toast layers above modal dialogs via the --z-toast token', () => {
+        // med-omvw review: error toasts raised while a modal stays open must
+        // stay visible — the toast sits above --z-modal, by token (rule 3).
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+        const block = /\.sync-toast\s*\{([^}]*)\}/.exec(css);
+        expect(block).not.toBeNull();
+        const zLine = block[1].split('\n').find((l) => /z-index\s*:/i.test(l));
+        expect(zLine).toBeDefined();
+        expect(zLine).toContain('var(--z-toast)');
+    });
 });
 
 describe('Architecture – Wandergeek tokens', () => {

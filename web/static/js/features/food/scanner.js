@@ -65,7 +65,6 @@ function handleDecodedValue(rawValue) {
     } else {
         const nameInput = document.getElementById('food-name');
         nameInput.value = text;
-        safeAlert('Scanned QR text was added to Food Name.');
     }
     closeFoodScannerModal();
     return true;
@@ -197,11 +196,11 @@ async function openPhotoPickerAndDecode() {
 
         if (!decoded || !handleDecodedValue(decoded)) {
             setFoodScannerStatus('No barcode/QR found in photo. Try another image.');
-            safeAlert('No barcode or QR code found in the selected photo.');
+            safeToast('No barcode or QR code found in the selected photo.', 'error');
         }
     } catch (e) {
         console.error('Failed to decode from photo:', e);
         setFoodScannerStatus('Failed to decode image. Try another photo or manual entry.');
-        safeAlert('Could not decode barcode/QR from image.');
+        safeToast('Could not decode barcode/QR from image.', 'error');
     }
 }

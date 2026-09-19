@@ -185,14 +185,14 @@ async function readScanPlanDays(groupId) {
 async function scanWorkoutSheet(group) {
     const g = group || {};
     if (!window.__MEDTRACKER_CLOUD__ || !window.CloudWorkoutSheetAI) {
-        safeAlert('Sheet scanning is available in cloud mode.');
+        safeToast('Sheet scanning is available in cloud mode.', 'info');
         return;
     }
     const picker = window.MediaCapture && typeof window.MediaCapture.pickPhoto === 'function'
         ? window.MediaCapture.pickPhoto
         : null;
     if (!picker) {
-        safeAlert('Photo picking is not available on this device.');
+        safeToast('Photo picking is not available on this device.', 'info');
         return;
     }
     const file = await picker();
@@ -201,7 +201,7 @@ async function scanWorkoutSheet(group) {
     setScanStatus('Reading the plan…');
     const days = await readScanPlanDays(g.id);
     if (!days || days.length === 0) {
-        safeAlert('Couldn\'t load the plan — try again online.');
+        safeToast('Couldn\'t load the plan — try again online.', 'error');
         return;
     }
     const unit = (typeof readWeightUnitPreference === 'function') ? readWeightUnitPreference() : 'kg';
@@ -216,14 +216,14 @@ async function scanWorkoutSheet(group) {
             : await parsePhoto();
     } catch (e) {
         console.error('Sheet scan failed:', e);
-        safeAlert('Couldn\'t read the sheet: ' + (e.message || e));
+        safeToast('Couldn\'t read the sheet: ' + (e.message || e), 'error');
         return;
     }
 
     const sets = (result && Array.isArray(result.sets)) ? result.sets : [];
     const skipped = (result && Array.isArray(result.skipped)) ? result.skipped : [];
     if (sets.length === 0) {
-        safeAlert('No readable sets found — check the photo and try again.');
+        safeToast('No readable sets found — check the photo and try again.', 'error');
         return;
     }
 
@@ -265,11 +265,11 @@ async function confirmWorkoutScan() {
         if (typeof loadWorkoutGroups === 'function') loadWorkoutGroups();
         closeWorkoutScanModal();
         const suffix = res.failed > 0 ? ` (${res.failed} already logged)` : '';
-        safeAlert(`Logged ${res.logged} exercise${res.logged === 1 ? '' : 's'}${suffix}.`);
+        safeToast(`Logged ${res.logged} exercise${res.logged === 1 ? '' : 's'}${suffix}.`, 'info');
     } catch (e) {
         console.error('Sheet log failed:', e);
         setScanStatus('');
-        safeAlert('Failed to log the scan: ' + (e.message || e));
+        safeToast('Failed to log the scan: ' + (e.message || e), 'error');
     } finally {
         pending.saving = false;
         if (confirmBtn) confirmBtn.disabled = false;

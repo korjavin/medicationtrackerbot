@@ -111,7 +111,7 @@
             json = await readVaultJSON(includeSecrets);
         } catch (e) {
             console.error('Export failed:', e);
-            safeAlert(e.message || 'Export failed');
+            safeToast(e.message || 'Export failed', 'error');
             return;
         }
 
@@ -128,7 +128,7 @@
             }
         } catch (e) {
             console.error('Export encryption failed:', e);
-            safeAlert(e.message || 'Export failed');
+            safeToast(e.message || 'Export failed', 'error');
         }
     }
 
@@ -167,11 +167,11 @@
         if (importInFlight) return;
         const file = el('importexport-import-file')?.files?.[0];
         if (!file) {
-            safeAlert('Choose a backup file first');
+            safeToast('Choose a backup file first', 'info');
             return;
         }
         if (file.size > MAX_BACKUP_BYTES) {
-            safeAlert('Backup too large (max 64 MB)');
+            safeToast('Backup too large (max 64 MB)', 'info');
             return;
         }
 
@@ -188,7 +188,7 @@
             bytes = await readFileBytes(file);
         } catch (e) {
             importInFlight = false;
-            safeAlert(e.message || 'Failed to read file');
+            safeToast(e.message || 'Failed to read file', 'error');
             return;
         }
 
@@ -208,7 +208,7 @@
         } catch (e) {
             importInFlight = false;
             console.error('Import decrypt failed:', e);
-            safeAlert('Could not read backup — wrong passphrase?');
+            safeToast('Could not read backup — wrong passphrase?', 'error');
             return;
         }
 
@@ -239,12 +239,16 @@
                 { timeoutMs: 10 * 60_000, headers: { 'Content-Encoding': 'gzip' } });
             if (!res) { setImportBusy(false); return; } // apiCall already surfaced the error
             setImportBusy(false);
+            // Blocking on purpose (med-omvw review): showToast reveals on a
+            // delayed callback, so the reload below would kill the toast
+            // before it is ever visible. The user must read this before the
+            // page goes away.
             safeAlert('Import complete.');
             location.reload();
         } catch (e) {
             console.error('Import failed:', e);
             setImportBusy(false);
-            safeAlert(e.message || 'Import failed');
+            safeToast(e.message || 'Import failed', 'error');
         }
     }
 
@@ -264,7 +268,7 @@
         // Ignore a second click while an import is already uploading (med-0ol.1).
         if (importInFlight) return;
         const file = el('importexport-nxk-file')?.files?.[0];
-        if (!file) { safeAlert('Choose a .nxk backup first'); return; }
+        if (!file) { safeToast('Choose a .nxk backup first', 'info'); return; }
         // Busy state + unload guard for the upload leg (med-0ol.1/.4); the
         // server-side parse + inbox drain finish in the background afterward.
         setImportBusy(true, 'Uploading Mi Band backup… keep this page open.');
@@ -319,7 +323,7 @@
         } catch (e) {
             console.error('Reset local sync failed:', e);
             setImportBusy(false);
-            safeAlert(e.message || 'Reset failed');
+            safeToast(e.message || 'Reset failed', 'error');
         }
     }
 

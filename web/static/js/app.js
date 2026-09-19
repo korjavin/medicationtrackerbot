@@ -473,7 +473,7 @@ async function checkAuth() {
 async function sendTestBPNotification() {
     const res = await apiCall('/api/bp/reminder/test', 'POST');
     if (res) {
-        safeAlert("Notification sent! Check your device.");
+        safeToast("Notification sent! Check your device.", 'info');
     }
 }
 
@@ -1151,13 +1151,13 @@ async function sendTestMedicationNotification() {
 
         const text = await res.text();
         if (res.ok) {
-            safeAlert(text || "Test notification sent!");
+            safeToast(text || "Test notification sent!", 'info');
         } else {
-            safeAlert("Error: " + text);
+            safeToast("Error: " + text, 'error');
         }
     } catch (e) {
         console.error(e);
-        safeAlert("Error sending test notification: " + e.message);
+        safeToast("Error sending test notification: " + e.message, 'error');
     }
 }
 

@@ -983,7 +983,7 @@ async function saveGamificationTargets() {
     } catch (e) {
         if (handle) await handle.rollback();
         console.error('Failed to save journey targets:', e);
-        safeAlert('Failed to save targets');
+        safeToast('Failed to save targets', 'error');
         return;
     }
     if (!res) {
@@ -994,7 +994,7 @@ async function saveGamificationTargets() {
     if (handle) await handle.commit(null);
     applyGamificationTargets(res);
     try { await ds.invalidateTags(['gamification']); } catch (_) { /* best-effort */ }
-    safeAlert('Targets saved');
+    safeToast('Targets saved', 'info');
 }
 
 async function toggleFeatureSetting(feature, enabled) {

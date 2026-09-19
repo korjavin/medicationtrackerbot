@@ -479,7 +479,7 @@ function _buildAutoTagButton(names) {
             await loadWorkoutStatsTab();
         } catch (e) {
             console.error('Auto-tag failed:', e);
-            safeAlert('Auto-tag failed: ' + (e && e.message ? e.message : e));
+            safeToast('Auto-tag failed: ' + (e && e.message ? e.message : e), 'error');
             btn.disabled = false;
         }
     });

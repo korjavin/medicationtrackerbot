@@ -62,7 +62,7 @@ async function snoozeWorkout(minutes) {
                 } else if (window.DataStore?.invalidateTags) {
                     await window.DataStore.invalidateTags(['workout']);
                 }
-                safeAlert(`Snoozed for ${minutes} minutes`);
+                safeToast(`Snoozed for ${minutes} minutes`, 'info');
             } else if (handle) {
                 await handle.rollback();
             }
@@ -97,7 +97,7 @@ async function skipWorkout() {
                 } else if (window.DataStore?.invalidateTags) {
                     await window.DataStore.invalidateTags(['workout']);
                 }
-                safeAlert("Workout skipped");
+                safeToast("Workout skipped", 'info');
                 loadWorkouts();
             } else if (handle) {
                 await handle.rollback();
