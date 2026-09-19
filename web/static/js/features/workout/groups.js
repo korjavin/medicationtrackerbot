@@ -206,6 +206,14 @@ function _buildWorkoutGroupRow(doc, group) {
         // Via the namespace so the print-doc handoff stays stubbable in tests.
         window.WorkoutGroups.print(group);
     }));
+    // Scan-back (bd med-qj4.9) is cloud-only: it needs the browser-direct
+    // vision path (window.CloudWorkoutSheetAI) that legacy bot mode has no
+    // server endpoint for, by design. Hidden elsewhere; the row is unchanged.
+    if (window.__MEDTRACKER_CLOUD__ && window.WorkoutScan && typeof window.WorkoutScan.scan === 'function') {
+        actions.appendChild(_buildGroupsIconBtn(doc, 'scan', 'Scan filled sheet', 'camera', () => {
+            window.WorkoutScan.scan(group);
+        }));
+    }
     actions.appendChild(_buildGroupsIconBtn(doc, 'edit', 'Edit plan', 'pencil', () => {
         showEditWorkoutGroupModal(group.id);
     }));
@@ -582,6 +590,12 @@ const WORKOUT_PLAN_DOC_CSS = `
   .cells { display: flex; gap: 1.5mm; margin-top: 1mm; }
   .cell { flex: 1 1 0; border: 1px solid #999; border-radius: 1mm; height: 7mm;
           color: #bbb; font-size: 7.5px; padding: 0.5mm 1mm; }
+  .setno { color: #111; font-weight: 700; }
+  .qrrow { display: flex; align-items: flex-end; gap: 4mm; }
+  .qrrow .head { flex: 1 1 auto; }
+  .qr { flex: 0 0 auto; text-align: center; }
+  .qr svg { width: 24mm; height: 24mm; }
+  .qr figcaption { color: #555; font-size: 8px; margin-top: 1mm; }
   footer { margin-top: 5mm; padding-top: 2mm; border-top: 1px solid #ddd;
            color: #555; font-size: 8.5px; }`;
 
@@ -605,10 +619,15 @@ function _workoutPlanExerciseItem(ex, unit) {
     // screenshot could not give. Floor 3 so a single-set entry still leaves
     // room to write; cap 6 so a 10-set entry does not squeeze the row flat.
     const cellCount = Math.min(6, Math.max(3, sets));
-    const cell = `<span class="cell">${_workoutPlanEsc(unit)} × reps</span>`;
+    // Numbered boxes (bd med-qj4.9): the scan-back reads "box N holds set N",
+    // so each cell carries its 1-based set number ahead of the unit label.
+    const cells = [];
+    for (let i = 1; i <= cellCount; i += 1) {
+        cells.push(`<span class="cell"><span class="setno">${i}</span> ${_workoutPlanEsc(unit)} × reps</span>`);
+    }
     return `<li><span class="ex">${_workoutPlanEsc(ex.exercise_name)}</span> `
         + `<span class="tgt">${sets} × ${reps}${_workoutPlanEsc(weight)}</span>`
-        + `<span class="cells">${new Array(cellCount).fill(cell).join('')}</span></li>`;
+        + `<span class="cells">${cells.join('')}</span></li>`;
 }
 
 function _workoutPlanDayBlock(day, unit, showHeading) {
@@ -662,6 +681,15 @@ function buildWorkoutPlanDocument(group, days, opts) {
 
     const description = g.description ? `<p class="meta">${_workoutPlanEsc(g.description)}</p>` : '';
     const blocks = ordered.map((d) => _workoutPlanDayBlock(d, unit, rotating)).join('');
+    // QR anchor (bd med-qj4.9): identifies the plan when its filled sheet is
+    // photographed for scan-back. Injected (never built here) so the pure
+    // builder stays DOM- and import-free; empty when generation failed, in
+    // which case the sheet still prints and logs by hand as before.
+    const qrSvg = (o.qrSvg && typeof o.qrSvg === 'string') ? o.qrSvg : '';
+    const qrId = (g.id !== null && g.id !== undefined && g.id !== '') ? `Plan #${_workoutPlanEsc(g.id)}` : '';
+    const qr = qrSvg
+        ? `<figure class="qr">${qrSvg}<figcaption>Scan to log${qrId ? ` · ${qrId}` : ''}</figcaption></figure>`
+        : '';
 
     return `<!doctype html>
 <html lang="en">
@@ -675,9 +703,10 @@ function buildWorkoutPlanDocument(group, days, opts) {
 </head>
 <body>
 <header>
+<div class="qrrow"><div class="head">
 <h1>${_workoutPlanEsc(g.name || 'Workout plan')}</h1>
 <p class="meta">${_workoutPlanEsc(meta.join(' · '))}</p>
-${description}</header>
+${description}</div>${qr}</div></header>
 <div class="days${ordered.length > 1 ? ' days--cols' : ''}">${blocks}</div>
 <footer>Printed ${_workoutPlanEsc(printedOn)} · Generated on this device — nothing was sent to a server.</footer>
 </body>
@@ -687,6 +716,22 @@ ${description}</header>
 // ponytail: no memoization — import() already caches by specifier. The
 // indirection is the test seam (same shape as brief.js loadPrintDoc).
 function loadWorkoutPrintDoc() { return import('/js/print-doc.js'); }
+
+// QR svg for the printed sheet (bd med-qj4.9). Dynamic imports keep the
+// classic-script Plans list free of module load order: the QR text format
+// lives in web/domain/workoutsheet.js and rendering in the vendored
+// web/cloud/vendor/qrcode.mjs (same module signup.js uses for the
+// emergency kit). Via the namespace so tests can stub the whole step.
+async function makePlanQrSvg(groupId) {
+    const [{ buildSheetQrText }, { qrcode }] = await Promise.all([
+        import('/domain/workoutsheet.js'),
+        import('/vendor/qrcode.mjs'),
+    ]);
+    const qr = qrcode(0, 'M');
+    qr.addData(buildSheetQrText(groupId));
+    qr.make();
+    return qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true, title: 'Workout plan code' });
+}
 
 // `group` is the row's own cached group record — the Plans list was just
 // rendered from it, so re-fetching /api/workout/groups would only re-read
@@ -718,7 +763,15 @@ async function printWorkoutPlan(group) {
     }
 
     const unit = (typeof readWeightUnitPreference === 'function') ? readWeightUnitPreference() : 'kg';
-    const html = window.WorkoutGroups.buildDocument(g, days, { unit });
+    // QR anchor is best-effort: a sheet without it still prints and logs by
+    // hand exactly as before (bd med-qj4.9).
+    let qrSvg = '';
+    try {
+        qrSvg = await window.WorkoutGroups.makePlanQr(g.id);
+    } catch (_) {
+        qrSvg = '';
+    }
+    const html = window.WorkoutGroups.buildDocument(g, days, { unit, qrSvg });
     const mod = await window.WorkoutGroups.loadPrintDoc();
     mod.printDoc(document, html, 'wg-print-frame', WORKOUT_PLAN_DOC_CSS);
 }
@@ -734,5 +787,6 @@ window.WorkoutGroups = {
     toggleDay: toggleWorkoutDay,
     print: printWorkoutPlan,
     buildDocument: buildWorkoutPlanDocument,
-    loadPrintDoc: loadWorkoutPrintDoc
+    loadPrintDoc: loadWorkoutPrintDoc,
+    makePlanQr: makePlanQrSvg
 };

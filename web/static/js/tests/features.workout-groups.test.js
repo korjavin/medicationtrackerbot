@@ -455,3 +455,120 @@ describe('features/workout/groups.js — printable plan sheet (med-ac5h)', () =>
     expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
   });
 });
+
+// bd med-qj4.9 — scan-back sheet anchors: numbered set boxes, the QR figure,
+// and the cloud-only Scan row button.
+describe('features/workout/groups.js — scan-back anchors (med-qj4.9)', () => {
+  let env;
+  let consoleErrorSpy;
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    env = loadFrontendEnv({ withWorkout: true });
+    env.window.Telegram.WebApp.showAlert = vi.fn();
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+    delete env.window.__MEDTRACKER_CLOUD__;
+    env.cleanup();
+    env = null;
+  });
+
+  const GROUP = {
+    id: 5,
+    name: 'Push / Pull',
+    is_rotating: false,
+    active: true,
+    days_of_week: '[]',
+  };
+
+  const DAYS = [{
+    variant: { id: 30, name: 'Main' },
+    exercises: [{ id: 9, exercise_name: 'Squat', order_index: 0, target_sets: 2, target_reps_min: 5 }],
+  }];
+
+  it('each cell carries its 1-based set number for box→set mapping', () => {
+    const { window } = env;
+    const html = window.WorkoutGroups.buildDocument(GROUP, DAYS, { unit: 'kg' });
+    expect(html).toContain('<span class="setno">1</span> kg × reps');
+    expect(html).toContain('<span class="setno">2</span> kg × reps');
+    // Floor-3 rule still holds: a 2-set entry prints 3 boxes.
+    expect((html.match(/class="setno"/g) || []).length).toBe(3);
+  });
+
+  it('an injected QR svg renders as a Scan-to-log figure with the plan id', () => {
+    const { window } = env;
+    const withQr = window.WorkoutGroups.buildDocument(GROUP, DAYS, { unit: 'kg', qrSvg: '<svg>code</svg>' });
+    expect(withQr).toContain('<figure class="qr"><svg>code</svg>');
+    expect(withQr).toContain('Scan to log · Plan #5');
+
+    const withoutQr = window.WorkoutGroups.buildDocument(GROUP, DAYS, { unit: 'kg' });
+    expect(withoutQr).not.toContain('<figure class="qr">');
+    expect(withoutQr).toContain('Squat');
+  });
+
+  it('print() feeds makePlanQr svg into the handed-off document', async () => {
+    const { window } = env;
+    window.apiCall = vi.fn(async (url) => {
+      if (url.startsWith('/api/workout/variants?group_id=')) return [{ id: 30, name: 'Main' }];
+      return [{ id: 9, exercise_name: 'Squat', order_index: 0, target_sets: 1, target_reps_min: 5 }];
+    });
+    const printed = [];
+    window.WorkoutGroups.loadPrintDoc = async () => ({
+      printDoc: (d, html, cls, css) => printed.push({ html, cls, css }),
+    });
+    window.WorkoutGroups.makePlanQr = vi.fn(async (id) => `<svg>plan-${id}</svg>`);
+
+    await window.WorkoutGroups.print(GROUP);
+
+    expect(window.WorkoutGroups.makePlanQr).toHaveBeenCalledWith(5);
+    expect(printed).toHaveLength(1);
+    expect(printed[0].html).toContain('<svg>plan-5</svg>');
+  });
+
+  it('a QR failure still prints the sheet, without the figure', async () => {
+    const { window } = env;
+    window.apiCall = vi.fn(async (url) => {
+      if (url.startsWith('/api/workout/variants?group_id=')) return [{ id: 30, name: 'Main' }];
+      return [{ id: 9, exercise_name: 'Squat', order_index: 0, target_sets: 1, target_reps_min: 5 }];
+    });
+    const printed = [];
+    window.WorkoutGroups.loadPrintDoc = async () => ({
+      printDoc: (d, html) => printed.push(html),
+    });
+    window.WorkoutGroups.makePlanQr = vi.fn(async () => { throw new Error('offline'); });
+
+    await window.WorkoutGroups.print(GROUP);
+
+    expect(printed).toHaveLength(1);
+    expect(printed[0]).toContain('Squat');
+    expect(printed[0]).not.toContain('<figure class="qr">');
+  });
+
+  it('every Plan row gets a Scan button in cloud mode only', () => {
+    const { window, document } = env;
+    const container = document.getElementById('workout-groups-list');
+
+    // Legacy/bot mode: no Scan button, Print untouched.
+    window._renderWorkoutGroups(container, [GROUP]);
+    expect(container.querySelectorAll('button[aria-label="Scan filled sheet"]')).toHaveLength(0);
+    expect(container.querySelectorAll('button[aria-label="Print plan"]')).toHaveLength(1);
+
+    // Cloud mode: Scan sits next to Print and does not open Edit.
+    window.__MEDTRACKER_CLOUD__ = true;
+    window._renderWorkoutGroups(container, [GROUP]);
+    const scanButtons = container.querySelectorAll('button[aria-label="Scan filled sheet"]');
+    expect(scanButtons).toHaveLength(1);
+
+    const scanSpy = vi.fn();
+    window.WorkoutScan.scan = scanSpy;
+    const openEdit = vi.fn();
+    window.showEditWorkoutGroupModal = openEdit;
+    scanButtons[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+    expect(scanSpy).toHaveBeenCalledTimes(1);
+    expect(scanSpy.mock.calls[0][0].id).toBe(5);
+    expect(openEdit).not.toHaveBeenCalled();
+  });
+});
