@@ -200,10 +200,16 @@ async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
             // delivery/offline failure, so propagate them to the caller rather
             // than swallowing to null. Server-origin 4xx from apiCallDirect
             // carry only .status (no such code), so bot mode is unaffected.
-            // Still surface the alert for writes first: uncaught cloud write
-            // handlers (e.g. saveExercise) rely on apiCall for feedback, so a
-            // silent rethrow would leave a malformed save with no explanation.
-            if (e && e.code === 'invalid_request') {
+            // precondition_failed joins the carve-out (bd med-qop3): the plan
+            // delete flow branches on the guard (open-session count) to offer
+            // cancel-and-delete, and a swallowed null gives it nothing to
+            // branch on. Only deleteGroup throws that code, and its sole
+            // apiCall caller catches it — every other write keeps the
+            // alert-and-null path. Still surface the alert for writes first:
+            // uncaught cloud write handlers (e.g. saveExercise) rely on
+            // apiCall for feedback, so a silent rethrow would leave a
+            // malformed save with no explanation.
+            if (e && (e.code === 'invalid_request' || e.code === 'precondition_failed')) {
                 if (method !== 'GET' && !(e && e.demoLimit) && !opts.suppressWriteAlert) {
                     safeAlert("Error: " + e.message);
                 }
@@ -229,7 +235,7 @@ async function apiCall(endpoint, method = "GET", body = null, opts = {}) {
         return await apiCallDirect(endpoint, method, body, opts);
     } catch (e) {
         if (e && e.aborted) throw e;
-        if (e && e.code === 'invalid_request') {
+        if (e && (e.code === 'invalid_request' || e.code === 'precondition_failed')) {
             if (method !== 'GET' && !(e && e.demoLimit) && !opts.suppressWriteAlert) {
                 safeAlert("Error: " + e.message);
             }

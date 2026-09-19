@@ -1952,7 +1952,7 @@ export const CATALOG = [
     "method": "DELETE",
     "path": "/api/workout/groups/delete",
     "risk": "write",
-    "description": "Delete a workout group. Refused while any exercise remains in its variants or any session is still pending/in-progress — remove exercises (workouts.exercises.delete) and finish or skip open sessions first. Its variants and rotation state are then deleted with it.",
+    "description": "Delete a workout group. Refused while any exercise remains in its variants — remove exercises (workouts.exercises.delete) first. Still-pending/in-progress sessions are refused too unless cancel_sessions is true, which tombstones them (logs + session) before deleting the group with its variants and rotation state.",
     "response_summary": "Empty body on success (HTTP 200).",
     "required": [
       "id"
@@ -1966,6 +1966,10 @@ export const CATALOG = [
         "id": {
           "type": "integer",
           "description": "Workout group id"
+        },
+        "cancel_sessions": {
+          "type": "boolean",
+          "description": "If true, cancel (tombstone) the group's pending/in-progress sessions, then delete the group. Default false: the op is refused while open sessions remain."
         }
       }
     }

@@ -103,6 +103,78 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
         expect(variants).toHaveLength(0);
     });
 
+    // bd med-qop3: deleting a plan with open sessions refuses without the
+    // flag and tombstones them (logs + session, never skipped) with it,
+    // while a completed session survives.
+    it('group delete with cancel_sessions tombstones open sessions + logs but keeps completed ones', async () => {
+        const { window } = env;
+        // Session transitions best-effort POST /api/telegram/cancel-refire
+        // (med-r3dm) — stub fetch so the test never touches the network.
+        const realFetch = globalThis.fetch;
+        globalThis.fetch = async () => ({ ok: true });
+        try {
+            // Every weekday except today's, so the earliest occurrence is
+            // always tomorrow regardless of when the suite runs.
+            const days = [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== new Date().getDay());
+            const group = await window.apiCall('/api/workout/groups/create', 'POST', {
+                name: 'Doomed', is_rotating: true, days_of_week: JSON.stringify(days), scheduled_time: '23:59'
+            });
+            await window.apiCall('/api/workout/variants/create', 'POST', { group_id: group.id, name: 'Main' });
+
+            // Tomorrow's occurrence, completed up front (the survivor).
+            const done = await window.apiCallDirect('/api/workout/sessions/next');
+            expect(done.session.status).toBe('pending');
+            await window.apiCall(`/api/workout/sessions/status?id=${done.session.id}`, 'PUT', { status: 'completed' });
+
+            // Next occurrence, still pending — then starting it re-keys onto
+            // today's slot (med-gmyf) and leaves the future one pending, so
+            // one group holds both an in_progress and a pending session.
+            const future = await window.apiCallDirect('/api/workout/sessions/next');
+            expect(future.session.id).not.toBe(done.session.id);
+            await window.apiCall(`/api/workout/sessions/${future.session.id}/start`, 'POST');
+            const list = await window.apiCall('/api/workout/sessions?limit=500');
+            const mine = list.filter((v) => v.session.group_id === group.id);
+            const today = mine.find((v) => v.session.id !== done.session.id && v.session.id !== future.session.id);
+            const fresh = await window.apiCall(`/api/workout/sessions/details?id=${future.session.id}`, 'GET');
+            expect(fresh.session.status).toBe('pending');
+            expect(today).toBeDefined();
+            expect((await window.apiCall(`/api/workout/sessions/details?id=${today.session.id}`, 'GET')).session.status)
+                .toBe('in_progress');
+
+            // A log on the open session, to prove the cancel takes logs too.
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: today.session.id, exercise_id: 1, exercise_name: 'Bench', source: 'schedule',
+                target_sets: 3, target_reps_min: 8
+            });
+            expect((await window.apiCall(`/api/workout/sessions/details?id=${today.session.id}`, 'GET')).logs)
+                .toHaveLength(1);
+
+            // Without the flag the precondition refusal persists —
+            // byte-identical message, now carrying the count the UI branches on.
+            const refusal = await window.offlineAwareApiCall(`/api/workout/groups/delete?id=${group.id}`, 'DELETE')
+                .then(() => { throw new Error('expected the delete to be refused'); }, (e) => e);
+            expect(refusal.code).toBe('precondition_failed');
+            expect(refusal.message).toBe('cannot delete group: it has 2 pending/active sessions');
+            expect(refusal.openSessionCount).toBe(2);
+
+            // With the flag the group, its variants, and the open sessions go,
+            // while the completed one survives.
+            await window.offlineAwareApiCall(`/api/workout/groups/delete?id=${group.id}&cancel_sessions=true`, 'DELETE');
+            expect(await window.apiCallDirect('/api/workout/groups')).toHaveLength(0);
+            expect(await window.apiCall(`/api/workout/variants?group_id=${group.id}`)).toHaveLength(0);
+            const after = (await window.apiCall('/api/workout/sessions?limit=500'))
+                .filter((v) => v.session.group_id === group.id);
+            expect(after).toHaveLength(1);
+            expect(after[0].session.status).toBe('completed');
+            expect(await window.apiCall(`/api/workout/sessions/details?id=${today.session.id}`, 'GET')).toBeNull();
+            expect(await window.apiCall(`/api/workout/sessions/details?id=${future.session.id}`, 'GET')).toBeNull();
+            expect(await window.apiCall(`/api/workout/sessions/details?id=${done.session.id}`, 'GET')).not.toBeNull();
+        } finally {
+            if (realFetch === undefined) delete globalThis.fetch;
+            else globalThis.fetch = realFetch;
+        }
+    });
+
     it('variant create/list/update/delete round-trips, ordered by rotation_order then name', async () => {
         const { window } = env;
         const group = await window.apiCall('/api/workout/groups/create', 'POST', { name: 'Push' });

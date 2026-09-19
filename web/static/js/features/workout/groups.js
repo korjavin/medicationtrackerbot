@@ -521,12 +521,63 @@ async function deleteWorkoutGroup(groupId, event) {
     });
 }
 
-async function _deleteWorkoutGroupApi(groupId) {
-    const result = await apiCall(`/api/workout/groups/delete?id=${groupId}`, 'DELETE');
-    if (result || result === true) {
-        await invalidateWorkoutCache();
-        loadWorkoutGroups();
+// _deleteWorkoutGroupApi deletes the plan, honouring CLAUDE.md rule 9: the
+// row leaves the workout_groups cache optimistically and the handle commits
+// on success or rolls back on failure/cancel, instead of a blind
+// invalidate+reload on a write.
+//
+// bd med-qop3: the first attempt is a plain delete (no flag). When the plan
+// still has open sessions the domain refuses with a precondition_failed
+// carrying openSessionCount (apiCall rethrows that code instead of swallowing
+// it to null — core/api.js), and the flow offers a second, count-naming
+// confirm before retrying with cancel_sessions=true. A null result is the
+// swallowed path (bot-mode server 4xx, offline/5xx) — the delete's own
+// suppressWriteAlert silenced apiCall's toast, so say so here (round-1
+// review) and leave the plan in place.
+async function _deleteWorkoutGroupApi(groupId, opts) {
+    const cancelSessions = !!(opts && opts.cancelSessions);
+    const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+        ? await window.DataStore.applyOptimistic('workout_groups', (prev) => {
+            if (!prev || !Array.isArray(prev)) return prev;
+            return prev.filter((g) => g && g.id !== groupId);
+        }, ['workout'])
+        : null;
+    const settle = async (ok) => {
+        try {
+            if (ok) {
+                if (handle) await handle.commit(null);
+                await invalidateWorkoutCache();
+                loadWorkoutGroups();
+            } else if (handle) {
+                await handle.rollback();
+            }
+        } catch (_) { /* cache settle is best-effort; the reload covers it */ }
+    };
+    let result;
+    try {
+        const url = `/api/workout/groups/delete?id=${groupId}${cancelSessions ? '&cancel_sessions=true' : ''}`;
+        result = await apiCall(url, 'DELETE', null, { suppressWriteAlert: true });
+    } catch (e) {
+        const openCount = e && e.code === 'precondition_failed' ? e.openSessionCount : 0;
+        if (!cancelSessions && Number.isInteger(openCount) && openCount > 0) {
+            await settle(false);
+            await safeConfirm(`This plan has ${openCount} pending/active session${openCount === 1 ? '' : 's'}. Cancel them and delete the plan?`, async (confirmOk) => {
+                if (confirmOk) {
+                    await _deleteWorkoutGroupApi(groupId, { cancelSessions: true });
+                }
+            });
+            return;
+        }
+        await settle(false);
+        safeAlert('Error: ' + (e && e.message ? e.message : e));
+        return;
     }
+    if (result === null) {
+        await settle(false);
+        safeAlert("Couldn't delete the plan — try again online.");
+        return;
+    }
+    await settle(!!result);
 }
 
 // ====================================
