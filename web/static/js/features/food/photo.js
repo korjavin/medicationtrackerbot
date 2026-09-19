@@ -358,14 +358,14 @@ async function uploadFoodPhotoFile(file) {
                 });
             } else {
                 const suffix = failed > 0 ? ` (${failed} failed)` : '';
-                safeAlert(items.length
+                safeToast(items.length
                     ? `Logged ${items.length} item${items.length === 1 ? '' : 's'}${suffix}.`
-                    : 'Photo logged.');
+                    : 'Photo logged.', 'info');
             }
         } catch (e) {
             console.error('Food photo upload failed:', e);
             if (!(e && e.demoLimit)) {
-                safeAlert('Failed to log food from photo: ' + (e.message || e));
+                safeToast('Failed to log food from photo: ' + (e.message || e), 'error');
             }
         } finally {
             if (originalLabel) originalLabel.textContent = restoreLabel;

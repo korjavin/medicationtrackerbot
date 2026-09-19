@@ -228,13 +228,13 @@ async function resolveVariantForExercise() {
 
     const groupId = window.WorkoutEdit.groupForVariant || window.WorkoutEdit.editingGroupId;
     if (!groupId) {
-        safeAlert('Save this plan first to add exercises.');
+        safeToast('Save this plan first to add exercises.', 'info');
         return false;
     }
 
     const group = window.WorkoutEdit.cachedGroups.find(g => g.id === groupId);
     if (group && group.is_rotating) {
-        safeAlert('Open a day first to add exercises.');
+        safeToast('Open a day first to add exercises.', 'info');
         return false;
     }
 
@@ -260,7 +260,7 @@ async function resolveVariantForExercise() {
 
         const variantId = variants[0]?.id;
         if (!variantId) {
-            safeAlert('Save this plan first to add exercises.');
+            safeToast('Save this plan first to add exercises.', 'info');
             return false;
         }
 
@@ -269,7 +269,7 @@ async function resolveVariantForExercise() {
         return true;
     } catch (error) {
         console.error('Failed to resolve variant for exercise modal:', error);
-        safeAlert('Failed to prepare exercise editor. Please try again.');
+        safeToast('Failed to prepare exercise editor. Please try again.', 'error');
         return false;
     }
 }

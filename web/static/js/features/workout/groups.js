@@ -403,7 +403,7 @@ async function toggleRotatingFieldsInner() {
                 document.getElementById('workout-group-rotating').checked = true;
                 document.getElementById('workout-variants-section').style.display = 'block';
                 document.getElementById('workout-group-flat-exercises-section').style.display = 'none';
-                safeAlert('Couldn\'t check this plan\'s Days — try again when back online.');
+                safeToast('Couldn\'t check this plan\'s Days — try again when back online.', 'error');
                 return;
             }
 
@@ -415,7 +415,7 @@ async function toggleRotatingFieldsInner() {
                 document.getElementById('workout-group-rotating').checked = true;
                 document.getElementById('workout-variants-section').style.display = 'block';
                 document.getElementById('workout-group-flat-exercises-section').style.display = 'none';
-                safeAlert('Delete the extra Days first — a plan with more than one Day can\'t switch off "Rotate through days".');
+                safeToast('Delete the extra Days first — a plan with more than one Day can\'t switch off "Rotate through days".', 'info');
                 return;
             }
 
@@ -466,7 +466,7 @@ async function saveWorkoutGroup() {
     // fetching the Day count — the checkbox may not reflect the guarded value
     // yet, so posting now could slip is_rotating:false past the >1-Day guard.
     if (window.WorkoutEdit.rotatingGuardPending > 0) {
-        safeAlert('Still checking this plan\'s Days — try again in a moment.');
+        safeToast('Still checking this plan\'s Days — try again in a moment.', 'info');
         return;
     }
 
@@ -793,11 +793,11 @@ async function printWorkoutPlan(group) {
     // local vault. Do NOT add an aggregate endpoint for this.
     const variants = await apiCall(`/api/workout/variants?group_id=${g.id}`);
     if (!Array.isArray(variants)) {
-        safeAlert('Couldn\'t load the plan — try again online.');
+        safeToast('Couldn\'t load the plan — try again online.', 'error');
         return;
     }
     if (variants.length === 0) {
-        safeAlert('Add some exercises to this plan first.');
+        safeToast('Add some exercises to this plan first.', 'info');
         return;
     }
 
@@ -807,7 +807,7 @@ async function printWorkoutPlan(group) {
         // A partial read would print a Day with its exercises silently
         // missing, which is worse than not printing at all.
         if (!Array.isArray(exercises)) {
-            safeAlert('Couldn\'t load the plan — try again online.');
+            safeToast('Couldn\'t load the plan — try again online.', 'error');
             return;
         }
         days.push({ variant, exercises });

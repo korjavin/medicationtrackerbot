@@ -81,7 +81,8 @@ describe('app.js charts, scanner and visualization helpers', () => {
       document.getElementById('food-name').value = '';
       window.handleDecodedValue('hello from qr');
       expect(document.getElementById('food-name').value).toBe('hello from qr');
-      expect(alertSpy).toHaveBeenCalledWith('Scanned QR text was added to Food Name.');
+      // med-omvw: the filled field says it — no popup.
+      expect(alertSpy).not.toHaveBeenCalled();
     } finally {
       cleanup();
     }

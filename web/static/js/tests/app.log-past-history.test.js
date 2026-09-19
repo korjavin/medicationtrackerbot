@@ -126,12 +126,12 @@ describe('app.js log-past -> history reflects new intake', () => {
       expect(list.textContent).toContain('Vitamin D');
       expect(list.querySelectorAll('.history-group').length).toBeGreaterThan(0);
 
-      // And the user saw the success alert.
-      expect(window.safeAlert).toHaveBeenCalledWith('Intake logged!');
+      // And the user saw the success toast, not a blocking alert (med-omvw).
+      expect(window.safeAlert).not.toHaveBeenCalled();
+      expect(window.SyncManager.showToast).toHaveBeenCalledWith('Intake logged!', 'info');
 
       // The visibility check passed — no missing-intake warning or error toast.
       expect(window.SyncDebug.warn).not.toHaveBeenCalled();
-      expect(window.SyncManager.showToast).not.toHaveBeenCalled();
     } finally {
       cleanup();
     }
@@ -203,10 +203,10 @@ describe('app.js log-past -> history reflects new intake', () => {
       expect(warnArgs[0]).toContain('log-past: new intake not visible');
       expect(warnArgs[1]).toEqual({ id: newIntake.id });
 
-      expect(toastSpy).toHaveBeenCalled();
-      const toastArgs = toastSpy.mock.calls[0];
+      // The success toast fires first, then the visibility-check warning.
+      expect(toastSpy).toHaveBeenCalledWith('Intake logged!', 'info');
+      const toastArgs = toastSpy.mock.calls.find((c) => c[1] === 'error');
       expect(toastArgs[0]).toContain('Saved');
-      expect(toastArgs[1]).toBe('error');
     } finally {
       cleanup();
     }
@@ -274,9 +274,10 @@ describe('app.js log-past -> history reflects new intake', () => {
       expect(node).not.toBeNull();
       expect(node.textContent).toContain('Fish Oil');
 
-      // No visibility-check warning or toast on the happy path.
+      // Success toasts on the happy path, but no visibility-check warning
+      // or error toast (med-omvw).
       expect(window.SyncDebug.warn).not.toHaveBeenCalled();
-      expect(window.SyncManager.showToast).not.toHaveBeenCalled();
+      expect(window.SyncManager.showToast).toHaveBeenCalledWith('Intake logged!', 'info');
     } finally {
       cleanup();
     }

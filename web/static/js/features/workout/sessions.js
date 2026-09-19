@@ -735,7 +735,7 @@ async function showWorkoutSessionModal(sessionId) {
         };
     } catch (error) {
         console.error('Error loading session details:', error);
-        safeAlert('Error loading session details');
+        safeToast('Error loading session details', 'error');
     }
 }
 
@@ -844,7 +844,7 @@ async function deleteExerciseLog(index) {
             // Hard failure: restore the local row + cached count, then surface.
             await restore();
             console.error('Error deleting exercise log:', error);
-            safeAlert('Failed to delete exercise log');
+            safeToast('Failed to delete exercise log', 'error');
         }
     });
 }
@@ -1191,7 +1191,7 @@ async function saveWorkoutSessionDetails(opts) {
         // Autosave failures surface inline (Task 4) and keep the modal + local
         // edits intact; only the explicit Finish path pops a blocking alert.
         if (fromAutosave) setAutosaveStatus('error', message);
-        else safeAlert('❌ ' + message);
+        else safeToast('❌ ' + message, 'error');
         return false; // save failed — close path keeps the modal open
     } finally {
         busyTargets.forEach((btn) => {
@@ -1229,12 +1229,12 @@ async function startAdHocWorkout() {
             await loadNextWorkout();
         } else {
             if (nextHandle) await nextHandle.rollback();
-            safeAlert('Failed to start ad-hoc workout');
+            safeToast('Failed to start ad-hoc workout', 'error');
         }
     } catch (error) {
         if (nextHandle) await nextHandle.rollback();
         console.error('Error starting ad-hoc workout:', error);
-        safeAlert('Error starting ad-hoc workout: ' + error.message);
+        safeToast('Error starting ad-hoc workout: ' + error.message, 'error');
     }
 }
 
@@ -1323,7 +1323,7 @@ async function completeWorkoutSession(sessionId) {
         } catch (e) {
             for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
             console.error(e);
-            safeAlert('Failed to finish workout');
+            safeToast('Failed to finish workout', 'error');
         }
     });
 }
@@ -1353,7 +1353,7 @@ async function preSkipWorkoutSession(sessionId) {
         } catch (error) {
             if (handle) await handle.rollback();
             console.error('Error pre-skipping workout:', error);
-            safeAlert('❌ Failed to mark workout as skipped. Please try again.');
+            safeToast('❌ Failed to mark workout as skipped. Please try again.', 'error');
         }
     });
 }
@@ -1380,7 +1380,7 @@ async function cancelPreSkipWorkoutSession(sessionId) {
     } catch (error) {
         if (handle) await handle.rollback();
         console.error('Error cancelling pre-skip:', error);
-        safeAlert('❌ Failed to cancel skip. Please try again.');
+        safeToast('❌ Failed to cancel skip. Please try again.', 'error');
     }
 }
 
@@ -1525,7 +1525,7 @@ async function saveNewSessionExercise() {
             sets: sets, repsMin: reps, weight: weight
         });
         if (!exerciseId) {
-            safeAlert('Failed to add exercise');
+            safeToast('Failed to add exercise', 'error');
             return;
         }
     }
@@ -1614,7 +1614,7 @@ async function saveNewSessionExercise() {
         restoreOptimistic();
         if (historyHandle) await historyHandle.rollback();
         console.error(error);
-        safeAlert('Failed to add exercise');
+        safeToast('Failed to add exercise', 'error');
     }
 }
 

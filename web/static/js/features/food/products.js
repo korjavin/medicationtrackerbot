@@ -1009,7 +1009,7 @@ async function saveFoodProduct() {
         }
         await initFoodProductsCache();
         renderFoodAutocomplete(window.FoodProducts.cache, false, null, false);
-        safeAlert('Product updated.');
+        safeToast('Product updated.', 'info');
     });
 }
 
@@ -1031,7 +1031,7 @@ async function deleteFoodProduct(id, displayName) {
             }
         } catch (e) {
             console.error('Failed to delete food product:', e);
-            safeAlert('Failed to delete product.');
+            safeToast('Failed to delete product.', 'error');
         }
     });
 }

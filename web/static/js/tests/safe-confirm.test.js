@@ -192,3 +192,41 @@ describe('safeConfirm — Telegram mode', () => {
         expect(confirmSpy).toHaveBeenCalledWith('via-adapter');
     });
 });
+
+describe('safeToast — toast dispatch with alert fallback (med-omvw)', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadFrontendEnv({ telegramInitData: '' });
+    });
+
+    afterEach(() => {
+        env.cleanup();
+        env = null;
+    });
+
+    it('prefers SyncManager.showToast with the given type, defaulting to info', () => {
+        const { window } = env;
+        const toastSpy = vi.fn();
+        window.SyncManager = { showToast: toastSpy };
+
+        window.safeToast('Saved', 'info');
+        window.safeToast('Failed', 'error');
+        window.safeToast('Defaulted');
+
+        expect(toastSpy).toHaveBeenNthCalledWith(1, 'Saved', 'info');
+        expect(toastSpy).toHaveBeenNthCalledWith(2, 'Failed', 'error');
+        expect(toastSpy).toHaveBeenNthCalledWith(3, 'Defaulted', 'info');
+    });
+
+    it('falls back to safeAlert when no toast surface exists', () => {
+        const { window } = env;
+        window.SyncManager = {};
+        const alertSpy = vi.fn();
+        window.safeAlert = alertSpy;
+
+        window.safeToast('Fallback message', 'error');
+
+        expect(alertSpy).toHaveBeenCalledWith('Fallback message');
+    });
+});
