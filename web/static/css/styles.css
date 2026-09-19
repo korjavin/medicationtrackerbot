@@ -1948,7 +1948,9 @@ svg.chart-svg {
     border-radius: var(--radius-sm);
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-medium);
-    z-index: var(--z-overlay);
+    /* Above modal dialogs (--z-modal): error toasts raised while a modal
+       stays open (finish workout, save exercise, …) must be visible. */
+    z-index: var(--z-toast);
     opacity: 0;
     transition: all 0.3s ease;
     box-shadow: var(--shadow-md);

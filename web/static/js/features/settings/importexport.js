@@ -239,7 +239,11 @@
                 { timeoutMs: 10 * 60_000, headers: { 'Content-Encoding': 'gzip' } });
             if (!res) { setImportBusy(false); return; } // apiCall already surfaced the error
             setImportBusy(false);
-            safeToast('Import complete.', 'info');
+            // Blocking on purpose (med-omvw review): showToast reveals on a
+            // delayed callback, so the reload below would kill the toast
+            // before it is ever visible. The user must read this before the
+            // page goes away.
+            safeAlert('Import complete.');
             location.reload();
         } catch (e) {
             console.error('Import failed:', e);
