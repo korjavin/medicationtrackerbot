@@ -81,25 +81,30 @@ whatever bound the operator sets, in one of two places:
 ### 1.3 Reverse-proxy access logs — required decision
 
 The app's own log is redacted; **your reverse proxy's access log is not**, and
-two URL shapes carry sensitive material *in the request line* that most proxies
+three URL shapes carry sensitive material *in the request line* that most proxies
 record verbatim:
 
 - **`/mcp/<token>/…`** — hosted MCP capability tokens travel in the **path**. A
   raw access log becomes a file of live MCP bearer tokens.
 - **`/api/rxnav/*?…`** — drug-name lookups travel in the **query string**. A raw
   access log becomes a queryable record of what medications users searched.
+- **`/s/<id>` and `/api/s/<id>`** — blind workout-share capability ids travel in
+  the **path**. A raw access log becomes a file of live share capabilities
+  (weaker than the two above: the id alone fetches only AES-GCM ciphertext
+  sealed under a key that stays in the URL fragment and never reaches the
+  server — but it still records who resolved which link when).
 
 **Required deployment decision — safe default OFF / redacted.** Traefik's
 access log is off by default and the app stack does not enable it, so out of
 the box there is no proxy log to leak. If you enable it:
 
 - **Prefer dropping the path and query entirely.** Set Traefik's access-log
-  `fields` to `drop` (or `redact`) `RequestPath` — which covers both the
-  `/mcp/<token>` segment and the `?…` RxNav query — while keeping
+  `fields` to `drop` (or `redact`) `RequestPath` — which covers the
+  `/mcp/<token>` segment, the `?…` RxNav query, and both share-id paths — while keeping
   `RequestHost`/status/duration for ops signal.
 - **The same rule binds every intermediary.** A CDN, WAF, or L7 load balancer
-  that logs paths or query strings must not retain `/mcp/*` or `/api/rxnav/*`.
-  A capability or drug name in a URL is logged by *any* hop that logs URLs.
+  that logs paths or query strings must not retain `/mcp/*`, `/api/rxnav/*`, `/s/*`, or `/api/s/*`.
+  A capability, drug name, or share id in a URL is logged by *any* hop that logs URLs.
 
 Full config guidance and rationale live in
 [cloud-deployment.md → Proxy access logs](cloud-deployment.md#7-operating-it-health-disk-3am).
@@ -203,13 +208,13 @@ ours.**
 ### Time-boxed rows: workout share links
 
 `share_links` rows (blind workout-share short links, `internal/cloudserver/share.go`)
-live **at most 30 days**: each row carries an `expires_at_unix` 30 days past its
-creation, expired rows are swept on the next share-create (no background job —
-the transfer-slot precedent), and every row is removed with the account by
-`DELETE /api/account` like all account-keyed rows. The stored content is
-client-encrypted ciphertext (AES-GCM under a key that never reaches the server)
-the server cannot read — retention here is about ciphertext size plus the
-account that minted it, never plan contents.
+become unreadable 30 days after creation (`expires_at_unix`) and are deleted on
+the next share-create anywhere on the instance; with no background job, an idle
+instance can hold expired ciphertext longer. Every row is removed with the
+account by `DELETE /api/account` like all account-keyed rows. The stored
+content is client-encrypted ciphertext (AES-GCM under a key that never reaches
+the server) the server cannot read — retention here is about ciphertext size
+plus the account that minted it, never plan contents.
 
 ## 5. Subprocessors — who sees what
 

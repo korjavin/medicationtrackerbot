@@ -107,8 +107,14 @@ func TestShare_CreateRejectsBadCT(t *testing.T) {
 	if rec := postShare(t, h, host, session, body); rec.Code != http.StatusBadRequest {
 		t.Fatalf("16385-byte ct status = %d, want 400", rec.Code)
 	}
-	// Body past the 24 KiB transport cap.
-	huge := bytes.Repeat([]byte("x"), (25 << 10))
+	// Body past the 24 KiB transport cap: well-formed JSON with a valid ct
+	// plus an ignored padding field pushing the wire size over the cap, so
+	// the 400 can only come from MaxBytesReader (a 16385-byte ct would 400
+	// on maxShareCTLen instead, and non-JSON would 400 on decode).
+	huge := []byte(fmt.Sprintf(`{"ct":"b3A=","pad":%q}`, strings.Repeat("x", 25<<10)))
+	if len(huge) <= maxShareBodyBytes {
+		t.Fatalf("test body is %d bytes, want it past the %d transport cap", len(huge), maxShareBodyBytes)
+	}
 	if rec := postShare(t, h, host, session, huge); rec.Code != http.StatusBadRequest {
 		t.Fatalf("25 KiB body status = %d, want 400", rec.Code)
 	}
@@ -264,7 +270,13 @@ func TestShare_CreateSweepsExpired(t *testing.T) {
 	}
 	createShareLink(t, h, host, session, []byte("fresh"))
 
-	if _, _, err := store.ShareLink(t.Context(), "StaleLink01", now); err == nil {
-		t.Fatalf("expired row survived a POST sweep")
+	// Assert on the row, not the read: ShareLink's expiry filter would mask a
+	// missing sweep. A second sweep must find nothing left to delete.
+	swept, err := store.SweepExpiredShareLinks(t.Context(), time.Now().UTC())
+	if err != nil {
+		t.Fatalf("second sweep: %v", err)
+	}
+	if swept != 0 {
+		t.Fatalf("second sweep deleted %d rows: the POST did not sweep", swept)
 	}
 }
