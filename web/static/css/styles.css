@@ -12384,3 +12384,67 @@ textarea.wg-input {
 .wg-scan-skipped:empty {
     display: none;
 }
+
+/* Plan share modal (bd med-uo64.2). Reuses the modal shell + toolbar
+   recipes; QR / link / note are layout only, all visual values are
+   --wg-* tokens. */
+.wg-workouts-share-modal {
+    max-width: 420px;
+}
+
+.wg-share-counts {
+    font-family: var(--wg-font-mono);
+    color: var(--wg-fg-1);
+}
+
+.wg-share-qr {
+    display: flex;
+    justify-content: center;
+    padding: var(--wg-card-pad);
+}
+
+.wg-share-qr svg {
+    width: 100%;
+    height: auto;
+    max-width: 280px;
+}
+
+.wg-share-note,
+.wg-share-foot {
+    color: var(--wg-fg-3);
+}
+
+.wg-share-note:empty {
+    display: none;
+}
+
+.wg-share-linkrow {
+    display: flex;
+    align-items: center;
+    gap: var(--wg-card-pad);
+}
+
+.wg-share-linkrow__input-wrap {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.wg-share-linkrow__input {
+    width: 100%;
+    min-height: 36px;
+    padding: var(--wg-card-pad);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-gloss);
+    background: var(--wg-bg-card-inset);
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-mono);
+    box-sizing: border-box;
+}
+
+.wg-share-linkrow__copy {
+    flex: 0 0 auto;
+}
+
+.wg-share-native {
+    width: 100%;
+}

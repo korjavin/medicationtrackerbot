@@ -202,6 +202,10 @@ function _buildWorkoutGroupRow(doc, group) {
 
     const actions = doc.createElement('div');
     actions.className = 'wg-workouts-groups-row__actions';
+    actions.appendChild(_buildGroupsIconBtn(doc, 'share', 'Share plan', 'share', () => {
+        // Via the namespace so the share-modal handoff stays stubbable in tests.
+        window.WorkoutShare.share(group);
+    }));
     actions.appendChild(_buildGroupsIconBtn(doc, 'print', 'Print plan', 'printer', () => {
         // Via the namespace so the print-doc handoff stays stubbable in tests.
         window.WorkoutGroups.print(group);

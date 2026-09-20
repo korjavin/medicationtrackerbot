@@ -137,6 +137,10 @@ const ALLOWLIST = [
         reason: 'workout-start push-notification modal — snooze/skip flows only; apiCall is POST-only (no section-landing reads). Mutations apply optimistically and are invalidated via the workout tag',
     },
     {
+        file: 'workout/share.js',
+        reason: 'plan-share sender (med-uo64.2); its only read is a one-shot GET /api/workout/plans/export behind an explicit Share press — the portable payload must be fresh (a stale export would share yesterday\u2019s plan, so offline it toasts and shares nothing, same as the scan.js precedent). No section-landing reads; the import write on the receiving side is bead .3',
+    },
+    {
         file: 'workout/scan.js',
         reason: 'printed-sheet scan-back (med-qj4.9); its only reads are one-shot variants/exercises fetches behind an explicit Scan press — the plan the sheet printed from, which must be fresh (a stale plan would misfile scanned sets, so offline it says so and scans nothing, same as the brief.js precedent). Saves go through the workout domain writes + tag invalidation',
     },

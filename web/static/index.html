@@ -1251,6 +1251,37 @@
         </div>
     </mt-modal>
 
+    <!-- Share modal (bd med-uo64.2). Shell mirrors the scan modal; the QR,
+         link, and buttons are filled by features/workout/share.js. -->
+    <mt-modal id="workout-share-modal" class="hidden wg-modal wg-workouts-group-modal wg-workouts-share-modal">
+        <div class="wg-workouts-group-modal__header">
+            <div class="wg-workouts-group-modal__heading">
+                <span class="wg-section-label wg-workouts-group-modal__eyebrow">Share</span>
+                <span class="wg-mono-display wg-workouts-group-modal__title" id="workout-share-title">Share plan</span>
+            </div>
+            <div class="wg-workouts-group-modal__header-actions">
+                <button type="button" id="workout-share-cancel-btn"
+                    class="wg-gloss wg-workouts-group-modal__header-btn">Close</button>
+            </div>
+        </div>
+
+        <div class="wg-workouts-group-modal__body">
+            <p id="workout-share-counts" class="wg-share-counts"></p>
+            <div id="workout-share-qr" class="wg-share-qr"></div>
+            <p id="workout-share-qr-note" class="wg-share-note hidden"></p>
+            <div class="wg-share-linkrow">
+                <div class="wg-gloss--inset wg-share-linkrow__input-wrap">
+                    <input type="text" id="workout-share-link" class="wg-share-linkrow__input" readonly>
+                </div>
+                <button type="button" id="workout-share-copy-btn"
+                    class="wg-gloss wg-toolbar-btn wg-toolbar-btn--primary wg-share-linkrow__copy">Copy link</button>
+            </div>
+            <button type="button" id="workout-share-native-btn"
+                class="wg-gloss wg-toolbar-btn wg-toolbar-btn--secondary wg-share-native hidden">Share&hellip;</button>
+            <p class="wg-share-foot">The plan travels inside this link &mdash; nothing is sent to a server. Anyone with the link can import it.</p>
+        </div>
+    </mt-modal>
+
     <!-- Variant modal (Round-2, Task 6). Migrated to the shared .wg-modal
          shell so its background and chrome are driven by the --wg-bg-card
          teal-gloss tokens rather than the legacy paper-white modal block. -->
@@ -2376,6 +2407,7 @@
     <script src="/static/js/features/workout/next-card.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/groups.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/scan.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/workout/share.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/variants.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/exercises.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/library.js?v=TIMESTAMP_PLACEHOLDER"></script>
