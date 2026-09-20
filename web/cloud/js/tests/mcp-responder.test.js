@@ -450,7 +450,10 @@ describe('mcp_help wire contract (generated catalog)', () => {
     }
     // Cloud-only ops (mcp-catalog.cloud-extra.js) merged into the catalog
     // surface on mcp_help just like the generated ops.
-    for (const id of ['health.analyze_cardiovascular', 'health.analyze_fitness', 'health.brief']) {
+    for (const id of [
+      'health.analyze_cardiovascular', 'health.analyze_fitness', 'health.brief',
+      'workouts.plans.export', 'workouts.plans.import',
+    ]) {
       expect(ids).toContain(id);
     }
   });
@@ -1336,6 +1339,107 @@ describe('cloud MCP workouts.progression_preview compute', () => {
   });
 });
 
+// --- Workout plan share round trip (med-uo64.4) ---------------------------
+// The coverage sweep above only proves the two share ops route; this proves
+// the cross-account trip through mcp_call: export on a seeded router →
+// import on a FRESH router (mode:'write' + intent, like health.notes.create)
+// → workouts.groups.list shows the new plan with the same name.
+describe('cloud MCP workout plan share round trip', () => {
+  const NOW = Date.parse('2026-07-06T12:00:00.000Z');
+
+  function freshRouter() {
+    return createApiRouter(null, {
+      records: createInMemoryRecordsPort(), now: () => NOW, timeZone: 'UTC',
+    });
+  }
+
+  async function seedSourceRouter() {
+    const router = freshRouter();
+    const group = await router('/api/workout/groups/create', 'POST', { name: 'Share Me' });
+    const variant = await router('/api/workout/variants/create', 'POST', {
+      group_id: group.id, name: 'Day A', rotation_order: 0,
+    });
+    await router('/api/workout/exercises/create', 'POST', {
+      variant_id: variant.id, exercise_name: 'Bench Press', target_sets: 4,
+      target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+      progression_rule: { type: 'double', increment_kg: 2.5 }, training_goal: 'strength',
+    });
+    await router('/api/workout/exercises/create', 'POST', {
+      variant_id: variant.id, exercise_name: 'Overhead Press', target_sets: 3,
+      target_reps_min: 8, order_index: 1,
+    });
+    return { router, groupID: group.id };
+  }
+
+  it('exports on a seeded router and imports on a fresh one under the same name', async () => {
+    const { router: sourceRouter, groupID } = await seedSourceRouter();
+    const source = createDispatcher({ router: sourceRouter, now: () => NOW });
+
+    const exported = await handleRequest(source, {
+      jsonrpc: '2.0', id: 1, method: 'mcp_call',
+      params: { op: 'workouts.plans.export', params: { id: groupID } },
+    });
+    expect(exported.error).toBeUndefined();
+    expect(exported.result.result).toMatchObject({ v: 1, plan: { name: 'Share Me' } });
+    expect(exported.result.result.plan.days).toHaveLength(1);
+
+    // Fresh router over an empty store — the cross-account case.
+    const target = createDispatcher({ router: freshRouter(), now: () => NOW });
+    const imported = await handleRequest(target, {
+      jsonrpc: '2.0', id: 2, method: 'mcp_call',
+      params: {
+        op: 'workouts.plans.import',
+        mode: 'write',
+        intent: 'import the shared plan the user was sent',
+        params: JSON.parse(JSON.stringify(exported.result.result)),
+      },
+    });
+    expect(imported.error).toBeUndefined();
+    expect(imported.result.result).toMatchObject({
+      name: 'Share Me', days: 1, exercises: 2, exercises_created: 2, exercises_matched: 0,
+    });
+
+    const listed = await handleRequest(target, {
+      jsonrpc: '2.0', id: 3, method: 'mcp_call',
+      params: { op: 'workouts.groups.list', params: {} },
+    });
+    expect(listed.error).toBeUndefined();
+    expect(listed.result.result.map((g) => g.name)).toEqual(['Share Me']);
+  });
+
+  // The catalog promises import ALWAYS creates a new plan and suffixes on
+  // collision — the second import of the same token must land as "Share Me (2)".
+  it('suffixes the name when the same token is imported twice', async () => {
+    const { router: sourceRouter, groupID } = await seedSourceRouter();
+    const source = createDispatcher({ router: sourceRouter, now: () => NOW });
+    const exported = await handleRequest(source, {
+      jsonrpc: '2.0', id: 1, method: 'mcp_call',
+      params: { op: 'workouts.plans.export', params: { id: groupID } },
+    });
+    expect(exported.error).toBeUndefined();
+    const token = JSON.parse(JSON.stringify(exported.result.result));
+
+    const target = createDispatcher({ router: freshRouter(), now: () => NOW });
+    const importOnce = (id) => handleRequest(target, {
+      jsonrpc: '2.0', id, method: 'mcp_call',
+      params: {
+        op: 'workouts.plans.import',
+        mode: 'write',
+        intent: 'import the shared plan the user was sent',
+        params: JSON.parse(JSON.stringify(token)),
+      },
+    });
+    const first = await importOnce(2);
+    expect(first.error).toBeUndefined();
+    expect(first.result.result).toMatchObject({ name: 'Share Me' });
+    const second = await importOnce(3);
+    expect(second.error).toBeUndefined();
+    expect(second.result.result).toMatchObject({
+      name: 'Share Me (2)', exercises: 2, exercises_created: 0, exercises_matched: 2,
+    });
+  });
+});
+
 // --- ResponseExample shape conformance (med-csu.3, Task 5) ----------------
 // The registry's ResponseExample is the shape both surfaces advertise to an
 // agent. The coverage sweep above only proves an op *reaches* a domain module;
@@ -1460,6 +1564,24 @@ describe('cloud MCP response_example conformance', () => {
       case 'workouts.variants.list': return { params: { group_id: ids.groupID } };
       case 'workouts.exercises.list': return { params: { variant_id: ids.variantID } };
       case 'workouts.sessions.details': return { params: { id: ids.sessionID } };
+      case 'workouts.plans.export': return { params: { id: ids.groupID } };
+      // A write op missing a required field is blocked before dispatch, so
+      // the sweep must send a whole valid token (splitInput routes v/plan to
+      // the POST body via body_schema). 'Barbell Curl' is seeded by
+      // seedFixtures, so it lands as a library match.
+      case 'workouts.plans.import': return {
+        params: {
+          v: 1,
+          plan: {
+            name: 'Conformance Import',
+            days: [{
+              name: 'Day',
+              exercises: [{ name: 'Barbell Curl', sets: 3, reps_min: 8, order_index: 0 }],
+            }],
+            library: [],
+          },
+        },
+      };
       case 'workouts.rotation.state': return { params: { group_id: ids.groupID } };
       case 'medications.restocks.list': return { path_params: { id: String(ids.medID) } };
       case 'food.products.search': return { params: { q: 'oat' } };

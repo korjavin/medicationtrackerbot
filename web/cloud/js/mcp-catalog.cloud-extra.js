@@ -221,6 +221,152 @@ export const CLOUD_EXTRA = [
       notes: [{ id: '1755600000000', date: '2026-08-19', text: 'dizzy after the morning dose' }],
     },
   },
+  // Portable plan share (med-uo64). Cloud-only for the same reason as the
+  // analyses above: /api/workout/plans/export and /api/workout/plans/import
+  // are served by apishim.js's createApiRouter over web/domain/workout-share.js,
+  // and the legacy Go server has no handler for either path. In the shared
+  // registry these ops would ride DefaultOperations into bot mode's mcp_help
+  // and 404 on every call from the bridge.
+  {
+    id: 'workouts.plans.export',
+    topic: 'workouts',
+    method: 'GET',
+    path: '/api/workout/plans/export',
+    risk: 'read',
+    description: 'Export a whole workout plan as one portable v1 JSON token — names, not ids. Feed the token to workouts.plans.import on any account to hand the plan to another user or move it between accounts. Absent optionals are omitted so the token stays small.',
+    response_summary: 'Object {v, plan}. plan has name, description?, is_rotating, days_of_week, scheduled_time, training_goal?, days [{name, description?, rotation_order?, exercises: [{name, sets, reps_min, reps_max?, weight_kg?, order_index, progression_rule?, training_goal?}]}], and library [{name, body_part?, notes?}] (the tags of the exercises the plan references, matched by name on import).',
+    params_schema: {
+      type: 'object',
+      required: ['id'],
+      properties: {
+        id: {
+          type: 'integer',
+          description: 'Workout group (plan) ID to export.',
+        },
+      },
+    },
+    // Captured from the real router (createApiRouter → /api/workout/plans/export)
+    // for a one-day, two-exercise plan; the double rule is shown normalized
+    // (min_reps/max_reps anchored) exactly as exportPlan emits it.
+    response_example: {
+      v: 1,
+      plan: {
+        name: 'Share Me',
+        description: 'sender plan',
+        is_rotating: true,
+        days_of_week: '[1,3]',
+        scheduled_time: '18:00',
+        training_goal: 'strength',
+        days: [{
+          name: 'Day A',
+          description: 'push focus',
+          rotation_order: 0,
+          exercises: [
+            {
+              name: 'Bench Press', sets: 4, reps_min: 8, reps_max: 10, weight_kg: 60, order_index: 0,
+              progression_rule: { type: 'double', increment_kg: 2.5, min_reps: 8, max_reps: 10 },
+              training_goal: 'strength',
+            },
+            { name: 'Overhead Press', sets: 3, reps_min: 8, order_index: 1 },
+          ],
+        }],
+        library: [{ name: 'Bench Press', body_part: 'chest' }, { name: 'Overhead Press' }],
+      },
+    },
+  },
+  {
+    id: 'workouts.plans.import',
+    topic: 'workouts',
+    method: 'POST',
+    path: '/api/workout/plans/import',
+    risk: 'write',
+    description: 'Import a portable v1 plan token from workouts.plans.export. ALWAYS creates a NEW plan — never merges into an existing one. A case-insensitive name collision suffixes the copy ("My Plan (2)", "My Plan (3)", …). Exercises are matched to the recipient exercise library case-insensitively by trimmed name (their casing wins); misses are created and tagged with the token library body_part/notes.',
+    response_summary: 'Object {id, name, days, exercises, exercises_created, exercises_matched}. id/name are the NEW plan; days is the day count; exercises is the total exercise count, split into exercises_created (new library rows) + exercises_matched (existing rows reused).',
+    required: ['v', 'plan'],
+    body_schema: {
+      type: 'object',
+      required: ['v', 'plan'],
+      properties: {
+        v: {
+          type: 'integer',
+          description: 'Share format version — always 1.',
+        },
+        plan: {
+          type: 'object',
+          required: ['name', 'days'],
+          properties: {
+            name: { type: 'string', description: 'Plan name (required, non-blank).' },
+            description: { type: 'string' },
+            is_rotating: { type: 'boolean' },
+            days_of_week: { type: 'string', description: 'JSON-encoded weekday array, e.g. "[1,3]".' },
+            scheduled_time: { type: 'string', description: 'HH:MM reminder time.' },
+            training_goal: {
+              type: 'string',
+              enum: ['strength', 'hypertrophy', 'endurance', 'general'],
+            },
+            days: {
+              type: 'array',
+              description: 'At most 20 days, at most 50 exercises per day.',
+              items: {
+                type: 'object',
+                required: ['name', 'exercises'],
+                properties: {
+                  name: { type: 'string' },
+                  description: { type: 'string' },
+                  rotation_order: { type: 'integer' },
+                  exercises: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      required: ['name', 'sets', 'reps_min'],
+                      properties: {
+                        name: { type: 'string' },
+                        sets: { type: 'integer', description: 'Target sets, at most 20.' },
+                        reps_min: { type: 'integer' },
+                        reps_max: { type: 'integer' },
+                        weight_kg: { type: 'number' },
+                        order_index: { type: 'integer' },
+                        progression_rule: {
+                          type: 'object',
+                          required: ['type'],
+                          properties: {
+                            type: { type: 'string', enum: ['none', 'linear', 'double'] },
+                            increment_kg: { type: 'number' },
+                            min_reps: { type: 'integer' },
+                            max_reps: { type: 'integer' },
+                          },
+                        },
+                        training_goal: {
+                          type: 'string',
+                          enum: ['strength', 'hypertrophy', 'endurance', 'general'],
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            library: {
+              type: 'array',
+              description: 'Tags for the referenced exercises, matched by name: [{name, body_part?, notes?}].',
+              items: {
+                type: 'object',
+                required: ['name'],
+                properties: {
+                  name: { type: 'string' },
+                  body_part: { type: 'string' },
+                  notes: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    response_example: {
+      id: 12, name: 'Push Pull (2)', days: 2, exercises: 6, exercises_created: 1, exercises_matched: 5,
+    },
+  },
 ];
 
 // CLOUD_EXTRA_PARAMS: params that exist ONLY in cloud mode, merged into the

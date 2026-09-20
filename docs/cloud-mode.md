@@ -632,9 +632,10 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   and **`workouts.miband.gps`** (cloud vaults carry no GPS tracks — `vaultToRecords` drops
   `workouts.miband[].gps` on import, so the op could only ever return an empty track; see
   [docs/vault-format.md](vault-format.md)). That leaves **97 generated ops, every one of them
-  dispatchable**. The responder then serves **100**: `web/cloud/js/mcp-responder.js` merges
-  `[...GENERATED, ...CLOUD_EXTRA]`, and `mcp-catalog.cloud-extra.js` adds three ops that exist
-  only here (the two composite analyses plus `workouts.progression_preview`). So "97" is the
+  dispatchable**. The responder then serves **103**: `web/cloud/js/mcp-responder.js` merges
+  `[...GENERATED, ...CLOUD_EXTRA]`, and `mcp-catalog.cloud-extra.js` adds six ops that exist
+  only here (the two composite analyses, `health.brief`, `workouts.progression_preview`, and
+  `workouts.plans.export` / `workouts.plans.import`). So "97" is the
   count of the generated file; "100" is what `mcp_help` lists. The same module also applies
   `CLOUD_EXTRA_PARAMS` — params the cloud router implements but the shared Go registry must not
   advertise, because the legacy bot handlers ignore them. It is applied as a copy, so no id is
