@@ -237,4 +237,15 @@ describe('features/workout/share.js — Share icon + modal (med-uo64.2)', () => 
     window.WorkoutShare.close();
     expect(modal(window).classList.contains('hidden')).toBe(true);
   });
+
+  it('back closes the share modal via ModalManager.closeTopMostVisibleModal', async () => {
+    const { window } = env;
+    stubExport(window);
+    stubQr(window);
+
+    await window.WorkoutShare.share({ id: 5, name: 'Push / Pull' });
+    expect(modal(window).classList.contains('hidden')).toBe(false);
+    expect(window.ModalManager.closeTopMostVisibleModal()).toBe(true);
+    expect(modal(window).classList.contains('hidden')).toBe(true);
+  });
 });

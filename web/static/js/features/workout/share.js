@@ -89,6 +89,12 @@ async function makeShareQrSvg(url) {
 }
 
 function setShareModalVisible(open) {
+    const named = window.ModalManager && window.ModalManager.workoutShare;
+    if (named && typeof named.open === 'function' && typeof named.close === 'function') {
+        if (open) named.open();
+        else named.close();
+        return;
+    }
     if (window.ModalManager && typeof window.ModalManager.open === 'function' && typeof window.ModalManager.close === 'function') {
         if (open) window.ModalManager.open('workout-share-modal');
         else window.ModalManager.close('workout-share-modal');
