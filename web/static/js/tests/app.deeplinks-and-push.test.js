@@ -506,6 +506,31 @@ describe('handleDeepLinks – #share-plan= (plan import deeplink, med-uo64.3)', 
     }
   });
 
+  it('with Workouts disabled the share-plan link bounces to Today and never calls receive() (med-uo64.5)', async () => {
+    const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/#share-plan=p1.abc' });
+
+    try {
+      window.featureSettings = { ...(window.featureSettings || {}), workout: false };
+      window.featureSettingsLoaded = true;
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+      const receiveSpy = vi.fn();
+      window.WorkoutShare = { receive: receiveSpy };
+
+      window.handleDeepLinks();
+
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/');
+      expect(switchTabSpy).toHaveBeenCalledWith('today');
+      expect(switchTabSpy).not.toHaveBeenCalledWith('workouts');
+
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(receiveSpy).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
   it('a #claim= fragment is untouched by the share-plan branch', async () => {
     const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/#claim=tok123' });
 

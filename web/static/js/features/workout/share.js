@@ -407,15 +407,6 @@ async function startImportScan() {
     // overwrite st.stream and orphan the first stream: its reference lost,
     // its camera surviving modal close.
     if (!st || st.running || st.starting || st.stream) return;
-    // Generation: a bare boolean cannot tell "my start was cancelled" from
-    // "my start was SUPERSEDED" — cancel, retap, and the first acquire
-    // resolves into the second start's tenure and hijacks its stream. Each
-    // start takes the next number; stopImportScan moves it on, so a
-    // continuation whose number is stale releases its stream and returns.
-    // Entry + take is synchronous (no await between), so two taps cannot
-    // take the same number.
-    st.starting = true;
-    const gen = ++st.generation;
     const video = document.getElementById('workout-share-import-video');
     if (!video) return;
     // Not a device capability — a page-context fact the abstraction can't own.
@@ -427,6 +418,17 @@ async function startImportScan() {
         setImportStatus('Live scan is unavailable on this browser. Paste the link instead.');
         return;
     }
+    // Generation: a bare boolean cannot tell "my start was cancelled" from
+    // "my start was SUPERSEDED" — cancel, retap, and the first acquire
+    // resolves into the second start's tenure and hijacks its stream. Each
+    // start takes the next number; stopImportScan moves it on, so a
+    // continuation whose number is stale releases its stream and returns.
+    // Entry + take stays synchronous past the guards above (no await
+    // between), so two taps cannot take the same number — and a guard
+    // early-return above leaves st.starting false so a second Scan tap
+    // re-attempts instead of going inert.
+    st.starting = true;
+    const gen = ++st.generation;
     try {
         setImportStatus('Requesting camera access...');
         const stream = await window.MediaCapture.openCameraStream({ facingMode: 'environment' });
