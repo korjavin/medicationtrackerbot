@@ -4,12 +4,16 @@
 // and drift-guarded by internal/mcp/catalogjs/drift_test.go, so hand-editing it
 // fails CI. Extras live here instead (docs/plans/20260717-cloud-analysis-pathb.md).
 //
-// These two composite analyses mirror bot mode's analyze_cardiovascular /
-// analyze_fitness top-level MCP tools (internal/mcp/cardiovascular.go +
-// fitness.go), but are computed in-tab over vault data by web/domain/analysis.js
-// and served by two routes in apishim.js's createApiRouter. Same op-entry shape
-// as the generated catalog: {id, topic, method, path, risk, description,
-// response_summary, params_schema, response_example}.
+// Cloud-only ops with no Go registry counterpart (served by apishim.js's
+// createApiRouter over web/domain modules). The two composite analyses mirror
+// bot mode's analyze_cardiovascular / analyze_fitness top-level MCP tools
+// (internal/mcp/cardiovascular.go + fitness.go), but are computed in-tab over
+// vault data by web/domain/analysis.js. Same op-entry shape as the generated
+// catalog: {id, topic, method, path, risk, description, response_summary,
+// required, params_schema, body_schema, response_example} — `required` is the
+// write-op-only union of the schemas' `required` lists (catalogjs.go:88 bakes
+// it into the generated file, so a hand-written write op must supply it
+// itself for compactEntry and the write-block to see it).
 
 const ANALYSIS_PARAMS = {
   type: 'object',
