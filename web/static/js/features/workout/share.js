@@ -317,14 +317,13 @@ async function receiveSharedPlan(text) {
         return;
     }
     safeToast(`Added "${res.name || name}"`, 'info');
-    // Mirror saveWorkoutGroup's post-write refresh (invalidate the workout
-    // cache, then reload the Plans list — AWAITED so the just-created plan
-    // is in cachedGroups before openEdit looks it up; without the await the
-    // Edit screen silently never opens). This keeps the read-only-refresh
-    // shape instead of DataStore.applyOptimistic: the authoritative record
-    // (with its server-assigned id) only exists after the POST returns, so
-    // there is no client-constructed record to commit optimistically — the
-    // same reason the create path refreshes this way.
+    // Same post-write refresh as the create path (saveWorkoutGroup):
+    // invalidate + reload, AWAITED so the just-created plan is in
+    // cachedGroups before openEdit looks it up (without the await the Edit
+    // screen silently never opens). No optimistic placeholder: the import
+    // route server-materializes the group plus its days, exercises, and
+    // library links, which no client-side stand-in can usefully preview —
+    // the authoritative rows arrive with this reload.
     closeImportWorkoutPlanModal();
     await invalidateWorkoutCache();
     if (window.WorkoutGroups && typeof window.WorkoutGroups.load === 'function') await window.WorkoutGroups.load();
@@ -435,11 +434,19 @@ async function startImportScan() {
         video.classList.remove('hidden');
         // Best-effort preview: the decoder reads the stream, not the
         // element's playback, so a preview failure still leaves a working
-        // scanner rather than no scanner.
+        // scanner rather than no scanner. The play() await is a second
+        // suspension point (camera warm-up is routinely 200-800 ms), so the
+        // closed-while-waiting re-check from above applies here too —
+        // without it a Cancel during preview restarts the loop behind the
+        // shut modal and wedges st.stream, bricking the Scan button.
         try {
             if (typeof video.play === 'function') await video.play();
         } catch (e) {
             console.error('Share import camera preview failed:', e);
+        }
+        if (!st.starting) {
+            stopImportScan();
+            return;
         }
         setImportStatus('Point the camera at the plan QR.');
         st.running = true;

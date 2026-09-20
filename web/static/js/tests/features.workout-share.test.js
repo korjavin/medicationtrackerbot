@@ -521,10 +521,15 @@ describe('features/workout/share.js — review regressions (med-uo64.3 round 01)
     const { window } = env;
     stubImport(window);
     const toastSpy = stubReceiveEnv(window);
+    // Pins SHARE_IMPORT_MAX_TOKEN_CHARS: 100000 As is over the cap yet
+    // valid base64 length (100000 % 4 == 0), so with the cap deleted decode
+    // would reach gunzipToString and this spy would fire.
+    const gunzipSpy = vi.spyOn(window.BackupCrypto, 'gunzipToString');
 
-    await window.WorkoutShare.receive(`p1.${'A'.repeat(100001)}`);
+    await window.WorkoutShare.receive(`p1.${'A'.repeat(100000)}`);
 
     expect(toastSpy).toHaveBeenCalledWith("That's not a workout plan link.", 'error');
+    expect(gunzipSpy).not.toHaveBeenCalled();
     expect(window.apiCall).not.toHaveBeenCalled();
   });
 
@@ -554,6 +559,48 @@ describe('features/workout/share.js — review regressions (med-uo64.3 round 01)
     expect(stopTrack).toHaveBeenCalledTimes(1);
   });
 
+  it('closing during preview warm-up releases everything and leaves Scan working', async () => {
+    const { window, document } = env;
+    stubImport(window);
+    stubReceiveEnv(window);
+    const token = await window.WorkoutShare.encode(EXPORT);
+    stubCamera(window, document, { rawValue: window.WorkoutShare.buildUrl(token) });
+
+    const stopTrack = vi.fn();
+    const stream = { getTracks: () => [{ stop: stopTrack }] };
+    window.MediaCapture = { openCameraStream: vi.fn(async () => stream) };
+    const video = document.getElementById('workout-share-import-video');
+    let resolvePlay;
+    video.play = vi.fn(() => new Promise((r) => { resolvePlay = r; }));
+
+    document.getElementById('workout-share-import-scan-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    // Wait for play(), not just the open call: waitFor can pass
+    // synchronously right after the stub is invoked, before the awaiting
+    // continuation assigns the stream and reaches preview warm-up.
+    await vi.waitFor(() => expect(video.play).toHaveBeenCalledTimes(1));
+    // Camera acquired, preview still warming up — Cancel now.
+    document.getElementById('workout-share-import-cancel-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    resolvePlay();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+    expect(window.WorkoutShare._scan.stream).toBeNull();
+    expect(window.WorkoutShare._scan.running).toBe(false);
+    expect(window.Barcode.scan).not.toHaveBeenCalled();
+    expect(window.apiCall).not.toHaveBeenCalled();
+
+    // Not bricked: Scan starts a fresh stream afterwards. The second
+    // decode pends so `running` stays put for the assertion (an instant
+    // decode would stop the loop again before the poll lands).
+    window.Barcode.scan = vi.fn(() => new Promise(() => {}));
+    video.play.mockResolvedValue();
+    document.getElementById('workout-share-import-scan-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await vi.waitFor(() => expect(window.WorkoutShare._scan.running).toBe(true));
+    expect(window.MediaCapture.openCameraStream).toHaveBeenCalledTimes(2);
+    window.WorkoutShare.closeImport();
+  });
+
   it('closing while the camera request is in flight releases the late stream and never scans', async () => {
     const { window, document } = env;
     stubImport(window);
@@ -573,10 +620,8 @@ describe('features/workout/share.js — review regressions (med-uo64.3 round 01)
     document.getElementById('workout-share-import-cancel-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 
     resolveStream({ getTracks: () => [{ stop: stopTrack }] });
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.waitFor(() => expect(stopTrack).toHaveBeenCalledTimes(1));
 
-    expect(stopTrack).toHaveBeenCalledTimes(1);
     expect(window.WorkoutShare._scan.stream).toBeNull();
     expect(window.WorkoutShare._scan.running).toBe(false);
     expect(window.Barcode.scan).not.toHaveBeenCalled();
