@@ -138,7 +138,7 @@ const ALLOWLIST = [
     },
     {
         file: 'workout/share.js',
-        reason: 'plan-share sender (med-uo64.2) + import receive path (med-uo64.3); its only reads are a one-shot GET /api/workout/plans/export behind an explicit Share press — the portable payload must be fresh (a stale export would share yesterday\u2019s plan, so offline it toasts and shares nothing, same as the scan.js precedent) — and the post-import Plans reload behind an explicit Import confirm. No section-landing reads; the import write POSTs /api/workout/plans/import once per confirm',
+        reason: 'plan-share sender (med-uo64.2) + import receive path (med-uo64.3) + blind short link (med-1yi5.3); its only reads are a one-shot GET /api/workout/plans/export behind an explicit Share press — the portable payload must be fresh (a stale export would share yesterday\u2019s plan, so offline it toasts and shares nothing, same as the scan.js precedent) — the post-import Plans reload behind an explicit Import confirm, and the short-link GET /api/s/{id} behind an explicit Import paste (a cached ciphertext would import a rotated-out share, so failures toast and import nothing). No section-landing reads; the writes POST /api/workout/plans/import once per confirm and /api/share once per Share press (cloud only, 3s timeout, silent long-link fallback)',
     },
     {
         file: 'workout/scan.js',

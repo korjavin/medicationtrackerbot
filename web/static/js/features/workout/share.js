@@ -3,22 +3,29 @@
 // ====================================
 //
 // Sender side: a Share icon on the Plan card opens a modal with a QR code,
-// a copyable link, and (where supported) the OS share sheet. The plan
-// travels gzip-compressed inside the link fragment — nothing is sent to a
-// server. The receive path (paste / live scan / #share-plan deeplink,
-// bead .3) lives below in this same file, funnelling into receive();
-// decoding lives here so the encode test is the decode.
+// a copyable link, and (where supported) the OS share sheet. The modal shows
+// ONE link: in cloud mode a short link (the plan AES-GCM-encrypted in the
+// browser, ciphertext POSTed to /api/share, key riding only in the fragment —
+// bd med-1yi5.3), otherwise the long link with the plan gzip-compressed inside
+// its fragment (nothing sent to a server). The receive path (paste / live
+// scan / #share-plan deeplink / short-link resolve, bead .3) lives below in
+// this same file, funnelling into receive(); decoding lives here so the
+// encode test is the decode.
 //
 // Token: 'p1.' + base64url(gzip(JSON.stringify(exportPayload))) via
-// window.BackupCrypto. Link: ${location.origin}/#share-plan=<token>.
+// window.BackupCrypto. Long link: ${location.origin}/#share-plan=<token>.
+// Short link: <baseDomain>/s/<id>#<base64url(K)>.
 //
 // Classic-script conventions (same as scan.js): namespace object, no
 // top-level let — see architecture.no-module-state.
 
 // ponytail: phone-to-phone QR scanning past ~v25 is unreliable, and the
-// vendored qrcode.mjs throws past v40 — so past this many token chars the
-// modal hides the QR and leans on copy/share instead of showing a code
-// most cameras can't read.
+// vendored qrcode.mjs throws past v40 — so past this many chars of the full
+// encoded LINK the modal hides the QR and leans on copy/share instead of
+// showing a code most cameras can't read. (The QR always encoded the URL, so
+// the gate measures url.length; in the long-link case the origin plus
+// '/#share-plan=' eats into the budget — a ~1150-char token on a long
+// subdomain already hides it. A short link is ~65 chars and always passes.)
 const SHARE_QR_MAX_CHARS = 1200;
 
 // base64url without a dependency: btoa/atob with the -_ swap and padding
@@ -88,6 +95,191 @@ async function makeShareQrSvg(url) {
     return qr.createSvgTag({ cellSize: 4, scalable: true });
 }
 
+// ====================================
+// BLIND SHORT LINK (bd med-1yi5.3)
+// ====================================
+//
+// Cloud-mode sender: the p1 token string → UTF-8 bytes → AES-128-GCM under a
+// fresh random K (AAD 'mt/v1/share') → POST /api/share {ct} on the sender's
+// OWN origin → {id, url} → modal link + QR = url + '#' + base64url(K).
+// The server stores the packed blob (nonce ‖ ct) blindly for 30 days; the
+// fragment never reaches any server. Any failure (non-200, network, bot
+// mode, no WebCrypto) falls back to the long link exactly as before.
+//
+// Inline WebCrypto in this classic script is deliberate: share.js cannot
+// import web/cloud/js/crypto.js, and window.BackupCrypto has no AES helper
+// worth threading. Helpers stay file-local; the two test seams ride the
+// existing window.WorkoutShare namespace (no new window.* globals, no
+// top-level let — see architecture.globals / architecture.no-module-state).
+//
+// Wire contract (epic med-1yi5, byte-for-byte): K = 16 random bytes, nonce =
+// 12 random bytes, AAD = UTF-8('mt/v1/share'), tag 128-bit (WebCrypto
+// default), packed = nonce ‖ ct, ct on the wire as padded STD base64 (a Go
+// []byte field), K in the fragment as UNPADDED base64url (22 chars).
+const SHARE_LINK_AAD = 'mt/v1/share';
+// Any host: the camera/clipboard may deliver the full URL. The id is the
+// server's capability; the 22-char fragment is K (the actual secret).
+const SHARE_LINK_SHORT_RE = /\/s\/([A-Za-z0-9]{10})#([A-Za-z0-9_\-]{22})$/;
+// Never block the UI on the short-link round trip: the same bound covers the
+// POST (sender) and the resolve GET (receiver), headers AND body.
+const SHARE_LINK_FETCH_TIMEOUT_MS = 3000;
+// Server rejects decoded ct outside 1..16384 bytes; mirror the cap here so a
+// hostile short link never reaches subtle.decrypt unbounded.
+const SHARE_LINK_MAX_PACKED_BYTES = 16384;
+
+// Response is the portable UTF-8 adapter (same reason as BackupCrypto's
+// piped(): TextEncoder/TextDecoder are missing from the jsdom window the
+// tests evaluate this file into, Response is not).
+async function shareLinkUtf8Bytes(str) {
+    const buf = await new Response(String(str)).arrayBuffer();
+    return new Uint8Array(buf);
+}
+
+async function shareLinkUtf8Text(bytes) {
+    return new Response(bytes).text();
+}
+
+// STD base64 WITH padding (Go []byte wire form) — unlike shareTokenB64*,
+// which is the unpadded base64url fragment form.
+function shareLinkB64StdEncode(bytes) {
+    let bin = '';
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin);
+}
+
+function shareLinkB64StdDecode(text) {
+    const bin = atob(String(text));
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+}
+
+// The WebCrypto provider, or null where there is none (old WebView, insecure
+// context, or the jsdom harness unless a test lends Node's webcrypto). Null
+// means "short links unavailable" — the modal degrades to the long link.
+function shareLinkCrypto() {
+    try {
+        const c = typeof crypto !== 'undefined' ? crypto : null;
+        if (c && c.subtle && typeof c.getRandomValues === 'function') return c;
+    } catch (_) { /* inaccessible crypto global */ }
+    return null;
+}
+
+// encryptShareLink(token, keyBytes, nonceBytes) → packed nonce ‖ ct bytes.
+// keyBytes/nonceBytes are injected (16/12 bytes); the golden-vector test pins
+// the contract through this seam. Throws when crypto is missing or the args
+// are misshapen — createShortLink turns that into the long-link fallback.
+async function encryptShareLink(token, keyBytes, nonceBytes) {
+    if (!keyBytes || keyBytes.length !== 16) throw new Error('encryptShareLink: 16-byte key required');
+    if (!nonceBytes || nonceBytes.length !== 12) throw new Error('encryptShareLink: 12-byte nonce required');
+    const c = shareLinkCrypto();
+    if (!c) throw new Error('encryptShareLink: no WebCrypto');
+    const key = await c.subtle.importKey('raw', keyBytes, 'AES-GCM', false, ['encrypt']);
+    const ct = await c.subtle.encrypt(
+        { name: 'AES-GCM', iv: nonceBytes, additionalData: await shareLinkUtf8Bytes(SHARE_LINK_AAD) },
+        key,
+        await shareLinkUtf8Bytes(token),
+    );
+    const out = new Uint8Array(nonceBytes.length + ct.byteLength);
+    out.set(nonceBytes, 0);
+    out.set(new Uint8Array(ct), nonceBytes.length);
+    return out;
+}
+
+// decryptShareLink(keyB64url, packedStdB64) → p1 token string or null, never
+// throws. Wrong K, truncated/corrupt ct, oversize blob, missing crypto: null.
+async function decryptShareLink(keyB64url, packedStdB64) {
+    try {
+        const k = shareTokenB64Decode(keyB64url);
+        if (k.length !== 16) return null;
+        const packed = shareLinkB64StdDecode(packedStdB64);
+        if (packed.length <= 12 || packed.length > SHARE_LINK_MAX_PACKED_BYTES) return null;
+        const nonce = packed.slice(0, 12);
+        const ct = packed.slice(12);
+        const c = shareLinkCrypto();
+        if (!c) return null;
+        const key = await c.subtle.importKey('raw', k, 'AES-GCM', false, ['decrypt']);
+        const pt = await c.subtle.decrypt(
+            { name: 'AES-GCM', iv: nonce, additionalData: await shareLinkUtf8Bytes(SHARE_LINK_AAD) },
+            key,
+            ct,
+        );
+        const token = await shareLinkUtf8Text(new Uint8Array(pt));
+        return token && token.startsWith('p1.') ? token : null;
+    } catch (_) {
+        return null;
+    }
+}
+
+// createShortLink(token) → '<url>#<base64url K>' or null. Raw fetch, not
+// apiCall: /api/share is a real server route, not an apishim route
+// (precedent: features/settings/importexport.js POSTs /api/vitals/import the
+// same way). ONLY in cloud mode; bot mode never POSTs.
+async function createShortLink(token) {
+    try {
+        if (!window.__MEDTRACKER_CLOUD__) return null;
+        const c = shareLinkCrypto();
+        if (!c) return null;
+        const keyBytes = c.getRandomValues(new Uint8Array(16));
+        const nonceBytes = c.getRandomValues(new Uint8Array(12));
+        const packed = await encryptShareLink(token, keyBytes, nonceBytes);
+        // The timer stays armed across the body read: a 200-headers-then-stall
+        // would otherwise hang the modal past the promised bound (the abort
+        // signal rejects the in-flight res.json() too).
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => { try { ctrl.abort(); } catch (_) { /* already settled */ } }, SHARE_LINK_FETCH_TIMEOUT_MS);
+        try {
+            const res = await fetch('/api/share', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ct: shareLinkB64StdEncode(packed) }),
+                signal: ctrl.signal,
+            });
+            if (!res || !res.ok) return null;
+            const body = await res.json().catch(() => null);
+            if (!body || typeof body.url !== 'string' || typeof body.id !== 'string' || !body.url || !body.id) return null;
+            return `${body.url}#${shareTokenB64Encode(keyBytes)}`;
+        } finally {
+            clearTimeout(timer);
+        }
+    } catch (_) {
+        return null;
+    }
+}
+
+// resolveShortLink(id, keyFrag) → { token } | { expired: true } | { failed: true } | { invalid: true }.
+// Same-origin GET: the read route is mounted on every host, so connect-src
+// 'self' covers it — never fetch the link's own host (CSP would block it).
+// credentials 'omit': the route is unauthenticated by contract (capability =
+// id + fragment K), so the session cookie must not ride along — the Host
+// already tells the operator which account resolved the link, and that is
+// disclosed in the privacy manifest (workout-share-link), not repeated here.
+// { failed } = transport (offline, 429/5xx, stall-abort): retryable, toast
+// says so. { invalid } = reached the server but the payload won't decrypt:
+// not a plan link. Never throws; the receiver maps each outcome to exactly
+// one toast.
+async function resolveShortLink(id, keyFrag) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => { try { ctrl.abort(); } catch (_) { /* already settled */ } }, SHARE_LINK_FETCH_TIMEOUT_MS);
+    try {
+        const res = await fetch(`/api/s/${id}`, { cache: 'no-store', credentials: 'omit', signal: ctrl.signal });
+        if (!res) return { failed: true };
+        if (res.status === 404) return { expired: true };
+        if (!res.ok) return { failed: true };
+        const body = await res.json().catch(() => null);
+        const ct = body && typeof body.ct === 'string' ? body.ct : '';
+        if (!ct) return { invalid: true };
+        const token = await decryptShareLink(keyFrag, ct);
+        if (!token) return { invalid: true };
+        return { token };
+    } catch (_) {
+        return { failed: true };
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 function setShareModalVisible(open) {
     const named = window.ModalManager && window.ModalManager.workoutShare;
     if (named && typeof named.open === 'function' && typeof named.close === 'function') {
@@ -104,11 +296,15 @@ function setShareModalVisible(open) {
     if (modal) modal.classList.toggle('hidden', !open);
 }
 
-async function openShareModal(plan, dayCount, exerciseCount, token) {
+async function openShareModal(plan, dayCount, exerciseCount, token, shortUrl) {
     const doc = document;
     const name = (plan && plan.name) || 'Workout plan';
-    const url = buildShareUrl(token);
-    window.WorkoutShare._current = { token, url, name };
+    // ONE link in the modal: the short link when the POST minted one, else
+    // the long link exactly as before. The QR encodes whatever is shown, so
+    // the length check applies to the shown URL — a short link always passes.
+    const url = shortUrl || buildShareUrl(token);
+    const isShort = !!shortUrl;
+    window.WorkoutShare._current = { token, url, name, short: isShort };
 
     const title = doc.getElementById('workout-share-title');
     if (title) title.textContent = `Share: ${name}`;
@@ -128,7 +324,7 @@ async function openShareModal(plan, dayCount, exerciseCount, token) {
     const qrBox = doc.getElementById('workout-share-qr');
     const qrNote = doc.getElementById('workout-share-qr-note');
     if (qrBox) qrBox.replaceChildren();
-    if (token.length > SHARE_QR_MAX_CHARS) {
+    if (url.length > SHARE_QR_MAX_CHARS) {
         if (qrBox) qrBox.classList.add('hidden');
         if (qrNote) {
             qrNote.textContent = 'This plan is too large for a scannable QR — copy the link or use Share… instead.';
@@ -154,6 +350,20 @@ async function openShareModal(plan, dayCount, exerciseCount, token) {
                 qrNote.classList.remove('hidden');
             }
         }
+    }
+
+    const shortNote = doc.getElementById('workout-share-short-note');
+    if (shortNote) {
+        shortNote.textContent = isShort ? 'Link works for 30 days.' : '';
+        shortNote.classList.toggle('hidden', !isShort);
+    }
+    // The static foot claims nothing reaches a server — true of the long
+    // link, false of the short one (blind ciphertext, 30-day TTL).
+    const foot = doc.getElementById('workout-share-foot');
+    if (foot) {
+        foot.textContent = isShort
+            ? 'Only encrypted data is stored for this link, for 30 days — the key stays in the link itself. Anyone with the link can import it.'
+            : 'The plan travels inside this link — nothing is sent to a server. Anyone with the link can import it.';
     }
 
     setShareModalVisible(true);
@@ -194,7 +404,11 @@ async function shareWorkoutPlan(group) {
         safeToast('Couldn\'t build the share link — try again.', 'error');
         return;
     }
-    await openShareModal(plan, days.length, exerciseCount, token);
+    // Blind short link when the server route exists (cloud mode): wrapped in
+    // try/catch with its own timeout inside, so the modal never waits on it
+    // past ~3s and any failure silently keeps the long link.
+    const shortUrl = await createShortLink(token);
+    await openShareModal(plan, days.length, exerciseCount, token, shortUrl);
 }
 
 async function copyShareLink() {
@@ -277,7 +491,9 @@ function setImportStatus(message) {
 // Plans refresh, workouts tab + Plans sub-tab, Edit Plan. Garbage toasts and
 // never POSTs; a cancelled confirm never POSTs.
 async function receiveSharedPlan(text) {
-    const raw = String(text === null || text === undefined ? '' : text).trim();
+    // let, not const: a resolved short link replaces the pasted URL with the
+    // decrypted p1 token before the shared decode path below.
+    let raw = String(text === null || text === undefined ? '' : text).trim();
     if (raw.length > SHARE_IMPORT_MAX_TOKEN_CHARS) {
         safeToast("That's not a workout plan link.", 'error');
         return;
@@ -285,6 +501,27 @@ async function receiveSharedPlan(text) {
     if (SHARE_SHEET_QR_SHAPE.test(raw)) {
         safeToast("That's a printed sheet code — use Scan filled sheet.", 'info');
         return;
+    }
+    // Short link (any host — the camera/clipboard may deliver the full URL):
+    // resolve on OUR origin, decrypt with the fragment K, then run the
+    // resulting p1 string through the EXISTING decode → confirm → import path
+    // below. The #share-plan deeplink is untouched by this branch.
+    const shortMatch = SHARE_LINK_SHORT_RE.exec(raw);
+    if (shortMatch) {
+        const resolved = await resolveShortLink(shortMatch[1], shortMatch[2]);
+        if (resolved.expired) {
+            safeToast('This short link has expired or belongs to another Med Tracker server — ask for the plan code instead.', 'error');
+            return;
+        }
+        if (resolved.failed) {
+            safeToast("Couldn't reach the server — try again online.", 'error');
+            return;
+        }
+        if (!resolved.token) {
+            safeToast("That's not a workout plan link.", 'error');
+            return;
+        }
+        raw = resolved.token;
     }
     const payload = await decodeShareToken(raw);
     if (!payload || typeof payload !== 'object' || !payload.plan) {
@@ -513,6 +750,10 @@ window.WorkoutShare = {
 // plus the currently displayed share, so tests can assert without a camera,
 // a clipboard, or the /vendor module graph.
 window.WorkoutShare.makeQr = makeShareQrSvg;
+// Short-link crypto seam: encrypt takes an injected K + nonce so the golden
+// vector pins the wire contract byte-for-byte; decrypt backs the golden and
+// receive-path tests. Still the same allowlisted namespace, no new global.
+window.WorkoutShare._shortLink = { encrypt: encryptShareLink, decrypt: decryptShareLink };
 window.WorkoutShare._current = null;
 // Live-scan lifecycle (stream/running/starting/generation/timer). On the
 // namespace — classic scripts keep no top-level let
