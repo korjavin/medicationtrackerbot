@@ -123,6 +123,15 @@ const ModalManager = {
         }
     },
 
+    workoutShareImport: {
+        open() {
+            ModalManager.open('workout-share-import-modal');
+        },
+        close() {
+            ModalManager.close('workout-share-import-modal');
+        }
+    },
+
     workoutVariant: {
         open() {
             ModalManager.open('workout-variant-modal');
@@ -244,6 +253,7 @@ const ModalManager = {
             { id: 'workout-group-modal', fn: () => typeof closeWorkoutGroupModal === 'function' ? closeWorkoutGroupModal() : ModalManager.workoutGroup.close() },
             { id: 'workout-scan-modal', fn: () => typeof closeWorkoutScanModal === 'function' ? closeWorkoutScanModal() : ModalManager.workoutScan.close() },
             { id: 'workout-share-modal', fn: () => (window.WorkoutShare && typeof window.WorkoutShare.close === 'function') ? window.WorkoutShare.close() : ModalManager.workoutShare.close() },
+            { id: 'workout-share-import-modal', fn: () => (window.WorkoutShare && typeof window.WorkoutShare.closeImport === 'function') ? window.WorkoutShare.closeImport() : ModalManager.workoutShareImport.close() },
             { id: 'workout-variant-modal', fn: () => typeof closeVariantModal === 'function' ? closeVariantModal() : ModalManager.workoutVariant.close() },
             { id: 'workout-exercise-modal', fn: () => typeof closeExerciseModal === 'function' ? closeExerciseModal() : ModalManager.workoutExercise.close() },
             { id: 'exercise-library-modal', fn: () => typeof closeExerciseLibraryModal === 'function' ? closeExerciseLibraryModal() : ModalManager.exerciseLibrary.close() },

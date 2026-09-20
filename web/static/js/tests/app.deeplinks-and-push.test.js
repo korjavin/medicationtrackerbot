@@ -471,3 +471,59 @@ describe('handleDeepLinks – ?action=trial_consent (Telegram Allow trial AI but
     }
   });
 });
+
+describe('handleDeepLinks – #share-plan= (plan import deeplink, med-uo64.3)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('strips the fragment BEFORE importing, switches to workouts, and receives the token after 100 ms', async () => {
+    const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/#share-plan=p1.abc' });
+
+    try {
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+      const receiveSpy = vi.fn();
+      window.WorkoutShare = { receive: receiveSpy };
+
+      window.handleDeepLinks();
+
+      // Fragment stripped synchronously first — a reload must not re-import.
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/');
+      expect(switchTabSpy).toHaveBeenCalledWith('workouts');
+      expect(receiveSpy).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(110);
+
+      expect(receiveSpy).toHaveBeenCalledTimes(1);
+      expect(receiveSpy).toHaveBeenCalledWith('p1.abc');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('a #claim= fragment is untouched by the share-plan branch', async () => {
+    const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/#claim=tok123' });
+
+    try {
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+      const receiveSpy = vi.fn();
+      window.WorkoutShare = { receive: receiveSpy };
+
+      window.handleDeepLinks();
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(switchTabSpy).not.toHaveBeenCalled();
+      expect(replaceStateSpy).not.toHaveBeenCalled();
+      expect(receiveSpy).not.toHaveBeenCalled();
+      expect(window.location.hash).toBe('#claim=tok123');
+    } finally {
+      cleanup();
+    }
+  });
+});

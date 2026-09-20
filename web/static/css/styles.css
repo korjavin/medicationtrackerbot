@@ -12448,3 +12448,40 @@ textarea.wg-input {
 .wg-share-native {
     width: 100%;
 }
+
+/* Plan import modal (bd med-uo64.3). Layout only — same recipes as the share
+   modal above; every visual value is a --wg-* / --space-* / --font-size-*
+   token, no hardcoded colors (CLAUDE.md rule 3). */
+.wg-share-import__input-wrap {
+    margin-bottom: var(--space-sm);
+}
+
+.wg-share-import__input {
+    width: 100%;
+    min-height: 36px;
+    padding: var(--wg-card-pad);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-gloss);
+    background: var(--wg-bg-card-inset);
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-mono);
+    box-sizing: border-box;
+}
+
+.wg-share-import__row {
+    display: flex;
+    align-items: center;
+    gap: var(--wg-card-pad);
+    margin-bottom: var(--space-sm);
+}
+
+.wg-share-import__action {
+    flex: 1 1 0;
+}
+
+.wg-share-import__video {
+    width: 100%;
+    border-radius: var(--wg-radius-gloss);
+    background: var(--wg-bg-card-inset);
+}
+

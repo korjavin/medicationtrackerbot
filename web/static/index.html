@@ -229,6 +229,9 @@
                 <button id="add-workout-group-btn" type="button" class="wg-gloss wg-gloss--sun wg-workouts-groups__add-cta">
                     <span class="wg-workouts-groups__add-cta-label">+ Add plan</span>
                 </button>
+                <button id="import-workout-plan-btn" type="button" class="wg-gloss wg-workouts-groups__add-cta">
+                    <span class="wg-workouts-groups__add-cta-label">Import plan</span>
+                </button>
             </div>
 
             <!-- Exercises Library View.
@@ -1279,6 +1282,37 @@
             <button type="button" id="workout-share-native-btn"
                 class="wg-gloss wg-toolbar-btn wg-toolbar-btn--secondary wg-share-native hidden">Share&hellip;</button>
             <p class="wg-share-foot">The plan travels inside this link &mdash; nothing is sent to a server. Anyone with the link can import it.</p>
+        </div>
+    </mt-modal>
+
+    <!-- Import modal (bd med-uo64.3). Paste field + live QR scan funnel into
+         WorkoutShare.receive; filled by features/workout/share.js. -->
+    <mt-modal id="workout-share-import-modal" class="hidden wg-modal wg-workouts-group-modal wg-workouts-share-modal">
+        <div class="wg-workouts-group-modal__header">
+            <div class="wg-workouts-group-modal__heading">
+                <span class="wg-section-label wg-workouts-group-modal__eyebrow">Import</span>
+                <span class="wg-mono-display wg-workouts-group-modal__title" id="workout-share-import-title">Import plan</span>
+            </div>
+            <div class="wg-workouts-group-modal__header-actions">
+                <button type="button" id="workout-share-import-cancel-btn"
+                    class="wg-gloss wg-workouts-group-modal__header-btn">Cancel</button>
+            </div>
+        </div>
+
+        <div class="wg-workouts-group-modal__body">
+            <p class="wg-share-foot">Paste a plan link or code, or scan its QR.</p>
+            <div class="wg-gloss--inset wg-share-import__input-wrap">
+                <input type="text" id="workout-share-import-input" class="wg-share-import__input"
+                    placeholder="Paste a plan link or code" autocomplete="off" inputmode="text">
+            </div>
+            <div class="wg-share-import__row">
+                <button type="button" id="workout-share-import-submit-btn"
+                    class="wg-gloss wg-gloss--sun wg-share-import__action">Import</button>
+                <button type="button" id="workout-share-import-scan-btn"
+                    class="wg-gloss wg-share-import__action">Scan QR</button>
+            </div>
+            <video id="workout-share-import-video" class="wg-share-import__video hidden" playsinline muted></video>
+            <p id="workout-share-import-status" class="wg-scan-status"></p>
         </div>
     </mt-modal>
 

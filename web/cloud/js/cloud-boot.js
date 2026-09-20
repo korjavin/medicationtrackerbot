@@ -116,6 +116,11 @@ window.MedTrackerCloudReady = (async function boot() {
         location.href = '/unlock' + location.hash;
         return;
     }
+    // Shared-plan deeplink (bd med-uo64.3): a #share-plan= fragment rides
+    // along to /unlock so the unlock shell can hand it back to /. Only this
+    // fragment forwards — anything else (notably #claim=, which has its own
+    // branch above) must not, or the claim redirect ping-pongs.
+    const sharePlanHash = /^#share-plan=/.test(location.hash) ? location.hash : '';
     // --- Warm-unlock decision. This is the ONLY block allowed to redirect to
     // /unlock, and only on "there is no usable local key" — no cached LDK record
     // (warmUnlock → null) or the read itself failing. Everything that decides
@@ -135,11 +140,11 @@ window.MedTrackerCloudReady = (async function boot() {
         // they're truly broken it renders the locked/error screen instead of
         // bouncing back to /.
         console.error('[cloud-boot] warm unlock read failed', e);
-        location.href = '/unlock';
+        location.href = '/unlock' + sharePlanHash;
         return;
     }
     if (!ctx) {
-        location.href = '/unlock';
+        location.href = '/unlock' + sharePlanHash;
         return;
     }
 

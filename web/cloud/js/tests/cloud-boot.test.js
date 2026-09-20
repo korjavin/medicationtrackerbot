@@ -652,3 +652,37 @@ describe('cloud-boot early service worker registration (med-gvk.1)', () => {
     expect(location.href).toBe('/unlock');
   });
 });
+
+describe('cloud-boot share-plan fragment across unlock (med-uo64.3)', () => {
+  it('forwards #share-plan= to /unlock when there is no cached LDK record', async () => {
+    const { location } = await runBoot({
+      hash: '#share-plan=p1.abc',
+      modules: { 'unlock.js': { warmUnlock: async () => null } },
+    });
+    expect(location.href).toBe('/unlock#share-plan=p1.abc');
+  });
+
+  it('forwards #share-plan= to /unlock when the warm-unlock read itself throws', async () => {
+    const { location } = await runBoot({
+      hash: '#share-plan=p1.abc',
+      modules: { 'unlock.js': () => Promise.reject(new Error('idb broken')) },
+    });
+    expect(location.href).toBe('/unlock#share-plan=p1.abc');
+  });
+
+  it('plain /unlock redirect carries no fragment when none was present', async () => {
+    const { location } = await runBoot({
+      hash: '',
+      modules: { 'unlock.js': { warmUnlock: async () => null } },
+    });
+    expect(location.href).toBe('/unlock');
+  });
+
+  it('never forwards an arbitrary fragment via the share branch', async () => {
+    const { location } = await runBoot({
+      hash: '#other=x',
+      modules: { 'unlock.js': { warmUnlock: async () => null } },
+    });
+    expect(location.href).toBe('/unlock');
+  });
+});
