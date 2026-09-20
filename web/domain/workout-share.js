@@ -98,13 +98,17 @@ function checkProgressionRule(input, exercise, what) {
   if (minReps !== undefined && maxReps !== undefined && minReps > maxReps) {
     throw invalid('min_reps must not exceed max_reps', 400);
   }
-  // anchorDoubleWindow pins a rule without its own window onto the exercise's
-  // rep targets and rejects an inverted window — emulate that check here.
-  const effMin = minReps !== undefined ? minReps : exercise.reps_min;
-  const effMax = maxReps !== undefined
-    ? maxReps
-    : (exercise.reps_max !== undefined ? exercise.reps_max : exercise.reps_min);
-  if (effMin > effMax) throw invalid('min_reps must not exceed max_reps', 400);
+  // anchorDoubleWindow (double rules only — it returns other types untouched)
+  // pins a rule without its own window onto the exercise's rep targets and
+  // rejects an inverted window — emulate that check here, against the same
+  // normalized targets the domain persists (reps_max is an INTEGER column, so
+  // numOrNull truncates it while reps_min passes through verbatim).
+  if (type === 'double') {
+    const tMax = exercise.reps_max !== undefined ? Math.trunc(exercise.reps_max) : exercise.reps_min;
+    const effMin = minReps !== undefined ? minReps : exercise.reps_min;
+    const effMax = maxReps !== undefined ? maxReps : tMax;
+    if (effMin > effMax) throw invalid('min_reps must not exceed max_reps', 400);
+  }
   return input;
 }
 

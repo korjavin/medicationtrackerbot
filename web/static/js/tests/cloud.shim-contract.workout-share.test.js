@@ -278,6 +278,18 @@ describe('cloud shim contract — workout plan export/import (share)', () => {
                     ])],
                 },
             }],
+            ['fractional targets collapsing after truncation', {
+                v: 1,
+                plan: {
+                    name: 'X', library: [],
+                    days: [goodDay([
+                        goodEx({
+                            reps_min: 8.5, reps_max: 8.5,
+                            progression_rule: { type: 'double', increment_kg: 2.5 },
+                        }),
+                    ])],
+                },
+            }],
         ];
         for (const [label, payload] of cases) {
             await expect(
@@ -289,6 +301,36 @@ describe('cloud shim contract — workout plan export/import (share)', () => {
         // for a retry to suffix-copy (codex review round 1).
         expect(await window.apiCallDirect('/api/workout/groups')).toHaveLength(0);
         expect(await window.apiCall('/api/workout/exercise-library')).toHaveLength(0);
+    });
+
+    it('a linear rule whose window sits outside the rep targets still round-trips', async () => {
+        // anchorDoubleWindow only constrains double rules — a linear rule with
+        // an explicit min above the target max is storable, so it must import
+        // (codex review round 2).
+        const { window } = env;
+        const payload = {
+            v: 1,
+            plan: {
+                name: 'Linear Plan',
+                days: [{
+                    name: 'Day', exercises: [{
+                        name: 'Press', sets: 3, reps_min: 8, reps_max: 12, order_index: 0,
+                        progression_rule: { type: 'linear', increment_kg: 2.5, min_reps: 15 },
+                    }],
+                }],
+                library: [],
+            },
+        };
+        const res = await window.apiCall('/api/workout/plans/import', 'POST', payload);
+        expect(res.exercises).toBe(1);
+        const token = await window.apiCall(`/api/workout/plans/export?id=${res.id}`);
+        expect(token.plan.days[0].exercises[0].progression_rule).toEqual(
+            { type: 'linear', increment_kg: 2.5, min_reps: 15 },
+        );
+        const retry = await window.apiCall(
+            '/api/workout/plans/import', 'POST', JSON.parse(JSON.stringify(token)),
+        );
+        expect(retry.name).toBe('Linear Plan (2)');
     });
 
     it('export of an unknown id rejects with status 404', async () => {
