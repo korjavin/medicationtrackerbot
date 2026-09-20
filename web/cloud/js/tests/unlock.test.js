@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { forwardableShareFragment, runUnlockFlow } from '../unlock.js';
+import { establishLdkCache, forwardableShareFragment, runUnlockFlow, unlockSuccessTarget } from '../unlock.js';
 
 // Unlock-shell side of the shared-plan fragment round-trip (bd med-uo64.3):
 // only #share-plan= rides between / and /unlock (cloud-boot.js forwards it
@@ -17,11 +17,18 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
     expect(forwardableShareFragment(undefined)).toBe('');
   });
 
+  it('unlockSuccessTarget is the /unlock -> / return leg both success paths share', () => {
+    expect(unlockSuccessTarget('#share-plan=p1.abc')).toBe('/#share-plan=p1.abc');
+    expect(unlockSuccessTarget('')).toBe('/');
+    expect(unlockSuccessTarget('#claim=tok123')).toBe('/');
+    expect(unlockSuccessTarget('#other=x')).toBe('/');
+  });
+
   describe('cold unlock hint', () => {
     // Node 21+ ships navigator/location as getter-only globals — plain
     // assignment throws, so install fakes via defineProperty and restore
     // the original descriptors afterwards.
-    const GLOBAL_KEYS = ['document', 'location', 'navigator'];
+    const GLOBAL_KEYS = ['document', 'location', 'navigator', 'indexedDB'];
     const savedDesc = {};
     for (const key of GLOBAL_KEYS) {
       savedDesc[key] = Object.getOwnPropertyDescriptor(globalThis, key);
@@ -76,6 +83,57 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
       setGlobal('navigator', undefined);
       await app._listeners['copy:click']();
       expect(app._buttons['#share-plan-copy-button'].textContent).toBe('Copy this link by hand');
+    });
+
+    it('warm unlock hands the fragment back to / (return leg, real LDK round-trip)', async () => {
+      // In-memory indexedDB: openDb only fires onsuccess (never
+      // onupgradeneeded, so applyUpgrade's schema calls stay out of it).
+      const store = new Map();
+      const objectStore = () => ({
+        get: (key) => {
+          const req = {};
+          queueMicrotask(() => { req.result = store.get(key); if (req.onsuccess) req.onsuccess(); });
+          return req;
+        },
+        put: (rec, key) => {
+          store.set(key, rec);
+          const req = {};
+          queueMicrotask(() => { if (req.onsuccess) req.onsuccess(); });
+          return req;
+        },
+      });
+      const tx = () => ({
+        objectStore,
+        set oncomplete(fn) { queueMicrotask(() => { if (fn) fn(); }); },
+      });
+      setGlobal('indexedDB', {
+        open: () => {
+          const req = {};
+          queueMicrotask(() => { req.result = { transaction: tx, close() {} }; if (req.onsuccess) req.onsuccess(); });
+          return req;
+        },
+      });
+
+      // A genuinely wrapped DEK via the real establishLdkCache, so the
+      // warm path below unwraps through real WebCrypto, not a stub.
+      const dek = globalThis.crypto.getRandomValues(new Uint8Array(32));
+      await establishLdkCache(dek, 'acct-1');
+
+      // Success must redirect, never render (innerHTML stays untouched).
+      const app = fakeApp();
+      setGlobal('document', { getElementById: () => app });
+      setGlobal('location', { hash: '#share-plan=p1.abc', href: '' });
+      await runUnlockFlow();
+      expect(globalThis.location.href).toBe('/#share-plan=p1.abc');
+      expect(app.innerHTML).toBe('');
+
+      setGlobal('location', { hash: '', href: '' });
+      await runUnlockFlow();
+      expect(globalThis.location.href).toBe('/');
+
+      setGlobal('location', { hash: '#claim=tok123', href: '' });
+      await runUnlockFlow();
+      expect(globalThis.location.href).toBe('/');
     });
 
     it('renders no hint without the fragment, and none for #claim=', async () => {

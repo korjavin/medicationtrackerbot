@@ -16,15 +16,6 @@ const STORE_NAME = 'device';
 const LDK_RECORD_KEY = 'ldk';
 const LDK_AAD = new TextEncoder().encode('mt/v1/ldk');
 
-// Shared-plan fragment forwarding (bd med-uo64.3): only a #share-plan=
-// fragment rides between / and /unlock. Anything else — notably #claim=,
-// which cloud-boot.js routes the other way — must not forward, or the two
-// shells ping-pong the browser forever. Exported for the unlock test.
-export function forwardableShareFragment(hash) {
-  const h = String(hash === null || hash === undefined ? '' : hash);
-  return /^#share-plan=/.test(h) ? h : '';
-}
-
 export async function runUnlockFlow() {
   const app = document.getElementById('app');
   let cached = null;
@@ -40,7 +31,7 @@ export async function runUnlockFlow() {
       await unwrapWithLdk(cached);
       // The real app (web/static, C1) reads the LDK cache itself via
       // cloud-boot.js — send the browser there instead of the toy menu below.
-      location.href = '/' + forwardableShareFragment(location.hash);
+      location.href = unlockSuccessTarget(location.hash);
       return;
     } catch {
       // Cache unreadable/corrupted (e.g. IndexedDB cleared mid-write) — fall
@@ -158,7 +149,7 @@ async function coldUnlock(app) {
   }
   // The real app (web/static, C1) reads the LDK cache itself via
   // cloud-boot.js — send the browser there instead of the toy menu below.
-  location.href = '/' + forwardableShareFragment(location.hash);
+  location.href = unlockSuccessTarget(location.hash);
 }
 
 function renderUnlocked(app, ctx) {
@@ -342,4 +333,22 @@ async function clearLdkRecord() {
   } finally {
     db.close();
   }
+}
+
+// Shared-plan fragment forwarding (bd med-uo64.3): only a #share-plan=
+// fragment rides between / and /unlock. Anything else — notably #claim=,
+// which cloud-boot.js routes the other way — must not forward, or the two
+// shells ping-pong the browser forever. Placed at file end (not beside its
+// callers) so the privacy-manifest file:line citations above don't shift.
+// Exported for the unlock test.
+export function forwardableShareFragment(hash) {
+  const h = String(hash === null || hash === undefined ? '' : hash);
+  return /^#share-plan=/.test(h) ? h : '';
+}
+
+// The /unlock → / return leg both success paths share (warm LDK unwrap and
+// cold passkey ceremony). One function so the fragment logic is unit-covered
+// once instead of once per call site.
+export function unlockSuccessTarget(hash) {
+  return '/' + forwardableShareFragment(hash);
 }

@@ -5,9 +5,9 @@
 // Sender side: a Share icon on the Plan card opens a modal with a QR code,
 // a copyable link, and (where supported) the OS share sheet. The plan
 // travels gzip-compressed inside the link fragment — nothing is sent to a
-// server. The receive path (paste / live scan / #share-plan deeplink) is
-// bead .3 and lives elsewhere; decoding lives here so the encode test is
-// the decode.
+// server. The receive path (paste / live scan / #share-plan deeplink,
+// bead .3) lives below in this same file, funnelling into receive();
+// decoding lives here so the encode test is the decode.
 //
 // Token: 'p1.' + base64url(gzip(JSON.stringify(exportPayload))) via
 // window.BackupCrypto. Link: ${location.origin}/#share-plan=<token>.
@@ -242,6 +242,13 @@ function closeWorkoutShareModal() {
 const SHARE_IMPORT_SCAN_THROTTLE_MS = 200;
 const SHARE_IMPORT_QR_FORMATS = ['qr_code'];
 
+// Upper bound on anything receive() will hand to the gunzip: hostile input
+// reaches decodeShareToken (a tapped link decodes before any confirm), and
+// gunzipToString inflates without a limit. 100k chars is ~75 KB compressed
+// — several times any realistic plan (a 30-day plan gzips to ~15 KB) —
+// while keeping a crafted gzip bomb from OOM-killing the tab pre-confirm.
+const SHARE_IMPORT_MAX_TOKEN_CHARS = 100000;
+
 // Printed-sheet QR shape ("workout-plan:<v>:<id>", owned by
 // web/domain/workoutsheet.js parseSheetQrText): the one QR a user can
 // plausibly offer this modal instead of Scan filled sheet. Shape-only check,
@@ -271,6 +278,10 @@ function setImportStatus(message) {
 // never POSTs; a cancelled confirm never POSTs.
 async function receiveSharedPlan(text) {
     const raw = String(text === null || text === undefined ? '' : text).trim();
+    if (raw.length > SHARE_IMPORT_MAX_TOKEN_CHARS) {
+        safeToast("That's not a workout plan link.", 'error');
+        return;
+    }
     if (SHARE_SHEET_QR_SHAPE.test(raw)) {
         safeToast("That's a printed sheet code — use Scan filled sheet.", 'info');
         return;
@@ -307,14 +318,17 @@ async function receiveSharedPlan(text) {
     }
     safeToast(`Added "${res.name || name}"`, 'info');
     // Mirror saveWorkoutGroup's post-write refresh (invalidate the workout
-    // cache, reload the Plans list). The write itself is one atomic POST with
-    // nothing client-side to roll back, so DataStore.applyOptimistic
-    // (CLAUDE.md rule 9's commit/rollback for multi-step writes) is not
-    // required here.
+    // cache, then reload the Plans list — AWAITED so the just-created plan
+    // is in cachedGroups before openEdit looks it up; without the await the
+    // Edit screen silently never opens). This keeps the read-only-refresh
+    // shape instead of DataStore.applyOptimistic: the authoritative record
+    // (with its server-assigned id) only exists after the POST returns, so
+    // there is no client-constructed record to commit optimistically — the
+    // same reason the create path refreshes this way.
     closeImportWorkoutPlanModal();
     await invalidateWorkoutCache();
-    if (window.WorkoutGroups && typeof window.WorkoutGroups.load === 'function') window.WorkoutGroups.load();
-    else if (typeof loadWorkoutGroups === 'function') loadWorkoutGroups();
+    if (window.WorkoutGroups && typeof window.WorkoutGroups.load === 'function') await window.WorkoutGroups.load();
+    else if (typeof loadWorkoutGroups === 'function') await loadWorkoutGroups();
     if (typeof switchTab === 'function') switchTab('workouts');
     // Plans sub-tab via the features/workout/index.js switcher (persists +
     // loads the groups pane); fall back to persisting the choice when the
@@ -389,6 +403,12 @@ async function importScanFrameLoop() {
 }
 
 async function startImportScan() {
+    const st = window.WorkoutShare._scan;
+    // Re-entrancy guard: the Scan button stays tappable while a scan — or a
+    // still-pending camera request — is in flight. A second entry would
+    // overwrite st.stream and orphan the first stream: its reference lost,
+    // its camera surviving modal close.
+    if (!st || st.running || st.starting || st.stream) return;
     const video = document.getElementById('workout-share-import-video');
     if (!video) return;
     // Not a device capability — a page-context fact the abstraction can't own.
@@ -400,10 +420,16 @@ async function startImportScan() {
         setImportStatus('Live scan is unavailable on this browser. Paste the link instead.');
         return;
     }
-    const st = window.WorkoutShare._scan;
     try {
+        st.starting = true;
         setImportStatus('Requesting camera access...');
         const stream = await window.MediaCapture.openCameraStream({ facingMode: 'environment' });
+        if (!st.starting) {
+            // Closed while the camera request was in flight — release the
+            // stream instead of resurrecting the scanner behind a shut modal.
+            try { stream.getTracks().forEach((track) => track.stop()); } catch (_) { /* already stopped */ }
+            return;
+        }
         st.stream = stream;
         video.srcObject = stream;
         video.classList.remove('hidden');
@@ -423,6 +449,8 @@ async function startImportScan() {
         setImportStatus(e && e.code === 'UNAVAILABLE'
             ? 'Camera is unavailable. Paste the link instead.'
             : 'Camera access denied or unavailable. Paste the link instead.');
+    } finally {
+        st.starting = false;
     }
 }
 
@@ -430,6 +458,7 @@ function stopImportScan() {
     const st = window.WorkoutShare && window.WorkoutShare._scan;
     if (!st) return;
     st.running = false;
+    st.starting = false;
     if (st.timer) {
         clearTimeout(st.timer);
         st.timer = null;
@@ -465,10 +494,11 @@ window.WorkoutShare = {
 // a clipboard, or the /vendor module graph.
 window.WorkoutShare.makeQr = makeShareQrSvg;
 window.WorkoutShare._current = null;
-// Live-scan lifecycle (stream/running/timer). On the namespace — classic
-// scripts keep no top-level let (architecture.no-module-state) — so tests
-// can arm and inspect the loop without a camera.
-window.WorkoutShare._scan = { stream: null, running: false, timer: null };
+// Live-scan lifecycle (stream/running/starting/timer). On the namespace —
+// classic scripts keep no top-level let (architecture.no-module-state) —
+// so tests can arm and inspect the loop without a camera. `starting` covers
+// the camera request in flight (running only flips once the stream lands).
+window.WorkoutShare._scan = { stream: null, running: false, starting: false, timer: null };
 window.addEventListener('pagehide', stopImportScan);
 
 
