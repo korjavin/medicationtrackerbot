@@ -138,7 +138,7 @@ const ALLOWLIST = [
     },
     {
         file: 'workout/share.js',
-        reason: 'plan-share sender (med-uo64.2); its only read is a one-shot GET /api/workout/plans/export behind an explicit Share press — the portable payload must be fresh (a stale export would share yesterday\u2019s plan, so offline it toasts and shares nothing, same as the scan.js precedent). No section-landing reads; the import write on the receiving side is bead .3',
+        reason: 'plan-share sender (med-uo64.2) + import receive path (med-uo64.3); its only reads are a one-shot GET /api/workout/plans/export behind an explicit Share press — the portable payload must be fresh (a stale export would share yesterday\u2019s plan, so offline it toasts and shares nothing, same as the scan.js precedent) — and the post-import Plans reload behind an explicit Import confirm. No section-landing reads; the import write POSTs /api/workout/plans/import once per confirm',
     },
     {
         file: 'workout/scan.js',

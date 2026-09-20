@@ -559,6 +559,48 @@ describe('features/workout/share.js — review regressions (med-uo64.3 round 01)
     expect(stopTrack).toHaveBeenCalledTimes(1);
   });
 
+
+  it('a superseded acquire releases its stream instead of hijacking the new scan', async () => {
+    // tap1 (S1 deferred) → cancel → tap2 (S2 deferred) → S1 resolves late.
+    // Without generations S1 lands in tap2's tenure, overwrites st.stream,
+    // and orphans S2's camera (released never, scanning on the wrong stream).
+    const { window, document } = env;
+    stubImport(window);
+    stubReceiveEnv(window);
+    const token = await window.WorkoutShare.encode(EXPORT);
+    stubCamera(window, document, { rawValue: window.WorkoutShare.buildUrl(token) });
+
+    const stopTrack1 = vi.fn();
+    const stopTrack2 = vi.fn();
+    let resolveS1;
+    let resolveS2;
+    window.MediaCapture = {
+      openCameraStream: vi.fn()
+        .mockImplementationOnce(() => new Promise((r) => { resolveS1 = r; }))
+        .mockImplementationOnce(() => new Promise((r) => { resolveS2 = r; })),
+    };
+
+    const scanBtn = document.getElementById('workout-share-import-scan-btn');
+    scanBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await vi.waitFor(() => expect(window.MediaCapture.openCameraStream).toHaveBeenCalledTimes(1));
+    document.getElementById('workout-share-import-cancel-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    scanBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await vi.waitFor(() => expect(window.MediaCapture.openCameraStream).toHaveBeenCalledTimes(2));
+
+    // The stale acquire resolves into the new start's tenure: released.
+    resolveS1({ getTracks: () => [{ stop: stopTrack1 }] });
+    await vi.waitFor(() => expect(stopTrack1).toHaveBeenCalledTimes(1));
+    expect(window.WorkoutShare._scan.stream).toBeNull();
+    expect(window.WorkoutShare._scan.running).toBe(false);
+
+    // The current acquire delivers end to end on its own stream.
+    resolveS2({ getTracks: () => [{ stop: stopTrack2 }] });
+    await vi.waitFor(() => expect(window.apiCall).toHaveBeenCalledWith(
+      '/api/workout/plans/import', 'POST', EXPORT, { suppressWriteAlert: true }));
+    expect(window.WorkoutGroups.openEdit).toHaveBeenCalledWith(42);
+    expect(stopTrack1).toHaveBeenCalledTimes(1);
+  });
+
   it('closing during preview warm-up releases everything and leaves Scan working', async () => {
     const { window, document } = env;
     stubImport(window);

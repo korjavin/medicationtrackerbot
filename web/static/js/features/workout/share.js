@@ -330,10 +330,9 @@ async function receiveSharedPlan(text) {
     else if (typeof loadWorkoutGroups === 'function') await loadWorkoutGroups();
     if (typeof switchTab === 'function') switchTab('workouts');
     // Plans sub-tab via the features/workout/index.js switcher (persists +
-    // loads the groups pane); fall back to persisting the choice when the
-    // orchestrator hasn't loaded (isolated harness).
+    // loads the groups pane; same classic script as the setter, so no
+    // fallback branch — either both exist or neither does).
     if (typeof switchWorkoutTab === 'function') switchWorkoutTab('groups');
-    else if (typeof setActiveWorkoutsSubTab === 'function') setActiveWorkoutsSubTab('groups');
     if (window.WorkoutGroups && typeof window.WorkoutGroups.openEdit === 'function') window.WorkoutGroups.openEdit(res.id);
 }
 
@@ -408,6 +407,15 @@ async function startImportScan() {
     // overwrite st.stream and orphan the first stream: its reference lost,
     // its camera surviving modal close.
     if (!st || st.running || st.starting || st.stream) return;
+    // Generation: a bare boolean cannot tell "my start was cancelled" from
+    // "my start was SUPERSEDED" — cancel, retap, and the first acquire
+    // resolves into the second start's tenure and hijacks its stream. Each
+    // start takes the next number; stopImportScan moves it on, so a
+    // continuation whose number is stale releases its stream and returns.
+    // Entry + take is synchronous (no await between), so two taps cannot
+    // take the same number.
+    st.starting = true;
+    const gen = ++st.generation;
     const video = document.getElementById('workout-share-import-video');
     if (!video) return;
     // Not a device capability — a page-context fact the abstraction can't own.
@@ -420,12 +428,12 @@ async function startImportScan() {
         return;
     }
     try {
-        st.starting = true;
         setImportStatus('Requesting camera access...');
         const stream = await window.MediaCapture.openCameraStream({ facingMode: 'environment' });
-        if (!st.starting) {
-            // Closed while the camera request was in flight — release the
-            // stream instead of resurrecting the scanner behind a shut modal.
+        if (gen !== st.generation) {
+            // Cancelled — or superseded by a newer start — while the camera
+            // request was in flight. Release the stream instead of
+            // resurrecting (or hijacking) the scanner.
             try { stream.getTracks().forEach((track) => track.stop()); } catch (_) { /* already stopped */ }
             return;
         }
@@ -444,7 +452,7 @@ async function startImportScan() {
         } catch (e) {
             console.error('Share import camera preview failed:', e);
         }
-        if (!st.starting) {
+        if (gen !== st.generation) {
             stopImportScan();
             return;
         }
@@ -457,7 +465,9 @@ async function startImportScan() {
             ? 'Camera is unavailable. Paste the link instead.'
             : 'Camera access denied or unavailable. Paste the link instead.');
     } finally {
-        st.starting = false;
+        // Only clear our own tenure: a stale continuation must not drop the
+        // flag a superseding start set.
+        if (gen === st.generation) st.starting = false;
     }
 }
 
@@ -466,6 +476,7 @@ function stopImportScan() {
     if (!st) return;
     st.running = false;
     st.starting = false;
+    st.generation++;
     if (st.timer) {
         clearTimeout(st.timer);
         st.timer = null;
@@ -501,11 +512,13 @@ window.WorkoutShare = {
 // a clipboard, or the /vendor module graph.
 window.WorkoutShare.makeQr = makeShareQrSvg;
 window.WorkoutShare._current = null;
-// Live-scan lifecycle (stream/running/starting/timer). On the namespace —
-// classic scripts keep no top-level let (architecture.no-module-state) —
-// so tests can arm and inspect the loop without a camera. `starting` covers
-// the camera request in flight (running only flips once the stream lands).
-window.WorkoutShare._scan = { stream: null, running: false, starting: false, timer: null };
+// Live-scan lifecycle (stream/running/starting/generation/timer). On the
+// namespace — classic scripts keep no top-level let
+// (architecture.no-module-state) — so tests can arm and inspect the loop
+// without a camera. `starting` covers the camera request in flight (running
+// only flips once the stream lands); `generation` tells a cancelled start
+// from a superseded one (see startImportScan).
+window.WorkoutShare._scan = { stream: null, running: false, starting: false, generation: 0, timer: null };
 window.addEventListener('pagehide', stopImportScan);
 
 

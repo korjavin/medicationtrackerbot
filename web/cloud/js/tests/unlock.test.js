@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { establishLdkCache, forwardableShareFragment, runUnlockFlow, unlockSuccessTarget } from '../unlock.js';
+import { deriveKEK, deriveKMac, toBase64, wrapEnvelope } from '../crypto.js';
 
 // Unlock-shell side of the shared-plan fragment round-trip (bd med-uo64.3):
 // only #share-plan= rides between / and /unlock (cloud-boot.js forwards it
@@ -29,7 +30,7 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
   // Node 21+ ships navigator/location as getter-only globals — plain
   // assignment throws, so install fakes via defineProperty and restore
   // the original descriptors afterwards. Shared by both inner suites.
-  const GLOBAL_KEYS = ['document', 'location', 'navigator', 'indexedDB'];
+  const GLOBAL_KEYS = ['document', 'location', 'navigator', 'indexedDB', 'fetch', 'PublicKeyCredential'];
   const savedDesc = {};
   for (const key of GLOBAL_KEYS) {
     savedDesc[key] = Object.getOwnPropertyDescriptor(globalThis, key);
@@ -56,6 +57,37 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
       _buttons: buttons,
       querySelector: (sel) => buttons[sel] || null,
     };
+  }
+
+  // In-memory indexedDB shared by both return-leg suites: openDb only
+  // fires onsuccess (never onupgradeneeded, so applyUpgrade's schema calls
+  // stay out of it).
+  function installFakeIdb() {
+    const store = new Map();
+    const objectStore = () => ({
+      get: (key) => {
+        const req = {};
+        queueMicrotask(() => { req.result = store.get(key); if (req.onsuccess) req.onsuccess(); });
+        return req;
+      },
+      put: (rec, key) => {
+        store.set(key, rec);
+        const req = {};
+        queueMicrotask(() => { if (req.onsuccess) req.onsuccess(); });
+        return req;
+      },
+    });
+    const tx = () => ({
+      objectStore,
+      set oncomplete(fn) { queueMicrotask(() => { if (fn) fn(); }); },
+    });
+    setGlobal('indexedDB', {
+      open: () => {
+        const req = {};
+        queueMicrotask(() => { req.result = { transaction: tx, close() {} }; if (req.onsuccess) req.onsuccess(); });
+        return req;
+      },
+    });
   }
 
   describe('cold unlock hint', () => {
@@ -101,33 +133,7 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
 
   describe('warm unlock return leg', () => {
     it('hands the fragment back to / (real LDK round-trip)', async () => {
-    // In-memory indexedDB: openDb only fires onsuccess (never
-    // onupgradeneeded, so applyUpgrade's schema calls stay out of it).
-    const store = new Map();
-    const objectStore = () => ({
-      get: (key) => {
-        const req = {};
-        queueMicrotask(() => { req.result = store.get(key); if (req.onsuccess) req.onsuccess(); });
-        return req;
-      },
-      put: (rec, key) => {
-        store.set(key, rec);
-        const req = {};
-        queueMicrotask(() => { if (req.onsuccess) req.onsuccess(); });
-        return req;
-      },
-    });
-    const tx = () => ({
-      objectStore,
-      set oncomplete(fn) { queueMicrotask(() => { if (fn) fn(); }); },
-    });
-    setGlobal('indexedDB', {
-      open: () => {
-        const req = {};
-        queueMicrotask(() => { req.result = { transaction: tx, close() {} }; if (req.onsuccess) req.onsuccess(); });
-        return req;
-      },
-    });
+    installFakeIdb();
 
     // A genuinely wrapped DEK via the real establishLdkCache, so the
     // warm path below unwraps through real WebCrypto, not a stub.
@@ -149,6 +155,52 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
     setGlobal('location', { hash: '#claim=tok123', href: '' });
     await runUnlockFlow();
     expect(globalThis.location.href).toBe('/');
+    });
+  });
+
+  describe('cold unlock ceremony', () => {
+    it('passkey unlock hands the fragment back to / (the path a forwarded link takes)', async () => {
+      installFakeIdb(); // empty store: no LDK, so the locked screen renders
+      const accountId = 'acct-9';
+      const dek = globalThis.crypto.getRandomValues(new Uint8Array(32));
+      const credId = globalThis.crypto.getRandomValues(new Uint8Array(32));
+      const prfBytes = globalThis.crypto.getRandomValues(new Uint8Array(32));
+      // The envelope the server would hold: wrapped by the real crypto with
+      // the KEK this ceremony re-derives, so the whole path is genuine.
+      const kek = await deriveKEK(prfBytes, accountId, credId);
+      const envelope = await wrapEnvelope({
+        kek, dek, kMac: await deriveKMac(dek), accountId, credentialId: credId,
+      });
+
+      setGlobal('PublicKeyCredential', { parseRequestOptionsFromJSON: (x) => x || {} });
+      setGlobal('navigator', {
+        credentials: {
+          get: async () => ({
+            rawId: credId.buffer,
+            getClientExtensionResults: () => ({ prf: { results: { first: prfBytes.buffer } } }),
+            toJSON: () => ({ id: 'cred-1', rawId: 'cred-1', response: {}, clientExtensionResults: {} }),
+          }),
+        },
+      });
+      setGlobal('fetch', async (url) => {
+        const u = String(url);
+        if (u === '/api/webauthn/login/begin') return { ok: true, json: async () => ({ publicKey: {} }) };
+        if (u === '/api/webauthn/login/finish') return { ok: true, json: async () => ({ account_id: accountId }) };
+        if (u.startsWith('/api/envelopes/')) {
+          return { ok: true, json: async () => ({ nonce: toBase64(envelope.nonce), ct: toBase64(envelope.ct) }) };
+        }
+        throw new Error('unexpected fetch ' + u);
+      });
+
+      const app = fakeApp();
+      setGlobal('document', { getElementById: () => app });
+      setGlobal('location', { hash: '#share-plan=p1.abc', href: '' });
+      await runUnlockFlow();
+      // Cold device: the locked screen (with the paste hint) renders first.
+      expect(app.innerHTML).toContain('share-plan-copy-button');
+      // The Unlock button's passkey ceremony redirects back with the fragment.
+      await app._listeners['unlock:click']();
+      await vi.waitFor(() => expect(globalThis.location.href).toBe('/#share-plan=p1.abc'));
     });
 
   });
