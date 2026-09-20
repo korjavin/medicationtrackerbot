@@ -203,6 +203,19 @@ export async function decryptTransferPayload(tk, packed, accountId) {
   return aesGcmDecrypt(tk, nonce, ct, aad);
 }
 
+// Blind workout-share short link (bd med-1yi5): the sender's p1 token string
+// as UTF-8, AES-GCM under a fresh 16-byte key K, packed nonce ‖ ciphertext
+// exactly like the transfer payload above. AAD is the bare constant string
+// 'mt/v1/share' (utf8 bytes, no account id — the landing page is
+// unauthenticated, so there is no account to bind to). Throws (AEAD failure)
+// on a tampered packed blob or the wrong K.
+export async function decryptSharePayload(k, packed) {
+  const nonce = packed.slice(0, 12);
+  const ct = packed.slice(12);
+  const aad = utf8('mt/v1/share');
+  return aesGcmDecrypt(k, nonce, ct, aad);
+}
+
 async function checksumGroup(codeBytes) {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', codeBytes));
   return base32Encode(digest.slice(0, 3)).slice(0, 4);

@@ -70,6 +70,8 @@ func seedAllAccountTables(t *testing.T, r *Repo, accountID string) {
 			[]any{"2026-07-10", accountID, 3}},
 		{`INSERT INTO feedback_queue (account_id, client_id, kind, app_version, ciphertext, created_at_unix) VALUES (?,?,?,?,?,?)`,
 			[]any{accountID, "fb-" + accountID, "bug", "1.0", []byte("c"), now}},
+		{`INSERT INTO share_links (id, account_id, ct, created_at_unix, expires_at_unix) VALUES (?,?,?,?,?)`,
+			[]any{"share-" + accountID, accountID, []byte("c"), now, now + 30*24*3600}},
 	}
 	for _, s := range stmts {
 		if _, err := r.db.ExecContext(ctx, s.sql, s.args...); err != nil {
