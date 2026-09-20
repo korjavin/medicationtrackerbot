@@ -145,6 +145,7 @@ describe('golden E2E shape (self-built token; golden blob asserted in crypto.tes
     expect(preview.hidden).toBe(false);
     expect(preview.textContent).toContain('Leg Day');
     expect(preview.textContent).toContain('2 days · 3 exercises');
+
     expect(preview.textContent).toContain('Monday');
     expect(preview.textContent).toContain('Squat');
     expect(preview.textContent).toContain('Deadlift');
@@ -155,6 +156,39 @@ describe('golden E2E shape (self-built token; golden blob asserted in crypto.tes
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe('/api/s/Ab3kZ9xQ2m');
     expect(calls[0].init).toMatchObject({ cache: 'no-store' });
+  });
+});
+
+describe('preview counts', () => {
+  it('singularizes one day and one exercise like the sender modal', async () => {
+    const one = { v: 1, plan: { name: 'Solo', days: [{ name: 'Only', exercises: [{ name: 'Plank' }] }] } };
+    const keyBytes = crypto.getRandomValues(new Uint8Array(16));
+    const ct = await encryptShare(keyBytes, await makeToken(one));
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ct }) }));
+    await mount(document, {
+      fetchImpl,
+      location: stubLocation({ hash: '#' + toBase64Url(keyBytes) }),
+      storage: memStorage(),
+      clipboard: null,
+    });
+    expect(q('#share-status').textContent).toBe('');
+    expect(q('#share-preview').textContent).toContain('1 day · 1 exercise');
+  });
+
+  it('places the address error before the Add button', async () => {
+    const link = await freshLink();
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ct: link.ct }) }));
+    await mount(document, {
+      fetchImpl,
+      location: stubLocation({ hash: '#' + link.keyFrag }),
+      storage: memStorage(),
+      clipboard: null,
+    });
+    q('#share-home').value = 'Bad Name!';
+    click(q('#share-add'));
+    const actions = q('#share-actions');
+    const order = [...actions.children].map((n) => n.id || n.tagName);
+    expect(order.indexOf('share-error')).toBeLessThan(order.indexOf('share-add'));
   });
 });
 
@@ -211,6 +245,39 @@ describe('failure states', () => {
     expect(q('#share-preview').hidden).toBe(true);
     expect(q('#share-preview').textContent).toBe('');
     expect(q('#share-actions').hidden).toBe(true);
+  });
+
+  it('a hostile day count passes crypto but is rejected before render', async () => {
+    const keyBytes = crypto.getRandomValues(new Uint8Array(16));
+    const hostile = { v: 1, plan: { name: 'x', days: Array.from({ length: 300 }, () => ({})) } };
+    const ct = await encryptShare(keyBytes, await makeToken(hostile));
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ct }) }));
+    await mount(document, {
+      fetchImpl,
+      location: stubLocation({ hash: '#' + toBase64Url(keyBytes) }),
+      storage: memStorage(),
+      clipboard: null,
+    });
+    expect(q('#share-status').textContent).toBe(MSG.notPlan);
+    expect(q('#share-preview').textContent).toBe('');
+  });
+
+  it('a hostile per-day exercise count is rejected before render', async () => {
+    const keyBytes = crypto.getRandomValues(new Uint8Array(16));
+    const hostile = {
+      v: 1,
+      plan: { name: 'x', days: [{ name: 'd', exercises: Array.from({ length: 500 }, () => ({})) }] },
+    };
+    const ct = await encryptShare(keyBytes, await makeToken(hostile));
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ct }) }));
+    await mount(document, {
+      fetchImpl,
+      location: stubLocation({ hash: '#' + toBase64Url(keyBytes) }),
+      storage: memStorage(),
+      clipboard: null,
+    });
+    expect(q('#share-status').textContent).toBe(MSG.notPlan);
+    expect(q('#share-preview').textContent).toBe('');
   });
 
   it('valid decrypt of a non-plan payload → generic error', async () => {
@@ -332,8 +399,9 @@ describe('preview hygiene', () => {
 describe('decodeSharedPlan guards', () => {
   it('rejects an oversize packed blob without decrypting', async () => {
     const key = crypto.getRandomValues(new Uint8Array(16));
-    await expect(decodeSharedPlan(new Uint8Array(16385), key)).rejects.toThrow();
-    await expect(decodeSharedPlan(new Uint8Array(0), key)).rejects.toThrow();
+    // Match the guard's own error: an AEAD failure must not satisfy these.
+    await expect(decodeSharedPlan(new Uint8Array(16385), key)).rejects.toThrow(/bad packed length/);
+    await expect(decodeSharedPlan(new Uint8Array(0), key)).rejects.toThrow(/bad packed length/);
   });
 
   it('rejects a payload whose JSON is not a v1 plan export', async () => {

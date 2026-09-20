@@ -42,11 +42,20 @@ export const MSG = {
 
 export const SHARE_API_PREFIX = '/api/s/';
 // Server caps stored ciphertext at 16 KiB (wire contract); anything larger on
-// the read path is not a real share.
+// the read path is not a real share. That cap is also what bounds inflation:
+// 16 KiB of ciphertext times DEFLATE's ceiling stays in the low tens of MB,
+// which the tab survives.
 export const MAX_PACKED_BYTES = 16384;
-// Gzip-bomb guard on the inflated export payload (same reasoning as
-// share.js SHARE_IMPORT_MAX_TOKEN_CHARS).
+// Post-hoc sanity bound on the inflated export payload (same intent as
+// share.js SHARE_IMPORT_MAX_TOKEN_CHARS, but checked after the inflate, not
+// during it — it rejects oversize plans, it does not cap decompression).
 export const MAX_JSON_BYTES = 1024 * 1024;
+// Accept caps mirror the sender-side export caps (MAX_SHARE_DAYS /
+// MAX_SHARE_EXERCISES_PER_DAY in web/domain/workout-share.js): the sender
+// cannot mint a share beyond them, so anything larger here is hostile input,
+// not a legitimate plan — reject before building any DOM for it.
+export const MAX_PREVIEW_DAYS = 20;
+export const MAX_PREVIEW_EXERCISES_PER_DAY = 50;
 export const HOME_KEY = 'mt-share-home';
 export const SUBDOMAIN_RE = /^[a-z0-9-]{1,63}$/;
 
@@ -87,6 +96,12 @@ export async function decodeSharedPlan(packed, key) {
     throw new Error('not a v1 plan export');
   }
   if (!Array.isArray(doc.plan.days)) throw new Error('plan has no days');
+  if (doc.plan.days.length > MAX_PREVIEW_DAYS) throw new Error('too many days');
+  for (const day of doc.plan.days) {
+    if (day && Array.isArray(day.exercises) && day.exercises.length > MAX_PREVIEW_EXERCISES_PER_DAY) {
+      throw new Error('too many exercises');
+    }
+  }
   return { token, doc };
 }
 
@@ -134,7 +149,9 @@ export function renderPreview(previewEl, doc) {
   );
   const counts = owner.createElement('p');
   counts.className = 'muted';
-  counts.textContent = `${days.length} days · ${total} exercises`;
+  counts.textContent =
+    `${days.length} day${days.length === 1 ? '' : 's'} · ` +
+    `${total} exercise${total === 1 ? '' : 's'}`;
   previewEl.append(counts);
 
   days.forEach((day, i) => {
@@ -247,7 +264,10 @@ export async function mount(root = document, deps = {}) {
     homeError = actions.ownerDocument.createElement('p');
     homeError.id = 'share-error';
     homeError.className = 'wizard-error';
-    actions.append(homeError);
+    // Before the Add button, next to the field it reports on — appending
+    // would drop it below both buttons and the unrelated signup link.
+    if (add) add.before(homeError);
+    else actions.append(homeError);
   }
 
   if (add) {
