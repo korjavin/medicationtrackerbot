@@ -228,7 +228,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'user-initiated',
     activationNote: 'when you tap Share on a workout plan',
     byo: 'n/a',
-    evidence: ['web/static/js/features/workout/share.js:232', 'internal/cloudserver/share.go:1'],
+    evidence: ['web/static/js/features/workout/share.js:232', 'internal/cloudserver/share.go:174'],
     code: { go: ['internal/cloudserver/share.go'], hosts: [] },
     docSignal: 'Share-link ciphertext size + minting account + resolver account/IP/time',
     userCopy: {
