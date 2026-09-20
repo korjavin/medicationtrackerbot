@@ -65,7 +65,12 @@ function checkFiniteField(value, what, { required } = {}) {
   return n;
 }
 
-function checkProgressionRule(input) {
+// checkProgressionRule mirrors the workout domain's normalizeProgressionRule
+// + anchorDoubleWindow constraints up front, so a hostile rule 400s BEFORE
+// the first write: without this a rule the domain rejects mid-import (negative
+// increment, negative/inverted rep window) would leave a partial active plan
+// behind while reporting failure.
+function checkProgressionRule(input, exercise, what) {
   if (!hasValue(input)) return undefined;
   if (typeof input !== 'object' || Array.isArray(input)) {
     throw invalid('progression_rule must be an object', 400);
@@ -76,13 +81,30 @@ function checkProgressionRule(input) {
   }
   if (type === 'none') return undefined;
   // Pass through; the workout domain normalizes + anchors on write.
-  // Pre-check increment_kg here so a hostile value 400s with a status
-  // instead of surfacing the domain's status-less throw.
-  if (hasValue(input.increment_kg) && input.increment_kg !== '') {
-    if (finiteNumber(input.increment_kg) === null) {
-      throw invalid('increment_kg must be a finite number', 400);
-    }
+  const increment = checkFiniteField(input.increment_kg, `${what}.progression_rule.increment_kg`);
+  if ((increment === undefined ? 2.5 : increment) < 0 || (increment === undefined ? 2.5 : increment) > 1000) {
+    throw invalid('increment_kg must be between 0 and 1000', 400);
   }
+  let minReps = checkFiniteField(input.min_reps, `${what}.progression_rule.min_reps`);
+  let maxReps = checkFiniteField(input.max_reps, `${what}.progression_rule.max_reps`);
+  if (minReps !== undefined) {
+    minReps = Math.trunc(minReps);
+    if (minReps < 0) throw invalid('min_reps must be non-negative', 400);
+  }
+  if (maxReps !== undefined) {
+    maxReps = Math.trunc(maxReps);
+    if (maxReps < 0) throw invalid('max_reps must be non-negative', 400);
+  }
+  if (minReps !== undefined && maxReps !== undefined && minReps > maxReps) {
+    throw invalid('min_reps must not exceed max_reps', 400);
+  }
+  // anchorDoubleWindow pins a rule without its own window onto the exercise's
+  // rep targets and rejects an inverted window — emulate that check here.
+  const effMin = minReps !== undefined ? minReps : exercise.reps_min;
+  const effMax = maxReps !== undefined
+    ? maxReps
+    : (exercise.reps_max !== undefined ? exercise.reps_max : exercise.reps_min);
+  if (effMin > effMax) throw invalid('min_reps must not exceed max_reps', 400);
   return input;
 }
 
@@ -146,7 +168,10 @@ function validateSharePayload(payload) {
       const repsMax = checkFiniteField(ex.reps_max, `${what}.reps_max`);
       const weightKg = checkFiniteField(ex.weight_kg, `${what}.weight_kg`);
       const orderIndex = checkFiniteField(ex.order_index, `${what}.order_index`);
-      const progressionRule = checkProgressionRule(ex.progression_rule);
+      const progressionRule = checkProgressionRule(ex.progression_rule, {
+        reps_min: repsMin,
+        ...(repsMax !== undefined ? { reps_max: repsMax } : {}),
+      }, what);
       const norm = {
         name: exName,
         sets,

@@ -259,6 +259,25 @@ describe('cloud shim contract — workout plan export/import (share)', () => {
                 v: 1,
                 plan: { name: 'X', library: [], days: [goodDay([goodEx({ weight_kg: NaN })])] },
             }],
+            ['negative progression increment', {
+                v: 1,
+                plan: {
+                    name: 'X', library: [],
+                    days: [goodDay([
+                        goodEx(),
+                        goodEx({ name: 'Squat', progression_rule: { type: 'linear', increment_kg: -1 } }),
+                    ])],
+                },
+            }],
+            ['inverted double-progression window', {
+                v: 1,
+                plan: {
+                    name: 'X', library: [],
+                    days: [goodDay([
+                        goodEx({ progression_rule: { type: 'double', min_reps: 12, max_reps: 8 } }),
+                    ])],
+                },
+            }],
         ];
         for (const [label, payload] of cases) {
             await expect(
@@ -266,6 +285,10 @@ describe('cloud shim contract — workout plan export/import (share)', () => {
                 label,
             ).rejects.toMatchObject({ status: 400 });
         }
+        // A rejected import persists nothing — no partial group is left behind
+        // for a retry to suffix-copy (codex review round 1).
+        expect(await window.apiCallDirect('/api/workout/groups')).toHaveLength(0);
+        expect(await window.apiCall('/api/workout/exercise-library')).toHaveLength(0);
     });
 
     it('export of an unknown id rejects with status 404', async () => {
