@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   auditEnvelope,
+  decryptSharePayload,
   decryptTransferPayload,
   deriveKEK,
   deriveKEKRec,
@@ -17,6 +18,7 @@ import {
   toBase64,
   toBase64Url,
   fromBase64,
+  fromBase64Url,
   unwrapEnvelope,
   wrapEnvelope
 } from '../crypto.js';
@@ -129,6 +131,35 @@ describe('cloud crypto suite v1', () => {
     const dek = generateDEK();
     const packed = await encryptTransferPayload(tk, dek, accountId);
     await expect(decryptTransferPayload(wrongTk, packed, accountId)).rejects.toThrow();
+  });
+});
+
+// Blind workout-share short link (bd med-1yi5): AES-128-GCM, K = 16 raw
+// bytes, nonce ‖ ciphertext packing, AAD utf8('mt/v1/share'). Golden vector
+// from the epic (produced with WebCrypto): K = bytes 00 11 22 .. ff,
+// nonce = bytes 01..0c.
+describe('decryptSharePayload (med-1yi5)', () => {
+  const GOLDEN_K = 'ABEiM0RVZneImaq7zN3u_w';
+  const GOLDEN_PLAINTEXT =
+    'p1.H4sIAAAAAAAAA6tWSkksSVSyUlAqSy0qzszPU9JRUEpJLElUslIqTUlXqgUAcx1dxx4AAAA';
+  const GOLDEN_PACKED =
+    'AQIDBAUGBwgJCgsMlrcA1gUMJUwCZ2azpTvldqBeivRyBn8Egd/HzcfKBxiMz6ddeZ1b7GVg3mXNe+7fy4twqSSKFUK2gukPwV4h5cTEpgLiSx4+ugIkgK12YG+cp1M3fJstai2c';
+
+  it('decrypts the golden packed blob to the exact golden plaintext', async () => {
+    const pt = await decryptSharePayload(fromBase64Url(GOLDEN_K), fromBase64(GOLDEN_PACKED));
+    expect(new TextDecoder().decode(pt)).toBe(GOLDEN_PLAINTEXT);
+  });
+
+  it('throws on a flipped packed byte (AEAD failure)', async () => {
+    const packed = fromBase64(GOLDEN_PACKED);
+    packed[20] ^= 0xff;
+    await expect(decryptSharePayload(fromBase64Url(GOLDEN_K), packed)).rejects.toThrow();
+  });
+
+  it('throws under the wrong key', async () => {
+    const wrong = fromBase64Url(GOLDEN_K).slice();
+    wrong[0] ^= 0x01;
+    await expect(decryptSharePayload(wrong, fromBase64(GOLDEN_PACKED))).rejects.toThrow();
   });
 });
 
