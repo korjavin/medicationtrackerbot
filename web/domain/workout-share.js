@@ -25,6 +25,11 @@ export const SHARE_FORMAT_VERSION = 1;
 const MAX_SHARE_DAYS = 20;
 const MAX_SHARE_EXERCISES_PER_DAY = 50;
 const MAX_NAME_LEN = 200;
+// _ensureLogSets (sessions.js) materializes log.sets via Array.from({length})
+// off target_sets when a session opens, and the log save validator + session
+// editor both cap sets at 20 — an untrusted token with sets: 1e9 would freeze
+// or OOM the recipient's tab, so bound it before the first write.
+const MAX_TARGET_SETS = 20;
 
 const VALID_PROGRESSION_TYPES = new Set(['none', 'linear', 'double']);
 
@@ -168,6 +173,7 @@ function validateSharePayload(payload) {
       const what = `plan.days[${i}].exercises[${j}]`;
       const exName = checkName(ex.name, `${what}.name`);
       const sets = checkFiniteField(ex.sets, `${what}.sets`, { required: true });
+      if (sets > MAX_TARGET_SETS) throw invalid(`${what}.sets may not exceed ${MAX_TARGET_SETS}`, 400);
       const repsMin = checkFiniteField(ex.reps_min, `${what}.reps_min`, { required: true });
       const repsMax = checkFiniteField(ex.reps_max, `${what}.reps_max`);
       const weightKg = checkFiniteField(ex.weight_kg, `${what}.weight_kg`);

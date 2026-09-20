@@ -278,6 +278,13 @@ describe('cloud shim contract — workout plan export/import (share)', () => {
                     ])],
                 },
             }],
+            ['absurd set count', {
+                v: 1,
+                plan: {
+                    name: 'X', library: [],
+                    days: [goodDay([goodEx({ sets: 1000000000 })])],
+                },
+            }],
             ['fractional targets collapsing after truncation', {
                 v: 1,
                 plan: {
