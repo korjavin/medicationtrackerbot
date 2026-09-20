@@ -72,8 +72,8 @@ func TestShare_CreateReturnsLink(t *testing.T) {
 
 	created := createShareLink(t, h, host, session, []byte("opaque-gcm-blob"))
 
-	if matched, _ := regexp.MatchString(`^[A-Za-z0-9]{10}$`, created.ID); !matched {
-		t.Fatalf("id %q is not 10 base62 chars", created.ID)
+	if matched, _ := regexp.MatchString(fmt.Sprintf(`^[A-Za-z0-9]{%d}$`, shareIDLen), created.ID); !matched {
+		t.Fatalf("id %q is not %d base62 chars", created.ID, shareIDLen)
 	}
 	if want := "https://localhost/s/" + created.ID; created.URL != want {
 		t.Fatalf("url = %q, want %q", created.URL, want)
@@ -180,20 +180,26 @@ func TestShare_GetRoundTrip(t *testing.T) {
 func TestShare_Get404Uniform(t *testing.T) {
 	h, _, _ := newTestShareHandler(t)
 
-	// Unknown but well-formed id.
-	if rec := getShare(t, h, "localhost", "ZZZZZZZZZZ"); rec.Code != http.StatusNotFound {
-		t.Fatalf("unknown id status = %d, want 404", rec.Code)
-	}
-	// Malformed: 9 and 11 chars never reach the store.
-	for _, bad := range []string{"abcdefghi", "abcdefghijk", "has-dash!!", "under_score!"} {
-		if rec := getShare(t, h, "localhost", bad); rec.Code != http.StatusNotFound {
-			t.Fatalf("malformed id %q status = %d, want 404", bad, rec.Code)
+	// Every 404 is uncacheable too: the id is a capability, so even a
+	// negative answer must not sit in a shared cache.
+	assertUncacheable404 := func(t *testing.T, rec *httptest.ResponseRecorder, what string) {
+		t.Helper()
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s status = %d, want 404", what, rec.Code)
+		}
+		if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
+			t.Fatalf("%s Cache-Control = %q, want no-store", what, cc)
 		}
 	}
-	// Encoded traversal decodes to "../" inside the handler: still 404.
-	if rec := getShare(t, h, "localhost", "..%2F"); rec.Code != http.StatusNotFound {
-		t.Fatalf("encoded traversal status = %d, want 404", rec.Code)
+
+	// Unknown but well-formed id.
+	assertUncacheable404(t, getShare(t, h, "localhost", "ZZZZZZZZZZ"), "unknown id")
+	// Malformed: 9 and 11 chars never reach the store.
+	for _, bad := range []string{"abcdefghi", "abcdefghijk", "has-dash!!", "under_score!"} {
+		assertUncacheable404(t, getShare(t, h, "localhost", bad), fmt.Sprintf("malformed id %q", bad))
 	}
+	// Encoded traversal decodes to "../" inside the handler: still 404.
+	assertUncacheable404(t, getShare(t, h, "localhost", "..%2F"), "encoded traversal")
 	// Raw ".." is cleaned to a redirect by net/http itself; the redirect
 	// target carries no route on either branch, so the exchange ends in 404
 	// with the blob never served.
@@ -213,6 +219,49 @@ func TestShare_Get404Uniform(t *testing.T) {
 	}
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("traversal exchange final status = %d, want 404", rec.Code)
+	}
+}
+
+// The id pattern is built from shareIDLen: if the const ever changes and
+// the regex does not follow, this fails.
+func TestShare_IDPatternDerivedFromConst(t *testing.T) {
+	if want := fmt.Sprintf(`^[A-Za-z0-9]{%d}$`, shareIDLen); shareIDPattern.String() != want {
+		t.Fatalf("shareIDPattern = %q, want %q (derive it from shareIDLen)", shareIDPattern.String(), want)
+	}
+	if good := strings.Repeat("aB3", shareIDLen)[:shareIDLen]; !shareIDPattern.MatchString(good) {
+		t.Fatalf("pattern rejects a well-formed %d-char id %q", shareIDLen, good)
+	}
+	for _, bad := range []string{
+		strings.Repeat("a", shareIDLen-1),
+		strings.Repeat("a", shareIDLen+1),
+		strings.Repeat("a", shareIDLen-1) + "-",
+	} {
+		if shareIDPattern.MatchString(bad) {
+			t.Fatalf("pattern accepts %q", bad)
+		}
+	}
+}
+
+// POST and GET must agree on expires_at: the store keeps second precision,
+// so CreateShare truncates before responding.
+func TestShare_PostGetExpiresAtAgree(t *testing.T) {
+	h, host, claimToken := newTestShareHandler(t)
+	session := registerAndGetSession(t, h, host, claimToken)
+	created := createShareLink(t, h, host, session, []byte("opaque-gcm-blob"))
+
+	if created.ExpiresAt.Nanosecond() != 0 {
+		t.Fatalf("POST expires_at = %v, want whole seconds", created.ExpiresAt)
+	}
+	rec := getShare(t, h, host, created.ID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200", rec.Code)
+	}
+	var got getShareResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal get response: %v", err)
+	}
+	if !got.ExpiresAt.Equal(created.ExpiresAt) {
+		t.Fatalf("GET expires_at = %v, POST expires_at = %v, want equality", got.ExpiresAt, created.ExpiresAt)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -39,8 +40,9 @@ const (
 const shareIDAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
 // shareIDPattern rejects anything but a well-formed id before the store is
-// touched, so malformed reads 404 without becoming a store oracle.
-var shareIDPattern = regexp.MustCompile(`^[A-Za-z0-9]{10}$`)
+// touched, so malformed reads 404 without becoming a store oracle. Built
+// from shareIDLen so the two cannot drift apart.
+var shareIDPattern = regexp.MustCompile(fmt.Sprintf(`^[A-Za-z0-9]{%d}$`, shareIDLen))
 
 // shareStore is the subset of *cloudstore.Repo the share-link endpoints need.
 type shareStore interface {
@@ -162,7 +164,10 @@ func (a *ShareAPI) CreateShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	expiresAt := now.Add(shareLinkTTL)
+	// Truncated to the second: the store keeps second precision, so the
+	// stored/GET value would otherwise differ from this POST value by a
+	// sub-second fraction.
+	expiresAt := now.Add(shareLinkTTL).Truncate(time.Second)
 	var id string
 	for attempt := 0; attempt < 2; attempt++ {
 		id, err = randomShareID()
@@ -200,6 +205,9 @@ func (a *ShareAPI) CreateShare(w http.ResponseWriter, r *http.Request) {
 // Malformed, unknown, and expired ids all 404 alike: the id must not become
 // a validity oracle.
 func (a *ShareAPI) GetShare(w http.ResponseWriter, r *http.Request) {
+	// Every response is uncacheable — including the 404s below (the id is
+	// a capability; even a 404 must not sit in a shared cache).
+	w.Header().Set("Cache-Control", "no-store")
 	id := r.PathValue("id")
 	if id == "" || !shareIDPattern.MatchString(id) {
 		http.Error(w, "share link not found", http.StatusNotFound)
@@ -217,6 +225,5 @@ func (a *ShareAPI) GetShare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, getShareResponse{CT: ct, ExpiresAt: expiresAt})
 }
