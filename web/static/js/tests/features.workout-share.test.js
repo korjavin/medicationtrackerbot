@@ -669,4 +669,36 @@ describe('features/workout/share.js — review regressions (med-uo64.3 round 01)
     expect(window.Barcode.scan).not.toHaveBeenCalled();
     expect(window.apiCall).not.toHaveBeenCalled();
   });
+
+  it('a guard early-return leaves Scan re-tappable (starting stays false, med-uo64.5)', async () => {
+    // Non-secure context: the isSecureContext guard fires before any camera
+    // request. starting must stay false so the second Scan tap re-attempts
+    // (re-renders the hint) instead of hitting the re-entrancy guard inert.
+    const { window, document } = env;
+    stubImport(window);
+    stubReceiveEnv(window);
+    try { Object.defineProperty(window, 'isSecureContext', { value: false, configurable: true }); } catch (_) { window.isSecureContext = false; }
+    window.MediaCapture = { openCameraStream: vi.fn(async () => ({ getTracks: () => [] })) };
+
+    const scanBtn = document.getElementById('workout-share-import-scan-btn');
+    const status = document.getElementById('workout-share-import-status');
+    scanBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(window.MediaCapture.openCameraStream).not.toHaveBeenCalled();
+    expect(window.WorkoutShare._scan.starting).toBe(false);
+    expect(status.textContent).toContain('HTTPS');
+
+    // Clear the hint: only a second tap that passes the re-entrancy guard and
+    // reaches the isSecureContext guard rewrites it. An inert second tap
+    // (e.g. a sticky flag set before the guards) would leave this empty.
+    status.textContent = '';
+    scanBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(window.MediaCapture.openCameraStream).not.toHaveBeenCalled();
+    expect(window.WorkoutShare._scan.starting).toBe(false);
+    expect(status.textContent).toContain('HTTPS');
+    expect(window.apiCall).not.toHaveBeenCalled();
+  });
 });

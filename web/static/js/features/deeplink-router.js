@@ -11,7 +11,7 @@
 // when the user has disabled the section. Default-on when flags haven't
 // loaded yet (matches switchTab behaviour).
 function isDeepLinkFeatureEnabled(tab) {
-    const tabToFeature = { bp: 'bp', weight: 'weight' };
+    const tabToFeature = { bp: 'bp', weight: 'weight', workouts: 'workout' };
     const feature = tabToFeature[tab];
     if (!feature) return true;
     if (!window.featureSettingsLoaded) return true;
@@ -50,6 +50,11 @@ function handleDeepLinks() {
     // same receive() paste/scan use, after the /bp_add settle.
     const sharePlanToken = new URLSearchParams(window.location.hash.slice(1)).get('share-plan');
     if (sharePlanToken) {
+        if (!isDeepLinkFeatureEnabled('workouts')) {
+            window.history.replaceState({}, '', '/');
+            switchTab('today');
+            return;
+        }
         window.history.replaceState({}, '', '/');
         switchTab('workouts');
         setTimeout(() => {
