@@ -15,6 +15,7 @@ import { createFoodDomain } from '../../domain/food.js';
 import { createFoodAIDomain } from '../../domain/foodai.js';
 import { createExerciseTagDomain } from '../../domain/exercisetag.js';
 import { createWorkoutSheetAIDomain } from '../../domain/workoutsheet.js';
+import { createWorkoutShareDomain } from '../../domain/workout-share.js';
 import { createWorkoutDomain } from '../../domain/workout.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
 import { createAnalysis } from '../../domain/analysis.js';
@@ -168,7 +169,7 @@ export function createApiRouter(ctx, {
   let timeZone = deviceTimeZone;
   let bp; let weight; let notes; let settings; let vitals; let reminders;
   let medications; let intake; let tzplan; let foodDb; let food; let aiClient; let exerciseTag;
-  let foodAI; let workout; let workoutSheetAI; let gamification; let narrator; let analysis;
+  let foodAI; let workout; let workoutSheetAI; let workoutShare; let gamification; let narrator; let analysis;
   function buildDomains(tz) {
     timeZone = tz;
     bp = createBPDomain({ records, now, timeZone });
@@ -208,6 +209,7 @@ export function createApiRouter(ctx, {
     // the vault, via the workout domain's own session writes. Same `ai`
     // consent scope as food photos.
     workoutSheetAI = createWorkoutSheetAIDomain({ aiClient, workoutDomain: workout, now });
+    workoutShare = createWorkoutShareDomain({ workoutDomain: workout });
     gamification = createGamificationDomain({
       records, now, timeZone, getRecordsChangeCount: recordsChangeCount,
     });
@@ -870,6 +872,18 @@ export function createApiRouter(ctx, {
       await workout.deleteExercise(intParam(params, 'id', 0));
       scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
+    }
+
+    // Portable plan share (bd med-uo64.1): export/import a whole plan as one
+    // versioned JSON token. Import always creates a NEW group, so it touches
+    // the workout reminder horizon exactly like the hand-created writes above.
+    if (path === '/api/workout/plans/export' && method === 'GET') {
+      return workoutShare.exportPlan(intParam(params, 'id', 0));
+    }
+    if (path === '/api/workout/plans/import' && method === 'POST') {
+      const res = await workoutShare.importPlan(body);
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
     }
 
     // Library-backed lists: no natural row cap, so they get one. The default is
