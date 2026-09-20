@@ -435,7 +435,7 @@ Seal-only forces the immediate reply to be generic: the relay cannot confirm wha
 
 **Commands implemented** (`web/domain/tgcommand.js` parses; the relay never does): `/bp 120 80 [pulse]`, `/weight 81.2`, `/food 200g chicken breast` (natural-language meal — the relay seals the raw text and the AI parse runs client-side at drain with the user's own or the trial key, bd med-eas.29.4), `/note …`, `/intake` (confirms every dose already due), `/workout [name]` (logs a completed ad-hoc workout for today through the shared workout domain — the "I did a workout" log, mirroring how `/bp` logs a reading; the name is an optional label, bd med-eas.29.5). An unknown command is answered too — and note that the *client* composes that refusal, because the relay is forbidden from telling `/bp` from `/bogus`.
 
-**Free text (no command)** is sealed as a `tg_text` event and, at drain, handed to a browser-side OpenAI tool-calling agent (`web/cloud/js/tg-agent.js`, bd med-vcv.2): a two-tool discover-then-call loop (`mcp_help` + `mcp_call`) over the 97-op cloud MCP catalog, running with the user's own key, so the model can log something or read data to answer — one code path with the cloud UI and MCP connector (`createApiRouter` → `createDispatcher`). Every failure (no key, provider error) is answered and **acked, never retried** — the agent may already have written through a tool, and a re-drain would re-run a non-deterministic loop. Under `generic` verbosity the answer is suppressed to a content-free ack, since a free-text reply can contain readings the user asked to keep off Telegram.
+**Free text (no command)** is sealed as a `tg_text` event and, at drain, handed to a browser-side OpenAI tool-calling agent (`web/cloud/js/tg-agent.js`, bd med-vcv.2): a two-tool discover-then-call loop (`mcp_help` + `mcp_call`) over the 103-op cloud MCP catalog, running with the user's own key, so the model can log something or read data to answer — one code path with the cloud UI and MCP connector (`createApiRouter` → `createDispatcher`). Every failure (no key, provider error) is answered and **acked, never retried** — the agent may already have written through a tool, and a re-drain would re-run a non-deterministic loop. Under `generic` verbosity the answer is suppressed to a content-free ack, since a free-text reply can contain readings the user asked to keep off Telegram.
 
 **Idempotency.** Writes use a deterministic `recordId` of `tg-<mailboxEventId>`, so a crash between flush and ack re-applies the event onto the same row instead of logging a second reading (drain rule 2). `/food` yields many rows from one message, so each item is keyed `tg-<mailboxEventId>-<index>`; a re-drain overwrites its own rows rather than appending. `/intake` needs no id — the domain's `PENDING` check is its own guard.
 
@@ -632,10 +632,11 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   and **`workouts.miband.gps`** (cloud vaults carry no GPS tracks — `vaultToRecords` drops
   `workouts.miband[].gps` on import, so the op could only ever return an empty track; see
   [docs/vault-format.md](vault-format.md)). That leaves **97 generated ops, every one of them
-  dispatchable**. The responder then serves **100**: `web/cloud/js/mcp-responder.js` merges
-  `[...GENERATED, ...CLOUD_EXTRA]`, and `mcp-catalog.cloud-extra.js` adds three ops that exist
-  only here (the two composite analyses plus `workouts.progression_preview`). So "97" is the
-  count of the generated file; "100" is what `mcp_help` lists. The same module also applies
+  dispatchable**. The responder then serves **103**: `web/cloud/js/mcp-responder.js` merges
+  `[...GENERATED, ...CLOUD_EXTRA]`, and `mcp-catalog.cloud-extra.js` adds six ops that exist
+  only here (the two composite analyses, `health.brief`, `workouts.progression_preview`, and
+  `workouts.plans.export` / `workouts.plans.import`). So "97" is the
+  count of the generated file; "103" is what `mcp_help` lists. The same module also applies
   `CLOUD_EXTRA_PARAMS` — params the cloud router implements but the shared Go registry must not
   advertise, because the legacy bot handlers ignore them. It is applied as a copy, so no id is
   ever duplicated and the drift-guarded generated module is never mutated in place.
@@ -702,8 +703,8 @@ Claude Desktop ──stdio── cmd/mcpshim ──wss:// ciphertext ──► c
   - Because dispatch routes by path, `apishim.js:678`'s unmapped-route `throw` doubles as the
     coverage assertion: a catalogued op the router cannot serve surfaces as a JSON-RPC `-32603`
     naming the missing `METHOD /path`. The sweep in `web/cloud/js/tests/mcp-responder.test.js`
-    drives **all 97 ops** (63 of them writes, with payloads synthesized from each op's `required`)
-    through the real router and fails naming any op that 404s. A companion test asserts the 35 ops
+    drives **all 103 ops** (64 of them writes, with payloads synthesized from each op's `required`)
+    through the real router and fails naming any op that 404s. A companion test asserts the 41 ops
     carrying a `response_example` return that shape. Do not soften that 404 — it is load-bearing.
   - `food.log.from_description` (AI parse) and `food.products.search` (food DB) reach outside the
     vault. Both reuse C2c's **direct-from-browser** path (the same `foodAI`/`food` instances behind
