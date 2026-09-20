@@ -89,6 +89,7 @@ func testFS() fstest.MapFS {
 	return fstest.MapFS{
 		"index.html":       {Data: []byte("landing page")},
 		"signup.html":      {Data: []byte("account shell")},
+		"share.html":       {Data: []byte(`<body data-page="share-landing">`)},
 		"css/cloud.css":    {Data: []byte("body{}")},
 		"js/cloud-boot.js": {Data: []byte("window.__MEDTRACKER_CLOUD__=true;")},
 	}
@@ -486,4 +487,46 @@ func cspDirective(csp, name string) string {
 		}
 	}
 	return ""
+}
+
+// TestRouter_ShareLanding (med-1yi5): GET /s/{id} on the base domain serves
+// the share landing shell with no-store and the default strict CSP
+// (connect-src 'self', no bare https:). Any id shape serves the page — the
+// page itself reports unknown/expired ids from the API.
+func TestRouter_ShareLanding(t *testing.T) {
+	store := setupStore(t)
+	h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "", false, false)
+
+	for _, path := range []string{"/s/Ab3kZ9xQ2m", "/s/short", "/s/way-too-long-an-id"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Host = "app.example.com"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s status = %d, want 200 (body %q)", path, rec.Code, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), `data-page="share-landing"`) {
+			t.Fatalf("GET %s body = %q, want data-page=\"share-landing\"", path, rec.Body.String())
+		}
+		csp := rec.Header().Get("Content-Security-Policy")
+		if !strings.Contains(csp, "connect-src 'self'") {
+			t.Errorf("GET %s CSP = %q, want connect-src 'self'", path, csp)
+		}
+		if bare := bareSchemeToken(cspDirective(csp, "connect-src")); bare != "" {
+			t.Errorf("GET %s connect-src carries bare %q token", path, bare)
+		}
+		if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
+			t.Errorf("GET %s Cache-Control = %q, want no-store", path, cc)
+		}
+	}
+
+	// With no API mounted, the base-domain /api/s/ forward 404s instead of
+	// serving the shell.
+	req := httptest.NewRequest(http.MethodGet, "/api/s/Ab3kZ9xQ2m", nil)
+	req.Host = "app.example.com"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("GET /api/s/<id> with nil api = %d, want 404", rec.Code)
+	}
 }

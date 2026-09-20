@@ -200,6 +200,17 @@ is immediate; backup removal, where backups exist, is by expiry within 7 days;
 and data already sent to a third party is retained per that party's policy, not
 ours.**
 
+### Time-boxed rows: workout share links
+
+`share_links` rows (blind workout-share short links, `internal/cloudserver/share.go`)
+live **at most 30 days**: each row carries an `expires_at_unix` 30 days past its
+creation, expired rows are swept on the next share-create (no background job —
+the transfer-slot precedent), and every row is removed with the account by
+`DELETE /api/account` like all account-keyed rows. The stored content is
+client-encrypted ciphertext (AES-GCM under a key that never reaches the server)
+the server cannot read — retention here is about ciphertext size plus the
+account that minted it, never plan contents.
+
 ## 5. Subprocessors — who sees what
 
 Every external party sees **only its own small slice**, listed below. **None of

@@ -21,6 +21,8 @@ import (
 	"time"
 
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 //go:embed migrations/*.sql
@@ -47,6 +49,16 @@ const (
 	TransferSlotPending = "pending"
 	TransferSlotClaimed = "claimed"
 )
+
+// ErrShareLinkExists is returned by CreateShareLink when the generated id
+// collides with an existing share_links primary key. The HTTP layer retries
+// once with a fresh id; a second collision is a 500.
+var ErrShareLinkExists = errors.New("cloudstore: share link id already exists")
+
+// ErrShareLinkInvalid is returned by ShareLink when the id is unknown or the
+// link has expired. Callers must not distinguish these cases in responses
+// (both map to 404) — the id is a non-enumerable capability, not an oracle.
+var ErrShareLinkInvalid = errors.New("cloudstore: invalid or expired share link")
 
 // ErrRecoveryInvalid is returned by VerifyRecoveryAttempt when no recovery
 // verifier is set for the account, or the supplied one does not match.
@@ -564,6 +576,7 @@ var accountKeyedTables = []string{
 	"inbox_events",
 	"trial_usage",
 	"feedback_queue",
+	"share_links",
 }
 
 // DeleteAccount removes an account by subdomain (the admin CLI path). Resolves
@@ -966,6 +979,71 @@ func (r *Repo) AddCredentialWithEnvelope(ctx context.Context, sourceCredentialID
 func (r *Repo) SweepExpiredTransferSlots(ctx context.Context, now time.Time) (int, error) {
 	result, err := r.db.ExecContext(ctx,
 		`DELETE FROM transfer_slots WHERE expires_at_unix < ?`, storedb.TimeToUnix(now))
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
+}
+
+// CreateShareLink inserts a blind workout-share link: ct is the plan token
+// encrypted client-side under a key K that never reaches the server, so this
+// row is opaque ciphertext plus routing metadata. A primary-key collision
+// returns the typed ErrShareLinkExists so the caller can retry with a fresh
+// id (med-1yi5).
+func (r *Repo) CreateShareLink(ctx context.Context, id, accountID string, ct []byte, createdAt, expiresAt time.Time) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO share_links (id, account_id, ct, created_at_unix, expires_at_unix) VALUES (?, ?, ?, ?, ?)`,
+		id, accountID, ct, storedb.TimeToUnix(createdAt), storedb.TimeToUnix(expiresAt))
+	if err != nil {
+		var sqlErr *sqlite.Error
+		if errors.As(err, &sqlErr) && (sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT || sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE || sqlErr.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY) {
+			return ErrShareLinkExists
+		}
+		return err
+	}
+	return nil
+}
+
+// ShareLink fetches a share link's ciphertext by capability id. An unknown
+// id and an expired link are indistinguishable — both return
+// ErrShareLinkInvalid — so the id cannot become a validity oracle.
+func (r *Repo) ShareLink(ctx context.Context, id string, now time.Time) (ct []byte, expiresAt time.Time, err error) {
+	var expiresUnix int64
+	err = r.db.QueryRowContext(ctx,
+		`SELECT ct, expires_at_unix FROM share_links WHERE id = ? AND expires_at_unix > ?`,
+		id, storedb.TimeToUnix(now)).Scan(&ct, &expiresUnix)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, time.Time{}, ErrShareLinkInvalid
+	}
+	if err != nil {
+		return nil, time.Time{}, err
+	}
+	return ct, time.Unix(expiresUnix, 0).UTC(), nil
+}
+
+// CountLiveShareLinks counts an account's unexpired links, enforcing the
+// per-account live cap at create time (med-1yi5).
+func (r *Repo) CountLiveShareLinks(ctx context.Context, accountID string, now time.Time) (int, error) {
+	var n int
+	if err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM share_links WHERE account_id = ? AND expires_at_unix > ?`,
+		accountID, storedb.TimeToUnix(now)).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// SweepExpiredShareLinks deletes expired share links, called opportunistically
+// on every share-create rather than from a background job (transfer-slot
+// precedent: link volume is trivial; add a ticker only if that stops being
+// true).
+func (r *Repo) SweepExpiredShareLinks(ctx context.Context, now time.Time) (int, error) {
+	result, err := r.db.ExecContext(ctx,
+		`DELETE FROM share_links WHERE expires_at_unix < ?`, storedb.TimeToUnix(now))
 	if err != nil {
 		return 0, err
 	}
