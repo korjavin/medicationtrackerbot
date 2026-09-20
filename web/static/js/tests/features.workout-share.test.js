@@ -249,3 +249,424 @@ describe('features/workout/share.js — Share icon + modal (med-uo64.2)', () => 
     expect(modal(window).classList.contains('hidden')).toBe(true);
   });
 });
+
+describe('features/workout/share.js — import receive path (med-uo64.3)', () => {
+  let env;
+  let consoleErrorSpy;
+
+  const IMPORT_RES = { id: 42, name: 'Push / Pull', days: 1, exercises: 2, exercises_created: 2, exercises_matched: 0 };
+
+  function stubImport(window, res = IMPORT_RES) {
+    window.apiCall = vi.fn(async (url) => {
+      if (String(url).startsWith('/api/workout/plans/import')) {
+        if (res instanceof Error) throw res;
+        return res;
+      }
+      return null;
+    });
+  }
+
+  // Hermetic receive env: confirm + toast + every post-write refresh target
+  // stubbed (mirrors workout.subtabs' loader stubs). The real
+  // switchWorkoutTab still runs so the Plans-sub-tab persistence is proven.
+  function stubReceiveEnv(window, { confirm = true } = {}) {
+    vi.spyOn(window, 'safeConfirm').mockImplementation(async () => confirm);
+    const toastSpy = vi.fn();
+    window.SyncManager = { showToast: toastSpy };
+    window.WorkoutGroups.load = vi.fn();
+    window.WorkoutGroups.openEdit = vi.fn();
+    window.switchTab = vi.fn();
+    window.loadWorkoutGroups = vi.fn();
+    window.invalidateWorkoutCache = vi.fn(async () => {});
+    return toastSpy;
+  }
+
+  function importModal(document) {
+    return document.getElementById('workout-share-import-modal');
+  }
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    env = loadFrontendEnv({ withWorkout: true });
+    env.window.Telegram.WebApp.showAlert = vi.fn();
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+    try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+    env.cleanup();
+    env = null;
+  });
+
+  it('receive() with a valid token confirms with name/counts, POSTs the decoded payload, refreshes, and opens Edit', async () => {
+    const { window, document } = env;
+    stubImport(window);
+    const toastSpy = stubReceiveEnv(window);
+
+    const token = await window.WorkoutShare.encode(EXPORT);
+    await window.WorkoutShare.receive(token);
+
+    expect(window.safeConfirm).toHaveBeenCalledWith('Import "Push / Pull"? 1 day(s), 2 exercise(s).');
+    expect(window.apiCall).toHaveBeenCalledWith('/api/workout/plans/import', 'POST', EXPORT, { suppressWriteAlert: true });
+    expect(toastSpy).toHaveBeenCalledWith('Added "Push / Pull"', 'info');
+    expect(window.invalidateWorkoutCache).toHaveBeenCalledTimes(1);
+    expect(window.WorkoutGroups.load).toHaveBeenCalledTimes(1);
+    expect(window.switchTab).toHaveBeenCalledWith('workouts');
+    // Real switchWorkoutTab ran: Plans sub-tab persisted + groups reloaded.
+    expect(window.localStorage.getItem('mt-workouts-subtab')).toBe('groups');
+    expect(window.loadWorkoutGroups).toHaveBeenCalled();
+    expect(window.WorkoutGroups.openEdit).toHaveBeenCalledWith(42);
+    // Success closes the import modal.
+    expect(importModal(document).classList.contains('hidden')).toBe(true);
+  });
+
+  it('receive() with garbage toasts and never POSTs', async () => {
+    const { window } = env;
+    stubImport(window);
+    const toastSpy = stubReceiveEnv(window);
+
+    await window.WorkoutShare.receive('hello world');
+
+    expect(toastSpy).toHaveBeenCalledWith("That's not a workout plan link.", 'error');
+    expect(window.safeConfirm).not.toHaveBeenCalled();
+    expect(window.apiCall).not.toHaveBeenCalled();
+    expect(window.WorkoutGroups.openEdit).not.toHaveBeenCalled();
+  });
+
+  it('receive() cancelled at confirm never POSTs', async () => {
+    const { window } = env;
+    stubImport(window);
+    const toastSpy = stubReceiveEnv(window, { confirm: false });
+
+    const token = await window.WorkoutShare.encode(EXPORT);
+    await window.WorkoutShare.receive(token);
+
+    expect(window.safeConfirm).toHaveBeenCalledTimes(1);
+    expect(window.apiCall).not.toHaveBeenCalled();
+    expect(toastSpy).not.toHaveBeenCalled();
+    expect(window.WorkoutGroups.openEdit).not.toHaveBeenCalled();
+  });
+
+  it('receive() with printed-sheet QR text gives the sheet-specific toast, no POST', async () => {
+    const { window } = env;
+    stubImport(window);
+    const toastSpy = stubReceiveEnv(window);
+
+    await window.WorkoutShare.receive('workout-plan:1:7');
+
+    expect(toastSpy).toHaveBeenCalledWith("That's a printed sheet code — use Scan filled sheet.", 'info');
+    expect(window.safeConfirm).not.toHaveBeenCalled();
+    expect(window.apiCall).not.toHaveBeenCalled();
+  });
+
+  it('a 400 from the import route toasts the message and never opens Edit', async () => {
+    const { window } = env;
+    stubImport(window, new Error('plan.days must be an array'));
+    const toastSpy = stubReceiveEnv(window);
+
+    const token = await window.WorkoutShare.encode(EXPORT);
+    await window.WorkoutShare.receive(token);
+
+    expect(toastSpy).toHaveBeenCalledWith('plan.days must be an array', 'error');
+    expect(window.WorkoutGroups.openEdit).not.toHaveBeenCalled();
+  });
+
+  it('a null import result toasts the offline message', async () => {
+    const { window } = env;
+    stubImport(window, null);
+    const toastSpy = stubReceiveEnv(window);
+
+    const token = await window.WorkoutShare.encode(EXPORT);
+    await window.WorkoutShare.receive(token);
+
+    expect(toastSpy).toHaveBeenCalledWith("Couldn't import the plan — try again online.", 'error');
+    expect(window.WorkoutGroups.openEdit).not.toHaveBeenCalled();
+  });
+
+  it('paste-field Import triggers receive with the field value', async () => {
+    const { window, document } = env;
+    stubImport(window);
+    stubReceiveEnv(window);
+
+    const token = await window.WorkoutShare.encode(EXPORT);
+    document.getElementById('workout-share-import-input').value = token;
+    document.getElementById('workout-share-import-submit-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+    await vi.waitFor(() => expect(window.apiCall).toHaveBeenCalledWith(
+      '/api/workout/plans/import', 'POST', EXPORT, { suppressWriteAlert: true }));
+    expect(window.WorkoutGroups.openEdit).toHaveBeenCalledWith(42);
+  });
+
+  it('Scan button live-decodes via window.Barcode, receives the URL, and stops the stream', async () => {
+    const { window, document } = env;
+    stubImport(window);
+    stubReceiveEnv(window);
+    try { Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true }); } catch (_) { window.isSecureContext = true; }
+
+    const token = await window.WorkoutShare.encode(EXPORT);
+    const url = window.WorkoutShare.buildUrl(token);
+    const stopTrack = vi.fn();
+    const stream = { getTracks: () => [{ stop: stopTrack }] };
+    window.MediaCapture = { openCameraStream: vi.fn(async () => stream) };
+    const scanSpy = vi.fn(async () => ({ rawValue: url }));
+    window.Barcode = { scan: scanSpy, supportsLiveScan: () => true };
+    const video = document.getElementById('workout-share-import-video');
+    Object.defineProperty(video, 'readyState', { configurable: true, value: 4 });
+    video.play = vi.fn(async () => {});
+
+    document.getElementById('workout-share-import-scan-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+    await vi.waitFor(() => expect(window.apiCall).toHaveBeenCalledWith(
+      '/api/workout/plans/import', 'POST', EXPORT, { suppressWriteAlert: true }));
+    expect(window.MediaCapture.openCameraStream).toHaveBeenCalledWith({ facingMode: 'environment' });
+    expect(scanSpy).toHaveBeenCalledTimes(1);
+    expect(scanSpy.mock.calls[0][0].source).toBe(video);
+    expect(scanSpy.mock.calls[0][0].formats).toEqual(['qr_code']);
+    expect(window.WorkoutGroups.openEdit).toHaveBeenCalledWith(42);
+    // First decode stops the camera: tracks stopped, state cleared, preview hidden.
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+    expect(window.WorkoutShare._scan.stream).toBeNull();
+    expect(window.WorkoutShare._scan.running).toBe(false);
+    expect(video.classList.contains('hidden')).toBe(true);
+  });
+
+  it('Import plan button opens the modal and clears the field; back closes it and stops the camera', async () => {
+    const { window, document } = env;
+    const modal = importModal(document);
+    expect(modal.classList.contains('hidden')).toBe(true);
+
+    document.getElementById('workout-share-import-input').value = 'stale';
+    document.getElementById('import-workout-plan-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    expect(modal.classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('workout-share-import-input').value).toBe('');
+
+    // A live stream in progress must die with the modal (back gesture).
+    const stopTrack = vi.fn();
+    window.WorkoutShare._scan.stream = { getTracks: () => [{ stop: stopTrack }] };
+    window.WorkoutShare._scan.running = true;
+    expect(window.ModalManager.closeTopMostVisibleModal()).toBe(true);
+    expect(modal.classList.contains('hidden')).toBe(true);
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+    expect(window.WorkoutShare._scan.running).toBe(false);
+    expect(window.WorkoutShare._scan.stream).toBeNull();
+  });
+});
+
+describe('features/workout/share.js — review regressions (med-uo64.3 round 01)', () => {
+  let env;
+  let consoleErrorSpy;
+
+  const IMPORT_RES = { id: 42, name: 'Push / Pull', days: 1, exercises: 2, exercises_created: 2, exercises_matched: 0 };
+
+  function stubImport(window) {
+    window.apiCall = vi.fn(async (url) => {
+      if (String(url).startsWith('/api/workout/plans/import')) return IMPORT_RES;
+      return null;
+    });
+  }
+
+  function stubReceiveEnv(window) {
+    vi.spyOn(window, 'safeConfirm').mockImplementation(async () => true);
+    const toastSpy = vi.fn();
+    window.SyncManager = { showToast: toastSpy };
+    window.WorkoutGroups.openEdit = vi.fn();
+    window.switchTab = vi.fn();
+    window.loadWorkoutGroups = vi.fn();
+    window.invalidateWorkoutCache = vi.fn(async () => {});
+    return toastSpy;
+  }
+
+  function stubCamera(window, document, { rawValue }) {
+    try { Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true }); } catch (_) { window.isSecureContext = true; }
+    window.Barcode = { scan: vi.fn(async () => ({ rawValue })), supportsLiveScan: () => true };
+    const video = document.getElementById('workout-share-import-video');
+    Object.defineProperty(video, 'readyState', { configurable: true, value: 4 });
+    video.play = vi.fn(async () => {});
+    return video;
+  }
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    env = loadFrontendEnv({ withWorkout: true });
+    env.window.Telegram.WebApp.showAlert = vi.fn();
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+    try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+    env.cleanup();
+    env = null;
+  });
+
+  it('openEdit runs only after the Plans reload lands (Edit screen no longer skipped)', async () => {
+    const { window } = env;
+    stubImport(window);
+    stubReceiveEnv(window);
+
+    // A slow reload: if receive() didn't await load(), openEdit would run first.
+    const order = [];
+    window.WorkoutGroups.load = vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      order.push('load');
+    });
+    window.WorkoutGroups.openEdit = vi.fn(() => { order.push('openEdit'); });
+
+    const token = await window.WorkoutShare.encode(EXPORT);
+    await window.WorkoutShare.receive(token);
+
+    expect(order).toEqual(['load', 'openEdit']);
+  });
+
+  it('oversize input is rejected before the gunzip', async () => {
+    const { window } = env;
+    stubImport(window);
+    const toastSpy = stubReceiveEnv(window);
+    // Pins SHARE_IMPORT_MAX_TOKEN_CHARS: 100000 As is over the cap yet
+    // valid base64 length (100000 % 4 == 0), so with the cap deleted decode
+    // would reach gunzipToString and this spy would fire.
+    const gunzipSpy = vi.spyOn(window.BackupCrypto, 'gunzipToString');
+
+    await window.WorkoutShare.receive(`p1.${'A'.repeat(100000)}`);
+
+    expect(toastSpy).toHaveBeenCalledWith("That's not a workout plan link.", 'error');
+    expect(gunzipSpy).not.toHaveBeenCalled();
+    expect(window.apiCall).not.toHaveBeenCalled();
+  });
+
+  it('a second Scan tap while the camera request is in flight opens no second stream', async () => {
+    const { window, document } = env;
+    stubImport(window);
+    stubReceiveEnv(window);
+    const token = await window.WorkoutShare.encode(EXPORT);
+    stubCamera(window, document, { rawValue: window.WorkoutShare.buildUrl(token) });
+
+    let resolveStream;
+    const stopTrack = vi.fn();
+    window.MediaCapture = {
+      openCameraStream: vi.fn(() => new Promise((r) => { resolveStream = r; })),
+    };
+
+    const scanBtn = document.getElementById('workout-share-import-scan-btn');
+    scanBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    scanBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(window.MediaCapture.openCameraStream).toHaveBeenCalledTimes(1);
+
+    resolveStream({ getTracks: () => [{ stop: stopTrack }] });
+    await vi.waitFor(() => expect(window.apiCall).toHaveBeenCalled());
+    expect(window.WorkoutGroups.openEdit).toHaveBeenCalledWith(42);
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+  });
+
+
+  it('a superseded acquire releases its stream instead of hijacking the new scan', async () => {
+    // tap1 (S1 deferred) → cancel → tap2 (S2 deferred) → S1 resolves late.
+    // Without generations S1 lands in tap2's tenure, overwrites st.stream,
+    // and orphans S2's camera (released never, scanning on the wrong stream).
+    const { window, document } = env;
+    stubImport(window);
+    stubReceiveEnv(window);
+    const token = await window.WorkoutShare.encode(EXPORT);
+    stubCamera(window, document, { rawValue: window.WorkoutShare.buildUrl(token) });
+
+    const stopTrack1 = vi.fn();
+    const stopTrack2 = vi.fn();
+    let resolveS1;
+    let resolveS2;
+    window.MediaCapture = {
+      openCameraStream: vi.fn()
+        .mockImplementationOnce(() => new Promise((r) => { resolveS1 = r; }))
+        .mockImplementationOnce(() => new Promise((r) => { resolveS2 = r; })),
+    };
+
+    const scanBtn = document.getElementById('workout-share-import-scan-btn');
+    scanBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await vi.waitFor(() => expect(window.MediaCapture.openCameraStream).toHaveBeenCalledTimes(1));
+    document.getElementById('workout-share-import-cancel-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    scanBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await vi.waitFor(() => expect(window.MediaCapture.openCameraStream).toHaveBeenCalledTimes(2));
+
+    // The stale acquire resolves into the new start's tenure: released.
+    resolveS1({ getTracks: () => [{ stop: stopTrack1 }] });
+    await vi.waitFor(() => expect(stopTrack1).toHaveBeenCalledTimes(1));
+    expect(window.WorkoutShare._scan.stream).toBeNull();
+    expect(window.WorkoutShare._scan.running).toBe(false);
+
+    // The current acquire delivers end to end on its own stream.
+    resolveS2({ getTracks: () => [{ stop: stopTrack2 }] });
+    await vi.waitFor(() => expect(window.apiCall).toHaveBeenCalledWith(
+      '/api/workout/plans/import', 'POST', EXPORT, { suppressWriteAlert: true }));
+    expect(window.WorkoutGroups.openEdit).toHaveBeenCalledWith(42);
+    expect(stopTrack1).toHaveBeenCalledTimes(1);
+  });
+
+  it('closing during preview warm-up releases everything and leaves Scan working', async () => {
+    const { window, document } = env;
+    stubImport(window);
+    stubReceiveEnv(window);
+    const token = await window.WorkoutShare.encode(EXPORT);
+    stubCamera(window, document, { rawValue: window.WorkoutShare.buildUrl(token) });
+
+    const stopTrack = vi.fn();
+    const stream = { getTracks: () => [{ stop: stopTrack }] };
+    window.MediaCapture = { openCameraStream: vi.fn(async () => stream) };
+    const video = document.getElementById('workout-share-import-video');
+    let resolvePlay;
+    video.play = vi.fn(() => new Promise((r) => { resolvePlay = r; }));
+
+    document.getElementById('workout-share-import-scan-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    // Wait for play(), not just the open call: waitFor can pass
+    // synchronously right after the stub is invoked, before the awaiting
+    // continuation assigns the stream and reaches preview warm-up.
+    await vi.waitFor(() => expect(video.play).toHaveBeenCalledTimes(1));
+    // Camera acquired, preview still warming up — Cancel now.
+    document.getElementById('workout-share-import-cancel-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    resolvePlay();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(stopTrack).toHaveBeenCalledTimes(1);
+    expect(window.WorkoutShare._scan.stream).toBeNull();
+    expect(window.WorkoutShare._scan.running).toBe(false);
+    expect(window.Barcode.scan).not.toHaveBeenCalled();
+    expect(window.apiCall).not.toHaveBeenCalled();
+
+    // Not bricked: Scan starts a fresh stream afterwards. The second
+    // decode pends so `running` stays put for the assertion (an instant
+    // decode would stop the loop again before the poll lands).
+    window.Barcode.scan = vi.fn(() => new Promise(() => {}));
+    video.play.mockResolvedValue();
+    document.getElementById('workout-share-import-scan-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await vi.waitFor(() => expect(window.WorkoutShare._scan.running).toBe(true));
+    expect(window.MediaCapture.openCameraStream).toHaveBeenCalledTimes(2);
+    window.WorkoutShare.closeImport();
+  });
+
+  it('closing while the camera request is in flight releases the late stream and never scans', async () => {
+    const { window, document } = env;
+    stubImport(window);
+    stubReceiveEnv(window);
+    const token = await window.WorkoutShare.encode(EXPORT);
+    const video = stubCamera(window, document, { rawValue: window.WorkoutShare.buildUrl(token) });
+    void video;
+
+    let resolveStream;
+    const stopTrack = vi.fn();
+    window.MediaCapture = {
+      openCameraStream: vi.fn(() => new Promise((r) => { resolveStream = r; })),
+    };
+
+    document.getElementById('workout-share-import-scan-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    await Promise.resolve();
+    document.getElementById('workout-share-import-cancel-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+
+    resolveStream({ getTracks: () => [{ stop: stopTrack }] });
+    await vi.waitFor(() => expect(stopTrack).toHaveBeenCalledTimes(1));
+
+    expect(window.WorkoutShare._scan.stream).toBeNull();
+    expect(window.WorkoutShare._scan.running).toBe(false);
+    expect(window.Barcode.scan).not.toHaveBeenCalled();
+    expect(window.apiCall).not.toHaveBeenCalled();
+  });
+});

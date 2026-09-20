@@ -44,6 +44,22 @@ function handleDeepLinks() {
         return;
     }
 
+    // Shared-plan deeplink (bd med-uo64.3): tapping someone's
+    // #share-plan=<token> link lands on our own app. Strip the fragment
+    // FIRST — a reload must never re-import — then hand the token to the
+    // same receive() paste/scan use, after the /bp_add settle.
+    const sharePlanToken = new URLSearchParams(window.location.hash.slice(1)).get('share-plan');
+    if (sharePlanToken) {
+        window.history.replaceState({}, '', '/');
+        switchTab('workouts');
+        setTimeout(() => {
+            if (window.WorkoutShare && typeof window.WorkoutShare.receive === 'function') {
+                window.WorkoutShare.receive(sharePlanToken);
+            }
+        }, 100);
+        return;
+    }
+
     // Query-param-based deep links and push actions
     const urlParams = new URLSearchParams(window.location.search);
     const action = urlParams.get('action');

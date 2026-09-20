@@ -31,7 +31,7 @@ export async function runUnlockFlow() {
       await unwrapWithLdk(cached);
       // The real app (web/static, C1) reads the LDK cache itself via
       // cloud-boot.js — send the browser there instead of the toy menu below.
-      location.href = '/';
+      location.href = unlockSuccessTarget(location.hash);
       return;
     } catch {
       // Cache unreadable/corrupted (e.g. IndexedDB cleared mid-write) — fall
@@ -43,10 +43,17 @@ export async function runUnlockFlow() {
 }
 
 function renderLocked(app, errorText) {
+  // A friend on another subdomain/instance who taps the sender's link lands
+  // here (cold unlock shell) with the plan fragment intact. They still get
+  // the plan via paste: point them at their own app's Import plan. Keep it
+  // to this paragraph + Copy button — no new module (bd med-uo64.3).
+  const carriesSharePlan = forwardableShareFragment(
+    typeof location !== 'undefined' ? location.hash : '') !== '';
   app.innerHTML = `
     <section class="wizard-step">
       <h1>Med Tracker</h1>
       <p>Unlock this device with your passkey to open your vault.</p>
+      ${carriesSharePlan ? '<p>This link carries a shared workout plan. To add it to your own account, open your app and use Workouts → Plans → Import plan, then paste this link.</p><button id="share-plan-copy-button" type="button">Copy link</button>' : ''}
       <button id="unlock-button">Unlock with passkey</button>
       <p><a href="/recover">Recover with your Emergency Kit</a></p>
     </section>`;
@@ -61,6 +68,22 @@ function renderLocked(app, errorText) {
   app.querySelector('#unlock-button').addEventListener('click', () => {
     coldUnlock(app).catch((err) => renderLocked(app, err.message || String(err)));
   });
+  if (carriesSharePlan) {
+    const copyBtn = app.querySelector('#share-plan-copy-button');
+    if (copyBtn) copyBtn.addEventListener('click', async () => {
+      const url = String(typeof location !== 'undefined' ? location.href : '');
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          await navigator.clipboard.writeText(url);
+          copyBtn.textContent = 'Copied';
+        } else {
+          copyBtn.textContent = 'Copy this link by hand';
+        }
+      } catch (_) {
+        copyBtn.textContent = 'Copy this link by hand';
+      }
+    });
+  }
 }
 
 // The cold-unlock ceremony proper: assert a passkey, evaluate PRF, and unwrap
@@ -126,7 +149,7 @@ async function coldUnlock(app) {
   }
   // The real app (web/static, C1) reads the LDK cache itself via
   // cloud-boot.js — send the browser there instead of the toy menu below.
-  location.href = '/';
+  location.href = unlockSuccessTarget(location.hash);
 }
 
 function renderUnlocked(app, ctx) {
@@ -310,4 +333,22 @@ async function clearLdkRecord() {
   } finally {
     db.close();
   }
+}
+
+// Shared-plan fragment forwarding (bd med-uo64.3): only a #share-plan=
+// fragment rides between / and /unlock. Anything else — notably #claim=,
+// which cloud-boot.js routes the other way — must not forward, or the two
+// shells ping-pong the browser forever. Placed at file end (not beside its
+// callers) so the privacy-manifest file:line citations above don't shift.
+// Exported for the unlock test.
+export function forwardableShareFragment(hash) {
+  const h = String(hash === null || hash === undefined ? '' : hash);
+  return /^#share-plan=/.test(h) ? h : '';
+}
+
+// The /unlock → / return leg both success paths share (warm LDK unwrap and
+// cold passkey ceremony). One function so the fragment logic is unit-covered
+// once instead of once per call site.
+export function unlockSuccessTarget(hash) {
+  return '/' + forwardableShareFragment(hash);
 }
