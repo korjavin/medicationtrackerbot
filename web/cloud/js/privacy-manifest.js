@@ -207,6 +207,33 @@ export const PRIVACY_MANIFEST = [
       detail: 'How often your device syncs, the size of each encrypted blob, and your IP address — the same as any sync service sees. None of it is your health content, but it is not nothing either: sync bursts, reminder times and message arrivals sketch your daily routine, and blob sizes hint at how much you record. Treat it as metadata that can be inferred from, not as "no signal".',
     },
   },
+  {
+    // med-1yi5.3: the blind workout-share short link. The plan ciphertext
+    // crosses the operator (stored 30 days, served to whoever opens the
+    // link) but the AES key rides only in the URL fragment, which no server
+    // ever sees — so this is filed as not-a-carve-out with ciphertext
+    // visibility, and the metadata the operator does learn (ciphertext size,
+    // which account minted the link, which IP resolved it and when) is the
+    // docSignal row in the cloud-mode.md leakage summary.
+    id: 'workout-share-link',
+    feature: 'Workout plan share links',
+    boundary: 'not-a-carve-out',
+    data: 'The encrypted workout plan (ciphertext only — the key never leaves the link fragment)',
+    destination: "The operator's share-link store, served back to anyone who opens the link",
+    operatorVisibility: 'ciphertext',
+    retention: '30 days, then deleted (also deleted with the account)',
+    activation: 'user-initiated',
+    activationNote: 'when you tap Share on a workout plan',
+    byo: 'n/a',
+    evidence: ['web/static/js/features/workout/share.js:226', 'internal/cloudserver/share.go:1'],
+    code: { go: ['internal/cloudserver/share.go'], hosts: [] },
+    docSignal: 'Share-link ciphertext size + minting account + resolver IP/time',
+    userCopy: {
+      category: 'visible',
+      title: 'Workout plans you share by link',
+      detail: 'When you share a workout plan by link, the plan is encrypted in your browser under a key that rides only in the link fragment; the operator stores the ciphertext for 30 days and can see that you created a share and when it was opened, never the plan.',
+    },
+  },
 
   // ==========================================================================
   // Operator-trial provider keys — plaintext through the operator, by design.
