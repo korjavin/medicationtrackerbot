@@ -123,6 +123,7 @@ const STATIC_ASSETS = [
     '/static/js/features/workout/next-card.js',
     '/static/js/features/workout/groups.js',
     '/static/js/features/workout/scan.js',
+    '/static/js/features/workout/share.js',
     '/static/js/features/workout/variants.js',
     '/static/js/features/workout/exercises.js',
     '/static/js/features/workout/library.js',

@@ -166,6 +166,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.WorkoutNextCard',           // features/workout/next-card.js — next-workout card public API
     'window.WorkoutModals',             // features/workout/modals.js — namespace mirroring the workout-start push-notification modal flow (showWorkoutStartModal, closeWorkoutStartModal, startWorkoutFromModal, snoozeWorkout, skipWorkout, skipWorkoutFromModal) extracted from app.js (Plan 2026-06-10 finish-app-js-split, Task 4). The bare function names remain the live call path (app.js bindNotificationControls arrow wrappers + handlePushAction); this object documents the public surface.
     'window.WorkoutScan',               // features/workout/scan.js — printed-sheet scan-back public API (scan/confirm/close + buildContext/readList/renderReview test seams, med-qj4.9)
+    'window.WorkoutShare',              // features/workout/share.js — plan-share sender public API (share/encode/decode/buildUrl/close + makeQr/_current test seams, med-uo64.2)
 
     // Food split (2026-05-13: features/food.js → features/food/*.js).
     // Each split file exposes a single public-API namespace on window; the
