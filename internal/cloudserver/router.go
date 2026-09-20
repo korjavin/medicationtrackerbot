@@ -59,7 +59,8 @@ type Handler struct {
 // (domainweb.FS) — the runtime-agnostic BP/weight modules, served under
 // "/domain/" because web/cloud/js/apishim.js imports them from there
 // (../../domain/*.js). api handles "/api/*" requests on the subdomain
-// branch (nil serves 404 for them) — see WebAuthnAPI.Routes. foodDBURL is
+// branch, plus the single unauthenticated /api/s/ prefix forwarded from the
+// base domain (nil serves 404 for both) — see WebAuthnAPI.Routes. foodDBURL is
 // the operator's default FastFoodDB instance (CLOUD_FOOD_DB_URL, cmd/cloud)
 // — a URL, not a secret; "" disables the operator default (remote food
 // search stays local-only until the user sets their own in Settings).
@@ -352,6 +353,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			noStore(w)
 			h.app.ServeHTTP(w, r)
 			return
+		}
+		// Blind workout-share short links (med-1yi5): the read is an
+		// unauthenticated capability, so it carries no account context and
+		// forwarding this ONE prefix from the base branch is safe. Forward
+		// ONLY this prefix, never all of /api/ — any other base-domain /api/
+		// path still falls through to the shell and 404s.
+		if strings.HasPrefix(r.URL.Path, "/api/s/") {
+			if h.api == nil {
+				http.NotFound(w, r)
+				return
+			}
+			h.api.ServeHTTP(w, r)
+			return
+		}
+		// The plain-camera landing page: any id shape serves the shell page
+		// (the page itself reports unknown/expired ids from the API).
+		// Same shape as feedbackReaderPath above.
+		if strings.HasPrefix(r.URL.Path, "/s/") {
+			noStore(w)
+			r.URL.Path = "/share.html"
 		}
 		h.shell.ServeHTTP(w, r)
 		return
