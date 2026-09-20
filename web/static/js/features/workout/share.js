@@ -20,9 +20,12 @@
 // top-level let — see architecture.no-module-state.
 
 // ponytail: phone-to-phone QR scanning past ~v25 is unreliable, and the
-// vendored qrcode.mjs throws past v40 — so past this many token chars the
-// modal hides the QR and leans on copy/share instead of showing a code
-// most cameras can't read.
+// vendored qrcode.mjs throws past v40 — so past this many chars of the full
+// encoded LINK the modal hides the QR and leans on copy/share instead of
+// showing a code most cameras can't read. (The QR always encoded the URL, so
+// the gate measures url.length; in the long-link case the origin plus
+// '/#share-plan=' eats into the budget — a ~1150-char token on a long
+// subdomain already hides it. A short link is ~65 chars and always passes.)
 const SHARE_QR_MAX_CHARS = 1200;
 
 // base64url without a dependency: btoa/atob with the -_ swap and padding
@@ -117,8 +120,9 @@ const SHARE_LINK_AAD = 'mt/v1/share';
 // Any host: the camera/clipboard may deliver the full URL. The id is the
 // server's capability; the 22-char fragment is K (the actual secret).
 const SHARE_LINK_SHORT_RE = /\/s\/([A-Za-z0-9]{10})#([A-Za-z0-9_\-]{22})$/;
-// Never block the modal on the POST.
-const SHARE_LINK_POST_TIMEOUT_MS = 3000;
+// Never block the UI on the short-link round trip: the same bound covers the
+// POST (sender) and the resolve GET (receiver), headers AND body.
+const SHARE_LINK_FETCH_TIMEOUT_MS = 3000;
 // Server rejects decoded ct outside 1..16384 bytes; mirror the cap here so a
 // hostile short link never reaches subtle.decrypt unbounded.
 const SHARE_LINK_MAX_PACKED_BYTES = 16384;
@@ -219,47 +223,60 @@ async function createShortLink(token) {
         const keyBytes = c.getRandomValues(new Uint8Array(16));
         const nonceBytes = c.getRandomValues(new Uint8Array(12));
         const packed = await encryptShareLink(token, keyBytes, nonceBytes);
+        // The timer stays armed across the body read: a 200-headers-then-stall
+        // would otherwise hang the modal past the promised bound (the abort
+        // signal rejects the in-flight res.json() too).
         const ctrl = new AbortController();
-        const timer = setTimeout(() => { try { ctrl.abort(); } catch (_) { /* already settled */ } }, SHARE_LINK_POST_TIMEOUT_MS);
-        let res = null;
+        const timer = setTimeout(() => { try { ctrl.abort(); } catch (_) { /* already settled */ } }, SHARE_LINK_FETCH_TIMEOUT_MS);
         try {
-            res = await fetch('/api/share', {
+            const res = await fetch('/api/share', {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ct: shareLinkB64StdEncode(packed) }),
                 signal: ctrl.signal,
             });
+            if (!res || !res.ok) return null;
+            const body = await res.json().catch(() => null);
+            if (!body || typeof body.url !== 'string' || typeof body.id !== 'string' || !body.url || !body.id) return null;
+            return `${body.url}#${shareTokenB64Encode(keyBytes)}`;
         } finally {
             clearTimeout(timer);
         }
-        if (!res || !res.ok) return null;
-        const body = await res.json().catch(() => null);
-        if (!body || typeof body.url !== 'string' || typeof body.id !== 'string' || !body.url || !body.id) return null;
-        return `${body.url}#${shareTokenB64Encode(keyBytes)}`;
     } catch (_) {
         return null;
     }
 }
 
-// resolveShortLink(id, keyFrag) → { token } | { expired: true } | { failed: true }.
+// resolveShortLink(id, keyFrag) → { token } | { expired: true } | { failed: true } | { invalid: true }.
 // Same-origin GET: the read route is mounted on every host, so connect-src
 // 'self' covers it — never fetch the link's own host (CSP would block it).
-// Never throws; the receiver maps the outcome to exactly one toast.
+// credentials 'omit': the route is unauthenticated by contract (capability =
+// id + fragment K), so the session cookie must not ride along — the Host
+// already tells the operator which account resolved the link, and that is
+// disclosed in the privacy manifest (workout-share-link), not repeated here.
+// { failed } = transport (offline, 429/5xx, stall-abort): retryable, toast
+// says so. { invalid } = reached the server but the payload won't decrypt:
+// not a plan link. Never throws; the receiver maps each outcome to exactly
+// one toast.
 async function resolveShortLink(id, keyFrag) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => { try { ctrl.abort(); } catch (_) { /* already settled */ } }, SHARE_LINK_FETCH_TIMEOUT_MS);
     try {
-        const res = await fetch(`/api/s/${id}`, { cache: 'no-store' });
+        const res = await fetch(`/api/s/${id}`, { cache: 'no-store', credentials: 'omit', signal: ctrl.signal });
         if (!res) return { failed: true };
         if (res.status === 404) return { expired: true };
         if (!res.ok) return { failed: true };
         const body = await res.json().catch(() => null);
         const ct = body && typeof body.ct === 'string' ? body.ct : '';
-        if (!ct) return { failed: true };
+        if (!ct) return { invalid: true };
         const token = await decryptShareLink(keyFrag, ct);
-        if (!token) return { failed: true };
+        if (!token) return { invalid: true };
         return { token };
     } catch (_) {
         return { failed: true };
+    } finally {
+        clearTimeout(timer);
     }
 }
 
@@ -494,6 +511,10 @@ async function receiveSharedPlan(text) {
         const resolved = await resolveShortLink(shortMatch[1], shortMatch[2]);
         if (resolved.expired) {
             safeToast('This short link has expired or belongs to another Med Tracker server — ask for the plan code instead.', 'error');
+            return;
+        }
+        if (resolved.failed) {
+            safeToast("Couldn't reach the server — try again online.", 'error');
             return;
         }
         if (!resolved.token) {

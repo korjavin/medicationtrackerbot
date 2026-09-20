@@ -213,8 +213,11 @@ export const PRIVACY_MANIFEST = [
     // link) but the AES key rides only in the URL fragment, which no server
     // ever sees — so this is filed as not-a-carve-out with ciphertext
     // visibility, and the metadata the operator does learn (ciphertext size,
-    // which account minted the link, which IP resolved it and when) is the
-    // docSignal row in the cloud-mode.md leakage summary.
+    // which account minted the link, which account/IP resolved it and when)
+    // is the docSignal row in the cloud-mode.md leakage summary. The resolve
+    // fetch omits credentials (the route is unauthenticated), but the request
+    // Host still identifies the resolving account — that is disclosed, not
+    // hidden.
     id: 'workout-share-link',
     feature: 'Workout plan share links',
     boundary: 'not-a-carve-out',
@@ -225,13 +228,13 @@ export const PRIVACY_MANIFEST = [
     activation: 'user-initiated',
     activationNote: 'when you tap Share on a workout plan',
     byo: 'n/a',
-    evidence: ['web/static/js/features/workout/share.js:226', 'internal/cloudserver/share.go:1'],
+    evidence: ['web/static/js/features/workout/share.js:232', 'internal/cloudserver/share.go:1'],
     code: { go: ['internal/cloudserver/share.go'], hosts: [] },
-    docSignal: 'Share-link ciphertext size + minting account + resolver IP/time',
+    docSignal: 'Share-link ciphertext size + minting account + resolver account/IP/time',
     userCopy: {
       category: 'visible',
       title: 'Workout plans you share by link',
-      detail: 'When you share a workout plan by link, the plan is encrypted in your browser under a key that rides only in the link fragment; the operator stores the ciphertext for 30 days and can see that you created a share and when it was opened, never the plan.',
+      detail: 'When you share a workout plan by link, the plan is encrypted in your browser under a key that rides only in the link fragment; the operator stores the ciphertext for 30 days and can see that you created a share, never the plan. Opening a link inside the app reaches the operator from your own account address, so the operator can also tell which account opened which share, and when.',
     },
   },
 

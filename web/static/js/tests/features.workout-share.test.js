@@ -827,6 +827,8 @@ describe('features/workout/share.js — blind short link (med-1yi5.3)', () => {
     const shortNote = document.getElementById('workout-share-short-note');
     expect(shortNote.classList.contains('hidden')).toBe(false);
     expect(shortNote.textContent).toBe('Link works for 30 days.');
+    // The foot no longer claims nothing reaches a server: ciphertext does.
+    expect(document.getElementById('workout-share-foot').textContent).toContain('Only encrypted data is stored');
 
     // Copy uses the short url.
     const writeText = vi.fn(async () => {});
@@ -861,6 +863,7 @@ describe('features/workout/share.js — blind short link (med-1yi5.3)', () => {
       expect(await window.WorkoutShare.decode(link.value)).toEqual(EXPORT);
       expect(window.WorkoutShare._current.short).toBe(false);
       expect(document.getElementById('workout-share-short-note').classList.contains('hidden')).toBe(true);
+      expect(document.getElementById('workout-share-foot').textContent).toContain('nothing is sent to a server');
       // The modal still renders the (long-link) QR.
       expect(document.getElementById('workout-share-qr').querySelector('svg')).not.toBeNull();
     }
@@ -917,7 +920,7 @@ describe('features/workout/share.js — blind short link (med-1yi5.3)', () => {
 
     window.fetch = vi.fn(async (url, opts) => {
       expect(String(url)).toBe('/api/s/Ab3kZ9xQ2m');
-      expect(opts).toMatchObject({ cache: 'no-store' });
+      expect(opts).toMatchObject({ cache: 'no-store', credentials: 'omit' });
       return { ok: true, status: 200, json: async () => ({ ct, expires_at: '2026-10-20T00:00:00Z' }) };
     });
 
@@ -959,6 +962,48 @@ describe('features/workout/share.js — blind short link (med-1yi5.3)', () => {
       window.BackupCrypto.gunzipToString = realGunzip;
     }
   });
+
+  it('receive() on transport failure (throw / 500) toasts retry-online and never imports', async () => {
+    const { window } = env;
+    lendWebCrypto(window);
+    const toastSpy = stubReceiveEnv(window);
+    window.apiCall = vi.fn(async () => null);
+
+    for (const fetchImpl of [
+      async () => { throw new Error('offline'); },
+      async () => ({ ok: false, status: 500, json: async () => ({}) }),
+      async () => ({ ok: false, status: 429, json: async () => ({}) }),
+    ]) {
+      toastSpy.mockClear();
+      window.fetch = vi.fn(fetchImpl);
+      await window.WorkoutShare.receive(GOLDEN_SHORT);
+      expect(toastSpy).toHaveBeenCalledWith("Couldn't reach the server — try again online.", 'error');
+      expect(window.safeConfirm).not.toHaveBeenCalled();
+      expect(window.apiCall).not.toHaveBeenCalled();
+      expect(window.WorkoutGroups.openEdit).not.toHaveBeenCalled();
+    }
+  });
+
+  it('a stalled POST body still aborts and the modal opens with the long link', async () => {
+    const { window, document } = env;
+    lendWebCrypto(window);
+    window.__MEDTRACKER_CLOUD__ = true;
+    stubExport(window);
+    stubQr(window);
+    // Headers arrive, the body never does.
+    window.fetch = vi.fn((url, opts) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => new Promise((_, reject) => {
+        opts.signal.addEventListener('abort', () => reject(new Error('aborted')));
+      }),
+    }));
+
+    await window.WorkoutShare.share({ id: 5, name: 'Push / Pull' });
+
+    expect(document.getElementById('workout-share-modal').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('workout-share-link').value.startsWith('https://example.test/#share-plan=p1.')).toBe(true);
+  }, 10000);
 
   it('receive() on a 404 short link toasts expired/other-server and never imports', async () => {
     const { window } = env;
