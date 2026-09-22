@@ -200,6 +200,7 @@
                     <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="groups" aria-pressed="false">Plans</button>
                     <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="exercises" aria-pressed="false">Exercises</button>
                     <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="stats" aria-pressed="false">Stats</button>
+                    <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="equipment" aria-pressed="false">Equipment</button>
                 </div>
             </div>
 
@@ -268,6 +269,24 @@
             <div id="workout-stats-tab" class="workout-tab-content">
                 <div id="workout-stats-display">
                     Loading...
+                </div>
+            </div>
+
+            <!-- Equipment Inventory View (med-niix.3). List + editor for the
+                 fixed/plated equipment inventory; rows rendered by
+                 features/workout/equipment.js into #workout-equipment-list. -->
+            <div id="workout-equipment-tab" class="workout-tab-content">
+                <div class="wg-equipment-header">
+                    <span class="wg-section-label wg-equipment-header__label">Inventory</span>
+                    <button id="add-workout-equipment-btn" type="button"
+                        class="wg-gloss wg-gloss--sun wg-equipment-header__add"
+                        aria-label="Add equipment">
+                        <span class="wg-equipment-header__add-label">+ Add</span>
+                    </button>
+                </div>
+                <div id="workout-equipment-stale-badge" class="wg-section-stale-badge-row hidden"></div>
+                <div id="workout-equipment-list" class="wg-equipment">
+                    Loading equipment...
                 </div>
             </div>
         </div>
@@ -1556,6 +1575,113 @@
         </div>
     </mt-modal>
 
+    <!-- Modal for Workout Equipment (med-niix.3). Fixed / plated editor:
+         name + kind segmented control; fixed gets a comma-separated loads
+         field with a min/max/step generator; plated gets bar kg, sides 1/2,
+         a per-dumbbell pair toggle, and kg x count plate rows. No link to
+         exercises (binding is med-niix.5). -->
+    <mt-modal id="workout-equipment-modal" class="hidden wg-modal wg-equipment-modal">
+        <div class="wg-equipment-modal__header">
+            <div class="wg-equipment-modal__heading">
+                <span class="wg-section-label wg-equipment-modal__eyebrow">Equipment</span>
+                <span class="wg-mono-display wg-equipment-modal__title" id="workout-equipment-modal-title">Add Equipment</span>
+            </div>
+            <div class="wg-equipment-modal__header-actions">
+                <button type="button" id="workout-equipment-cancel-btn"
+                    class="wg-gloss wg-equipment-modal__header-btn">Cancel</button>
+                <button type="button" id="workout-equipment-save-btn"
+                    class="wg-gloss wg-gloss--sun wg-equipment-modal__header-btn wg-equipment-modal__header-btn--save">Save</button>
+            </div>
+        </div>
+
+        <div class="wg-equipment-modal__body">
+            <div class="wg-equipment-modal__field">
+                <label for="workout-equipment-name" class="wg-equipment-modal__label">Name</label>
+                <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
+                    <input type="text" id="workout-equipment-name" class="wg-equipment-modal__input" placeholder="Ohio bar, hex dumbbells…" autocomplete="off">
+                </div>
+            </div>
+
+            <div class="wg-equipment-modal__field">
+                <span class="wg-equipment-modal__label" id="workout-equipment-kind-label">Kind</span>
+                <div class="wg-gloss--inset wg-settings-segmented wg-equipment-modal__segmented"
+                    id="workout-equipment-kind" role="group" aria-labelledby="workout-equipment-kind-label">
+                    <button type="button" class="wg-gloss wg-gloss--sun wg-settings-segmented__btn"
+                        data-kind="fixed" aria-pressed="true">Fixed</button>
+                    <button type="button" class="wg-gloss wg-settings-segmented__btn"
+                        data-kind="plated" aria-pressed="false">Plated</button>
+                </div>
+            </div>
+
+            <div id="workout-equipment-fixed-section">
+                <div class="wg-equipment-modal__field">
+                    <label for="workout-equipment-loads" class="wg-equipment-modal__label">Loads (kg, comma-separated)</label>
+                    <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
+                        <input type="text" id="workout-equipment-loads" class="wg-equipment-modal__input" placeholder="10, 12.5, 15…" autocomplete="off" inputmode="decimal">
+                    </div>
+                </div>
+
+                <div class="wg-equipment-modal__row">
+                    <div class="wg-equipment-modal__field">
+                        <label for="workout-equipment-gen-min" class="wg-equipment-modal__label">Min</label>
+                        <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
+                            <input type="number" id="workout-equipment-gen-min" class="wg-equipment-modal__input" min="0" step="0.25" placeholder="10">
+                        </div>
+                    </div>
+                    <div class="wg-equipment-modal__field">
+                        <label for="workout-equipment-gen-max" class="wg-equipment-modal__label">Max</label>
+                        <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
+                            <input type="number" id="workout-equipment-gen-max" class="wg-equipment-modal__input" min="0" step="0.25" placeholder="30">
+                        </div>
+                    </div>
+                    <div class="wg-equipment-modal__field">
+                        <label for="workout-equipment-gen-step" class="wg-equipment-modal__label">Step</label>
+                        <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
+                            <input type="number" id="workout-equipment-gen-step" class="wg-equipment-modal__input" min="0" step="0.25" placeholder="2.5">
+                        </div>
+                    </div>
+                    <div class="wg-equipment-modal__field wg-equipment-modal__field--action">
+                        <button type="button" id="workout-equipment-gen-fill"
+                            class="wg-gloss wg-equipment-modal__gen-btn">Fill</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="workout-equipment-plated-section" hidden>
+                <div class="wg-equipment-modal__row">
+                    <div class="wg-equipment-modal__field">
+                        <label for="workout-equipment-bar" class="wg-equipment-modal__label">Bar (kg)</label>
+                        <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
+                            <input type="number" id="workout-equipment-bar" class="wg-equipment-modal__input" min="0" step="0.25" placeholder="20">
+                        </div>
+                    </div>
+                    <div class="wg-equipment-modal__field">
+                        <span class="wg-equipment-modal__label" id="workout-equipment-sides-label">Sides</span>
+                        <div class="wg-gloss--inset wg-settings-segmented wg-equipment-modal__segmented"
+                            id="workout-equipment-sides" role="group" aria-labelledby="workout-equipment-sides-label">
+                            <button type="button" class="wg-gloss wg-settings-segmented__btn"
+                                data-sides="1" aria-pressed="false">1</button>
+                            <button type="button" class="wg-gloss wg-gloss--sun wg-settings-segmented__btn"
+                                data-sides="2" aria-pressed="true">2</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="wg-equipment-modal__field wg-equipment-modal__field--check">
+                    <input type="checkbox" id="workout-equipment-pair" class="wg-equipment-modal__check">
+                    <label for="workout-equipment-pair" class="wg-equipment-modal__label">Pair (plate-loaded dumbbells — each plate type usable per implement)</label>
+                </div>
+
+                <div class="wg-equipment-modal__field">
+                    <span class="wg-equipment-modal__label" id="workout-equipment-plates-label">Plates</span>
+                    <div id="workout-equipment-plates" class="wg-equipment-plates" role="group" aria-labelledby="workout-equipment-plates-label"></div>
+                    <button type="button" id="workout-equipment-plate-add"
+                        class="wg-gloss wg-equipment-modal__plate-add">+ Plate</button>
+                </div>
+            </div>
+        </div>
+    </mt-modal>
+
     <!-- Modal for Mi Band Workout Details -->
     <mt-modal id="miband-workout-modal" class="hidden wg-modal wg-workouts-miband-modal">
         <div class="wg-workouts-miband-modal__header">
@@ -2446,6 +2572,7 @@
     <script src="/static/js/features/workout/variants.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/exercises.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/library.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/workout/equipment.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/history.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/miband.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/exercise-catalog.js?v=TIMESTAMP_PLACEHOLDER"></script>

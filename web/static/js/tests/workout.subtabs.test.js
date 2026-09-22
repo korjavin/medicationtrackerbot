@@ -22,6 +22,7 @@ describe('Workouts sub-tab strip (Phase 7, Task 2)', () => {
         env.window.loadWorkoutHistoryTab = () => {};
         env.window.loadExerciseLibrary = () => {};
         env.window.loadWorkoutStatsTab = () => {};
+        env.window.loadWorkoutEquipment = () => {};
     });
 
     afterEach(() => {
@@ -30,16 +31,16 @@ describe('Workouts sub-tab strip (Phase 7, Task 2)', () => {
         env = null;
     });
 
-    it('renders the strip as a .wg-gloss--inset container with four .workout-tab buttons', () => {
+    it('renders the strip as a .wg-gloss--inset container with five .workout-tab buttons', () => {
         const { document } = env;
         const strip = document.querySelector('.wg-workouts-subtabs');
         expect(strip).not.toBeNull();
         expect(strip.classList.contains('wg-gloss--inset')).toBe(true);
 
         const buttons = strip.querySelectorAll('.workout-tab');
-        expect(buttons.length).toBe(4);
+        expect(buttons.length).toBe(5);
         const tabs = Array.from(buttons).map((btn) => btn.dataset.tab);
-        expect(tabs).toEqual(['history', 'groups', 'exercises', 'stats']);
+        expect(tabs).toEqual(['history', 'groups', 'exercises', 'stats', 'equipment']);
 
         buttons.forEach((btn) => {
             expect(btn.classList.contains('wg-gloss')).toBe(true);
@@ -121,6 +122,9 @@ describe('Workouts sub-tab strip (Phase 7, Task 2)', () => {
         window.setActiveWorkoutsSubTab('stats');
         expect(window.getActiveWorkoutsSubTab()).toBe('stats');
 
+        window.setActiveWorkoutsSubTab('equipment');
+        expect(window.getActiveWorkoutsSubTab()).toBe('equipment');
+
         window.setActiveWorkoutsSubTab('history');
         expect(window.getActiveWorkoutsSubTab()).toBe('history');
     });
@@ -150,6 +154,23 @@ describe('Workouts sub-tab strip (Phase 7, Task 2)', () => {
         const exercisesBtn = Array.from(buttons).find((b) => b.dataset.tab === 'exercises');
         expect(exercisesBtn.classList.contains('wg-gloss--sun')).toBe(true);
         expect(exercisesBtn.classList.contains('wg-workouts-subtabs__btn--active')).toBe(true);
+    });
+
+    it('switchWorkoutTab activates the equipment panel and persists it', () => {
+        const { document, window } = env;
+        window.switchWorkoutTab('equipment');
+
+        const equipmentContent = document.getElementById('workout-equipment-tab');
+        expect(equipmentContent).not.toBeNull();
+        expect(equipmentContent.classList.contains('active')).toBe(true);
+
+        const historyContent = document.getElementById('workout-history-tab');
+        expect(historyContent.classList.contains('active')).toBe(false);
+
+        const equipmentBtn = document.querySelector('.workout-tab[data-tab="equipment"]');
+        expect(equipmentBtn.classList.contains('wg-gloss--sun')).toBe(true);
+        expect(equipmentBtn.getAttribute('aria-pressed')).toBe('true');
+        expect(window.localStorage.getItem('mt-workouts-subtab')).toBe('equipment');
     });
 
     it('loadWorkouts honors the persisted sub-tab instead of always reverting to history', () => {

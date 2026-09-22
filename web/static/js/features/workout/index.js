@@ -32,12 +32,12 @@ async function invalidateWorkoutCache() {
 // TAB SWITCHING
 // ====================================
 
-// Sub-tab state (Phase 7, Task 2). Mirrors the `mt-meds-subtab` /
-// `mt-food-subtab` pattern — one of four values (`history`, `groups`,
-// `exercises`, `stats`), persisted to localStorage so the user's choice
-// survives reload. Default is `history`.
+// Sub-tab state (Phase 7, Task 2; med-niix.3 adds `equipment`). Mirrors the
+// `mt-meds-subtab` / `mt-food-subtab` pattern — one of five values
+// (`history`, `groups`, `exercises`, `stats`, `equipment`), persisted to
+// localStorage so the user's choice survives reload. Default is `history`.
 const WORKOUTS_SUBTAB_STORAGE_KEY = 'mt-workouts-subtab';
-const WORKOUTS_SUBTAB_OPTIONS = ['history', 'groups', 'exercises', 'stats'];
+const WORKOUTS_SUBTAB_OPTIONS = ['history', 'groups', 'exercises', 'stats', 'equipment'];
 const WORKOUTS_SUBTAB_DEFAULT = 'history';
 
 function getActiveWorkoutsSubTab() {
@@ -90,6 +90,7 @@ function switchWorkoutTab(tab) {
     else if (tab === 'history') { loadNextWorkout(); loadWorkoutHistoryTab(); }
     else if (tab === 'exercises') { loadExerciseLibrary(); }
     else if (tab === 'stats') { loadWorkoutStatsTab(); }
+    else if (tab === 'equipment') { loadWorkoutEquipment(); }
 }
 
 window.TabController.bindTabGroup({
