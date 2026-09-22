@@ -1123,7 +1123,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       default_weight_kg: numOrNull(input && input.default_weight_kg),
       notes: (input && input.notes) || '',
       body_part: ((input && input.body_part) || '').trim(),
-      equipment_id: numOrNull(input && input.equipment_id, true),
+      // A payload that OMITS the key (e.g. the MCP exercise_library.update
+      // op, whose schema declares no equipment_id) preserves the stored
+      // binding; only an explicit null clears it. Mirrors progression_rule
+      // on updateExercise — and keeps a failed inventory read (which omits
+      // the key, see library.js) from silently unbinding.
+      equipment_id: (input && 'equipment_id' in input)
+        ? numOrNull(input.equipment_id, true)
+        : item.equipment_id ?? null,
       clientTs: nowMs,
       updated_at: new Date(nowMs).toISOString(),
     });

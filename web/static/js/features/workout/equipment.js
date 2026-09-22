@@ -91,8 +91,9 @@ async function loadWorkoutEquipment() {
 // med-niix.5: shared inventory read for the library-editor Equipment
 // <select> and the plan-modal hint — the same cachedFetch key/URL/options as
 // the list render above, so consumers reuse this read instead of adding a
-// second fetch path. Never throws: offline or failure means an empty list
-// (the select keeps "None"; the hint stays hidden).
+// second fetch path. Throws on failure (offline / network): the select must
+// distinguish "inventory failed to load" from "no equipment" so a failed read
+// can never silently unbind on the next save; the hint catches and hides.
 async function getWorkoutEquipmentList() {
     try {
         if (typeof window.cachedFetch === 'function') {
@@ -111,7 +112,7 @@ async function getWorkoutEquipmentList() {
         return items;
     } catch (e) {
         window.WorkoutEdit.cachedEquipment = [];
-        return [];
+        throw e;
     }
 }
 

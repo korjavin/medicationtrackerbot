@@ -157,7 +157,12 @@ function bindGoalCascade() {
     const nameEl = document.getElementById('workout-exercise-name');
     // `onchange`, not `oninput`: the picker already owns `oninput` for its
     // suggestion list, and one read per finished name beats one per keystroke.
-    if (nameEl) nameEl.onchange = () => applyWeightSuggestion(effectiveExerciseGoal());
+    // Returns a promise settling both refreshes, so awaiting callers (and
+    // tests) observe the settled form.
+    if (nameEl) nameEl.onchange = () => Promise.all([
+        applyWeightSuggestion(effectiveExerciseGoal()),
+        _refreshExerciseEquipmentHintForName(nameEl.value),
+    ]);
 }
 
 async function loadExercisesForVariant(variantId, containerId = 'workout-exercises-list') {
@@ -279,7 +284,14 @@ async function resolveVariantForExercise() {
 // (or dangling — equipment deleted, no cascade write) resolves to nothing and
 // the hint stays hidden. The step is the API's min_step_kg verbatim, never
 // recomputed here. Never throws: a failed read leaves the hint hidden.
-async function _renderExerciseEquipmentHint(libraryId) {
+let _equipmentHintSeq = 0; // module-state: ticket for the in-flight equipment hint so a superseded read cannot write
+async function _renderExerciseEquipmentHint(libraryId, ticket = null) {
+    // A newer call wins: picks and renames can overlap reads, and without
+    // this an earlier response landing later would paint its binding next to
+    // a name it no longer belongs to (same rule as _weightSuggestionSeq).
+    // The rename path passes its own entry ticket so ordering holds across
+    // its lookup fetch too.
+    if (ticket === null) ticket = ++_equipmentHintSeq;
     try {
         const hintEl = document.getElementById('workout-exercise-equipment-hint');
         if (!hintEl) return;
@@ -287,6 +299,7 @@ async function _renderExerciseEquipmentHint(libraryId) {
         hintEl.hidden = true;
         if (libraryId == null || libraryId === '') return;
         const items = await apiCall('/api/workout/exercise-library');
+        if (ticket !== _equipmentHintSeq) return; // superseded
         const lib = (Array.isArray(items) ? items : []).find((i) => i && i.id === libraryId) || null;
         const equipmentId = lib && lib.equipment_id;
         if (equipmentId == null || equipmentId === '') return;
@@ -297,6 +310,7 @@ async function _renderExerciseEquipmentHint(libraryId) {
             const raw = await apiCall('/api/workout/equipment', 'GET');
             if (Array.isArray(raw)) inv = raw;
         }
+        if (ticket !== _equipmentHintSeq) return; // superseded
         const eq = inv.find((e) => e && e.id === equipmentId) || null;
         if (!eq) return; // dangling FK reads as unbound
         hintEl.textContent = eq.min_step_kg != null
@@ -304,6 +318,27 @@ async function _renderExerciseEquipmentHint(libraryId) {
             : `Equipment: ${eq.name}`;
         hintEl.hidden = false;
     } catch (_) { /* hint stays hidden */ }
+}
+
+// A hand-typed rename (no picker pick, so no change event and no onPick)
+// re-resolves the hint against the library row for the new name — the binding
+// follows the row, and the row follows the name on save. Unknown name clears.
+async function _refreshExerciseEquipmentHintForName(name) {
+    const ticket = ++_equipmentHintSeq;
+    const clean = (name || '').trim().toLowerCase();
+    if (!clean) {
+        await _renderExerciseEquipmentHint(null, ticket);
+        return;
+    }
+    let libId = null;
+    try {
+        const items = await apiCall('/api/workout/exercise-library');
+        if (ticket !== _equipmentHintSeq) return; // superseded
+        const lib = (Array.isArray(items) ? items : []).find(
+            (i) => String(i && i.name || '').trim().toLowerCase() === clean) || null;
+        libId = lib ? lib.id : null;
+    } catch (_) { return; } // failed lookup leaves the current hint alone
+    await _renderExerciseEquipmentHint(libId, ticket);
 }
 
 async function showAddExerciseModal() {
@@ -379,6 +414,13 @@ async function showAddExerciseModalFromGroup() {
 
 async function showEditExerciseModal(exerciseId) {
     window.WorkoutEdit.editingExerciseId = exerciseId;
+    // Clear synchronously, before the first await: the modal is shared, and
+    // the resolve below awaits the weight suggestion's network read first.
+    const staleHint = document.getElementById('workout-exercise-equipment-hint');
+    if (staleHint) {
+        staleHint.textContent = '';
+        staleHint.hidden = true;
+    }
 
     const exercises = await apiCall(`/api/workout/exercises?variant_id=${window.WorkoutEdit.variantForExercise}`);
     const exercise = exercises && exercises.find(e => e.id === exerciseId);

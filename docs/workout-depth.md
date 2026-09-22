@@ -420,6 +420,9 @@ the plan-exercise modal (`#workout-exercise-modal`) shows a read-only hint
 recomputed client-side) resolved via the row's `exercise_library_id` —
 nothing for unbound, no select there.
 
-**MCP**: the Go registry is untouched — `equipment_id` is cloud-only, so no
-registry op carries it; agent access to the inventory stays on the
-med-niix.4 `workouts.equipment.*` ops.
+**MCP**: the Go registry is untouched — no write op takes `equipment_id`
+(validation ignores extra fields, so agents cannot set the binding; it stays
+UI-only). The cloud list response does carry it on library rows (read side of
+the same `toLibraryResponse`), and an update body that omits the key preserves
+the stored binding rather than clearing it. Agent access to the inventory
+itself stays on the med-niix.4 `workouts.equipment.*` ops.

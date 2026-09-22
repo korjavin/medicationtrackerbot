@@ -317,10 +317,25 @@ async function _syncEquipmentSelect(currentId) {
     const select = document.getElementById('exercise-library-equipment');
     if (!select) return;
     // Build options against the select's own document: the inventory read
-    // above is async, and a fire-and-forget modal open (or a torn-down test
+    // below is async, and a fire-and-forget modal open (or a torn-down test
     // env) must never resolve bare `document` after it is gone.
     const doc = select.ownerDocument;
-    let items = [];
+    if (!doc || typeof doc.createElement !== 'function') return;
+    // Reset synchronously FIRST: every opener is fire-and-forget from a click
+    // handler, so the previous open's options/selection must not survive
+    // until the read lands — saving inside that window would bind equipment
+    // the user never chose. dataset.loaded tracks whether the options below
+    // are a real inventory read; the save omits equipment_id when it is not,
+    // and updateLibraryItem preserves the stored binding on an omitted key —
+    // so a failed/offline read can never silently unbind.
+    select.replaceChildren();
+    const none = doc.createElement('option');
+    none.value = '';
+    none.textContent = 'None';
+    select.appendChild(none);
+    select.value = '';
+    select.dataset.loaded = 'false';
+    let items = null;
     try {
         if (window.WorkoutEquipment && typeof window.WorkoutEquipment.list === 'function') {
             items = await window.WorkoutEquipment.list();
@@ -329,14 +344,9 @@ async function _syncEquipmentSelect(currentId) {
             if (Array.isArray(raw)) items = raw;
         }
     } catch (e) {
-        items = []; // offline / failure: "None" alone, the save still works
+        items = null; // offline / failure: "None" alone, the save preserves
     }
-    if (!doc || typeof doc.createElement !== 'function') return;
-    select.replaceChildren();
-    const none = doc.createElement('option');
-    none.value = '';
-    none.textContent = 'None';
-    select.appendChild(none);
+    if (!Array.isArray(items)) return;
     for (const item of items) {
         if (!item || item.id == null) continue;
         const opt = doc.createElement('option');
@@ -344,6 +354,7 @@ async function _syncEquipmentSelect(currentId) {
         opt.textContent = item.name || `Equipment ${item.id}`;
         select.appendChild(opt);
     }
+    select.dataset.loaded = 'true';
     select.value = currentId != null && currentId !== '' ? String(currentId) : '';
 }
 
@@ -423,8 +434,11 @@ async function saveExerciseLibraryItem() {
     const bodyPartEl = document.getElementById('exercise-library-body-part');
     const bodyPart = bodyPartEl ? bodyPartEl.value : '';
     const equipmentEl = document.getElementById('exercise-library-equipment');
-    const equipmentRaw = equipmentEl ? equipmentEl.value : '';
-    const equipmentId = equipmentRaw !== '' ? Number(equipmentRaw) : null;
+    // The key rides the same payload only when the select holds a real
+    // inventory read. Otherwise it is omitted and updateLibraryItem preserves
+    // the stored binding (see _syncEquipmentSelect).
+    const equipmentLoaded = !!equipmentEl && equipmentEl.dataset.loaded === 'true';
+    const equipmentRaw = equipmentLoaded ? equipmentEl.value : null;
 
     if (!name) {
         safeAlert('Exercise name is required!');
@@ -438,9 +452,9 @@ async function saveExerciseLibraryItem() {
         default_reps_max: repsMax,
         default_weight_kg: weight,
         notes: notes,
-        body_part: bodyPart,
-        equipment_id: equipmentId
+        body_part: bodyPart
     };
+    if (equipmentRaw !== null) payload.equipment_id = equipmentRaw !== '' ? Number(equipmentRaw) : null;
 
     let result;
     const isCreate = !window.WorkoutEdit.editingLibraryItemId;

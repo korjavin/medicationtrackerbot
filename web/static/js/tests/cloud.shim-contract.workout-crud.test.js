@@ -357,6 +357,21 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
         expect(row.equipment_id).toBe(bar.id);
     });
 
+    // med-niix.5: an update body WITHOUT the key (e.g. the MCP
+    // exercise_library.update op, whose schema declares no equipment_id)
+    // preserves the stored binding; only an explicit null clears it.
+    it('library update without equipment_id preserves the stored binding', async () => {
+        const { window } = env;
+        const bound = await window.apiCall('/api/workout/exercise-library/create', 'POST', {
+            name: 'Bench Press', default_sets: 3, default_reps_min: 8, equipment_id: 50
+        });
+        await window.apiCall(`/api/workout/exercise-library/update?id=${bound.id}`, 'PUT', {
+            name: 'Bench Press', default_sets: 5, default_reps_min: 8
+        });
+        const list = await window.apiCall('/api/workout/exercise-library');
+        expect(list.find((i) => i.id === bound.id).equipment_id).toBe(50);
+    });
+
     it('exercise library create/list/update/delete round-trips with name-uniqueness enforced', async () => {
         const { window } = env;
         const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', {

@@ -813,6 +813,65 @@ describe('features/workout/library.js — split-file integration', () => {
         expect.objectContaining({ equipment_id: null })
       );
     });
+
+    it('a failed inventory read leaves None alone and the save omits the key (no silent unbind)', async () => {
+      const { window, document } = env;
+      window.WorkoutEquipment.list = vi.fn(async () => { throw new Error('offline'); });
+      window.loadExerciseLibrary = vi.fn();
+      const calls = [];
+      window.apiCall = vi.fn(async (url, method, body) => {
+        calls.push([url, body]);
+        return { id: 7 };
+      });
+
+      // Edit a bound row while the inventory fails: the select cannot offer
+      // the binding, so it shows None — but the save must not clear it.
+      window.apiCall = vi.fn(async (url, method, body) => {
+        if (String(url) === '/api/workout/exercise-library') {
+          return [{ id: 7, name: 'Bench Press', default_sets: 3, default_reps_min: 8, equipment_id: 50 }];
+        }
+        calls.push([url, body]);
+        return { id: 7 };
+      });
+      await window.showEditExerciseLibraryModal(7);
+
+      const select = document.getElementById('exercise-library-equipment');
+      expect(select.value).toBe('');
+      expect(select.dataset.loaded).toBe('false');
+
+      await window.saveExerciseLibraryItem();
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0][0]).toBe('/api/workout/exercise-library/update?id=7');
+      expect('equipment_id' in calls[0][1]).toBe(false);
+    });
+
+    it('Add resets the select synchronously, before the inventory read lands', async () => {
+      const { window, document } = env;
+      let release;
+      const gate = new Promise((resolve) => { release = resolve; });
+      window.WorkoutEquipment.list = vi.fn(async () => {
+        await gate;
+        return INVENTORY;
+      });
+      window.apiCall = vi.fn(async () => ([
+        { id: 7, name: 'Bench Press', default_sets: 3, default_reps_min: 8, equipment_id: 50 },
+      ]));
+
+      const editing = window.showEditExerciseLibraryModal(7);
+      release();
+      await editing;
+      expect(document.getElementById('exercise-library-equipment').value).toBe('50');
+
+      // A second open for Add: the stale '50' must be gone synchronously,
+      // even though the new inventory read has not resolved.
+      const pending = window.showExerciseLibraryModal();
+      const select = document.getElementById('exercise-library-equipment');
+      expect(select.value).toBe('');
+      expect(Array.from(select.options).map((o) => o.value)).toEqual(['']);
+      await pending;
+      expect(select.value).toBe('');
+    });
   });
 
 });
