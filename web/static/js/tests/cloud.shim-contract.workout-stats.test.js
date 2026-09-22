@@ -919,6 +919,124 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             expect(s.last.effort).toBe('RPE 9 · 1 RIR');
             expect(s.last.effort).toBe(row.effort);
         });
+
+        // med-niix.2 — a bound exercise previews (and suggests) the snapped
+        // load, with the equipment and the raw→snapped mapping riding along so
+        // a proposal that differs from logged+increment explains itself.
+        it('preview carries equipment+snap for a bound exercise and the suggestion agrees', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            const group = await window.apiCall('/api/workout/groups/create', 'POST', {
+                name: 'Legs', training_goal: 'strength',
+            });
+            const variant = await window.apiCall('/api/workout/variants/create', 'POST', {
+                group_id: group.id, name: 'A',
+            });
+            const exercise = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variant.id, exercise_name: 'Squat', target_sets: 3,
+                target_reps_min: 5, target_reps_max: 6,
+                progression_rule: { type: 'linear', increment_kg: 2.5 },
+            });
+            const eq = await window.apiCall('/api/workout/equipment', 'POST', {
+                kind: 'plated', name: 'Ohio bar', bar_kg: 20, sides: 2,
+                plates: [{ kg: 20, count: 2 }, { kg: 10, count: 2 }],
+            });
+            const lib = (await window.apiCall('/api/workout/exercise-library')).find((l) => l.name === 'Squat');
+            await window.apiCall(`/api/workout/exercise-library/update?id=${lib.id}`, 'PUT', { ...lib, equipment_id: eq.id });
+
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: exercise.id, exercise_name: 'Squat',
+                source: 'schedule', status: 'completed',
+                sets: [0, 1, 2].map((set_index) => ({ set_index, weight_kg: 60, reps: 6, set_type: 'normal' })),
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+            const preview = await window.apiCallDirect('/api/workout/progression-preview');
+            const row = preview.exercises.find((e) => e.exercise_name === 'Squat');
+            expect(row.proposed.target_weight_kg).toBe(80);
+            expect(row.equipment).toMatchObject({ id: eq.id, name: 'Ohio bar', min_step_kg: 20 });
+            expect(row.snap).toEqual({ raw_kg: 62.5, snapped_kg: 80, reason: null });
+
+            // Strength seeds the same linear preset + default step the plan
+            // carries, so the suggestion must land on the same snapped load.
+            const sug = await window.apiCallDirect(
+                '/api/workout/exercises/suggest-target?name=Squat&goal=strength');
+            expect(sug.target_weight_kg).toBe(80);
+            expect(sug.equipment).toMatchObject({ id: eq.id, name: 'Ohio bar', min_step_kg: 20 });
+            expect(sug.snap).toEqual({ raw_kg: 62.5, snapped_kg: 80, reason: null });
+        });
+
+        it('at max the preview holds the weight with snap.reason at_max and the suggestion agrees', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            const group = await window.apiCall('/api/workout/groups/create', 'POST', {
+                name: 'Push', training_goal: 'hypertrophy',
+            });
+            const variant = await window.apiCall('/api/workout/variants/create', 'POST', {
+                group_id: group.id, name: 'A',
+            });
+            const exercise = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variant.id, exercise_name: 'Curl', target_sets: 3,
+                target_reps_min: 8, target_reps_max: 12,
+                progression_rule: { type: 'double', increment_kg: 2.5, min_reps: 8, max_reps: 12 },
+            });
+            const eq = await window.apiCall('/api/workout/equipment', 'POST', {
+                kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16],
+            });
+            const lib = (await window.apiCall('/api/workout/exercise-library')).find((l) => l.name === 'Curl');
+            await window.apiCall(`/api/workout/exercise-library/update?id=${lib.id}`, 'PUT', { ...lib, equipment_id: eq.id });
+
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: exercise.id, exercise_name: 'Curl',
+                source: 'schedule', status: 'completed',
+                sets: [0, 1, 2].map((set_index) => ({ set_index, weight_kg: 16, reps: 12, set_type: 'normal' })),
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+            const preview = await window.apiCallDirect('/api/workout/progression-preview');
+            const row = preview.exercises.find((e) => e.exercise_name === 'Curl');
+            expect(row.proposed.target_weight_kg).toBe(16);
+            expect(row.equipment).toMatchObject({ id: eq.id, name: 'Hex DBs', min_step_kg: 2 });
+            expect(row.snap).toEqual({ raw_kg: 18.5, snapped_kg: 16, reason: 'at_max' });
+
+            const sug = await window.apiCallDirect(
+                '/api/workout/exercises/suggest-target?name=Curl&goal=hypertrophy');
+            expect(sug.target_weight_kg).toBe(16);
+            expect(sug.equipment).toMatchObject({ id: eq.id, name: 'Hex DBs', min_step_kg: 2 });
+            expect(sug.snap).toEqual({ raw_kg: 18.5, snapped_kg: 16, reason: 'at_max' });
+        });
+
+        it('unbound preview entries carry null equipment and a pass-through snap', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            const group = await window.apiCall('/api/workout/groups/create', 'POST', {
+                name: 'Legs', training_goal: 'strength',
+            });
+            const variant = await window.apiCall('/api/workout/variants/create', 'POST', {
+                group_id: group.id, name: 'A',
+            });
+            const exercise = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variant.id, exercise_name: 'Squat', target_sets: 3,
+                target_reps_min: 5, target_reps_max: 6,
+                progression_rule: { type: 'linear', increment_kg: 2.5 },
+            });
+
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: exercise.id, exercise_name: 'Squat',
+                source: 'schedule', status: 'completed',
+                sets: [0, 1, 2].map((set_index) => ({ set_index, weight_kg: 60, reps: 6, set_type: 'normal' })),
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+            const preview = await window.apiCallDirect('/api/workout/progression-preview');
+            const row = preview.exercises.find((e) => e.exercise_name === 'Squat');
+            expect(row.proposed.target_weight_kg).toBe(62.5);
+            expect(row.equipment).toBeNull();
+            expect(row.snap).toEqual({ raw_kg: 62.5, snapped_kg: 62.5, reason: null });
+        });
     });
 
     it('mi-band list respects limit, patch applies diff-semantics over six fields, delete tombstones', async () => {

@@ -32,6 +32,12 @@
 // (`id > 0`, `-1` ad-hoc) — revisit if a future migration wants stable ids
 // instead of timestamp-derived ones.
 
+// med-niix.2: progression snaps the load bump to the bound equipment's
+// achievable rungs. equipment.js imports workout.js's id helpers back, so this
+// is an ESM cycle — safe because both modules export hoisted function
+// declarations and only touch the imports inside function bodies, never at
+// module top-level.
+import { achievableLoads, snapLoad, minStep, EQUIPMENT_RECORD_TYPE } from './equipment.js';
 import { localDateParts, localWallToUtcMs } from './medschedule.js';
 import { formatHHMM } from './reminders.js';
 import {
@@ -562,6 +568,22 @@ function mirrorPatch(exercise, sets, reps, weight) {
   };
 }
 
+// snapBump (med-niix.2) maps the classic `weightBase + increment_kg` proposal
+// onto the bound equipment's achievable rungs. `loads` is null (or empty)
+// when the exercise is unbound — the classic value passes through untouched,
+// so the no-equipment path is byte-identical. Otherwise the winner is
+// snapLoad's nearest rung strictly above the logged weight to
+// logged+increment (tie → lower); null (already at max) holds the logged
+// weight with reason 'at_max' — the caller still applies its rep rule, so a
+// maxed-out double progression resets reps at the same load.
+function snapBump(loads, weightBase, increment) {
+  const raw = weightBase + increment;
+  if (!Array.isArray(loads) || loads.length === 0) return { raw_kg: raw, snapped_kg: raw, reason: null };
+  const snapped = snapLoad(loads, weightBase, increment);
+  if (snapped === null) return { raw_kg: raw, snapped_kg: weightBase, reason: 'at_max' };
+  return { raw_kg: raw, snapped_kg: snapped, reason: null };
+}
+
 // progressionPatch computes the plan-target delta for a completed log under the
 // exercise's opt-in progression rule (Phase 4, med-qj4.4.1). Returns a partial
 // patch merged over the existing record; {} means "leave the plan unchanged"
@@ -575,9 +597,22 @@ function mirrorPatch(exercise, sets, reps, weight) {
 // in any target the user left unset. The LOAD BUMP itself is not effort-gated —
 // hitting the rep target is enough. Nothing here changes for an exercise without
 // an opt-in rule, and nothing changes for a log that carries no RPE.
-function progressionPatch(exercise, sets, reps, weight, perSet, goal) {
+// `loads` (med-niix.2) is the bound equipment's achievable rungs, resolved ONCE
+// per propagate/preview/suggest pass via the exercise's library row
+// equipment_id — null when unbound, and the load bump passes through
+// untouched. Returns { patch, snap }: the plan delta plus the load proposal's
+// snap detail for preview/suggest entries — raw_kg is the classic
+// logged+increment where the bump fires (the held weight where it doesn't,
+// null with no logged-weight anchor or under mirrorPatch, which never snaps),
+// snapped_kg the proposed weight after snapping (null when the patch proposes
+// none), reason 'at_max' only when bound and already on the top rung.
+function progressionPatch(exercise, sets, reps, weight, perSet, goal, loads) {
   const rule = exercise.progression_rule;
-  if (!rule || rule.type === 'none') return mirrorPatch(exercise, sets, reps, weight);
+  // mirrorPatch untouched (med-niix.2): none/absent rules never snap.
+  if (!rule || rule.type === 'none') {
+    const patch = mirrorPatch(exercise, sets, reps, weight);
+    return { patch, snap: { raw_kg: null, snapped_kg: patch.target_weight_kg ?? null, reason: null } };
+  }
   const stats = workSetStats(sets, reps, perSet);
   const setsOk = stats && (!hasValue(exercise.target_sets) || stats.count >= exercise.target_sets);
   if (!setsOk) return {};
@@ -599,6 +634,16 @@ function progressionPatch(exercise, sets, reps, weight, perSet, goal) {
   // and a later edit no longer does, returning {} would leave that un-earned
   // bump stuck on the plan with no recovery path. No anchor → hold as-is.
   const hold = () => (hasValue(weightBase) ? { target_weight_kg: weightBase } : {});
+  // `bump` records the snap mapping where the load bump fires; finish pairs
+  // every patch with its snap detail so propagate (which only reads .patch)
+  // stays byte-identical while preview/suggest can explain the proposal.
+  let bump = null;
+  const finish = (patch) => ({
+    patch,
+    snap: bump
+      ? { raw_kg: bump.raw_kg, snapped_kg: bump.snapped_kg, reason: bump.reason }
+      : { raw_kg: weightBase, snapped_kg: patch.target_weight_kg ?? null, reason: null },
+  });
 
   // Goal-differentiated preset parameters (med-qj4.6.3). The band FILLS IN only
   // where the user left a rep target unset: an explicit target on the exercise
@@ -617,9 +662,10 @@ function progressionPatch(exercise, sets, reps, weight, perSet, goal) {
   if (rule.type === 'linear') {
     const goalReps = pos(exercise.target_reps_max) ?? pos(exercise.target_reps_min) ?? band.reps_max;
     if (stats.minReps >= goalReps && hasValue(weightBase)) {
-      return { target_weight_kg: weightBase + rule.increment_kg };
+      bump = snapBump(loads, weightBase, rule.increment_kg);
+      return finish({ target_weight_kg: bump.snapped_kg });
     }
-    return hold();
+    return finish(hold());
   }
 
   // double progression
@@ -641,8 +687,11 @@ function progressionPatch(exercise, sets, reps, weight, perSet, goal) {
     // Reps maxed → load bump and rep reset to the floor (med-qj4.10: no effort
     // gate — the bump fires even with reps in reserve).
     const patch = { target_reps_min: min, target_reps_max: max };
-    if (hasValue(weightBase)) patch.target_weight_kg = weightBase + rule.increment_kg;
-    return patch;
+    if (hasValue(weightBase)) {
+      bump = snapBump(loads, weightBase, rule.increment_kg);
+      patch.target_weight_kg = bump.snapped_kg;
+    }
+    return finish(patch);
   }
   if (stats.minReps >= min) {
     // Deliberately NOT effort-gated: reps in reserve is precisely the signal to
@@ -654,12 +703,12 @@ function progressionPatch(exercise, sets, reps, weight, perSet, goal) {
     // weightBase is the stable logged weight, so this is idempotent.
     const patch = { target_reps_min: Math.min(stats.minReps + 1, max), target_reps_max: max };
     if (hasValue(weightBase)) patch.target_weight_kg = weightBase;
-    return patch;
+    return finish(patch);
   }
   // Below min: same idempotency anchor as the climb branch — an earlier
   // same-session save that hit max bumped the weight; without re-pinning to the
   // logged weight a later edit below min would leave that bump stuck.
-  return hold();
+  return finish(hold());
 }
 
 const VALID_LOG_STATUSES = new Set(['', 'completed', 'skipped']);
@@ -923,6 +972,28 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // we promoted from), so skip the extra libraryById() scan and match Go, which
     // trims and stores the same name in both columns.
     return toExerciseResponse(record);
+  }
+
+  // resolveEquipmentLoads (med-niix.2) follows one exercise's library link —
+  // plan row exercise_library_id → library row equipment_id → equipment record
+  // → achievableLoads. Resolved ONCE per propagate/preview/suggest pass, never
+  // per set. Unbound (no library link, no binding, a dangling id, or gear with
+  // no computable loads) reads as { equipment: null, loads: null }, and
+  // progression behaves exactly as without equipment.
+  // ponytail: no per-plan-row override — binding is library-level only, so a
+  // second bar for the same lift waits for a real case (see the epic).
+  async function resolveEquipmentLoads(libraryId) {
+    if (!hasValue(libraryId)) return { equipment: null, loads: null };
+    const lib = await findByNumericId(records, WORKOUT_RECORD_TYPES.LIBRARY, libraryId);
+    if (!lib || !hasValue(lib.equipment_id)) return { equipment: null, loads: null };
+    const item = await findByNumericId(records, EQUIPMENT_RECORD_TYPE, lib.equipment_id);
+    if (!item) return { equipment: null, loads: null };
+    const loads = achievableLoads(item);
+    if (loads.length === 0) return { equipment: null, loads: null };
+    return {
+      equipment: { id: item.id, name: item.name, min_step_kg: minStep(loads) },
+      loads,
+    };
   }
 
   // libraryById maps id → non-deleted library record, for resolving the
@@ -1875,7 +1946,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
     // `none`/absent rule → mirror; linear/double → apply the opt-in rule. An
     // unmet rule returns {} (plan held steady), so the spread leaves it as-is.
-    const patch = progressionPatch(exercise, sets, reps, weight, perSet, await effectiveGoal(exercise));
+    // The bound equipment's rungs resolve once here, never per set; only the
+    // patch half of the result is written back — the snap detail is a
+    // preview/suggest explanation, not plan state.
+    const bound = await resolveEquipmentLoads(exercise.exercise_library_id);
+    const { patch } = progressionPatch(exercise, sets, reps, weight, perSet, await effectiveGoal(exercise), bound.loads);
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, {
       ...exercise,
       ...patch,
@@ -2836,7 +2911,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       const sets = latest.sets_completed === 0 ? null : latest.sets_completed;
       const reps = latest.reps_completed === 0 ? null : latest.reps_completed;
       const goal = await effectiveGoal(exercise);
-      const patch = progressionPatch(exercise, sets, reps, latest.weight_kg, latest.sets, goal);
+      const bound = await resolveEquipmentLoads(exercise.exercise_library_id);
+      const { patch, snap } = progressionPatch(exercise, sets, reps, latest.weight_kg, latest.sets, goal, bound.loads);
       // Effort of that log, in the goal's own terms: the TOP (hardest-rated)
       // work set, formatted — the evidence riding along with each entry.
       // null when the log carries no RPE.
@@ -2855,6 +2931,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         rule: exercise.progression_rule,
         training_goal: goal,
         effort: stats ? formatEffort(stats.topRpe) : null,
+        // med-niix.2: what the proposal snapped to (and from), so a value
+        // that differs from logged+increment is explainable to the agent.
+        equipment: bound.equipment,
+        snap,
         current,
         proposed,
         changed: Object.keys(patch).some((k) => patch[k] !== current[k]),
@@ -2985,7 +3065,18 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // `general` seeds the 'none' preset, whose patch is mirrorPatch — so an
     // ungated goal suggests the weight you last lifted. That is the correct
     // answer for a goal that prescribes no progression, not a missing feature.
-    const patch = progressionPatch(plan, sets, reps, latest.weight_kg, latest.sets, goal);
+    // The exercise does not exist yet at suggest time, so the binding resolves
+    // through the latest log instead: a schedule log's exercise_id names a
+    // workoutexercise row (follow its exercise_library_id); a library log's id
+    // already names the library row. Anything else → unbound.
+    let libraryId = null;
+    if (latest.source === 'library') libraryId = latest.exercise_id;
+    else if (latest.exercise_id > 0) {
+      const row = await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, latest.exercise_id);
+      libraryId = row ? row.exercise_library_id ?? null : null;
+    }
+    const bound = await resolveEquipmentLoads(libraryId);
+    const { patch, snap } = progressionPatch(plan, sets, reps, latest.weight_kg, latest.sets, goal, bound.loads);
     const lastWeight = hasValue(latest.weight_kg) && latest.weight_kg > 0 ? latest.weight_kg : null;
     // {} means the rule held the plan with no anchor to hold it at; fall back to
     // the logged weight so "hold" still beats a blank field.
@@ -2995,6 +3086,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return {
       target_weight_kg: target,
       training_goal: goal,
+      // med-niix.2: same equipment/snap explanation as progressionPreview, so
+      // the suggestion and the preview can never disagree about the load.
+      equipment: bound.equipment,
+      snap,
       last: {
         weight_kg: lastWeight,
         // The MINIMUM reps across the work sets — the same number the engine

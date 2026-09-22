@@ -1339,6 +1339,95 @@ describe('cloud MCP workouts.progression_preview compute', () => {
     });
   });
 
+  // med-niix.2: a bound exercise snaps the bump to the equipment's rungs and
+  // the entry carries the equipment + the raw→snapped mapping.
+  it('snaps the bump to the bound fixed-dumbbell rungs, carrying equipment and snap', async () => {
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const records = createInMemoryRecordsPort({
+      workoutexercise: [{
+        recordId: 'ex-20', id: 20, variant_id: 3, exercise_name: 'Curl',
+        target_sets: 3, target_reps_min: 8, target_reps_max: 10, target_weight_kg: 12,
+        exercise_library_id: 7,
+        progression_rule: { type: 'linear', increment_kg: 2.5 },
+      }],
+      exerciselibrary: [{ recordId: 'lib-7', id: 7, name: 'Curl', equipment_id: 5 }],
+      equipment: [{ recordId: 'eq-5', id: 5, name: 'Hex DBs', kind: 'fixed', loads_kg: [10, 12, 14, 16] }],
+      exerciselog: [{
+        recordId: 'log-20', id: 20, exercise_id: 20, status: 'completed',
+        sets_completed: 3, reps_completed: 10, weight_kg: 12,
+        logged_at: '2026-07-05T18:30:00.000Z',
+      }],
+    });
+    const router = createApiRouter(null, { records, now, timeZone: 'UTC' });
+    const { exercises } = await router('/api/workout/progression-preview', 'GET');
+    expect(exercises).toHaveLength(1);
+    // 14.5 is not a rung — nearest above 12 to 14.5 is 14.
+    expect(exercises[0]).toMatchObject({
+      exercise_id: 20,
+      changed: true,
+      equipment: { id: 5, name: 'Hex DBs', min_step_kg: 2 },
+      snap: { raw_kg: 14.5, snapped_kg: 14, reason: null },
+      proposed: { target_weight_kg: 14 },
+    });
+  });
+
+  it('holds the weight with reason at_max when the bound log sits on the top rung', async () => {
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const records = createInMemoryRecordsPort({
+      workoutexercise: [{
+        recordId: 'ex-21', id: 21, variant_id: 3, exercise_name: 'Curl',
+        target_sets: 3, target_reps_min: 8, target_reps_max: 12, target_weight_kg: 16,
+        exercise_library_id: 7,
+        progression_rule: { type: 'double', increment_kg: 2.5, min_reps: 8, max_reps: 12 },
+      }],
+      exerciselibrary: [{ recordId: 'lib-7', id: 7, name: 'Curl', equipment_id: 5 }],
+      equipment: [{ recordId: 'eq-5', id: 5, name: 'Hex DBs', kind: 'fixed', loads_kg: [10, 12, 14, 16] }],
+      exerciselog: [{
+        recordId: 'log-21', id: 21, exercise_id: 21, status: 'completed',
+        sets_completed: 3, reps_completed: 12, weight_kg: 16,
+        logged_at: '2026-07-05T18:30:00.000Z',
+      }],
+    });
+    const router = createApiRouter(null, { records, now, timeZone: 'UTC' });
+    const { exercises } = await router('/api/workout/progression-preview', 'GET');
+    expect(exercises).toHaveLength(1);
+    expect(exercises[0]).toMatchObject({
+      // No rung above 16: the load holds, but the topped range still resets
+      // reps to the floor.
+      equipment: { id: 5, name: 'Hex DBs', min_step_kg: 2 },
+      snap: { raw_kg: 18.5, snapped_kg: 16, reason: 'at_max' },
+      proposed: { target_weight_kg: 16, target_reps_min: 8, target_reps_max: 12 },
+    });
+  });
+
+  it('a dangling library equipment_id reads as unbound (classic bump, null equipment)', async () => {
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const records = createInMemoryRecordsPort({
+      workoutexercise: [{
+        recordId: 'ex-22', id: 22, variant_id: 3, exercise_name: 'Curl',
+        target_sets: 3, target_reps_min: 8, target_reps_max: 10, target_weight_kg: 12,
+        exercise_library_id: 7,
+        progression_rule: { type: 'linear', increment_kg: 2.5 },
+      }],
+      // The gear was deleted — no cascade write, so the id dangles.
+      exerciselibrary: [{ recordId: 'lib-7', id: 7, name: 'Curl', equipment_id: 999 }],
+      exerciselog: [{
+        recordId: 'log-22', id: 22, exercise_id: 22, status: 'completed',
+        sets_completed: 3, reps_completed: 10, weight_kg: 12,
+        logged_at: '2026-07-05T18:30:00.000Z',
+      }],
+    });
+    const router = createApiRouter(null, { records, now, timeZone: 'UTC' });
+    const { exercises } = await router('/api/workout/progression-preview', 'GET');
+    expect(exercises).toHaveLength(1);
+    expect(exercises[0]).toMatchObject({
+      equipment: null,
+      snap: { raw_kg: 14.5, snapped_kg: 14.5, reason: null },
+      proposed: { target_weight_kg: 14.5 },
+    });
+    expect(exercises[0].equipment).toBeNull();
+  });
+
   it('rejects a double rule whose min_reps exceeds max_reps', async () => {
     const now = () => Date.parse('2026-07-06T12:00:00.000Z');
     const router = createApiRouter(null, {
