@@ -3,7 +3,7 @@
 // ====================================
 //
 // Thin orchestrator for the Workouts section. Owns:
-//   - sub-tab routing (history / groups / exercises / stats)
+//   - sub-tab routing (history / groups / exercises / stats / equipment)
 //   - workout-cache invalidation helper
 //   - top-level controls binding (modal buttons, day-selectors)
 //
@@ -14,7 +14,8 @@
 //
 // Load order: this file MUST be loaded last in the workout sub-tree because it
 // depends on functions declared in groups.js / variants.js / exercises.js /
-// library.js / history.js / miband.js / sessions.js / stats.js / next-card.js.
+// library.js / equipment.js / history.js / miband.js / sessions.js / stats.js /
+// next-card.js.
 
 // Workout-tag registration happens at boot via CacheKeys.registerAll() — see
 // web/static/js/core/cache-keys.js for the single source of truth.

@@ -294,6 +294,110 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(window.safeAlert).toHaveBeenCalledTimes(1);
     });
 
+    it('save rejects a non-numeric loads token without calling the API', async () => {
+        const { window, document } = env;
+        window.apiCall = vi.fn();
+        window.safeAlert = vi.fn();
+
+        document.getElementById('add-workout-equipment-btn').click();
+        document.getElementById('workout-equipment-name').value = 'Hex DBs';
+        document.getElementById('workout-equipment-loads').value = '10, twelve, 15';
+        await window.WorkoutEquipment.save();
+
+        expect(window.apiCall).not.toHaveBeenCalled();
+        expect(window.safeAlert).toHaveBeenCalledTimes(1);
+    });
+
+    it('save rolls back the optimistic create when the POST returns null', async () => {
+        const { window, document } = env;
+        seedOnlineList(window, [FIXED_DB]);
+        await window.WorkoutEquipment.load();
+        expect(rowsOf(document)).toHaveLength(1);
+
+        const alerts = [];
+        window.safeAlert = (msg) => alerts.push(msg);
+        window.apiCall = vi.fn(async () => null);
+
+        document.getElementById('add-workout-equipment-btn').click();
+        document.getElementById('workout-equipment-name').value = 'Ghost bar';
+        document.getElementById('workout-equipment-loads').value = '10, 12';
+        await window.WorkoutEquipment.save();
+
+        expect(alerts.length).toBeGreaterThan(0);
+        // Rollback restored the seeded cache row — no lingering local_ phantom.
+        const cached = await window.DataStore.getCached('workout_equipment');
+        expect(cached.map((e) => e.name)).toEqual(['Hex DBs']);
+        expect(cached.some((e) => String(e.id).startsWith('local_'))).toBe(false);
+        const names = rowsOf(document).map((r) => r.querySelector('.wg-equipment-row__name').textContent);
+        expect(names).toEqual(['Hex DBs']);
+    });
+
+    it('save rolls back the optimistic create when the POST throws', async () => {
+        const { window, document } = env;
+        seedOnlineList(window, [FIXED_DB]);
+        await window.WorkoutEquipment.load();
+
+        const alerts = [];
+        window.safeAlert = (msg) => alerts.push(msg);
+        window.apiCall = vi.fn(async () => { throw new Error('boom'); });
+
+        document.getElementById('add-workout-equipment-btn').click();
+        document.getElementById('workout-equipment-name').value = 'Ghost bar';
+        document.getElementById('workout-equipment-loads').value = '10, 12';
+        await window.WorkoutEquipment.save();
+
+        expect(alerts.length).toBeGreaterThan(0);
+        const cached = await window.DataStore.getCached('workout_equipment');
+        expect(cached.map((e) => e.name)).toEqual(['Hex DBs']);
+        expect(cached.some((e) => String(e.id).startsWith('local_'))).toBe(false);
+        const names = rowsOf(document).map((r) => r.querySelector('.wg-equipment-row__name').textContent);
+        expect(names).toEqual(['Hex DBs']);
+    });
+
+    it('edit with a failed reconcile shows Saving… instead of stale step/max', async () => {
+        const { window, document } = env;
+        seedOnlineList(window, [FIXED_DB]);
+        await window.WorkoutEquipment.load();
+
+        window.apiCall = vi.fn(async (url, method) => {
+            if (method === 'PUT') return true;
+            return null; // reconcile GET fails -> commit keeps the nulled projection
+        });
+        window.apiCallDirect = vi.fn(async () => [structuredClone(FIXED_DB)]);
+
+        rowsOf(document)[0].querySelector('.wg-equipment-row__edit').click();
+        document.getElementById('workout-equipment-loads').value = '10, 12';
+        await window.WorkoutEquipment.save();
+
+        await vi.waitFor(() => {
+            expect(rowsOf(document).map((r) => r.querySelector('.wg-equipment-row__steps').textContent))
+                .toEqual(['Saving…']);
+        });
+    });
+
+    it('editing a second item does not leak the first item\'s plates into a kind conversion', async () => {
+        const { window, document } = env;
+        seedOnlineList(window, [FIXED_DB, PLATED_BAR]);
+        await window.WorkoutEquipment.load();
+
+        await window.WorkoutEquipment.openEdit(PLATED_BAR.id);
+        expect(document.querySelectorAll('#workout-equipment-plates [data-plate-row]')).toHaveLength(2);
+        window.WorkoutEquipment.close();
+
+        await window.WorkoutEquipment.openEdit(FIXED_DB.id);
+        expect(document.getElementById('workout-equipment-loads').value).toBe('10, 12, 14, 16');
+        // Convert to plated mid-edit: the form must start from a clean slate,
+        // not Ohio bar's plate inventory (a fixed item has no plates, so the
+        // converted half starts empty — the user adds rows via + Plate).
+        document.querySelector('#workout-equipment-kind [data-kind="plated"]').click();
+        expect(document.querySelectorAll('#workout-equipment-plates [data-plate-row]')).toHaveLength(0);
+        expect(document.getElementById('workout-equipment-bar').value).toBe('');
+        document.getElementById('workout-equipment-plate-add').click();
+        const plateRows = document.querySelectorAll('#workout-equipment-plates [data-plate-row]');
+        expect(plateRows).toHaveLength(1);
+        expect(plateRows[0].querySelector('[data-plate-kg]').value).toBe('');
+    });
+
     it('edit prefills the form and PUTs the update', async () => {
         const { window, document } = env;
         seedOnlineList(window, [FIXED_DB]);
@@ -414,8 +518,15 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
             expect(btn.getAttribute('style')).toBeNull();
         });
         // jsdom has no layout engine, so phone-width fit is pinned at the
-        // stylesheet level: flex-1 pills that may shrink below content width.
+        // stylesheet level: the .wg-workouts-subtabs__btn rule itself must
+        // carry flex-1 (share the track), min-width: 0 (shrink below content
+        // instead of pushing the strip into a horizontal scroll) and the
+        // compact mono size.
         const css = fs.readFileSync(CSS_PATH, 'utf8');
-        expect(css).toContain('min-width: 0;\n    min-height: 36px;\n    font-family: var(--wg-font-mono);\n    font-size: var(--font-size-xs);');
+        const match = css.match(/\.wg-workouts-subtabs__btn\s*\{([^}]+)\}/);
+        expect(match).not.toBeNull();
+        expect(match[1]).toContain('flex: 1;');
+        expect(match[1]).toContain('min-width: 0;');
+        expect(match[1]).toContain('font-size: var(--font-size-xs);');
     });
 });

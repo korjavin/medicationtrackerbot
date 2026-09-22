@@ -8566,6 +8566,12 @@ textarea.wg-input {
     min-width: 0;
 }
 
+.wg-equipment-plate-row__field {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+}
+
 .wg-equipment-plate-row__input {
     flex: 1 1 0;
     min-width: 0;

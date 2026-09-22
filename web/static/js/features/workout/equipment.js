@@ -6,7 +6,9 @@
 // Owns:
 //   - the equipment list render (window.WorkoutEquipment.load)
 //   - "currently editing equipment id" form state (closure-private,
-//     exposed on WorkoutEdit because switchWorkoutTab/index.js routes here)
+//     published on window.WorkoutEdit via accessors — the no-module-state
+//     rule forbids top-level let here while the top-level editor functions
+//     below still need shared form state; same shape as groups.js/library.js)
 //   - the editor modal flows (open/add/edit/close/save/delete)
 //
 // Read path is local-first per CLAUDE.md "Adding a local-first read":
@@ -136,6 +138,10 @@ function _equipmentStepMaxText(item) {
     return `step ${item.min_step_kg} kg · max ${item.max_kg} kg`;
 }
 
+function _isPendingEquipmentRow(item) {
+    return typeof item.id === 'string' && item.id.indexOf('local_') === 0;
+}
+
 function _buildWorkoutEquipmentRow(doc, item) {
     const card = doc.createElement('li');
     card.className = 'wg-card wg-equipment-row';
@@ -168,20 +174,24 @@ function _buildWorkoutEquipmentRow(doc, item) {
 
     card.appendChild(body);
 
-    const actions = doc.createElement('div');
-    actions.className = 'wg-equipment-row__actions';
-    actions.appendChild(_buildEquipmentIconBtn(doc, 'edit', 'Edit equipment', 'pencil', () => {
-        showEditWorkoutEquipmentModal(item.id);
-    }));
-    actions.appendChild(_buildEquipmentIconBtn(doc, 'delete', 'Delete equipment', 'trash', (event) => {
-        deleteWorkoutEquipmentItem(item.id, event);
-    }));
-    card.appendChild(actions);
+    // An uncommitted optimistic create ('Saving…') carries a local_ id the
+    // API would reject: no edit/delete affordances until the reconcile lands.
+    if (!_isPendingEquipmentRow(item)) {
+        const actions = doc.createElement('div');
+        actions.className = 'wg-equipment-row__actions';
+        actions.appendChild(_buildEquipmentIconBtn(doc, 'edit', 'Edit equipment', 'pencil', () => {
+            showEditWorkoutEquipmentModal(item.id);
+        }));
+        actions.appendChild(_buildEquipmentIconBtn(doc, 'delete', 'Delete equipment', 'trash', (event) => {
+            deleteWorkoutEquipmentItem(item.id, event);
+        }));
+        card.appendChild(actions);
 
-    card.addEventListener('click', (e) => {
-        if (e.target.closest('.wg-equipment-row__actions')) return;
-        showEditWorkoutEquipmentModal(item.id);
-    });
+        card.addEventListener('click', (e) => {
+            if (e.target.closest('.wg-equipment-row__actions')) return;
+            showEditWorkoutEquipmentModal(item.id);
+        });
+    }
 
     return card;
 }
@@ -249,6 +259,8 @@ function _addEquipmentPlateRow(kg, count) {
     row.className = 'wg-equipment-plate-row';
     row.setAttribute('data-plate-row', '');
 
+    const kgWrap = doc.createElement('div');
+    kgWrap.className = 'wg-gloss--inset wg-equipment-modal__input-wrap wg-equipment-plate-row__field';
     const kgInput = doc.createElement('input');
     kgInput.type = 'number';
     kgInput.min = '0';
@@ -258,11 +270,14 @@ function _addEquipmentPlateRow(kg, count) {
     kgInput.setAttribute('data-plate-kg', '');
     kgInput.setAttribute('aria-label', 'Plate weight (kg)');
     if (kg != null && kg !== '') kgInput.value = String(kg);
+    kgWrap.appendChild(kgInput);
 
     const times = doc.createElement('span');
     times.className = 'wg-equipment-plate-row__times';
     times.textContent = '×';
 
+    const countWrap = doc.createElement('div');
+    countWrap.className = 'wg-gloss--inset wg-equipment-modal__input-wrap wg-equipment-plate-row__field';
     const countInput = doc.createElement('input');
     countInput.type = 'number';
     countInput.min = '1';
@@ -272,6 +287,7 @@ function _addEquipmentPlateRow(kg, count) {
     countInput.setAttribute('data-plate-count', '');
     countInput.setAttribute('aria-label', 'Plate count');
     if (count != null && count !== '') countInput.value = String(count);
+    countWrap.appendChild(countInput);
 
     const remove = doc.createElement('button');
     remove.type = 'button';
@@ -279,9 +295,9 @@ function _addEquipmentPlateRow(kg, count) {
     remove.setAttribute('aria-label', 'Remove plate row');
     remove.textContent = 'Remove';
 
-    row.appendChild(kgInput);
+    row.appendChild(kgWrap);
     row.appendChild(times);
-    row.appendChild(countInput);
+    row.appendChild(countWrap);
     row.appendChild(remove);
     list.appendChild(row);
 }
@@ -308,12 +324,17 @@ function _readEquipmentPlateRows() {
     return plates;
 }
 
+// Strict: any non-numeric token aborts with null (the caller alerts) so a
+// typo never saves a load set the user did not ask for.
 function _parseEquipmentLoads(text) {
-    return String(text || '')
-        .split(/[,;\s]+/)
-        .filter((s) => s !== '')
-        .map(Number)
-        .filter((n) => Number.isFinite(n) && n > 0);
+    const tokens = String(text || '').split(/[,;\s]+/).filter((s) => s !== '');
+    const loads = [];
+    for (const token of tokens) {
+        const n = Number(token);
+        if (!Number.isFinite(n) || n <= 0) return null;
+        loads.push(n);
+    }
+    return loads;
 }
 
 function fillEquipmentLoadsFromGenerator() {
@@ -347,7 +368,7 @@ function fillEquipmentLoadsFromGenerator() {
 function showAddWorkoutEquipmentModal() {
     window.WorkoutEdit.editingEquipmentId = null;
     document.getElementById('workout-equipment-modal-title').textContent = 'Add Equipment';
-    window.ModalManager.open('workout-equipment-modal');
+    window.ModalManager.workoutEquipment.open();
 
     document.getElementById('workout-equipment-name').value = '';
     _setEquipmentKind('fixed');
@@ -377,9 +398,20 @@ async function showEditWorkoutEquipmentModal(id) {
 
     window.WorkoutEdit.editingEquipmentId = id;
     document.getElementById('workout-equipment-modal-title').textContent = 'Edit Equipment';
-    window.ModalManager.open('workout-equipment-modal');
+    window.ModalManager.workoutEquipment.open();
 
     document.getElementById('workout-equipment-name').value = item.name || '';
+    // The modal is a singleton: reset both halves first so the previous item's
+    // bar/plates (or loads) cannot leak into a mid-edit kind conversion.
+    document.getElementById('workout-equipment-loads').value = '';
+    document.getElementById('workout-equipment-gen-min').value = '';
+    document.getElementById('workout-equipment-gen-max').value = '';
+    document.getElementById('workout-equipment-gen-step').value = '';
+    document.getElementById('workout-equipment-bar').value = '';
+    _setEquipmentSides(2);
+    document.getElementById('workout-equipment-pair').checked = false;
+    const platesEl = document.getElementById('workout-equipment-plates');
+    if (platesEl) platesEl.replaceChildren();
     const kind = item.kind === 'plated' ? 'plated' : 'fixed';
     _setEquipmentKind(kind);
     if (kind === 'fixed') {
@@ -389,15 +421,13 @@ async function showEditWorkoutEquipmentModal(id) {
         document.getElementById('workout-equipment-bar').value = item.bar_kg != null ? String(item.bar_kg) : '';
         _setEquipmentSides(item.sides === 1 ? 1 : 2);
         document.getElementById('workout-equipment-pair').checked = !!item.pair;
-        const plates = document.getElementById('workout-equipment-plates');
-        if (plates) plates.replaceChildren();
         const rows = Array.isArray(item.plates) && item.plates.length > 0 ? item.plates : [{ kg: '', count: '' }];
         rows.forEach((p) => _addEquipmentPlateRow(p.kg, p.count));
     }
 }
 
 function closeWorkoutEquipmentModal() {
-    window.ModalManager.close('workout-equipment-modal');
+    window.ModalManager.workoutEquipment.close();
     window.WorkoutEdit.editingEquipmentId = null;
 }
 
@@ -410,8 +440,8 @@ function _buildEquipmentPayload() {
     const kind = _getEquipmentKind();
     if (kind === 'fixed') {
         const loads = _parseEquipmentLoads(document.getElementById('workout-equipment-loads').value);
-        if (loads.length === 0) {
-            safeAlert('Fixed equipment needs at least one load (comma-separated, or use the generator).');
+        if (!loads || loads.length === 0) {
+            safeAlert('Fixed loads must be positive numbers, comma-separated (or use the generator).');
             return null;
         }
         return { kind: 'fixed', name, loads_kg: loads };
@@ -451,7 +481,19 @@ async function saveWorkoutEquipmentItem() {
                 list.push({ ...payload, id: `local_${Date.now()}`, min_step_kg: null, max_kg: null });
                 return list;
             }
-            return list.map((e) => (e && e.id === editingId ? { ...e, ...payload } : e));
+            // The projected row must not present step/max it has not read back
+            // (renders 'Saving…' until the reconcile lands), and a kind change
+            // must not leave the disowned side's fields behind — mirroring the
+            // domain's own strip on update (web/domain/equipment.js).
+            return list.map((e) => {
+                if (!e || e.id !== editingId) return e;
+                const projected = { ...e, ...payload, min_step_kg: null, max_kg: null };
+                const disowned = payload.kind === 'fixed'
+                    ? ['bar_kg', 'sides', 'pair', 'plates']
+                    : ['loads_kg'];
+                for (const k of disowned) delete projected[k];
+                return projected;
+            });
         }, ['workout'])
         : null;
 
@@ -533,6 +575,17 @@ window.WorkoutEquipment = {
     function bindWorkoutEquipmentControls() {
         if (equipmentControlsBound) return;
         equipmentControlsBound = true;
+
+        // The `workout_equipment` key is read through cachedFetch with inline
+        // tags, which registers it on first load — but a cold boot that pulls
+        // remote changes invalidates ['workout'] before any feature loader
+        // runs, so register the mapping at module load: without it the
+        // pre-sync row survives invalidation and the first Equipment visit
+        // paints stale inventory (registerTags is the documented seam for
+        // keys read outside loadSWR; see data-store.js).
+        if (window.DataStore && typeof window.DataStore.registerTags === 'function') {
+            try { window.DataStore.registerTags(WORKOUT_EQUIPMENT_CACHE_KEY, ['workout']); } catch (_) { /* best-effort */ }
+        }
 
         const bindClick = (id, handler) => {
             const el = document.getElementById(id);
