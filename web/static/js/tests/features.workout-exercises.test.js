@@ -599,6 +599,127 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(hintOf(document).textContent).toBe('Last: 100 kg × 6 · RPE 8 · 2 RIR');
     });
 
+  // med-niix.5: read-only equipment hint on the plan-exercise modal,
+  // resolved via the row's exercise_library_id. The step is the API's
+  // min_step_kg verbatim — never recomputed client-side.
+  describe('equipment hint (med-niix.5)', () => {
+    const OHIO_BAR = { id: 50, name: 'Ohio bar', kind: 'plated', min_step_kg: 2.5, max_kg: 200 };
+
+    function stubHint(window, { exercises, library, equipment = [OHIO_BAR] }) {
+      window.WorkoutEdit.variantForExercise = 1;
+      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
+      window.WorkoutEquipment.list = vi.fn(async () => equipment);
+      window.apiCall = vi.fn(async (url) => {
+        if (String(url).startsWith('/api/workout/exercises?')) return exercises;
+        if (String(url) === '/api/workout/exercise-library') return library;
+        return [];
+      });
+    }
+
+    const hintOf = (document) => document.getElementById('workout-exercise-equipment-hint');
+
+    function boundExercise(libraryId = 40) {
+      return [{
+        id: 7, exercise_name: 'Bench Press', target_sets: 3, target_reps_min: 8,
+        target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+        progression_rule: { type: 'none' }, exercise_library_id: libraryId,
+      }];
+    }
+
+    it('renders the hint element hidden by default', () => {
+      const { document } = env;
+      const hint = hintOf(document);
+      expect(hint).not.toBeNull();
+      expect(hint.tagName).toBe('P');
+      expect(hint.hidden).toBe(true);
+    });
+
+    it('showEditExerciseModal shows "Equipment: <name> · step X kg" for a bound exercise', async () => {
+      const { window, document } = env;
+      stubHint(window, {
+        exercises: boundExercise(40),
+        library: [{ id: 40, name: 'Bench Press', equipment_id: 50 }],
+      });
+
+      await window.showEditExerciseModal(7);
+
+      expect(hintOf(document).hidden).toBe(false);
+      expect(hintOf(document).textContent).toBe('Equipment: Ohio bar · step 2.5 kg');
+    });
+
+    it('shows nothing when the exercise has no library link (unbound)', async () => {
+      const { window, document } = env;
+      const ex = boundExercise();
+      delete ex[0].exercise_library_id;
+      stubHint(window, { exercises: ex, library: [] });
+
+      await window.showEditExerciseModal(7);
+
+      expect(hintOf(document).hidden).toBe(true);
+      expect(hintOf(document).textContent).toBe('');
+    });
+
+    it('shows nothing when the library row itself is unbound', async () => {
+      const { window, document } = env;
+      stubHint(window, {
+        exercises: boundExercise(40),
+        library: [{ id: 40, name: 'Bench Press' }],
+      });
+
+      await window.showEditExerciseModal(7);
+
+      expect(hintOf(document).hidden).toBe(true);
+    });
+
+    it('shows nothing for a dangling binding (equipment deleted, no cascade)', async () => {
+      const { window, document } = env;
+      stubHint(window, {
+        exercises: boundExercise(40),
+        library: [{ id: 40, name: 'Bench Press', equipment_id: 999 }],
+        equipment: [OHIO_BAR],
+      });
+
+      await window.showEditExerciseModal(7);
+
+      expect(hintOf(document).hidden).toBe(true);
+      expect(hintOf(document).textContent).toBe('');
+    });
+
+    it('omits the step clause when the API reports no min_step_kg', async () => {
+      const { window, document } = env;
+      stubHint(window, {
+        exercises: boundExercise(41),
+        library: [{ id: 41, name: 'Curl', equipment_id: 51 }],
+        equipment: [{ id: 51, name: 'Hex DB', kind: 'fixed', min_step_kg: null, max_kg: 10 }],
+      });
+
+      await window.showEditExerciseModal(7);
+
+      expect(hintOf(document).hidden).toBe(false);
+      expect(hintOf(document).textContent).toBe('Equipment: Hex DB');
+    });
+
+    it('a library pick in Add binds the hint; a catalog-only pick clears it', async () => {
+      const { window, document } = env;
+      stubHint(window, {
+        exercises: [],
+        library: [{ id: 40, name: 'Bench Press', equipment_id: 50 }],
+      });
+
+      await window.onPlanExercisePicked({ id: 40, name: 'Bench Press' });
+      await vi.waitFor(() => {
+        expect(hintOf(document).hidden).toBe(false);
+      });
+      expect(hintOf(document).textContent).toBe('Equipment: Ohio bar · step 2.5 kg');
+
+      await window.onPlanExercisePicked({ name: 'Zercher squat' });
+      await vi.waitFor(() => {
+        expect(hintOf(document).textContent).toBe('');
+      });
+      expect(hintOf(document).hidden).toBe(true);
+    });
+  });
+
     it('leaves the field blank when the route is unavailable (bot mode 404s it)', async () => {
       const { window, document } = env;
       stubSuggest(window, null);

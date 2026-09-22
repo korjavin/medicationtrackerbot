@@ -247,6 +247,10 @@ function toLibraryResponse(record) {
   };
   if (hasValue(record.default_reps_max)) resp.default_reps_max = record.default_reps_max;
   if (hasValue(record.default_weight_kg)) resp.default_weight_kg = record.default_weight_kg;
+  // Optional equipment binding (med-niix.5, library-level only): emitted only
+  // when set. A dangling id (equipment deleted — no cascade write) reads as
+  // unbound; the UI hint resolves it against the inventory and shows nothing.
+  if (hasValue(record.equipment_id)) resp.equipment_id = record.equipment_id;
   if (record.notes) resp.notes = record.notes;
   // Manual body-part override (med library tags). Omitted when unset, so rows
   // that never got one keep falling back to the static catalog's classifier.
@@ -1060,6 +1064,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       default_weight_kg: numOrNull(input && input.default_weight_kg),
       notes: (input && input.notes) || '',
       body_part: ((input && input.body_part) || '').trim(),
+      equipment_id: numOrNull(input && input.equipment_id, true),
       created_at: new Date(nowMs).toISOString(),
       updated_at: new Date(nowMs).toISOString(),
     };
@@ -1118,6 +1123,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       default_weight_kg: numOrNull(input && input.default_weight_kg),
       notes: (input && input.notes) || '',
       body_part: ((input && input.body_part) || '').trim(),
+      equipment_id: numOrNull(input && input.equipment_id, true),
       clientTs: nowMs,
       updated_at: new Date(nowMs).toISOString(),
     });

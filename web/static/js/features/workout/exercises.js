@@ -274,6 +274,38 @@ async function resolveVariantForExercise() {
     }
 }
 
+// med-niix.5: read-only equipment hint for the plan-exercise modal. Resolves
+// the row's exercise_library_id → library item → equipment inventory; unbound
+// (or dangling — equipment deleted, no cascade write) resolves to nothing and
+// the hint stays hidden. The step is the API's min_step_kg verbatim, never
+// recomputed here. Never throws: a failed read leaves the hint hidden.
+async function _renderExerciseEquipmentHint(libraryId) {
+    try {
+        const hintEl = document.getElementById('workout-exercise-equipment-hint');
+        if (!hintEl) return;
+        hintEl.textContent = '';
+        hintEl.hidden = true;
+        if (libraryId == null || libraryId === '') return;
+        const items = await apiCall('/api/workout/exercise-library');
+        const lib = (Array.isArray(items) ? items : []).find((i) => i && i.id === libraryId) || null;
+        const equipmentId = lib && lib.equipment_id;
+        if (equipmentId == null || equipmentId === '') return;
+        let inv = [];
+        if (window.WorkoutEquipment && typeof window.WorkoutEquipment.list === 'function') {
+            inv = await window.WorkoutEquipment.list();
+        } else {
+            const raw = await apiCall('/api/workout/equipment', 'GET');
+            if (Array.isArray(raw)) inv = raw;
+        }
+        const eq = inv.find((e) => e && e.id === equipmentId) || null;
+        if (!eq) return; // dangling FK reads as unbound
+        hintEl.textContent = eq.min_step_kg != null
+            ? `Equipment: ${eq.name} · step ${eq.min_step_kg} kg`
+            : `Equipment: ${eq.name}`;
+        hintEl.hidden = false;
+    } catch (_) { /* hint stays hidden */ }
+}
+
 async function showAddExerciseModal() {
     const canOpen = await resolveVariantForExercise();
     if (!canOpen) return;
@@ -281,6 +313,7 @@ async function showAddExerciseModal() {
     window.WorkoutEdit.editingExerciseId = null;
     document.getElementById('workout-exercise-modal-title').textContent = 'Add Exercise';
     window.ModalManager.workoutExercise.open();
+    await _renderExerciseEquipmentHint(null);
 
     document.getElementById('workout-exercise-name').value = '';
     document.getElementById('workout-exercise-sets').value = '';
@@ -314,6 +347,7 @@ function onPlanExercisePicked(item) {
     // catalog-only rows too (med-73o): a name with no library row can still
     // have ad-hoc logs behind it, and that history is the whole point.
     const suggested = applyWeightSuggestion(effectiveExerciseGoal());
+    _renderExerciseEquipmentHint(item && item.id != null ? item.id : null).catch(() => {});
     if (item.id == null) return suggested;
     if (!document.getElementById('workout-exercise-sets').value && item.default_sets)
         document.getElementById('workout-exercise-sets').value = item.default_sets;
@@ -374,6 +408,9 @@ async function showEditExerciseModal(exerciseId) {
     // "Last: …" evidence for this exercise; the stored target above already
     // filled the weight field, so the fill-only guard leaves it alone.
     await applyWeightSuggestion(effectiveExerciseGoal());
+    // Read-only binding hint (med-niix.5): no select here, binding is edited
+    // in the exercise library.
+    await _renderExerciseEquipmentHint(exercise.exercise_library_id);
 }
 
 function closeExerciseModal() {

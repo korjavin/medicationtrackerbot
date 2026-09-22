@@ -711,4 +711,108 @@ describe('features/workout/library.js — split-file integration', () => {
     });
   });
 
+  // med-niix.5: optional library-level equipment binding. The editor modal
+  // carries an Equipment <select> (None + inventory names) that writes
+  // equipment_id in the same save payload — no second write.
+  describe('equipment binding select (med-niix.5)', () => {
+    const INVENTORY = [
+      { id: 50, name: 'Ohio bar', kind: 'plated', min_step_kg: 2.5, max_kg: 200 },
+      { id: 51, name: 'Hex DBs', kind: 'fixed', min_step_kg: 2, max_kg: 14 },
+    ];
+
+    function stubInventory(window, items = INVENTORY) {
+      window.WorkoutEquipment.list = vi.fn(async () => items);
+    }
+
+    function optionsOf(select) {
+      return Array.from(select.options).map((o) => [o.value, o.textContent]);
+    }
+
+    it('openAdd offers None + inventory names, defaulting to None', async () => {
+      const { window, document } = env;
+      stubInventory(window);
+
+      await window.showExerciseLibraryModal();
+
+      const select = document.getElementById('exercise-library-equipment');
+      expect(select.tagName).toBe('SELECT');
+      expect(optionsOf(select)).toEqual([['', 'None'], ['50', 'Ohio bar'], ['51', 'Hex DBs']]);
+      expect(select.value).toBe('');
+    });
+
+    it('openEdit selects the stored binding, and falls back to None when it dangles', async () => {
+      const { window, document } = env;
+      stubInventory(window);
+      window.apiCall = vi.fn(async () => ([
+        { id: 7, name: 'Bench Press', default_sets: 3, default_reps_min: 8, equipment_id: 50 },
+      ]));
+
+      await window.showEditExerciseLibraryModal(7);
+
+      expect(document.getElementById('exercise-library-equipment').value).toBe('50');
+
+      // The bound equipment was deleted (no cascade write): the editor shows
+      // None rather than a phantom option.
+      window.apiCall = vi.fn(async () => ([
+        { id: 7, name: 'Bench Press', default_sets: 3, default_reps_min: 8, equipment_id: 999 },
+      ]));
+      await window.showEditExerciseLibraryModal(7);
+
+      expect(document.getElementById('exercise-library-equipment').value).toBe('');
+    });
+
+    it('save writes equipment_id in the same payload; None unbinds to null', async () => {
+      const { window, document } = env;
+      stubInventory(window);
+      window.loadExerciseLibrary = vi.fn();
+      const calls = [];
+      window.apiCall = vi.fn(async (url, method, body) => {
+        calls.push([url, body]);
+        return { id: 7 };
+      });
+      window.WorkoutEdit.editingLibraryItemId = null;
+
+      await window.showExerciseLibraryModal();
+      document.getElementById('exercise-library-name').value = 'Bench Press';
+      document.getElementById('exercise-library-equipment').value = '50';
+      await window.saveExerciseLibraryItem();
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0][0]).toBe('/api/workout/exercise-library/create');
+      expect(calls[0][1]).toMatchObject({ name: 'Bench Press', equipment_id: 50 });
+
+      // Back to None unbinds in the same single update write.
+      calls.length = 0;
+      window.WorkoutEdit.editingLibraryItemId = 7;
+      document.getElementById('exercise-library-equipment').value = '';
+      await window.saveExerciseLibraryItem();
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0][0]).toBe('/api/workout/exercise-library/update?id=7');
+      expect(calls[0][1]).toMatchObject({ equipment_id: null });
+    });
+
+    it('an empty inventory leaves None alone and the save still works', async () => {
+      const { window, document } = env;
+      stubInventory(window, []);
+      window.loadExerciseLibrary = vi.fn();
+      window.apiCall = vi.fn(async () => ({ id: 9 }));
+      window.WorkoutEdit.editingLibraryItemId = null;
+
+      await window.showExerciseLibraryModal();
+
+      const select = document.getElementById('exercise-library-equipment');
+      expect(optionsOf(select)).toEqual([['', 'None']]);
+
+      document.getElementById('exercise-library-name').value = 'Push-Up';
+      await window.saveExerciseLibraryItem();
+
+      expect(window.apiCall).toHaveBeenCalledWith(
+        '/api/workout/exercise-library/create',
+        'POST',
+        expect.objectContaining({ equipment_id: null })
+      );
+    });
+  });
+
 });

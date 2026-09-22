@@ -398,3 +398,28 @@ required, kind-specific fields per the create body schema),
 `workouts.equipment.delete` (write `DELETE :id`; unknown ids no-op to `true`).
 List/create response examples are pasted from the real router JSON;
 update/delete examples are the literal `true` their handlers return.
+
+**Binding** (med-niix.5, optional, library-level only). `equipment_id`
+(nullable numeric) on `exerciselibrary` rows links an exercise to one
+inventory record; unbound behaves exactly as today, and the binding is what
+med-niix.2 keys progression off. Library-level only (owner decision
+2026-09-22): every plan row already resolves through `exercise_library_id`,
+so no per-plan-row override — that arrives only if a real case appears, as a
+`training_goal`-style override. Domain (`web/domain/workout.js`):
+`createLibraryItem` / `updateLibraryItem` round-trip the field,
+`toLibraryResponse` emits it only when set. Deleting equipment performs no
+cascade write; a dangling id reads as unbound (the plan-modal hint resolves
+it against the inventory and shows nothing). Cloud-only field like
+`workouts.equipment`: bot mode has no such column, so `VaultLibraryEntry`
+carries `equipment_id,omitempty`, import drops it, export omits it, and both
+identity tests strip the per-row key. The library editor
+(`#exercise-library-modal`) gets an Equipment `<select>` (None + inventory
+names, read through the equipment module's shared cachedFetch list);
+the plan-exercise modal (`#workout-exercise-modal`) shows a read-only hint
+`Equipment: <name> · step X kg` (the API's `min_step_kg` verbatim, never
+recomputed client-side) resolved via the row's `exercise_library_id` —
+nothing for unbound, no select there.
+
+**MCP**: the Go registry is untouched — `equipment_id` is cloud-only, so no
+registry op carries it; agent access to the inventory stays on the
+med-niix.4 `workouts.equipment.*` ops.

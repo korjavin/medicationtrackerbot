@@ -88,6 +88,33 @@ async function loadWorkoutEquipment() {
     }
 }
 
+// med-niix.5: shared inventory read for the library-editor Equipment
+// <select> and the plan-modal hint — the same cachedFetch key/URL/options as
+// the list render above, so consumers reuse this read instead of adding a
+// second fetch path. Never throws: offline or failure means an empty list
+// (the select keeps "None"; the hint stays hidden).
+async function getWorkoutEquipmentList() {
+    try {
+        if (typeof window.cachedFetch === 'function') {
+            const result = await window.cachedFetch(
+                WORKOUT_EQUIPMENT_CACHE_KEY,
+                WORKOUT_EQUIPMENT_URL,
+                { tags: ['workout'], freshAfterMs: 60_000, staleAfterMs: 24 * 60 * 60_000 }
+            );
+            const items = result && Array.isArray(result.data) ? result.data : [];
+            window.WorkoutEdit.cachedEquipment = items;
+            return items;
+        }
+        const raw = await apiCall(WORKOUT_EQUIPMENT_URL, 'GET');
+        const items = Array.isArray(raw) ? raw : [];
+        window.WorkoutEdit.cachedEquipment = items;
+        return items;
+    } catch (e) {
+        window.WorkoutEdit.cachedEquipment = [];
+        return [];
+    }
+}
+
 async function renderWorkoutEquipmentStaleBadge() {
     const slot = (typeof document !== 'undefined') ? document.getElementById('workout-equipment-stale-badge') : null;
     if (!slot) return;
@@ -561,6 +588,7 @@ async function _deleteWorkoutEquipmentApi(id) {
 
 window.WorkoutEquipment = {
     load: loadWorkoutEquipment,
+    list: getWorkoutEquipmentList,
     save: saveWorkoutEquipmentItem,
     openAdd: showAddWorkoutEquipmentModal,
     openEdit: showEditWorkoutEquipmentModal,

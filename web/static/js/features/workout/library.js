@@ -309,9 +309,47 @@ function _syncBodyPartSelect(current) {
     select.value = current || '';
 }
 
+// Fill the Equipment <select> from the inventory (med-niix.5, optional
+// library-level binding) and select `currentId`. The blank option is the
+// default: unbound, which behaves exactly as before. Reads through the
+// equipment module's shared cachedFetch list — no second fetch path.
+async function _syncEquipmentSelect(currentId) {
+    const select = document.getElementById('exercise-library-equipment');
+    if (!select) return;
+    // Build options against the select's own document: the inventory read
+    // above is async, and a fire-and-forget modal open (or a torn-down test
+    // env) must never resolve bare `document` after it is gone.
+    const doc = select.ownerDocument;
+    let items = [];
+    try {
+        if (window.WorkoutEquipment && typeof window.WorkoutEquipment.list === 'function') {
+            items = await window.WorkoutEquipment.list();
+        } else {
+            const raw = await apiCall('/api/workout/equipment', 'GET');
+            if (Array.isArray(raw)) items = raw;
+        }
+    } catch (e) {
+        items = []; // offline / failure: "None" alone, the save still works
+    }
+    if (!doc || typeof doc.createElement !== 'function') return;
+    select.replaceChildren();
+    const none = doc.createElement('option');
+    none.value = '';
+    none.textContent = 'None';
+    select.appendChild(none);
+    for (const item of items) {
+        if (!item || item.id == null) continue;
+        const opt = doc.createElement('option');
+        opt.value = String(item.id);
+        opt.textContent = item.name || `Equipment ${item.id}`;
+        select.appendChild(opt);
+    }
+    select.value = currentId != null && currentId !== '' ? String(currentId) : '';
+}
+
 // `presetName` pre-fills the name field — that is how a catalog row from the
 // "All" source becomes a library row of the user's own.
-function showExerciseLibraryModal(presetName) {
+async function showExerciseLibraryModal(presetName) {
     window.WorkoutEdit.editingLibraryItemId = null;
     document.getElementById('exercise-library-modal-title').textContent = 'Add Exercise';
     document.getElementById('exercise-library-rename-hint').hidden = true;
@@ -327,11 +365,17 @@ function showExerciseLibraryModal(presetName) {
 
     // Catalog-only: this modal is where library rows get created, so suggesting
     // the library back at the user would just offer duplicates.
+    // (Runs before the await below so fire-and-forget openers still see the
+    // picker reset synchronously, exactly as before.)
     bindExercisePicker({
         input: document.getElementById('exercise-library-name'),
         mount: document.getElementById('exercise-library-suggest'),
         withLibrary: false
     });
+
+    // Awaited last: awaiting callers see the filled select, while
+    // fire-and-forget openers already got the synchronous reset above.
+    await _syncEquipmentSelect('');
 }
 
 async function showEditExerciseLibraryModal(id) {
@@ -351,6 +395,7 @@ async function showEditExerciseLibraryModal(id) {
     document.getElementById('exercise-library-weight').value = item.default_weight_kg || '';
     document.getElementById('exercise-library-notes').value = item.notes || '';
     _syncBodyPartSelect(item.body_part || '');
+    await _syncEquipmentSelect(item.equipment_id);
 
     // The picker starts closed, so the stored name is not immediately buried
     // under suggestions for itself; it opens again as soon as the user types.
@@ -377,6 +422,9 @@ async function saveExerciseLibraryItem() {
     const notes = document.getElementById('exercise-library-notes').value.trim();
     const bodyPartEl = document.getElementById('exercise-library-body-part');
     const bodyPart = bodyPartEl ? bodyPartEl.value : '';
+    const equipmentEl = document.getElementById('exercise-library-equipment');
+    const equipmentRaw = equipmentEl ? equipmentEl.value : '';
+    const equipmentId = equipmentRaw !== '' ? Number(equipmentRaw) : null;
 
     if (!name) {
         safeAlert('Exercise name is required!');
@@ -390,7 +438,8 @@ async function saveExerciseLibraryItem() {
         default_reps_max: repsMax,
         default_weight_kg: weight,
         notes: notes,
-        body_part: bodyPart
+        body_part: bodyPart,
+        equipment_id: equipmentId
     };
 
     let result;

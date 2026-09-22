@@ -1418,6 +1418,10 @@
                         placeholder="Start typing..." autocomplete="off">
                 </div>
                 <div id="workout-exercise-suggest" class="wg-exercise-suggest" hidden></div>
+                <!-- med-niix.5: read-only binding hint, resolved via the row's
+                     exercise_library_id. Hidden when unbound; no select here —
+                     binding is edited in the exercise library. -->
+                <p id="workout-exercise-equipment-hint" class="wg-workouts-exercise-modal__hint" hidden></p>
             </div>
 
             <div class="wg-workouts-exercise-modal__row">
@@ -1530,6 +1534,19 @@
                 <div class="wg-gloss--inset wg-workouts-library-modal__input-wrap">
                     <!-- Options are filled from WorkoutExerciseCatalog.bodyPartOptions() on open. -->
                     <select id="exercise-library-body-part" class="wg-workouts-library-modal__input"></select>
+                </div>
+            </div>
+
+            <!-- med-niix.5: optional library-level equipment binding. Options
+                 are the equipment inventory names ("None" = unbound); the
+                 binding is what med-niix.2 keys progression off. -->
+            <div class="wg-workouts-library-modal__field">
+                <label for="exercise-library-equipment" class="wg-workouts-library-modal__label">Equipment</label>
+                <div class="wg-gloss--inset wg-workouts-library-modal__input-wrap">
+                    <!-- Options are filled from the equipment inventory on open. -->
+                    <select id="exercise-library-equipment" class="wg-workouts-library-modal__input">
+                        <option value="">None</option>
+                    </select>
                 </div>
             </div>
 
