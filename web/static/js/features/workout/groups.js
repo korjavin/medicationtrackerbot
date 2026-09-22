@@ -654,6 +654,15 @@ const WORKOUT_PLAN_DOC_CSS = `
   footer { margin-top: 5mm; padding-top: 2mm; border-top: 1px solid #ddd;
            color: #555; font-size: 8.5px; }`;
 
+// ponytail: appended to the sheet stylesheet only when at least one plate
+// glyph renders, so plans without bound equipment stay byte-identical to
+// today (med-niix.6). Same standalone-document rule as above: literal
+// monochrome values, no --wg-* tokens, no app classes.
+const WORKOUT_PLAN_LOAD_CSS = `
+  .plates { display: block; margin-top: 1mm; }
+  .plates svg { display: block; height: 11mm; width: auto; }
+  .platestxt { display: block; color: #555; font-size: 8.5px; margin-top: 0.5mm; }`;
+
 function _workoutPlanWeightClause(kg, unit) {
     // core/utils.js owns the single KG_PER_LB; targets are stored in kg, so an
     // lb user must not be handed a kg number on paper.
@@ -664,7 +673,57 @@ function _workoutPlanWeightClause(kg, unit) {
     return Number.isFinite(w.value) ? ` @ ${w.value} ${w.label}` : '';
 }
 
-function _workoutPlanExerciseItem(ex, unit) {
+
+function _workoutPlanR1(v) {
+    return Math.round(Number(v) * 10) / 10;
+}
+
+// Sleeve line plus one rect per plate per side (mirrored), rect height ∝ kg,
+// kg label under each rect. Monochrome presentation attributes only — no
+// CSS, no tokens: the svg must survive the print iframe as-is. The sleeve is
+// a <line> so every <rect> in the glyph is a plate.
+function _workoutPlanLoadingSvg(perSide, sides) {
+    const n = perSide.length;
+    const pw = 7;
+    const gap = 3;
+    const inner = 5;
+    const margin = 2;
+    const heights = perSide.map((kg) => Math.min(56, 10 + 2 * Number(kg)));
+    const maxH = Math.max.apply(null, heights.concat([0]));
+    const midY = margin + maxH / 2;
+    const half = n * pw + Math.max(0, n - 1) * gap;
+    const cx = margin + inner + half;
+    const W = _workoutPlanR1(cx + half + inner + margin);
+    const H = _workoutPlanR1(margin * 2 + maxH + 12);
+    let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" role="img">`;
+    s += `<line x1="${margin}" y1="${_workoutPlanR1(midY)}" x2="${_workoutPlanR1(W - margin)}" y2="${_workoutPlanR1(midY)}" stroke="#111" stroke-width="1.5"/>`;
+    for (let side = 0; side < 2; side += 1) {
+        // A sides:1 implement (plate-loaded kettlebell) loads one sleeve:
+        // drawing both would picture double the printed load.
+        if (sides === 1 && side === 0) continue;
+        for (let i = 0; i < n; i += 1) {
+            const h = heights[i];
+            const x = side === 0
+                ? cx - inner - ((i + 1) * pw) - (i * gap)
+                : cx + inner + (i * (pw + gap));
+            s += `<rect x="${_workoutPlanR1(x)}" y="${_workoutPlanR1(midY - h / 2)}" width="${pw}" height="${_workoutPlanR1(h)}" fill="#fff" stroke="#111" stroke-width="1.5"/>`;
+            s += `<text x="${_workoutPlanR1(x + pw / 2)}" y="${_workoutPlanR1(midY + maxH / 2 + 9)}" font-size="7" text-anchor="middle" fill="#111">${_workoutPlanEsc(perSide[i])}</text>`;
+        }
+    }
+    return `${s}</svg>`;
+}
+
+function _workoutPlanLoadingHtml(ld, unit) {
+    const plates = ld.per_side.map((k) => _workoutPlanEsc(k)).join(' \u00b7 ');
+    const base = ld.sides === 1
+        ? `${_workoutPlanEsc(ld.bar_kg)} + ${plates}`
+        : `${_workoutPlanEsc(ld.bar_kg)} + ${plates} / side`;
+    // Inventory plates are kg while the target above may print in lb — say so.
+    const txt = unit === 'lb' ? `${base} (kg)` : base;
+    return `<span class="plates">${_workoutPlanLoadingSvg(ld.per_side, ld.sides)}<span class="platestxt">${txt}</span></span>`;
+}
+
+function _workoutPlanExerciseItem(ex, unit, loadCtx) {
     const reps = (ex.target_reps_max)
         ? `${ex.target_reps_min}–${ex.target_reps_max}`
         : `${ex.target_reps_min}`;
@@ -680,12 +739,21 @@ function _workoutPlanExerciseItem(ex, unit) {
     for (let i = 1; i <= cellCount; i += 1) {
         cells.push(`<span class="cell"><span class="setno">${i}</span> ${_workoutPlanEsc(unit)} × reps</span>`);
     }
+    let loading = '';
+    if (loadCtx && loadCtx.loadings) {
+        const ld = loadCtx.loadings[ex && ex.id];
+        if (ld && Number.isFinite(Number(ld.bar_kg)) && Array.isArray(ld.per_side) && ld.per_side.length > 0) {
+            loadCtx.hadLoading = true;
+            loading = _workoutPlanLoadingHtml(
+                { bar_kg: Number(ld.bar_kg), per_side: ld.per_side, sides: ld.sides === 1 ? 1 : 2 }, unit);
+        }
+    }
     return `<li><span class="ex">${_workoutPlanEsc(ex.exercise_name)}</span> `
         + `<span class="tgt">${sets} × ${reps}${_workoutPlanEsc(weight)}</span>`
-        + `<span class="cells">${cells.join('')}</span></li>`;
+        + `${loading}<span class="cells">${cells.join('')}</span></li>`;
 }
 
-function _workoutPlanDayBlock(day, unit, showHeading) {
+function _workoutPlanDayBlock(day, unit, showHeading, loadCtx) {
     const variant = (day && day.variant) || {};
     const exercises = [...((day && day.exercises) || [])]
         .sort((a, b) => (Number(a.order_index) || 0) - (Number(b.order_index) || 0));
@@ -696,21 +764,32 @@ function _workoutPlanDayBlock(day, unit, showHeading) {
     const desc = (showHeading && variant.description)
         ? `<p class="desc">${_workoutPlanEsc(variant.description)}</p>` : '';
     const body = exercises.length > 0
-        ? `<ol>${exercises.map((ex) => _workoutPlanExerciseItem(ex, unit)).join('')}</ol>`
+        ? `<ol>${exercises.map((ex) => _workoutPlanExerciseItem(ex, unit, loadCtx)).join('')}</ol>`
         : '<p class="desc">No exercises yet.</p>';
     return `<section class="day">${heading}${desc}${body}</section>`;
 }
 
-// buildWorkoutPlanDocument(group, days, { unit, printedOn }) → a standalone
-// HTML string. Pure: no DOM, no clock beyond the injectable `printedOn`, so
-// the test can assert what reaches paper without opening a print dialog.
-// `days` is [{ variant, exercises }], one entry per variant.
+// buildWorkoutPlanDocument(group, days, { unit, printedOn, qrSvg,
+// loadingByExerciseId }) → a standalone HTML string. Pure: no DOM, no fetch,
+// no clock beyond the injectable `printedOn`, so the test can assert what
+// reaches paper without opening a print dialog.
+// `days` is [{ variant, exercises }], one entry per variant. Plate-loading
+// diagrams (med-niix.6) are DRAWN here but never COMPUTED here: the caller
+// precomputes `loadingByExerciseId` ({ [exerciseId]: { bar_kg, per_side,
+// sides } }) with the domain `loadingFor` and hands it in — an absent map,
+// a missing/null entry, or an empty per_side draws nothing, exactly as
+// before.
 function buildWorkoutPlanDocument(group, days, opts) {
     const o = opts || {};
     const g = group || {};
     const unit = o.unit === 'lb' ? 'lb' : 'kg';
     const printedOn = o.printedOn || new Date().toISOString().slice(0, 10);
     const rotating = !!g.is_rotating;
+    // Plate-loading diagrams (med-niix.6): precomputed by the caller, drawn
+    // here. Anything but an id-keyed object means no glyphs.
+    const loadings = (o.loadingByExerciseId && typeof o.loadingByExerciseId === 'object'
+        && !Array.isArray(o.loadingByExerciseId)) ? o.loadingByExerciseId : null;
+    const loadCtx = loadings ? { loadings, hadLoading: false } : null;
 
     // rotation_order asc; anything unset sinks to the end in list order
     // (Array#sort is stable), which is the order the Days editor shows.
@@ -735,7 +814,10 @@ function buildWorkoutPlanDocument(group, days, opts) {
     if (!g.active) meta.push('Inactive');
 
     const description = g.description ? `<p class="meta">${_workoutPlanEsc(g.description)}</p>` : '';
-    const blocks = ordered.map((d) => _workoutPlanDayBlock(d, unit, rotating)).join('');
+    const blocks = ordered.map((d) => _workoutPlanDayBlock(d, unit, rotating, loadCtx)).join('');
+    // Glyph stylesheet only when a glyph rendered: plans without bound
+    // equipment stay byte-identical to today.
+    const loadCss = (loadCtx && loadCtx.hadLoading) ? WORKOUT_PLAN_LOAD_CSS : '';
     // QR anchor (bd med-qj4.9): identifies the plan when its filled sheet is
     // photographed for scan-back. Injected (never built here) so the pure
     // builder stays DOM- and import-free; empty when generation failed, in
@@ -753,7 +835,7 @@ function buildWorkoutPlanDocument(group, days, opts) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>${_workoutPlanEsc(g.name || 'Workout plan')}</title>
-<style>${WORKOUT_PLAN_DOC_CSS}
+<style>${WORKOUT_PLAN_DOC_CSS}${loadCss}
 </style>
 </head>
 <body>
@@ -771,6 +853,11 @@ ${description}</div>${qr}</div></header>
 // ponytail: no memoization — import() already caches by specifier. The
 // indirection is the test seam (same shape as brief.js loadPrintDoc).
 function loadWorkoutPrintDoc() { return import('/js/print-doc.js'); }
+
+// Domain plate math for the sheet glyphs (med-niix.6). Same convention as
+// loadWorkoutPrintDoc: the indirection is the test seam, so tests stub the
+// namespace function and the harness never resolves the URL.
+function loadWorkoutEquipmentDomain() { return import('/domain/equipment.js'); }
 
 // QR svg for the printed sheet (bd med-qj4.9). Dynamic imports keep the
 // classic-script Plans list free of module load order: the QR text format
@@ -817,6 +904,54 @@ async function printWorkoutPlan(group) {
         days.push({ variant, exercises });
     }
 
+    // Plate-loading diagrams (med-niix.6): resolve each row's
+    // exercise_library_id → library item → equipment, then decompose the
+    // target with the domain loadingFor — the single source of the plate
+    // math. Best-effort: a failed read or import prints the sheet exactly
+    // as before, without glyphs.
+    let loadingByExerciseId = null;
+    try {
+        const lib = await apiCall('/api/workout/exercise-library');
+        let inv = null;
+        try {
+            if (window.WorkoutEquipment && typeof window.WorkoutEquipment.list === 'function') {
+                inv = await window.WorkoutEquipment.list();
+            }
+        } catch (_) {
+            inv = null;
+        }
+        if (!Array.isArray(inv)) inv = await apiCall('/api/workout/equipment', 'GET');
+        const { loadingFor } = await window.WorkoutGroups.loadEquipmentDomain();
+        if (Array.isArray(lib) && Array.isArray(inv) && typeof loadingFor === 'function') {
+            const libById = {};
+            for (const r of lib) {
+                if (r && r.id !== null && r.id !== undefined) libById[r.id] = r;
+            }
+            const eqById = {};
+            for (const e of inv) {
+                if (e && e.id !== null && e.id !== undefined) eqById[e.id] = e;
+            }
+            loadingByExerciseId = {};
+            for (const d of days) {
+                for (const ex of (d.exercises || [])) {
+                    if (!ex || ex.id === null || ex.id === undefined) continue;
+                    const w = Number(ex.target_weight_kg);
+                    if (!Number.isFinite(w) || w <= 0) continue;
+                    const row = libById[ex.exercise_library_id];
+                    const eq = row ? eqById[row.equipment_id] : null;
+                    if (!eq || eq.kind !== 'plated') continue;
+                    const ld = loadingFor(eq, w);
+                    if (ld && Array.isArray(ld.per_side) && ld.per_side.length > 0) {
+                        loadingByExerciseId[ex.id] = {
+                            bar_kg: ld.bar_kg, per_side: ld.per_side, sides: eq.sides === 1 ? 1 : 2,
+                        };
+                    }
+                }
+            }
+        }
+    } catch (_) {
+        loadingByExerciseId = null;
+    }
     const unit = (typeof readWeightUnitPreference === 'function') ? readWeightUnitPreference() : 'kg';
     // QR anchor is best-effort: a sheet without it still prints and logs by
     // hand exactly as before (bd med-qj4.9).
@@ -826,9 +961,15 @@ async function printWorkoutPlan(group) {
     } catch (_) {
         qrSvg = '';
     }
-    const html = window.WorkoutGroups.buildDocument(g, days, { unit, qrSvg });
+    const html = window.WorkoutGroups.buildDocument(g, days, { unit, qrSvg, loadingByExerciseId });
     const mod = await window.WorkoutGroups.loadPrintDoc();
-    mod.printDoc(document, html, 'wg-print-frame', WORKOUT_PLAN_DOC_CSS);
+    // The adopted stylesheet is the only CSS that lands in the print frame
+    // (CSP refuses the inline <style>): include the glyph rules exactly when
+    // a glyph rendered, so plain sheets adopt byte-identical CSS.
+    const css = html.includes('class="plates"')
+        ? WORKOUT_PLAN_DOC_CSS + WORKOUT_PLAN_LOAD_CSS
+        : WORKOUT_PLAN_DOC_CSS;
+    mod.printDoc(document, html, 'wg-print-frame', css);
 }
 
 window.WorkoutGroups = {
@@ -843,5 +984,6 @@ window.WorkoutGroups = {
     print: printWorkoutPlan,
     buildDocument: buildWorkoutPlanDocument,
     loadPrintDoc: loadWorkoutPrintDoc,
+    loadEquipmentDomain: loadWorkoutEquipmentDomain,
     makePlanQr: makePlanQrSvg
 };

@@ -418,6 +418,29 @@ the plan-exercise modal (`#workout-exercise-modal`) shows a read-only hint
 recomputed client-side) resolved via the row's `exercise_library_id` —
 nothing for unbound, no select there.
 
+**Sheet** (med-niix.6, polish — no progression impact). Once an exercise is
+bound to plated equipment, the printed plan sheet shows HOW to load the bar:
+under the target weight it draws a small monochrome SVG (sleeve line, one
+rect per plate per side — one sleeve only for `sides:1` gear — height
+proportional to kg, kg label under each) plus the text line
+`20 + 20 · 1.25 / side` as the accessible/print fallback (`(kg)` suffixed
+when the sheet prints in lb). The math stays single-sourced in `loadingFor(equipment, kg)` in
+`web/domain/equipment.js` (heaviest-first greedy over the merged plate rows
+with the per-implement divisor, knapsack witness fallback, null when the kg
+is not achievable, past the knapsack span ceiling, or the gear is fixed):
+the async caller (`printWorkoutPlan`) loads `/api/workout/exercise-library`
+and the inventory via `window.WorkoutEquipment.list()`, resolves each row
+through `exercise_library_id` → `equipment_id` like the plan-modal hint,
+imports the domain module through the namespaced `loadEquipmentDomain` seam
+(same pattern as the QR import), and hands the pure builder one option —
+`loadingByExerciseId` (`{ [exerciseId]: { bar_kg, per_side, sides } }`).
+`buildWorkoutPlanDocument` only draws what it is handed; a failed read or
+import prints the sheet exactly as before, with no glyphs. Unbound, fixed,
+bodyweight, bar-only, and unachievable targets draw nothing; the glyph rules
+ride the adopted print-frame stylesheet (the inline `<style>` is refused
+under CSP, so `printDoc` gets them exactly when a glyph rendered), and plain
+sheets stay byte-identical down to the CSS.
+
 **MCP**: the Go registry is untouched — no write op takes `equipment_id`
 (validation ignores extra fields, so agents cannot set the binding; it stays
 UI-only). The cloud list response does carry it on library rows (read side of

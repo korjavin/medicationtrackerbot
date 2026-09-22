@@ -99,6 +99,74 @@ export function achievableLoads(equipment) {
   return loads;
 }
 
+// loadingFor decomposes a target load into the bar plus the plates on each
+// side — { bar_kg, per_side: [kg, ...] } (heaviest first) — or null when the
+// kg cannot be built on this equipment. Fixed gear (and anything not plated)
+// returns null: nothing to draw. Greedy heaviest-first over the same
+// per-side grid achievableLoads uses (plate-row merge first, then
+// floor(count / (sides * (pair ? 2 : 1))) usable copies per side); greedy can
+// miss exotic inventories, so a miss falls back to a bounded-knapsack witness
+// before reporting null. The bar rides exact (achievableLoads convention) and
+// the rebuilt total must land on the requested kg, so off-grid snapping never
+// reports a near-miss as a build.
+export function loadingFor(equipment, kg) {
+  if (!equipment || equipment.kind !== 'plated') return null;
+  const bar = Number(equipment.bar_kg);
+  const target = Number(kg);
+  if (!Number.isFinite(bar) || bar <= 0) return null;
+  if (!Number.isFinite(target) || target <= 0) return null;
+  // Same order as the knapsack span ceiling in achievableLoads: without it a
+  // mistyped multi-tonne target sizes the witness array from the target
+  // instead of the inventory. +1 covers off-grid bar rounding at the edge.
+  if (target > MAX_TOTAL_KG + 1) return null;
+  const sides = equipment.sides === 1 ? 1 : 2;
+  const divisor = sides * (equipment.pair ? 2 : 1);
+  const inv = [];
+  for (const p of mergePlateRows(equipment.plates)) {
+    const copies = Math.floor(p.count / divisor);
+    const q = Math.round(p.kg * QUANTA_PER_KG);
+    if (!(copies > 0) || !(q > 0)) continue;
+    inv.push({ kg: p.kg, q, copies });
+  }
+  inv.sort((a, b) => b.q - a.q);
+  const barQ = Math.round(bar * QUANTA_PER_KG);
+  const targetQ = Math.round(target * QUANTA_PER_KG);
+  const diff = targetQ - barQ;
+  if (diff < 0 || diff % sides !== 0) return null;
+  const sideQ = diff / sides;
+  let remaining = sideQ;
+  const greedy = [];
+  for (const p of inv) {
+    if (remaining <= 0) break;
+    const use = Math.min(p.copies, Math.floor(remaining / p.q));
+    for (let i = 0; i < use; i += 1) greedy.push(p);
+    remaining -= use * p.q;
+  }
+  const picked = remaining === 0 ? greedy : knapsackWitness(inv, sideQ);
+  if (!picked) return null;
+  const total = Math.round((bar + (sides * sideQ) / QUANTA_PER_KG) * 100) / 100;
+  if (Math.abs(total - target) > 1e-9) return null;
+  return { bar_kg: bar, per_side: picked.map((p) => p.kg).sort((a, b) => b - a) };
+}
+
+// knapsackWitness is the exact-cover fallback for loadingFor: bounded 0/1
+// knapsack over per-side quanta, one pass per usable copy (capped at what the
+// target side could ever take, so a hostile plate count cannot widen the
+// loop). Returns the plate entries building sideQ, or null.
+function knapsackWitness(inv, sideQ) {
+  const dp = new Array(sideQ + 1).fill(null);
+  dp[0] = [];
+  for (const p of inv) {
+    const copies = Math.min(p.copies, Math.floor(sideQ / p.q));
+    for (let c = 0; c < copies; c += 1) {
+      for (let s = sideQ; s >= p.q; s -= 1) {
+        if (dp[s] === null && dp[s - p.q] !== null) dp[s] = [...dp[s - p.q], p];
+      }
+    }
+  }
+  return dp[sideQ];
+}
+
 // minStep is the smallest gap between consecutive achievable loads (null when
 // fewer than two loads exist). Rounded to 2dp so fixed lists with decimal
 // loads never report float dust.

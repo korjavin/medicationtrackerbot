@@ -4,7 +4,7 @@
 // pure-unit suite is the owning suite for this layer.
 import { describe, it, expect } from 'vitest';
 import {
-  createEquipmentDomain, achievableLoads, minStep, snapLoad,
+  createEquipmentDomain, achievableLoads, loadingFor, minStep, snapLoad,
 } from '../../../../web/domain/equipment.js';
 import {
   recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES,
@@ -83,6 +83,94 @@ describe('equipment load math', () => {
   it('minStep is null with fewer than two loads', () => {
     expect(minStep([20])).toBeNull();
     expect(minStep([])).toBeNull();
+  });
+});
+
+describe('loadingFor (med-niix.6)', () => {
+  const BAR = {
+    kind: 'plated', name: 'Ohio bar', bar_kg: 20, sides: 2, pair: false,
+    plates: [{ kg: 20, count: 2 }, { kg: 1.25, count: 2 }],
+  };
+
+  it('decomposes 62.5 on a 20kg bar into 20 + 1.25 per side', () => {
+    expect(loadingFor(BAR, 62.5)).toEqual({ bar_kg: 20, per_side: [20, 1.25] });
+  });
+
+  it('returns null when the kg is not achievable, and for fixed gear', () => {
+    expect(loadingFor(BAR, 61)).toBeNull();
+    expect(loadingFor(BAR, 10)).toBeNull(); // below the bar
+    expect(loadingFor(BAR, 0)).toBeNull();
+    expect(loadingFor({ kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12] }, 12)).toBeNull();
+    expect(loadingFor(null, 20)).toBeNull();
+  });
+
+  it('a bar-only target builds empty per_side; split rows still pair up', () => {
+    expect(loadingFor({
+      kind: 'plated', name: 'Bar', bar_kg: 20, sides: 2,
+      plates: [{ kg: 5, count: 2 }],
+    }, 20)).toEqual({ bar_kg: 20, per_side: [] });
+    expect(loadingFor({
+      kind: 'plated', name: 'Bar', bar_kg: 20, sides: 2,
+      plates: [{ kg: 5, count: 1 }, { kg: 5, count: 1 }],
+    }, 30)).toEqual({ bar_kg: 20, per_side: [5] });
+  });
+
+  it('falls back to the knapsack witness when greedy misses', () => {
+    // Per side: one 1kg plate or two 0.75kg plates build 1.5kg; greedy takes
+    // the 1kg first and strands 0.5kg, the witness finds 0.75 + 0.75.
+    const exotic = {
+      kind: 'plated', name: 'Exotic', bar_kg: 20, sides: 2,
+      plates: [{ kg: 1, count: 2 }, { kg: 0.75, count: 4 }],
+    };
+    expect(achievableLoads(exotic)).toContain(23);
+    expect(loadingFor(exotic, 23)).toEqual({ bar_kg: 20, per_side: [0.75, 0.75] });
+  });
+
+  it('returns null past the knapsack span ceiling, like achievableLoads', () => {
+    const big = {
+      kind: 'plated', name: 'Stacked bar', bar_kg: 20, sides: 2,
+      plates: [{ kg: 25, count: 40 }],
+    };
+    expect(achievableLoads(big)[achievableLoads(big).length - 1]).toBeLessThanOrEqual(501);
+    expect(achievableLoads(big)).not.toContain(620);
+    expect(loadingFor(big, 620)).toBeNull();
+    expect(loadingFor(big, 1e7)).toBeNull();
+    expect(loadingFor(big, 420)).toEqual({ bar_kg: 20, per_side: [25, 25, 25, 25, 25, 25, 25, 25] });
+  });
+
+  it('agrees with achievableLoads on randomized small inventories (seeded)', () => {
+    let seed = 0xc0ffee;
+    const rnd = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    const choices = [1.25, 2.5, 5, 10, 15, 20, 25];
+    for (let round = 0; round < 25; round += 1) {
+      const sides = rnd() < 0.7 ? 2 : 1;
+      const pair = sides === 2 && rnd() < 0.3;
+      const plates = choices
+        .filter(() => rnd() < 0.5)
+        .map((kg) => ({ kg, count: 1 + Math.floor(rnd() * 4) }));
+      const eq = { kind: 'plated', name: 'Rand', bar_kg: 20, sides, pair, plates };
+      const loads = new Set(achievableLoads(eq).map((l) => Math.round(l * 100) / 100));
+      const probes = new Set([...loads]);
+      for (const l of loads) {
+        probes.add(Math.round((l + 0.5) * 100) / 100);
+        probes.add(Math.round((l - 0.5) * 100) / 100);
+      }
+      for (const kg of probes) {
+        if (!(kg > 0)) continue;
+        const ld = loadingFor(eq, kg);
+        const achievable = loads.has(Math.round(kg * 100) / 100);
+        expect({ kg, got: ld !== null }).toEqual({ kg, got: achievable });
+        if (ld) {
+          const rebuilt = Math.round(
+            (ld.bar_kg + (sides * ld.per_side.reduce((a, b) => a + b, 0))) * 100,
+          ) / 100;
+          expect(rebuilt).toBeCloseTo(kg, 9);
+        }
+      }
+    }
   });
 });
 
