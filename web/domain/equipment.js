@@ -23,6 +23,8 @@ import { mintNumericId, findByNumericId, genRecordId } from './workout.js';
 export const EQUIPMENT_RECORD_TYPE = 'equipment';
 
 // Validation + compute ceilings (kept small so the knapsack stays bounded).
+// ponytail: fixed caps, not derived from any inventory — raise only if the UI
+// needs bigger sets.
 const MAX_PLATE_TYPES = 20;
 const MAX_FIXED_LOADS = 200;
 const QUANTA_PER_KG = 4; // 0.25-kg quanta for the plated knapsack.
@@ -50,6 +52,10 @@ function uniqueSorted(nums) {
 // ponytail: symmetric loading only — add an allow_uneven flag only if the
 // owner asks. The UI should surface the computed loads/step so a lone plate
 // that drops out is visible.
+// Off-grid weights are snapped, not rejected: bar and plate kg round to the
+// 0.25-kg grid (a 20.4 kg bar still reports loads[0] === 20.4, plate rungs
+// land on-grid), and a plate type rounding to zero quanta drops out — same
+// visibility rule as the lone plate, never a silent error.
 export function achievableLoads(equipment) {
   if (!equipment || equipment.kind !== 'plated') {
     const raw = (equipment && equipment.loads_kg) || [];
@@ -68,9 +74,9 @@ export function achievableLoads(equipment) {
   );
   const reachable = new Uint8Array(maxSideQ + 1);
   reachable[0] = 1;
-  for (const p of equipment.plates || []) {
-    const perSide = Math.floor(Number(p && p.count) / divisor);
-    const q = Math.round(Number(p && p.kg) * QUANTA_PER_KG);
+  for (const p of mergePlateRows(equipment.plates)) {
+    const perSide = Math.floor(p.count / divisor);
+    const q = Math.round(p.kg * QUANTA_PER_KG);
     if (!(perSide > 0) || !(q > 0)) continue;
     // Bounded multiplicity via binary splitting: O(log perSide) 0/1 passes.
     let remaining = perSide;
@@ -87,7 +93,8 @@ export function achievableLoads(equipment) {
   }
   const loads = [];
   for (let s = 0; s <= maxSideQ; s += 1) {
-    if (reachable[s]) loads.push((barQ + sides * s) / QUANTA_PER_KG);
+    // The bar rides exact (never quantized); only plate sums sit on the grid.
+    if (reachable[s]) loads.push(Math.round((bar + (sides * s) / QUANTA_PER_KG) * 100) / 100);
   }
   return loads;
 }
@@ -129,13 +136,29 @@ export function snapLoad(loads, current, desired) {
   return best;
 }
 
+// mergePlateRows folds duplicate plate rows by weight (first-seen order),
+// skipping malformed rows. Shared by validation (canonical stored shape) and
+// achievableLoads (vault bodies bypass validation on import): the symmetric
+// floor divides each row independently, so [{5,1},{5,1}] on a sides:2 bar
+// would otherwise discard both halves of a valid pair.
+function mergePlateRows(rows) {
+  const merged = new Map();
+  for (const p of rows || []) {
+    const kg = Number(p && p.kg);
+    const count = Number(p && p.count);
+    if (!Number.isFinite(kg) || kg <= 0 || !Number.isInteger(count) || count < 1) continue;
+    merged.set(kg, (merged.get(kg) || 0) + count);
+  }
+  return [...merged.entries()].map(([kg, count]) => ({ kg, count }));
+}
+
 function validatePlates(plates) {
   if (plates === undefined || plates === null) return [];
   if (!Array.isArray(plates)) throw invalidRequest('plates must be an array');
   if (plates.length > MAX_PLATE_TYPES) {
     throw invalidRequest(`plates may not exceed ${MAX_PLATE_TYPES} types`);
   }
-  return plates.map((p) => {
+  const rows = plates.map((p) => {
     const kg = Number(p && p.kg);
     if (!Number.isFinite(kg) || kg <= 0) {
       throw invalidRequest('plate kg must be a positive finite number');
@@ -146,6 +169,7 @@ function validatePlates(plates) {
     }
     return { kg, count };
   });
+  return mergePlateRows(rows);
 }
 
 function validateLoads(loads) {
@@ -258,12 +282,12 @@ export function createEquipmentDomain({ records, now }) {
       clientTs: nowMs,
       updated_at: new Date(nowMs).toISOString(),
     };
-    // A kind change must not leave the other kind's fields behind: strip
-    // whichever side the new kind does not own (never persist undefined).
-    const owned = clean.kind === 'fixed'
+    // A kind change must not leave the other kind's fields behind: delete
+    // the disowned side's keys (never persist undefined).
+    const disowned = clean.kind === 'fixed'
       ? ['bar_kg', 'sides', 'pair', 'plates']
       : ['loads_kg'];
-    for (const k of owned) delete updated[k];
+    for (const k of disowned) delete updated[k];
     await records.put(EQUIPMENT_RECORD_TYPE, updated);
   }
 

@@ -120,14 +120,33 @@ describe('equipment CRUD', () => {
     expect(await eq.listEquipment()).toHaveLength(0);
   });
 
-  it('a kind change strips the other kind fields', async () => {
-    const eq = domain();
+  it('a kind change strips the other kind fields from the stored body', async () => {
+    let t = 1_000_000;
+    const records = memPort();
+    const eq = createEquipmentDomain({ records, now: () => (t += 1000) });
     const created = await eq.createEquipment(BARBELL);
     await eq.updateEquipment(created.id, { kind: 'fixed', name: 'Ohio bar', loads_kg: [20] });
-    const got = await eq.getEquipment(created.id);
-    expect(got.kind).toBe('fixed');
-    expect(got.loads_kg).toEqual([20]);
-    expect('bar_kg' in got).toBe(false);
+    // Assert on the stored body: the response omits plated keys for fixed
+    // gear regardless, so only the body proves the strip loop ran.
+    const [stored] = await records.list('equipment');
+    expect(stored.kind).toBe('fixed');
+    for (const k of ['bar_kg', 'sides', 'pair', 'plates']) expect(k in stored).toBe(false);
+    expect((await eq.getEquipment(created.id)).loads_kg).toEqual([20]);
+  });
+
+  it('duplicate plate rows merge so split counts still load both sides', () => {
+    expect(achievableLoads({
+      kind: 'plated', name: 'Bar', bar_kg: 20, sides: 2,
+      plates: [{ kg: 5, count: 1 }, { kg: 5, count: 1 }],
+    })).toEqual([20, 30]);
+  });
+
+  it('an off-grid bar still reports its exact weight as the first rung', () => {
+    const loads = achievableLoads({
+      kind: 'plated', name: 'LB bar', bar_kg: 20.4, sides: 2,
+      plates: [{ kg: 20.4, count: 2 }],
+    });
+    expect(loads[0]).toBe(20.4);
   });
 
   it('validation rejects bad payloads with invalid_request', async () => {
