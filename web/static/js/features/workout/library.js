@@ -309,9 +309,58 @@ function _syncBodyPartSelect(current) {
     select.value = current || '';
 }
 
+// Fill the Equipment <select> from the inventory (med-niix.5, optional
+// library-level binding) and select `currentId`. The blank option is the
+// default: unbound, which behaves exactly as before. Reads through the
+// equipment module's shared cachedFetch list — no second fetch path.
+async function _syncEquipmentSelect(currentId) {
+    const select = document.getElementById('exercise-library-equipment');
+    if (!select) return;
+    // Build options against the select's own document: the inventory read
+    // below is async, and a fire-and-forget modal open (or a torn-down test
+    // env) must never resolve bare `document` after it is gone.
+    const doc = select.ownerDocument;
+    if (!doc || typeof doc.createElement !== 'function') return;
+    // Reset synchronously FIRST: every opener is fire-and-forget from a click
+    // handler, so the previous open's options/selection must not survive
+    // until the read lands — saving inside that window would bind equipment
+    // the user never chose. dataset.loaded tracks whether the options below
+    // are a real inventory read; the save omits equipment_id when it is not,
+    // and updateLibraryItem preserves the stored binding on an omitted key —
+    // so a failed/offline read can never silently unbind.
+    select.replaceChildren();
+    const none = doc.createElement('option');
+    none.value = '';
+    none.textContent = 'None';
+    select.appendChild(none);
+    select.value = '';
+    select.dataset.loaded = 'false';
+    let items = null;
+    try {
+        if (window.WorkoutEquipment && typeof window.WorkoutEquipment.list === 'function') {
+            items = await window.WorkoutEquipment.list();
+        } else {
+            const raw = await apiCall('/api/workout/equipment', 'GET');
+            if (Array.isArray(raw)) items = raw;
+        }
+    } catch (e) {
+        items = null; // offline / failure: "None" alone, the save preserves
+    }
+    if (!Array.isArray(items)) return;
+    for (const item of items) {
+        if (!item || item.id == null) continue;
+        const opt = doc.createElement('option');
+        opt.value = String(item.id);
+        opt.textContent = item.name || `Equipment ${item.id}`;
+        select.appendChild(opt);
+    }
+    select.dataset.loaded = 'true';
+    select.value = currentId != null && currentId !== '' ? String(currentId) : '';
+}
+
 // `presetName` pre-fills the name field — that is how a catalog row from the
 // "All" source becomes a library row of the user's own.
-function showExerciseLibraryModal(presetName) {
+async function showExerciseLibraryModal(presetName) {
     window.WorkoutEdit.editingLibraryItemId = null;
     document.getElementById('exercise-library-modal-title').textContent = 'Add Exercise';
     document.getElementById('exercise-library-rename-hint').hidden = true;
@@ -327,11 +376,17 @@ function showExerciseLibraryModal(presetName) {
 
     // Catalog-only: this modal is where library rows get created, so suggesting
     // the library back at the user would just offer duplicates.
+    // (Runs before the await below so fire-and-forget openers still see the
+    // picker reset synchronously, exactly as before.)
     bindExercisePicker({
         input: document.getElementById('exercise-library-name'),
         mount: document.getElementById('exercise-library-suggest'),
         withLibrary: false
     });
+
+    // Awaited last: awaiting callers see the filled select, while
+    // fire-and-forget openers already got the synchronous reset above.
+    await _syncEquipmentSelect('');
 }
 
 async function showEditExerciseLibraryModal(id) {
@@ -351,6 +406,7 @@ async function showEditExerciseLibraryModal(id) {
     document.getElementById('exercise-library-weight').value = item.default_weight_kg || '';
     document.getElementById('exercise-library-notes').value = item.notes || '';
     _syncBodyPartSelect(item.body_part || '');
+    await _syncEquipmentSelect(item.equipment_id);
 
     // The picker starts closed, so the stored name is not immediately buried
     // under suggestions for itself; it opens again as soon as the user types.
@@ -377,6 +433,12 @@ async function saveExerciseLibraryItem() {
     const notes = document.getElementById('exercise-library-notes').value.trim();
     const bodyPartEl = document.getElementById('exercise-library-body-part');
     const bodyPart = bodyPartEl ? bodyPartEl.value : '';
+    const equipmentEl = document.getElementById('exercise-library-equipment');
+    // The key rides the same payload only when the select holds a real
+    // inventory read. Otherwise it is omitted and updateLibraryItem preserves
+    // the stored binding (see _syncEquipmentSelect).
+    const equipmentLoaded = !!equipmentEl && equipmentEl.dataset.loaded === 'true';
+    const equipmentRaw = equipmentLoaded ? equipmentEl.value : null;
 
     if (!name) {
         safeAlert('Exercise name is required!');
@@ -392,6 +454,7 @@ async function saveExerciseLibraryItem() {
         notes: notes,
         body_part: bodyPart
     };
+    if (equipmentRaw !== null) payload.equipment_id = equipmentRaw !== '' ? Number(equipmentRaw) : null;
 
     let result;
     const isCreate = !window.WorkoutEdit.editingLibraryItemId;

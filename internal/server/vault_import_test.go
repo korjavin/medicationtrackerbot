@@ -167,6 +167,15 @@ func normalizeVault(t *testing.T, b []byte) map[string]any {
 			// no table for it, so import drops it — strip like
 			// med_reminder_pref rather than failing the identity.
 			delete(workouts, "equipment")
+			// equipment_id is the cloud-only library binding (med-niix.5);
+			// bot mode has no such column, so import drops it per row.
+			if lib, ok := workouts["library"].([]any); ok {
+				for _, item := range lib {
+					if row, ok := item.(map[string]any); ok {
+						delete(row, "equipment_id")
+					}
+				}
+			}
 		}
 	}
 	return sortArrays(canonicalizeTimes(m)).(map[string]any)

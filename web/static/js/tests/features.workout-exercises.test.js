@@ -612,4 +612,218 @@ describe('features/workout/exercises.js — split-file integration', () => {
     });
   });
 
+  // med-niix.5: read-only equipment hint on the plan-exercise modal,
+  // resolved via the row's exercise_library_id. The step is the API's
+  // min_step_kg verbatim — never recomputed client-side.
+  describe('equipment hint (med-niix.5)', () => {
+    const OHIO_BAR = { id: 50, name: 'Ohio bar', kind: 'plated', min_step_kg: 2.5, max_kg: 200 };
+
+    function stubHint(window, { exercises, library, equipment = [OHIO_BAR] }) {
+      window.WorkoutEdit.variantForExercise = 1;
+      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
+      window.WorkoutEquipment.list = vi.fn(async () => equipment);
+      window.apiCall = vi.fn(async (url) => {
+        if (String(url).startsWith('/api/workout/exercises?')) return exercises;
+        if (String(url) === '/api/workout/exercise-library') return library;
+        return [];
+      });
+    }
+
+    const equipHintOf = (document) => document.getElementById('workout-exercise-equipment-hint');
+
+    function boundExercise(libraryId = 40) {
+      return [{
+        id: 7, exercise_name: 'Bench Press', target_sets: 3, target_reps_min: 8,
+        target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+        progression_rule: { type: 'none' }, exercise_library_id: libraryId,
+      }];
+    }
+
+    it('renders the hint element hidden by default', () => {
+      const { document } = env;
+      const hint = equipHintOf(document);
+      expect(hint).not.toBeNull();
+      expect(hint.tagName).toBe('P');
+      expect(hint.hidden).toBe(true);
+    });
+
+    it('showEditExerciseModal shows "Equipment: <name> · step X kg" for a bound exercise', async () => {
+      const { window, document } = env;
+      stubHint(window, {
+        exercises: boundExercise(40),
+        library: [{ id: 40, name: 'Bench Press', equipment_id: 50 }],
+      });
+
+      await window.showEditExerciseModal(7);
+
+      expect(equipHintOf(document).hidden).toBe(false);
+      expect(equipHintOf(document).textContent).toBe('Equipment: Ohio bar · step 2.5 kg');
+    });
+
+    it('shows nothing when the exercise has no library link (unbound)', async () => {
+      const { window, document } = env;
+      const ex = boundExercise();
+      delete ex[0].exercise_library_id;
+      stubHint(window, { exercises: ex, library: [] });
+
+      await window.showEditExerciseModal(7);
+
+      expect(equipHintOf(document).hidden).toBe(true);
+      expect(equipHintOf(document).textContent).toBe('');
+    });
+
+    it('shows nothing when the library row itself is unbound', async () => {
+      const { window, document } = env;
+      stubHint(window, {
+        exercises: boundExercise(40),
+        library: [{ id: 40, name: 'Bench Press' }],
+      });
+
+      await window.showEditExerciseModal(7);
+
+      expect(equipHintOf(document).hidden).toBe(true);
+    });
+
+    it('shows nothing for a dangling binding (equipment deleted, no cascade)', async () => {
+      const { window, document } = env;
+      stubHint(window, {
+        exercises: boundExercise(40),
+        library: [{ id: 40, name: 'Bench Press', equipment_id: 999 }],
+        equipment: [OHIO_BAR],
+      });
+
+      await window.showEditExerciseModal(7);
+
+      expect(equipHintOf(document).hidden).toBe(true);
+      expect(equipHintOf(document).textContent).toBe('');
+    });
+
+    it('omits the step clause when the API reports no min_step_kg', async () => {
+      const { window, document } = env;
+      stubHint(window, {
+        exercises: boundExercise(41),
+        library: [{ id: 41, name: 'Curl', equipment_id: 51 }],
+        equipment: [{ id: 51, name: 'Hex DB', kind: 'fixed', min_step_kg: null, max_kg: 10 }],
+      });
+
+      await window.showEditExerciseModal(7);
+
+      expect(equipHintOf(document).hidden).toBe(false);
+      expect(equipHintOf(document).textContent).toBe('Equipment: Hex DB');
+    });
+
+    it('a library pick in Add binds the hint; a catalog-only pick clears it', async () => {
+      const { window, document } = env;
+      stubHint(window, {
+        exercises: [],
+        library: [{ id: 40, name: 'Bench Press', equipment_id: 50 }],
+      });
+
+      await window.onPlanExercisePicked({ id: 40, name: 'Bench Press' });
+      await vi.waitFor(() => {
+        expect(equipHintOf(document).hidden).toBe(false);
+      });
+      expect(equipHintOf(document).textContent).toBe('Equipment: Ohio bar · step 2.5 kg');
+
+      await window.onPlanExercisePicked({ name: 'Zercher squat' });
+      await vi.waitFor(() => {
+        expect(equipHintOf(document).textContent).toBe('');
+      });
+      expect(equipHintOf(document).hidden).toBe(true);
+    });
+
+    it('opening Edit clears the previous exercise hint synchronously', async () => {
+      const { window, document } = env;
+      const calls = [
+        boundExercise(40),
+        boundExercise(),
+      ];
+      delete calls[1][0].exercise_library_id;
+      let n = 0;
+      window.WorkoutEdit.variantForExercise = 1;
+      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
+      window.WorkoutEquipment.list = vi.fn(async () => [OHIO_BAR]);
+      window.apiCall = vi.fn(async (url) => {
+        if (String(url).startsWith('/api/workout/exercises?')) return calls[n++];
+        if (String(url) === '/api/workout/exercise-library') {
+          return [{ id: 40, name: 'Bench Press', equipment_id: 50 }];
+        }
+        return [];
+      });
+
+      await window.showEditExerciseModal(7);
+      expect(equipHintOf(document).textContent).toBe('Equipment: Ohio bar · step 2.5 kg');
+
+      // The second open has not resolved anything yet, but the stale hint
+      // must already be gone — the clear runs before the first await.
+      const pending = window.showEditExerciseModal(7);
+      expect(equipHintOf(document).hidden).toBe(true);
+      expect(equipHintOf(document).textContent).toBe('');
+      await pending;
+      expect(equipHintOf(document).hidden).toBe(true);
+    });
+
+    it('a superseded pick cannot paint its binding after a newer pick cleared it', async () => {
+      const { window, document } = env;
+      stubHint(window, {
+        exercises: [],
+        library: [{ id: 40, name: 'Bench Press', equipment_id: 50 }],
+      });
+      // Gate the FIRST library read so the bound pick's fetch lands after
+      // the catalog-only pick has already cleared the hint.
+      let release;
+      const gate = new Promise((resolve) => { release = resolve; });
+      let first = true;
+      const inner = window.apiCall;
+      window.apiCall = vi.fn(async (url, ...rest) => {
+        if (first && String(url) === '/api/workout/exercise-library') {
+          first = false;
+          await gate;
+        }
+        return inner(url, ...rest);
+      });
+
+      window.onPlanExercisePicked({ id: 40, name: 'Bench Press' });
+      await window.onPlanExercisePicked({ name: 'Zercher squat' });
+      expect(equipHintOf(document).textContent).toBe('');
+      release();
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(equipHintOf(document).hidden).toBe(true);
+      expect(equipHintOf(document).textContent).toBe('');
+    });
+
+    it('a hand-typed rename re-resolves the hint against the new name', async () => {
+      const { window, document } = env;
+      stubHint(window, {
+        exercises: boundExercise(40),
+        library: [
+          { id: 40, name: 'Bench Press', equipment_id: 50 },
+          { id: 41, name: 'Curl' },
+        ],
+      });
+      await window.showEditExerciseModal(7);
+      expect(equipHintOf(document).textContent).toBe('Equipment: Ohio bar · step 2.5 kg');
+
+      // Renaming to an unbound library name clears the hint (no picker pick,
+      // so this goes through the name-change path).
+      const nameEl = document.getElementById('workout-exercise-name');
+      nameEl.value = 'Curl';
+      await nameEl.onchange();
+      await vi.waitFor(() => {
+        expect(equipHintOf(document).textContent).toBe('');
+      });
+      expect(equipHintOf(document).hidden).toBe(true);
+
+      // ...and back to the bound name restores it.
+      nameEl.value = 'Bench Press';
+      await nameEl.onchange();
+      await vi.waitFor(() => {
+        expect(equipHintOf(document).hidden).toBe(false);
+      });
+      expect(equipHintOf(document).textContent).toBe('Equipment: Ohio bar · step 2.5 kg');
+    });
+  });
+
 });
+

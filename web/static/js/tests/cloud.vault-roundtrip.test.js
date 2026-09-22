@@ -65,6 +65,10 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       // Equipment is cloud-only inventory (med-niix.1); a real bot export
       // never carries it, so it canonicalizes away here like med_reminder_pref.
       if (d.workouts) delete d.workouts.equipment;
+      // equipment_id is the cloud-only library binding (med-niix.5); the bot
+      // has no such column, so a real bot export drops it per row — mirrors
+      // normalizeVault in vault_import_test.go.
+      for (const row of d.workouts?.library || []) delete row.equipment_id;
       // scheduled_date / last_session_date are DATE columns: the bot re-emits them
       // as UTC midnight, the hand fixture writes the local-midnight form. Only the
       // calendar day is contractual — mirrors dateOnlyKeys in vault_import_test.go.

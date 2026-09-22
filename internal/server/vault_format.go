@@ -279,6 +279,11 @@ type VaultLibraryEntry struct {
 	Notes           string    `json:"notes"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+	// EquipmentID is the optional library-level equipment binding
+	// (med-niix.5). Cloud-only like VaultWorkouts.Equipment: bot mode has
+	// no such column, so import drops it and export omits it; the import
+	// identity test strips the key the way it strips equipment.
+	EquipmentID *int64 `json:"equipment_id,omitempty"`
 }
 
 type VaultRotation struct {

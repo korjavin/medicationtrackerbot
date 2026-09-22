@@ -313,6 +313,65 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
         }
     });
 
+    // med-niix.5: optional exercise<->equipment binding. equipment_id is a
+    // nullable numeric on the library row, emitted only when set; deleting
+    // the equipment performs no cascade write, so the row stays readable.
+    it('library equipment_id round-trips; unbound omits the field, dangling stays readable', async () => {
+        const { window } = env;
+        // Unbound create omits the field entirely.
+        const free = await window.apiCall('/api/workout/exercise-library/create', 'POST', {
+            name: 'Push-Up', default_sets: 3, default_reps_min: 10
+        });
+        expect('equipment_id' in free).toBe(false);
+
+        // Binding round-trips through create/list/update. The id is not FK
+        // validated on write — it only resolves against the inventory at read
+        // time, so an arbitrary numeric id stores fine.
+        const bound = await window.apiCall('/api/workout/exercise-library/create', 'POST', {
+            name: 'Bench Press', default_sets: 3, default_reps_min: 8, equipment_id: 50
+        });
+        expect(bound.equipment_id).toBe(50);
+        let list = await window.apiCall('/api/workout/exercise-library');
+        expect(list.find((i) => i.id === bound.id).equipment_id).toBe(50);
+
+        // Unbind: null clears back to omitted.
+        await window.apiCall(`/api/workout/exercise-library/update?id=${bound.id}`, 'PUT', {
+            name: 'Bench Press', default_sets: 3, default_reps_min: 8, equipment_id: null
+        });
+        list = await window.apiCall('/api/workout/exercise-library');
+        expect('equipment_id' in list.find((i) => i.id === bound.id)).toBe(false);
+
+        // Re-bind against a real inventory record, then delete the equipment:
+        // the row stays readable with the id intact (no cascade write); the
+        // dangling id reads as unbound downstream (plan-modal hint).
+        const bar = await window.apiCall('/api/workout/equipment', 'POST', {
+            name: 'Ohio bar', kind: 'fixed', loads_kg: [20, 30, 40]
+        });
+        await window.apiCall(`/api/workout/exercise-library/update?id=${bound.id}`, 'PUT', {
+            name: 'Bench Press', default_sets: 3, default_reps_min: 8, equipment_id: bar.id
+        });
+        await window.apiCall(`/api/workout/equipment/${bar.id}`, 'DELETE');
+        list = await window.apiCall('/api/workout/exercise-library');
+        const row = list.find((i) => i.id === bound.id);
+        expect(row).toBeTruthy();
+        expect(row.equipment_id).toBe(bar.id);
+    });
+
+    // med-niix.5: an update body WITHOUT the key (e.g. the MCP
+    // exercise_library.update op, whose schema declares no equipment_id)
+    // preserves the stored binding; only an explicit null clears it.
+    it('library update without equipment_id preserves the stored binding', async () => {
+        const { window } = env;
+        const bound = await window.apiCall('/api/workout/exercise-library/create', 'POST', {
+            name: 'Bench Press', default_sets: 3, default_reps_min: 8, equipment_id: 50
+        });
+        await window.apiCall(`/api/workout/exercise-library/update?id=${bound.id}`, 'PUT', {
+            name: 'Bench Press', default_sets: 5, default_reps_min: 8
+        });
+        const list = await window.apiCall('/api/workout/exercise-library');
+        expect(list.find((i) => i.id === bound.id).equipment_id).toBe(50);
+    });
+
     it('exercise library create/list/update/delete round-trips with name-uniqueness enforced', async () => {
         const { window } = env;
         const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', {

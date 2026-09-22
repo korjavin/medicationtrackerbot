@@ -179,7 +179,8 @@ Food targets are a settings singleton — see `settings.food_targets`, not repea
   "rotations": [ { rotation } ],
   "sessions": [ { session } ],
   "exercise_logs": [ { exercise_log } ],
-  "miband": [ { miband_workout } ]
+  "miband": [ { miband_workout } ],
+  "equipment": [ { equipment } ]
 }
 ```
 
@@ -198,7 +199,14 @@ Workout entities carry a numeric body `id` (FK glue; `-1` is the ad-hoc sentinel
   after import).
 - **library_entry** — `id`, `user_id`, `name`, `default_sets` (int),
   `default_reps_min` (int), `default_reps_max` (int|null), `default_weight_kg`
-  (num|null), `notes`, `created_at`, `updated_at`.
+  (num|null), `equipment_id` (num|null, omitted when unset — the optional
+  library-level equipment binding, med-niix.5), `notes`, `created_at`,
+  `updated_at`.
+- **equipment** — `id`, `user_id`, `name`, `kind` (`fixed`|`plated`); fixed
+  carries `loads_kg` (num array), plated carries `bar_kg` (num), `sides` (1|2),
+  `pair` (bool), `plates` (`[{kg, count}]`); `created_at`, `updated_at`.
+  Cloud-only inventory (med-niix.1): the bot runtime has no equipment table, so
+  bot exports omit the key and bot import ignores it; cloud round-trips it.
 - **rotation** — `group_id`, `current_variant_id`, `last_session_date` (RFC3339|null),
   `updated_at`. No stored `id`; re-mints deterministically as `rotation-<groupId>`
   (one row per group) on cloud import.
@@ -455,6 +463,11 @@ destroys, and the token hashes are what keep a minted token working after a serv
   same keys the `.nxk` migration path mints — so a full-vault import followed by a Mi Band
   `.nxk` migration of the same night/session converges to one record instead of double-
   counting (the client mirror of bot mode's `UNIQUE(user_id,start_time)` / `UNIQUE(source_start_ms)`).
+- **Cloud-only equipment** — `workouts.equipment` and the per-row
+  `library.equipment_id` are cloud inventory (med-niix.1/med-niix.5). The bot
+  runtime has neither the table nor the column, so bot exports omit them and
+  bot import drops them; equality holds after stripping, the way
+  `med_reminder_pref` is stripped.
 - **Timestamp offsets** — timestamps compare as **instants**, not as text. Bot import
   normalizes every timestamp to UTC before storing it (`2026-07-07T12:00:00+02:00` →
   `2026-07-07T10:00:00Z`), because `modernc.org/sqlite` writes a non-UTC `time.Time`
