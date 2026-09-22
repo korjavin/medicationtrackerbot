@@ -179,7 +179,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(window.WorkoutEdit.editingEquipmentId).toBeNull();
     });
 
-    it('creates a plated barbell from the UI with sides, pair toggle and plate rows', async () => {
+    it('creates a plated barbell from the UI with the Type select and plate rows', async () => {
         const { window, document } = env;
         seedOnlineList(window, []);
         const calls = [];
@@ -196,8 +196,8 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(document.getElementById('workout-equipment-plated-section').hidden).toBe(false);
 
         document.getElementById('workout-equipment-name').value = 'Ohio bar';
+        document.getElementById('workout-equipment-type').value = 'barbell';
         document.getElementById('workout-equipment-bar').value = '20';
-        document.getElementById('workout-equipment-pair').checked = true;
         const firstRow = document.querySelector('#workout-equipment-plates [data-plate-row]');
         firstRow.querySelector('[data-plate-kg]').value = '20';
         firstRow.querySelector('[data-plate-count]').value = '2';
@@ -213,9 +213,93 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
             expect(calls.length).toBeGreaterThan(0);
         });
         expect(calls[0][2]).toEqual({
-            kind: 'plated', name: 'Ohio bar', bar_kg: 20, sides: 2, pair: true,
+            kind: 'plated', name: 'Ohio bar', bar_kg: 20, sides: 2, pair: false,
             plates: [{ kg: 20, count: 2 }, { kg: 10, count: 2 }]
         });
+    });
+
+    it('each Type option saves the right sides/pair combination', async () => {
+        const { window, document } = env;
+        seedOnlineList(window, []);
+        const calls = [];
+        window.apiCall = vi.fn(async (url, method, body) => {
+            calls.push([url, method, body]);
+            if (method === 'POST') return { id: 9 };
+            return null;
+        });
+        window.apiCallDirect = vi.fn(async () => []);
+
+        const cases = [
+            ['barbell', { sides: 2, pair: false }],
+            ['kettlebell', { sides: 1, pair: false }],
+            ['dumbbells', { sides: 2, pair: true }]
+        ];
+        for (const [type, want] of cases) {
+            calls.length = 0;
+            document.getElementById('add-workout-equipment-btn').click();
+            document.querySelector('#workout-equipment-kind [data-kind="plated"]').click();
+            document.getElementById('workout-equipment-name').value = `${type} rig`;
+            document.getElementById('workout-equipment-type').value = type;
+            document.getElementById('workout-equipment-bar').value = '20';
+            const row = document.querySelector('#workout-equipment-plates [data-plate-row]');
+            row.querySelector('[data-plate-kg]').value = '10';
+            row.querySelector('[data-plate-count]').value = '2';
+            await window.WorkoutEquipment.save();
+            expect(calls[0][2]).toEqual({
+                kind: 'plated', name: `${type} rig`, bar_kg: 20,
+                sides: want.sides, pair: want.pair,
+                plates: [{ kg: 10, count: 2 }]
+            });
+        }
+    });
+
+    it('editing a pair:true record reopens with the dumbbells Type selected', async () => {
+        const { window, document } = env;
+        const pairRecord = { ...PLATED_BAR, id: 7, name: 'Loadable DBs', sides: 2, pair: true };
+        seedOnlineList(window, [pairRecord]);
+        await window.WorkoutEquipment.load();
+
+        await window.WorkoutEquipment.openEdit(pairRecord.id);
+
+        expect(document.getElementById('workout-equipment-modal-title').textContent).toBe('Edit Equipment');
+        expect(document.getElementById('workout-equipment-type').value).toBe('dumbbells');
+        expect(document.getElementById('workout-equipment-bar').value).toBe('20');
+    });
+
+    it('editing a record outside the three combinations opens the nearest Type', async () => {
+        const { window, document } = env;
+        const oddRecord = { ...PLATED_BAR, id: 8, name: 'Odd bell', sides: 1, pair: true };
+        seedOnlineList(window, [oddRecord]);
+        await window.WorkoutEquipment.load();
+
+        await window.WorkoutEquipment.openEdit(oddRecord.id);
+
+        expect(document.getElementById('workout-equipment-type').value).toBe('dumbbells');
+    });
+
+    it('plated editor shows one Type select and nothing wider than the modal at phone width', () => {
+        const { document } = env;
+        // The Sides segment + Pair checkbox are gone; one Type select remains.
+        expect(document.getElementById('workout-equipment-sides')).toBeNull();
+        expect(document.getElementById('workout-equipment-pair')).toBeNull();
+        const type = document.getElementById('workout-equipment-type');
+        expect(type).not.toBeNull();
+        expect(type.tagName.toLowerCase()).toBe('select');
+        expect(Array.from(type.querySelectorAll('option')).map((o) => o.value))
+            .toEqual(['barbell', 'kettlebell', 'dumbbells']);
+        // Full-width field like #exercise-library-equipment: sharing a row
+        // with Bar would truncate the long option labels at phone width.
+        expect(type.closest('.wg-equipment-modal__row')).toBeNull();
+        // jsdom has no layout engine, so phone-width fit is pinned at the
+        // stylesheet level like the sub-tab strip: the checkbox rules are
+        // gone and every modal field shrinks below content instead of
+        // pushing the 360px modal into a horizontal scroll.
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+        expect(css).not.toContain('.wg-equipment-modal__field--check');
+        expect(css).not.toContain('.wg-equipment-modal__check');
+        const field = css.match(/\.wg-equipment-modal__field\s*\{([^}]+)\}/);
+        expect(field).not.toBeNull();
+        expect(field[1]).toContain('min-width: 0;');
     });
 
     it('kind segmented control toggles the fixed/plated sections', () => {

@@ -8522,7 +8522,7 @@ textarea.wg-input {
 }
 
 /* Equipment editor extras beyond the shared modal shell: generator Fill
-   button alignment, plate kg x count rows, pair checkbox row. */
+   button alignment, the kind segmented control, plate kg x count rows. */
 .wg-equipment-modal__field--action {
     justify-content: flex-end;
     flex: 0 0 auto;
@@ -8537,16 +8537,6 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
     cursor: pointer;
     white-space: nowrap;
-}
-
-.wg-equipment-modal__field--check {
-    flex-direction: row;
-    align-items: flex-start;
-    gap: var(--space-sm);
-}
-
-.wg-equipment-modal__check {
-    flex-shrink: 0;
 }
 
 .wg-equipment-modal__segmented {
