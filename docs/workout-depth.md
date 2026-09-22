@@ -204,8 +204,7 @@ exposed as the cloud-only MCP op `workouts.progression_preview` (GET
 (`web/cloud/js/mcp-catalog.cloud-extra.js` + `apishim.js createApiRouter`), so
 `mcp-catalog.generated.js` stays untouched (drift-safe).
 
-The presets shipped goal-agnostic (rep target only); they are now goal-differentiated
-and goal-differentiated — see below (`med-qj4.6.3`, revised `med-qj4.10`).
+The presets shipped goal-agnostic (rep target only); they are now goal-differentiated — see below (`med-qj4.6.3`, revised `med-qj4.10`, which removed the effort gate so the load bump fires on the rep target alone).
 
 ## Goal-aware foundation (`med-qj4.6.1`) — implemented
 
@@ -291,8 +290,7 @@ from `GOAL_DEFAULTS`, no new mechanism:
   absent: an exercise with no rep target now gates on the goal band instead of the
   meaningless `reps >= 0`.
 - **No effort gate on the load bump (the substance, `med-qj4.10`).** A **load bump** fires when `reps >= target`, whatever the RPE. Effort
-  is judged and shown on the **top (*hardest-rated*) work set** (`topRpe`) — the same "all sets must
-  qualify" rule the rep gate uses on `minReps`; warm-up and drop sets are excluded as
+  is judged and shown on the **top (*hardest-rated*) work set** (`topRpe`). Reps still need EVERY set (`minReps`, the "all sets must qualify" rule); effort reads the single hardest-rated set. Warm-up and drop sets are excluded as
   before. RPE is optional per set and rating only the top set is normal practice
   ("RIR 0–2 on the top set"), so an **unrated set is no opinion** — it never reads
   as "easy".
@@ -350,7 +348,7 @@ Continuum." *Sports* 9(2):32. DOI 10.3390/sports9020032 · PMC7927075 · PubMed 
 per-exercise override** — drives default rep-range + target RIR + progression preset +
 graph emphasis + a near-failure effort insight. It changes defaults/emphasis only,
 never how a set is stored. Progression **bumps the load once the rep target is met**
-(reps ≥ target), whatever the RPE — the effort insight reads the same top-set effort,
+(reps ≥ target), whatever the RPE — the effort insight analyses the same logged effort separately (rolling median RIR),
 it just no longer vetoes the bar. Full progression scripting (a DSL) remains out of
 scope.
 

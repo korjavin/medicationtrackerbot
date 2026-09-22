@@ -610,9 +610,9 @@ function progressionPatch(exercise, sets, reps, weight, perSet, goal) {
 
   // No effort gate on the load bump (med-qj4.10): hitting the rep target with
   // reps still in reserve still earns the bump — that case is ALSO the effort
-  // insight's (med-qj4.6.5) input, not a reason to hold the bar steady. The
-  // goal's target_rir still drives the insight and the RPE cue rendering, just
-  // not this rule.
+  // insight's (med-qj4.6.5) input, not a reason to hold the bar steady.
+  // `target_rir` stays in GOAL_DEFAULTS (pinned by workout-goals.test.js), but
+  // nothing in this rule reads it anymore.
 
   if (rule.type === 'linear') {
     const goalReps = pos(exercise.target_reps_max) ?? pos(exercise.target_reps_min) ?? band.reps_max;
@@ -2838,8 +2838,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       const goal = await effectiveGoal(exercise);
       const patch = progressionPatch(exercise, sets, reps, latest.weight_kg, latest.sets, goal);
       // Effort of that log, in the goal's own terms: the TOP (hardest-rated)
-      // work set, formatted — without it a `changed: false` entry is
-      // unexplainable. null when the log carries no RPE.
+      // work set, formatted — the evidence riding along with each entry.
+      // null when the log carries no RPE.
       const stats = workSetStats(sets, reps, latest.sets);
       const current = {
         target_sets: exercise.target_sets,
@@ -2999,7 +2999,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
         weight_kg: lastWeight,
         // The MINIMUM reps across the work sets — the same number the engine
         // judged, not the best set. Showing the max would explain a suggestion
-        // the engine did not make.
+        // the engine did not make. Note `reps` and `effort` below can come from
+        // different sets by design: reps are judged on ALL sets, effort is shown
+        // where it was highest.
         reps: stats.minReps,
         effort: formatEffort(stats.topRpe),
         logged_at: latest.logged_at || null,

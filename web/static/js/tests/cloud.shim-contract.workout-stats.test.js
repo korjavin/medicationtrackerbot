@@ -749,7 +749,7 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             expect(await env.window.apiCallDirect('/api/workout/exercises/suggest-target?name=')).toBeNull();
         });
 
-        it('bumps the load when the rep target was hit near failure, and carries the RPE evidence', async () => {
+        it('bumps the load when the rep target is hit, and carries the top-set RPE evidence', async () => {
             env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
             const { window } = env;
             // Strength: band 3-6 reps, linear preset. Two work sets at the
