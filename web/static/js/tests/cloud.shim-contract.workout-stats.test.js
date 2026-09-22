@@ -1008,6 +1008,41 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             expect(sug.snap).toEqual({ raw_kg: 18.5, snapped_kg: 16, reason: 'at_max' });
         });
 
+        // med-niix.2 regression: a log that misses the set-count gate yields
+        // an empty patch, which must still pair with a (null) snap — the
+        // entry shapes the pair, never a bare patch.
+        it('a short log pairs the empty patch with a null snap (no crash, plan untouched)', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            const group = await window.apiCall('/api/workout/groups/create', 'POST', {
+                name: 'Legs', training_goal: 'strength',
+            });
+            const variant = await window.apiCall('/api/workout/variants/create', 'POST', {
+                group_id: group.id, name: 'A',
+            });
+            const exercise = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variant.id, exercise_name: 'Squat', target_sets: 3,
+                target_reps_min: 5, target_reps_max: 6,
+                progression_rule: { type: 'linear', increment_kg: 2.5 },
+            });
+
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: exercise.id, exercise_name: 'Squat',
+                source: 'schedule', status: 'completed',
+                sets: [0, 1].map((set_index) => ({ set_index, weight_kg: 60, reps: 6, set_type: 'normal' })),
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+            const preview = await window.apiCallDirect('/api/workout/progression-preview');
+            const row = preview.exercises.find((e) => e.exercise_name === 'Squat');
+            expect(row.changed).toBe(false);
+            expect(row.equipment).toBeNull();
+            expect(row.snap).toEqual({ raw_kg: null, snapped_kg: null, reason: null });
+            const list = await window.apiCall(`/api/workout/exercises?variant_id=${variant.id}`);
+            expect(list.find((e) => e.id === exercise.id).target_weight_kg ?? null).toBeNull();
+        });
+
         it('unbound preview entries carry null equipment and a pass-through snap', async () => {
             env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
             const { window } = env;

@@ -615,7 +615,10 @@ function progressionPatch(exercise, sets, reps, weight, perSet, goal, loads) {
   }
   const stats = workSetStats(sets, reps, perSet);
   const setsOk = stats && (!hasValue(exercise.target_sets) || stats.count >= exercise.target_sets);
-  if (!setsOk) return {};
+  // Set-count gate missed: same empty patch as before, paired with a null
+  // snap (no load was proposed, snapped or otherwise). finish() is defined
+  // below weightBase, so this shapes the pair inline.
+  if (!setsOk) return { patch: {}, snap: { raw_kg: null, snapped_kg: null, reason: null } };
   // Anchor the bump to the LOGGED weight, not the live plan target. propagate
   // re-fires on every log write while the session is pending/in_progress (the
   // UI re-sends every existing log on each Save), so basing the increment on
