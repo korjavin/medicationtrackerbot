@@ -4,7 +4,7 @@
 // duplicated by the plain-script exercise-editor cascade (WORKOUT_GOAL_DEFAULTS
 // in web/static/js/features/workout/exercises.js — it can't import ES modules);
 // the two are pinned in sync by workout-goals.test.js. GOAL_DEFAULTS/
-// defaultsForGoal drive the RIR-gated progression presets in
+// defaultsForGoal drive the goal-differentiated progression presets in
 // web/domain/workout.js (med-qj4.6.3); normalizeGoal + rirFromRpe drive the
 // goal-driven graph emphasis and the near-failure effort insight in
 // web/domain/workout-analysis.js (med-qj4.6.4/.5). rpeFromRir is the display

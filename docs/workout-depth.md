@@ -204,8 +204,7 @@ exposed as the cloud-only MCP op `workouts.progression_preview` (GET
 (`web/cloud/js/mcp-catalog.cloud-extra.js` + `apishim.js createApiRouter`), so
 `mcp-catalog.generated.js` stays untouched (drift-safe).
 
-The presets shipped goal-agnostic (rep target only); they are now goal-differentiated
-and RIR-gated — see below (`med-qj4.6.3`).
+The presets shipped goal-agnostic (rep target only); they are now goal-differentiated — see below (`med-qj4.6.3`, revised `med-qj4.10`, which removed the effort gate so the load bump fires on the rep target alone).
 
 ## Goal-aware foundation (`med-qj4.6.1`) — implemented
 
@@ -278,7 +277,7 @@ distinguishable from a value. Goal defaults think in RIR (`target_rir`), stored 
 think in RPE; these three functions are where the two meet, so progression
 (`med-qj4.6.3`), graphs (`.4`) and the insight (`.5`) never re-derive `10 - x`.
 
-## Goal-differentiated, RIR-gated progression (`med-qj4.6.3`) — implemented
+## Goal-differentiated progression (`med-qj4.6.3`, revised `med-qj4.10`) — implemented
 
 The Phase-4 presets are now parameterized by the **effective goal** (the exercise's
 `training_goal` override, else its routine's, else hypertrophy — `effectiveGoal` in
@@ -290,26 +289,24 @@ from `GOAL_DEFAULTS`, no new mechanism:
   the rule) always wins. `0` is `createExercise`'s "unset" default, so it counts as
   absent: an exercise with no rep target now gates on the goal band instead of the
   meaningless `reps >= 0`.
-- **RIR gate (the substance).** A **load bump** fires only when `reps >= target` **AND**
-  `RIR <= target_rir` (strength 2, hypertrophy/endurance 1, `general` ungated). Effort
-  is judged on the **least-hard *rated* work set** (`minRpe`) — the same "all sets must
-  qualify" rule the rep gate uses on `minReps`; warm-up and drop sets are excluded as
+- **No effort gate on the load bump (the substance, `med-qj4.10`).** A **load bump** fires when `reps >= target`, whatever the RPE. Effort
+  is judged and shown on the **top (*hardest-rated*) work set** (`topRpe`). Reps still need EVERY set (`minReps`, the "all sets must qualify" rule); effort reads the single hardest-rated set. Warm-up and drop sets are excluded as
   before. RPE is optional per set and rating only the top set is normal practice
-  ("RIR 0–2 on the top set"), so an **unrated set is no opinion, not a veto** — counting
-  it as non-qualifying would silently stop progression for anyone who doesn't rate every
-  set.
-  Hitting the reps with reps in reserve **holds the plan** (no bump, and for double no
-  rep reset either) — that case is the effort insight (`med-qj4.6.5`), not a heavier
-  bar. Double-progression's **rep climb is deliberately not gated**: reps in reserve is
-  precisely the signal to prescribe more reps at the same load.
+  ("RIR 0–2 on the top set"), so an **unrated set is no opinion** — it never reads
+  as "easy".
+  Hitting the reps with reps still in reserve still earns the bump. Double-progression's
+  **rep climb is unchanged**: below the window ceiling, reps in reserve prescribes more
+  reps at the same load; at the ceiling the load bumps and reps reset to the floor. The
+  goal's `target_rir` still drives the effort insight (`med-qj4.6.5`) and the RPE cue
+  rendering — just not this rule.
 
 **Nothing changes for anyone who hasn't opted in** (rule `none`/absent still just
-mirrors), and nothing changes for a log with **no RPE** — unknown effort leaves the gate
-open, so users who don't log RPE keep the pre-`.6.3` behavior exactly.
+mirrors), and nothing changes for a log with **no RPE** — the bump fires on the rep
+target alone, so users who don't log RPE keep the pre-`.6.3` behavior exactly.
 
 `workouts.progression_preview` now reports `training_goal` and `effort` (the source
-log's least-hard work set, formatted, or `null`) per entry, so a `changed: false` caused
-by the gate is readable rather than mysterious.
+log's top work set, formatted, or `null`) per entry, so a `changed: false` stays
+readable rather than mysterious.
 
 ## Success criteria (the spine, done)
 
@@ -350,9 +347,10 @@ Continuum." *Sports* 9(2):32. DOI 10.3390/sports9020032 · PMC7927075 · PubMed 
 **asked at routine (group) creation, default Hypertrophy, inherited by exercises with a
 per-exercise override** — drives default rep-range + target RIR + progression preset +
 graph emphasis + a near-failure effort insight. It changes defaults/emphasis only,
-never how a set is stored. Progression is **RIR-gated**: a load bump fires only when
-`reps ≥ target AND RIR ≤ threshold` — hitting reps far from failure triggers the effort
-insight, not more weight. Full progression scripting (a DSL) remains out of scope.
+never how a set is stored. Progression **bumps the load once the rep target is met**
+(reps ≥ target), whatever the RPE — the effort insight analyses the same logged effort separately (rolling median RIR),
+it just no longer vetoes the bar. Full progression scripting (a DSL) remains out of
+scope.
 
 ## Equipment inventory (med-niix.1) — implemented
 

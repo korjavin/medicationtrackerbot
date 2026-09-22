@@ -749,11 +749,12 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             expect(await env.window.apiCallDirect('/api/workout/exercises/suggest-target?name=')).toBeNull();
         });
 
-        it('bumps the load when the rep target was hit near failure, and carries the RPE evidence', async () => {
+        it('bumps the load when the rep target is hit, and carries the top-set RPE evidence', async () => {
             env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
             const { window } = env;
-            // Strength: band 3-6 reps, target_rir 2, linear preset. Two work
-            // sets at the band's ceiling, rated RPE 8 (2 RIR) → gate open.
+            // Strength: band 3-6 reps, linear preset. Two work sets at the
+            // band's ceiling, rated RPE 8 → the bump fires; the effort shown
+            // is the top set.
             await logSession(window, 'Squat', [
                 { weight_kg: 60, reps: 8, set_type: 'warmup' },
                 { weight_kg: 100, reps: 6, rpe: 8 },
@@ -773,24 +774,25 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             expect(s.last.logged_at).toBeTruthy();
         });
 
-        it('holds the load when the reps were hit with too much left in reserve (RIR gate)', async () => {
+        it('bumps the load even with reps in reserve, and shows the top-set effort (no effort gate)', async () => {
             env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
             const { window } = env;
-            // RPE 6 = 4 RIR, well outside strength's target_rir of 2.
+            // RPE 6 = 4 RIR, far from failure — med-qj4.10 bumps anyway; the
+            // effort rides along as evidence, not as a veto.
             await logSession(window, 'Squat', [{ weight_kg: 100, reps: 6, rpe: 6 }]);
 
             const s = await window.apiCallDirect(
                 '/api/workout/exercises/suggest-target?name=Squat&goal=strength');
-            expect(s.target_weight_kg).toBe(100);
+            expect(s.target_weight_kg).toBe(102.5);
             expect(s.last.effort).toBe('RPE 6 · 4 RIR');
         });
 
         it('still suggests with ZERO effort logged anywhere, and omits the effort entirely', async () => {
             env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
             const { window } = env;
-            // No `rpe` on any set — the common case. The RIR gate has no
-            // opinion, so the progression rule alone decides, which still beats
-            // a blank field. `effort` must be null, never '' or 'RPE null'.
+            // No `rpe` on any set — the common case. The progression rule alone
+            // decides, which still beats a blank field. `effort` must be null,
+            // never '' or 'RPE null'.
             await logSession(window, 'Squat', [
                 { weight_kg: 100, reps: 6 },
                 { weight_kg: 100, reps: 6 },
@@ -874,6 +876,47 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             expect(row.proposed.target_weight_kg).toBe(72.5);
             expect(s.target_weight_kg).toBe(row.proposed.target_weight_kg);
             // …and they explain themselves with the same effort string.
+            expect(s.last.effort).toBe(row.effort);
+        });
+
+        // med-qj4.10 acceptance 4: effort is judged and shown on the TOP set —
+        // @5/@8/@9 reads RPE 9, in both the preview and the suggestion.
+        it('reports the top-set effort in preview and suggestion for a mixed-RPE log', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            const group = await window.apiCall('/api/workout/groups/create', 'POST', {
+                name: 'Push', training_goal: 'hypertrophy',
+            });
+            const variant = await window.apiCall('/api/workout/variants/create', 'POST', {
+                group_id: group.id, name: 'A',
+            });
+            const exercise = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variant.id, exercise_name: 'Lateral', target_sets: 3,
+                target_reps_min: 8, target_reps_max: 12,
+                progression_rule: { type: 'double' },
+            });
+
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: exercise.id, exercise_name: 'Lateral',
+                source: 'schedule', status: 'completed',
+                sets: [
+                    { weight_kg: 10, reps: 12, rpe: 5 },
+                    { weight_kg: 10, reps: 12, rpe: 8 },
+                    { weight_kg: 10, reps: 12, rpe: 9 },
+                ],
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+            const preview = await window.apiCallDirect('/api/workout/progression-preview');
+            const row = preview.exercises.find((e) => e.exercise_name === 'Lateral');
+            expect(row.effort).toBe('RPE 9 · 1 RIR');
+            // At the ceiling the bump fires (no gate) — and the suggestion
+            // explains itself with the same top-set string.
+            expect(row.proposed.target_weight_kg).toBe(12.5);
+            const s = await window.apiCallDirect(
+                '/api/workout/exercises/suggest-target?name=Lateral&goal=hypertrophy');
+            expect(s.last.effort).toBe('RPE 9 · 1 RIR');
             expect(s.last.effort).toBe(row.effort);
         });
     });
