@@ -574,9 +574,9 @@ describe('features/workout/groups.js — scan-back anchors (med-qj4.9)', () => {
   });
 });
 
-// bd med-niix.6 — printed sheet plate-loading diagrams: a bound plated
-// exercise draws the bar (plates per side) under its weight, everything else
-// prints exactly as before.
+// bd med-niix.6 — printed sheet plate-loading diagrams: the builder only
+// DRAWS the precomputed loading it is handed (domain loadingFor stays the
+// single source of the plate math); the caller threads it in.
 describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', () => {
   let env;
   let consoleErrorSpy;
@@ -593,10 +593,7 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
     target_sets: 3, target_reps_min: 5, exercise_library_id: 11, ...over,
   });
   const days = (exercises) => [{ variant: { id: 30, name: 'Main' }, exercises }];
-  const maps = (libRows, eqRows) => ({
-    libraryById: Object.fromEntries(libRows.map((r) => [r.id, r])),
-    equipmentById: Object.fromEntries(eqRows.map((r) => [r.id, r])),
-  });
+  const loading62 = { 1: { bar_kg: 20, per_side: [20, 1.25], sides: 2 } };
 
   beforeEach(() => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -610,11 +607,11 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
     env = null;
   });
 
-  it('bound barbell at 62.5 prints the per-side text and 2 plate rects per side', () => {
+  it('a handed 62.5 loading prints the per-side text and 2 plate rects per side', () => {
     const { window } = env;
     const html = window.WorkoutGroups.buildDocument(
       GROUP, days([ex({ target_weight_kg: 62.5 })]),
-      { unit: 'kg', ...maps(LIB, [BAR]) },
+      { unit: 'kg', loadingByExerciseId: loading62 },
     );
     expect(html).toContain('20 + 20 \u00b7 1.25 / side');
     expect(html).toContain('<svg');
@@ -623,61 +620,73 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
     expect(html).not.toContain('--wg-');
   });
 
-  it('an unachievable target prints the weight with no glyph', () => {
+  it('a null entry prints the weight with no glyph', () => {
     const { window } = env;
     const html = window.WorkoutGroups.buildDocument(
       GROUP, days([ex({ target_weight_kg: 61 })]),
-      { unit: 'kg', ...maps(LIB, [BAR]) },
+      { unit: 'kg', loadingByExerciseId: { 1: null } },
     );
     expect(html).toContain('@ 61 kg');
     expect(html).not.toContain('<svg');
     expect(html).not.toContain('/ side');
   });
 
-  it('unbound exercises render byte-identical to today', () => {
+  it('no loadings render byte-identical to today', () => {
     const { window } = env;
     const plain = window.WorkoutGroups.buildDocument(
-      GROUP, days([ex({ target_weight_kg: 60, exercise_library_id: undefined })]), { unit: 'kg' },
+      GROUP, days([ex({ target_weight_kg: 60 })]), { unit: 'kg' },
     );
-    const withMaps = window.WorkoutGroups.buildDocument(
-      GROUP, days([ex({ target_weight_kg: 60, exercise_library_id: undefined })]),
-      { unit: 'kg', ...maps([], [BAR]) },
+    const empty = window.WorkoutGroups.buildDocument(
+      GROUP, days([ex({ target_weight_kg: 60 })]),
+      { unit: 'kg', loadingByExerciseId: {} },
     );
-    expect(withMaps).toBe(plain);
+    expect(empty).toBe(plain);
     expect(plain).toContain('@ 60 kg');
     expect(plain).not.toContain('<svg');
   });
 
-  it('fixed equipment prints the weight with no glyph', () => {
+  it('a sides:1 loading draws one sleeve with no / side suffix', () => {
     const { window } = env;
     const html = window.WorkoutGroups.buildDocument(
-      GROUP,
-      days([ex({ target_weight_kg: 12 })]),
-      {
-        unit: 'kg',
-        ...maps([{ id: 11, name: 'Curl', equipment_id: 9 }], [
-          { id: 9, kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12] },
-        ]),
-      },
+      GROUP, days([ex({ target_weight_kg: 16 })]),
+      { unit: 'kg', loadingByExerciseId: { 1: { bar_kg: 6, per_side: [10], sides: 1 } } },
     );
-    expect(html).toContain('@ 12 kg');
-    expect(html).not.toContain('<svg');
+    expect(html).toContain('6 + 10');
+    expect(html).not.toContain('/ side');
+    expect((html.match(/<rect/g) || []).length).toBe(1);
   });
 
-  it('print() threads the inventory + library into the sheet; a failed inventory read prints without glyphs', async () => {
+  it('an lb sheet labels the plate line as kg', () => {
     const { window } = env;
-    window.apiCall = vi.fn(async (url) => {
-      if (url.startsWith('/api/workout/variants?group_id=')) return [{ id: 30, name: 'Main' }];
-      if (url.includes('/api/workout/exercises?variant_id=')) return [ex({ target_weight_kg: 62.5 })];
-      if (url === '/api/workout/exercise-library') return LIB;
-      return null;
-    });
-    window.WorkoutEquipment.list = async () => [BAR];
+    const html = window.WorkoutGroups.buildDocument(
+      GROUP, days([ex({ target_weight_kg: 62.5 })]),
+      { unit: 'lb', loadingByExerciseId: loading62 },
+    );
+    expect(html).toContain('20 + 20 \u00b7 1.25 / side (kg)');
+    expect(html).not.toContain('62.5 kg');
+  });
+
+  it('print() precomputes loadings with the domain module; failed reads/imports print without glyphs', async () => {
+    const { window } = env;
+    const stubPlan = () => {
+      window.apiCall = vi.fn(async (url) => {
+        if (url.startsWith('/api/workout/variants?group_id=')) return [{ id: 30, name: 'Main' }];
+        if (url.includes('/api/workout/exercises?variant_id=')) return [ex({ target_weight_kg: 62.5 })];
+        if (url === '/api/workout/exercise-library') return LIB;
+        return null;
+      });
+    };
     const printed = [];
     window.WorkoutGroups.loadPrintDoc = async () => ({
       printDoc: (d, html, cls, css) => printed.push({ html, cls, css }),
     });
     window.WorkoutGroups.makePlanQr = async () => { throw new Error('no qr in test'); };
+    // The domain module itself, injected through the namespace seam exactly
+    // as production does — the harness never resolves the URL.
+    window.WorkoutGroups.loadEquipmentDomain = async () => ({ loadingFor });
+
+    stubPlan();
+    window.WorkoutEquipment.list = async () => [BAR];
 
     await window.WorkoutGroups.print(GROUP);
 
@@ -689,13 +698,9 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
     expect(printed[0].css).toContain('.plates');
     expect(printed[0].css).not.toContain('var(--wg-');
 
+    // Failed inventory read → the sheet still prints, without glyphs.
     window.WorkoutEquipment.list = async () => { throw new Error('offline'); };
-    window.apiCall = vi.fn(async (url) => {
-      if (url.startsWith('/api/workout/variants?group_id=')) return [{ id: 30, name: 'Main' }];
-      if (url.includes('/api/workout/exercises?variant_id=')) return [ex({ target_weight_kg: 62.5 })];
-      if (url === '/api/workout/exercise-library') return LIB;
-      return null;
-    });
+    stubPlan();
     printed.length = 0;
 
     await window.WorkoutGroups.print(GROUP);
@@ -704,95 +709,17 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
     expect(printed[0].html).not.toContain('<svg');
     expect(printed[0].html).toContain('Bench press');
     expect(printed[0].css).not.toContain('.plates');
-  });
 
-  it('a sides:1 implement draws one sleeve with no / side suffix', () => {
-    const { window } = env;
-    const kb = {
-      id: 3, kind: 'plated', name: 'Loadable KB', bar_kg: 6, sides: 1,
-      plates: [{ kg: 10, count: 2 }],
-    };
-    expect(loadingFor(kb, 16)).toEqual({ bar_kg: 6, per_side: [10] });
-    const html = window.WorkoutGroups.buildDocument(
-      GROUP, days([ex({ target_weight_kg: 16 })]),
-      { unit: 'kg', ...maps(LIB, [kb]) },
-    );
-    expect(html).toContain('6 + 10');
-    expect(html).not.toContain('/ side');
-    expect((html.match(/<rect/g) || []).length).toBe(1);
-  });
+    // Failed domain import → same fallback, with a healthy inventory.
+    window.WorkoutEquipment.list = async () => [BAR];
+    window.WorkoutGroups.loadEquipmentDomain = async () => { throw new Error('no module in test'); };
+    stubPlan();
+    printed.length = 0;
 
-  it('an lb sheet labels the plate line as kg', () => {
-    const { window } = env;
-    const html = window.WorkoutGroups.buildDocument(
-      GROUP, days([ex({ target_weight_kg: 62.5 })]),
-      { unit: 'lb', ...maps(LIB, [BAR]) },
-    );
-    expect(html).toContain('20 + 20 \u00b7 1.25 / side (kg)');
-    expect(html).not.toContain('62.5 kg');
-  });
+    await window.WorkoutGroups.print(GROUP);
 
-  it('option aliases and raw arrays resolve the same glyph', () => {
-    const { window } = env;
-    const want = '20 + 20 \u00b7 1.25 / side';
-    const canonical = window.WorkoutGroups.buildDocument(
-      GROUP, days([ex({ target_weight_kg: 62.5 })]),
-      { unit: 'kg', ...maps(LIB, [BAR]) },
-    );
-    expect(canonical).toContain(want);
-    for (const opts of [
-      { unit: 'kg', library: LIB, equipment: [BAR] },
-      { unit: 'kg', libraryMap: { 11: LIB[0] }, equipmentMap: { 3: BAR } },
-      { unit: 'kg', library: LIB, equipment: [BAR], equipmentMap: { 3: BAR } },
-    ]) {
-      expect(window.WorkoutGroups.buildDocument(GROUP, days([ex({ target_weight_kg: 62.5 })]), opts)).toContain(want);
-    }
-  });
-
-  it('past the span ceiling a heavy target draws no glyph', () => {
-    const { window } = env;
-    const big = {
-      id: 3, kind: 'plated', name: 'Stacked bar', bar_kg: 20, sides: 2,
-      plates: [{ kg: 25, count: 40 }],
-    };
-    const html = window.WorkoutGroups.buildDocument(
-      GROUP, days([ex({ target_weight_kg: 620 })]),
-      { unit: 'kg', ...maps([{ id: 11, equipment_id: 3 }], [big]) },
-    );
-    expect(html).toContain('@ 620 kg');
-    expect(html).not.toContain('<svg');
-  });
-
-  it('the builder mirror agrees with domain loadingFor on randomized inventories (seeded)', () => {
-    const { window } = env;
-    let seed = 0xbeef;
-    const rnd = () => {
-      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-      return seed / 0x7fffffff;
-    };
-    const choices = [1.25, 2.5, 5, 10, 20];
-    for (let round = 0; round < 15; round += 1) {
-      const sides = rnd() < 0.7 ? 2 : 1;
-      const plates = choices
-        .filter(() => rnd() < 0.6)
-        .map((kg) => ({ kg, count: 2 + Math.floor(rnd() * 4) }));
-      if (plates.length === 0) continue;
-      const eq = { id: 5, kind: 'plated', name: 'Rand', bar_kg: 20, sides, pair: false, plates };
-      for (const kg of [20, 22.5, 30, 45, 62.5, 85]) {
-        const expected = loadingFor(eq, kg);
-        const html = window.WorkoutGroups.buildDocument(
-          GROUP,
-          days([{ id: 1, exercise_name: 'X', order_index: 0, target_sets: 1, target_reps_min: 5, exercise_library_id: 7, target_weight_kg: kg }]),
-          { unit: 'kg', libraryById: { 7: { id: 7, equipment_id: 5 } }, equipmentById: { 5: eq } },
-        );
-        const glyph = expected !== null && expected.per_side.length > 0;
-        expect({ kg, sides, svg: html.includes('<svg') }).toEqual({ kg, sides, svg: glyph });
-        if (glyph) {
-          const line = `${expected.bar_kg} + ${expected.per_side.map(String).join(' \u00b7 ')}`;
-          expect(html).toContain(line);
-          expect((html.match(/<rect/g) || []).length).toBe(expected.per_side.length * sides);
-        }
-      }
-    }
+    expect(printed).toHaveLength(1);
+    expect(printed[0].html).not.toContain('<svg');
+    expect(printed[0].html).toContain('Bench press');
   });
 });
