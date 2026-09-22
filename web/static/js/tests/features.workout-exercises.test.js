@@ -1019,6 +1019,68 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(calls.some(([url]) => String(url).startsWith('/api/workout/exercises/update?id=7'))).toBe(true);
       expect(libraryPuts(calls)).toHaveLength(0);
     });
+
+    it('a failed library read on open marks the select unloaded, so save never unbinds', async () => {
+      const { window, document } = env;
+      installApiCache(window);
+      // The open-time library GET fails (apiCall resolves null, not a
+      // throw); the save-time re-read succeeds with the row still bound.
+      let libraryCalls = 0;
+      window.WorkoutEdit.variantForExercise = 1;
+      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
+      window.WorkoutEquipment.list = vi.fn(async () => [OHIO_BAR, HEX_DB]);
+      window.loadExerciseLibrary = vi.fn(async () => {});
+      window.invalidateWorkoutCache = vi.fn(async () => {});
+      window.loadExercisesForVariant = vi.fn();
+      const calls = [];
+      window.apiCall = vi.fn(async (url, method, body) => {
+        calls.push([url, method, body]);
+        if (String(url).startsWith('/api/workout/exercises?')) return boundExercise(40);
+        if (String(url) === '/api/workout/exercise-library') return libraryCalls++ === 0 ? null : [libraryRow()];
+        if (String(url).startsWith('/api/workout/exercise-library/update')) return true;
+        if (String(url).startsWith('/api/workout/exercises/update')) return true;
+        return [];
+      });
+
+      await window.showEditExerciseModal(7);
+
+      const select = planSelectOf(document);
+      expect(select.value).toBe('');
+      expect(select.dataset.loaded).toBe('false');
+      expect(planHintOf(document).hidden).toBe(true);
+
+      await window.saveExercise();
+
+      expect(calls.some(([url]) => String(url).startsWith('/api/workout/exercises/update?id=7'))).toBe(true);
+      expect(libraryPuts(calls)).toHaveLength(0);
+    });
+
+    it('a stale inventory missing the bound gear never unbinds on save, but an explicit pick still writes', async () => {
+      const { window, document } = env;
+      installApiCache(window);
+      // Inventory without Ohio bar (id 50): the row is bound to gear the
+      // select cannot offer, so it reads as None.
+      const calls = stubPlan(window, { exercises: boundExercise(40), library: [libraryRow()], equipment: [HEX_DB] });
+
+      await window.showEditExerciseModal(7);
+
+      const select = planSelectOf(document);
+      expect(select.value).toBe('');
+      expect(select.dataset.loaded).toBe('true');
+
+      await window.saveExercise();
+
+      expect(calls.some(([url]) => String(url).startsWith('/api/workout/exercises/update?id=7'))).toBe(true);
+      expect(libraryPuts(calls)).toHaveLength(0);
+
+      // An explicit pick of a visible option still writes.
+      select.value = '51';
+      await window.saveExercise();
+
+      const puts = libraryPuts(calls);
+      expect(puts).toHaveLength(1);
+      expect(puts[0][2]).toMatchObject({ equipment_id: 51 });
+    });
   });
 
 });

@@ -299,6 +299,10 @@ let _equipmentHintSeq = 0; // module-state: ticket for the in-flight plan-equipm
 // (idempotent assignment, like bindGoalCascade): a change only re-renders
 // the step/max helper for the picked gear, it never writes.
 function _resetPlanEquipmentSelect(disabled) {
+    // Invalidate in-flight fills synchronously: every entry path resets
+    // before its first await, so a previous open's fill cannot land in this
+    // modal (later takes its own ticket for the reads that follow).
+    ++_equipmentHintSeq;
     const select = document.getElementById('workout-exercise-equipment');
     if (select) {
         const doc = select.ownerDocument;
@@ -373,14 +377,20 @@ async function _fillPlanExerciseEquipment(libraryId, ticket = null) {
     let libraryOk = true;
     if (libraryId != null && libraryId !== '') {
         libraryOk = false;
+        let items = null;
         try {
-            const items = await apiCall('/api/workout/exercise-library');
-            if (ticket !== _equipmentHintSeq) return; // superseded
-            const row = (Array.isArray(items) ? items : []).find((i) => i && i.id === libraryId) || null;
+            items = await apiCall('/api/workout/exercise-library');
+        } catch (_) { items = null; }
+        if (ticket !== _equipmentHintSeq) return; // superseded
+        // apiCall resolves null (not a throw) on a failed GET — only a real
+        // list verifies the binding; anything else keeps the select unloaded
+        // so the save preserves the stored binding instead of unbinding it.
+        if (Array.isArray(items)) {
+            const row = items.find((i) => i && i.id === libraryId) || null;
             const eq = row && row.equipment_id;
             boundId = (eq == null || eq === '') ? '' : String(eq);
             libraryOk = true;
-        } catch (_) { libraryOk = false; } // failed lookup: the select stays unloaded below
+        }
     }
     const inventory = await _syncEquipmentSelect(boundId, 'workout-exercise-equipment', () => ticket === _equipmentHintSeq);
     if (ticket !== _equipmentHintSeq) return; // superseded
@@ -407,13 +417,15 @@ async function _refreshPlanEquipmentForName(name) {
     const clean = (name || '').trim().toLowerCase();
     let libId = null;
     if (clean) {
+        let items = null;
         try {
-            const items = await apiCall('/api/workout/exercise-library');
-            if (ticket !== _equipmentHintSeq) return; // superseded
-            const row = (Array.isArray(items) ? items : []).find(
-                (i) => String(i && i.name || '').trim().toLowerCase() === clean) || null;
-            libId = row ? row.id : null;
+            items = await apiCall('/api/workout/exercise-library');
         } catch (_) { return; } // failed lookup leaves the reset select (unloaded) alone
+        if (ticket !== _equipmentHintSeq) return; // superseded
+        if (!Array.isArray(items)) return; // failed lookup (null, not a throw): same, no verified None
+        const row = items.find(
+            (i) => String(i && i.name || '').trim().toLowerCase() === clean) || null;
+        libId = row ? row.id : null;
     }
     await _fillPlanExerciseEquipment(libId, ticket);
 }
@@ -423,7 +435,7 @@ async function _refreshPlanEquipmentForName(name) {
 // Otherwise the PUT is a full replacement built from the freshly read row,
 // projected through DataStore.applyOptimistic (rule 9) with commit/rollback,
 // and the library list repaints exactly as the library editor's own save.
-async function _savePlanEquipmentBinding(pickedEquipmentId, libraryId) {
+async function _savePlanEquipmentBinding(pickedEquipmentId, libraryId, knownOptionValues = []) {
     if (pickedEquipmentId === null) return true; // unknown — never unbind blind
     if (libraryId == null || libraryId === '') return true; // legacy row: nothing to bind
     let rows = null;
@@ -438,6 +450,11 @@ async function _savePlanEquipmentBinding(pickedEquipmentId, libraryId) {
     if (!row) return true; // the row is gone (deleted elsewhere): nothing to write
     const stored = (row.equipment_id == null || row.equipment_id === '') ? '' : String(row.equipment_id);
     if (stored === pickedEquipmentId) return true; // no change → no library write
+    // None is only an explicit unbind when the select could actually show the
+    // stored gear: with a stale inventory (or a dangling id) the options lack
+    // it, so None may mean "not offered" — never unbind blind. An explicit
+    // pick of a visible option still writes.
+    if (pickedEquipmentId === '' && stored !== '' && !knownOptionValues.includes(stored)) return true;
     return _writePlanEquipmentBinding(libraryId, pickedEquipmentId === '' ? null : Number(pickedEquipmentId), row);
 }
 
@@ -500,12 +517,27 @@ async function showAddExerciseModal() {
     window.WorkoutEdit.editingExerciseId = null;
     document.getElementById('workout-exercise-modal-title').textContent = 'Add Exercise';
     window.ModalManager.workoutExercise.open();
+    // The modal is shared: clear every field synchronously, before any await,
+    // so the previous exercise's values can never paint into the Add form
+    // while the picker/inventory reads are in flight (a Save in that window
+    // would otherwise duplicate the old row, and typing would be wiped by a
+    // late reset).
+    document.getElementById('workout-exercise-name').value = '';
+    document.getElementById('workout-exercise-sets').value = '';
+    document.getElementById('workout-exercise-reps-min').value = '';
+    document.getElementById('workout-exercise-reps-max').value = '';
+    document.getElementById('workout-exercise-weight').value = '';
+    document.getElementById('workout-exercise-order').value = '0';
+    document.getElementById('workout-exercise-progression').value = 'none';
+    document.getElementById('workout-exercise-progression-increment').value = '';
+    document.getElementById('workout-exercise-goal').value = '';
     // New exercise: no library row yet, so the select starts at None (still
     // enabled — a picked gear binds the promoted row on save). The reset runs
     // synchronously so no stale selection survives; the picker binds before
     // the inventory fill so its library prefetch keeps its long-standing
     // order ahead of it.
     _resetPlanEquipmentSelect(false);
+    bindGoalCascade();
     // Shared inline suggestion list (med-prk.3, med-max): library + catalog
     // names under the field, no native <datalist> popup over the keyboard.
     await window.WorkoutLibrary.bindExercisePicker({
@@ -515,19 +547,8 @@ async function showAddExerciseModal() {
     });
     await _fillPlanExerciseEquipment(null);
 
-    document.getElementById('workout-exercise-name').value = '';
-    document.getElementById('workout-exercise-sets').value = '';
-    document.getElementById('workout-exercise-reps-min').value = '';
-    document.getElementById('workout-exercise-reps-max').value = '';
-    document.getElementById('workout-exercise-weight').value = '';
-    document.getElementById('workout-exercise-order').value = '0';
-    document.getElementById('workout-exercise-progression').value = 'none';
-    document.getElementById('workout-exercise-progression-increment').value = '';
-
     // New exercise inherits the routine goal; seed the rep-range + progression
-    // defaults for it (all still editable), and wire the change cascade.
-    document.getElementById('workout-exercise-goal').value = '';
-    bindGoalCascade();
+    // defaults for it (all still editable).
     await applyGoalCascade(routineGoalForExercise());
 
 }
@@ -656,6 +677,11 @@ async function saveExercise() {
     const planEquipmentLoaded = !!planEquipmentSelect && !planEquipmentSelect.disabled
         && planEquipmentSelect.dataset.loaded === 'true';
     const pickedPlanEquipmentId = planEquipmentLoaded ? planEquipmentSelect.value : null;
+    // The select's own option values at save time (sync DOM read): a stored
+    // binding the options lack (stale inventory, dangling id) makes None
+    // ambiguous — see _savePlanEquipmentBinding.
+    const planEquipmentOptions = planEquipmentSelect
+        ? Array.from(planEquipmentSelect.options).map((o) => o.value) : [];
 
     const payload = {
         variant_id: window.WorkoutEdit.variantForExercise,
@@ -685,19 +711,27 @@ async function saveExercise() {
         // duplicate the exercise).
         if (window.WorkoutEdit.editingExerciseId) {
             let planLibraryId = null;
+            let libraryLinkKnown = false;
             try {
                 const exercises = await apiCall(`/api/workout/exercises?variant_id=${window.WorkoutEdit.variantForExercise}`);
-                const updated = (Array.isArray(exercises) ? exercises : [])
-                    .find((e) => e && e.id === window.WorkoutEdit.editingExerciseId);
-                planLibraryId = updated ? updated.exercise_library_id : null;
-            } catch (_) { planLibraryId = null; }
-            await _savePlanEquipmentBinding(pickedPlanEquipmentId, planLibraryId);
+                // apiCall resolves null (not a throw) on a failed GET — an
+                // unknown link is not a legacy row.
+                if (Array.isArray(exercises)) {
+                    const updated = exercises.find((e) => e && e.id === window.WorkoutEdit.editingExerciseId);
+                    planLibraryId = updated ? updated.exercise_library_id : null;
+                    libraryLinkKnown = true;
+                }
+            } catch (_) { libraryLinkKnown = false; }
+            // A failed re-read drops the explicitly picked gear silently
+            // otherwise; say so instead, like every other failure branch here.
+            if (!libraryLinkKnown) safeAlert("Couldn't save the equipment — try again online.");
+            else await _savePlanEquipmentBinding(pickedPlanEquipmentId, planLibraryId, planEquipmentOptions);
         } else {
             // Add path: only a picked gear binds the promoted row — None
             // leaves it alone, so a name matching an already-bound row keeps
             // its binding when the user never touched the select.
             const promotedId = result && result.exercise_library_id != null ? result.exercise_library_id : null;
-            if (pickedPlanEquipmentId) await _savePlanEquipmentBinding(pickedPlanEquipmentId, promotedId);
+            if (pickedPlanEquipmentId) await _savePlanEquipmentBinding(pickedPlanEquipmentId, promotedId, planEquipmentOptions);
         }
         await invalidateWorkoutCache();
         closeExerciseModal();
