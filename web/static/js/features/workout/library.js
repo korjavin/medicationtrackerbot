@@ -309,13 +309,23 @@ function _syncBodyPartSelect(current) {
     select.value = current || '';
 }
 
-// Fill the Equipment <select> from the inventory (med-niix.5, optional
+// Fill an Equipment <select> from the inventory (med-niix.5, optional
 // library-level binding) and select `currentId`. The blank option is the
 // default: unbound, which behaves exactly as before. Reads through the
 // equipment module's shared cachedFetch list — no second fetch path.
-async function _syncEquipmentSelect(currentId) {
-    const select = document.getElementById('exercise-library-equipment');
-    if (!select) return;
+// Shared by the library editor and the plan-exercise modal (med-niix.8):
+// one implementation, `selectId` picks which modal's select to fill.
+// Returns the inventory array (null when the select is missing, the read
+// failed, or `isCurrent` reports this fill superseded) so callers can render
+// step/max helper text without a second read; existing callers that ignore
+// the return value are unaffected. `isCurrent`, when given, is checked after
+// the inventory read and before the selection lands: a superseded fill leaves
+// the newer select state (options reset, value, loaded flag) alone instead
+// of painting its stale binding over it. The library editor passes none and
+// keeps last-finish-wins.
+async function _syncEquipmentSelect(currentId, selectId = 'exercise-library-equipment', isCurrent = null) {
+    const select = document.getElementById(selectId);
+    if (!select) return null;
     // Build options against the select's own document: the inventory read
     // below is async, and a fire-and-forget modal open (or a torn-down test
     // env) must never resolve bare `document` after it is gone.
@@ -346,7 +356,7 @@ async function _syncEquipmentSelect(currentId) {
     } catch (e) {
         items = null; // offline / failure: "None" alone, the save preserves
     }
-    if (!Array.isArray(items)) return;
+    if (!Array.isArray(items)) return null;
     for (const item of items) {
         if (!item || item.id == null) continue;
         const opt = doc.createElement('option');
@@ -354,8 +364,10 @@ async function _syncEquipmentSelect(currentId) {
         opt.textContent = item.name || `Equipment ${item.id}`;
         select.appendChild(opt);
     }
+    if (typeof isCurrent === 'function' && !isCurrent()) return null;
     select.dataset.loaded = 'true';
     select.value = currentId != null && currentId !== '' ? String(currentId) : '';
+    return items;
 }
 
 // `presetName` pre-fills the name field — that is how a catalog row from the

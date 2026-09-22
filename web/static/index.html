@@ -1418,10 +1418,22 @@
                         placeholder="Start typing..." autocomplete="off">
                 </div>
                 <div id="workout-exercise-suggest" class="wg-exercise-suggest" hidden></div>
-                <!-- med-niix.5: read-only binding hint, resolved via the row's
-                     exercise_library_id. Hidden when unbound; no select here —
-                     binding is edited in the exercise library. -->
+            </div>
+
+            <!-- med-niix.8: editable library-level equipment binding. The
+                 select mirrors the library row's equipment_id (None =
+                 unbound); saving writes the row, so the gear applies to this
+                 exercise in every plan that uses it. -->
+            <div class="wg-workouts-exercise-modal__field">
+                <label for="workout-exercise-equipment" class="wg-workouts-exercise-modal__label">Equipment</label>
+                <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
+                    <!-- Options are filled from the equipment inventory on open. -->
+                    <select id="workout-exercise-equipment" class="wg-workouts-exercise-modal__input">
+                        <option value="">None</option>
+                    </select>
+                </div>
                 <p id="workout-exercise-equipment-hint" class="wg-workouts-exercise-modal__hint" hidden></p>
+                <p id="workout-exercise-equipment-scope" class="wg-workouts-exercise-modal__hint">Applies to this exercise in every plan.</p>
             </div>
 
             <div class="wg-workouts-exercise-modal__row">

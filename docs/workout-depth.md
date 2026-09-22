@@ -415,10 +415,10 @@ carries `equipment_id,omitempty`, import drops it, export omits it, and both
 identity tests strip the per-row key. The library editor
 (`#exercise-library-modal`) gets an Equipment `<select>` (None + inventory
 names, read through the equipment module's shared cachedFetch list);
-the plan-exercise modal (`#workout-exercise-modal`) shows a read-only hint
-`Equipment: <name> · step X kg` (the API's `min_step_kg` verbatim, never
-recomputed client-side) resolved via the row's `exercise_library_id` —
-nothing for unbound, no select there.
+the plan-exercise modal (`#workout-exercise-modal`) gets the same select
+through the shared fill helper (med-niix.8) — its helper text shows the
+picked gear's step/max from the API verbatim, and saving writes the library
+row (no write on no change), so the gear applies to the exercise in every plan.
 
 **Snap** (med-niix.2). Progression always runs as before; binding only adds a
 constraint on the proposed load. The library row's `equipment_id` resolves to

@@ -612,24 +612,15 @@ describe('features/workout/exercises.js — split-file integration', () => {
     });
   });
 
-  // med-niix.5: read-only equipment hint on the plan-exercise modal,
-  // resolved via the row's exercise_library_id. The step is the API's
-  // min_step_kg verbatim — never recomputed client-side.
-  describe('equipment hint (med-niix.5)', () => {
+  // med-niix.8: editable Equipment select in the plan-exercise modal. The
+  // select mirrors the library row's equipment_id (None = unbound); saving
+  // writes the row only when the pick differs — a full-replacement PUT
+  // through DataStore.applyOptimistic — so the gear applies to the exercise
+  // in every plan. The helper shows the picked gear's step/max from the API
+  // verbatim, never recomputed client-side.
+  describe('equipment select (med-niix.8)', () => {
     const OHIO_BAR = { id: 50, name: 'Ohio bar', kind: 'plated', min_step_kg: 2.5, max_kg: 200 };
-
-    function stubHint(window, { exercises, library, equipment = [OHIO_BAR] }) {
-      window.WorkoutEdit.variantForExercise = 1;
-      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
-      window.WorkoutEquipment.list = vi.fn(async () => equipment);
-      window.apiCall = vi.fn(async (url) => {
-        if (String(url).startsWith('/api/workout/exercises?')) return exercises;
-        if (String(url) === '/api/workout/exercise-library') return library;
-        return [];
-      });
-    }
-
-    const equipHintOf = (document) => document.getElementById('workout-exercise-equipment-hint');
+    const HEX_DB = { id: 51, name: 'Hex DB', kind: 'fixed', min_step_kg: null, max_kg: 10 };
 
     function boundExercise(libraryId = 40) {
       return [{
@@ -639,138 +630,238 @@ describe('features/workout/exercises.js — split-file integration', () => {
       }];
     }
 
-    it('renders the hint element hidden by default', () => {
-      const { document } = env;
-      const hint = equipHintOf(document);
-      expect(hint).not.toBeNull();
-      expect(hint.tagName).toBe('P');
-      expect(hint.hidden).toBe(true);
+    function libraryRow(overrides = {}) {
+      return { id: 40, name: 'Bench Press', default_sets: 3, default_reps_min: 8, equipment_id: 50, ...overrides };
+    }
+
+    // Stubs the variant-exercise read, the library list, the inventory, and
+    // the write endpoints; returns the apiCall traffic log.
+    function stubPlan(window, { exercises, library, equipment = [OHIO_BAR, HEX_DB], updateResult = true } = {}) {
+      window.WorkoutEdit.variantForExercise = 1;
+      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
+      window.WorkoutEquipment.list = vi.fn(async () => equipment);
+      window.loadExerciseLibrary = vi.fn(async () => {});
+      window.invalidateWorkoutCache = vi.fn(async () => {});
+      window.loadExercisesForVariant = vi.fn();
+      const calls = [];
+      window.apiCall = vi.fn(async (url, method, body) => {
+        calls.push([url, method, body]);
+        if (String(url).startsWith('/api/workout/exercises?')) return exercises;
+        if (String(url) === '/api/workout/exercise-library') return library;
+        if (String(url).startsWith('/api/workout/exercise-library/update')) return updateResult;
+        if (String(url) === '/api/workout/exercises/create') return { id: 7, exercise_library_id: 40 };
+        if (String(url).startsWith('/api/workout/exercises/update')) return true;
+        if (String(url).startsWith('/api/workout/equipment')) return equipment;
+        return [];
+      });
+      return calls;
+    }
+
+    // Map-backed ApiCache so DataStore.applyOptimistic reads/writes are
+    // observable (mirrors features.workout-sessions.test.js).
+    function installApiCache(window, seed = {}) {
+      const map = new Map(Object.entries(seed));
+      window.MedTrackerDB = {
+        ...(window.MedTrackerDB || {}),
+        ApiCache: {
+          async get(key) { return map.has(key) ? map.get(key) : null; },
+          async set(key, value) { map.set(key, value); },
+          async clear(key) { map.delete(key); },
+          async keys(prefix) {
+            const all = [...map.keys()];
+            return typeof prefix === 'string' && prefix ? all.filter((k) => k.startsWith(prefix)) : all;
+          }
+        }
+      };
+      return map;
+    }
+
+    const planSelectOf = (document) => document.getElementById('workout-exercise-equipment');
+    const planHintOf = (document) => document.getElementById('workout-exercise-equipment-hint');
+    const planScopeOf = (document) => document.getElementById('workout-exercise-equipment-scope');
+    const libraryPuts = (calls) => calls.filter(([url]) => String(url).startsWith('/api/workout/exercise-library/update'));
+
+    it('renders the Equipment select (None + inventory) with the every-plan scope line', async () => {
+      const { window, document } = env;
+      stubPlan(window, { exercises: [], library: [] });
+
+      await window.showAddExerciseModal();
+
+      const select = planSelectOf(document);
+      expect(select).not.toBeNull();
+      expect(select.tagName).toBe('SELECT');
+      expect(Array.from(select.options).map((o) => [o.value, o.textContent]))
+        .toEqual([['', 'None'], ['50', 'Ohio bar'], ['51', 'Hex DB']]);
+      expect(select.value).toBe('');
+      expect(select.disabled).toBe(false);
+      expect(planHintOf(document).hidden).toBe(true);
+      expect(planScopeOf(document).hidden).toBe(false);
+      expect(planScopeOf(document).textContent).toBe('Applies to this exercise in every plan.');
     });
 
-    it('showEditExerciseModal shows "Equipment: <name> · step X kg" for a bound exercise', async () => {
+    it('showEditExerciseModal preselects the bound gear with the step/max helper from the API', async () => {
       const { window, document } = env;
-      stubHint(window, {
-        exercises: boundExercise(40),
-        library: [{ id: 40, name: 'Bench Press', equipment_id: 50 }],
-      });
+      stubPlan(window, { exercises: boundExercise(40), library: [libraryRow()] });
 
       await window.showEditExerciseModal(7);
 
-      expect(equipHintOf(document).hidden).toBe(false);
-      expect(equipHintOf(document).textContent).toBe('Equipment: Ohio bar · step 2.5 kg');
+      expect(planSelectOf(document).value).toBe('50');
+      expect(planHintOf(document).hidden).toBe(false);
+      expect(planHintOf(document).textContent).toBe('step 2.5 kg · max 200 kg');
     });
 
-    it('shows nothing when the exercise has no library link (unbound)', async () => {
+    it('omits null step/max clauses, and hides the helper when unbound', async () => {
+      const { window, document } = env;
+      stubPlan(window, { exercises: boundExercise(40), library: [libraryRow({ equipment_id: 51 })] });
+
+      await window.showEditExerciseModal(7);
+
+      // Hex DB reports min_step_kg null — only the max clause renders.
+      expect(planSelectOf(document).value).toBe('51');
+      expect(planHintOf(document).textContent).toBe('max 10 kg');
+
+      // The row itself unbound: None + hidden helper.
+      const unbound = libraryRow();
+      delete unbound.equipment_id;
+      window.apiCall = vi.fn(async (url) => {
+        if (String(url).startsWith('/api/workout/exercises?')) return boundExercise(40);
+        if (String(url) === '/api/workout/exercise-library') return [unbound];
+        return [];
+      });
+      await window.showEditExerciseModal(7);
+
+      expect(planSelectOf(document).value).toBe('');
+      expect(planHintOf(document).hidden).toBe(true);
+      expect(planHintOf(document).textContent).toBe('');
+    });
+
+    it('a dangling binding (equipment deleted, no cascade) preselects None with no helper', async () => {
+      const { window, document } = env;
+      stubPlan(window, { exercises: boundExercise(40), library: [libraryRow({ equipment_id: 999 })] });
+
+      await window.showEditExerciseModal(7);
+
+      expect(planSelectOf(document).value).toBe('');
+      expect(planHintOf(document).hidden).toBe(true);
+    });
+
+    it('a legacy row without a library link shows a disabled select and no helper', async () => {
       const { window, document } = env;
       const ex = boundExercise();
       delete ex[0].exercise_library_id;
-      stubHint(window, { exercises: ex, library: [] });
+      stubPlan(window, { exercises: ex, library: [] });
 
       await window.showEditExerciseModal(7);
 
-      expect(equipHintOf(document).hidden).toBe(true);
-      expect(equipHintOf(document).textContent).toBe('');
+      const select = planSelectOf(document);
+      expect(select.disabled).toBe(true);
+      expect(select.value).toBe('');
+      expect(planHintOf(document).hidden).toBe(true);
+      expect(planHintOf(document).textContent).toBe('');
+      expect(planScopeOf(document).hidden).toBe(true);
     });
 
-    it('shows nothing when the library row itself is unbound', async () => {
+    it('changing the select re-renders the helper; None clears it', async () => {
       const { window, document } = env;
-      stubHint(window, {
-        exercises: boundExercise(40),
-        library: [{ id: 40, name: 'Bench Press' }],
-      });
+      stubPlan(window, { exercises: boundExercise(40), library: [libraryRow()] });
 
       await window.showEditExerciseModal(7);
+      expect(planHintOf(document).textContent).toBe('step 2.5 kg · max 200 kg');
 
-      expect(equipHintOf(document).hidden).toBe(true);
-    });
-
-    it('shows nothing for a dangling binding (equipment deleted, no cascade)', async () => {
-      const { window, document } = env;
-      stubHint(window, {
-        exercises: boundExercise(40),
-        library: [{ id: 40, name: 'Bench Press', equipment_id: 999 }],
-        equipment: [OHIO_BAR],
+      const select = planSelectOf(document);
+      select.value = '51';
+      await select.onchange();
+      await vi.waitFor(() => {
+        expect(planHintOf(document).textContent).toBe('max 10 kg');
       });
 
-      await window.showEditExerciseModal(7);
-
-      expect(equipHintOf(document).hidden).toBe(true);
-      expect(equipHintOf(document).textContent).toBe('');
+      select.value = '';
+      await select.onchange();
+      await vi.waitFor(() => {
+        expect(planHintOf(document).hidden).toBe(true);
+      });
+      expect(planHintOf(document).textContent).toBe('');
     });
 
-    it('omits the step clause when the API reports no min_step_kg', async () => {
+    it("a library pick preselects that row's gear; a catalog-only pick fills None + inventory", async () => {
       const { window, document } = env;
-      stubHint(window, {
-        exercises: boundExercise(41),
-        library: [{ id: 41, name: 'Curl', equipment_id: 51 }],
-        equipment: [{ id: 51, name: 'Hex DB', kind: 'fixed', min_step_kg: null, max_kg: 10 }],
-      });
-
-      await window.showEditExerciseModal(7);
-
-      expect(equipHintOf(document).hidden).toBe(false);
-      expect(equipHintOf(document).textContent).toBe('Equipment: Hex DB');
-    });
-
-    it('a library pick in Add binds the hint; a catalog-only pick clears it', async () => {
-      const { window, document } = env;
-      stubHint(window, {
-        exercises: [],
-        library: [{ id: 40, name: 'Bench Press', equipment_id: 50 }],
-      });
+      stubPlan(window, { exercises: [], library: [libraryRow()] });
 
       await window.onPlanExercisePicked({ id: 40, name: 'Bench Press' });
       await vi.waitFor(() => {
-        expect(equipHintOf(document).hidden).toBe(false);
+        expect(planSelectOf(document).value).toBe('50');
       });
-      expect(equipHintOf(document).textContent).toBe('Equipment: Ohio bar · step 2.5 kg');
+      await vi.waitFor(() => {
+        expect(planHintOf(document).textContent).toBe('step 2.5 kg · max 200 kg');
+      });
 
       await window.onPlanExercisePicked({ name: 'Zercher squat' });
       await vi.waitFor(() => {
-        expect(equipHintOf(document).textContent).toBe('');
+        expect(planSelectOf(document).value).toBe('');
       });
-      expect(equipHintOf(document).hidden).toBe(true);
+      expect(planHintOf(document).hidden).toBe(true);
+      // Unknown name still offers the inventory for an explicit pick.
+      expect(Array.from(planSelectOf(document).options).map((o) => o.value)).toEqual(['', '50', '51']);
     });
 
-    it('opening Edit clears the previous exercise hint synchronously', async () => {
+    it('a hand-typed rename re-resolves the select against the new name', async () => {
       const { window, document } = env;
-      const calls = [
-        boundExercise(40),
-        boundExercise(),
-      ];
-      delete calls[1][0].exercise_library_id;
-      let n = 0;
-      window.WorkoutEdit.variantForExercise = 1;
-      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
-      window.WorkoutEquipment.list = vi.fn(async () => [OHIO_BAR]);
-      window.apiCall = vi.fn(async (url) => {
-        if (String(url).startsWith('/api/workout/exercises?')) return calls[n++];
-        if (String(url) === '/api/workout/exercise-library') {
-          return [{ id: 40, name: 'Bench Press', equipment_id: 50 }];
-        }
-        return [];
+      stubPlan(window, {
+        exercises: boundExercise(40),
+        library: [libraryRow(), { id: 41, name: 'Curl' }],
       });
+      await window.showEditExerciseModal(7);
+      expect(planSelectOf(document).value).toBe('50');
+
+      // Renaming to an unbound library name clears the select (no picker
+      // pick, so this goes through the name-change path).
+      const nameEl = document.getElementById('workout-exercise-name');
+      nameEl.value = 'Curl';
+      await nameEl.onchange();
+      await vi.waitFor(() => {
+        expect(planSelectOf(document).value).toBe('');
+      });
+      expect(planHintOf(document).hidden).toBe(true);
+
+      // ...and back to the bound name restores it.
+      nameEl.value = 'Bench Press';
+      await nameEl.onchange();
+      await vi.waitFor(() => {
+        expect(planSelectOf(document).value).toBe('50');
+      });
+      await vi.waitFor(() => {
+        expect(planHintOf(document).hidden).toBe(false);
+      });
+    });
+
+    it('opening Edit clears the previous select synchronously', async () => {
+      const { window, document } = env;
+      stubPlan(window, { exercises: boundExercise(40), library: [libraryRow()] });
 
       await window.showEditExerciseModal(7);
-      expect(equipHintOf(document).textContent).toBe('Equipment: Ohio bar · step 2.5 kg');
+      expect(planSelectOf(document).value).toBe('50');
 
-      // The second open has not resolved anything yet, but the stale hint
-      // must already be gone — the clear runs before the first await.
+      // The second open targets an unbound row: the stale '50' must already
+      // be gone before the first await resolves.
+      window.apiCall = vi.fn(async (url) => {
+        if (String(url).startsWith('/api/workout/exercises?')) return boundExercise(41);
+        if (String(url) === '/api/workout/exercise-library') return [{ id: 41, name: 'Curl' }];
+        return [];
+      });
       const pending = window.showEditExerciseModal(7);
-      expect(equipHintOf(document).hidden).toBe(true);
-      expect(equipHintOf(document).textContent).toBe('');
+      const select = planSelectOf(document);
+      expect(select.value).toBe('');
+      expect(Array.from(select.options).map((o) => o.value)).toEqual(['']);
       await pending;
-      expect(equipHintOf(document).hidden).toBe(true);
+      expect(select.value).toBe('');
+      expect(planHintOf(document).hidden).toBe(true);
     });
 
     it('a superseded pick cannot paint its binding after a newer pick cleared it', async () => {
       const { window, document } = env;
-      stubHint(window, {
-        exercises: [],
-        library: [{ id: 40, name: 'Bench Press', equipment_id: 50 }],
-      });
+      stubPlan(window, { exercises: [], library: [libraryRow()] });
       // Gate the FIRST library read so the bound pick's fetch lands after
-      // the catalog-only pick has already cleared the hint.
+      // the catalog-only pick has already reset the select.
       let release;
       const gate = new Promise((resolve) => { release = resolve; });
       let first = true;
@@ -785,43 +876,210 @@ describe('features/workout/exercises.js — split-file integration', () => {
 
       window.onPlanExercisePicked({ id: 40, name: 'Bench Press' });
       await window.onPlanExercisePicked({ name: 'Zercher squat' });
-      expect(equipHintOf(document).textContent).toBe('');
+      expect(planSelectOf(document).value).toBe('');
       release();
       await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
 
-      expect(equipHintOf(document).hidden).toBe(true);
-      expect(equipHintOf(document).textContent).toBe('');
+      expect(planSelectOf(document).value).toBe('');
+      expect(planHintOf(document).hidden).toBe(true);
     });
 
-    it('a hand-typed rename re-resolves the hint against the new name', async () => {
+    it('picking another gear and saving writes the library row (full replacement, optimistic)', async () => {
       const { window, document } = env;
-      stubHint(window, {
-        exercises: boundExercise(40),
-        library: [
-          { id: 40, name: 'Bench Press', equipment_id: 50 },
-          { id: 41, name: 'Curl' },
-        ],
-      });
+      const cache = installApiCache(window, { exercise_library: [libraryRow()] });
+      const optimisticSpy = vi.spyOn(window.DataStore, 'applyOptimistic');
+      const calls = stubPlan(window, { exercises: boundExercise(40), library: [libraryRow()] });
+
       await window.showEditExerciseModal(7);
-      expect(equipHintOf(document).textContent).toBe('Equipment: Ohio bar · step 2.5 kg');
+      expect(planSelectOf(document).value).toBe('50');
 
-      // Renaming to an unbound library name clears the hint (no picker pick,
-      // so this goes through the name-change path).
-      const nameEl = document.getElementById('workout-exercise-name');
-      nameEl.value = 'Curl';
-      await nameEl.onchange();
-      await vi.waitFor(() => {
-        expect(equipHintOf(document).textContent).toBe('');
-      });
-      expect(equipHintOf(document).hidden).toBe(true);
+      planSelectOf(document).value = '51';
+      await window.saveExercise();
 
-      // ...and back to the bound name restores it.
-      nameEl.value = 'Bench Press';
-      await nameEl.onchange();
-      await vi.waitFor(() => {
-        expect(equipHintOf(document).hidden).toBe(false);
+      // The exercise write itself is unchanged.
+      expect(calls.some(([url]) => String(url).startsWith('/api/workout/exercises/update?id=7'))).toBe(true);
+      // Exactly one library write, as a full replacement carrying the new
+      // binding alongside every other field explicitly (body_part rides
+      // along even though the read shape omits it when unset — the update
+      // overwrites rather than preserves it).
+      const puts = libraryPuts(calls);
+      expect(puts).toHaveLength(1);
+      expect(puts[0][0]).toBe('/api/workout/exercise-library/update?id=40');
+      expect(puts[0][2]).toMatchObject({
+        name: 'Bench Press', default_sets: 3, default_reps_min: 8, body_part: '', equipment_id: 51,
       });
-      expect(equipHintOf(document).textContent).toBe('Equipment: Ohio bar · step 2.5 kg');
+      // Optimistic projection on the library cache, then the library repaint
+      // exactly as the library editor's own save.
+      expect(optimisticSpy).toHaveBeenCalledWith('exercise_library', expect.any(Function), ['exercise_library']);
+      expect(window.loadExerciseLibrary).toHaveBeenCalled();
+      // Committed against the authoritative list read.
+      expect(await cache.get('exercise_library')).toEqual([libraryRow()]);
+      optimisticSpy.mockRestore();
+    });
+
+    it('saving without touching the select issues no library write', async () => {
+      const { window, document } = env;
+      installApiCache(window, { exercise_library: [libraryRow()] });
+      const optimisticSpy = vi.spyOn(window.DataStore, 'applyOptimistic');
+      const calls = stubPlan(window, { exercises: boundExercise(40), library: [libraryRow()] });
+
+      await window.showEditExerciseModal(7);
+      await window.saveExercise();
+
+      expect(calls.some(([url]) => String(url).startsWith('/api/workout/exercises/update?id=7'))).toBe(true);
+      expect(libraryPuts(calls)).toHaveLength(0);
+      expect(optimisticSpy).not.toHaveBeenCalled();
+      expect(window.loadExerciseLibrary).not.toHaveBeenCalled();
+      optimisticSpy.mockRestore();
+    });
+
+    it('picking None and saving unbinds the row to null', async () => {
+      const { window, document } = env;
+      installApiCache(window);
+      const calls = stubPlan(window, { exercises: boundExercise(40), library: [libraryRow()] });
+
+      await window.showEditExerciseModal(7);
+      planSelectOf(document).value = '';
+      await window.saveExercise();
+
+      const puts = libraryPuts(calls);
+      expect(puts).toHaveLength(1);
+      expect(puts[0][2]).toMatchObject({ name: 'Bench Press', equipment_id: null });
+    });
+
+    it('a failed library write rolls the cache back and repaints nothing', async () => {
+      const { window, document } = env;
+      const seed = [libraryRow()];
+      const cache = installApiCache(window, { exercise_library: seed.map((r) => ({ ...r })) });
+      window.Telegram.WebApp.showAlert = vi.fn();
+      const calls = stubPlan(window, {
+        exercises: boundExercise(40), library: [libraryRow()], updateResult: null,
+      });
+
+      await window.showEditExerciseModal(7);
+      planSelectOf(document).value = '51';
+      await window.saveExercise();
+
+      // The write was attempted, then rolled back: the cache still holds the
+      // pre-save rows and the library list was not repainted from them.
+      expect(libraryPuts(calls)).toHaveLength(1);
+      expect(await cache.get('exercise_library')).toEqual(seed);
+      expect(window.loadExerciseLibrary).not.toHaveBeenCalled();
+      expect(window.Telegram.WebApp.showAlert).toHaveBeenCalled();
+    });
+
+    it('adding a new exercise with gear picked binds its promoted library row', async () => {
+      const { window, document } = env;
+      installApiCache(window);
+      const calls = stubPlan(window, { exercises: [], library: [libraryRow()] });
+
+      await window.showAddExerciseModal();
+      document.getElementById('workout-exercise-name').value = 'Bench Press';
+      document.getElementById('workout-exercise-sets').value = '3';
+      document.getElementById('workout-exercise-reps-min').value = '8';
+      planSelectOf(document).value = '51';
+      await window.saveExercise();
+
+      expect(calls.some(([url]) => String(url) === '/api/workout/exercises/create')).toBe(true);
+      const puts = libraryPuts(calls);
+      expect(puts).toHaveLength(1);
+      expect(puts[0][0]).toBe('/api/workout/exercise-library/update?id=40');
+      expect(puts[0][2]).toMatchObject({ name: 'Bench Press', equipment_id: 51 });
+    });
+
+    it('adding a new exercise with None picked leaves the promoted row alone', async () => {
+      const { window, document } = env;
+      installApiCache(window);
+      const calls = stubPlan(window, { exercises: [], library: [libraryRow()] });
+
+      await window.showAddExerciseModal();
+      document.getElementById('workout-exercise-name').value = 'Bench Press';
+      document.getElementById('workout-exercise-sets').value = '3';
+      document.getElementById('workout-exercise-reps-min').value = '8';
+      expect(planSelectOf(document).value).toBe('');
+      await window.saveExercise();
+
+      expect(calls.some(([url]) => String(url) === '/api/workout/exercises/create')).toBe(true);
+      // The name matches an already-bound row — None must not unbind it.
+      expect(libraryPuts(calls)).toHaveLength(0);
+    });
+
+    it('saving a legacy row issues no library write', async () => {
+      const { window, document } = env;
+      installApiCache(window);
+      const ex = boundExercise();
+      delete ex[0].exercise_library_id;
+      const calls = stubPlan(window, { exercises: ex, library: [] });
+
+      await window.showEditExerciseModal(7);
+      expect(planSelectOf(document).disabled).toBe(true);
+      await window.saveExercise();
+
+      expect(calls.some(([url]) => String(url).startsWith('/api/workout/exercises/update?id=7'))).toBe(true);
+      expect(libraryPuts(calls)).toHaveLength(0);
+    });
+
+    it('a failed library read on open marks the select unloaded, so save never unbinds', async () => {
+      const { window, document } = env;
+      installApiCache(window);
+      // The open-time library GET fails (apiCall resolves null, not a
+      // throw); the save-time re-read succeeds with the row still bound.
+      let libraryCalls = 0;
+      window.WorkoutEdit.variantForExercise = 1;
+      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
+      window.WorkoutEquipment.list = vi.fn(async () => [OHIO_BAR, HEX_DB]);
+      window.loadExerciseLibrary = vi.fn(async () => {});
+      window.invalidateWorkoutCache = vi.fn(async () => {});
+      window.loadExercisesForVariant = vi.fn();
+      const calls = [];
+      window.apiCall = vi.fn(async (url, method, body) => {
+        calls.push([url, method, body]);
+        if (String(url).startsWith('/api/workout/exercises?')) return boundExercise(40);
+        if (String(url) === '/api/workout/exercise-library') return libraryCalls++ === 0 ? null : [libraryRow()];
+        if (String(url).startsWith('/api/workout/exercise-library/update')) return true;
+        if (String(url).startsWith('/api/workout/exercises/update')) return true;
+        return [];
+      });
+
+      await window.showEditExerciseModal(7);
+
+      const select = planSelectOf(document);
+      expect(select.value).toBe('');
+      expect(select.dataset.loaded).toBe('false');
+      expect(planHintOf(document).hidden).toBe(true);
+
+      await window.saveExercise();
+
+      expect(calls.some(([url]) => String(url).startsWith('/api/workout/exercises/update?id=7'))).toBe(true);
+      expect(libraryPuts(calls)).toHaveLength(0);
+    });
+
+    it('a stale inventory missing the bound gear never unbinds on save, but an explicit pick still writes', async () => {
+      const { window, document } = env;
+      installApiCache(window);
+      // Inventory without Ohio bar (id 50): the row is bound to gear the
+      // select cannot offer, so it reads as None.
+      const calls = stubPlan(window, { exercises: boundExercise(40), library: [libraryRow()], equipment: [HEX_DB] });
+
+      await window.showEditExerciseModal(7);
+
+      const select = planSelectOf(document);
+      expect(select.value).toBe('');
+      expect(select.dataset.loaded).toBe('true');
+
+      await window.saveExercise();
+
+      expect(calls.some(([url]) => String(url).startsWith('/api/workout/exercises/update?id=7'))).toBe(true);
+      expect(libraryPuts(calls)).toHaveLength(0);
+
+      // An explicit pick of a visible option still writes.
+      select.value = '51';
+      await window.saveExercise();
+
+      const puts = libraryPuts(calls);
+      expect(puts).toHaveLength(1);
+      expect(puts[0][2]).toMatchObject({ equipment_id: 51 });
     });
   });
 

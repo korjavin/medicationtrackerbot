@@ -158,7 +158,10 @@ describe('workout.js CRUD flows', () => {
       window.apiCall = apiCallSpy;
 
       await window.loadExercisesForVariant(33);
-      window.showAddExerciseModal();
+      // Await the open: its tail (picker prefetch, equipment-select fill)
+      // issues reads, and the assertions below on the save's exact call
+      // sequence need those settled first (med-niix.8).
+      await window.showAddExerciseModal();
 
       const alertSpy = vi.fn();
       window.Telegram.WebApp.showAlert = alertSpy;
