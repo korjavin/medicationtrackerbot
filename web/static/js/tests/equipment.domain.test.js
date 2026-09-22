@@ -126,6 +126,18 @@ describe('loadingFor (med-niix.6)', () => {
     expect(loadingFor(exotic, 23)).toEqual({ bar_kg: 20, per_side: [0.75, 0.75] });
   });
 
+  it('returns null past the knapsack span ceiling, like achievableLoads', () => {
+    const big = {
+      kind: 'plated', name: 'Stacked bar', bar_kg: 20, sides: 2,
+      plates: [{ kg: 25, count: 40 }],
+    };
+    expect(achievableLoads(big)[achievableLoads(big).length - 1]).toBeLessThanOrEqual(501);
+    expect(achievableLoads(big)).not.toContain(620);
+    expect(loadingFor(big, 620)).toBeNull();
+    expect(loadingFor(big, 1e7)).toBeNull();
+    expect(loadingFor(big, 420)).toEqual({ bar_kg: 20, per_side: [25, 25, 25, 25, 25, 25, 25, 25] });
+  });
+
   it('agrees with achievableLoads on randomized small inventories (seeded)', () => {
     let seed = 0xc0ffee;
     const rnd = () => {

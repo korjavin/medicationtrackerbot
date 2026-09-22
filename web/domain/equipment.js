@@ -115,6 +115,10 @@ export function loadingFor(equipment, kg) {
   const target = Number(kg);
   if (!Number.isFinite(bar) || bar <= 0) return null;
   if (!Number.isFinite(target) || target <= 0) return null;
+  // Same order as the knapsack span ceiling in achievableLoads: without it a
+  // mistyped multi-tonne target sizes the witness array from the target
+  // instead of the inventory. +1 covers off-grid bar rounding at the edge.
+  if (target > MAX_TOTAL_KG + 1) return null;
   const sides = equipment.sides === 1 ? 1 : 2;
   const divisor = sides * (equipment.pair ? 2 : 1);
   const inv = [];

@@ -4,6 +4,7 @@
 // the closure-private editing state is reachable via the
 // window.WorkoutEdit getter/setter façade.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { loadingFor } from '../../../../web/domain/equipment.js';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
 describe('features/workout/groups.js — split-file integration', () => {
@@ -674,23 +675,124 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
     window.WorkoutEquipment.list = async () => [BAR];
     const printed = [];
     window.WorkoutGroups.loadPrintDoc = async () => ({
-      printDoc: (d, html) => printed.push(html),
+      printDoc: (d, html, cls, css) => printed.push({ html, cls, css }),
     });
     window.WorkoutGroups.makePlanQr = async () => { throw new Error('no qr in test'); };
 
     await window.WorkoutGroups.print(GROUP);
 
     expect(printed).toHaveLength(1);
-    expect(printed[0]).toContain('20 + 20 \u00b7 1.25 / side');
-    expect(printed[0]).toContain('<svg');
+    expect(printed[0].html).toContain('20 + 20 \u00b7 1.25 / side');
+    expect(printed[0].html).toContain('<svg');
+    // The adopted print-frame stylesheet (the only CSS that lands under CSP)
+    // carries the glyph rules exactly when a glyph rendered.
+    expect(printed[0].css).toContain('.plates');
+    expect(printed[0].css).not.toContain('var(--wg-');
 
     window.WorkoutEquipment.list = async () => { throw new Error('offline'); };
+    window.apiCall = vi.fn(async (url) => {
+      if (url.startsWith('/api/workout/variants?group_id=')) return [{ id: 30, name: 'Main' }];
+      if (url.includes('/api/workout/exercises?variant_id=')) return [ex({ target_weight_kg: 62.5 })];
+      if (url === '/api/workout/exercise-library') return LIB;
+      return null;
+    });
     printed.length = 0;
 
     await window.WorkoutGroups.print(GROUP);
 
     expect(printed).toHaveLength(1);
-    expect(printed[0]).not.toContain('<svg');
-    expect(printed[0]).toContain('Bench press');
+    expect(printed[0].html).not.toContain('<svg');
+    expect(printed[0].html).toContain('Bench press');
+    expect(printed[0].css).not.toContain('.plates');
+  });
+
+  it('a sides:1 implement draws one sleeve with no / side suffix', () => {
+    const { window } = env;
+    const kb = {
+      id: 3, kind: 'plated', name: 'Loadable KB', bar_kg: 6, sides: 1,
+      plates: [{ kg: 10, count: 2 }],
+    };
+    expect(loadingFor(kb, 16)).toEqual({ bar_kg: 6, per_side: [10] });
+    const html = window.WorkoutGroups.buildDocument(
+      GROUP, days([ex({ target_weight_kg: 16 })]),
+      { unit: 'kg', ...maps(LIB, [kb]) },
+    );
+    expect(html).toContain('6 + 10');
+    expect(html).not.toContain('/ side');
+    expect((html.match(/<rect/g) || []).length).toBe(1);
+  });
+
+  it('an lb sheet labels the plate line as kg', () => {
+    const { window } = env;
+    const html = window.WorkoutGroups.buildDocument(
+      GROUP, days([ex({ target_weight_kg: 62.5 })]),
+      { unit: 'lb', ...maps(LIB, [BAR]) },
+    );
+    expect(html).toContain('20 + 20 \u00b7 1.25 / side (kg)');
+    expect(html).not.toContain('62.5 kg');
+  });
+
+  it('option aliases and raw arrays resolve the same glyph', () => {
+    const { window } = env;
+    const want = '20 + 20 \u00b7 1.25 / side';
+    const canonical = window.WorkoutGroups.buildDocument(
+      GROUP, days([ex({ target_weight_kg: 62.5 })]),
+      { unit: 'kg', ...maps(LIB, [BAR]) },
+    );
+    expect(canonical).toContain(want);
+    for (const opts of [
+      { unit: 'kg', library: LIB, equipment: [BAR] },
+      { unit: 'kg', libraryMap: { 11: LIB[0] }, equipmentMap: { 3: BAR } },
+      { unit: 'kg', library: LIB, equipment: [BAR], equipmentMap: { 3: BAR } },
+    ]) {
+      expect(window.WorkoutGroups.buildDocument(GROUP, days([ex({ target_weight_kg: 62.5 })]), opts)).toContain(want);
+    }
+  });
+
+  it('past the span ceiling a heavy target draws no glyph', () => {
+    const { window } = env;
+    const big = {
+      id: 3, kind: 'plated', name: 'Stacked bar', bar_kg: 20, sides: 2,
+      plates: [{ kg: 25, count: 40 }],
+    };
+    const html = window.WorkoutGroups.buildDocument(
+      GROUP, days([ex({ target_weight_kg: 620 })]),
+      { unit: 'kg', ...maps([{ id: 11, equipment_id: 3 }], [big]) },
+    );
+    expect(html).toContain('@ 620 kg');
+    expect(html).not.toContain('<svg');
+  });
+
+  it('the builder mirror agrees with domain loadingFor on randomized inventories (seeded)', () => {
+    const { window } = env;
+    let seed = 0xbeef;
+    const rnd = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    const choices = [1.25, 2.5, 5, 10, 20];
+    for (let round = 0; round < 15; round += 1) {
+      const sides = rnd() < 0.7 ? 2 : 1;
+      const plates = choices
+        .filter(() => rnd() < 0.6)
+        .map((kg) => ({ kg, count: 2 + Math.floor(rnd() * 4) }));
+      if (plates.length === 0) continue;
+      const eq = { id: 5, kind: 'plated', name: 'Rand', bar_kg: 20, sides, pair: false, plates };
+      for (const kg of [20, 22.5, 30, 45, 62.5, 85]) {
+        const expected = loadingFor(eq, kg);
+        const html = window.WorkoutGroups.buildDocument(
+          GROUP,
+          days([{ id: 1, exercise_name: 'X', order_index: 0, target_sets: 1, target_reps_min: 5, exercise_library_id: 7, target_weight_kg: kg }]),
+          { unit: 'kg', libraryById: { 7: { id: 7, equipment_id: 5 } }, equipmentById: { 5: eq } },
+        );
+        const glyph = expected !== null && expected.per_side.length > 0;
+        expect({ kg, sides, svg: html.includes('<svg') }).toEqual({ kg, sides, svg: glyph });
+        if (glyph) {
+          const line = `${expected.bar_kg} + ${expected.per_side.map(String).join(' \u00b7 ')}`;
+          expect(html).toContain(line);
+          expect((html.match(/<rect/g) || []).length).toBe(expected.per_side.length * sides);
+        }
+      }
+    }
   });
 });
