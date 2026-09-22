@@ -572,3 +572,125 @@ describe('features/workout/groups.js — scan-back anchors (med-qj4.9)', () => {
     expect(openEdit).not.toHaveBeenCalled();
   });
 });
+
+// bd med-niix.6 — printed sheet plate-loading diagrams: a bound plated
+// exercise draws the bar (plates per side) under its weight, everything else
+// prints exactly as before.
+describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', () => {
+  let env;
+  let consoleErrorSpy;
+
+  const BAR = {
+    id: 3, kind: 'plated', name: 'Ohio bar', bar_kg: 20, sides: 2, pair: false,
+    plates: [{ kg: 20, count: 2 }, { kg: 1.25, count: 2 }],
+  };
+  const LIB = [{ id: 11, name: 'Bench press', equipment_id: 3 }];
+  const GROUP = { id: 5, name: 'Push', is_rotating: false, active: true, days_of_week: '[]' };
+
+  const ex = (over) => ({
+    id: 1, exercise_name: 'Bench press', order_index: 0,
+    target_sets: 3, target_reps_min: 5, exercise_library_id: 11, ...over,
+  });
+  const days = (exercises) => [{ variant: { id: 30, name: 'Main' }, exercises }];
+  const maps = (libRows, eqRows) => ({
+    libraryById: Object.fromEntries(libRows.map((r) => [r.id, r])),
+    equipmentById: Object.fromEntries(eqRows.map((r) => [r.id, r])),
+  });
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    env = loadFrontendEnv({ withWorkout: true });
+    env.window.Telegram.WebApp.showAlert = vi.fn();
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+    env.cleanup();
+    env = null;
+  });
+
+  it('bound barbell at 62.5 prints the per-side text and 2 plate rects per side', () => {
+    const { window } = env;
+    const html = window.WorkoutGroups.buildDocument(
+      GROUP, days([ex({ target_weight_kg: 62.5 })]),
+      { unit: 'kg', ...maps(LIB, [BAR]) },
+    );
+    expect(html).toContain('20 + 20 \u00b7 1.25 / side');
+    expect(html).toContain('<svg');
+    // One rect per plate per side; the sleeve is a line, never a rect.
+    expect((html.match(/<rect/g) || []).length).toBe(4);
+    expect(html).not.toContain('--wg-');
+  });
+
+  it('an unachievable target prints the weight with no glyph', () => {
+    const { window } = env;
+    const html = window.WorkoutGroups.buildDocument(
+      GROUP, days([ex({ target_weight_kg: 61 })]),
+      { unit: 'kg', ...maps(LIB, [BAR]) },
+    );
+    expect(html).toContain('@ 61 kg');
+    expect(html).not.toContain('<svg');
+    expect(html).not.toContain('/ side');
+  });
+
+  it('unbound exercises render byte-identical to today', () => {
+    const { window } = env;
+    const plain = window.WorkoutGroups.buildDocument(
+      GROUP, days([ex({ target_weight_kg: 60, exercise_library_id: undefined })]), { unit: 'kg' },
+    );
+    const withMaps = window.WorkoutGroups.buildDocument(
+      GROUP, days([ex({ target_weight_kg: 60, exercise_library_id: undefined })]),
+      { unit: 'kg', ...maps([], [BAR]) },
+    );
+    expect(withMaps).toBe(plain);
+    expect(plain).toContain('@ 60 kg');
+    expect(plain).not.toContain('<svg');
+  });
+
+  it('fixed equipment prints the weight with no glyph', () => {
+    const { window } = env;
+    const html = window.WorkoutGroups.buildDocument(
+      GROUP,
+      days([ex({ target_weight_kg: 12 })]),
+      {
+        unit: 'kg',
+        ...maps([{ id: 11, name: 'Curl', equipment_id: 9 }], [
+          { id: 9, kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12] },
+        ]),
+      },
+    );
+    expect(html).toContain('@ 12 kg');
+    expect(html).not.toContain('<svg');
+  });
+
+  it('print() threads the inventory + library into the sheet; a failed inventory read prints without glyphs', async () => {
+    const { window } = env;
+    window.apiCall = vi.fn(async (url) => {
+      if (url.startsWith('/api/workout/variants?group_id=')) return [{ id: 30, name: 'Main' }];
+      if (url.includes('/api/workout/exercises?variant_id=')) return [ex({ target_weight_kg: 62.5 })];
+      if (url === '/api/workout/exercise-library') return LIB;
+      return null;
+    });
+    window.WorkoutEquipment.list = async () => [BAR];
+    const printed = [];
+    window.WorkoutGroups.loadPrintDoc = async () => ({
+      printDoc: (d, html) => printed.push(html),
+    });
+    window.WorkoutGroups.makePlanQr = async () => { throw new Error('no qr in test'); };
+
+    await window.WorkoutGroups.print(GROUP);
+
+    expect(printed).toHaveLength(1);
+    expect(printed[0]).toContain('20 + 20 \u00b7 1.25 / side');
+    expect(printed[0]).toContain('<svg');
+
+    window.WorkoutEquipment.list = async () => { throw new Error('offline'); };
+    printed.length = 0;
+
+    await window.WorkoutGroups.print(GROUP);
+
+    expect(printed).toHaveLength(1);
+    expect(printed[0]).not.toContain('<svg');
+    expect(printed[0]).toContain('Bench press');
+  });
+});

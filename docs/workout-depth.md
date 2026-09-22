@@ -420,6 +420,26 @@ the plan-exercise modal (`#workout-exercise-modal`) shows a read-only hint
 recomputed client-side) resolved via the row's `exercise_library_id` —
 nothing for unbound, no select there.
 
+**Sheet** (med-niix.6, polish — no progression impact). Once an exercise is
+bound to plated equipment, the printed plan sheet shows HOW to load the bar:
+under the target weight it draws a small monochrome SVG (sleeve line, one
+rect per plate per side, height proportional to kg, kg label under each)
+plus the text line `20 + 20 · 1.25 / side` as the accessible/print fallback.
+The math is `loadingFor(equipment, kg)` in `web/domain/equipment.js`
+(heaviest-first greedy over the merged plate rows with the per-implement
+divisor, knapsack witness fallback, null when the kg is not achievable or
+the gear is fixed); the sheet builder mirrors it because the classic-script
+print path cannot import the ESM domain module. `buildWorkoutPlanDocument`
+takes the inventory via options (`equipmentById` + `libraryById`, each a Map,
+id-keyed object, or raw response array), resolved per row through
+`exercise_library_id` → `equipment_id` like the plan-modal hint; the caller
+(`printWorkoutPlan`) loads `/api/workout/exercise-library` and the inventory
+via `window.WorkoutEquipment.list()` alongside the plan, best-effort — a
+failed read prints the sheet exactly as before, with no glyphs. Unbound,
+fixed, bodyweight, bar-only, and unachievable targets draw nothing, and the
+glyph stylesheet is appended only when a glyph renders, so those sheets stay
+byte-identical.
+
 **MCP**: the Go registry is untouched — no write op takes `equipment_id`
 (validation ignores extra fields, so agents cannot set the binding; it stays
 UI-only). The cloud list response does carry it on library rows (read side of
