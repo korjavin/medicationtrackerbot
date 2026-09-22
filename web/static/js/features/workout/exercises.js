@@ -501,8 +501,18 @@ async function showAddExerciseModal() {
     document.getElementById('workout-exercise-modal-title').textContent = 'Add Exercise';
     window.ModalManager.workoutExercise.open();
     // New exercise: no library row yet, so the select starts at None (still
-    // enabled — a picked gear binds the promoted row on save).
+    // enabled — a picked gear binds the promoted row on save). The reset runs
+    // synchronously so no stale selection survives; the picker binds before
+    // the inventory fill so its library prefetch keeps its long-standing
+    // order ahead of it.
     _resetPlanEquipmentSelect(false);
+    // Shared inline suggestion list (med-prk.3, med-max): library + catalog
+    // names under the field, no native <datalist> popup over the keyboard.
+    await window.WorkoutLibrary.bindExercisePicker({
+        input: document.getElementById('workout-exercise-name'),
+        mount: document.getElementById('workout-exercise-suggest'),
+        onPick: onPlanExercisePicked
+    });
     await _fillPlanExerciseEquipment(null);
 
     document.getElementById('workout-exercise-name').value = '';
@@ -520,13 +530,6 @@ async function showAddExerciseModal() {
     bindGoalCascade();
     await applyGoalCascade(routineGoalForExercise());
 
-    // Shared inline suggestion list (med-prk.3, med-max): library + catalog
-    // names under the field, no native <datalist> popup over the keyboard.
-    await window.WorkoutLibrary.bindExercisePicker({
-        input: document.getElementById('workout-exercise-name'),
-        mount: document.getElementById('workout-exercise-suggest'),
-        onPick: onPlanExercisePicked
-    });
 }
 
 // A row was tapped in the plan modal's suggestion list. Catalog-only rows carry
