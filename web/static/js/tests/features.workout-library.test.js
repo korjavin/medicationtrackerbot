@@ -872,6 +872,22 @@ describe('features/workout/library.js — split-file integration', () => {
       await pending;
       expect(select.value).toBe('');
     });
+
+    // med-niix.8: the plan-exercise modal fills its Equipment select through
+    // this same shared helper — one implementation, no duplicate fill.
+    it('the shared fill also drives the plan-modal select and returns the inventory', async () => {
+      const { window, document } = env;
+      stubInventory(window);
+
+      const items = await window._syncEquipmentSelect(50, 'workout-exercise-equipment');
+
+      expect(items).toEqual(INVENTORY);
+      const select = document.getElementById('workout-exercise-equipment');
+      expect(Array.from(select.options).map((o) => [o.value, o.textContent]))
+        .toEqual([['', 'None'], ['50', 'Ohio bar'], ['51', 'Hex DBs']]);
+      expect(select.value).toBe('50');
+      expect(select.dataset.loaded).toBe('true');
+    });
   });
 
 });
