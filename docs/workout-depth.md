@@ -353,3 +353,36 @@ graph emphasis + a near-failure effort insight. It changes defaults/emphasis onl
 never how a set is stored. Progression is **RIR-gated**: a load bump fires only when
 `reps ≥ target AND RIR ≤ threshold` — hitting reps far from failure triggers the effort
 insight, not more weight. Full progression scripting (a DSL) remains out of scope.
+
+## Equipment inventory (med-niix.1) — implemented
+
+**Equipment = a set of achievable loads** (kg, what you log for one rep — per
+hand for dumbbells). The progression engine proposes `logged + increment_kg`
+with no idea what loads the user can actually build ("I can't add 1 kg, I can
+add 2"); the inventory is the constraint it will snap to once an exercise is
+bound (med-niix.2). This stage ships the list alone — no UI (med-niix.3), no
+MCP ops (med-niix.4), no link to exercises (med-niix.5, optional binding).
+
+**Model** (owner-approved 2026-09-22). One vault record type `equipment`
+(random recordId, numeric `id` via the workout.js pattern). Two kinds:
+
+- `fixed: { kind:'fixed', name, loads_kg:[...] }` — fixed dumbbells/
+  kettlebells, machine stacks, dial-adjustable dumbbells. The UI offers a
+  min/max/step generator; the record stores only the list.
+- `plated: { kind:'plated', name, bar_kg, sides:1|2, pair:bool,
+  plates:[{kg, count}] }` — a barbell (sides:2), a plate-loaded kettlebell
+  (sides:1), plate-loaded dumbbells (sides:2, pair:true, each plate type usable
+  `floor(count/(sides*2))` times per implement). Each barbell owns its plate
+  list; three bars with different diameters are three records.
+
+**Domain** (`web/domain/equipment.js`, pure, injected ports only):
+`createEquipmentDomain({ records, now })` with list/get/create/update/delete,
+plus `achievableLoads(equipment)` (bounded knapsack over 0.25-kg quanta for
+plated — symmetric loading only, a lone single plate on a sides:2 bar
+contributes nothing; `// ponytail` marks the ceilings), `minStep(loads)`, and
+`snapLoad(loads, current, desired)` (nearest rung strictly above current to
+`current+desired`, tie → lower, null at max). Responses carry the record plus
+computed `loads_kg`, `min_step_kg`, `max_kg`. Served at
+`GET/POST /api/workout/equipment` and `:id GET/PUT/DELETE` via
+`web/cloud/js/apishim.js`, and carried in the vault under
+`workouts.equipment` (`web/domain/vault.js`; the golden fixture carries one plated and one fixed record, and bot mode strips the cloud-only key on import like `med_reminder_pref`).

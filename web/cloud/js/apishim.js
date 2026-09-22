@@ -17,6 +17,7 @@ import { createExerciseTagDomain } from '../../domain/exercisetag.js';
 import { createWorkoutSheetAIDomain } from '../../domain/workoutsheet.js';
 import { createWorkoutShareDomain } from '../../domain/workout-share.js';
 import { createWorkoutDomain } from '../../domain/workout.js';
+import { createEquipmentDomain } from '../../domain/equipment.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
 import { createAnalysis } from '../../domain/analysis.js';
 import { createBriefDomain } from '../../domain/brief.js';
@@ -168,7 +169,7 @@ export function createApiRouter(ctx, {
   // domain module's signature (they all take timeZone as a captured string).
   let timeZone = deviceTimeZone;
   let bp; let weight; let notes; let settings; let vitals; let reminders;
-  let medications; let intake; let tzplan; let foodDb; let food; let aiClient; let exerciseTag;
+  let medications; let intake; let tzplan; let foodDb; let food; let aiClient; let exerciseTag; let equipment;
   let foodAI; let workout; let workoutSheetAI; let workoutShare; let gamification; let narrator; let analysis;
   function buildDomains(tz) {
     timeZone = tz;
@@ -201,6 +202,7 @@ export function createApiRouter(ctx, {
     aiClient = createAIClient({ settingsDomain: settings });
     foodAI = createFoodAIDomain({ aiClient, foodDomain: food, now });
     workout = createWorkoutDomain({ records, now, timeZone });
+    equipment = createEquipmentDomain({ records, now });
     // LLM body-part tagging for exercise names the static catalog cannot
     // classify (custom / non-English names). Names only; `ai` consent scope.
     exerciseTag = createExerciseTagDomain({ aiClient, workoutDomain: workout });
@@ -1069,6 +1071,29 @@ export function createApiRouter(ctx, {
     if (method === 'DELETE') {
       const m = /^\/api\/workout\/miband\/([^/]+)$/.exec(path);
       if (m) { await workout.deleteMiBand(Number(m[1])); return true; }
+    }
+
+    // --- Equipment inventory (med-niix.1): the list alone, no link to
+    // exercises (that is med-niix.5). REST shape: collection GET/POST plus
+    // :id GET/PUT/DELETE; unknown numeric ids read as 404 and write as
+    // no-ops, mirroring the workout domain's findByNumericId contract.
+    if (path === '/api/workout/equipment' && method === 'GET') return equipment.listEquipment();
+    if (path === '/api/workout/equipment' && method === 'POST') return equipment.createEquipment(body);
+    if (method === 'GET') {
+      const m = /^\/api\/workout\/equipment\/([^/]+)$/.exec(path);
+      if (m) {
+        const item = await equipment.getEquipment(Number(m[1]));
+        if (!item) throw apiError(404, 'Equipment not found');
+        return item;
+      }
+    }
+    if (method === 'PUT') {
+      const m = /^\/api\/workout\/equipment\/([^/]+)$/.exec(path);
+      if (m) { await equipment.updateEquipment(Number(m[1]), body); return true; }
+    }
+    if (method === 'DELETE') {
+      const m = /^\/api\/workout\/equipment\/([^/]+)$/.exec(path);
+      if (m) { await equipment.deleteEquipment(Number(m[1])); return true; }
     }
 
     // --- Gamification: Discovery Atlas POC (Phase 1). The substrate routes

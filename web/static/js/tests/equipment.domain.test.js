@@ -1,0 +1,191 @@
+// med-niix.1 — equipment inventory domain (web/domain/equipment.js): pure
+// load math (achievableLoads / minStep / snapLoad) plus the CRUD surface over
+// an in-memory records port. No UI entry point yet (that is med-niix.3), so a
+// pure-unit suite is the owning suite for this layer.
+import { describe, it, expect } from 'vitest';
+import {
+  createEquipmentDomain, achievableLoads, minStep, snapLoad,
+} from '../../../../web/domain/equipment.js';
+import {
+  recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES,
+} from '../../../../web/domain/vault.js';
+
+function memPort() {
+  const store = new Map();
+  return {
+    async list(type) {
+      return [...(store.get(type) || [])].filter((r) => !r.deleted);
+    },
+    async put(type, record) {
+      const rows = store.get(type) || [];
+      const i = rows.findIndex((r) => r.recordId === record.recordId);
+      if (i === -1) rows.push(record);
+      else rows[i] = record;
+      store.set(type, rows);
+      return record;
+    },
+    async del(type, recordId) {
+      const rows = store.get(type) || [];
+      const i = rows.findIndex((r) => r.recordId === recordId);
+      if (i !== -1) rows[i] = { ...rows[i], deleted: true };
+    },
+  };
+}
+
+function domain() {
+  let t = 1_000_000;
+  return createEquipmentDomain({ records: memPort(), now: () => (t += 1000) });
+}
+
+const BARBELL = {
+  kind: 'plated', name: 'Ohio bar', bar_kg: 20, sides: 2, pair: false,
+  plates: [1.25, 2.5, 5, 10, 20].map((kg) => ({ kg, count: 2 })),
+};
+
+describe('equipment load math', () => {
+  it('plated barbell 20kg + 2x{1.25,2.5,5,10,20} builds 22.5, 25, ... with min_step 2.5', () => {
+    const loads = achievableLoads(BARBELL);
+    expect(loads[0]).toBe(20);
+    expect(loads).toContain(22.5);
+    expect(loads).toContain(25);
+    expect(minStep(loads)).toBe(2.5);
+  });
+
+  it('pair dumbbells with 4x1.25 step 2.5 per implement', () => {
+    const loads = achievableLoads({
+      kind: 'plated', name: 'Loadable DBs', bar_kg: 2, sides: 2, pair: true,
+      plates: [{ kg: 1.25, count: 4 }],
+    });
+    expect(loads).toEqual([2, 4.5]);
+    expect(minStep(loads)).toBe(2.5);
+  });
+
+  it('a lone single plate contributes nothing on a sides:2 bar but counts on sides:1', () => {
+    expect(achievableLoads({
+      kind: 'plated', name: 'Bar', bar_kg: 20, sides: 2, plates: [{ kg: 1.25, count: 1 }],
+    })).toEqual([20]);
+    expect(achievableLoads({
+      kind: 'plated', name: 'KB', bar_kg: 8, sides: 1, plates: [{ kg: 4, count: 1 }],
+    })).toEqual([8, 12]);
+  });
+
+  it('fixed list snaps 12 (+2.5) to 14; {16,24} snaps 16 (+2.5) to 24; at max to null', () => {
+    expect(snapLoad([10, 12, 14, 16], 12, 2.5)).toBe(14);
+    expect(snapLoad([16, 24], 16, 2.5)).toBe(24);
+    expect(snapLoad([16, 24], 24, 2.5)).toBeNull();
+  });
+
+  it('snap ties go to the lower rung and only looks strictly above current', () => {
+    expect(snapLoad([20, 24], 18, 4)).toBe(20); // |20-22| == |24-22|
+    expect(snapLoad([20, 24], 20, 4)).toBe(24); // current itself is not a candidate
+  });
+
+  it('minStep is null with fewer than two loads', () => {
+    expect(minStep([20])).toBeNull();
+    expect(minStep([])).toBeNull();
+  });
+});
+
+describe('equipment CRUD', () => {
+  it('create/list/get round-trips fixed gear with computed loads/step/max', async () => {
+    const eq = domain();
+    const created = await eq.createEquipment({
+      kind: 'fixed', name: 'Hex DBs', loads_kg: [12, 10, 14, 12],
+    });
+    expect(created.id).toBeGreaterThan(0);
+    expect(created.loads_kg).toEqual([10, 12, 14]);
+    expect(created.min_step_kg).toBe(2);
+    expect(created.max_kg).toBe(14);
+
+    const list = await eq.listEquipment();
+    expect(list).toHaveLength(1);
+    expect(list[0].name).toBe('Hex DBs');
+
+    const got = await eq.getEquipment(created.id);
+    expect(got.loads_kg).toEqual([10, 12, 14]);
+    expect(await eq.getEquipment(999999)).toBeNull();
+  });
+
+  it('create computes plated loads and update/delete behave', async () => {
+    const eq = domain();
+    const created = await eq.createEquipment(BARBELL);
+    expect(created.loads_kg).toContain(22.5);
+    expect(created.min_step_kg).toBe(2.5);
+    expect(created.plates).toHaveLength(5);
+
+    await eq.updateEquipment(created.id, { ...BARBELL, name: 'Ohio bar 2' });
+    expect((await eq.getEquipment(created.id)).name).toBe('Ohio bar 2');
+
+    await eq.deleteEquipment(created.id);
+    expect(await eq.listEquipment()).toHaveLength(0);
+  });
+
+  it('a kind change strips the other kind fields', async () => {
+    const eq = domain();
+    const created = await eq.createEquipment(BARBELL);
+    await eq.updateEquipment(created.id, { kind: 'fixed', name: 'Ohio bar', loads_kg: [20] });
+    const got = await eq.getEquipment(created.id);
+    expect(got.kind).toBe('fixed');
+    expect(got.loads_kg).toEqual([20]);
+    expect('bar_kg' in got).toBe(false);
+  });
+
+  it('validation rejects bad payloads with invalid_request', async () => {
+    const eq = domain();
+    const bad = [
+      { kind: 'fixed', loads_kg: [10] }, // no name
+      { kind: 'bands', name: 'x' }, // bad kind
+      { kind: 'fixed', name: 'x', loads_kg: [] }, // empty loads
+      { kind: 'fixed', name: 'x', loads_kg: [-5] }, // negative load
+      { kind: 'plated', name: 'x', bar_kg: 0, sides: 2 }, // bad bar
+      { kind: 'plated', name: 'x', bar_kg: 20, sides: 3 }, // bad sides
+      { kind: 'plated', name: 'x', bar_kg: 20, sides: 2, plates: [{ kg: 5, count: 0 }] }, // bad count
+      { kind: 'plated', name: 'x', bar_kg: 20, sides: 2, plates: [{ kg: 5, count: 1.5 }] }, // non-integer count
+    ];
+    for (const input of bad) {
+      await expect(eq.createEquipment(input)).rejects.toMatchObject({ code: 'invalid_request' });
+    }
+    await expect(eq.createEquipment({
+      kind: 'fixed', name: 'x', loads_kg: Array.from({ length: 201 }, (_, i) => i + 1),
+    })).rejects.toMatchObject({ code: 'invalid_request' });
+    await expect(eq.createEquipment({
+      kind: 'plated', name: 'x', bar_kg: 20, sides: 2,
+      plates: Array.from({ length: 21 }, () => ({ kg: 1, count: 2 })),
+    })).rejects.toMatchObject({ code: 'invalid_request' });
+  });
+});
+
+describe('equipment vault round-trip', () => {
+  const NOW = Date.parse('2026-07-08T12:00:00Z');
+  const GEAR = [
+    {
+      id: 7, user_id: 1, name: 'Ohio bar', kind: 'plated',
+      bar_kg: 20, sides: 2, pair: false,
+      plates: [{ kg: 5, count: 2 }],
+      created_at: '2026-07-01T08:00:00Z', updated_at: '2026-07-01T08:00:00Z',
+    },
+    {
+      id: 8, user_id: 1, name: 'Hex DBs', kind: 'fixed', loads_kg: [10, 12],
+      created_at: '2026-07-01T08:00:00Z', updated_at: '2026-07-01T08:00:00Z',
+    },
+  ];
+
+  it('equipment survives export/import on deterministic recordIds', () => {
+    const vault = { format: 'medtracker-vault', version: 1, data: { workouts: { equipment: GEAR } } };
+    const records = vaultToRecords(vault, { now: NOW });
+    const gear = records.filter((r) => r.recordType === 'equipment');
+    expect(gear.map((r) => r.recordId).sort()).toEqual(['equipment-7', 'equipment-8']);
+    const back = recordsToVault(records, { now: NOW });
+    expect(back.data.workouts.equipment).toEqual(GEAR);
+  });
+
+  it('a vault without gear exports an empty equipment array', () => {
+    const vault = { format: 'medtracker-vault', version: 1, data: { workouts: {} } };
+    const back = recordsToVault(vaultToRecords(vault, { now: NOW }), { now: NOW });
+    expect(back.data.workouts.equipment).toEqual([]);
+  });
+
+  it('equipment is a vault-managed record type', () => {
+    expect(VAULT_MANAGED_TYPES.has('equipment')).toBe(true);
+  });
+});

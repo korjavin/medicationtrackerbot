@@ -286,6 +286,54 @@
             }
           ]
         }
+      ],
+      "equipment": [
+        {
+          "id": 50,
+          "user_id": 1,
+          "name": "Ohio bar",
+          "kind": "plated",
+          "bar_kg": 20,
+          "sides": 2,
+          "pair": false,
+          "plates": [
+            {
+              "kg": 1.25,
+              "count": 2
+            },
+            {
+              "kg": 2.5,
+              "count": 2
+            },
+            {
+              "kg": 5,
+              "count": 2
+            },
+            {
+              "kg": 10,
+              "count": 2
+            },
+            {
+              "kg": 20,
+              "count": 2
+            }
+          ],
+          "created_at": "2026-07-01T08:00:00Z",
+          "updated_at": "2026-07-01T08:00:00Z"
+        },
+        {
+          "id": 51,
+          "user_id": 1,
+          "name": "Hex DBs",
+          "kind": "fixed",
+          "loads_kg": [
+            10,
+            12,
+            14
+          ],
+          "created_at": "2026-07-01T08:00:00Z",
+          "updated_at": "2026-07-01T08:00:00Z"
+        }
       ]
     },
     "vitals": {

@@ -62,6 +62,9 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     const strip = (data) => {
       const d = dropGps(data);
       delete d.settings.med_reminder_pref;
+      // Equipment is cloud-only inventory (med-niix.1); a real bot export
+      // never carries it, so it canonicalizes away here like med_reminder_pref.
+      if (d.workouts) delete d.workouts.equipment;
       // scheduled_date / last_session_date are DATE columns: the bot re-emits them
       // as UTC midnight, the hand fixture writes the local-midnight form. Only the
       // calendar day is contractual — mirrors dateOnlyKeys in vault_import_test.go.
