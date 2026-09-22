@@ -840,6 +840,156 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(target.target_reps_min).toBe(9);
     });
 
+    // med-niix.2 — when the exercise's library row is bound to equipment, the
+    // proposed load snaps to an achievable rung. Unbound exercises (and the
+    // mirror rule) behave exactly as before.
+    describe('progression snaps to the bound equipment (med-niix.2)', () => {
+        // Bind the auto-promoted library row for `exerciseName` to a fresh
+        // inventory record. updateLibraryItem requires the name; anything the
+        // payload omits is preserved except an explicit equipment_id.
+        async function bindEquipment(window, exerciseName, equipmentBody) {
+            const eq = await window.apiCall('/api/workout/equipment', 'POST', equipmentBody);
+            const lib = (await window.apiCall('/api/workout/exercise-library')).find((l) => l.name === exerciseName);
+            await window.apiCall(`/api/workout/exercise-library/update?id=${lib.id}`, 'PUT', { ...lib, equipment_id: eq.id });
+            return eq;
+        }
+
+        it('linear 60+2.5 on a 20kg bar with 2x20+2x10 plates snaps to 80, idempotently', async () => {
+            const { window } = env;
+            const { variants } = await makeRotatingGroup(window, ['Push']);
+            const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variants[0].id, exercise_name: 'Squat', target_sets: 3,
+                target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+                progression_rule: { type: 'linear', increment_kg: 2.5 },
+            });
+            await bindEquipment(window, 'Squat', {
+                kind: 'plated', name: 'Ohio bar', bar_kg: 20, sides: 2,
+                plates: [{ kg: 20, count: 2 }, { kg: 10, count: 2 }],
+            });
+            const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+            // 62.5 is not buildable on this bar (rungs 20/40/60/80) — the only
+            // rung above the logged 60 is 80.
+            await logAllSets(window, sessionId, ex.id, 'Squat', 10, 60, 3);
+            expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(80);
+
+            // Re-saving the same log re-anchors to the logged 60 — still 80,
+            // never a second snap upward.
+            const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
+            const sets = Array.from({ length: 3 }, (_, i) => ({ set_index: i, weight_kg: 60, reps: 10, set_type: 'normal' }));
+            await window.apiCall('/api/workout/sessions/logs/update', 'POST', { id: log.id, sets });
+            expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(80);
+        });
+
+        it('fixed dumbbells {10,12,14,16}: 12+2.5 snaps to 14', async () => {
+            const { window } = env;
+            const { variants } = await makeRotatingGroup(window, ['Push']);
+            const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variants[0].id, exercise_name: 'Curl', target_sets: 3,
+                target_reps_min: 8, target_reps_max: 10, target_weight_kg: 12, order_index: 0,
+                progression_rule: { type: 'linear', increment_kg: 2.5 },
+            });
+            await bindEquipment(window, 'Curl', { kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16] });
+            const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+            await logAllSets(window, sessionId, ex.id, 'Curl', 10, 12, 3);
+            expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(14);
+        });
+
+        it('kettlebells {16,24}: 16 bumps to 24 with the double rep reset', async () => {
+            const { window } = env;
+            const { variants } = await makeRotatingGroup(window, ['Push']);
+            const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variants[0].id, exercise_name: 'Swing', target_sets: 3,
+                target_reps_min: 8, target_reps_max: 12, target_weight_kg: 16, order_index: 0,
+                progression_rule: { type: 'double', increment_kg: 2.5, min_reps: 8, max_reps: 12 },
+            });
+            await bindEquipment(window, 'Swing', { kind: 'fixed', name: 'KBs', loads_kg: [16, 24] });
+            const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+            // Topping the range fires the bump (no "step too large" hold — the
+            // owner wants the 16→24 jump) and resets reps to the floor.
+            await logAllSets(window, sessionId, ex.id, 'Swing', 12, 16, 3);
+            const target = await exerciseTargets(window, variants[0].id, ex.id);
+            expect(target.target_weight_kg).toBe(24);
+            expect(target.target_reps_min).toBe(8);
+            expect(target.target_reps_max).toBe(12);
+        });
+
+        it('at max the weight holds but the double rep reset still fires', async () => {
+            const { window } = env;
+            const { variants } = await makeRotatingGroup(window, ['Push']);
+            const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variants[0].id, exercise_name: 'Curl', target_sets: 3,
+                target_reps_min: 8, target_reps_max: 12, target_weight_kg: 16, order_index: 0,
+                progression_rule: { type: 'double', increment_kg: 2.5, min_reps: 8, max_reps: 12 },
+            });
+            await bindEquipment(window, 'Curl', { kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16] });
+            const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+            // Already on the top rung: no rung above 16, so the load holds —
+            // but the topped range still earns the rep reset.
+            await logAllSets(window, sessionId, ex.id, 'Curl', 12, 16, 3);
+            const target = await exerciseTargets(window, variants[0].id, ex.id);
+            expect(target.target_weight_kg).toBe(16);
+            expect(target.target_reps_min).toBe(8);
+            expect(target.target_reps_max).toBe(12);
+        });
+
+        it('inventory present but exercise unbound: the classic bump passes through', async () => {
+            const { window } = env;
+            const { variants } = await makeRotatingGroup(window, ['Push']);
+            const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+                target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+                progression_rule: { type: 'linear', increment_kg: 2.5 },
+            });
+            // Gear exists in the vault but nothing is bound to Bench.
+            await window.apiCall('/api/workout/equipment', 'POST', {
+                kind: 'plated', name: 'Ohio bar', bar_kg: 20, sides: 2,
+                plates: [{ kg: 20, count: 2 }, { kg: 10, count: 2 }],
+            });
+            const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+            await logAllSets(window, sessionId, ex.id, 'Bench', 10, 60, 3);
+            expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+        });
+
+        it('a bound zero increment holds the load (never snaps up a rung)', async () => {
+            const { window } = env;
+            const { variants } = await makeRotatingGroup(window, ['Push']);
+            // increment_kg 0 is a validated "manage reps, never add weight"
+            // config — unbound it holds the logged weight, so bound must too.
+            const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variants[0].id, exercise_name: 'Curl', target_sets: 3,
+                target_reps_min: 8, target_reps_max: 10, target_weight_kg: 12, order_index: 0,
+                progression_rule: { type: 'linear', increment_kg: 0 },
+            });
+            await bindEquipment(window, 'Curl', { kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16] });
+            const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+            await logAllSets(window, sessionId, ex.id, 'Curl', 10, 12, 3);
+            expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(12);
+        });
+
+        it('a bound exercise with no rule still mirrors (never snaps)', async () => {
+            const { window } = env;
+            const { variants } = await makeRotatingGroup(window, ['Push']);
+            const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variants[0].id, exercise_name: 'Curl', target_sets: 3,
+                target_reps_min: 8, target_reps_max: 10, target_weight_kg: 12, order_index: 0,
+            });
+            await bindEquipment(window, 'Curl', { kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16] });
+            const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+            // 13 is not a rung — mirror absorbs the logged weight anyway.
+            await logAllSets(window, sessionId, ex.id, 'Curl', 9, 13, 3);
+            const target = await exerciseTargets(window, variants[0].id, ex.id);
+            expect(target.target_weight_kg).toBe(13);
+            expect(target.target_reps_min).toBe(9);
+        });
+    });
+
     // Code-review regression: progression must judge the per-set MINIMUM reps, not
     // the reps_completed scalar (which deriveSetScalars stores as the MAX). A flat
     // update that omits `sets` (e.g. a notes-only re-save) previously fell back to

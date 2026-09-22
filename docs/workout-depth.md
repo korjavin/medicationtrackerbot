@@ -418,6 +418,23 @@ the plan-exercise modal (`#workout-exercise-modal`) shows a read-only hint
 recomputed client-side) resolved via the row's `exercise_library_id` —
 nothing for unbound, no select there.
 
+**Snap** (med-niix.2). Progression always runs as before; binding only adds a
+constraint on the proposed load. The library row's `equipment_id` resolves to
+the inventory record once per propagate/preview/suggest pass (never per set),
+and the two load-bump sites (`weightBase + rule.increment_kg`, linear and the
+double rep-reset) snap through `snapLoad(loads, weightBase, increment)`:
+candidates are the achievable rungs strictly above the logged weight, the
+winner is nearest to logged+increment (tie → lower), and null (already at max)
+holds the logged weight with reason `at_max` — the double rep reset still
+fires at the held load. Kettlebells jumping 16→24 bump to 24 and reset reps
+(owner decision — no "step too large" hold). Unbound exercises are
+byte-identical to the unsnapped engine; `none`/mirror rules never snap.
+`progressionPreview` and `suggestExerciseTarget` entries carry
+`equipment: {id, name, min_step_kg} | null` and
+`snap: {raw_kg, snapped_kg, reason: null | 'at_max'}` so a proposal that
+differs from logged+increment explains itself; only the patch half is ever
+written back to the plan.
+
 **Sheet** (med-niix.6, polish — no progression impact). Once an exercise is
 bound to plated equipment, the printed plan sheet shows HOW to load the bar:
 under the target weight it draws a small monochrome SVG (sleeve line, one
