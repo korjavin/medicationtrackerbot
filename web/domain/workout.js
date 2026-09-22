@@ -578,6 +578,10 @@ function mirrorPatch(exercise, sets, reps, weight) {
 // maxed-out double progression resets reps at the same load.
 function snapBump(loads, weightBase, increment) {
   const raw = weightBase + increment;
+  // A zero step is a validated "manage reps, never add weight" config
+  // (normalizeProgressionRule accepts 0): hold the logged weight exactly as
+  // the unbound path does, instead of snapping up a full rung.
+  if (!(increment > 0)) return { raw_kg: raw, snapped_kg: weightBase, reason: null };
   if (!Array.isArray(loads) || loads.length === 0) return { raw_kg: raw, snapped_kg: raw, reason: null };
   const snapped = snapLoad(loads, weightBase, increment);
   if (snapped === null) return { raw_kg: raw, snapped_kg: weightBase, reason: 'at_max' };

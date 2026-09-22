@@ -955,6 +955,23 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
             expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
         });
 
+        it('a bound zero increment holds the load (never snaps up a rung)', async () => {
+            const { window } = env;
+            const { variants } = await makeRotatingGroup(window, ['Push']);
+            // increment_kg 0 is a validated "manage reps, never add weight"
+            // config — unbound it holds the logged weight, so bound must too.
+            const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variants[0].id, exercise_name: 'Curl', target_sets: 3,
+                target_reps_min: 8, target_reps_max: 10, target_weight_kg: 12, order_index: 0,
+                progression_rule: { type: 'linear', increment_kg: 0 },
+            });
+            await bindEquipment(window, 'Curl', { kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16] });
+            const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+            await logAllSets(window, sessionId, ex.id, 'Curl', 10, 12, 3);
+            expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(12);
+        });
+
         it('a bound exercise with no rule still mirrors (never snaps)', async () => {
             const { window } = env;
             const { variants } = await makeRotatingGroup(window, ['Push']);
