@@ -64,7 +64,7 @@ export const VAULT_MANAGED_TYPES = new Set([
   'weight', 'weightgoal', 'weightunitpref',
   'foodlog', 'foodproduct',
   'workoutgroup', 'workoutvariant', 'workoutexercise', 'exerciselibrary',
-  'workoutrotation', 'workoutsession', 'exerciselog', 'miband',
+  'workoutrotation', 'workoutsession', 'exerciselog', 'miband', 'equipment',
   'sleep', 'daystats', 'hrsample', 'spo2sample', 'stresssample',
   'note',
   'tzplan', 'tzhistory',
@@ -229,6 +229,7 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
       .map((r) => stripMeta(r, ['id'])),
     miband: sortBy(pick('miband'), (r) => r.source_start_ms)
       .map((r) => stripMeta(r, ['id'])),
+    equipment: workoutFK('equipment', (r) => r.id),
   };
 
   // --- vitals ---
@@ -463,6 +464,7 @@ export function vaultToRecords(vault, { now } = {}) {
   for (const v of workouts.variants || []) push('workoutvariant', `variant-${v.id}`, { ...v });
   for (const e of workouts.exercises || []) push('workoutexercise', `exercise-${e.id}`, { ...e });
   for (const li of workouts.library || []) push('exerciselibrary', `library-${li.id}`, { ...li });
+  for (const eq of workouts.equipment || []) push('equipment', `equipment-${eq.id}`, { ...eq });
   for (const rot of workouts.rotations || []) push('workoutrotation', `rotation-${rot.group_id}`, { ...rot });
   for (const s of workouts.sessions || []) {
     const recordId = s.group_id === -1

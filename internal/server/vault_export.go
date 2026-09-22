@@ -517,6 +517,9 @@ func (s *Server) exportMiBand(ctx context.Context, userID int64, data *VaultData
 		}
 	}
 	data.Workouts.MiBand = workouts
+	// Equipment is cloud-only inventory (med-niix.1); bot mode has no such
+	// table, so it is intentionally left nil (omitempty drops it from bot
+	// exports) — the same strip med_reminder_pref gets below.
 	return nil
 }
 

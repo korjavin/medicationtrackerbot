@@ -66,7 +66,7 @@ const MAX_SCHEDULED_EXERCISES = 50;
 // scope collisions must be avoided within, e.g. all groups, or all variants
 // across all groups).
 // ponytail: nowMs*1000 stays under Number.MAX_SAFE_INTEGER until ~year 2255.
-function mintNumericId(existing, nowMs) {
+export function mintNumericId(existing, nowMs) {
   const localMax = existing.reduce((m, r) => Math.max(m, Number(r.id) || 0), 0);
   const stamped = nowMs * 1000 + Math.floor(Math.random() * 1000);
   return Math.max(stamped, localMax + 1);
@@ -75,7 +75,7 @@ function mintNumericId(existing, nowMs) {
 // genRecordId mints an opaque recordId for record types with no natural
 // dedup slot (groups, variants, exercises, library entries, logs, ad-hoc
 // sessions). Same shape as food.js/notes.js's genId.
-function genRecordId(prefix, nowMs) {
+export function genRecordId(prefix, nowMs) {
   return `${prefix}_${nowMs}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -134,7 +134,7 @@ function rotationRecordId(groupId) {
 // rather than caching a recordId, so a foreign key pointing at a losing
 // LWW write's id simply misses (caller treats as not-found) instead of
 // resolving to stale data.
-async function findByNumericId(records, recordType, id) {
+export async function findByNumericId(records, recordType, id) {
   const all = await records.list(recordType);
   return all.find((r) => !r.deleted && r.id === id) || null;
 }

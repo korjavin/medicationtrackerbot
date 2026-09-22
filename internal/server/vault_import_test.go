@@ -162,6 +162,12 @@ func normalizeVault(t *testing.T, b []byte) map[string]any {
 		if settings, ok := data["settings"].(map[string]any); ok {
 			delete(settings, "med_reminder_pref")
 		}
+		if workouts, ok := data["workouts"].(map[string]any); ok {
+			// Equipment is cloud-only inventory (med-niix.1); bot mode has
+			// no table for it, so import drops it — strip like
+			// med_reminder_pref rather than failing the identity.
+			delete(workouts, "equipment")
+		}
 	}
 	return sortArrays(canonicalizeTimes(m)).(map[string]any)
 }

@@ -204,6 +204,30 @@ type VaultWorkouts struct {
 	Sessions     []VaultSession         `json:"sessions"`
 	ExerciseLogs []VaultExerciseLog     `json:"exercise_logs"`
 	MiBand       []VaultMiBand          `json:"miband"`
+	Equipment    []VaultEquipment       `json:"equipment,omitempty"`
+}
+
+// VaultEquipment mirrors web/domain/equipment.js's stored body (med-niix.1).
+// Cloud-only inventory: bot mode has no equipment table, so import drops it
+// and export leaves it nil (omitempty); the import identity test strips the
+// key the way it strips med_reminder_pref.
+type VaultEquipment struct {
+	ID        int64                 `json:"id"`
+	UserID    int64                 `json:"user_id"`
+	Name      string                `json:"name"`
+	Kind      string                `json:"kind"`
+	Loads     []float64             `json:"loads_kg,omitempty"`
+	BarKg     *float64              `json:"bar_kg,omitempty"`
+	Sides     *int                  `json:"sides,omitempty"`
+	Pair      *bool                 `json:"pair,omitempty"`
+	Plates    []VaultEquipmentPlate `json:"plates,omitempty"`
+	CreatedAt time.Time             `json:"created_at"`
+	UpdatedAt time.Time             `json:"updated_at"`
+}
+
+type VaultEquipmentPlate struct {
+	Kg    float64 `json:"kg"`
+	Count int     `json:"count"`
 }
 
 type VaultWorkoutGroup struct {
