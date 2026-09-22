@@ -1279,9 +1279,9 @@ describe('cloud MCP workouts.progression_preview compute', () => {
     });
   });
 
-  // med-qj4.6.3: the same reps logged far from failure must NOT project a bump,
-  // and the preview has to say why — otherwise `changed:false` is unreadable.
-  it('reports the RIR gate holding the load, with the effort that caused it', async () => {
+  // med-qj4.10: the same reps logged far from failure DO project a bump, and
+  // the preview shows the top-set effort alongside it.
+  it('projects the bump even far from failure, with the top-set effort', async () => {
     const now = () => Date.parse('2026-07-06T12:00:00.000Z');
     const records = createInMemoryRecordsPort({
       workoutexercise: [{
@@ -1304,10 +1304,10 @@ describe('cloud MCP workouts.progression_preview compute', () => {
     const { exercises } = await router('/api/workout/progression-preview', 'GET');
     expect(exercises[0]).toMatchObject({
       exercise_id: 12,
-      changed: false,
+      changed: true,
       training_goal: 'hypertrophy',
-      effort: 'RPE 7 · 3 RIR',
-      proposed: { target_weight_kg: 60 },
+      effort: 'RPE 8 · 2 RIR',
+      proposed: { target_weight_kg: 62.5 },
     });
   });
 

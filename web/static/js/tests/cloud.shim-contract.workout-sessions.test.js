@@ -926,10 +926,11 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect(Number.isFinite(ex.progression_rule.increment_kg)).toBe(true);
     });
 
-    // med-qj4.6.3: the presets are goal-differentiated and RIR-gated. Effort is
-    // stored as per-set `rpe` (med-qj4.6.2); RIR = 10 - RPE. A load bump needs
-    // the rep target AND RIR <= the goal's target_rir. Helper: the same
-    // all-work-sets log as logAllSets, with an RPE on every set.
+    // med-qj4.6.3 + med-qj4.10: the presets are goal-differentiated (the goal's
+    // rep band fills in unset targets). The load bump is NOT effort-gated —
+    // hitting the rep target is enough. Effort is stored as per-set `rpe`
+    // (med-qj4.6.2); RIR = 10 - RPE. Helper: the same all-work-sets log as
+    // logAllSets, with an RPE on every set.
     async function logAllSetsAtRpe(window, sessionId, exId, name, reps, weight, count, rpe) {
         const sets = Array.from({ length: count }, (_, i) => ({ set_index: i, weight_kg: weight, reps, rpe, set_type: 'normal' }));
         await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
@@ -938,31 +939,23 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         });
     }
 
-    it('progression linear: RIR gate holds the load when the reps are hit far from failure', async () => {
+    // med-qj4.10 acceptance 2: linear bumps on the rep target alone — RPE 7
+    // (3 in reserve) on hypertrophy still earns the step.
+    it('progression linear: the load bumps once the reps are hit, whatever the RPE (no effort gate)', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);
         const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
-            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
-            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 4,
+            target_reps_min: 5, target_reps_max: 6, target_weight_kg: 65, order_index: 0,
             progression_rule: { type: 'linear', increment_kg: 2.5 },
         });
         const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
 
-        // Rep target met, but RPE 7 = 3 reps in reserve — the routine's default
-        // hypertrophy goal wants RIR <= 1, so the plan holds at the logged weight.
-        await logAllSetsAtRpe(window, sessionId, ex.id, 'Bench', 10, 60, 3, 7);
-        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(60);
-
-        // Same reps taken to RPE 9 (RIR 1) → the bump fires.
-        const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
-        await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
-            id: log.id,
-            sets: Array.from({ length: 3 }, (_, i) => ({ set_index: i, weight_kg: 60, reps: 10, rpe: 9, set_type: 'normal' })),
-        });
-        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
+        await logAllSetsAtRpe(window, sessionId, ex.id, 'Bench', 6, 65, 4, 7);
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(67.5);
     });
 
-    it('progression linear: one easy work set suppresses the bump (worst set decides, like reps)', async () => {
+    it('progression linear: one easy work set no longer suppresses the bump (effort is shown, not gated)', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);
         const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
@@ -977,15 +970,16 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
             sets: [
                 { set_index: 0, weight_kg: 60, reps: 10, rpe: 9, set_type: 'normal' },
                 { set_index: 1, weight_kg: 60, reps: 10, rpe: 9, set_type: 'normal' },
-                // Warm-up RPE is ignored (not a work set) — the easy THIRD set isn't.
+                // Warm-up RPE is ignored (not a work set) — and the easy THIRD set
+                // no longer vetoes either (med-qj4.10: no effort gate).
                 { set_index: 2, weight_kg: 30, reps: 10, rpe: 5, set_type: 'warmup' },
                 { set_index: 3, weight_kg: 60, reps: 10, rpe: 6.5, set_type: 'normal' },
             ],
         });
-        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(60);
+        expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
     });
 
-    it('progression: rating only the top set still progresses (unrated ≠ failed the gate)', async () => {
+    it('progression: rating only the top set still progresses (unrated ≠ veto)', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);
         const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
@@ -996,8 +990,8 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
 
         // RPE is optional per set and rating just the top set is normal practice
-        // ("RIR 0-2 on the top set"). The gate judges the sets the user rated —
-        // an unrated set is no opinion, not a veto — so this bumps.
+        // ("RIR 0-2 on the top set"). Effort is read from the rated top set —
+        // an unrated set is no opinion — so this bumps.
         await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
             session_id: sessionId, exercise_id: ex.id, exercise_name: 'Bench', source: 'schedule', status: 'completed',
             sets: [
@@ -1009,7 +1003,7 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(62.5);
     });
 
-    it('progression: the goal override sets the RIR threshold (strength tolerates RIR 2)', async () => {
+    it('progression: the goal no longer sets an effort threshold (same log bumps under every goal)', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);
         const strength = await window.apiCall('/api/workout/exercises/create', 'POST', {
@@ -1019,7 +1013,7 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
             progression_rule: { type: 'linear', increment_kg: 5 },
         });
         // Same log, same rule — only the goal differs (this one inherits the
-        // routine's hypertrophy, which wants RIR <= 1).
+        // routine's hypertrophy).
         const hyper = await window.apiCall('/api/workout/exercises/create', 'POST', {
             variant_id: variants[0].id, exercise_name: 'Row', target_sets: 3,
             target_reps_min: 5, target_reps_max: 5, target_weight_kg: 100, order_index: 1,
@@ -1027,39 +1021,42 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         });
         const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
 
+        // RPE 8 = 2 in reserve. med-qj4.10: no effort gate, so the same log
+        // bumps under BOTH goals — the goal only supplies the rep band.
         await logAllSetsAtRpe(window, sessionId, strength.id, 'Squat', 5, 100, 3, 8);
         await logAllSetsAtRpe(window, sessionId, hyper.id, 'Row', 5, 100, 3, 8);
         expect((await exerciseTargets(window, variants[0].id, strength.id)).target_weight_kg).toBe(105);
-        expect((await exerciseTargets(window, variants[0].id, hyper.id)).target_weight_kg).toBe(100);
+        expect((await exerciseTargets(window, variants[0].id, hyper.id)).target_weight_kg).toBe(105);
     });
 
-    it('progression double: reps at the window top but far from failure hold the plan (no reset, no bump)', async () => {
+    // med-qj4.10 acceptance 1: at the window top the load bumps and reps reset
+    // to the floor even rated RPE 5 — and identically with no RPE at all.
+    it('progression double: reps at the window top bump even far from failure', async () => {
         const { window } = env;
         const { variants } = await makeRotatingGroup(window, ['Push']);
         const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
             variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
-            target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60, order_index: 0,
-            progression_rule: { type: 'double', increment_kg: 5, min_reps: 8, max_reps: 12 },
+            target_reps_min: 8, target_reps_max: 10, target_weight_kg: 12, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 1 },
         });
         const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
 
-        // Top of the window at RPE 7 (RIR 3): no weight bump AND no reset down
-        // to the floor — the prescription stands, the user gets the effort nudge.
-        await logAllSetsAtRpe(window, sessionId, ex.id, 'Bench', 12, 60, 3, 7);
+        await logAllSetsAtRpe(window, sessionId, ex.id, 'Bench', 12, 12, 3, 5);
         let target = await exerciseTargets(window, variants[0].id, ex.id);
-        expect(target.target_weight_kg).toBe(60);
+        expect(target.target_weight_kg).toBe(13);
         expect(target.target_reps_min).toBe(8);
-        expect(target.target_reps_max).toBe(12);
+        expect(target.target_reps_max).toBe(10);
 
-        // Same reps at RPE 10 (RIR 0) → weight bumps, reps reset to the floor.
+        // Same log with no RPE → the same bump (unknown effort is not a veto).
         const log = (await window.apiCall(`/api/workout/sessions/details?id=${sessionId}`)).logs[0];
         await window.apiCall('/api/workout/sessions/logs/update', 'POST', {
             id: log.id,
-            sets: Array.from({ length: 3 }, (_, i) => ({ set_index: i, weight_kg: 60, reps: 12, rpe: 10, set_type: 'normal' })),
+            sets: Array.from({ length: 3 }, (_, i) => ({ set_index: i, weight_kg: 12, reps: 12, set_type: 'normal' })),
         });
         target = await exerciseTargets(window, variants[0].id, ex.id);
-        expect(target.target_weight_kg).toBe(65);
+        expect(target.target_weight_kg).toBe(13);
         expect(target.target_reps_min).toBe(8);
+        expect(target.target_reps_max).toBe(10);
     });
 
     it('progression double: the rep climb is not effort-gated (reps in reserve = prescribe more reps)', async () => {
@@ -1076,6 +1073,25 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         const target = await exerciseTargets(window, variants[0].id, ex.id);
         expect(target.target_reps_min).toBe(10);
         expect(target.target_weight_kg).toBe(60);
+    });
+
+    // med-qj4.10 acceptance 3: below the ceiling the prescription climbs reps
+    // (never bumps), even rated easy.
+    it('progression double: below the ceiling an easy log still climbs reps, never bumps', async () => {
+        const { window } = env;
+        const { variants } = await makeRotatingGroup(window, ['Push']);
+        const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variants[0].id, exercise_name: 'Bench', target_sets: 3,
+            target_reps_min: 8, target_reps_max: 12, target_weight_kg: 12, order_index: 0,
+            progression_rule: { type: 'double', increment_kg: 1 },
+        });
+        const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+
+        await logAllSetsAtRpe(window, sessionId, ex.id, 'Bench', 11, 12, 3, 6);
+        const target = await exerciseTargets(window, variants[0].id, ex.id);
+        expect(target.target_reps_min).toBe(12);
+        expect(target.target_reps_max).toBe(12);
+        expect(target.target_weight_kg).toBe(12);
     });
 
     it('progression double: the goal band never raises an explicit rep ceiling', async () => {

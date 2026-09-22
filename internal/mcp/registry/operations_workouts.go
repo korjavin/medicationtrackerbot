@@ -189,7 +189,7 @@ output(result)`,
         "min_reps":     {"type": "integer", "description": "double only: floor of the rep window. Defaults to target_reps_min."},
         "max_reps":     {"type": "integer", "description": "double only: ceiling of the rep window. Defaults to target_reps_max."}
       },
-      "description": "Opt-in automatic progression applied when a session completes (see workouts.progression_preview for the dry run). Load bumps are RIR-gated by the effective training goal."
+      "description": "Opt-in automatic progression applied when a session completes (see workouts.progression_preview for the dry run). Load bumps fire once the rep target is met (no effort gate); the training goal supplies the rep band."
     },
     "training_goal":    {"type": "string", "enum": ["strength", "hypertrophy", "endurance", "general", ""], "description": "Per-exercise override of the routine's training goal. Omit to keep the stored override; send \"\" to drop it and inherit the group's goal."}
   }
@@ -230,7 +230,7 @@ output({"updated": 42})`,
     "days_of_week":                 {"type": "string", "description": "JSON array of weekday indices, e.g. \"[1,3,5]\""},
     "scheduled_time":               {"type": "string", "description": "HH:MM 24-hour clock"},
     "notification_advance_minutes": {"type": "integer"},
-    "training_goal":                {"type": "string", "enum": ["strength", "hypertrophy", "endurance", "general"], "description": "Training goal of the routine; drives the RIR gate and default rep ranges of its exercises' progression rules. Defaults to hypertrophy on create."}
+    "training_goal":                {"type": "string", "enum": ["strength", "hypertrophy", "endurance", "general"], "description": "Training goal of the routine; drives the default rep ranges of its exercises' progression rules. Defaults to hypertrophy on create."}
   }
 }`),
 			Description:     "Create a workout group (named collection of variants).",
@@ -385,7 +385,7 @@ output({"updated": current["id"]})`,
         "min_reps":     {"type": "integer", "description": "double only: floor of the rep window. Defaults to target_reps_min."},
         "max_reps":     {"type": "integer", "description": "double only: ceiling of the rep window. Defaults to target_reps_max."}
       },
-      "description": "Opt-in automatic progression applied when a session completes (see workouts.progression_preview for the dry run). Load bumps are RIR-gated by the effective training goal."
+      "description": "Opt-in automatic progression applied when a session completes (see workouts.progression_preview for the dry run). Load bumps fire once the rep target is met (no effort gate); the training goal supplies the rep band."
     },
     "training_goal":    {"type": "string", "enum": ["strength", "hypertrophy", "endurance", "general"], "description": "Per-exercise override of the routine's training goal. Omit to inherit the group's goal."}
   }

@@ -1720,7 +1720,7 @@ export const CATALOG = [
               "description": "double only: ceiling of the rep window. Defaults to target_reps_max."
             }
           },
-          "description": "Opt-in automatic progression applied when a session completes (see workouts.progression_preview for the dry run). Load bumps are RIR-gated by the effective training goal."
+          "description": "Opt-in automatic progression applied when a session completes (see workouts.progression_preview for the dry run). Load bumps fire once the rep target is met (no effort gate); the training goal supplies the rep band."
         },
         "training_goal": {
           "type": "string",
@@ -1879,7 +1879,7 @@ export const CATALOG = [
               "description": "double only: ceiling of the rep window. Defaults to target_reps_max."
             }
           },
-          "description": "Opt-in automatic progression applied when a session completes (see workouts.progression_preview for the dry run). Load bumps are RIR-gated by the effective training goal."
+          "description": "Opt-in automatic progression applied when a session completes (see workouts.progression_preview for the dry run). Load bumps fire once the rep target is met (no effort gate); the training goal supplies the rep band."
         },
         "training_goal": {
           "type": "string",
@@ -1941,7 +1941,7 @@ export const CATALOG = [
             "endurance",
             "general"
           ],
-          "description": "Training goal of the routine; drives the RIR gate and default rep ranges of its exercises' progression rules. Defaults to hypertrophy on create."
+          "description": "Training goal of the routine; drives the default rep ranges of its exercises' progression rules. Defaults to hypertrophy on create."
         }
       }
     }
