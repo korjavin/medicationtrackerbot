@@ -8539,16 +8539,6 @@ textarea.wg-input {
     white-space: nowrap;
 }
 
-.wg-equipment-modal__field--check {
-    flex-direction: row;
-    align-items: flex-start;
-    gap: var(--space-sm);
-}
-
-.wg-equipment-modal__check {
-    flex-shrink: 0;
-}
-
 .wg-equipment-modal__segmented {
     flex-shrink: 0;
 }

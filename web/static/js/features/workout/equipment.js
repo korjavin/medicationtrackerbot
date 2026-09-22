@@ -265,18 +265,30 @@ function _setEquipmentKind(kind) {
     if (plated) plated.hidden = want !== 'plated';
 }
 
-function _getEquipmentSides() {
-    const active = document.querySelector('#workout-equipment-sides [data-sides][aria-pressed="true"]');
-    return active && active.dataset.sides === '1' ? 1 : 2;
+function _getEquipmentType() {
+    const el = document.getElementById('workout-equipment-type');
+    const value = el ? el.value : 'barbell';
+    return value === 'kettlebell' || value === 'dumbbells' ? value : 'barbell';
 }
 
-function _setEquipmentSides(sides) {
-    const want = sides === 1 ? '1' : '2';
-    document.querySelectorAll('#workout-equipment-sides [data-sides]').forEach((btn) => {
-        const active = btn.dataset.sides === want;
-        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-        btn.classList.toggle('wg-gloss--sun', active);
-    });
+function _setEquipmentType(type) {
+    const el = document.getElementById('workout-equipment-type');
+    if (!el) return;
+    el.value = type === 'kettlebell' || type === 'dumbbells' ? type : 'barbell';
+}
+
+// ponytail: only three (sides, pair) combinations exist in practice, so a
+// record outside them (e.g. sides:1 pair:true) opens on the nearest option —
+// pair wins the tie, keeping a deliberate pair:true record on dumbbells.
+function _sidesPairToEquipmentType(sides, pair) {
+    if (pair) return 'dumbbells';
+    return sides === 1 ? 'kettlebell' : 'barbell';
+}
+
+function _equipmentTypeToSidesPair(type) {
+    if (type === 'kettlebell') return { sides: 1, pair: false };
+    if (type === 'dumbbells') return { sides: 2, pair: true };
+    return { sides: 2, pair: false };
 }
 
 function _addEquipmentPlateRow(kg, count) {
@@ -405,8 +417,7 @@ function showAddWorkoutEquipmentModal() {
     document.getElementById('workout-equipment-gen-max').value = '';
     document.getElementById('workout-equipment-gen-step').value = '';
     document.getElementById('workout-equipment-bar').value = '';
-    _setEquipmentSides(2);
-    document.getElementById('workout-equipment-pair').checked = false;
+    _setEquipmentType('barbell');
     const plates = document.getElementById('workout-equipment-plates');
     if (plates) plates.replaceChildren();
     _addEquipmentPlateRow('', '');
@@ -436,8 +447,7 @@ async function showEditWorkoutEquipmentModal(id) {
     document.getElementById('workout-equipment-gen-max').value = '';
     document.getElementById('workout-equipment-gen-step').value = '';
     document.getElementById('workout-equipment-bar').value = '';
-    _setEquipmentSides(2);
-    document.getElementById('workout-equipment-pair').checked = false;
+    _setEquipmentType('barbell');
     const platesEl = document.getElementById('workout-equipment-plates');
     if (platesEl) platesEl.replaceChildren();
     const kind = item.kind === 'plated' ? 'plated' : 'fixed';
@@ -447,8 +457,7 @@ async function showEditWorkoutEquipmentModal(id) {
         document.getElementById('workout-equipment-loads').value = loads.join(', ');
     } else {
         document.getElementById('workout-equipment-bar').value = item.bar_kg != null ? String(item.bar_kg) : '';
-        _setEquipmentSides(item.sides === 1 ? 1 : 2);
-        document.getElementById('workout-equipment-pair').checked = !!item.pair;
+        _setEquipmentType(_sidesPairToEquipmentType(item.sides, item.pair));
         const rows = Array.isArray(item.plates) && item.plates.length > 0 ? item.plates : [{ kg: '', count: '' }];
         rows.forEach((p) => _addEquipmentPlateRow(p.kg, p.count));
     }
@@ -481,12 +490,13 @@ function _buildEquipmentPayload() {
     }
     const plates = _readEquipmentPlateRows();
     if (plates === null) return null;
+    const { sides, pair } = _equipmentTypeToSidesPair(_getEquipmentType());
     return {
         kind: 'plated',
         name,
         bar_kg: barKg,
-        sides: _getEquipmentSides(),
-        pair: !!document.getElementById('workout-equipment-pair').checked,
+        sides,
+        pair,
         plates
     };
 }
@@ -632,14 +642,6 @@ window.WorkoutEquipment = {
             kindGroup.addEventListener('click', (e) => {
                 const btn = e.target.closest('[data-kind]');
                 if (btn) _setEquipmentKind(btn.dataset.kind);
-            });
-        }
-
-        const sidesGroup = document.getElementById('workout-equipment-sides');
-        if (sidesGroup) {
-            sidesGroup.addEventListener('click', (e) => {
-                const btn = e.target.closest('[data-sides]');
-                if (btn) _setEquipmentSides(Number(btn.dataset.sides));
             });
         }
 

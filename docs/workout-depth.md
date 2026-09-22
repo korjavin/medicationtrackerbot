@@ -372,7 +372,9 @@ covered below (med-niix.4).
   plates:[{kg, count}] }` — a barbell (sides:2), a plate-loaded kettlebell
   (sides:1), plate-loaded dumbbells (sides:2, pair:true, each plate type usable
   `floor(count/(sides*2))` times per implement). Each barbell owns its plate
-  list; three bars with different diameters are three records.
+  list; three bars with different diameters are three records. The editor
+  exposes the three implement types in one Type select and maps them onto
+  sides/pair.
 
 **Domain** (`web/domain/equipment.js`, pure, injected ports only):
 `createEquipmentDomain({ records, now })` with list/get/create/update/delete,
