@@ -360,8 +360,9 @@ insight, not more weight. Full progression scripting (a DSL) remains out of scop
 hand for dumbbells). The progression engine proposes `logged + increment_kg`
 with no idea what loads the user can actually build ("I can't add 1 kg, I can
 add 2"); the inventory is the constraint it will snap to once an exercise is
-bound (med-niix.2). This stage ships the list alone — no UI (med-niix.3), no
-MCP ops (med-niix.4), no link to exercises (med-niix.5, optional binding).
+bound (med-niix.2). This stage ships the list alone — no UI (med-niix.3), no link to
+exercises (med-niix.5, optional binding). Agent access to the inventory is
+covered below (med-niix.4).
 
 **Model** (owner-approved 2026-09-22). One vault record type `equipment`
 (random recordId, numeric `id` via the workout.js pattern). Two kinds:
@@ -386,3 +387,14 @@ computed `loads_kg`, `min_step_kg`, `max_kg`. Served at
 `GET/POST /api/workout/equipment` and `:id GET/PUT/DELETE` via
 `web/cloud/js/apishim.js`, and carried in the vault under
 `workouts.equipment` (`web/domain/vault.js`; the golden fixture carries one plated and one fixed record, and bot mode strips the cloud-only key on import like `med_reminder_pref`).
+
+**MCP** (med-niix.4, cloud-only via the `mcp-catalog.cloud-extra.js` seam —
+no Go store, so `mcp-catalog.generated.js` is untouched):
+`workouts.equipment.list` (read; records carry computed `loads_kg`,
+`min_step_kg`, `max_kg`), `workouts.equipment.create` (write; `name` + `kind`
+required, kind-specific fields per the create body schema),
+`workouts.equipment.update` (write `PUT :id`; full replacement like
+`medications.update` — read via list first, unknown ids no-op to `true`), and
+`workouts.equipment.delete` (write `DELETE :id`; unknown ids no-op to `true`).
+List/create response examples are pasted from the real router JSON;
+update/delete examples are the literal `true` their handlers return.

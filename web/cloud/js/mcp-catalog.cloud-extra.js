@@ -10,10 +10,14 @@
 // (internal/mcp/cardiovascular.go + fitness.go), but are computed in-tab over
 // vault data by web/domain/analysis.js. Same op-entry shape as the generated
 // catalog: {id, topic, method, path, risk, description, response_summary,
-// required, params_schema, body_schema, response_example} — `required` is the
-// write-op-only union of the schemas' `required` lists (catalogjs.go:88 bakes
-// it into the generated file, so a hand-written write op must supply it
-// itself for compactEntry and the write-block to see it).
+// required, params_schema, body_schema, response_example} — `required` mirrors
+// what catalogjs.go:88 bakes into the generated file (the op's path params
+// plus the union of the schemas' `required` lists), so a hand-written write op
+// must supply it itself for compactEntry to show it. Only compactEntry reads
+// it: the write-block (mcp-responder.js requiredMissing) reads the schemas'
+// own `required` lists directly, and path presence is enforced by
+// substitutePath — so a hand-written write op needs its body_schema /
+// params_schema `required` populated for the block to fire.
 
 const ANALYSIS_PARAMS = {
   type: 'object',
@@ -33,6 +37,56 @@ const ANALYSIS_PARAMS = {
     exclude_notes: {
       type: 'boolean',
       description: 'If true, omit diary notes from the response. Default false.',
+    },
+  },
+};
+
+// Shared write body for workouts.equipment.create / .update: the domain
+// validates the same payload on both (web/domain/equipment.js
+// validateEquipmentInput) — update is a full replacement, not a patch, so the
+// two schemas are one object.
+const EQUIPMENT_WRITE_BODY = {
+  type: 'object',
+  required: ['name', 'kind'],
+  properties: {
+    name: {
+      type: 'string',
+      description: 'Implement name, e.g. "Ohio bar" or "Hex DBs". Required, non-blank.',
+    },
+    kind: {
+      type: 'string',
+      enum: ['fixed', 'plated'],
+      description: 'fixed takes loads_kg (dumbbells, kettlebells, machine stacks); plated takes bar_kg + sides + plates (barbells, plate-loaded implements). Decides which other fields are required.',
+    },
+    loads_kg: {
+      type: 'array',
+      items: { type: 'number' },
+      description: 'fixed only, required: every achievable load in kg, e.g. [10, 12, 14, 16].',
+    },
+    bar_kg: {
+      type: 'number',
+      description: 'plated only, required: the bare bar/implement weight in kg.',
+    },
+    sides: {
+      type: 'integer',
+      enum: [1, 2],
+      description: 'plated only, required: 2 for a barbell, 1 for a plate-loaded kettlebell.',
+    },
+    pair: {
+      type: 'boolean',
+      description: 'plated only, optional: true for plate-loaded dumbbell pairs (each plate type usable floor(count/4) times per implement).',
+    },
+    plates: {
+      type: 'array',
+      description: 'plated only, optional: [{kg, count}] owned by this bar — three bars with different sleeve diameters are three records.',
+      items: {
+        type: 'object',
+        required: ['kg', 'count'],
+        properties: {
+          kg: { type: 'number' },
+          count: { type: 'integer' },
+        },
+      },
     },
   },
 };
@@ -370,6 +424,86 @@ export const CLOUD_EXTRA = [
     response_example: {
       id: 12, name: 'Push Pull (2)', days: 2, exercises: 6, exercises_created: 1, exercises_matched: 5,
     },
+  },
+// Equipment inventory (med-niix.4). Cloud-only like the analyses above:
+// /api/workout/equipment is served by apishim.js's createApiRouter over
+// web/domain/equipment.js, and there is no Go store for equipment — so no
+// registry op, and mcp-catalog.generated.js stays untouched.
+  {
+    id: 'workouts.equipment.list',
+    topic: 'workouts',
+    method: 'GET',
+    path: '/api/workout/equipment',
+    risk: 'read',
+    description: 'List the equipment inventory: every fixed/plated implement with its achievable loads. Each record carries the computed loads_kg plus min_step_kg (the smallest gap between any two consecutive achievable loads — a global minimum, not necessarily the step available at the user\'s current load, so always pick the next value from loads_kg; null when the implement has fewer than two achievable loads) and max_kg, so progression can snap to achievable loads without recomputing.',
+    response_summary: 'Array of equipment records {id, user_id, name, kind, created_at, updated_at, loads_kg, min_step_kg, max_kg} (min_step_kg null when the implement has fewer than two achievable loads), plus bar_kg/sides/pair/plates on plated records.',
+    params_schema: { type: 'object', properties: {} },
+    // Captured from the real router (createApiRouter → /api/workout/equipment)
+    // for a fixed dumbbell set; the numeric id below is illustrative (ids are
+    // minted per record), every other field pasted from the handler JSON.
+    response_example: [{
+      id: 1,
+      user_id: 1,
+      name: 'Hex DBs',
+      kind: 'fixed',
+      created_at: '2026-07-06T12:00:00.000Z',
+      updated_at: '2026-07-06T12:00:00.000Z',
+      loads_kg: [10, 12, 14, 16],
+      min_step_kg: 2,
+      max_kg: 16,
+    }],
+  },
+  {
+    id: 'workouts.equipment.create',
+    topic: 'workouts',
+    method: 'POST',
+    path: '/api/workout/equipment',
+    risk: 'write',
+    description: 'Add an implement to the equipment inventory: fixed (loads_kg list — dumbbells, kettlebells, machine stacks, dial-adjustable dumbbells) or plated (bar_kg + sides + plates — barbells, plate-loaded kettlebells/dumbbells; each barbell owns its plate list). Returns the record with computed loads_kg, min_step_kg, max_kg.',
+    response_summary: 'The created equipment record {id, user_id, name, kind, created_at, updated_at, loads_kg, min_step_kg, max_kg} (min_step_kg null when the implement has fewer than two achievable loads), plus bar_kg/sides/pair/plates when kind is plated.',
+    required: ['name', 'kind'],
+    body_schema: EQUIPMENT_WRITE_BODY,
+    // Captured from the real router (createApiRouter → POST
+    // /api/workout/equipment); the numeric id is illustrative, as above.
+    response_example: {
+      id: 1,
+      user_id: 1,
+      name: 'Hex DBs',
+      kind: 'fixed',
+      created_at: '2026-07-06T12:00:00.000Z',
+      updated_at: '2026-07-06T12:00:00.000Z',
+      loads_kg: [10, 12, 14, 16],
+      min_step_kg: 2,
+      max_kg: 16,
+    },
+  },
+  {
+    id: 'workouts.equipment.update',
+    topic: 'workouts',
+    method: 'PUT',
+    path: '/api/workout/equipment/{id}',
+    path_params: ['id'],
+    risk: 'write',
+    description: 'Replace an equipment record by id. FULL REPLACEMENT (same validation as create): read the record via workouts.equipment.list first and send the merged complete object back — a kind change drops the other kind\u2019s fields. An unknown id is a no-op returning true, mirroring the workout domain contract.',
+    response_summary: 'Boolean true. The updated record is not returned — re-read workouts.equipment.list.',
+    required: ['id', 'name', 'kind'],
+    body_schema: EQUIPMENT_WRITE_BODY,
+    // The real handler returns boolean true; there is no shaped payload to
+    // show, so the example is the literal value.
+    response_example: true,
+  },
+  {
+    id: 'workouts.equipment.delete',
+    topic: 'workouts',
+    method: 'DELETE',
+    path: '/api/workout/equipment/{id}',
+    path_params: ['id'],
+    risk: 'write',
+    description: 'Delete an equipment record by id. An unknown id is a no-op returning true.',
+    response_summary: 'Boolean true.',
+    required: ['id'],
+    // The real handler returns boolean true; see the update op above.
+    response_example: true,
   },
 ];
 

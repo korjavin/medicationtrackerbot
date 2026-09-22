@@ -453,6 +453,8 @@ describe('mcp_help wire contract (generated catalog)', () => {
     for (const id of [
       'health.analyze_cardiovascular', 'health.analyze_fitness', 'health.brief',
       'workouts.plans.export', 'workouts.plans.import',
+      'workouts.equipment.list', 'workouts.equipment.create',
+      'workouts.equipment.update', 'workouts.equipment.delete',
     ]) {
       expect(ids).toContain(id);
     }
@@ -466,6 +468,29 @@ describe('mcp_help wire contract (generated catalog)', () => {
     expect(op.id).toBe('health.brief');
     expect(op.params_schema.properties).toHaveProperty('sections');
     expect(op.response_example.range.days).toBe(90);
+  });
+
+  // med-niix.4: the four equipment ops drill in with schemas and real
+  // response examples - list/create show the computed loads_kg/min_step_kg,
+  // update/delete show the literal true their handlers return.
+  it('drills into the equipment ops with schemas and real response examples', async () => {
+    const result = await makeDispatcher().handle('mcp_help', {
+      operation_ids: [
+        'workouts.equipment.list', 'workouts.equipment.create',
+        'workouts.equipment.update', 'workouts.equipment.delete',
+      ],
+    });
+    expect(result.count).toBe(4);
+    const byID = new Map(result.operations.map((op) => [op.id, op]));
+    expect(byID.get('workouts.equipment.list').params_schema).toBeDefined();
+    expect(byID.get('workouts.equipment.list').response_example[0].min_step_kg).toBe(2);
+    expect(byID.get('workouts.equipment.create').body_schema.properties).toHaveProperty('loads_kg');
+    expect(byID.get('workouts.equipment.create').required).toEqual(
+      expect.arrayContaining(['name', 'kind']),
+    );
+    expect(byID.get('workouts.equipment.update').path_params).toEqual(['id']);
+    expect(byID.get('workouts.equipment.update').response_example).toBe(true);
+    expect(byID.get('workouts.equipment.delete').response_example).toBe(true);
   });
 
   it('drills into full entries by operation_ids and notes unknown ids instead of throwing', async () => {
@@ -1440,6 +1465,89 @@ describe('cloud MCP workout plan share round trip', () => {
   });
 });
 
+// --- Equipment inventory round trip (med-niix.4) --------------------------
+// The coverage sweep only proves the four equipment ops route; this proves
+// the write path end to end through mcp_call: create -> list (min_step_kg
+// readable) -> update (full replacement via :id path_params) -> delete.
+describe('cloud MCP workouts.equipment round trip', () => {
+  const NOW = Date.parse('2026-07-06T12:00:00.000Z');
+
+  function equipmentDispatcher() {
+    const router = createApiRouter(null, {
+      records: createInMemoryRecordsPort(), now: () => NOW, timeZone: 'UTC',
+    });
+    return createDispatcher({ router, now: () => NOW });
+  }
+
+  const call = (dispatcher, id, op, extra = {}) => handleRequest(dispatcher, {
+    jsonrpc: '2.0', id, method: 'mcp_call', params: { operation_id: op, ...extra },
+  });
+  const write = { mode: 'write', intent: 'track the home-gym inventory' };
+
+  it('creates, lists, updates, and deletes an implement through mcp_call', async () => {
+    const dispatcher = equipmentDispatcher();
+
+    const created = await call(dispatcher, 1, 'workouts.equipment.create', {
+      ...write,
+      params: { kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16] },
+    });
+    expect(created.error).toBeUndefined();
+    expect(created.result.result).toMatchObject({
+      name: 'Hex DBs', loads_kg: [10, 12, 14, 16], min_step_kg: 2, max_kg: 16,
+    });
+    const itemID = created.result.result.id;
+
+    const listed = await call(dispatcher, 2, 'workouts.equipment.list', { params: {} });
+    expect(listed.error).toBeUndefined();
+    expect(listed.result.result).toHaveLength(1);
+    expect(listed.result.result[0].min_step_kg).toBe(2);
+
+    const updated = await call(dispatcher, 3, 'workouts.equipment.update', {
+      ...write,
+      path_params: { id: String(itemID) },
+      params: { kind: 'fixed', name: 'Hex DBs v2', loads_kg: [10, 12] },
+    });
+    expect(updated.error).toBeUndefined();
+    expect(updated.result.result).toBe(true);
+
+    const relisted = await call(dispatcher, 4, 'workouts.equipment.list', { params: {} });
+    expect(relisted.error).toBeUndefined();
+    expect(relisted.result.result[0]).toMatchObject({ name: 'Hex DBs v2', max_kg: 12 });
+
+    const deleted = await call(dispatcher, 5, 'workouts.equipment.delete', {
+      ...write,
+      path_params: { id: String(itemID) },
+    });
+    expect(deleted.error).toBeUndefined();
+    expect(deleted.result.result).toBe(true);
+
+    const empty = await call(dispatcher, 6, 'workouts.equipment.list', { params: {} });
+    expect(empty.error).toBeUndefined();
+    expect(empty.result.result).toEqual([]);
+  });
+
+  // A write missing a required field blocks before dispatch (mirrors
+  // call.go:128); an unknown :id is a domain no-op answering true.
+  it('blocks a create missing kind and no-ops a delete of an unknown id', async () => {
+    const dispatcher = equipmentDispatcher();
+
+    const missing = await call(dispatcher, 1, 'workouts.equipment.create', {
+      ...write,
+      params: { name: 'Nameless' },
+    });
+    expect(missing.result).toBeUndefined();
+    expect(missing.error.code).toBe(-32602);
+    expect(missing.error.message).toContain('body.kind');
+
+    const noOp = await call(dispatcher, 2, 'workouts.equipment.delete', {
+      ...write,
+      path_params: { id: '999999' },
+    });
+    expect(noOp.error).toBeUndefined();
+    expect(noOp.result.result).toBe(true);
+  });
+});
+
 // --- ResponseExample shape conformance (med-csu.3, Task 5) ----------------
 // The registry's ResponseExample is the shape both surfaces advertise to an
 // agent. The coverage sweep above only proves an op *reaches* a domain module;
@@ -1458,7 +1566,7 @@ describe('cloud MCP response_example conformance', () => {
     'health.sleep.list', 'medications.list', 'medications.history',
     'medications.restocks.list', 'workouts.groups.list', 'workouts.variants.list',
     'workouts.exercises.list', 'workouts.exercise_library.list', 'workouts.miband.list',
-    'workouts.sessions.list',
+    'workouts.sessions.list', 'workouts.equipment.list',
   ];
 
   async function seedFixtures(dispatcher) {
@@ -1555,7 +1663,14 @@ describe('cloud MCP response_example conformance', () => {
       exercises: [{ exercise_name: 'Bench Press', target_sets: 4, target_reps_min: 6 }],
     });
 
-    return { medID, groupID: group.id, variantID: variant.id, sessionID: session.session.id };
+    const equipment = await w('workouts.equipment.create', {
+      kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16],
+    });
+
+    return {
+      medID, groupID: group.id, variantID: variant.id, sessionID: session.session.id,
+      equipmentID: equipment.id,
+    };
   }
 
   // Per-op inputs for the reads that need one; everything else runs bare.
@@ -1582,6 +1697,14 @@ describe('cloud MCP response_example conformance', () => {
           },
         },
       };
+      case 'workouts.equipment.create': return {
+        params: { kind: 'fixed', name: 'Conformance Kettlebell', loads_kg: [16, 24] },
+      };
+      case 'workouts.equipment.update': return {
+        params: { kind: 'fixed', name: 'Hex DBs v2', loads_kg: [10, 12] },
+        path_params: { id: String(ids.equipmentID) },
+      };
+      case 'workouts.equipment.delete': return { path_params: { id: String(ids.equipmentID) } };
       case 'workouts.rotation.state': return { params: { group_id: ids.groupID } };
       case 'medications.restocks.list': return { path_params: { id: String(ids.medID) } };
       case 'food.products.search': return { params: { q: 'oat' } };
@@ -1596,8 +1719,13 @@ describe('cloud MCP response_example conformance', () => {
 
   const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
-  // Returns a mismatch string, or '' when the shapes agree.
+  // Returns a mismatch string, or '' when the shapes agree. Scalar
+  // examples (the equipment update/delete literal true) match by equality -
+  // only object/array examples carry indexable shape.
   function compareShape(example, actual) {
+    if (!isPlainObject(example) && !Array.isArray(example)) {
+      return Object.is(example, actual) ? '' : `expected ${JSON.stringify(example)}, got ${JSON.stringify(actual)}`;
+    }
     if (Array.isArray(example)) {
       if (!Array.isArray(actual)) return `expected an array, got ${actual === null ? 'null' : typeof actual}`;
       if (!example.length || !actual.length) return '';
