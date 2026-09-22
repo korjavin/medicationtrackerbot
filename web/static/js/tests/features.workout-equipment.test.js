@@ -287,6 +287,9 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(type.tagName.toLowerCase()).toBe('select');
         expect(Array.from(type.querySelectorAll('option')).map((o) => o.value))
             .toEqual(['barbell', 'kettlebell', 'dumbbells']);
+        // Full-width field like #exercise-library-equipment: sharing a row
+        // with Bar would truncate the long option labels at phone width.
+        expect(type.closest('.wg-equipment-modal__row')).toBeNull();
         // jsdom has no layout engine, so phone-width fit is pinned at the
         // stylesheet level like the sub-tab strip: the checkbox rules are
         // gone and every modal field shrinks below content instead of
