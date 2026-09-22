@@ -3,7 +3,7 @@
 // ====================================
 //
 // Thin orchestrator for the Workouts section. Owns:
-//   - sub-tab routing (history / groups / exercises / stats)
+//   - sub-tab routing (history / groups / exercises / stats / equipment)
 //   - workout-cache invalidation helper
 //   - top-level controls binding (modal buttons, day-selectors)
 //
@@ -14,7 +14,8 @@
 //
 // Load order: this file MUST be loaded last in the workout sub-tree because it
 // depends on functions declared in groups.js / variants.js / exercises.js /
-// library.js / history.js / miband.js / sessions.js / stats.js / next-card.js.
+// library.js / equipment.js / history.js / miband.js / sessions.js / stats.js /
+// next-card.js.
 
 // Workout-tag registration happens at boot via CacheKeys.registerAll() — see
 // web/static/js/core/cache-keys.js for the single source of truth.
@@ -32,12 +33,12 @@ async function invalidateWorkoutCache() {
 // TAB SWITCHING
 // ====================================
 
-// Sub-tab state (Phase 7, Task 2). Mirrors the `mt-meds-subtab` /
-// `mt-food-subtab` pattern — one of four values (`history`, `groups`,
-// `exercises`, `stats`), persisted to localStorage so the user's choice
-// survives reload. Default is `history`.
+// Sub-tab state (Phase 7, Task 2; med-niix.3 adds `equipment`). Mirrors the
+// `mt-meds-subtab` / `mt-food-subtab` pattern — one of five values
+// (`history`, `groups`, `exercises`, `stats`, `equipment`), persisted to
+// localStorage so the user's choice survives reload. Default is `history`.
 const WORKOUTS_SUBTAB_STORAGE_KEY = 'mt-workouts-subtab';
-const WORKOUTS_SUBTAB_OPTIONS = ['history', 'groups', 'exercises', 'stats'];
+const WORKOUTS_SUBTAB_OPTIONS = ['history', 'groups', 'exercises', 'stats', 'equipment'];
 const WORKOUTS_SUBTAB_DEFAULT = 'history';
 
 function getActiveWorkoutsSubTab() {
@@ -90,6 +91,7 @@ function switchWorkoutTab(tab) {
     else if (tab === 'history') { loadNextWorkout(); loadWorkoutHistoryTab(); }
     else if (tab === 'exercises') { loadExerciseLibrary(); }
     else if (tab === 'stats') { loadWorkoutStatsTab(); }
+    else if (tab === 'equipment') { loadWorkoutEquipment(); }
 }
 
 window.TabController.bindTabGroup({

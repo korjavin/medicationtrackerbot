@@ -79,9 +79,12 @@ describe('Workouts round-2 design parity', () => {
             expect(document.querySelector('.wg-workouts-history-header')).toBeNull();
             expect(document.querySelector('.wg-workouts-history-header__add')).toBeNull();
 
-            // The subtabs row still holds only the pill track.
+            // The subtabs row still holds only the pill track (med-niix.3:
+            // five pills — History / Plans / Exercises / Stats / Equipment —
+            // and no ad-hoc Start CTA).
             const subtabsRow = document.getElementById('workouts-subtabs');
-            expect(subtabsRow.querySelectorAll('button').length).toBe(4);
+            expect(subtabsRow.querySelectorAll('button').length).toBe(5);
+            expect(subtabsRow.querySelectorAll('button.workout-tab').length).toBe(5);
 
             // No hero block on this screen at all.
             expect(document.querySelector('.wg-title-hero')).toBeNull();

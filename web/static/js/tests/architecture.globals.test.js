@@ -155,6 +155,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.WorkoutVariants',           // features/workout/variants.js — variants CRUD public API
     'window.WorkoutExercises',          // features/workout/exercises.js — exercises (within variant) CRUD public API
     'window.WorkoutLibrary',            // features/workout/library.js — exercise library CRUD public API
+    'window.WorkoutEquipment',          // features/workout/equipment.js — equipment inventory list + fixed/plated editor public API (med-niix.3); same single-namespace shape as the other workout split files
     'window.WorkoutHistory',            // features/workout/history.js — history sub-tab loader public API
     'window.WorkoutMiBand',             // features/workout/miband.js — Mi-Band entry edit/delete modal public API
     'window.WorkoutMiBandState',        // features/workout/miband.js — closure-private "currently displayed Mi Band entry" reference exposed via getter/setter

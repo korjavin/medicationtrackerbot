@@ -159,6 +159,15 @@ const ModalManager = {
         }
     },
 
+    workoutEquipment: {
+        open() {
+            ModalManager.open('workout-equipment-modal');
+        },
+        close() {
+            ModalManager.close('workout-equipment-modal');
+        }
+    },
+
     workoutSession: {
         open() {
             ModalManager.open('workout-session-modal');
@@ -257,6 +266,7 @@ const ModalManager = {
             { id: 'workout-variant-modal', fn: () => typeof closeVariantModal === 'function' ? closeVariantModal() : ModalManager.workoutVariant.close() },
             { id: 'workout-exercise-modal', fn: () => typeof closeExerciseModal === 'function' ? closeExerciseModal() : ModalManager.workoutExercise.close() },
             { id: 'exercise-library-modal', fn: () => typeof closeExerciseLibraryModal === 'function' ? closeExerciseLibraryModal() : ModalManager.exerciseLibrary.close() },
+            { id: 'workout-equipment-modal', fn: () => typeof closeWorkoutEquipmentModal === 'function' ? closeWorkoutEquipmentModal() : ModalManager.workoutEquipment.close() },
             { id: 'workout-session-modal', fn: () => typeof closeWorkoutSessionModal === 'function' ? closeWorkoutSessionModal() : ModalManager.workoutSession.close() },
             { id: 'miband-workout-modal', fn: () => typeof closeMiBandWorkoutModal === 'function' ? closeMiBandWorkoutModal() : ModalManager.mibandWorkout.close() },
             { id: 'workout-start-modal', fn: () => ModalManager.workoutStart.close() },
