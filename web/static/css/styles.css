@@ -207,6 +207,22 @@
     --z-confirm: 1050;
     --z-toast: 1100;
 
+    /* Modal width tokens. Phone values are the historical fixed caps; the
+       desktop block right after :root widens them at >=720px so modals are
+       not a 320px strip on a wide screen. `.wg-modal` keeps `width: 90%`, so
+       below the cap a modal still tracks the viewport.
+         --wg-modal-max-w         default dialogs (BP, weight, food, meds, …)
+         --wg-modal-max-w-compact short confirm prompts
+         --wg-modal-max-w-editor  workout plan editors (group, variant,
+                                  exercise, library, …) — phone-narrow,
+                                  desktop-wide
+         --wg-modal-max-w-wide    workout session / start / scan / share,
+                                  already a bit wider on phones */
+    --wg-modal-max-w: 320px;
+    --wg-modal-max-w-compact: 320px;
+    --wg-modal-max-w-editor: 320px;
+    --wg-modal-max-w-wide: 420px;
+
     /* ==========================================================================
        Wandergeek Design System — deep-teal stage, glossy tiles, sun accent.
        Fonts (Space Grotesk, JetBrains Mono) are self-hosted via @font-face in
@@ -843,6 +859,16 @@
     --wg-toggle-border: rgba(0, 0, 0, 0.25);
     --wg-toggle-border-focus: var(--wg-sun);
     --wg-toggle-border-disabled: var(--wg-border-hairline);
+}
+
+/* Desktop: give modals room. Phones (<720px) keep the caps above untouched. */
+@media (min-width: 720px) {
+    :root {
+        --wg-modal-max-w: 560px;
+        --wg-modal-max-w-compact: 420px;
+        --wg-modal-max-w-editor: 760px;
+        --wg-modal-max-w-wide: 760px;
+    }
 }
 
 body {
@@ -2331,7 +2357,7 @@ input:checked+.toggle-slider:before {
     padding: var(--space-xl);
     border-radius: var(--radius-lg);
     width: 90%;
-    max-width: 320px;
+    max-width: var(--wg-modal-max-w);
     max-height: 85vh;
     overflow-y: auto;
     z-index: var(--z-modal);
@@ -3637,7 +3663,7 @@ input:checked+.toggle-slider:before {
     left: 50%;
     transform: translate(-50%, -50%);
     width: 90%;
-    max-width: 320px;
+    max-width: var(--wg-modal-max-w);
     max-height: 85vh;
     overflow-y: auto;
     z-index: var(--z-modal);
@@ -3705,6 +3731,7 @@ input:checked+.toggle-slider:before {
 
 .mt-confirm-modal {
     z-index: var(--z-confirm);
+    max-width: var(--wg-modal-max-w-compact);
 }
 
 /* Trial-consent disclosure dialog shares the confirm backdrop
@@ -7659,7 +7686,21 @@ textarea.wg-input {
    action row with wandergeek tokens so the Delete / Cancel / Save buttons
    match the rest of the workouts surfaces instead of sitting on paper. */
 .wg-workouts-session-modal {
-    max-width: 420px;
+    max-width: var(--wg-modal-max-w-wide);
+}
+
+/* Workout plan editors. Same 320px cap as any dialog on a phone, but they
+   hold exercise lists and set grids, so on desktop they take the wide cap.
+   Scan / share also carry .wg-workouts-group-modal; their own rules further
+   down keep them on --wg-modal-max-w-wide. */
+.wg-workouts-group-modal,
+.wg-workouts-variant-modal,
+.wg-workouts-exercise-modal,
+.wg-workouts-library-modal,
+.wg-workouts-log-set-modal,
+.wg-workouts-miband-modal,
+.wg-equipment-modal {
+    max-width: var(--wg-modal-max-w-editor);
 }
 
 /* Pinned header. `.wg-modal` is itself the scroll container (max-height +
@@ -7744,7 +7785,7 @@ textarea.wg-input {
    and aligns the primary Cancel/Start pair to the header so they survive
    a focused mobile keyboard. Mirrors .wg-workouts-session-modal__header*. */
 .wg-workouts-start-modal {
-    max-width: 420px;
+    max-width: var(--wg-modal-max-w-wide);
 }
 
 .wg-workouts-start-modal__header {
@@ -12550,7 +12591,7 @@ textarea.wg-input {
 /* Sheet scan-back review (bd med-qj4.9). Reuses the modal shell tokens;
    rows are plain label + two numeric inputs per set. */
 .wg-workouts-scan-modal {
-    max-width: 420px;
+    max-width: var(--wg-modal-max-w-wide);
 }
 
 .wg-scan-block {
@@ -12606,7 +12647,7 @@ textarea.wg-input {
    recipes; QR / link / note are layout only, all visual values are
    --wg-* tokens. */
 .wg-workouts-share-modal {
-    max-width: 420px;
+    max-width: var(--wg-modal-max-w-wide);
 }
 
 .wg-share-counts {
