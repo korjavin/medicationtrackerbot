@@ -3556,9 +3556,9 @@ input:checked+.toggle-slider:before {
     gap: var(--space-sm);
 }
 
-/* In-page confirm dialog used by safeConfirm() when no Telegram WebApp
-   context is available. Shares the .wg-modal shell; adds a backdrop layer
-   and a message paragraph styled with shared design tokens. The buttons
+/* In-page confirm dialog used by safeConfirm(). Shares the .wg-modal shell
+   and adds a backdrop layer plus a message paragraph styled with shared
+   design tokens. The buttons
    reuse .wg-gloss / .wg-gloss--sun so no bespoke colours live here.
 
    Both the backdrop and the modal sit on the dedicated --z-confirm layer
