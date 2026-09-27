@@ -14,13 +14,14 @@ const AGENTS_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/agents';
 
 // Bump this whenever TOOL_SPECS or the agent config below changes so unlocked
 // devices reprovision on their next connect.
-export const TOOLSET_VERSION = 4;
+export const TOOLSET_VERSION = 5;
 
 // Rachel — a warm ElevenLabs female voice (med-eas.27).
 const VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 
 // Adapted from the owner's "Silas" concierge persona (med-eas.27) — trimmed to
-// our actual tools (BP / weight / notes) and kept concise for voice.
+// our actual tools (BP / weight / notes / workouts + mcp_help/mcp_call) and kept
+// concise for voice.
 const SYSTEM_PROMPT = [
   "You are Silas, the user's personal health concierge in this app, where they",
   'track their own health — blood pressure, weight, workouts, medications,',
@@ -31,9 +32,8 @@ const SYSTEM_PROMPT = [
   "Answer every question about the user's data by calling a tool — the data lives only behind them:",
   "- Workouts → get_workout to read today's session and its exercises,",
   '  log_exercise to record the actual sets/reps/weight on one of them, and',
-  '  set_workout_status to start, finish or skip the session. To change anything',
-  '  about a workout you MUST call get_workout first — it returns the session id',
-  '  and, per exercise, a log_id and an exercise_id that the write tools need.',
+  '  set_workout_status to start, finish or skip the session. Call get_workout',
+  '  first before changing anything — the write tools need the ids it returns.',
   '  If the session it returns is not for today, start it before logging into it.',
   '- Anything without a dedicated tool — medications, food, sleep, vitals, statistics, settings —',
   '  call mcp_help to find the operation you need, then mcp_call to run it. Do',
@@ -192,7 +192,8 @@ export const TOOL_SPECS = [
     name: 'mcp_call',
     description: "Run any operation from mcp_help against the user's health data — medications, "
       + 'food, sleep, vitals, statistics, settings, and everything else the concrete tools do '
-      + 'not cover.',
+      + 'not cover. Returns the operation\'s result as JSON; a write operation without '
+      + 'mode "write" and an intent is rejected with an error.',
     parameters: {
       type: 'object',
       properties: {
