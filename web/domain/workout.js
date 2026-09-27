@@ -1584,7 +1584,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const nowMs = now();
     // bd med-gmyf: starting a session scheduled for another day logs the workout
     // for TODAY, it does not consume the other day's slot. The card offers
-    // "Start Scheduled" on whatever occurrence getNext surfaces, which on a
+    // "Start" on whatever occurrence getNext surfaces, which on a
     // rest day (or after today's slot is done) is a future one — starting it
     // marked Friday complete on a Wednesday, killing Friday's reminder and card.
     // Re-key onto today's deterministic slot for the same group, carrying the

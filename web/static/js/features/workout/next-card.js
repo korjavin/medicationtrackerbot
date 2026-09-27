@@ -39,7 +39,7 @@ async function loadNextWorkout() {
         },
         onError: async (error, cached) => {
             console.error('Error loading next workout:', error);
-            // med-2fc: Start AdHoc now lives only inside the card, so a
+            // med-2fc: the ad-hoc start now lives only inside the card, so a
             // no-cache read failure must still render the ad-hoc-only card
             // rather than emptying the container — otherwise a transient
             // fetch error leaves the screen with no way to start a workout.
@@ -85,13 +85,13 @@ function _renderNextWorkout(container, data) {
 
     const actions = document.createElement('div');
     actions.className = 'wg-workouts-next-card__actions';
-    // med-2fc: Start AdHoc is the leftmost action in every status branch —
+    // med-2fc: 'Ad hoc' is the leftmost action in every status branch —
     // it replaced the floating History-header CTA, so this is the only
     // ad-hoc entry point on the screen. It starts an unplanned session, so
     // it ignores the session id `createButton` hands its onClick.
-    actions.appendChild(createButton('Start AdHoc', 'secondary', () => window.startAdHocWorkout()));
+    actions.appendChild(createButton('Ad hoc', 'secondary', () => window.startAdHocWorkout()));
 
-    // No scheduled session: render the card with Start AdHoc alone (no
+    // No scheduled session: render the card with 'Ad hoc' alone (no
     // kicker/date/title/subtitle, no Skip, no Next Day) so the ad-hoc entry
     // point stays in the same place on screen.
     if (!session) {
@@ -180,7 +180,7 @@ function _renderNextWorkout(container, data) {
             actions.appendChild(createButton('Next Day', 'secondary', nextWorkoutVariant));
         }
     } else {
-        actions.appendChild(createButton('Start Scheduled', 'primary', startWorkoutSession));
+        actions.appendChild(createButton('Start', 'primary', startWorkoutSession));
         actions.appendChild(createButton('Skip', 'secondary', preSkipWorkoutSession));
         if (isRotating) {
             actions.appendChild(createButton('Next Day', 'secondary', nextWorkoutVariant));

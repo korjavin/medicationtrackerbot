@@ -205,7 +205,7 @@ describe('Offline UI indicators', () => {
 
     // med-2fc: the ad-hoc Start CTA is no longer a static id in the
     // `offlineUnsupported` list — it is rendered into the next-workout card
-    // as a `.workout-action-btn` and swept here, alongside Start Scheduled /
+    // as a `.workout-action-btn` and swept here, alongside Start /
     // Skip / Next Day. The rendered-button side is pinned in
     // workout.next-card.test.js.
     it('disables dynamically-created workout-action-btn elements when offline', () => {

@@ -90,7 +90,7 @@ describe('Workouts round-2 design parity', () => {
             expect(document.querySelector('.wg-title-hero')).toBeNull();
         });
 
-        it('Start AdHoc is the leftmost action of the next-workout card, secondary to Start Scheduled', () => {
+        it('Ad hoc is the leftmost action of the next-workout card, secondary to Start', () => {
             const { window, document } = env;
             const container = document.getElementById('next-workout-card');
             window._renderNextWorkout(container, {
@@ -112,7 +112,7 @@ describe('Workouts round-2 design parity', () => {
             const labels = Array.from(actions).map(
                 (btn) => btn.querySelector('.wg-toolbar-btn__label').textContent
             );
-            expect(labels).toEqual(['Start AdHoc', 'Start Scheduled', 'Skip']);
+            expect(labels).toEqual(['Ad hoc', 'Start', 'Skip']);
 
             // Ad-hoc is the secondary variant so the scheduled start stays the
             // visual primary.
