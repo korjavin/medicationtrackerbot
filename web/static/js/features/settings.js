@@ -8,15 +8,13 @@
 // global (script-tag loading) and rely on app.js + sibling globals at call time:
 // apiCall, safeAlert, readPersistedTabOrder, switchTab, window.featureSettings,
 // window.AuthBootstrap, window.SettingsState, window.WeightUnitState,
-// window.FoodLog, window.TimeFormat, window.DataStore, window.WGStaleBadge,
+// window.FoodLog, window.DataStore, window.WGStaleBadge,
 // window.SettingsIntegrations, window.AppStore, window.rebuildCanonicalBottomNav,
 // window.OIDC_CONFIG, applyWebpushStatus, hideWebpushStatus (both from app.js).
 //
-// The timezone info renderer (window.renderSettingsTimeInfo) lives in
-// core/time-format.js and the Integrations card lives in
-// features/settings/integrations.js — both already extracted; loadSettings()
-// delegates to them. The weight-unit (kg/lb) state machine lives in
-// features/weight-unit-state.js.
+// The Integrations card lives in features/settings/integrations.js — already
+// extracted; loadSettings() delegates to it. The weight-unit (kg/lb) state
+// machine lives in features/weight-unit-state.js.
 //
 // Cloud-mode Notifications (bindCloudNotifications) dynamic-imports
 // web/cloud/js/push.js + reminders.js and reads window.MedTrackerCloud.ctx
@@ -623,13 +621,7 @@ async function loadSettings() {
     // builds alike, so the row is not wrapped in a wg-settings-cloud-* reveal.
     bindRerunOnboarding();
     if (window.__MEDTRACKER_CLOUD__) {
-        document.querySelector('.wg-settings-timezone')?.classList.add('wg-settings-hidden');
         document.querySelector('.wg-settings-notifications')?.classList.add('wg-settings-hidden');
-        // The Sync pane reports the bot-mode offline queue drained against
-        // /api/changes. Cloud mode replaces that wholesale with the encrypted
-        // oplog sync engine, which never touches this status bar — so the pane
-        // sits empty under its own heading (med-8q2).
-        document.querySelector('.wg-settings-sync')?.classList.add('wg-settings-hidden');
         // weekly_digest now drives a cloud horizon producer (med-eas.58), so the
         // toggle is live in cloud. It only makes sense alongside gamification
         // (the digest is a gamification summary, both-on gate per the bot), so
@@ -668,8 +660,6 @@ async function loadSettings() {
 
         document.getElementById('bp-reminders-toggle').checked = !!bundle.bpReminderStatus.enabled;
         document.getElementById('weight-reminders-toggle').checked = !!bundle.weightReminderStatus.enabled;
-        window.TimeFormat.render(bundle);
-        window.TimeFormat.ensureTimer();
     };
 
     const fetchBundle = async () => {

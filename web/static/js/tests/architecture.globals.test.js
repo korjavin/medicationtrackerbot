@@ -45,7 +45,6 @@ const ALLOWED_GLOBALS = new Set([
     'window.onDataStoreUnauthorized',   // app.js — callback consumed by data-store.js
     'window.requestTabRefresh',         // app.js — called by data-store.js on change event
     'window.reloadCurrentTab',          // app.js — called by data-store.js + sync.js
-    'window.renderSettingsTimeInfo',    // app.js — renders read-only timezone/server clock info in settings
     'window.initOIDCSetupBanner',       // features/settings.js — renders the OIDC setup banner inside the Settings card; exposed for test coverage of the enabled path (Plan 2026-06-10 finish-app-js-split, Task 2)
     'window.healthOverviewCacheKey',    // features/today-loader.js — timezone-qualified IndexedDB key for health overview; shared with health.js to avoid formula divergence (Plan 2026-06-10 finish-app-js-split, Task 3)
 
@@ -57,7 +56,6 @@ const ALLOWED_GLOBALS = new Set([
     'window.AppKernel',                 // core/app-kernel.js — module registry
     'window.ChartUtils',               // core/chart-utils.js — shared SVG chart utilities
     'window.escapeHtml',               // core/utils.js — canonical HTML entity escaper; consumed by sync.js debug panel + app.js medication schedule renderer
-    'window.TimeFormat',               // core/time-format.js — Settings timezone/server-clock row helpers; exposes render(bundle), ensureTimer(), formatSettingsDateTime, parseRFC3339OffsetMinutes, formatFixedOffsetDateTime
     'window.ModalManager',              // core/modal-manager.js — modal lifecycle façade
     'window.AppStore',                  // core/store.js — ephemeral UI state
     'window.CacheKeys',                 // core/cache-keys.js — centralized registry of api_cache keys, tags, and freshness windows; registerAll() is invoked at boot so tag-based invalidation works regardless of which feature loader has executed

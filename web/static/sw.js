@@ -33,7 +33,6 @@ const STATIC_ASSETS = [
     // Core modules
     '/static/js/core/utils.js',
     '/static/js/core/messenger-adapter.js',
-    '/static/js/core/time-format.js',
     '/static/js/core/api.js',
     '/static/js/core/demo-banner.js',
     '/static/js/core/app-kernel.js',

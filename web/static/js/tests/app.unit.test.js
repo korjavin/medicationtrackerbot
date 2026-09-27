@@ -39,26 +39,6 @@ describe('app.js unit tests', () => {
     }
   });
 
-  it('renders read-only timezone and clock info in settings', () => {
-    const { window, document, cleanup } = loadFrontendEnv();
-    try {
-      window.renderSettingsTimeInfo({
-        timezone: 'Europe/Berlin',
-        serverTime: '2026-04-08T12:34:56+04:00',
-        serverTimezone: 'UTC+04:00'
-      });
-
-      expect(document.getElementById('settings-timezone-value').textContent).toBe('Europe/Berlin');
-      expect(document.getElementById('settings-saved-time-value').textContent).not.toBe('');
-      expect(document.getElementById('settings-local-time-value').textContent).not.toBe('');
-      expect(document.getElementById('settings-server-time-value').textContent).toContain('12:34:56');
-      expect(document.getElementById('settings-server-time-value').textContent).toContain('UTC+04:00');
-      expect(document.getElementById('settings-timezone-note').textContent).toContain('Changing timezone may trigger a transition plan');
-    } finally {
-      cleanup();
-    }
-  });
-
   it('throws Unauthorized for apiCallDirect on 401/403 responses', async () => {
     const { window, cleanup } = loadFrontendEnv();
     try {
