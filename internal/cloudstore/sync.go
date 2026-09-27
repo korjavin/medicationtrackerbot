@@ -240,20 +240,22 @@ func (r *Repo) PutSnapshot(ctx context.Context, accountID string, snapshotSeq in
 // after a user switches reminders off on purpose (ReplaceSchedule deletes
 // the unsent rows but leaves the sent history, which looks exactly like a
 // horizon that rotted), and it stays silent on a real dry queue whose last
-// trace is older than the window. The exact signal is when the client last
-// PUT a schedule:
+// trace is older than the window. The exact signal is the last schedule PUT
+// itself — when it happened AND whether it was empty:
 //
-//   - last_schedule_unix IS NULL (no schedule PUT observed since the column
+//   - last_schedule_unix IS NULL (no schedule PUT observed since the columns
 //     landed): the med-2lx window, byte-for-byte. Reminders were live within
 //     the last window, so an exhausted horizon is news; NULL — never
 //     scheduled anything — fails it.
-//   - last_schedule_unix IS NOT NULL: the stamp decides directly. A fresh
-//     stamp means the client is still uploading, so an empty queue alongside
-//     one is 'reminders deliberately off' — silent. A stamp older than
-//     dryQueueWithin with a dry queue is 'browser stopped re-uploading', a
-//     rotted horizon — warned even outside the old window, as long as the
-//     account ever scheduled anything (one that never did is not waiting on
-//     a horizon at all).
+//   - last_schedule_unix IS NOT NULL: the PUT decides directly. A last PUT
+//     that was EMPTY is 'reminders deliberately off' — never warned,
+//     however stale the stamp (switching reminders off and then abandoning
+//     the app must not nag). A last PUT that carried entries with a stamp
+//     older than dryQueueWithin and a dry queue is 'browser stopped
+//     re-uploading', a rotted horizon — warned even outside the old window,
+//     as long as the account ever scheduled anything (one that never did is
+//     not waiting on a horizon at all). A fresh stamp is an active client
+//     that extends its horizon on the next unlock — silent either way.
 //
 // For a legacy NULL account the window is what keeps this honest for a user
 // who turned reminders off on purpose: nobody can tell that apart from a
@@ -279,6 +281,7 @@ func (r *Repo) AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Tim
 		         AND (SELECT MAX(fire_at_unix) FROM scheduled_pushes WHERE account_id = ss.account_id) >= ?)
 		        OR (ss.last_schedule_unix IS NOT NULL
 		            AND ss.last_schedule_unix <= ?
+		            AND ss.last_schedule_empty = 0
 		            AND (SELECT MAX(fire_at_unix) FROM scheduled_pushes WHERE account_id = ss.account_id) IS NOT NULL))`,
 		storedb.TimeToUnix(now.Add(dryQueueWithin)),
 		storedb.TimeToUnix(now.Add(-warnCooldown)),

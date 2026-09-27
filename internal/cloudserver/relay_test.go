@@ -148,20 +148,22 @@ func TestRelay_StaleSyncSweep(t *testing.T) {
 	putSchedule(t, h, host, session, putScheduleRequest{Entries: []scheduleEntryWire{
 		{FireAtUnix: time.Now().Add(-time.Minute).Unix(), CT: []byte("last-ct")},
 	}})
+	// med-ei2: the PUT above stamped last_schedule_unix with ~now, which now
+	// reads as an active client. This test pins the ROTTED horizon (uploaded
+	// long ago, just exhausted), so re-stamp the same entry with an old PUT
+	// instant — still non-empty, so the sweep must warn — before the tick
+	// fires it. (An empty re-stamp here would read as 'deliberately off'.)
+	if err := store.ReplaceSchedule(ctx, account.ID, []cloudstore.ScheduledPushInput{
+		{FireAt: time.Now().Add(-time.Minute), CT: []byte("last-ct")},
+	}, time.Now().Add(-200*time.Hour)); err != nil {
+		t.Fatalf("ReplaceSchedule (backdate stamp): %v", err)
+	}
 	NewRelay(store, &fakeSender{}, nil, 0).Tick(ctx)
 
 	// Sync at NOW, not backdated: an account draining Telegram taps looks
 	// freshly synced while its horizon rots, so recency must not gate the warning.
 	if _, err := store.ListOps(ctx, account.ID, 0, 100, time.Now()); err != nil {
 		t.Fatalf("ListOps (touch sync): %v", err)
-	}
-
-	// med-ei2: the PUT above stamped last_schedule_unix with ~now, which now
-	// reads as 'client still uploading — deliberately off'. This test pins the
-	// ROTTED horizon (uploaded long ago, just exhausted), so backdate the stamp
-	// with an empty replace-all — the queue is already empty, no push rows move.
-	if err := store.ReplaceSchedule(ctx, account.ID, nil, time.Now().Add(-200*time.Hour)); err != nil {
-		t.Fatalf("ReplaceSchedule (backdate stamp): %v", err)
 	}
 
 	// A second account that syncs and has a live subscription but never

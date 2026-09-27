@@ -1014,11 +1014,11 @@ func TestAccountsNeedingStaleSyncWarning_EmptyQueue(t *testing.T) {
 		t.Fatalf("Disable: %v", err)
 	}
 
-	// med-ei2: ReplaceSchedule now stamps sync_state.last_schedule_unix, but
+	// med-ei2: ReplaceSchedule now stamps the sync_state upload signal, but
 	// this test pins the LEGACY (NULL) branch — pre-migration rows that never
 	// saw a schedule PUT. Scrub the stamps the setup above wrote.
-	if _, err := r.db.ExecContext(ctx, `UPDATE sync_state SET last_schedule_unix = NULL`); err != nil {
-		t.Fatalf("scrub last_schedule_unix: %v", err)
+	if _, err := r.db.ExecContext(ctx, `UPDATE sync_state SET last_schedule_unix = NULL, last_schedule_empty = NULL`); err != nil {
+		t.Fatalf("scrub schedule upload signal: %v", err)
 	}
 
 	warned := func(at time.Time) map[string]bool {
@@ -1057,9 +1057,11 @@ func TestAccountsNeedingStaleSyncWarning_EmptyQueue(t *testing.T) {
 }
 
 // TestAccountsNeedingStaleSyncWarning_ScheduleUploadSignal pins bd med-ei2:
-// sync_state.last_schedule_unix separates 'reminders deliberately off' (fresh
-// stamp, empty queue — silent) from 'browser stopped re-uploading' (stale
-// stamp, dry queue — warned, even outside the med-2lx backward window).
+// the sync_state upload signal separates 'reminders deliberately off' from
+// 'browser stopped re-uploading'. A last PUT that was EMPTY is deliberately
+// off — never warned, however stale; a last PUT that carried entries with a
+// stale stamp and a dry queue is a rotted horizon — warned, even outside the
+// med-2lx backward window.
 func TestAccountsNeedingStaleSyncWarning_ScheduleUploadSignal(t *testing.T) {
 	r := setupRepo(t)
 	ctx := context.Background()
@@ -1105,11 +1107,23 @@ func TestAccountsNeedingStaleSyncWarning_ScheduleUploadSignal(t *testing.T) {
 		}
 	}
 
-	// Reminders switched OFF just now: the last reminder fired a minute ago
-	// (the med-2lx `dry` shape — legacy warns here) but the client is still
-	// uploading schedules, so the empty queue is deliberate: silent.
+	// Reminders switched OFF just now: one entry fired a minute ago, then an
+	// empty replace-all (the med-2lx `dry` shape plus the off upload — legacy
+	// warns on the shape alone): silent.
 	offFresh := mkAccount("acc-off-fresh", "keen-heron-eof006")
 	drainQueue(offFresh, now.Add(-time.Minute), now)
+	if err := r.ReplaceSchedule(ctx, offFresh, nil, now); err != nil {
+		t.Fatalf("ReplaceSchedule(offFresh, empty): %v", err)
+	}
+
+	// Reminders switched OFF a month ago and the app abandoned since: sent
+	// history on file, last PUT empty and stale. The send-back case — nagging
+	// here is exactly what the bead exists to stop: silent.
+	abandonedOff := mkAccount("acc-abandoned-off", "keen-heron-eao011")
+	drainQueue(abandonedOff, now.Add(-30*24*time.Hour), now.Add(-30*24*time.Hour))
+	if err := r.ReplaceSchedule(ctx, abandonedOff, nil, now.Add(-30*24*time.Hour)); err != nil {
+		t.Fatalf("ReplaceSchedule(abandonedOff, empty): %v", err)
+	}
 
 	// Rotted horizon outside the legacy window: nothing uploaded for a month,
 	// last trace a month old (the med-2lx `off` shape — legacy stays silent).
@@ -1152,32 +1166,38 @@ func TestAccountsNeedingStaleSyncWarning_ScheduleUploadSignal(t *testing.T) {
 			t.Errorf("rotted account %s not warned: %v", id, got)
 		}
 	}
-	for _, id := range []string{offFresh, activeShort, neverStale} {
+	for _, id := range []string{offFresh, abandonedOff, activeShort, neverStale} {
 		if got[id] {
 			t.Errorf("account %s must not be warned: %v", id, got)
 		}
 	}
 
-	// The stamp is the PUT instant — empty batches included — and the upsert
-	// leaves the other sync_state columns alone (rottedRecent synced at `now`
-	// but last uploaded a month ago).
-	var sched, sync sql.NullInt64
+	// The stamp is the PUT instant and the flag records whether the batch was
+	// empty, and the upsert leaves the other sync_state columns alone
+	// (rottedRecent synced at `now` but last uploaded a month ago).
+	var sched, empty, sync sql.NullInt64
 	if err := r.db.QueryRowContext(ctx,
-		`SELECT last_schedule_unix, last_sync_unix FROM sync_state WHERE account_id = ?`, rottedRecent).Scan(&sched, &sync); err != nil {
+		`SELECT last_schedule_unix, last_schedule_empty, last_sync_unix FROM sync_state WHERE account_id = ?`, rottedRecent).Scan(&sched, &empty, &sync); err != nil {
 		t.Fatalf("read sync_state: %v", err)
 	}
 	if !sched.Valid || sched.Int64 != now.Add(-30*24*time.Hour).Unix() {
 		t.Errorf("last_schedule_unix = %+v, want the month-old PUT instant", sched)
 	}
+	if !empty.Valid || empty.Int64 != 0 {
+		t.Errorf("last_schedule_empty = %+v, want 0 (last PUT carried entries)", empty)
+	}
 	if !sync.Valid || sync.Int64 != now.Unix() {
 		t.Errorf("last_sync_unix = %+v, want it untouched at %d", sync, now.Unix())
 	}
 	if err := r.db.QueryRowContext(ctx,
-		`SELECT last_schedule_unix FROM sync_state WHERE account_id = ?`, neverStale).Scan(&sched); err != nil {
-		t.Fatalf("read sync_state(neverStale): %v", err)
+		`SELECT last_schedule_unix, last_schedule_empty FROM sync_state WHERE account_id = ?`, abandonedOff).Scan(&sched, &empty); err != nil {
+		t.Fatalf("read sync_state(abandonedOff): %v", err)
 	}
 	if !sched.Valid || sched.Int64 != now.Add(-30*24*time.Hour).Unix() {
 		t.Errorf("empty-batch last_schedule_unix = %+v, want the PUT stamped", sched)
+	}
+	if !empty.Valid || empty.Int64 != 1 {
+		t.Errorf("empty-batch last_schedule_empty = %+v, want 1", empty)
 	}
 }
 
