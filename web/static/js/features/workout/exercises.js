@@ -297,8 +297,8 @@ let _equipmentHintSeq = 0; // module-state: ticket for the in-flight plan-equipm
 // pick, rename) keep displaying the stored override while re-resolving the
 // inherited label, and the save compares the pick against the stored value so
 // a stale inventory can never clear it blind.
-let _planRowEquipmentId = '';
-let _planInheritedEquipment = null;
+let _planRowEquipmentId = ''; // module-state: the plan modal's stored row-equipment override from open, for refills + the save's blind-clear guard
+let _planInheritedEquipment = null; // module-state: the plan modal's inherited library binding ({ id, name }) from the last fill, for the blank label + helper
 // The selection a name-driven refill (picker pick, rename) must keep showing:
 // the live pick when the select holds a real inventory read, else the stored
 // override from modal open. Without this a refill would restore the open-time
@@ -658,10 +658,18 @@ async function saveExercise() {
     };
     if (pickedPlanEquipmentId !== null) {
         const stored = _planRowEquipmentId || '';
-        const blindClear = pickedPlanEquipmentId === '' && stored !== ''
-            && !planEquipmentOptions.includes(stored);
-        if (!blindClear) {
-            payload.equipment_id = pickedPlanEquipmentId === '' ? null : Number(pickedPlanEquipmentId);
+        if (pickedPlanEquipmentId === '') {
+            // Blank clears a stored override (falls back to the library);
+            // blank with nothing stored omits the key — the domain treats
+            // omit and null identically here, and the untouched payload
+            // stays byte-identical to before this bead. A stored override
+            // the options lack (stale inventory, dangling id) also omits —
+            // never clear blind.
+            if (stored !== '' && planEquipmentOptions.includes(stored)) {
+                payload.equipment_id = null;
+            }
+        } else {
+            payload.equipment_id = Number(pickedPlanEquipmentId);
         }
     }
 

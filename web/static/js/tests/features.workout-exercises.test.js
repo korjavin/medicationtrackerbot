@@ -998,7 +998,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(libraryPuts(calls)).toHaveLength(0);
     });
 
-    it('adding a new exercise carries the pick (or null when blank) in the create payload', async () => {
+    it('adding a new exercise carries the pick in the create payload (blank omits the key)', async () => {
       const { window, document } = env;
       const calls = stubPlan(window, { exercises: [], library: [libraryRow()] });
 
@@ -1015,8 +1015,9 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(writes[0][2]).toMatchObject({ exercise_name: 'Bench Press', equipment_id: 51 });
       expect(libraryPuts(calls)).toHaveLength(0);
 
-      // Blank on Add stores an explicit null override (inherit), and still
-      // never touches the library row the name promotes to.
+      // Blank on Add omits the key (nothing stored to clear — the row
+      // inherits), and still never touches the library row the name
+      // promotes to.
       await window.showAddExerciseModal();
       document.getElementById('workout-exercise-name').value = 'Bench Press';
       document.getElementById('workout-exercise-sets').value = '3';
@@ -1026,7 +1027,8 @@ describe('features/workout/exercises.js — split-file integration', () => {
 
       writes = exerciseWrites(calls);
       expect(writes).toHaveLength(2);
-      expect(writes[1][2]).toMatchObject({ exercise_name: 'Bench Press', equipment_id: null });
+      expect(writes[1][2]).toMatchObject({ exercise_name: 'Bench Press' });
+      expect('equipment_id' in writes[1][2]).toBe(false);
       expect(libraryPuts(calls)).toHaveLength(0);
     });
 
