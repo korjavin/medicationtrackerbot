@@ -22,10 +22,6 @@ It was **dead in cloud mode for exactly one reason** — `bootstrapPayload()` ha
 storing anything. `med-4pz.5` fixed both (see "The flag lives in the vault" below): the payload now computes
 the flag from the vault on every call, and the completion route is a real `shimCall` branch that writes it.
 
-In bot mode the same flag is a real SQLite column (`first_run_complete`,
-`internal/store/settings/repo.go:227-242`, migration `071_add_first_run_state.sql`), surfaced on
-`/api/bootstrap` and cleared by `POST /api/firstrun/complete` (`internal/server/server.go:956`).
-
 So this design is **not** "build an onboarding wizard". It is:
 
 1. ~~give cloud mode a vault-backed `first_run_complete` so `needs_first_run` can be true~~ — done (`med-4pz.5`),
@@ -68,12 +64,12 @@ route.
 | in-flight step ("resume at step 3") | stays `sessionStorage` (`state.js`), unchanged |
 
 **Absent ⇒ needs onboarding.** `needs_first_run = !first_run_complete`, so only an explicit `true`
-suppresses the overlay. A vault record cannot be backfilled the way migration `071` backfilled bot mode's
+suppresses the overlay. A vault record cannot be backfilled the way a SQL migration backfills a
 column, and an absent record cannot mean two things at once. The accepted consequence: **cloud vaults that
 predate this change see the overlay once**, dismiss it, and never see it again.
 
 Shape: the flag is read once per `bootstrapPayload()` and surfaced as a
-**top-level** `/api/bootstrap` field — matching bot mode (`internal/server/settings_handlers.go:460`). It is
+**top-level** `/api/bootstrap` field. It is
 deliberately *not* in the `GET /api/settings` body, whose shape is unchanged. `bootstrapPayload()` re-reads
 the vault on every call and never caches: `WGFirstRun`'s `_mounted` latch is module state lost on reload, so
 across reloads the payload reporting `false` is the only thing keeping the overlay closed. Contract covered by

@@ -70,9 +70,11 @@ Swap the "And it can't just say…" LinkedIn paragraph for the menu-only version
   computed in the browser.
 - Every cloud MCP call requires a live, unlocked tab; there is no server-side fallback,
   deliberately.
-- **Scripting ("writes a small program") is announced ahead**: `mcp_execute` exists in
-  bot mode (Python executor) and is being ported to cloud mode. It is NOT live in cloud
-  yet (`web/cloud/js/mcp-responder.js` returns an explicit error for it today).
+- **Scripting ("writes a small program") is NOT shipping**: cloud mode has no
+  script-execution tool — `mcp_execute` is structurally impossible server-side and
+  the in-browser Pyodide option was decided against (docs/cloud-mode.md → MCP).
+  Heavy questions are answered by chaining `mcp_call`s. The draft's scripting
+  paragraph must be swapped for the fallback below before publish.
 
 ## Verify with the author before publish
 
@@ -86,8 +88,9 @@ Swap the "And it can't just say…" LinkedIn paragraph for the menu-only version
 - **Publish gate 1 — the real run.** Ask the real question against the real seven
   months, screenshot the answer, replace the PLACEHOLDER block. Plan rule: if the
   answer is boring, the post is dead — test before week 1.
-- **Publish gate 2 — the scripting port.** The cloud `mcp_execute` port must be live by
-  publish date, or swap in the fallback paragraph above.
+- **Publish gate 2 — the scripting paragraph.** There is no scripting port coming —
+  swap in the fallback paragraph above before publish (done when the LinkedIn draft
+  no longer claims the AI's program runs on-device).
 - Recount LinkedIn words after the answer lands; budget is ~35 words.
 
 ## Provenance
@@ -95,5 +98,6 @@ Swap the "And it can't just say…" LinkedIn paragraph for the menu-only version
 Drafted solo by claude against the plan row and the two published-format posts, then
 reworked twice with the author: (1) recentred on the skeptic's question ("how can an AI
 work with local data — sounds like magic") with the blind pipe, the capped menu, and
-on-device compute; (2) scripting added as announce-ahead once the author confirmed the
-bot-mode executor is being ported to cloud. Not yet cross-critiqued by a second model.
+on-device compute; (2) scripting added as announce-ahead on the assumption the bot-mode
+executor would be ported to cloud — that port is not happening (see Facts), so the
+fallback paragraph is the publish path. Not yet cross-critiqued by a second model.

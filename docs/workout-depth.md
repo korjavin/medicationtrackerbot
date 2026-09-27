@@ -1,6 +1,6 @@
 # Workout depth — intentions & design
 
-Status: **implemented** — all four phases of epic `med-qj4` are closed; this document is the design rationale and the reference for the per-set data model. Cloud-first (bot mode is legacy).
+Status: **implemented** — all four phases of epic `med-qj4` are closed; this document is the design rationale and the reference for the per-set data model.
 
 ## Why this exists
 
@@ -41,10 +41,10 @@ spine, and treat progression as a modest, opt-in add-on.
 
 - **Aggregate-only logging.** `workout_exercise_logs` stores one row per exercise
   per session — scalar `sets_completed`, `reps_completed`, `weight_kg`, unique on
-  `(session_id, exercise_name)`. There is no set-level structure. The MCP
-  `workout_log` tool *accepts* a rich `per_set:[{reps, weight_kg}]` payload but
-  `mergePayloadValues` collapses it to `sets=count, reps=MAX, weight=MAX` before
-  storage — the detail is discarded.
+  `(session_id, exercise_name)`. There is no set-level structure. The legacy MCP
+  `workout_log` tool *accepted* a rich `per_set:[{reps, weight_kg}]` payload but
+  `mergePayloadValues` collapsed it to `sets=count, reps=MAX, weight=MAX` before
+  storage — the detail was discarded.
 - **No analysis.** No estimated 1RM, no PR detection, no per-exercise weight/1RM
   graph. Only volume/tonnage aggregation and a sessions-per-week chart.
 - **Destructive history.** A session stores no exercise snapshot; past sessions
@@ -68,12 +68,10 @@ which requires knowing which sets were warm-ups — impossible today. Notably, o
 ingestion already accepts per-set data; we are currently throwing it away. Phase 1 is
 largely *stop discarding what we already receive* plus a persistence + UI change.
 
-**Cloud-first scope:** implement in the cloud workout domain (`web/domain/workout.js`
+**Scope:** implemented in the workout domain (`web/domain/workout.js`
 exercise-log record), the cloud router (`apishim.js`), the shared in-workout UI
-(`web/static/js/features/workout/sessions.js`), and the MCP `workout_log` path (stop
-collapsing). The bot-mode Go store (`internal/store/workout`) gaining per-set columns
-is a **deferred follow-up** — bot mode is legacy and must keep working, but it is not
-where new depth lands.
+(`web/static/js/features/workout/sessions.js`), and the MCP log path (stop
+collapsing).
 
 ### Phase 2 — Non-destructive workout history (`med-qj4.2`)
 
@@ -101,7 +99,7 @@ it is pure read-side computation over stored sets. And PRs are the single bigges
 motivation/retention lever in strength training: seeing "best-ever 5-rep squat" is
 why people keep a log at all. It is cheap for us and central for the user.
 
-**As implemented (cloud-first; bot legacy):**
+**As implemented:**
 - **Estimated 1RM** — Epley `1RM = weight × (1 + reps/30)`, computed on read; a set
   over ~10–12 reps degrades the estimate, but a low-confidence flag is deferred to
   the goal-aware sub-epic (`med-qj4.6.4`).
@@ -123,8 +121,7 @@ why people keep a log at all. It is cheap for us and central for the user.
   renders the records summary + graphs, and a "PR" cue badge appears on a
   record-beating completed set in the session log card. The static frontend has no
   bundler, so the detail view dynamic-imports `/domain/workout-analysis.js` (served
-  in cloud); in bot mode there is no `/domain/`, so the records/PR badge degrade
-  silently.
+  under `/domain/`).
 
 ### Phase 4 — Progression rules, opt-in (`med-qj4.4`)
 
@@ -158,13 +155,6 @@ and the shared per-set UI in `web/static/js/features/workout/sessions.js`.
 
 `set_type` is stored but **not yet acted on** — warm-up exclusion from PR/volume math
 is Phase 3; storing it now avoids a later migration of historical logs.
-
-**Bot mode is untouched.** The shared `sessions.js` emits `sets` *alongside* the flat
-fields; the Go log handlers (`AddExerciseToSession` / `UpdateExerciseLog`) decode with
-plain `json.NewDecoder(...).Decode` (no `DisallowUnknownFields`), so the unknown `sets`
-key is silently ignored and the flat fields still drive bot storage — no gate, no
-migration. The bot-mode Go schema change (per-set columns) remains a deferred
-follow-up.
 
 ## Progression rules (Phase 4) — implemented
 
@@ -258,12 +248,6 @@ target **rep-range** (`reps_min`/`reps_max`) and the **progression preset**
 editable; the cascade only fills defaults, never locks. (RIR is in the defaults table
 for the later sub-epics but not surfaced — the exercise editor has no target-RIR field
 yet.)
-
-**Bot safety.** The shared editors send `training_goal`; the Go log/group handlers
-decode without `DisallowUnknownFields`, so the unknown key is silently ignored (same as
-Phase 1's `sets` and Phase 4's `progression_rule`) — no gate, no migration, no
-breakage. Goal graph emphasis (`med-qj4.6.4`) and the effort insight (`med-qj4.6.5`)
-are later beads.
 
 ## Effort: one stored field (`med-qj4.6.2`) — implemented
 
@@ -392,7 +376,7 @@ contributes nothing; `// ponytail` marks the ceilings), `minStep(loads)`, and
 computed `loads_kg`, `min_step_kg`, `max_kg`. Served at
 `GET/POST /api/workout/equipment` and `:id GET/PUT/DELETE` via
 `web/cloud/js/apishim.js`, and carried in the vault under
-`workouts.equipment` (`web/domain/vault.js`; the golden fixture carries one plated and one fixed record, and bot mode strips the cloud-only key on import like `med_reminder_pref`).
+`workouts.equipment` (`web/domain/vault.js`; the golden fixture carries one plated and one fixed record).
 
 The active session reuses the same math on every exercise card (med-v75c.2):
 the card resolves its plan row → library → equipment record once per
@@ -407,8 +391,8 @@ the live variant for the row → library link, so their plan-row cards stay
 chipless (med-qj4.2.1 no-fetch contract); in-progress sessions keep the chip
 even when a mid-workout plan edit has materialized a snapshot.
 
-**MCP** (med-niix.4, cloud-only via the `mcp-catalog.cloud-extra.js` seam —
-no Go store, so `mcp-catalog.generated.js` is untouched):
+**MCP** (med-niix.4, via the `mcp-catalog.cloud-extra.js` seam —
+no registry entry, so `mcp-catalog.generated.js` is untouched):
 `workouts.equipment.list` (read; records carry computed `loads_kg`,
 `min_step_kg`, `max_kg`), `workouts.equipment.create` (write; `name` + `kind`
 required, kind-specific fields per the create body schema),
@@ -428,10 +412,8 @@ so no per-plan-row override — that arrives only if a real case appears, as a
 `createLibraryItem` / `updateLibraryItem` round-trip the field,
 `toLibraryResponse` emits it only when set. Deleting equipment performs no
 cascade write; a dangling id reads as unbound (the plan-modal hint resolves
-it against the inventory and shows nothing). Cloud-only field like
-`workouts.equipment`: bot mode has no such column, so `VaultLibraryEntry`
-carries `equipment_id,omitempty`, import drops it, export omits it, and both
-identity tests strip the per-row key. The library editor
+it against the inventory and shows nothing). `equipment_id` is a cloud field:
+legacy files predate it, and identity comparisons strip the per-row key. The library editor
 (`#exercise-library-modal`) gets an Equipment `<select>` (None + inventory
 names, read through the equipment module's shared cachedFetch list);
 the plan-exercise modal (`#workout-exercise-modal`) gets the same select

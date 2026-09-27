@@ -77,7 +77,7 @@ Requests to the operator default are now routed through a same-origin proxy on t
 eliminating the need for CORS configuration on the upstream FastFoodDB instance.
 
 Set it — and if your upstream is keyed, set `CLOUD_FOOD_DB_API_KEY` too. The
-proxy forwards it as `X-API-Key` exactly as bot mode does with `FOOD_API_KEY`;
+proxy forwards it as `X-API-Key`;
 without it a keyed instance answers 401 and search stays broken even though
 `CLOUD_FOOD_DB_URL` is set. The key is operator-owned and server-side only: it
 never appears in a meta tag, a response body or header, or a log line — the
@@ -163,7 +163,7 @@ the proxy is what unlocks large-file imports; see below.
 Telegram's public Bot API (`api.telegram.org`) refuses `getFile` for any file
 larger than **20 MB**, so a user sending a Mi Band `.nxk` backup over their
 cloud child bot gets `❌ That file is larger than Telegram's 20 MB bot limit`.
-Most Mi Band backups exceed 20 MB. The fix is the same as bot mode: run a
+Most Mi Band backups exceed 20 MB. The fix is a
 self-hosted **local Bot API server** (`--local` mode, ~2 GB limit) that hands
 back downloaded files on a shared volume the app reads directly.
 
@@ -172,8 +172,7 @@ service that stays inactive (clean exit) unless you provide credentials. To
 enable it:
 
 1. Get a Telegram **API ID + API hash** from <https://my.telegram.org> (app
-   credentials — distinct from a bot token). This is the same
-   `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` prerequisite as bot mode.
+   credentials — distinct from a bot token).
 2. Set these stack variables (compose forwards them):
 
    ```

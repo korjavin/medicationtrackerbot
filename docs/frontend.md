@@ -1,31 +1,24 @@
 # Frontend
 
-Cloud mode is the default frontend target: a browser PWA backed by an
-end-to-end encrypted vault, Dexie.js, and the runtime-agnostic JS domain layer
-under `web/domain/`. The same `web/static` app still supports the legacy
-Telegram/server mode, but Telegram-specific behavior must stay behind the
-messenger adapter and must not leak into cloud mode.
+The frontend is a browser PWA backed by an end-to-end encrypted vault,
+Dexie.js, and the runtime-agnostic JS domain layer under `web/domain/`.
+Telegram-specific behavior stays behind the messenger adapter
+(`web/static/js/core/messenger-adapter.js`).
 
-## Legacy Local-First Architecture
+## Local-First Architecture
 
-The notes in this section describe the legacy server-mode `web/static` cache
-and sync stack. Cloud mode uses its own encrypted vault/oplog sync path under
-`web/cloud/js/`; when behavior differs, cloud is the product baseline.
+The notes in this section describe the `web/static` cache and sync stack.
+Reads resolve through cache layers before the network; writes paint
+optimistically and reconcile. The encrypted vault/oplog sync path underneath
+lives under `web/cloud/js/` — see [architecture.md](architecture.md).
 
-Four layers:
+Three layers:
 
-1. **Service Worker** — precaches all static assets (~25 JS files, CSS, vendor libs, icons, manifest) for a full offline app shell
-2. **IndexedDB** — write-ahead queue for offline writes + generic `api_cache` for SWR. `ApiCache.get(key)` returns `data`; `ApiCache.getWithMeta(key)` returns `{ data, timestamp }` for callers that need the cache-write time (e.g. the Today dashboard's offline-stale banner)
-3. **SyncManager** (`sync.js`) — `offlineAwareApiCall()` is the entry point for all API calls; handles retry with exponential backoff (5s → 300s cap, resets on success or `online` event)
-4. **SWR DataStore** (`data-store.js`) — `loadSWR()` returns cached data immediately and refreshes in the background; on fetch failure with no `onError` handler, defaults to rendering cached data with a console warning
+1. **IndexedDB** — write-ahead queue for offline writes + generic `api_cache` for SWR. `ApiCache.get(key)` returns `data`; `ApiCache.getWithMeta(key)` returns `{ data, timestamp }` for callers that need the cache-write time (e.g. the Today dashboard's offline-stale banner)
+2. **SyncManager** (`sync.js`) — `offlineAwareApiCall()` is the entry point for all API calls; handles retry with exponential backoff (5s → 300s cap, resets on success or `online` event)
+3. **SWR DataStore** (`data-store.js`) — `loadSWR()` returns cached data immediately and refreshes in the background; on fetch failure with no `onError` handler, defaults to rendering cached data with a console warning
 
 Offline writes are supported for BP readings, weight logs, and medication confirmations. Other writes require connectivity.
-
-### Bootstrap and Auth
-
-- `/api/bootstrap` uses stale-while-revalidate in the SW: cached response served instantly, background revalidation notifies clients via `postMessage({ type: 'BOOTSTRAP_UPDATED' })`
-- `checkAuth()` is non-blocking: uses SW-cached bootstrap for instant render, validates auth in background
-- Auth state cache (`features/auth-flow.js`): localStorage-based UX cache (30-day TTL). **Not** a security mechanism — real auth uses HttpOnly cookies.
 
 ### Offline UX
 
@@ -70,7 +63,7 @@ The "rolling-out" sections (BP, Weight, Meds, Workouts, Vitals) keep their exist
 
 **Bootstrap interaction**: `/api/bootstrap` continues to seed `medications`, `next_intake`, `bp`, `weight`, `food_<date>_day`, `settings_bundle`, etc. via `cacheApiSnapshot`. `cachedFetch` simply reads from the same store, so bootstrap-warmed entries are immediately usable as the first cache hit on any consumer.
 
-**`DataStore.hydrateFromDexie(key, dexieLoader, opts)`** — cold-start hydration primitive used when the app relaunches offline and `/api/bootstrap` never returns. Reads from a feature's Dexie store (e.g. `MedTrackerDB.MedicationStore.loadCache()`) and seeds `DataStore.setCachedWithTags` so subsequent `loadSWR` / `getCached` calls find data on the very first paint. Signature: `(key, async dexieLoader, { transform?, tags? }) => { hydrated, fetchedAt }`. Never throws — empty Dexie or loader errors return `{ hydrated: false }`. Skips the seed if the in-memory cache is already fresher than the Dexie record. Canonical wiring lives in `app.js` early-init (before `await fetchBootstrap()`): `hydrateMedicationsFromDexie()` seeds the `medications` key from `MedTrackerDB.MedicationStore.loadCache()`, and `hydrateSectionsFromDexie()` seeds the remaining section-level `api_cache` rows from `MedTrackerDB.ApiCache.getWithMeta(key)`. Both are gated on auth presence (Telegram `initData` OR a cached auth state) so a fully unauthenticated cold start does not surface a former user's cache. Per-section hydration map (every entry is seeded in parallel during `checkAuth()` and consumed by the listed loader):
+**`DataStore.hydrateFromDexie(key, dexieLoader, opts)`** — cold-start hydration primitive used when the app relaunches offline and `/api/bootstrap` never returns. Reads from a feature's Dexie store (e.g. `MedTrackerDB.MedicationStore.loadCache()`) and seeds `DataStore.setCachedWithTags` so subsequent `loadSWR` / `getCached` calls find data on the very first paint. Signature: `(key, async dexieLoader, { transform?, tags? }) => { hydrated, fetchedAt }`. Never throws — empty Dexie or loader errors return `{ hydrated: false }`. Skips the seed if the in-memory cache is already fresher than the Dexie record. Canonical wiring lives in `app.js` early-init (before `await fetchBootstrap()`): `hydrateMedicationsFromDexie()` seeds the `medications` key from `MedTrackerDB.MedicationStore.loadCache()`, and `hydrateSectionsFromDexie()` seeds the remaining section-level `api_cache` rows from `MedTrackerDB.ApiCache.getWithMeta(key)`. Both are gated on a cached auth state (`getCachedAuthState`) so a fully unauthenticated cold start does not surface a former user's cache. Per-section hydration map (every entry is seeded in parallel during `checkAuth()` and consumed by the listed loader):
 
 | Section | Cache key | Dexie loader | Consumer (loader) |
 |---------|-----------|--------------|-------------------|
@@ -118,7 +111,7 @@ try {
 
 `commit` / `rollback` are idempotent — calling either a second time is a no-op, so the handle can be threaded through try/catch without double-settle risk. A `null` / `undefined` payload from the mutator clears the cache entry (used by `workout_next` after the current session finishes).
 
-**Why writes use this, not `invalidateTags + loadX`**: `invalidateTags` clears caches but does *not* dispatch `datastore:changed` (only the 30s poll's `applyChangesPayload` does). Handlers that cleared the cache and called `loadX()` therefore missed the cache they just emptied, went to network, and held the UI through the round-trip — a same-device latency regression the user perceives as "save lag". The optimistic helper writes the projected state and dispatches the event up-front; the server response reconciles via `commit`.
+**Why writes use this, not `invalidateTags + loadX`**: `invalidateTags` clears caches but does *not* dispatch `datastore:changed` (only `applyOptimistic` does). Handlers that cleared the cache and called `loadX()` therefore missed the cache they just emptied, went to network, and held the UI through the round-trip — a same-device latency regression the user perceives as "save lag". The optimistic helper writes the projected state and dispatches the event up-front; the server response reconciles via `commit`.
 
 **Per-surface mutator shapes** — the canonical mutator for each write surface (what gets prepended / flipped / spliced):
 
@@ -139,17 +132,7 @@ try {
 
 **Rollback semantics** — on POST rejection: restore the captured snapshot (or clear the entry if the cache was cold), call `invalidateTags(tags)` so the next read goes to network and authoritatively resyncs, and surface a toast via the existing offline-write error UI where applicable.
 
-**Relationship to the reconcile path** — `applyChangesPayload` remains the canonical reconciliation entry point for cross-device sync, fed by either the SSE `/api/changes/stream` channel (primary, ~50ms latency) or the 30s `/api/changes` polling fallback when SSE is unavailable. Optimistic state is layered on top: a remote change reconciles via `applyChangesPayload`'s own `invalidateTags + dispatch` flow, which the screen's normal `loadX()` listener picks up on the next refresh.
-
-**Own-write echo suppression** — every non-GET request from `apiCallDirect` carries `X-Client-ID: <DataStore.getClientId()>`, the server propagates it through `notifyOnWriteMiddleware → changesBroker.Notify(cursor, clientId)`, and the SSE handler emits `source_client_id` on the live payload. `applyChangesPayload` classifies the incoming change as `source: 'self-echo'` iff `payload.source_client_id === DataStore.getClientId()` — in that case the originating tab silently reloads (no "New data is available." banner) regardless of SSE delivery latency. The legacy 5s `lastOwnWriteAt` timing window is still consulted as a second-stage fallback whenever the deterministic match does not apply: when `source_client_id` is absent (older server, initial flush, polling, scheduler/bot writes) **and** when it is present-but-mismatched (the middleware's post-handler `MAX(change_events.id)` read can absorb a concurrent foreign commit into the same broker frame and tag the whole frame with the foreign source — without the fallback our own write inside that frame would mis-classify as a foreign banner). Precedence: `clientId` match first, timing window second. See [Change Detection](#change-detection) for details.
-
 **Design rule** — write handlers MUST use `applyOptimistic`, never `invalidateTags + loadX`. The latter is reserved for read-only refreshes (e.g. the `invalidateWorkoutCache` helper) and for the rollback path inside `applyOptimistic` itself.
-
-### Change Detection
-
-SSE-first: `data-store.js` opens an EventSource against `/api/changes/stream` (auth via `?initData=…` query param) and falls back to 30s polling of `/api/changes?since=` only when `EventSource` is undefined or after 3 consecutive `onerror` events within 30s — once tripped, polling sticks for the rest of the session. SSE messages and poll responses share the same `applyChangesPayload` apply path. When invalidated tags arrive, `data-store.js` both calls `window.requestTabRefresh({ changedTags, source })` (debounced 500ms, reloads the active tab) **and** dispatches a `datastore:changed` CustomEvent on `window` with `detail = { changedTags, source }`. Features that need to react without owning the active tab (e.g. the Today dashboard's live-update subscriber) listen on the CustomEvent. See [technical-decisions.md → Why SSE is primary](technical-decisions.md) and [architecture.md → Cross-client change broadcast](archive/architecture-bot-mode.md#cross-client-change-broadcast-sse--polling-fallback) for the server-side fan-out, and [sse-traefik.md](archive/sse-traefik.md) for the reverse-proxy configuration.
-
-**Self-echo classification (`X-Client-ID` / `source_client_id`)**: `DataStore.getClientId()` returns a stable UUIDv4 per browser, persisted to `localStorage['wg.clientId']`. `apiCallDirect` attaches it as `X-Client-ID` on every non-GET request; `notifyOnWriteMiddleware` reads the header and the SSE handler emits it back as `source_client_id` on the live payload. `applyChangesPayload` classifies an incoming change as `source: 'self-echo'` iff `payload.source_client_id === DataStore.getClientId()`. When the deterministic match does not apply — either because `source_client_id` is missing (older server, initial flush, polling endpoint, scheduler/bot writes) **or** because it is present-but-mismatched — the classifier falls back to the legacy 5s `lastOwnWriteAt` timing window. The present-but-mismatched fallback exists because the middleware reads `MAX(change_events.id)` after the handler returns, so a concurrent foreign commit can be absorbed into the same broker frame and tagged with the foreign source; the timing window catches our own write that sits inside that mixed frame. The cost is rare false-suppress of a legitimate cross-source banner within the 5s window (tag invalidation still refreshes data — only the banner is skipped). See [technical-decisions.md → Source attribution via `X-Client-ID`](archive/sse-change-stream.md#source-attribution-via-x-client-id) for the end-to-end flow.
 
 ### Cross-section Auto-refresh Invariant
 
@@ -158,7 +141,7 @@ After any local create/update/delete, the originating screen does **both** in on
 1. The mutator writes the projected post-mutation state into the cache, so the originating screen's loader (and any other consumer of the same key) repaints immediately on the dispatched `datastore:changed` event.
 2. The dispatched event carries `changedTags: tags` so Today tiles and other listeners refresh without a tab switch. On rollback the handle calls `invalidateTags(tags)` so the next read goes to network.
 
-Tag vocabulary: `bp`, `weight`, `medications`, `history`, `food`, `workouts`, `health-notes`. Tags are also emitted server-side by SQLite triggers (migration 027+) and surface through the change-polling path above, so remote edits propagate by the same route.
+Tag vocabulary: `bp`, `weight`, `medications`, `history`, `food`, `workouts`, `health-notes`.
 
 ### Device-Capability Abstractions
 
@@ -188,7 +171,7 @@ as a method so feature code never re-derives it:
 `BarcodeDetector`. Calls are guarded with `typeof fn === 'function'` so a stale
 cached bundle degrades gracefully.
 
-**Guard** — `tests/architecture.native-abstractions.test.js` enforces the
+**Guard** — `web/static/js/tests/architecture.native-abstractions.test.js` enforces the
 boundary. It fails if any file under `web/static/js/` outside `native/` (and
 outside `tests/`, which legitimately stubs the seam) mentions
 `navigator.mediaDevices`, `getUserMedia`, or `BarcodeDetector` — no allowlist;
@@ -202,42 +185,33 @@ entry to `architecture.globals.test.js` with justification, and add a
 `tests/native.<capability>.test.js` (pure-unit is the right shape — these sit
 below the feature-module integration entry point).
 
-### SW Cache Strategy
-
-- All static assets listed in the `STATIC_ASSETS` array, validated bidirectionally by `architecture.sw-precache.test.js`: every `<script src>` / `<link rel="stylesheet">` in `index.html` must appear in `STATIC_ASSETS` (no offline breakage), and every precached `/static/js/*.js` entry must appear as a `<script src>` in `index.html` or in the test's `SW_SELF_IMPORTS` allowlist (no dead code shipped in the SW cache)
-- `/api/bootstrap`: stale-while-revalidate
-- Other API GETs: network-first with cache fallback
-- Only cache `GET` responses as fallbacks; never cache `POST`/`PATCH`/`DELETE`
-- Cache busting via timestamp replacement in Dockerfile
-
 ## Script Load Order (`index.html`)
 
 Loading order matters — there is no bundler; cross-file communication happens via `window.*` globals.
 
-1. `core/utils.js` — `safeAlert`, `safeConfirm` (in-app confirm dialog; uses Telegram's `tg.showConfirm` when running inside the Telegram WebApp, falls back to an `<mt-modal>` overlay in a plain browser — never the synchronous native `confirm()`, which would block first paint), format helpers
+1. `core/utils.js` — `safeAlert`, `safeConfirm` (confirm via the messenger adapter when available, else an `<mt-modal>` overlay — never the synchronous native `confirm()`, which would block first paint), format helpers
 2. `components/mt-elements.js` — registers `<mt-modal>`, `<mt-setting-toggle>`
 3. `components/empty-state.js`, `stat-card.js`, `action-row.js` — UI primitives
 3b. `components/wg-icons.js`, `wg-bottom-nav.js`, `wg-sparkline.js`, `wg-ring.js`, `wg-ring-stack.js`, `wg-phone-chrome.js`, `wg-bp-chart.js`, `wg-weight-chart.js`, `wg-workout-chart.js`, `wg-macro-bar.js`, `wg-sleep-chart.js`, `wg-steps-chart.js`, `wg-vitals-chart.js` — Wandergeek design-system primitives (icon registry, bottom nav, sparkline, single-arc ring gauge, concentric ring stack, phone-chrome, BP chart, weight chart with optional goal overlay, workout sessions-per-week chart, macro bar, sleep stacked-bar chart with HR overlay, steps bar chart, vitals area+line chart parameterised by `vital`). Must load before `features/bootstrap.js` mounts the bottom nav, before `today.js` renders sparklines and the rings tile, before `features/journey.js` renders the rings card, before `features/food.js` renders the daily macros card, before `features/workout.js` renders the Stats sub-tab chart, and before `features/health.js` renders the Overview sub-tab sleep/steps/vitals cards.
 4. `core/modal-manager.js` — `window.ModalManager`
-5. `core/api.js` — `apiCallDirect`, `apiCall` (reads `window.userInitData` lazily)
+5. `core/api.js` — `apiCallDirect`, `apiCall` (session-cookie auth; `apiCall` delegates to `window.offlineAwareApiCall`)
 6. `core/app-kernel.js` — `window.AppKernel` module registry
 7. `core/store.js` — `window.AppStore` pub/sub state
 8. `core/modal-controller.js` — `withSubmit` double-submit guard
 9. `core/chart-utils.js` — `window.ChartUtils` (splines, gradients, `aggregateToDaily`, `lttbDownsample`)
 10. `db.js` — sets up Dexie/IndexedDB stores (`window.MedTrackerDB`)
 11. `sync.js` — `offlineAwareApiCall`, `SyncManager`
-12. `data-store.js` — uses `window.MedTrackerDB` for cache, `window.apiCallDirect` for change polling
+12. `data-store.js` — uses `window.MedTrackerDB` for cache
 13. `app.js` — domain UI and `checkAuth`
 14. `features/food.js`, `features/bp.js`, `features/weight.js`, `features/meds.js`, `features/workout.js`, `features/health.js` — extracted feature modules. Round 2 of the `app.js` split (plan `docs/plans/2026-06-10-finish-app-js-split.md`) carved four view-orchestrator modules out of `app.js` that also load in this band (after `app.js`, before `features/bootstrap.js`): `features/meds-history.js` (`window.MedsHistory` — medication add modal, Meds → History load, confirm/skip modal flow), `features/today-loader.js` (`window.TodayLoader` — the impure Today loading shell: `loadToday` / `_todayRender` / `_todayReadCaches` / `fetchNextIntakePayload`, feeding the pure `features/today.js` renderer), `features/settings.js` (`window.SettingsView` — `loadSettings`, feature toggles, stale badge), and `features/workout/modals.js` (`window.WorkoutModals` — the workout-start push-notification modal flow). Each keeps its bare function names as the live call path; the `window.*` namespace only mirrors the public surface. `features/journey.js` (`window.Gamification` — the gamification Journey screen) also loads in this band, after `today.js` and before `features/bootstrap.js`.
 15. `features/auth-flow.js` — auth-cache helpers used by `checkAuth()`
 16. `features/modal-history.js` — MutationObserver setup
 17. `features/deeplink-router.js` — `window.handleDeepLinks`
-18. `push.js`, `app-shell.js` — feature extensions
-19. `features/bootstrap.js` — **must be last**. Runs `checkAuth()`, then `mountCanonicalBottomNav()` (filters `WGBottomNav.DEFAULT_ITEMS` by `window.featureSettings`, mounts the nav into `#app`, and registers an AppKernel module so `switchTab()` mirrors into `ctrl.setActive()`), then the initial `switchTab('today')`, then schedules `maybeUpdateTimezone()` via `queueMicrotask` so the TZ-mismatch prompt (`safeConfirm` → `<mt-modal>` in browser, `tg.showConfirm` in Telegram) runs after first paint and never blocks the visible shell, then `AppBackButton.setup()`, then `handleDeepLinks()`.
+19. `features/bootstrap.js` — **must be last**. Runs `checkAuth()`, then `mountCanonicalBottomNav()` (filters `WGBottomNav.DEFAULT_ITEMS` by `window.featureSettings`, mounts the nav into `#app`, and registers an AppKernel module so `switchTab()` mirrors into `ctrl.setActive()`), then the initial `switchTab('today')`, then schedules `maybeUpdateTimezone()` via `queueMicrotask` so the TZ-mismatch prompt (`safeConfirm` → messenger adapter or `<mt-modal>`) runs after first paint and never blocks the visible shell, then `AppBackButton.setup()`, then `handleDeepLinks()`.
 
 ## Global Namespace Policy
 
-All explicit `window.*` assignments are tracked in `tests/architecture.globals.test.js`. Adding a new global requires updating the allowlist with a justification.
+All explicit `window.*` assignments are tracked in `web/static/js/tests/architecture.globals.test.js`. Adding a new global requires updating the allowlist with a justification.
 
 | Global | Source | Consumed by |
 |--------|--------|-------------|
@@ -246,7 +220,6 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.ChartUtils` | `core/chart-utils.js` | bp.js, weight.js, health.js |
 | `window.ModalManager` | `core/modal-manager.js` | app.js |
 | `window.apiCallDirect` | `core/api.js` | data-store.js (change polling) |
-| `window.userInitData` | `app.js` | feature files (bp.js, weight.js) |
 | `window.weightUnitPreference` | `app.js` (hydrated from `/api/bootstrap`) | `features/weight.js`, `features/today.js`, `core/utils.js`; `'kg'` or `'lb'`, written back via `PATCH /api/settings/weight-unit` |
 | `window.onDataStoreUnauthorized` | `app.js` | data-store.js callback |
 | `window.requestTabRefresh` | `app.js` | data-store.js change detection |
@@ -257,9 +230,6 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.SyncManager` | `sync.js` | features/bootstrap.js |
 | `window.offlineAwareApiCall` | `sync.js` | core/api.js |
 | `window.SyncDebug` | `sync.js` | dev diagnostics |
-| `window.MedTrackerPush` | `push.js` | app.js |
-| `window.initServiceWorker` | `app-shell.js` | index.html inline |
-| `window.showUpdateToast` | `app-shell.js` | service worker message |
 | `window.TodayDashboard` | `features/today.js` | `features/today-loader.js` `_todayRender()` |
 | `window.TodayLoader` | `features/today-loader.js` | app.js `switchTab()` / `reloadCurrentTab()` (`loadToday`), `features/meds-history.js` (`fetchNextIntakePayload`), `features/food/*.js` + `features/auth-bootstrap.js` (`todayFoodKey`) |
 | `window.MedsHistory` | `features/meds-history.js` | app.js medication/notification bindings (arrow wrappers), `features/meds.js` (`typeof`-guarded optimistic helpers) |
@@ -284,6 +254,7 @@ All explicit `window.*` assignments are tracked in `tests/architecture.globals.t
 | `window.cachedFetch` | `cached-fetch.js` | `features/today-loader.js` (Today next_intake), `features/food.js` (daily log + products) |
 | `window.OfflineNoCacheError` | `cached-fetch.js` | same consumers as `cachedFetch` (catch-and-render-empty-state branch) |
 | `window.MediaCapture` | `native/index.js` (web impl registers) | `features/food/photo.js`, `features/food/scanner.js` |
+| `window.MessengerAdapter` | `core/messenger-adapter.js` | `core/utils.js` (alerts/confirms), `features/back-button.js`, `features/deeplink-router.js` (start param) |
 | `window.Barcode` | `native/index.js` (web impl registers) | `features/food/scanner.js` |
 
 ## Design Tokens
@@ -322,21 +293,21 @@ Every new `.wg-*` CSS class block must source its colors/gradients/shadows from 
 The app uses the Wandergeek **bottom nav** as the canonical navigation surface, with **Today** as the root of the back stack. Every real section has its own first-class slot — there is no "More" aggregator.
 
 - **Bottom nav** (`components/wg-bottom-nav.js`, exposes `window.WGBottomNav`): `WGBottomNav.mount(rootEl, { items, active, onChange })` renders an absolute-positioned nav with one gloss tile per section. Canonical order via `WGBottomNav.DEFAULT_ITEMS` (frozen): row 1 `today, bp, food, meds`, row 2 `health, workouts, weight, settings` (8 slots). Gamification ("Journey") is intentionally **not** a nav slot — it is reached from the Today dashboard rings tile (deeplink → `switchTab('journey')`). The `health` slot renders with the label "Vitals"; its internal id stays `health` for deeplink + localStorage stability (URLs like `#health`, the `mt-health-*` storage keys, and the `health` feature-flag key all continue to resolve). Layout is driven by `items.length`: ≤5 → one row, 6–10 → two rows of `Math.ceil(n/2)` columns (the default 8 slots lay out 4/4), >10 throws `RangeError`. Column count is set via the `--wg-nav-cols` CSS variable on the inner grid (the only inline style allowed in the component, allowlisted in `architecture.design-tokens.test.js`). Mounted from `features/bootstrap.js` via `mountCanonicalBottomNav()` before the initial `switchTab('today')`; `DEFAULT_ITEMS` is filtered against `window.featureSettings` (order-preserving `.filter()`) so disabled sections are hidden from the nav without shifting the remaining slots. Slot clicks route through `switchTab(id)`.
-- **Nav ↔ active-tab sync** (`core/app-kernel.js`): `switchTab(tab)` in `app.js` fires `window.AppKernel.onTabSwitch(tab)` after activating the view. `mountCanonicalBottomNav` registers a module whose `onTabSwitch` calls `ctrl.setActive(tab)`, so the nav mirrors whichever tab is active (including deep-link entry points and Telegram BackButton pops). Calling `setActive()` on the already-active button is a no-op.
+- **Nav ↔ active-tab sync** (`core/app-kernel.js`): `switchTab(tab)` in `app.js` fires `window.AppKernel.onTabSwitch(tab)` after activating the view. `mountCanonicalBottomNav` registers a module whose `onTabSwitch` calls `ctrl.setActive(tab)`, so the nav mirrors whichever tab is active (including deep-link entry points and back-button pops). Calling `setActive()` on the already-active button is a no-op.
 - **Icon registry** (`components/wg-icons.js`, exposes `window.WGIcons`): `iconSvg(name, { size, stroke })` returns a fresh `<svg>` element for a stroke-icon by name (`home, activity, apple, pill, scale, dumbbell, heart, settings`, plus a few extras). Unknown names throw. Used by the bottom nav and any future toolbar/tile icons — **do not hardcode inline SVG markup in feature code**.
 - **Phone chrome** (`components/wg-phone-chrome.js`, exposes `window.WGPhoneChrome`): `WGPhoneChrome.mount(rootEl)` / `WGPhoneChrome.create()` wrap an element in the `.wg-phone` shell (status bar + dynamic island + home indicator). Built and tested as a primitive but **not yet mounted in the runtime** — `index.html` does not load it and `bootstrap.js` does not call `mount()`. It ships for the Phase 3+ screen reskins that will wrap individual views; until then the component is a primitive available to the design system only.
-- **No section headers**: screens sit directly on the teal stage — the `components/section-header.js` component and the `<div class="section-header-mount" data-title="…">` placeholders have been removed. The bottom-nav active pill is the sole screen indicator. The Telegram `BackButton` (see below) remains the only "go back" affordance on non-Today views.
-- **Telegram WebApp BackButton** (`features/back-button.js`, exposes `window.AppBackButton`): `setupAppBackButton()` is called from `features/bootstrap.js` after the initial tab activates. It owns the single Telegram `BackButton.onClick` handler: if a modal is open it calls `ModalManager.closeTopMostVisibleModal()`; otherwise it returns to Today via `switchTab('today')`. Visibility tracks `currentTab` via `AppStore.subscribe('currentTab')` — shown on any non-Today view, hidden on Today. Tapping a nav slot is a lateral jump (no back stack); tapping into a deep view from a card creates a back stack.
+- **No section headers**: screens sit directly on the teal stage — the `components/section-header.js` component and the `<div class="section-header-mount" data-title="…">` placeholders have been removed. The bottom-nav active pill is the sole screen indicator. The back button (see below) remains the only "go back" affordance on non-Today views.
+- **Back button** (`features/back-button.js`, exposes `window.AppBackButton`): `setupAppBackButton()` is called from `features/bootstrap.js` after the initial tab activates. All interactions go through `window.MessengerAdapter` (in-app chevron + `popstate` in the browser PWA): if a modal is open it closes the topmost modal; otherwise it returns to Today via `switchTab('today')`. Visibility tracks the current tab — shown on any non-Today view, hidden on Today. Tapping a nav slot is a lateral jump (no back stack); tapping into a deep view from a card creates a back stack.
 - **`tab_order` persistence**: the `tab_order` array in `settings_bundle` and the `POST /api/settings/tab-order` endpoint are still read/written, but the Wandergeek Today layout is fixed (shortcut row → metric grid → food card → workout/sleep row → meds card) and `renderToday()` does not consume `opts.cardOrder` — the stored preference is inert until a reorderable surface lands. Bottom nav order is **not** user-reorderable either.
 - **Sub-tab groups inside section views** (`.med-tabs`, `.workout-tabs`, `.health-tabs`): use `bindTabGroup()` / `activateTabGroup()`. Meds sub-tabs are History (default) / Schedule / Inventory; Workouts sub-tabs are History / Plans / Exercises / Stats (the "Plans" label keeps the internal `data-tab="groups"` id); Health sub-tabs are Overview (charts) / Notes (diary, loads lazily). Food sub-tabs (`.food-tabs` / `.wg-food-subtabs`) are Log (default) / Food DB — reinstated by med-ejq.3 to replace the collapsible `#food-library-view` accordion; the meals pane went away with it. Food is the one section whose sub-tab has **no storage key**: the markup ships with Log active so a fresh load always opens on the log, but an in-session switch to Food DB stays put across section re-entry — the pane class lives in the DOM and `switchTab('food')` only re-runs `loadFoodLogs()`. Daily vs Weekly is a separate in-card segmented toggle inside `#food-macros-card`. Sub-tab state persists under `mt-<section>-subtab` — `mt-meds-subtab` (values `schedule` / `history` / `inventory`, **default `history`**) uses `sessionStorage` so every fresh launch lands on History regardless of prior in-session picks (round-2 Task 4); legacy `localStorage['mt-meds-subtab']` values are purged on module load. `mt-workouts-subtab` (values `history` / `groups` / `exercises` / `stats`) and `mt-health-subtab` (values `overview` / `notes`) still use `localStorage`. Range selectors use `localStorage` with the same key convention: `mt-bp-range` (values `14` / `30` / `60`, **default `14`** — round-2 Task 2), `mt-weight-range` / `mt-workouts-stats-range` (values `7d` / `30d` / `90d` / `all`, default `30d`), and `mt-health-range` (values `7d` / `30d`, default `7d`).
 - **Food screen shell**: `#food-view.view.wg-screen-stage` mirrors the BP backdrop. The day navigator sits at the top of `#food-view` and carries an inline `#add-food-inline-btn` sun-gloss "+ Add" pill next to the chevron row; the macros card below it exposes the Daily/Weekly segmented toggle. Round-2 Task 3 removed the previous sticky `.wg-food-cta-dock` at the bottom of `#food-log-tab`; the inline header pill is now the only Add-food entry point, matching `.local/design-reference/project/screens.jsx` FoodScreen.
 - **Gamification surfaces** (`features/journey.js`, `window.Gamification`, gated on the `gamification` feature flag): three surfaces render the Plan 1/2 gamification backend. (1) The **Journey screen** (`#journey-view.view.wg-screen-stage`; **not** a bottom-nav slot — reached only from the Today rings tile via `switchTab('journey')`) reads `GET /api/gamification/journey` via `cachedFetch` (cache key `gamification`, tag `gamification`, 6h stale window) and renders, with `--wg-*` tokens / `.wg-journey-*` classes only: a level badge + lifetime HP + sun progress bar to next level, current/longest streak + freezes, the five domain rings (a **"N of 5 closed"** label + per-ring how-to-fill subtitle + a check on closed rings, gloss-inset bars scaled against the day's leader), a **points-history** card (the trailing `hp_history` rendered as a `WGSparkline` trend + summed caption; omitted when no HP has been earned), and the insight-ladder rows L1–L4 (locked/unlocked from `unlocked_tiers`). `OfflineNoCacheError` renders an explicit empty state; a `WGStaleBadge` freshness chip mounts via `mountFromKey`. (2) The **Today rings widget** is a `gamificationRingsCell(rings, enabled)` tile in `features/today.js` (the card deep-links to `journey`), fed by a `gamification_rings` Today fetch spec (`GET /api/gamification/rings`); it is `disabled` when the flag is off (or the payload's own `enabled:false`), `missing` with no data. It headlines **"N of 5 rings closed"** (a ring is "closed" when the payload's per-ring `closed:true` says it earned a non-floor outcome/consistency award today), check-marks each closed ring row, and surfaces a single **"your move"** prompt — the first open ring in canonical order (`RING_MOVE_META`), a tappable line that deep-links to *that ring's* section (`meds`/`workouts`/`bp`/`food`/`health`) and `stopPropagation`s so it doesn't trigger the card's Journey deep-link. All rings closed → a non-actionable celebration line. (3) The **Settings targets editor** (`#gamification-targets-settings`, gated by `updateGamificationTargetsVisibility()`) edits the 6 band metrics (`bp_systolic`, `bp_diastolic`, `resting_hr`, `stress`, `sleep_hours`, `steps`) the backend honors; `features/settings.js` populates it from `GET /api/gamification/targets` and saves via `DataStore.applyOptimistic('gamification', …)` → `PUT /api/gamification/targets` with `commit`/`rollback` (Critical Rule #9).
-- **Accessibility**: the bottom nav uses `<nav>` with each slot as a `<button aria-current="page">` when active. Screens have no top-level header element — the bottom-nav active pill is the screen indicator and the Telegram BackButton (`aria-label="Back to Today"` when shown) handles upward navigation. No `role="tablist"` anywhere — navigation is landmark-based, not tab-widget-based.
-- **Deep-link router** (`features/deeplink-router.js`, `window.handleDeepLinks`): URL hash and `tgWebAppStartParam` still route to any section by name (including `health`, which renders under the "Vitals" nav label). Deep links land directly on the section with the bottom nav highlighting it and the Telegram BackButton visible, bypassing Today.
+- **Accessibility**: the bottom nav uses `<nav>` with each slot as a `<button aria-current="page">` when active. Screens have no top-level header element — the bottom-nav active pill is the screen indicator and the back chevron (`aria-label="Back"`) handles upward navigation. No `role="tablist"` anywhere — navigation is landmark-based, not tab-widget-based.
+- **Deep-link router** (`features/deeplink-router.js`, `window.handleDeepLinks`): URL hash and messenger start param route to any section by name (including `health`, which renders under the "Vitals" nav label). Deep links land directly on the section with the bottom nav highlighting it and the back button visible, bypassing Today.
 
 ## Data Flow
 
-Cross-client invalidation is SSE-first: `data-store.js` opens an EventSource against `/api/changes/stream` and falls back to 30s `/api/changes?since=` polling only after 3 consecutive `onerror` events within 30s (or when `EventSource` is undefined). See [Change Detection](#change-detection) above.
+Cross-device state converges through the encrypted vault sync (`web/cloud/js/sync.js` pulls on open and after writes); screens repaint from the `datastore:changed` event after optimistic writes, and from `invalidateTags` refreshes otherwise.
 
 ### Write path
 
@@ -346,7 +317,7 @@ User Action (e.g., log BP reading)
        ▼
 offlineAwareApiCall()          ← Layer 3 (sync.js)
        │
-       ├── Online? ──→ POST /api/bp ──→ Server ──→ SQLite
+       ├── Online? ──→ POST /api/bp ──→ apishim ──→ vault
        │                    │
        │                    └── Success → invalidate SWR cache (Layer 4)
        │
@@ -386,19 +357,19 @@ The frontend test suite (`web/static/js/tests/*.test.js`, run via `pnpm test`) i
 Rules for adding tests:
 
 - **Default to integration.** A new test for a feature behavior belongs in that feature's existing suite (`features.<topic>.test.js` or `<feature>.<aspect>.test.js`, e.g. `bp.render.test.js`, `meds.history.test.js`, `food.modal.test.js`). Extend an existing `describe` block before creating a new file.
-- **Pure-unit tests are reserved for layers without an integration entry point.** Acceptable: web components (`components.wg-*.test.js`), the Dexie/IndexedDB layer (`db.*.test.js`), the service worker (`sw-*.test.js`), the sync engine (`sync.manager-flow.test.js`, `sync.retry.test.js`), the cached-fetch primitive (`cached-fetch.*.test.js`), and the cross-cutting bootstrap path (`bootstrap.*.test.js`). Anywhere else, prefer the integration entry point.
+- **Pure-unit tests are reserved for layers without an integration entry point.** Acceptable: web components (`components.wg-*.test.js`), the Dexie/IndexedDB layer (`db.*.test.js`), the sync engine (`sync.manager-flow.test.js`, `sync.retry.test.js`), the cached-fetch primitive (`cached-fetch.*.test.js`), and the cross-cutting bootstrap path (`bootstrap.*.test.js`). Anywhere else, prefer the integration entry point.
 - **Do not add coverage-driven tests.** Files named `*-branches`, `*-edges`, `*-characterization`, `*-extended`, or otherwise written to lift coverage numbers (rather than to pin a real user-visible behavior) are not added. The 2026-05 prune removed the existing ones; they made the suite brittle without catching regressions the integration suites already caught.
 - **No standalone "pin defect #N" or task-stamp files.** A regression for a fixed bug is added as one more `it()` in the owning feature suite, not as `<feature>.<defect-name>-removed.test.js` or `<view>.task<N>.test.js`. The pinned assertion travels with the rest of the feature's coverage and stays discoverable when the feature is rewritten.
 - **Parameterize structurally identical suites.** When several modal/section tests differ only by selectors and ids (the original 11 `modals.*.header-actions.test.js` files were the canonical example), collapse them into one `describe.each([...])` table. The consolidated `modals.header-actions.test.js` is the reference.
-- **Architecture tests stay narrow.** `architecture.*.test.js` files pin invariants the human reviewer cannot eyeball (globals allowlist, design-token usage, SW precache contents, MCP coverage, etc.). They are not a place to assert feature behavior.
+- **Architecture tests stay narrow.** `architecture.*.test.js` files pin invariants the human reviewer cannot eyeball (globals allowlist, design-token usage, MCP coverage, etc.). They are not a place to assert feature behavior.
 
 File-naming conventions that survived the prune:
 
 | Pattern | Purpose |
 |---------|---------|
-| `architecture.*.test.js` | Repo-wide invariants — globals, design tokens, SW precache, MCP coverage, offline-coverage allowlist |
+| `architecture.*.test.js` | Repo-wide invariants — globals, design tokens, MCP coverage, offline-coverage allowlist |
 | `components.wg-*.test.js` | Web-component unit tests (one file per `<wg-*>` element) |
 | `features.*.test.js` | Cross-feature integration suites that boot the harness and exercise multiple modules together |
 | `<feature>.<aspect>.test.js` | Per-feature integration suites — `bp.render`, `meds.history`, `weight.history`, `food.modal`, `workout.next`, `today.subscribe`, etc. One file per feature × aspect, not per task or defect. |
 | `modals.header-actions.test.js` | The single parameterized suite covering header-action wiring across every modal. New modals add a row to its `describe.each` table — they do not add a new file. |
-| `db.*`, `sw-*`, `cached-fetch.*`, `data-store.*`, `sync.*`, `bootstrap.*` | Cross-cutting infra layers without an integration entry point — pure-unit tests live here. |
+| `db.*`, `cached-fetch.*`, `data-store.*`, `sync.*`, `bootstrap.*` | Cross-cutting infra layers without an integration entry point — pure-unit tests live here. |
