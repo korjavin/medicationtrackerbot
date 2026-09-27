@@ -272,13 +272,28 @@ function _sinceMonday(ms) {
     return (new Date(ms).getUTCDay() + 6) % 7;
 }
 
-function _buildActivityCalendar(daily, range) {
+// med-ouzf: the ONE "today" anchor both Stats surfaces share. The payload's
+// `today` is the domain's current calendar day in the CONFIGURED timeZone —
+// the same zone the buckets were computed in — so the grid and the caption
+// agree with them even when the browser-local day differs (a few hours around
+// a Sunday midnight). Absent or malformed (a payload cached before the domain
+// emitted it) falls back to the browser-local day, the historical behavior.
+function _statsTodayMs(today) {
+    if (typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today)) {
+        const ms = Date.parse(`${today}T00:00:00Z`);
+        if (Number.isFinite(ms)) return ms;
+    }
+    const local = new Date();
+    return Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
+}
+
+function _buildActivityCalendar(daily, range, today) {
     const entries = new Map((daily || []).map((d) => [d.date, d]));
 
-    // Anchor "today" as a UTC midnight built from the LOCAL calendar day, so
-    // every step below is plain ms arithmetic that can't drift a timezone.
-    const local = new Date();
-    const todayMs = Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
+    // Anchor "today" as a UTC midnight so every step below is plain ms
+    // arithmetic that can't drift a timezone. The anchor is the DOMAIN's day
+    // (med-ouzf), browser-local only as a cached-payload fallback.
+    const todayMs = _statsTodayMs(today);
     // Grid ends on the Sunday of the current week so the top row is whole.
     const endMs = todayMs + (6 - _sinceMonday(todayMs)) * DAY_MS;
 
@@ -396,18 +411,14 @@ function _buildActivityCalendar(daily, range) {
 // Week-over-week caption under the Load chart (med-djsa.5). Compares the last
 // two COMPLETE ISO weeks — the current Monday's bucket is partial until Sunday,
 // and counting it would report a drop every Tuesday for someone training exactly
-// as usual (the honesty rule med-904.3 applied to the hard-set band). Presentation
-// tier like _computeMovementSets: a two-entry subtraction on a payload the view
-// already holds, not a domain field.
-function _buildWeekOverWeek(weekly) {
-    // Same browser-local-day anchor as _buildActivityCalendar, for the same
-    // reason: every step below is then plain ms arithmetic that can't drift a
-    // timezone. It can disagree with the domain's configured-timezone bucketing
-    // for a few hours around a Sunday midnight when the two differ — the
-    // calendar grid has always had that property, and closing it would mean a
-    // new domain field this tier is explicitly not allowed to add.
-    const local = new Date();
-    const todayMs = Date.UTC(local.getFullYear(), local.getMonth(), local.getDate());
+// as usual (the honesty rule med-904.3 applied to the hard-set band).
+// Presentation tier like _computeMovementSets: a two-entry subtraction on a
+// payload the view already holds, bucketed against its `today` (med-ouzf).
+function _buildWeekOverWeek(weekly, today) {
+    // The shared anchor (med-ouzf): the domain's day when the payload carries
+    // it, browser-local only for cached payloads — so the caption and the grid
+    // always agree about which week is current.
+    const todayMs = _statsTodayMs(today);
     const monday = (ms) => new Date(ms).toISOString().slice(0, 10);
     const currentMondayMs = todayMs - _sinceMonday(todayMs) * DAY_MS;
     const currentMonday = monday(currentMondayMs);
@@ -634,7 +645,7 @@ function _buildHardSetHeadline(band) {
 // body-part split moved out entirely — the Balance view owns it now, and
 // rendering it in both was leftover duplication.
 function _renderConsistencyView(section, stats, range) {
-    section.appendChild(_buildActivityCalendar(stats.daily_activity, range));
+    section.appendChild(_buildActivityCalendar(stats.daily_activity, range, stats.today));
 
     // Every tile except Streak is scoped to the active range (the domain
     // computes them from the `range` query param); Streak is whole-history by
@@ -682,7 +693,7 @@ function _renderLoadView(section, stats, range) {
     }));
     section.appendChild(_buildLegend('volume', 'Volume · per week'));
 
-    const wow = _buildWeekOverWeek(weekly);
+    const wow = _buildWeekOverWeek(weekly, stats.today);
     if (wow) section.appendChild(wow);
 
     section.appendChild(_buildTileGrid([

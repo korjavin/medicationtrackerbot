@@ -27,6 +27,22 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         expect(stats.top_exercises).toBeNull();
     });
 
+    // med-ouzf — the payload carries the domain's current day in the
+    // CONFIGURED timeZone, which the Stats surfaces anchor on instead of the
+    // browser-local day.
+    it('stats emits today in the configured timeZone', async () => {
+        // 00:30 UTC on Sunday the 27th: still Saturday the 26th in New York.
+        const NOW = Date.parse('2026-09-27T00:30:00Z');
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true, now: () => NOW, timeZone: 'America/New_York' });
+        expect((await env.window.apiCallDirect('/api/workout/stats')).today).toBe('2026-09-26');
+    });
+
+    it('stats emits today in UTC when that is the configured timeZone', async () => {
+        const NOW = Date.parse('2026-09-27T00:30:00Z');
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true, now: () => NOW, timeZone: 'UTC' });
+        expect((await env.window.apiCallDirect('/api/workout/stats')).today).toBe('2026-09-27');
+    });
+
     it('stats aggregates a completed ad-hoc session into totals, heatmap, and top_exercises', async () => {
         env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
         const { window } = env;
