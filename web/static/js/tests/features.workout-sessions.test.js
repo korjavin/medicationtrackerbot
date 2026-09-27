@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
+import { achievableLoads, loadingFor, nearestLoads } from '../../../../web/domain/equipment.js';
 
 // Wires a Map-backed ApiCache into the env so DataStore.applyOptimistic
 // reads/writes are observable to the test. Returns the underlying Map and a
@@ -2188,5 +2189,226 @@ describe('features/workout/modals.js — workout start modal flow', () => {
       expect(cached.session.id).toBe(90);
       expect(cached.session.status).toBe('pending');
     }
+  });
+});
+
+// med-v75c.2 — active-workout plate-loading chip: one glyph + text per
+// exercise card, solved from the bound equipment for the working weight,
+// with a nearest-achievable fallback and its delta. The real domain math
+// (loadingFor / nearestLoads) is injected through the same namespace seam
+// production uses, so the harness never resolves the module URL.
+describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () => {
+  let env;
+  let consoleErrorSpy;
+
+  const BAR8 = {
+    id: 3, kind: 'plated', name: 'Short bar', bar_kg: 8, sides: 2, pair: false,
+    plates: [{ kg: 15, count: 2 }, { kg: 10, count: 2 }, { kg: 5, count: 2 }, { kg: 2, count: 2 }, { kg: 1.25, count: 2 }],
+  };
+  BAR8.loads_kg = achievableLoads(BAR8);
+  const KB4 = {
+    id: 4, kind: 'plated', name: 'Loadable KB', bar_kg: 4, sides: 1, pair: false,
+    plates: [{ kg: 2, count: 3 }, { kg: 1, count: 2 }],
+  };
+  KB4.loads_kg = achievableLoads(KB4);
+  const FIXED_KBS = { id: 5, kind: 'fixed', name: 'KBs', loads_kg: [8, 16, 24] };
+
+  const ROWS = [{ id: 101, exercise_name: 'Bench press', exercise_library_id: 11, target_sets: 3, target_reps_min: 5, target_weight_kg: 72 }];
+  const libFor = (equipmentId) => [{ id: 11, name: 'Bench press', equipment_id: equipmentId }];
+
+  const chipSession = (over) => ({
+    id: 77, variant_id: 30, variant_name: 'Push Day', group_name: 'PPL',
+    status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00',
+    started_at: '2026-04-22T09:05:00Z', completed_at: null, duration_minutes: 42,
+    ...over,
+  });
+  const chipLog = (over) => ({
+    id: 1, exercise_id: 101, exercise_name: 'Bench press',
+    sets_completed: 3, reps_completed: 5, weight_kg: 72, notes: '', status: 'completed',
+    ...over,
+  });
+
+  async function openChipSession(window, { logs, session, rows, lib, inventory, equipmentFallback } = {}) {
+    const sess = session || chipSession();
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (String(endpoint).startsWith('/api/workout/sessions/details')) return { session: sess, logs: logs || [chipLog()] };
+      if (String(endpoint).includes('/api/workout/exercises?variant_id=')) return rows || ROWS;
+      if (endpoint === '/api/workout/exercise-library') return lib || libFor(3);
+      if (endpoint === '/api/workout/equipment') return equipmentFallback === undefined ? (inventory || [BAR8]) : equipmentFallback;
+      return [];
+    });
+    window.WorkoutEquipment.list = async () => (inventory || [BAR8]);
+    window.WorkoutGroups.loadEquipmentDomain = async () => ({ loadingFor, nearestLoads });
+    await window.showWorkoutSessionModal(sess.id);
+    // The chip attaches fire-and-forget; drain the stubbed hops.
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+  }
+
+  function firstCard(document) {
+    return document.getElementById('workout-session-logs')
+      .querySelector('.wg-workouts-session-exercise');
+  }
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    env = loadFrontendEnv({ withWorkout: true });
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+    try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+    env.cleanup();
+    env = null;
+  });
+
+  it('an exact 72 on the 8kg bar shows the glyph plus "8 + 15 · 10 · 5 · 2 / side"', async () => {
+    const { window, document } = env;
+    await openChipSession(window, {});
+
+    const card = firstCard(document);
+    const chip = card.querySelector('.wg-workouts-session-exercise__plates');
+    expect(chip).not.toBeNull();
+    // Mounted directly after the mono row.
+    expect(card.querySelector('.wg-workouts-session-exercise__mono').nextElementSibling).toBe(chip);
+
+    const svg = chip.querySelector('svg.wg-plates');
+    expect(svg).not.toBeNull();
+    expect(svg.getAttribute('role')).toBe('img');
+    // 4 plate rects per side; the sleeve is a line, never a rect.
+    expect(svg.querySelectorAll('rect').length).toBe(8);
+    expect(svg.querySelectorAll('rect.wg-plates__plate').length).toBe(8);
+    expect(svg.querySelectorAll('line.wg-plates__sleeve').length).toBe(1);
+    expect(svg.querySelectorAll('text.wg-plates__label').length).toBe(8);
+    expect(chip.querySelector('.wg-plates__text').textContent).toBe('8 + 15 · 10 · 5 · 2 / side');
+    expect(chip.querySelector('.wg-plates__delta')).toBeNull();
+    // Rule 3: geometry attributes only — no paint in the emitted markup.
+    expect(chip.outerHTML).not.toMatch(/fill=|stroke=|style=/);
+  });
+
+  it('an unreachable 73 shows the 72 loading plus a "-1 kg" delta', async () => {
+    const { window, document } = env;
+    await openChipSession(window, { logs: [chipLog({ weight_kg: 73, reps_completed: 5 })] });
+
+    const chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
+    expect(chip).not.toBeNull();
+    expect(chip.querySelector('svg.wg-plates')).not.toBeNull();
+    expect(chip.querySelectorAll('rect').length).toBe(8);
+    expect(chip.querySelector('.wg-plates__text').textContent).toBe('8 + 15 · 10 · 5 · 2 / side');
+    expect(chip.querySelector('.wg-plates__delta').textContent).toBe('72 kg (-1 kg)');
+  });
+
+  it('a below-bar 5 renders no svg and no crash', async () => {
+    const { window, document } = env;
+    await openChipSession(window, { logs: [chipLog({ weight_kg: 5 })] });
+
+    const card = firstCard(document);
+    const chip = card.querySelector('.wg-workouts-session-exercise__plates');
+    expect(chip).not.toBeNull();
+    expect(chip.querySelector('svg')).toBeNull();
+    expect(chip.querySelector('.wg-plates__text').textContent).toBe('below bar (8 kg)');
+    expect(card.querySelector('.wg-workouts-session-exercise__mono').textContent).toBe('3 × 5 · 5 kg');
+  });
+
+  it('a plate-loaded kettlebell draws one stack with no "/ side"', async () => {
+    const { window, document } = env;
+    await openChipSession(window, {
+      logs: [chipLog({ exercise_name: 'KB press', weight_kg: 9 })],
+      lib: libFor(4),
+      inventory: [KB4],
+    });
+
+    const chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
+    expect(chip).not.toBeNull();
+    const svg = chip.querySelector('svg.wg-plates');
+    expect(svg).not.toBeNull();
+    expect(svg.querySelectorAll('rect').length).toBe(3);
+    expect(chip.querySelector('.wg-plates__text').textContent).toBe('4 + 2 · 2 · 1');
+    expect(chip.textContent).not.toContain('/ side');
+  });
+
+  it('fixed gear shows a text-only nearest one-liner off-rung, nothing on-rung', async () => {
+    const { window, document } = env;
+    await openChipSession(window, {
+      logs: [chipLog({ exercise_name: 'KB swing', weight_kg: 20 })],
+      lib: libFor(5),
+      inventory: [FIXED_KBS],
+    });
+
+    const chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
+    expect(chip).not.toBeNull();
+    expect(chip.querySelector('svg')).toBeNull();
+    // 20 sits halfway between 16 and 24 — the tie goes below.
+    expect(chip.querySelector('.wg-plates__text').textContent).toBe('nearest: 16 kg');
+
+    // A stocked load needs no chip at all.
+    await openChipSession(window, {
+      logs: [chipLog({ exercise_name: 'KB swing', weight_kg: 16 })],
+      lib: libFor(5),
+      inventory: [FIXED_KBS],
+    });
+    expect(firstCard(document).querySelector('.wg-workouts-session-exercise__plates')).toBeNull();
+  });
+
+  it('an unbound exercise gets no chip node at all', async () => {
+    const { window, document } = env;
+    await openChipSession(window, { lib: libFor(null) });
+
+    const card = firstCard(document);
+    expect(card.querySelector('.wg-workouts-session-exercise__plates')).toBeNull();
+    expect(card.querySelector('.wg-workouts-session-exercise__mono').textContent).toBe('3 × 5 · 72 kg');
+  });
+
+  it('a rejected equipment read leaves the cards exactly as today', async () => {
+    const { window, document } = env;
+    const sess = chipSession();
+    const logs = [chipLog(), chipLog({ id: 2, exercise_id: 101, exercise_name: 'Bench press (2)' })];
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (String(endpoint).startsWith('/api/workout/sessions/details')) return { session: sess, logs };
+      if (String(endpoint).includes('/api/workout/exercises?variant_id=')) return ROWS;
+      if (endpoint === '/api/workout/exercise-library') return libFor(3);
+      return null;
+    });
+    window.WorkoutEquipment.list = async () => { throw new Error('offline'); };
+    window.WorkoutGroups.loadEquipmentDomain = async () => ({ loadingFor, nearestLoads });
+    await window.showWorkoutSessionModal(sess.id);
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    const cards = document.getElementById('workout-session-logs')
+      .querySelectorAll('.wg-workouts-session-exercise');
+    expect(cards.length).toBe(2);
+    cards.forEach((card) => {
+      expect(card.querySelector('.wg-workouts-session-exercise__plates')).toBeNull();
+    });
+    expect(cards[0].querySelector('.wg-workouts-session-exercise__mono').textContent).toBe('3 × 5 · 72 kg');
+  });
+
+  it('editing a set weight re-solves the chip', async () => {
+    const { window, document } = env;
+    await openChipSession(window, {});
+
+    let card = firstCard(document);
+    expect(card.querySelector('.wg-plates__delta')).toBeNull();
+
+    // The cached gear re-solves synchronously with the mono line.
+    window.updateLocalSet(0, 0, 'weight_kg', '73');
+
+    card = firstCard(document);
+    expect(card.querySelector('.wg-workouts-session-exercise__mono').textContent).toBe('3 × 5 · 73 kg');
+    const chips = card.querySelectorAll('.wg-workouts-session-exercise__plates');
+    expect(chips.length).toBe(1);
+    expect(chips[0].querySelector('.wg-plates__text').textContent).toBe('8 + 15 · 10 · 5 · 2 / side');
+    expect(chips[0].querySelector('.wg-plates__delta').textContent).toBe('72 kg (-1 kg)');
+  });
+
+  it('an lb preference labels the plate line as kg', async () => {
+    const { window, document } = env;
+    window.weightUnitPreference = 'lb';
+    await openChipSession(window, {});
+
+    const chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
+    expect(chip).not.toBeNull();
+    expect(chip.querySelector('.wg-plates__text').textContent).toBe('8 + 15 · 10 · 5 · 2 / side (kg)');
   });
 });

@@ -7496,6 +7496,53 @@ textarea.wg-input {
     letter-spacing: 0.04em;
 }
 
+/* Plate-loading chip (med-v75c.2): which plates to load for the card's
+   working weight. The svg geometry (x/y/width/height) arrives as attributes;
+   all paint resolves here via tokens — never fill/stroke attributes. */
+.wg-workouts-session-exercise__plates {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-top: var(--space-xs);
+    flex-wrap: wrap;
+}
+
+.wg-plates {
+    display: block;
+    height: 36px;
+    width: auto;
+}
+
+.wg-plates__sleeve {
+    stroke: var(--wg-fg-3);
+    stroke-width: 1.5;
+}
+
+.wg-plates__plate {
+    fill: var(--wg-bg-card-inset);
+    stroke: var(--wg-fg-3);
+    stroke-width: 1.5;
+}
+
+.wg-plates__label {
+    fill: var(--wg-fg-2);
+    font-size: 7px;
+    text-anchor: middle;
+    font-family: var(--wg-font-mono);
+}
+
+.wg-plates__text {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-2);
+}
+
+.wg-plates__delta {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-4);
+}
+
 .wg-workouts-session-exercise__hint {
     font-size: var(--font-size-xs);
     color: var(--wg-fg-4);
