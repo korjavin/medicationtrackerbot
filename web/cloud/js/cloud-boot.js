@@ -238,6 +238,13 @@ window.MedTrackerCloudReady = (async function boot() {
             const { resetLocalSync } = await import('/js/sync.js');
             await resetLocalSync(ctx);
         },
+        async getInboxUnopenableCount() {
+            // med-0tp: Settings reads the last drain's un-openable seal count so
+            // a "Queued" command stuck on a superseded device key is visible, with
+            // the reset escape hatch right next to it. Lazy import like resetLocalSync.
+            const { getUnopenableCount } = await import('/js/inbox.js');
+            return getUnopenableCount();
+        },
     };
 
     // --- Post-unlock boot. The vault is unlocked; from here on any failure

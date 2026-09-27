@@ -497,6 +497,28 @@ describe('CloudVault.resetLocalSync inbox-clear ordering (med-eas.51)', () => {
   });
 });
 
+describe('CloudVault.getInboxUnopenableCount (med-0tp)', () => {
+  // Settings surfaces the last drain's un-openable seal count above the reset
+  // escape hatch. Pin that CloudVault delegates to inbox.js's getter.
+  it('delegates to the inbox module getter', async () => {
+    const { window } = await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
+        'sync.js': {
+          pullOnOpen: async () => {},
+          startReconnectAutoDrain: () => () => {},
+          getSyncStatus: async () => ({ authExpired: false }),
+        },
+        'inbox.js': { clearInbox: async () => 0, getUnopenableCount: () => 3 },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+    await expect(window.CloudVault.getInboxUnopenableCount()).resolves.toBe(3);
+  });
+});
+
 describe('CloudVault.importAll data-loss guard (null cursor)', () => {
   // A full-vault import wipes the local store then re-inserts. If bootstrap
   // never reached the server (localLastSeq null), forceSnapshot no-ops (no

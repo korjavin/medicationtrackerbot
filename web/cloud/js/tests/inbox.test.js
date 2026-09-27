@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ackInboxEvent, drainInbox, ensureInboxKey, listInboxEvents, readInboxKey, startInboxEventStream, startInboxPolling } from '../inbox.js';
+import { ackInboxEvent, clearInbox, drainInbox, ensureInboxKey, getUnopenableCount, listInboxEvents, readInboxKey, startInboxEventStream, startInboxPolling } from '../inbox.js';
 import { inboxPublicFromPrivate, fromBase64, toBase64 } from '../crypto.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -316,6 +316,78 @@ describe('inbox.js — drainInbox', () => {
         expect(apply).toHaveBeenCalledTimes(1);
         expect(deleted).toEqual([8]); // the good one acked, the poison one kept queued
         err.mockRestore();
+    });
+
+    // med-0tp: the last drain's un-openable seal count is surfaced in Settings
+    // (above the reset escape hatch) so a "Queued" command stuck on a
+    // superseded device key is visible instead of silent.
+    describe('un-openable count for Settings', () => {
+        async function poisonMailbox() {
+            const records = await seededRecords();
+            const tampered = fromBase64(VECTOR.sealed_b64);
+            tampered[tampered.length - 1] ^= 0x01;
+            return { records, ...mailbox([{ id: 7, created_at_unix: 1, ct: toBase64(tampered) }]) };
+        }
+
+        it('records the un-openable count from a completed drain', async () => {
+            const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const { records, fetchImpl } = await poisonMailbox();
+            const res = await drainInbox(ctx, { apply: vi.fn(), records, fetchImpl, flush: async () => true });
+            expect(res.unopenable).toBe(1);
+            expect(getUnopenableCount()).toBe(1);
+            err.mockRestore();
+        });
+
+        it('resets to 0 on an empty mailbox', async () => {
+            const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const poisoned = await poisonMailbox();
+            await drainInbox(ctx, { apply: vi.fn(), records: poisoned.records, fetchImpl: poisoned.fetchImpl, flush: async () => true });
+            expect(getUnopenableCount()).toBe(1);
+            const { fetchImpl } = mailbox([]);
+            const res = await drainInbox(ctx, { apply: vi.fn(), records: await seededRecords(), fetchImpl, flush: async () => true });
+            expect(res).toEqual({ applied: 0, failed: 0 });
+            expect(getUnopenableCount()).toBe(0);
+            err.mockRestore();
+        });
+
+        it('leaves the count untouched when the drain never lists (wedged)', async () => {
+            const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const poisoned = await poisonMailbox();
+            await drainInbox(ctx, { apply: vi.fn(), records: poisoned.records, fetchImpl: poisoned.fetchImpl, flush: async () => true });
+            expect(getUnopenableCount()).toBe(1);
+            const { fetchImpl } = mailbox([]);
+            const res = await drainInbox(ctx, { apply: vi.fn(), records: await seededRecords(), fetchImpl, flush: async () => true, wedged: async () => true });
+            expect(res.wedged).toBe(true);
+            expect(getUnopenableCount()).toBe(1); // unknown, not zero
+            err.mockRestore();
+        });
+
+        it('leaves the count untouched on a leading stall (un-openable seals sort last)', async () => {
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const poisoned = await poisonMailbox();
+            await drainInbox(ctx, { apply: vi.fn(), records: poisoned.records, fetchImpl: poisoned.fetchImpl, flush: async () => true });
+            expect(getUnopenableCount()).toBe(1);
+            // A good event whose flush never confirms: leading stall, aborted
+            // before any un-openable seal would have been observed.
+            const { fetchImpl } = mailbox([{ id: 8, created_at_unix: 2, ct: VECTOR.sealed_b64 }]);
+            const res = await drainInbox(ctx, { apply: vi.fn(async () => {}), records: await seededRecords(), fetchImpl, flush: async () => false });
+            expect(res.stalled).toBe(true);
+            expect(getUnopenableCount()).toBe(1);
+            warn.mockRestore();
+            err.mockRestore();
+        });
+
+        it('resets to 0 when the backlog is cleared', async () => {
+            const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const poisoned = await poisonMailbox();
+            await drainInbox(ctx, { apply: vi.fn(), records: poisoned.records, fetchImpl: poisoned.fetchImpl, flush: async () => true });
+            expect(getUnopenableCount()).toBe(1);
+            const fetchImpl = vi.fn(async () => okJson({ cleared: 1 }));
+            await clearInbox({ fetchImpl });
+            expect(getUnopenableCount()).toBe(0);
+            err.mockRestore();
+        });
     });
 
     it('is a no-op when this account has no inbox key yet', async () => {

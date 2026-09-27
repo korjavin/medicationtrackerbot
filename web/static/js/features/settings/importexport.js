@@ -292,6 +292,36 @@
         }
     }
 
+    // Un-openable inbox seals (med-0tp). A drain that meets a seal for a device
+    // key this one does not have leaves it QUEUED forever for another device —
+    // the command sits at "Queued" with nothing in the UI saying why. Surface
+    // the last drain's count here, directly above the reset escape hatch that
+    // discards the backlog. Runs on every Settings open (load → bindControls);
+    // hidden when the count is 0 or the vault is not ready. Never throws.
+    async function refreshUnopenableNote() {
+        const note = el('importexport-inbox-unopenable-note');
+        if (!note) return;
+        let count = 0;
+        try {
+            if (window.CloudVault && typeof window.CloudVault.getInboxUnopenableCount === 'function') {
+                count = await window.CloudVault.getInboxUnopenableCount();
+            }
+        } catch (_) { count = 0; }
+        if (typeof count !== 'number' || count <= 0) {
+            note.hidden = true;
+            note.textContent = '';
+            return;
+        }
+        // Hedged on purpose (codex review): a corrupt seal or invalid-JSON
+        // payload counts as un-openable too, and no other device can drain
+        // those — but the superseded device key is the known mechanism, and the
+        // reset advice below holds either way.
+        note.textContent = count === 1
+            ? '1 message could not be opened on this device — it may have been sealed to a device key this one does not have. It stays queued for your other devices. Reset local sync (below) discards it along with any unsynced local changes.'
+            : `${count} messages could not be opened on this device — they may have been sealed to a device key this one does not have. They stay queued for your other devices. Reset local sync (below) discards them along with any unsynced local changes.`;
+        note.hidden = false;
+    }
+
     function bindControls() {
         // The .nxk endpoint lives on cmd/cloud; the control is always visible.
         const nxkGroup = el('importexport-nxk-group');
@@ -305,6 +335,7 @@
         // Reset local sync rebuilds the device from the server; always visible.
         const resetGroup = el('importexport-reset-sync-group');
         if (resetGroup) resetGroup.hidden = false;
+        refreshUnopenableNote();
         const resetBtn = el('importexport-reset-sync-btn');
         if (resetBtn && !resetBtn.dataset.bound) {
             resetBtn.dataset.bound = '1';
@@ -341,6 +372,7 @@
         export: doExport,
         import: doImport,
         importNxk: doNxkImport,
-        resetSync: doResetSync
+        resetSync: doResetSync,
+        refreshUnopenableNote
     };
 })();
