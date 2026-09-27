@@ -2352,6 +2352,8 @@ func TestChildWebhook_SealWakesInboxOncePerBurst(t *testing.T) {
 	}
 	sender := &fakeSender{}
 	relay := NewRelay(tgAPI.store, sender, nil, 0)
+	var trailing int
+	relay.after = func(d time.Duration, f func()) { trailing++ } // record, never fire
 	tgAPI.SetInboxWaker(relay.WakeInbox)
 
 	secret := childPath[strings.LastIndex(childPath, "/")+1:]
@@ -2364,6 +2366,11 @@ func TestChildWebhook_SealWakesInboxOncePerBurst(t *testing.T) {
 
 	if len(sender.sent) != 1 {
 		t.Fatalf("wake pushes = %d, want 1 for a three-message burst: %+v", len(sender.sent), sender.sent)
+	}
+	// med-j0tc: the burst's suppressed wakes schedule exactly one trailing
+	// wake at the cooldown boundary.
+	if trailing != 1 {
+		t.Fatalf("trailing wakes scheduled = %d, want 1", trailing)
 	}
 	var payload struct {
 		Kind  string `json:"kind"`

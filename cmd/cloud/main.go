@@ -257,7 +257,12 @@ func main() {
 	inviteAPI.RegisterRoutes(apiMux)
 	syncAPI.RegisterRoutes(apiMux)
 	pushAPI.RegisterRoutes(apiMux)
-	cloudserver.NewInboxAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
+	// One broker shared by the inbox stream handler and the relay: appends fanned
+	// out here reach every open unlocked tab as an SSE wake (bd med-j0tc).
+	inboxBroker := cloudserver.NewInboxBroker()
+	inboxAPI := cloudserver.NewInboxAPI(store, cfg.sessionSecret)
+	inboxAPI.SetEventBroker(inboxBroker)
+	inboxAPI.RegisterRoutes(apiMux)
 	cloudserver.NewVitalsImportAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
 	mcpRelayAPI.RegisterRoutes(apiMux)
 	mcpRemoteAPI.RegisterRoutes(apiMux)
@@ -331,6 +336,7 @@ func main() {
 		tgSender = tgAPI
 	}
 	relay := cloudserver.NewRelay(store, webPushSender, tgSender, cfg.dryQueueWarnHours)
+	relay.SetEventBroker(inboxBroker)
 	if tgAPI != nil {
 		// Wake the account's devices the instant a Telegram event is sealed
 		// (bd med-5fo), so a "⏳ Queued" reply becomes "✅ Recorded" without
@@ -382,6 +388,11 @@ func main() {
 		}
 	case <-ctx.Done():
 		slog.Info("Shutdown signal received, draining connections")
+		// End SSE inbox streams FIRST: their handlers return only when the
+		// client disconnects (Shutdown never cancels in-flight request
+		// contexts), so without this every deploy with a tab open waits out
+		// the full grace below. Tabs reconnect and drain on open.
+		inboxBroker.Close()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {

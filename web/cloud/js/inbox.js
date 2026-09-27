@@ -265,11 +265,13 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
 // roughly one fire per minute on their own, so a backgrounded tab is about one
 // empty GET /api/inbox per minute, not one per 5s.
 //
-// This is the FLOOR, not the only signal: the server also pushes a content-free
-// inbox-wake the instant it seals an event, which cloud-boot.js turns into an
-// immediate drain (bd med-5fo). The poll still matters — a wake needs
-// notification permission and a live subscription — and GET /api/inbox on an
-// empty mailbox is one indexed lookup returning `{"events":[]}`.
+// This is the FALLBACK, not the only signal: the server fans every append out
+// as a content-free SSE wake the instant it seals an event, which
+// startInboxEventStream (below) turns into an immediate drain (bd med-j0tc) —
+// no permission or subscription prerequisite — and a Web Push inbox-wake covers
+// tabs with no live stream (bd med-5fo). The poll still matters for when the
+// stream is down, and GET /api/inbox on an empty mailbox is one indexed lookup
+// returning `{"events":[]}`.
 const INBOX_POLL_MS = 5000;
 
 // Backoff ceiling for a wedged/stalled mailbox (med-eas.51). Consecutive
@@ -279,9 +281,9 @@ const INBOX_POLL_MS = 5000;
 const MAX_INBOX_BACKOFF_TICKS = 12;
 
 // startInboxPolling drains the mailbox on a timer, and immediately whenever the
-// tab becomes visible again. Without it a Confirm tapped in Telegram sits
-// unapplied until the next full page load, because nothing else in cloud mode
-// polls (no SSE, no change stream).
+// tab becomes visible again. It is the fallback under the SSE wake
+// (startInboxEventStream): without it a Confirm tapped in Telegram sits
+// unapplied whenever the stream is down, until the next full page load.
 //
 // Hidden tabs DO poll (med-d15). Skipping them looked like battery thrift but
 // was the bug: the user is in Telegram exactly when this tab is hidden, so the
@@ -366,5 +368,99 @@ export function startInboxPolling(ctx, {
     stopped = true;
     clearInterval(timer);
     if (doc) doc.removeEventListener('visibilitychange', onVisible);
+  };
+}
+
+// startInboxEventStream subscribes this tab to the server's content-free SSE
+// wake (GET /api/inbox/events, bd med-j0tc): after sealAndQueue's durable
+// append the server fans an `inbox-ready` nudge to every open unlocked tab, so
+// a queued event drains within ~1s instead of at the poller's next tick —
+// throttled to ~1/min in a hidden tab, frozen outright in a discarded one — and
+// with no notification-permission/subscription prerequisite like the Web Push
+// wake (bd med-5fo).
+//
+// The stream carries no content and no event ids (zero-knowledge unchanged);
+// every wake drains through the same per-account lock as the poller, so an
+// overlapping poll tick is a no-op. The 5s poll stays as the fallback: when the
+// stream errors it reconnects with exponential backoff (1s doubling to 30s,
+// ±50% jitter so tabs never reconnect in lockstep after a restart),
+// and a tab that cannot stream at all still polls. Returns a stop() for tests
+// and teardown; navigating away (including to /unlock on logout) ends the
+// stream server-side via the dropped request.
+export function startInboxEventStream(ctx, {
+  apply,
+  // `drain` defaults to the real drainInbox; tests inject a deterministic fake
+  // (same seam as startInboxPolling).
+  drain = drainInbox,
+  EventSourceImpl = typeof EventSource === 'undefined' ? null : EventSource,
+  baseDelayMs = 1000,
+  maxDelayMs = 30000,
+  // `random` defaults to Math.random; tests inject a fixed value so the
+  // jittered delays below are deterministic.
+  random = Math.random,
+  onApplied = () => {},
+  ...drainOpts
+} = {}) {
+  let stopped = false;
+  let source = null;
+  let retryTimer = null;
+  let delayMs = baseDelayMs;
+
+  const close = () => {
+    if (source) {
+      source.close();
+      source = null;
+    }
+  };
+
+  const drainNow = async () => {
+    if (stopped || !apply) return;
+    try {
+      const result = await drain(ctx, { apply, ...drainOpts });
+      // Same hook as the poller: the reminder-horizon recompute, awaited so a
+      // drain and its recompute can't straddle a tab freeze (bd med-9y9). A
+      // failed recompute is not a failed drain — it must not affect cadence.
+      if (result && result.applied > 0) {
+        await Promise.resolve(onApplied(result)).catch((e) => console.error('[inbox] onApplied failed', e));
+      }
+    } catch (e) {
+      console.error('[inbox] event-stream drain failed', e);
+    }
+  };
+
+  const connect = () => {
+    if (stopped || !EventSourceImpl) return;
+    const es = new EventSourceImpl('/api/inbox/events');
+    source = es;
+    es.addEventListener('open', () => {
+      delayMs = baseDelayMs; // a healthy connect resets the backoff
+      // Drain immediately after subscribing: an event may have been appended
+      // (and fanned out) between our last poll and this subscribe — without
+      // this the wake for it is already gone and we'd wait for the next one.
+      drainNow();
+    });
+    es.addEventListener('inbox-ready', () => {
+      drainNow();
+    });
+    es.addEventListener('error', () => {
+      // Manual reconnect with backoff: close first so the native
+      // auto-reconnect doesn't stack a second stream under ours. The delay is
+      // jittered ±50% around the backoff step — without it every tab errors at
+      // the same instant on a restart and reconnects (and drains) in lockstep.
+      if (source === es) source = null;
+      es.close();
+      if (stopped) return;
+      const wait = Math.round(delayMs * (0.5 + random()));
+      delayMs = Math.min(delayMs * 2, maxDelayMs);
+      retryTimer = setTimeout(connect, wait);
+    });
+  };
+
+  connect();
+
+  return function stop() {
+    stopped = true;
+    if (retryTimer) clearTimeout(retryTimer);
+    close();
   };
 }

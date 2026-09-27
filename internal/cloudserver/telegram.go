@@ -1013,9 +1013,15 @@ func (t *TelegramAPI) sealCommand(w http.ResponseWriter, r *http.Request, ref st
 	// Send the placeholder BEFORE sealing so the client learns which message to
 	// edit. If this send fails we still seal (the data matters more than the
 	// receipt) — ReplyMessageID stays 0 and the client simply skips the edit.
+	// Timed (bd med-j0tc): this serial Bot API round trip runs BEFORE the event
+	// enters the inbox, so its duration is the floor under every queued-event
+	// latency. Privacy-safe: a duration, never content.
+	placeholderStart := time.Now()
 	replyID, err := client.SendMessageReturningID(r.Context(), msg.Chat.ID, queuedMessage)
 	if err != nil {
-		slog.Error("telegram child webhook: send queued ack", "error", err, "ref", ref)
+		slog.Error("telegram child webhook: send queued ack", "error", err, "ref", ref, "elapsed_ms", time.Since(placeholderStart).Milliseconds())
+	} else {
+		slog.Info("telegram child webhook: queued placeholder sent", "ref", ref, "elapsed_ms", time.Since(placeholderStart).Milliseconds())
 	}
 
 	// SECURITY INVARIANT: msg.Text is message content. It is sealed here and
@@ -1073,9 +1079,15 @@ func (t *TelegramAPI) sealPhoto(w http.ResponseWriter, r *http.Request, ref stri
 	}
 
 	now := time.Now().UTC()
+	// Timed (bd med-j0tc): this serial Bot API round trip runs BEFORE the event
+	// enters the inbox, so its duration is the floor under every queued-event
+	// latency. Privacy-safe: a duration, never content.
+	placeholderStart := time.Now()
 	replyID, err := client.SendMessageReturningID(r.Context(), msg.Chat.ID, queuedMessage)
 	if err != nil {
-		slog.Error("telegram child webhook: send queued ack", "error", err, "ref", ref)
+		slog.Error("telegram child webhook: send queued ack", "error", err, "ref", ref, "elapsed_ms", time.Since(placeholderStart).Milliseconds())
+	} else {
+		slog.Info("telegram child webhook: queued placeholder sent", "ref", ref, "elapsed_ms", time.Since(placeholderStart).Milliseconds())
 	}
 
 	// Telegram photos are always JPEG; there is no per-size mime field. The bytes
@@ -1134,9 +1146,15 @@ func (t *TelegramAPI) sealText(w http.ResponseWriter, r *http.Request, ref strin
 	}
 
 	now := time.Now().UTC()
+	// Timed (bd med-j0tc): this serial Bot API round trip runs BEFORE the event
+	// enters the inbox, so its duration is the floor under every queued-event
+	// latency. Privacy-safe: a duration, never content.
+	placeholderStart := time.Now()
 	replyID, err := client.SendMessageReturningID(r.Context(), msg.Chat.ID, queuedMessage)
 	if err != nil {
-		slog.Error("telegram child webhook: send queued ack", "error", err, "ref", ref)
+		slog.Error("telegram child webhook: send queued ack", "error", err, "ref", ref, "elapsed_ms", time.Since(placeholderStart).Milliseconds())
+	} else {
+		slog.Info("telegram child webhook: queued placeholder sent", "ref", ref, "elapsed_ms", time.Since(placeholderStart).Milliseconds())
 	}
 
 	// SECURITY INVARIANT: msg.Text is message content — sealed here, never logged,
@@ -1205,9 +1223,15 @@ func (t *TelegramAPI) sealNXKDocument(w http.ResponseWriter, r *http.Request, re
 		return
 	}
 
+	// Timed (bd med-j0tc): this serial Bot API round trip runs BEFORE the event
+	// enters the inbox, so its duration is the floor under every queued-event
+	// latency. Privacy-safe: a duration, never content.
+	placeholderStart := time.Now()
 	replyID, err := client.SendMessageReturningID(r.Context(), msg.Chat.ID, queuedMessage)
 	if err != nil {
-		slog.Error("telegram child webhook: send queued ack", "error", err, "ref", ref)
+		slog.Error("telegram child webhook: send queued ack", "error", err, "ref", ref, "elapsed_ms", time.Since(placeholderStart).Milliseconds())
+	} else {
+		slog.Info("telegram child webhook: queued placeholder sent", "ref", ref, "elapsed_ms", time.Since(placeholderStart).Milliseconds())
 	}
 	// edit rewrites the "⏳ Queued" ack into an outcome; when the ack send failed
 	// (replyID 0) it sends a fresh message instead.
