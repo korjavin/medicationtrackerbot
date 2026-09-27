@@ -548,7 +548,7 @@ bindTabGroup({
     onTabSelect: switchMedTab
 });
 
-// The Settings view — loadSettings(), renderSettingsStaleBadge(),
+// The Settings view — loadSettings(),
 // updateFeatureToggles(), updateFoodTargetsVisibility(), toggleFeatureSetting(),
 // and updateFeatureTabVisibility() — moved to features/settings.js (Plan
 // 2026-06-10 finish-app-js-split, Task 2). They remain reachable as the original

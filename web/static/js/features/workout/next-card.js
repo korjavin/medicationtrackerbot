@@ -20,11 +20,8 @@ async function loadNextWorkout() {
         key: 'workout_next',
         tags: ['workout'],
         // apiCallDirect throws on offline/5xx so a transient refresh failure
-        // routes through onError (cached card preserved). The legacy apiCall
-        // path returned null on offline (handleOfflineWorkoutRead has no
-        // 'sessions' fallback populated by this module), and with
-        // allowNullFresh: true that null reached onFresh and cleared the
-        // just-rendered cached card. A real "no next workout" response from
+        // routes through onError (cached card preserved). A real "no next
+        // workout" response from
         // the server is JSON null; wrap it into { session: null } so the
         // matched bootstrap shape (app.js workout_next spec) is cached and
         // _renderNextWorkout clears the container the same way it would for
