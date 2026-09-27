@@ -24,7 +24,7 @@
  *     two files both declaring top-level `let _state` is a redeclaration that
  *     throws `SyntaxError: Identifier '_state' has already been declared`,
  *     killing the second script entirely. Closure-private `_state` inside an
- *     IIFE (indented, see `core/time-format.js`) is unaffected because it
+ *     IIFE (indented) is unaffected because it
  *     never reaches the global scope; only column-zero declarations collide.
  *     Give each plain-global-script module a distinct state name
  *     (e.g. `_todayLoaderState`, `_medsHistoryState`).
