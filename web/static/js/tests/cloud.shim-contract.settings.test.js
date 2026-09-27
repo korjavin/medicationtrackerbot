@@ -14,6 +14,11 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
     beforeEach(() => {
         env = loadCloudShimFrontendEnv();
         installApiCache(env.window);
+        // The integrations screen mounts web/cloud/js/telegram.js via dynamic
+        // import on load; JSDOM has no import callback, so stub the loader
+        // seam (the module itself is covered by its own suite).
+        env.window.SettingsIntegrations._setTelegramLoader(
+            () => Promise.resolve({ mountTelegram: () => {} }));
     });
 
     afterEach(() => {

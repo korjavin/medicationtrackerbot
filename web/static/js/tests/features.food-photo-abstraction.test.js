@@ -65,7 +65,8 @@ describe('features/food/photo.js — Phase 2b abstraction seam (Task 7)', () => 
         expect(parse).toHaveBeenCalledTimes(1);
         const [sentFile, opts] = parse.mock.calls[0];
         expect(sentFile).toBe(file);
-        expect(opts.eatenAt).toBeInstanceOf(Date);
+        // Realm-safe Date check (constructed inside the JSDOM window).
+        expect(typeof opts.eatenAt.toISOString).toBe('function');
     });
 
     it('cancelling the picker (pickPhoto resolves null) is a no-op — no POST fires', async () => {

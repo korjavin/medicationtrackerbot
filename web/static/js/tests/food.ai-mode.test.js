@@ -127,7 +127,9 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
         const [description, opts] = parse.mock.calls[0];
         expect(description).toBe('200g grilled chicken with a cup of rice');
         // eaten_at arrives as a Date built from the modal's datetime input.
-        expect(opts.eatenAt).toBeInstanceOf(Date);
+        // Realm-safe check: the Date is constructed inside the JSDOM window,
+        // so Node-realm instanceof never matches — probe behaviour instead.
+        expect(typeof opts.eatenAt.toISOString).toBe('function');
         expect(Number.isNaN(opts.eatenAt.getTime())).toBe(false);
 
         // Manual endpoint must not be hit on the AI path.

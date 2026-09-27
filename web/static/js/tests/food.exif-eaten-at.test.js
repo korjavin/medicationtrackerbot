@@ -281,7 +281,8 @@ describe('uploadFoodPhoto sends the resolved eaten_at to the AI parse', () => {
         const now = Date.now();
         const photoTime = new Date(now - 30 * 60 * 1000); // 30 min before now
         const eatenAt = await captureUpload({ photoTime });
-        expect(eatenAt).toBeInstanceOf(Date);
+        // Realm-safe Date check (constructed inside the JSDOM window).
+        expect(typeof eatenAt.toISOString).toBe('function');
         expect(eatenAt.toISOString()).toBe(photoTime.toISOString());
     });
 

@@ -87,7 +87,8 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
 
         expect(alertSpy).not.toHaveBeenCalled();
         expect(parse).toHaveBeenCalledTimes(1);
-        expect(parse.mock.calls[0][1].eatenAt).toBeInstanceOf(Date);
+        // Realm-safe Date check (constructed inside the JSDOM window).
+        expect(typeof parse.mock.calls[0][1].eatenAt.toISOString).toBe('function');
 
         const card = document.querySelector('.wg-food-photo-summary');
         expect(card).not.toBeNull();

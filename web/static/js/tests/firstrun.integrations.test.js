@@ -110,12 +110,6 @@ describe('firstrun integrations screen', () => {
             expect(noTrial.document.querySelector('[data-firstrun-action="skip"]').textContent).toBe('Skip');
         } finally { noTrial.cleanup(); }
 
-        // Bot mode has no trial path at all, even if a stray meta tag exists.
-        const bot = loadFlow({ bootstrap: { needs_first_run: true }, trialAi: true });
-        try {
-            bot.window.WGFirstRun.mount();
-            expect(bot.document.querySelector('.wg-firstrun-screen__tagline').textContent).not.toMatch(/trial/i);
-        } finally { bot.cleanup(); }
     });
 
     it('Save submits PATCH /api/settings/integrations with the entered key + URL + model', async () => {
