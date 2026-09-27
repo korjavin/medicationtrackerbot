@@ -70,7 +70,7 @@ function expectOfflineBadge(slot) {
 describe('Section-header stale badges (Task 6)', () => {
     describe('BP', () => {
         let env;
-        beforeEach(() => { env = loadFrontendEnv(); });
+        beforeEach(() => { env = loadFrontendEnv(); delete env.window.__MEDTRACKER_CLOUD__; });
         afterEach(() => { try { env.window.localStorage.clear(); } catch (_) { /* ignore */ } env.cleanup(); env = null; });
 
         it('renders the offline chip after loadBPReadings() with a warm api_cache', async () => {
@@ -107,7 +107,7 @@ describe('Section-header stale badges (Task 6)', () => {
 
     describe('Weight', () => {
         let env;
-        beforeEach(() => { env = loadFrontendEnv(); });
+        beforeEach(() => { env = loadFrontendEnv(); delete env.window.__MEDTRACKER_CLOUD__; });
         afterEach(() => { try { env.window.localStorage.clear(); } catch (_) { /* ignore */ } env.cleanup(); env = null; });
 
         it('renders the offline chip after loadWeightLogs() with a warm api_cache', async () => {
@@ -141,7 +141,7 @@ describe('Section-header stale badges (Task 6)', () => {
 
     describe('Meds Schedule', () => {
         let env;
-        beforeEach(() => { env = loadFrontendEnv(); });
+        beforeEach(() => { env = loadFrontendEnv(); delete env.window.__MEDTRACKER_CLOUD__; });
         afterEach(() => { try { env.window.localStorage.clear(); } catch (_) { /* ignore */ } env.cleanup(); env = null; });
 
         it('renders the offline chip in the Schedule subtab after loadMeds() with a warm api_cache', async () => {
@@ -218,7 +218,7 @@ describe('Section-header stale badges (Task 6)', () => {
 
     describe('Meds History', () => {
         let env;
-        beforeEach(() => { env = loadFrontendEnv(); });
+        beforeEach(() => { env = loadFrontendEnv(); delete env.window.__MEDTRACKER_CLOUD__; });
         afterEach(() => { try { env.window.localStorage.clear(); } catch (_) { /* ignore */ } env.cleanup(); env = null; });
 
         it('renders the offline chip in the History subtab after loadHistory() with a warm api_cache', async () => {
@@ -244,7 +244,7 @@ describe('Section-header stale badges (Task 6)', () => {
 
     describe('Workouts', () => {
         let env;
-        beforeEach(() => { env = loadFrontendEnv({ withWorkout: true }); });
+        beforeEach(() => { env = loadFrontendEnv({ withWorkout: true }); delete env.window.__MEDTRACKER_CLOUD__; });
         afterEach(() => { try { env.window.localStorage.clear(); } catch (_) { /* ignore */ } env.cleanup(); env = null; });
 
         it('renders the offline chip in the History subtab after loadNextWorkout()', async () => {
@@ -348,7 +348,7 @@ describe('Section-header stale badges (Task 6)', () => {
 
     describe('Vitals/Health Overview', () => {
         let env;
-        beforeEach(() => { env = loadFrontendEnv(); });
+        beforeEach(() => { env = loadFrontendEnv(); delete env.window.__MEDTRACKER_CLOUD__; });
         afterEach(() => { try { env.window.localStorage.clear(); } catch (_) { /* ignore */ } env.cleanup(); env = null; });
 
         it('renders the offline chip after loadHealthOverview() with a warm api_cache', async () => {
@@ -374,7 +374,7 @@ describe('Section-header stale badges (Task 6)', () => {
 
     describe('Vitals/Health Notes', () => {
         let env;
-        beforeEach(() => { env = loadFrontendEnv(); });
+        beforeEach(() => { env = loadFrontendEnv(); delete env.window.__MEDTRACKER_CLOUD__; });
         afterEach(() => { try { env.window.localStorage.clear(); } catch (_) { /* ignore */ } env.cleanup(); env = null; });
 
         it('renders the offline chip after loadNotes() with a warm api_cache', async () => {
@@ -401,7 +401,7 @@ describe('Section-header stale badges (Task 6)', () => {
     // chip centrally, so no section can leak it.
     describe('Cloud mode', () => {
         let env;
-        beforeEach(() => { env = loadFrontendEnv(); });
+        beforeEach(() => { env = loadFrontendEnv(); delete env.window.__MEDTRACKER_CLOUD__; });
         afterEach(() => { try { env.window.localStorage.clear(); } catch (_) { /* ignore */ } env.cleanup(); env = null; });
 
         it('mounts no chip for BP even with a warm, stale api_cache while offline', async () => {

@@ -113,7 +113,7 @@ describe('Settings view collapsible groups (index.html)', () => {
             window.hideEmptySettingsGroups();
 
             expect(targets.classList.contains('wg-settings-hidden')).toBe(true);
-            const prefs = document.querySelector('.wg-settings-notifications').closest('.wg-settings-group');
+            const prefs = document.querySelector('.wg-settings-notifications-cloud').closest('.wg-settings-group');
             expect(prefs.classList.contains('wg-settings-hidden')).toBe(false);
         } finally {
             cleanup();

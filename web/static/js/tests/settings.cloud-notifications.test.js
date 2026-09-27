@@ -1,8 +1,8 @@
 // Plan 2026-07-06 cloud-push-notifications-settings, Task 5, updated by
 // med-eas.20 (cloud-push-test-this-device). Guards the cloud-only
 // Notifications block wired in features/settings.js (bindCloudNotifications)
-// against: the server block staying hidden in server mode, the cloud block
-// un-hiding + wiring Enable/Disable/Test in cloud mode, and the real
+// against: the cloud block un-hiding + wiring Enable/Disable/Test in cloud
+// mode (and staying hidden outside it), and the real
 // (non-mocked) sendTestPush sending an immediate this-device-only test via
 // POST /api/push/test (never PUT /api/push/schedule).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,21 +21,21 @@ function stubCloudModules(window, { push, reminders }) {
 }
 
 describe('cloud Notifications block visibility (server vs cloud mode)', () => {
-    it('server mode: cloud block stays hidden and the server block stays visible', async () => {
+    it('server mode: cloud block stays hidden', async () => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();
+        delete window.__MEDTRACKER_CLOUD__; // harness defaults to cloud; test outside-cloud behavior
         try {
             window.apiCall = vi.fn(async () => { throw new Error('offline'); });
             await window.loadSettings();
 
             expect(document.querySelector('.wg-settings-notifications-cloud').classList.contains('wg-settings-hidden')).toBe(true);
-            expect(document.querySelector('.wg-settings-notifications').classList.contains('wg-settings-hidden')).toBe(false);
         } finally {
             cleanup();
         }
     });
 
-    it('cloud mode: hides the server block and un-hides the cloud block', async () => {
+    it('cloud mode: un-hides the cloud block', async () => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();
         try {
@@ -48,7 +48,6 @@ describe('cloud Notifications block visibility (server vs cloud mode)', () => {
             await window.loadSettings();
 
             expect(document.querySelector('.wg-settings-notifications-cloud').classList.contains('wg-settings-hidden')).toBe(false);
-            expect(document.querySelector('.wg-settings-notifications').classList.contains('wg-settings-hidden')).toBe(true);
         } finally {
             cleanup();
         }
