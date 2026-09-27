@@ -557,10 +557,12 @@ async function _sessionPlateGear() {
 // session), the exercise library, and the equipment inventory, plus the
 // domain plate math. Never throws: any failure resolves to
 // { sessionId, failed: true } (no chips). A completion snapshot freezes the
-// plan as performed: the live variant is never consulted for such sessions
-// (the med-qj4.2.1 no-fetch contract covers this read too), so their
-// plan-row logs stay chipless — the snapshot carries no library id to
-// resolve them by.
+// plan as performed: the live variant is never consulted for completed
+// sessions (the med-qj4.2.1 no-fetch contract covers this read too), so
+// their plan-row logs stay chipless — the snapshot carries no library id
+// to resolve them by. An in-progress session may still carry a snapshot
+// (mid-workout plan edits materialize one) without being frozen, so those
+// keep consulting the live variant for the library link.
 async function _buildSessionPlateGear(sessionData) {
     const sessionId = sessionData ? sessionData.id : null;
     const fail = () => ({ sessionId: sessionId, failed: true });
@@ -568,7 +570,8 @@ async function _buildSessionPlateGear(sessionData) {
         const variantId = sessionData ? Number(sessionData.variant_id) : 0;
         const rowsById = {};
         const hasSnapshot = !!(sessionData && Array.isArray(sessionData.exercise_snapshot));
-        if (variantId > 0 && !hasSnapshot) {
+        const frozen = hasSnapshot && sessionData.status === 'completed';
+        if (variantId > 0 && !frozen) {
             const rows = await apiCall(`/api/workout/exercises?variant_id=${variantId}`);
             if (!Array.isArray(rows)) return fail();
             for (const r of rows) {
@@ -1010,6 +1013,8 @@ function updateLocalLog(index, field, value) {
         el.classList.remove('unsaved');
         const hint = el.querySelector('.exercise-log-unsaved-hint');
         if (hint) hint.remove();
+        // A flat weight edit moves the working weight — re-solve the plate chip.
+        if (field === 'weight_kg') _refreshSessionPlateChip(el, logs[index]);
     }
     scheduleAutosave();
 }
