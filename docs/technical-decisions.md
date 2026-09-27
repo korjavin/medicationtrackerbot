@@ -28,5 +28,5 @@ After successful sync, records are deleted from IndexedDB rather than kept as "s
 The app is a privacy-first PWA with a large amount of client-side domain logic
 and encrypted local state. A framework would add bundle size and build
 complexity for little benefit. The cloud vault/oplog path and the
-three-layer local-first architecture (IndexedDB → SyncManager → SWR
+four-layer local-first architecture (SW → IndexedDB → SyncManager → SWR
 DataStore) are straightforward to implement with vanilla JS and Dexie.js.

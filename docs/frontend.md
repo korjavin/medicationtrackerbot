@@ -12,11 +12,12 @@ Reads resolve through cache layers before the network; writes paint
 optimistically and reconcile. The encrypted vault/oplog sync path underneath
 lives under `web/cloud/js/` — see [architecture.md](architecture.md).
 
-Three layers:
+Four layers:
 
-1. **IndexedDB** — write-ahead queue for offline writes + generic `api_cache` for SWR. `ApiCache.get(key)` returns `data`; `ApiCache.getWithMeta(key)` returns `{ data, timestamp }` for callers that need the cache-write time (e.g. the Today dashboard's offline-stale banner)
-2. **SyncManager** (`sync.js`) — `offlineAwareApiCall()` is the entry point for all API calls; handles retry with exponential backoff (5s → 300s cap, resets on success or `online` event)
-3. **SWR DataStore** (`data-store.js`) — `loadSWR()` returns cached data immediately and refreshes in the background; on fetch failure with no `onError` handler, defaults to rendering cached data with a console warning
+1. **Service Worker** (`web/cloud/sw.js`) — versioned app-shell precache (`SHELL_CACHE`, med-deq.1) plus push decrypt; see the module header
+2. **IndexedDB** — write-ahead queue for offline writes + generic `api_cache` for SWR. `ApiCache.get(key)` returns `data`; `ApiCache.getWithMeta(key)` returns `{ data, timestamp }` for callers that need the cache-write time (e.g. the Today dashboard's offline-stale banner)
+3. **SyncManager** (`sync.js`) — `offlineAwareApiCall()` is the entry point for all API calls; handles retry with exponential backoff (5s → 300s cap, resets on success or `online` event)
+4. **SWR DataStore** (`data-store.js`) — `loadSWR()` returns cached data immediately and refreshes in the background; on fetch failure with no `onError` handler, defaults to rendering cached data with a console warning
 
 Offline writes are supported for BP readings, weight logs, and medication confirmations. Other writes require connectivity.
 
@@ -111,7 +112,7 @@ try {
 
 `commit` / `rollback` are idempotent — calling either a second time is a no-op, so the handle can be threaded through try/catch without double-settle risk. A `null` / `undefined` payload from the mutator clears the cache entry (used by `workout_next` after the current session finishes).
 
-**Why writes use this, not `invalidateTags + loadX`**: `invalidateTags` clears caches but does *not* dispatch `datastore:changed` (only `applyOptimistic` does). Handlers that cleared the cache and called `loadX()` therefore missed the cache they just emptied, went to network, and held the UI through the round-trip — a same-device latency regression the user perceives as "save lag". The optimistic helper writes the projected state and dispatches the event up-front; the server response reconciles via `commit`.
+**Why writes use this, not `invalidateTags + loadX`**: `invalidateTags` clears caches but does *not* dispatch `datastore:changed` — that goes through `requestTabRefresh`, which `applyOptimistic` and the cloud sync pull path both call (`data-store.js`, `web/cloud/js/sync.js`). Handlers that cleared the cache and called `loadX()` therefore missed the cache they just emptied, went to network, and held the UI through the round-trip — a same-device latency regression the user perceives as "save lag". The optimistic helper writes the projected state and dispatches the event up-front; the server response reconciles via `commit`.
 
 **Per-surface mutator shapes** — the canonical mutator for each write surface (what gets prepended / flipped / spliced):
 
