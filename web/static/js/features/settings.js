@@ -741,6 +741,7 @@ function updateFeatureToggles() {
     document.getElementById('workout-feature-toggle').checked = !!flags.workout;
     document.getElementById('weekly-digest-feature-toggle').checked = !!flags.weekly_digest;
     document.getElementById('gamification-feature-toggle').checked = !!flags.gamification;
+    document.getElementById('live-hr-feature-toggle').checked = !!flags.live_hr;
     updateWeeklyDigestVisibility(flags);
 }
 
@@ -939,6 +940,14 @@ function updateFeatureTabVisibility() {
     const currentFeature = tabToFeature[currentTab];
     if (currentFeature && !window.featureSettings[currentFeature]) {
         switchTab('today');
+    }
+    // Live-HR POC (med-byks.1): live_hr gates a Vitals card, not a tab, so the
+    // tab-visibility sync never touches it — refresh it explicitly so flipping
+    // the flag off tears down a live subscription immediately. Both flag-change
+    // paths funnel through here (the local toggle and an authoritative bundle
+    // carrying another device's toggle).
+    if (window.LiveHR && typeof window.LiveHR.refresh === 'function') {
+        try { window.LiveHR.refresh(); } catch (_) { /* card is best-effort */ }
     }
     updateFoodTargetsVisibility();
     updateGamificationTargetsVisibility();

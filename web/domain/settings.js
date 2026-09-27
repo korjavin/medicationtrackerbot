@@ -5,7 +5,7 @@
 // + internal/server/food_handlers.go (targets)
 // + internal/server/settings_integrations_handlers.go (provider keys).
 // Feature-flag defaults mirror internal/store/migrations/{022,025,073,074}_*.sql
-// (weekly_digest defaults off; everything else defaults on), except food, which
+// (weekly_digest and live_hr default off; everything else defaults on), except food, which
 // defaults ON here and off in bot mode. Bot mode's shared settings row cannot
 // tell "never configured" from "deliberately disabled", so migration 018 stays
 // at DEFAULT 0; a fresh vault has no features record at all, so a cloud user
@@ -84,6 +84,9 @@ const DEFAULT_FEATURES = {
   health: true,
   gamification: true,
   weekly_digest: false,
+  // Experimental live-HR card on the Vitals screen (med-byks.1 POC): BLE
+  // pairing over Web Bluetooth, off until the owner hardware-tests it.
+  live_hr: false,
 };
 
 const DEFAULT_FOOD_TARGETS = { calories: 0, carbs: 0, protein: 0, fat: 0 };

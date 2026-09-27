@@ -193,6 +193,9 @@ document.getElementById('workout-feature-toggle').addEventListener('change', asy
 document.getElementById('weekly-digest-feature-toggle').addEventListener('change', async function () {
     await toggleFeatureSetting('weekly_digest', this.checked);
 });
+document.getElementById('live-hr-feature-toggle').addEventListener('change', async function () {
+    await toggleFeatureSetting('live_hr', this.checked);
+});
 
 document.getElementById('save-food-targets-btn').addEventListener('click', async function () {
     await saveFoodTargets();

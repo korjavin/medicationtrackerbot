@@ -9676,6 +9676,72 @@ textarea.wg-input {
     margin-top: var(--space-sm);
 }
 
+/* Experimental live-HR card (med-byks.1 POC). Mounted by
+   features/live-hr.js at the top of the Vitals overview when the live_hr
+   flag is on and Web Bluetooth is present; hidden otherwise. Layout-only —
+   every color resolves through a shared token. */
+.wg-live-hr {
+    padding: var(--wg-health-card-pad);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.wg-live-hr__title {
+    font-size: var(--wg-health-card-header-size);
+}
+
+.wg-live-hr__hint {
+    font-size: var(--wg-health-card-stat-size);
+    margin: 0;
+}
+
+.wg-live-hr__status {
+    font-size: var(--wg-health-card-stat-size);
+    color: var(--wg-fg-4);
+}
+
+.wg-live-hr__bpm-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-sm);
+}
+
+.wg-live-hr__bpm {
+    font-size: 2.5em;
+    line-height: 1;
+}
+
+.wg-live-hr__unit {
+    font-size: var(--wg-health-card-stat-size);
+}
+
+.wg-live-hr__meta {
+    font-size: var(--wg-health-card-stat-size);
+    color: var(--wg-fg-4);
+}
+
+.wg-live-hr__meta:empty {
+    display: none;
+}
+
+.wg-live-hr__actions {
+    display: flex;
+    gap: var(--space-sm);
+    flex-wrap: wrap;
+}
+
+.wg-live-hr__log {
+    max-height: 12em;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    font-size: var(--wg-health-card-stat-size);
+    color: var(--wg-fg-4);
+    margin: 0;
+    padding: var(--space-sm);
+}
+
 /* Health Notes sub-tab (Phase 8, Task 7). `.wg-gloss--inset` textarea wrap
    on top with a full-width `.wg-gloss--sun` Save CTA, then a day-grouped
    `.wg-card` list. Each row carries a mono timestamp, the note body, and a

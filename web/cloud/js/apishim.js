@@ -281,8 +281,10 @@ export function createApiRouter(ctx, {
   // weekly_digest is ported cloud-side as a horizon producer (med-eas.58,
   // reminders.js computeDigestEntry) rather than an HTTP-served domain — it has
   // no nav tab and no /api routes, but the flag must persist + read back so the
-  // Settings toggle drives the digest push.
-  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication', 'food', 'workout', 'gamification', 'weekly_digest']);
+  // Settings toggle drives the digest push. live_hr is the same shape: no nav
+  // tab, no routes, just a persisted flag gating the experimental Vitals card
+  // (med-byks.1 POC).
+  const PORTED_SET = new Set(['bp', 'weight', 'health', 'medication', 'food', 'workout', 'gamification', 'weekly_digest', 'live_hr']);
   function clampFeatures(flags) {
     const out = {};
     for (const key of Object.keys(flags)) out[key] = PORTED_SET.has(key) ? !!flags[key] : false;

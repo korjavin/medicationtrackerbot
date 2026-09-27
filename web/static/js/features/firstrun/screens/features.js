@@ -11,7 +11,9 @@
 //     rejected with a null return and the toggle would silently snap back.
 //   - `weekly_digest` is a bot-only Telegram summary, meaningless in the
 //     cloud/mobile shells this overlay runs in, and defaults to off.
-// The remaining six are exactly PORTED_SET, so every row in this screen
+//   - `live_hr` is an experimental sub-feature of Vitals (med-byks.1), not a
+//     tracking section, so it has no picker row either.
+// Every remaining row is in PORTED_SET, so every row in this screen
 // can actually be turned on in every build that renders the overlay.
 //
 // Write path: reuse the Settings global `toggleFeatureSetting` rather than

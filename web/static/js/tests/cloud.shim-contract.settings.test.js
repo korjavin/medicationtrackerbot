@@ -69,6 +69,28 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(boot.features.weekly_digest).toBe(true);
     });
 
+    it('live_hr defaults off and round-trips through the shim (ported flag, no nav tab — med-byks.1)', async () => {
+        const { window } = env;
+        window.rebuildCanonicalBottomNav = vi.fn();
+
+        // Same shape as weekly_digest: default off, in PORTED_SET, no nav tab
+        // or /api route — the flag just persists + reads back so the Settings
+        // toggle gates the experimental Vitals live-HR card.
+        const boot0 = await window.apiCall('/api/bootstrap');
+        window.SettingsState.applyBootstrapFeatures(boot0.features);
+        expect(window.featureSettings.live_hr).toBe(false);
+
+        await window.toggleFeatureSetting('live_hr', true);
+
+        expect(window.featureSettings.live_hr).toBe(true);
+
+        const flags = await window.apiCall('/api/settings/features', 'GET');
+        expect(flags.live_hr).toBe(true);
+
+        const boot = await window.apiCall('/api/bootstrap');
+        expect(boot.features.live_hr).toBe(true);
+    });
+
     // med-ja0u: the Tomorrow Forecast card lives on Today — a screen that keeps
     // rendering with Journey off — so the shim route is the feature gate. The
     // card only knows how to hide itself on !enabled.

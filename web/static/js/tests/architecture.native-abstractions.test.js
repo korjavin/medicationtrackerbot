@@ -7,14 +7,15 @@
  * Two distinct invariants, deliberately not conflated:
  *
  *  1. Device-capability globals (`navigator.mediaDevices`, `getUserMedia`,
- *     `BarcodeDetector`) may only appear inside `native/`. No allowlist —
- *     `native/` owns the platform impls, feature code asks the abstraction.
+ *     `BarcodeDetector`, `navigator.bluetooth`, `requestDevice`) may only
+ *     appear inside `native/`. No allowlist — `native/` owns the platform
+ *     impls, feature code asks the abstraction.
  *
  *  2. No frontend file reads `window.Capacitor` / `isNativePlatform`. The
  *     Capacitor shell was removed; a reappearing reference means someone is
  *     branching on a runtime that no longer ships.
  *
- * Tests are excluded: they legitimately stub both seams.
+ * Tests are excluded: they legitimately stub these seams.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -28,7 +29,7 @@ const JS_ROOT = path.join(REPO_ROOT, 'web/static/js');
 const NATIVE_DIR = 'web/static/js/native';
 
 /** Device-capability globals `native/` owns. */
-const CAPABILITY_RE = /navigator\.mediaDevices|getUserMedia|BarcodeDetector/;
+const CAPABILITY_RE = /navigator\.mediaDevices|getUserMedia|BarcodeDetector|navigator\.bluetooth|requestDevice/;
 
 /** The removed Capacitor shell. */
 const CAPACITOR_RE = /isNativePlatform|window\.Capacitor/;
@@ -63,9 +64,9 @@ describe('Architecture – native platform abstractions guard', () => {
 
         if (violations.length > 0) {
             throw new Error(
-                'Device-capability globals (navigator.mediaDevices / getUserMedia / BarcodeDetector) ' +
+                'Device-capability globals (navigator.mediaDevices / getUserMedia / BarcodeDetector / navigator.bluetooth / requestDevice) ' +
                 'may only be used inside web/static/js/native/.\n' +
-                'Call window.MediaCapture / window.Barcode instead (CLAUDE.md rule 10):\n\n' +
+                'Call window.MediaCapture / window.Barcode / window.Bluetooth instead (CLAUDE.md rule 10):\n\n' +
                 violations.map(v => `  • ${v}`).join('\n')
             );
         }
@@ -85,7 +86,7 @@ describe('Architecture – native platform abstractions guard', () => {
 
     it('every capability the foundation stubs has a registered web impl', () => {
         const foundation = read(path.join(NATIVE_DIR, 'index.js'));
-        for (const capability of ['MediaCapture', 'Barcode']) {
+        for (const capability of ['MediaCapture', 'Barcode', 'Bluetooth']) {
             expect(foundation).toContain(`window.${capability} = makeStub('${capability}'`);
             const impls = collectJsFiles(path.join(REPO_ROOT, NATIVE_DIR, 'web'))
                 .map(f => fs.readFileSync(f, 'utf8'))
