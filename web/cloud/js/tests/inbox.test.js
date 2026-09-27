@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ackInboxEvent, drainInbox, ensureInboxKey, listInboxEvents, readInboxKey, startInboxPolling } from '../inbox.js';
+import { ackInboxEvent, drainInbox, ensureInboxKey, listInboxEvents, readInboxKey, startInboxEventStream, startInboxPolling } from '../inbox.js';
 import { inboxPublicFromPrivate, fromBase64, toBase64 } from '../crypto.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -559,5 +559,159 @@ describe('startInboxPolling', () => {
 
         stop();
         vi.useRealTimers();
+    });
+});
+
+describe('startInboxEventStream', () => {
+    // med-j0tc: the server fans every durable append out as a content-free
+    // `inbox-ready` SSE nudge, so an open tab drains in ~1s instead of at the
+    // poller's next tick (throttled to ~1/min hidden, frozen when discarded).
+    const ctx = { accountId: VECTOR.account_id };
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    // Minimal EventSource stand-in: records instances, fires listeners on demand.
+    function makeEventSourceHarness() {
+        const instances = [];
+        class FakeEventSource {
+            constructor(url) {
+                this.url = url;
+                this.listeners = {};
+                this.closed = false;
+                instances.push(this);
+            }
+
+            addEventListener(type, fn) {
+                (this.listeners[type] = this.listeners[type] || []).push(fn);
+            }
+
+            close() {
+                this.closed = true;
+            }
+
+            emit(type, event = {}) {
+                for (const fn of this.listeners[type] || []) fn(event);
+            }
+        }
+        return { instances, FakeEventSource };
+    }
+
+    it('subscribes to /api/inbox/events and drains once on open, closing the subscribe/append race', async () => {
+        const { instances, FakeEventSource } = makeEventSourceHarness();
+        const apply = () => {};
+        const drain = vi.fn(async () => ({ applied: 0, failed: 0 }));
+
+        const stop = startInboxEventStream(ctx, { apply, drain, EventSourceImpl: FakeEventSource });
+
+        expect(instances).toHaveLength(1);
+        expect(instances[0].url).toBe('/api/inbox/events');
+        expect(drain).not.toHaveBeenCalled();
+
+        // An event appended (and fanned out) between our last poll and this
+        // subscribe already had its wake go out — the open drain picks it up.
+        instances[0].emit('open');
+        await flush();
+        expect(drain).toHaveBeenCalledTimes(1);
+        expect(drain.mock.calls[0][0]).toBe(ctx);
+        expect(drain.mock.calls[0][1].apply).toBe(apply);
+        stop();
+    });
+
+    it('drains on every inbox-ready wake', async () => {
+        const { instances, FakeEventSource } = makeEventSourceHarness();
+        const drain = vi.fn(async () => ({ applied: 0, failed: 0 }));
+
+        const stop = startInboxEventStream(ctx, { apply: () => {}, drain, EventSourceImpl: FakeEventSource });
+        instances[0].emit('open');
+        await flush();
+        instances[0].emit('inbox-ready');
+        instances[0].emit('inbox-ready');
+        await flush();
+
+        expect(drain).toHaveBeenCalledTimes(3); // open + two wakes
+        stop();
+    });
+
+    it('passes drain options through and runs the applied-drain hook after an applied wake drain', async () => {
+        const { instances, FakeEventSource } = makeEventSourceHarness();
+        const drain = vi.fn(async () => ({ applied: 1, failed: 0 }));
+        const onApplied = vi.fn();
+        const fetchImpl = vi.fn();
+
+        const stop = startInboxEventStream(ctx, { apply: () => {}, drain, onApplied, fetchImpl, EventSourceImpl: FakeEventSource });
+        instances[0].emit('open');
+        await flush();
+
+        expect(drain.mock.calls[0][1].fetchImpl).toBe(fetchImpl);
+        expect(onApplied).toHaveBeenCalledTimes(1); // the open drain applied
+        expect(onApplied.mock.calls[0][0]).toEqual({ applied: 1, failed: 0 });
+
+        instances[0].emit('inbox-ready');
+        await flush();
+        expect(onApplied).toHaveBeenCalledTimes(2);
+        stop();
+    });
+
+    it('reconnects with exponential backoff after errors and resets on a healthy connect', async () => {
+        vi.useFakeTimers();
+        const { instances, FakeEventSource } = makeEventSourceHarness();
+        const drain = vi.fn(async () => ({ applied: 0, failed: 0 }));
+
+        const stop = startInboxEventStream(ctx, {
+            apply: () => {}, drain, EventSourceImpl: FakeEventSource, baseDelayMs: 1000, maxDelayMs: 4000,
+        });
+        expect(instances).toHaveLength(1);
+
+        instances[0].emit('error');
+        // Closed before reconnecting, so the native auto-reconnect can't stack
+        // a second stream under the manual one.
+        expect(instances[0].closed).toBe(true);
+        expect(instances).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(instances).toHaveLength(2); // first retry after the 1s base
+
+        instances[1].emit('error');
+        await vi.advanceTimersByTimeAsync(1999);
+        expect(instances).toHaveLength(2); // doubled: nothing before 2s
+        await vi.advanceTimersByTimeAsync(1);
+        expect(instances).toHaveLength(3);
+
+        // Capped at maxDelayMs rather than doubling to 8s.
+        instances[2].emit('error');
+        await vi.advanceTimersByTimeAsync(3999);
+        expect(instances).toHaveLength(3);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(instances).toHaveLength(4);
+
+        // A healthy connect resets the backoff to the base delay.
+        instances[3].emit('open');
+        instances[3].emit('error');
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(instances).toHaveLength(5);
+
+        stop();
+        vi.useRealTimers();
+    });
+
+    it('stop() closes the stream and cancels a pending reconnect', async () => {
+        vi.useFakeTimers();
+        const { instances, FakeEventSource } = makeEventSourceHarness();
+        const drain = vi.fn(async () => ({ applied: 0, failed: 0 }));
+
+        const stop = startInboxEventStream(ctx, { apply: () => {}, drain, EventSourceImpl: FakeEventSource });
+        instances[0].emit('error');
+        stop();
+
+        await vi.advanceTimersByTimeAsync(60000);
+        expect(instances).toHaveLength(1); // no reconnect after stop
+        expect(instances[0].closed).toBe(true);
+        vi.useRealTimers();
+    });
+
+    it('falls back to polling (no stream, no crash) when EventSource is unavailable', async () => {
+        const drain = vi.fn(async () => ({ applied: 0, failed: 0 }));
+        const stop = startInboxEventStream(ctx, { apply: () => {}, drain, EventSourceImpl: null });
+        await flush();
+        expect(drain).not.toHaveBeenCalled();
+        stop(); // a no-op that must not throw
     });
 });

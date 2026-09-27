@@ -245,7 +245,12 @@ func main() {
 	inviteAPI.RegisterRoutes(apiMux)
 	syncAPI.RegisterRoutes(apiMux)
 	pushAPI.RegisterRoutes(apiMux)
-	cloudserver.NewInboxAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
+	// One broker shared by the inbox stream handler and the relay: appends fanned
+	// out here reach every open unlocked tab as an SSE wake (bd med-j0tc).
+	inboxBroker := cloudserver.NewInboxBroker()
+	inboxAPI := cloudserver.NewInboxAPI(store, cfg.sessionSecret)
+	inboxAPI.SetEventBroker(inboxBroker)
+	inboxAPI.RegisterRoutes(apiMux)
 	cloudserver.NewVitalsImportAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
 	mcpRelayAPI.RegisterRoutes(apiMux)
 	mcpRemoteAPI.RegisterRoutes(apiMux)
@@ -318,6 +323,7 @@ func main() {
 		tgSender = tgAPI
 	}
 	relay := cloudserver.NewRelay(store, webPushSender, tgSender, cfg.dryQueueWarnHours)
+	relay.SetEventBroker(inboxBroker)
 	if tgAPI != nil {
 		// Wake the account's devices the instant a Telegram event is sealed
 		// (bd med-5fo), so a "⏳ Queued" reply becomes "✅ Recorded" without

@@ -199,7 +199,7 @@ describe('cloud-boot feedback launcher mount gate (med-dni.2 Task 3)', () => {
       'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
       'push.js': { ensurePushSubscription: async () => ({}) },
       'mcp-responder.js': { refreshResponder: () => {} },
-      'inbox.js': { ensureInboxKey: async () => {}, drainInbox: async () => ({ applied: 0 }), startInboxPolling: () => {} },
+      'inbox.js': { ensureInboxKey: async () => {}, drainInbox: async () => ({ applied: 0 }), startInboxPolling: () => {}, startInboxEventStream: () => {} },
       ...extra,
     };
   }
@@ -274,6 +274,9 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     fakeServiceWorker(handlers);
     let pollersStarted = 0;
     let pollerOpts = null;
+    let streamsStarted = 0;
+    let streamCtx = null;
+    let streamOpts = null;
     // Reminder-horizon bookkeeping (med-9y9): recomputes counts the UN-debounced
     // recomputeAndPush calls, debounced counts anything still going through the
     // 2s scheduler — which, on the boot + drain paths, must stay at zero.
@@ -299,6 +302,7 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
           ensureInboxKey: async () => {},
           drainInbox: async () => ({ applied: 0 }),
           startInboxPolling: (_ctx, opts) => { pollersStarted += 1; pollerOpts = opts; },
+          startInboxEventStream: (c, opts) => { streamsStarted += 1; streamCtx = c; streamOpts = opts; },
           ...inbox,
         },
         'inbox-apply.js': { createInboxApplier: () => async () => {} },
@@ -313,6 +317,9 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
       handlers,
       pollers: () => pollersStarted,
       pollerOpts: () => pollerOpts,
+      streams: () => streamsStarted,
+      streamCtx: () => streamCtx,
+      streamOpts: () => streamOpts,
       recomputes: () => recomputes,
       debounced: () => debounced,
       dispatch: (data) => handlers.forEach((h) => h({ data, ports: [port] })),
@@ -409,6 +416,30 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     await flush();
     expect(acks).toEqual(['ack']); // ...and the page still takes the next wake
     expect(drains).toBe(2);
+  });
+
+  // med-j0tc: alongside the poller and the SW wake listener, boot subscribes
+  // this tab to the server's content-free SSE wake — the same instant drain,
+  // with no permission/subscription prerequisite. Its applied drains extend the
+  // reminder horizon through the same afterApply as the other two paths.
+  it('subscribes to the SSE wake on boot and recomputes the horizon after its applied drains', async () => {
+    const boot = await bootInbox({ drainInbox: async () => ({ applied: 0 }) });
+
+    expect(boot.streams()).toBe(1);
+    expect(boot.streamCtx()).toMatchObject({ accountId: 'a' });
+    expect(typeof boot.streamOpts().onApplied).toBe('function');
+
+    expect(boot.recomputes()).toBe(1); // only the on-unlock self-heal ran
+    await boot.streamOpts().onApplied({ applied: 1 });
+    expect(boot.recomputes()).toBe(2); // the SSE path extends the horizon too
+    expect(boot.debounced()).toBe(0);
+  });
+
+  it('still subscribes to the SSE wake when ensureInboxKey rejects', async () => {
+    const { streams } = await bootInbox({
+      ensureInboxKey: async () => { throw new Error('key publish 500'); },
+    });
+    expect(streams()).toBe(1); // the subscribe, like the poller, precedes the network steps
   });
 });
 

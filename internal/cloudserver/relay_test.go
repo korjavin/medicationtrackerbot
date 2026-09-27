@@ -212,6 +212,8 @@ func TestRelay_WakeInboxCoalescesABurst(t *testing.T) {
 
 	sender := &fakeSender{}
 	relay := NewRelay(store, sender, nil, 0)
+	var trailing int
+	relay.after = func(d time.Duration, f func()) { trailing++ } // record, never fire
 	relay.WakeInbox(ctx, accountA.ID)
 	relay.WakeInbox(ctx, accountA.ID)
 	relay.WakeInbox(ctx, accountA.ID)
@@ -219,6 +221,13 @@ func TestRelay_WakeInboxCoalescesABurst(t *testing.T) {
 
 	if len(sender.sent) != 2 {
 		t.Fatalf("sends = %d, want 2 (one per account, burst coalesced): %+v", len(sender.sent), sender.sent)
+	}
+	// med-j0tc: the two suppressed wakes of A's burst schedule exactly ONE
+	// trailing wake at the boundary (B's lone wake claims immediately and
+	// schedules none). Firing it is covered with a fake clock in
+	// inbox_events_test.go.
+	if trailing != 1 {
+		t.Fatalf("trailing wakes scheduled = %d, want 1", trailing)
 	}
 	var payload struct {
 		Kind string `json:"kind"`
