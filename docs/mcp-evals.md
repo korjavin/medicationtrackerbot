@@ -167,6 +167,7 @@ compat layer, Claude via an OpenAI-compatible gateway) with `MCPEVAL_BASE_URL`.
 | `MCPEVAL_DAYS` | `90` | Days of synthetic data to seed. |
 | `MCPEVAL_MAX_ROUNDS` | `8` | Max agent tool-call rounds per scenario. |
 | `MCPEVAL_MAX_TOKENS` | `4096` | Per-completion token cap. Keep generous for reasoning models (they spend most of it in `reasoning_content`); too low truncates the answer. |
+| `MCPEVAL_TEMPERATURE` | unset (field omitted) | Optional pinned temperature for run-to-run determinism. Unset (or unparseable) omits the field, which reasoning-family models require. |
 
 ### Cost & determinism
 

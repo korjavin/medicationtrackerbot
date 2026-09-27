@@ -102,3 +102,47 @@ func TestRetryAfter_PrefersServerAdvisedDelay(t *testing.T) {
 		t.Errorf("attempt=2 backoff → %v, want 8s", got)
 	}
 }
+
+// TestChatRequest_TemperatureOmittedUnlessConfigured (med-gdb4): reasoning-
+// family models 400 on any temperature, so the field stays out of the wire
+// body unless MCPEVAL_TEMPERATURE pins one — including an explicit 0, which
+// is why the field is a pointer rather than a plain float with omitempty.
+func TestChatRequest_TemperatureOmittedUnlessConfigured(t *testing.T) {
+	plain, _ := json.Marshal(chatRequest{Model: "m"})
+	if strings.Contains(string(plain), "temperature") {
+		t.Errorf("unset temperature must be omitted: %s", plain)
+	}
+	zero := 0.0
+	pinned, _ := json.Marshal(chatRequest{Model: "m", Temperature: &zero})
+	if !strings.Contains(string(pinned), `"temperature":0`) {
+		t.Errorf("explicit 0 must reach the wire: %s", pinned)
+	}
+}
+
+// TestConfigFromEnv_Temperature (med-gdb4): MCPEVAL_TEMPERATURE parses to a
+// pinned value (0 included); empty or garbage leaves it nil, i.e. omitted.
+func TestConfigFromEnv_Temperature(t *testing.T) {
+	t.Setenv("MCPEVAL_API_KEY", "k")
+
+	t.Setenv("MCPEVAL_TEMPERATURE", "0")
+	cfg, ok := ConfigFromEnv()
+	if !ok || cfg.Temperature == nil || *cfg.Temperature != 0 {
+		t.Fatalf("MCPEVAL_TEMPERATURE=0 should pin 0, got %+v (ok=%v)", cfg.Temperature, ok)
+	}
+
+	t.Setenv("MCPEVAL_TEMPERATURE", "0.7")
+	cfg, _ = ConfigFromEnv()
+	if cfg.Temperature == nil || *cfg.Temperature != 0.7 {
+		t.Fatalf("MCPEVAL_TEMPERATURE=0.7 should pin 0.7, got %+v", cfg.Temperature)
+	}
+
+	t.Setenv("MCPEVAL_TEMPERATURE", "")
+	if cfg, _ := ConfigFromEnv(); cfg.Temperature != nil {
+		t.Errorf("empty MCPEVAL_TEMPERATURE should omit, got %v", *cfg.Temperature)
+	}
+
+	t.Setenv("MCPEVAL_TEMPERATURE", "bogus")
+	if cfg, _ := ConfigFromEnv(); cfg.Temperature != nil {
+		t.Errorf("garbage MCPEVAL_TEMPERATURE should omit, got %v", *cfg.Temperature)
+	}
+}

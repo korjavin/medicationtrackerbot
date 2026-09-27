@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -318,5 +319,42 @@ func TestParseMealFromDescription_ParsesMarkdownWrappedJSON(t *testing.T) {
 	}
 	if len(meal.Items) != 1 || meal.Items[0].Name != "Apple" {
 		t.Fatalf("unexpected meal items: %+v", meal.Items)
+	}
+}
+
+// TestRequests_OmitTemperature (med-gdb4): reasoning-family models 400 on any
+// non-default temperature, so none of the three parse entry points may send
+// the field — neither the chatCompletionRequest struct path nor the vision
+// map path.
+func TestRequests_OmitTemperature(t *testing.T) {
+	var bodies []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices": [` +
+			`{"message": {"content": "{\"items\": [{\"name\": \"Apple\", \"weight_grams\": 100, \"carbs_100g\": 14, \"protein_100g\": 0.3, \"fat_100g\": 0.2}], \"name\": \"run\", \"exercises\": [{\"name\": \"run\"}]}"}}]}`))
+	}))
+	defer ts.Close()
+
+	client := NewClient("test-key", ts.URL, "")
+	ctx := context.Background()
+	if _, err := client.ParseMealFromDescription(ctx, "an apple"); err != nil {
+		t.Fatalf("ParseMealFromDescription: %v", err)
+	}
+	if _, err := client.ParseActivityFromDescription(ctx, "ran 5k"); err != nil {
+		t.Fatalf("ParseActivityFromDescription: %v", err)
+	}
+	if _, err := client.ParseMealFromImage(ctx, []byte("fake-image"), "image/jpeg"); err != nil {
+		t.Fatalf("ParseMealFromImage: %v", err)
+	}
+
+	if len(bodies) != 3 {
+		t.Fatalf("expected 3 request bodies, got %d", len(bodies))
+	}
+	for i, b := range bodies {
+		if strings.Contains(b, "temperature") {
+			t.Errorf("request %d carries temperature: %s", i, b)
+		}
 	}
 }

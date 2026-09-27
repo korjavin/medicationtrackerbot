@@ -86,11 +86,12 @@ type RunResult struct {
 // internal/ai client has no need for a generic tool-calling loop. Modeled on
 // internal/ai/openai.go's request/transport/error-decode style.
 type Client struct {
-	apiKey     string
-	baseURL    string
-	model      string
-	maxTokens  int
-	httpClient *http.Client
+	apiKey      string
+	baseURL     string
+	model       string
+	maxTokens   int
+	temperature *float64
+	httpClient  *http.Client
 }
 
 // defaultMaxTokens is the completion cap when none is configured. Sized to leave
@@ -138,11 +139,14 @@ func NewAgent(client *Client, maxRounds int) *Agent {
 // --- OpenAI Chat Completions wire types ---
 
 type chatRequest struct {
-	Model       string        `json:"model"`
-	Messages    []chatMessage `json:"messages"`
-	Tools       []chatTool    `json:"tools,omitempty"`
-	ToolChoice  string        `json:"tool_choice,omitempty"`
-	Temperature float64       `json:"temperature"`
+	Model      string        `json:"model"`
+	Messages   []chatMessage `json:"messages"`
+	Tools      []chatTool    `json:"tools,omitempty"`
+	ToolChoice string        `json:"tool_choice,omitempty"`
+	// Temperature is nil unless MCPEVAL_TEMPERATURE is set: reasoning-family
+	// models 400 on any non-default value. Pointer + omitempty so an
+	// explicit 0 (determinism) still reaches the wire (bd med-gdb4).
+	Temperature *float64 `json:"temperature,omitempty"`
 	// MaxTokens caps the completion length. It MUST be generous for reasoning
 	// models: they spend most of the budget in reasoning_content, and a small cap
 	// truncates the visible answer mid-word (finish_reason="length", empty/partial
@@ -387,7 +391,7 @@ func (a *Agent) Run(ctx context.Context, task string, tools []ToolSpec, runner T
 			Messages:    messages,
 			Tools:       chatTools,
 			ToolChoice:  "auto",
-			Temperature: 0,
+			Temperature: a.client.temperature,
 			MaxTokens:   a.client.maxTokens,
 		})
 		if err != nil {
@@ -454,7 +458,7 @@ func (c *Client) completeJSON(ctx context.Context, system, user string) (string,
 			{Role: "system", Content: system},
 			{Role: "user", Content: user},
 		},
-		Temperature: 0,
+		Temperature: c.temperature,
 		MaxTokens:   c.maxTokens,
 	})
 	if err != nil {
