@@ -22,18 +22,30 @@
 import { afterEach, beforeEach, vi } from 'vitest';
 import { VirtualConsole } from 'jsdom';
 
-// jsdom "Not implemented" stub errors (window.print/focus from the print
+// jsdom "Not implemented: ..." stub errors (window.print/focus from the print
 // iframe's load handler in web/cloud/js/print-doc.js, and the like) are
-// environment trivia, not product signal. Under vitest 3 they never reached
-// the test console; under vitest 4 the default VirtualConsole forwards them
-// to console.error, tripping this guard. Omit them harness-wide. In-page
-// console.* calls are unaffected — jsdom only ever forwards jsdomError to a
-// bare console object (see VirtualConsole.sendTo) — and no test passes an
-// explicit virtualConsole, so forcing the default here conflicts with
-// nothing.
+// environment trivia, not product signal: jsdom lacks these APIs by design,
+// and the product paths hitting them are pinned by dedicated assertions
+// (e.g. the `printed` array in signup.emergency-kit.test.js). Under vitest 4
+// the default VirtualConsole forwards them to console.error, tripping this
+// guard in tests that never took over the error channel. Filter ONLY those
+// stubs — every other jsdomError (uncaught in-page exceptions, resource-load
+// failures) still forwards to the console and this guard, exactly as before.
+// An explicit omitJSDOMErrors: false keeps its full-forwarding meaning, and
+// no test passes an explicit virtualConsole, so narrowing the default here
+// conflicts with nothing.
 const _sendTo = VirtualConsole.prototype.sendTo;
 VirtualConsole.prototype.sendTo = function sendTo(anyConsole, options) {
-  return _sendTo.call(this, anyConsole, { ...options, omitJSDOMErrors: true });
+  if (options && options.omitJSDOMErrors === false) {
+    return _sendTo.call(this, anyConsole, options);
+  }
+  _sendTo.call(this, anyConsole, { ...options, omitJSDOMErrors: true });
+  this.on('jsdomError', (e) => {
+    if (e && /^Not implemented:/.test(e.message)) return;
+    if (e) anyConsole.error(e.stack, e.detail);
+    else anyConsole.error(e);
+  });
+  return this;
 };
 
 let _noiseAllowed = false;
