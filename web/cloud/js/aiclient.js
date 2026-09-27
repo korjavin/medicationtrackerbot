@@ -374,7 +374,7 @@ Do not wrap the JSON in markdown fences or add explanations.`;
 
 function activityFenceInstruction(systemPrompt) {
   return `${systemPrompt}
-Return only valid JSON with the shape {"name": string, "exercises": [{"name": string, "sets": number|null, "reps": number|null, "weight_kg": number|null, "duration_minutes": number|null, "distance_m": number|null, "notes": string}]}.
+Return only valid JSON with the shape {"name": string, "exercises": [{"name": string, "sets": number|null, "reps": number|null, "weight": number|null, "weight_unit": string, "duration_minutes": number|null, "distance": number|null, "distance_unit": string, "notes": string}]}.
 Do not wrap the JSON in markdown fences or add explanations.`;
 }
 
