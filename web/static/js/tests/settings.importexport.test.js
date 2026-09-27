@@ -1,11 +1,11 @@
 // Settings → Import/Export section (C2e Task 6). Pin the contract:
 //
-//   - export (bot) reads GET /api/export and downloads a Blob whose JSON
-//     parses to { format: "medtracker-vault" }
-//   - import (bot) happy path POSTs the vault + mode:"replace" to /api/import
-//     only after the destructive confirm resolves true
-//   - cloud branch dispatches to a stubbed window.CloudVault instead of the
-//     /api routes
+//   - export reads the vault via window.CloudVault.exportAll and downloads
+//     a Blob whose JSON parses to { format: "medtracker-vault" }
+//   - import happy path dispatches the backup JSON to
+//     window.CloudVault.importAll only after the destructive confirm
+//     resolves true
+//   - neither path touches /api export/import routes
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -135,21 +135,8 @@ describe('Settings → Import/Export section', () => {
         });
     });
 
-    it('bot export drops secrets when the checkbox is unchecked', async () => {
+    it('export passes includeSecrets:false through to CloudVault', async () => {
         const { window, document } = env;
-        document.getElementById('importexport-include-secrets').checked = false;
-        window.apiCall = vi.fn(async () => SAMPLE_VAULT);
-        window.downloadBlobAsFile = () => {};
-
-        await window.SettingsImportExport.export();
-
-        expect(window.apiCall).toHaveBeenCalledWith('/api/export?include_secrets=0', 'GET', null,
-            expect.objectContaining({ timeoutMs: 600000 }));
-    });
-
-    it('cloud export passes includeSecrets:false through to CloudVault', async () => {
-        const { window, document } = env;
-        window.__MEDTRACKER_CLOUD__ = true;
         document.getElementById('importexport-include-secrets').checked = false;
         window.CloudVault = { exportAll: vi.fn(async () => JSON.stringify(SAMPLE_VAULT)), importAll: vi.fn() };
         window.downloadBlobAsFile = () => {};
@@ -159,18 +146,15 @@ describe('Settings → Import/Export section', () => {
         expect(window.CloudVault.exportAll).toHaveBeenCalledWith({ includeSecrets: false });
     });
 
-    it('bot export downloads a gzipped medtracker-vault blob from GET /api/export', async () => {
+    it('export downloads a gzipped medtracker-vault blob from CloudVault.exportAll', async () => {
         const { window } = env;
-        window.apiCall = vi.fn(async (url, method) => {
-            expect(url).toBe('/api/export?include_secrets=1');
-            expect(method).toBe('GET');
-            return SAMPLE_VAULT;
-        });
+        window.CloudVault = { exportAll: vi.fn(async () => JSON.stringify(SAMPLE_VAULT)), importAll: vi.fn() };
         const downloads = [];
         window.downloadBlobAsFile = (blob, filename) => downloads.push({ blob, filename });
 
         await window.SettingsImportExport.export();
 
+        expect(window.CloudVault.exportAll).toHaveBeenCalledWith({ includeSecrets: true });
         expect(downloads).toHaveLength(1);
         expect(downloads[0].filename).toMatch(/^medtracker-vault-\d{4}-\d{2}-\d{2}\.json\.gz$/);
         // The blob is a real gzip member that gunzips back to the vault.
@@ -180,35 +164,9 @@ describe('Settings → Import/Export section', () => {
         expect(parsed.format).toBe('medtracker-vault');
     });
 
-    it('bot import POSTs a gzipped vault + mode:replace to /api/import after confirm', async () => {
+    it('import accepts a gzipped backup file', async () => {
         const { window, document } = env;
-        const posts = [];
-        window.apiCall = vi.fn(async (url, method, body, opts) => {
-            if (url === '/api/import') { posts.push({ method, body, opts }); return { ok: true }; }
-            return null;
-        });
-
-        setFile(window, document.getElementById('importexport-import-file'), 'backup.json', JSON.stringify(SAMPLE_VAULT));
-        await window.SettingsImportExport.import();
-
-        expect(window.safeConfirm).toHaveBeenCalled();
-        expect(posts).toHaveLength(1);
-        expect(posts[0].method).toBe('POST');
-        // Body is gzip bytes, not an object: the plaintext exceeds the 64MB cap.
-        expect(posts[0].opts.headers).toEqual({ 'Content-Encoding': 'gzip' });
-        expect(window.BackupCrypto.isGzipFile(posts[0].body)).toBe(true);
-        const sent = JSON.parse(await window.BackupCrypto.gunzipToString(posts[0].body));
-        expect(sent.mode).toBe('replace');
-        expect(sent.format).toBe('medtracker-vault');
-    });
-
-    it('bot import accepts a gzipped backup file', async () => {
-        const { window, document } = env;
-        const posts = [];
-        window.apiCall = vi.fn(async (url, method, body) => {
-            if (url === '/api/import') { posts.push(body); return { ok: true }; }
-            return null;
-        });
+        window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(async () => {}) };
 
         const gz = await window.BackupCrypto.gzipString(JSON.stringify(SAMPLE_VAULT));
         const input = document.getElementById('importexport-import-file');
@@ -217,25 +175,24 @@ describe('Settings → Import/Export section', () => {
 
         await window.SettingsImportExport.import();
 
-        expect(posts).toHaveLength(1);
-        const sent = JSON.parse(await window.BackupCrypto.gunzipToString(posts[0]));
+        expect(window.CloudVault.importAll).toHaveBeenCalledTimes(1);
+        const sent = JSON.parse(window.CloudVault.importAll.mock.calls[0][0]);
         expect(sent.format).toBe('medtracker-vault');
     });
 
-    it('bot import does nothing when the confirm is declined', async () => {
+    it('import does nothing when the confirm is declined', async () => {
         const { window, document } = env;
         window.safeConfirm = vi.fn(async () => false);
-        window.apiCall = vi.fn(async () => ({ ok: true }));
+        window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(async () => {}) };
 
         setFile(window, document.getElementById('importexport-import-file'), 'backup.json', JSON.stringify(SAMPLE_VAULT));
         await window.SettingsImportExport.import();
 
-        expect(window.apiCall).not.toHaveBeenCalled();
+        expect(window.CloudVault.importAll).not.toHaveBeenCalled();
     });
 
-    it('cloud export dispatches to CloudVault.exportAll, never /api/export', async () => {
+    it('export dispatches to CloudVault.exportAll and never touches apiCall', async () => {
         const { window } = env;
-        window.__MEDTRACKER_CLOUD__ = true;
         window.apiCall = vi.fn();
         window.CloudVault = { exportAll: vi.fn(async () => JSON.stringify(SAMPLE_VAULT)), importAll: vi.fn() };
         const downloads = [];
@@ -248,9 +205,8 @@ describe('Settings → Import/Export section', () => {
         expect(downloads).toHaveLength(1);
     });
 
-    it('cloud import dispatches to CloudVault.importAll, never /api/import', async () => {
+    it('import dispatches to CloudVault.importAll and never touches apiCall', async () => {
         const { window, document } = env;
-        window.__MEDTRACKER_CLOUD__ = true;
         window.apiCall = vi.fn();
         window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(async () => {}) };
 
@@ -258,28 +214,18 @@ describe('Settings → Import/Export section', () => {
         await window.SettingsImportExport.import();
 
         expect(window.CloudVault.importAll).toHaveBeenCalledTimes(1);
+        expect(window.CloudVault.importAll).toHaveBeenCalledWith(JSON.stringify(SAMPLE_VAULT));
         expect(window.apiCall).not.toHaveBeenCalled();
     });
 
-    // Mi Band .nxk ingestion — cloud only, POSTs raw multipart to the Go handler.
+    // Mi Band .nxk ingestion — POSTs raw multipart to the Go handler.
     describe('Mi Band .nxk import control', () => {
-        function goCloud() {
-            env.window.__MEDTRACKER_CLOUD__ = true;
-            env.window.SettingsImportExport.load(); // re-bind so the group is revealed
-        }
-
-        it('the group is hidden outside cloud mode', () => {
-            expect(env.document.getElementById('importexport-nxk-group').hidden).toBe(true);
-        });
-
-        it('reveals the group in cloud mode', () => {
-            goCloud();
+        it('the group is visible on load', () => {
             expect(env.document.getElementById('importexport-nxk-group').hidden).toBe(false);
         });
 
         it('POSTs the picked file as multipart to /api/vitals/import', async () => {
             const { window, document } = env;
-            goCloud();
             const calls = [];
             window.fetch = vi.fn(async (url, opts) => {
                 calls.push({ url, opts });
@@ -303,7 +249,6 @@ describe('Settings → Import/Export section', () => {
 
         it('surfaces the no-inbox-key 412 as an error toast', async () => {
             const { window, document } = env;
-            goCloud();
             window.fetch = vi.fn(async () => ({ ok: false, status: 412, json: async () => ({}) }));
             window.SyncManager = { showToast: vi.fn() };
 
@@ -319,7 +264,6 @@ describe('Settings → Import/Export section', () => {
 
         it('does nothing when no file is picked', async () => {
             const { window } = env;
-            goCloud();
             window.fetch = vi.fn();
             window.safeAlert = vi.fn();
 
@@ -330,28 +274,17 @@ describe('Settings → Import/Export section', () => {
         });
     });
 
-    // med-0ol.7 — the "Reset local sync" recovery affordance. Cloud only: it
-    // rebuilds this device from the server when the sync engine wedges after a
-    // failed import. Wired to window.CloudVault.resetLocalSync (dynamic-import
+    // med-0ol.7 — the "Reset local sync" recovery affordance. It rebuilds
+    // this device from the server when the sync engine wedges after a failed
+    // import. Wired to window.CloudVault.resetLocalSync (dynamic-import
     // wrapper), never a /api route.
     describe('Reset local sync control', () => {
-        function goCloud() {
-            env.window.__MEDTRACKER_CLOUD__ = true;
-            env.window.SettingsImportExport.load(); // re-bind so the group is revealed
-        }
-
-        it('the group is hidden outside cloud mode', () => {
-            expect(env.document.getElementById('importexport-reset-sync-group').hidden).toBe(true);
-        });
-
-        it('reveals the group in cloud mode', () => {
-            goCloud();
+        it('the group is visible on load', () => {
             expect(env.document.getElementById('importexport-reset-sync-group').hidden).toBe(false);
         });
 
         it('calls CloudVault.resetLocalSync after the confirm, then reloads', async () => {
             const { window } = env;
-            goCloud();
             window.CloudVault = { resetLocalSync: vi.fn(async () => {}) };
 
             await window.SettingsImportExport.resetSync();
@@ -362,7 +295,6 @@ describe('Settings → Import/Export section', () => {
 
         it('does nothing when the confirm is declined', async () => {
             const { window } = env;
-            goCloud();
             window.safeConfirm = vi.fn(async () => false);
             window.CloudVault = { resetLocalSync: vi.fn(async () => {}) };
 
@@ -383,7 +315,6 @@ describe('Settings → Import/Export section', () => {
 
         it('disables the button, shows progress, and ignores a second click mid-import (vault)', async () => {
             const { window, document } = env;
-            window.__MEDTRACKER_CLOUD__ = true;
             const d = deferred();
             window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(() => d.promise) };
             setFile(window, document.getElementById('importexport-import-file'), 'backup.json', JSON.stringify(SAMPLE_VAULT));
@@ -408,7 +339,6 @@ describe('Settings → Import/Export section', () => {
 
         it('arms a beforeunload guard while importing and removes it on completion', async () => {
             const { window, document } = env;
-            window.__MEDTRACKER_CLOUD__ = true;
             const added = [];
             const removed = [];
             const realAdd = window.addEventListener.bind(window);
@@ -439,7 +369,6 @@ describe('Settings → Import/Export section', () => {
 
         it('the .nxk upload disables both import buttons and is not double-triggered', async () => {
             const { window, document } = env;
-            window.__MEDTRACKER_CLOUD__ = true;
             window.SettingsImportExport.load(); // reveal the nxk group
             window.SyncManager = { showToast: vi.fn() };
             const d = deferred();

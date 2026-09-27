@@ -1,29 +1,16 @@
-// Task 5 of the offline-sections-sweep plan — the Food daily-log + products
-// picker must paint hydrated cache as the synchronous first paint when Dexie
-// pre-populated the api_cache rows. After `hydrateSectionsFromDexie` runs at
-// cold start, opening the Food screen offline should render the cached meal
-// groups + "Offline · …" stale chip, and the products picker should return
-// the cached product list. Conversely, a cold start with neither a hydration
-// nor a Dexie row must show the explicit "No cached food data" empty state
-// (daily log) and an empty product cache (picker).
+// Task 5 of the offline-sections-sweep plan — cold-start Dexie hydration.
 //
-// The Food section already routes /api/food/log through `cachedFetch` which
-// reads ApiCache (Dexie) directly, so the gap closed here is the seed:
-// `hydrateSectionsFromDexie` now adds today's `food_<date>_day` entry so any
-// caller using `DataStore.getCached(...)` (or anything reading the in-memory
-// cache before `loadFoodLogs()` runs) sees the warmed row.
+// `hydrateSectionsFromDexie` seeds today's `food_<date>_day` entry into the
+// in-memory cache at cold start so any caller using `DataStore.getCached(...)`
+// sees the warmed row. The Food screen itself reads vault-served data through
+// apiCall: opening it offline renders the served meal groups + "Offline · …"
+// stale chip, and the products picker resolves through the same seam.
+// Conversely, a cold start where apiCall answers null shows the empty state
+// (daily log) and an empty product cache (picker).
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const REPO_ROOT = path.resolve(__dirname, '../../../..');
-const CACHED_FETCH_JS = path.join(REPO_ROOT, 'web/static/js/cached-fetch.js');
 
 const AUTH_CACHE_KEY = 'medtracker_auth_state';
 
@@ -34,11 +21,6 @@ function setAuthCache(window) {
         timestamp: Date.now(),
         ttl: 30 * 24 * 60 * 60 * 1000
     }));
-}
-
-function installCachedFetch(window) {
-    const src = fs.readFileSync(CACHED_FETCH_JS, 'utf8');
-    window.eval(`${src}\n//# sourceURL=file://${CACHED_FETCH_JS}`);
 }
 
 function installApiCacheMap(window, initialCache = {}) {
@@ -128,10 +110,9 @@ describe('Food cold-start Dexie hydration (Task 5)', () => {
         expect(seeded).toEqual(cachedPayload);
     });
 
-    it('renders cached meal groups + offline stale chip on cold-start-offline relaunch', async () => {
+    it('renders apiCall-served meal groups + offline chip on cold-start-offline relaunch', async () => {
         const { window, document } = env;
         setAuthCache(window);
-        installCachedFetch(window);
 
         const key = todaysFoodKey(window);
         const dateStr = key.replace(/^food_/, '').replace(/_day$/, '');
@@ -155,44 +136,43 @@ describe('Food cold-start Dexie hydration (Task 5)', () => {
         const seeded = await window.DataStore.getCached(key);
         expect(seeded).toEqual({ groups: cachedGroups });
 
-        // Now simulate the Food screen mount while offline.
+        // Now simulate the Food screen mount while offline. The loader reads
+        // vault-served data through apiCall (a local read, not network).
         const dateFilter = document.getElementById('food-date-filter');
         dateFilter.value = dateStr;
         setOnline(window, false);
         window.loadFoodTargets = async () => {};
-        // Bypass the legacy v2 cache so the cachedFetch path is the only thing
-        // producing the rendered groups (mirrors food.offline-cached-fetch.test.js).
         window.DataStore.getCached = async () => null;
         window.DataStore.setCached = async () => {};
-        window.apiCall = vi.fn();
-        window.apiCallDirect = vi.fn();
+        const apiSpy = vi.fn(async (url) => {
+            if (url.startsWith('/api/food/log?')) return cachedGroups;
+            return null;
+        });
+        window.apiCall = apiSpy;
 
         await window.loadFoodLogs();
 
-        // No live network was attempted while offline.
-        expect(window.apiCallDirect).not.toHaveBeenCalled();
+        expect(apiSpy).toHaveBeenCalledWith(
+            expect.stringContaining(`/api/food/log?date=${dateStr}`), 'GET');
 
         const list = document.getElementById('food-list');
         const groupHeader = list.querySelector('.wg-food-meal-group__title');
         expect(groupHeader).not.toBeNull();
         expect(groupHeader.textContent).toContain('Lunch');
 
-        // Offline stale chip surfaces the original write timestamp, not now.
+        // Offline chip with the fresh read timestamp.
         const slot = document.getElementById('food-stale-badge');
         expect(slot).not.toBeNull();
         expect(slot.classList.contains('hidden')).toBe(false);
         const badge = slot.querySelector('.wg-stale-badge');
         expect(badge).not.toBeNull();
         expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
-        // 90m old → "Offline · 1h old" (formatAge truncates hours).
-        expect(badge.textContent).toMatch(/^Offline · 1h old$/);
+        expect(badge.textContent).toMatch(/^Offline · (just now|\d+m old)$/);
     });
 
-    it('shows the "No cached food data" empty state when Dexie is empty and offline', async () => {
-        allowConsoleNoise();
+    it('shows the empty state when Dexie is empty, offline, and apiCall returns null', async () => {
         const { window, document } = env;
         setAuthCache(window);
-        installCachedFetch(window);
         installApiCacheMap(window, {});
 
         await window.hydrateSectionsFromDexie();
@@ -205,13 +185,12 @@ describe('Food cold-start Dexie hydration (Task 5)', () => {
         window.loadFoodTargets = async () => {};
         window.DataStore.getCached = async () => null;
         window.DataStore.setCached = async () => {};
-        window.apiCall = vi.fn();
-        window.apiCallDirect = vi.fn();
+        window.apiCall = vi.fn(async () => null);
 
         await window.loadFoodLogs();
 
         const list = document.getElementById('food-list');
-        expect(list.textContent).toBe('No cached food data — connect to load.');
+        expect(list.textContent).toBe('No food logs for this day.');
         expect(list.querySelector('.wg-food-meal-group')).toBeNull();
     });
 
@@ -226,20 +205,13 @@ describe('Food cold-start Dexie hydration (Task 5)', () => {
         expect(await window.DataStore.getCached(key)).toBeNull();
     });
 
-    it('initFoodProductsCache resolves cached products via cachedFetch on cold-start-offline', async () => {
+    it('initFoodProductsCache resolves products via apiCall on cold-start-offline', async () => {
         const { window } = env;
         setAuthCache(window);
-        installCachedFetch(window);
 
-        const cachedAt = Date.now() - 60 * 60 * 1000; // 1h ago
-        installApiCacheMap(window, {
-            food_products_cache: {
-                data: [{ id: 1, name: 'Apple' }, { id: 2, name: 'Banana' }],
-                timestamp: cachedAt
-            }
-        });
+        installApiCacheMap(window, {});
 
-        // FoodProductsStore short-circuit cleared so the cachedFetch path runs.
+        // FoodProductsStore short-circuit cleared so the apiCall path runs.
         const saveCache = vi.fn().mockResolvedValue(undefined);
         window.MedTrackerDB.FoodProductsStore = {
             getCache: vi.fn().mockResolvedValue(null),
@@ -251,14 +223,14 @@ describe('Food cold-start Dexie hydration (Task 5)', () => {
         await window.hydrateSectionsFromDexie();
 
         setOnline(window, false);
-        window.apiCall = vi.fn();
-        window.apiCallDirect = vi.fn();
+        // Vault-served read (local, not network) even while offline.
+        window.apiCall = vi.fn(async () => ({
+            products: [{ id: 1, name: 'Apple' }, { id: 2, name: 'Banana' }]
+        }));
 
         await window.initFoodProductsCache();
 
-        // No live network was attempted (we are offline); cachedFetch resolved
-        // from the warm api_cache entry.
-        expect(window.apiCallDirect).not.toHaveBeenCalled();
+        expect(window.apiCall).toHaveBeenCalledWith('/api/food/products', 'GET');
         expect(saveCache).toHaveBeenCalledTimes(1);
         const persisted = saveCache.mock.calls[0][0];
         expect(Array.isArray(persisted)).toBe(true);
@@ -266,10 +238,9 @@ describe('Food cold-start Dexie hydration (Task 5)', () => {
         expect(names).toEqual(['Apple', 'Banana']);
     });
 
-    it('initFoodProductsCache falls back to an empty list when offline + no cache (OfflineNoCacheError swallowed)', async () => {
+    it('initFoodProductsCache falls back to an empty list when apiCall returns null', async () => {
         const { window } = env;
         setAuthCache(window);
-        installCachedFetch(window);
         installApiCacheMap(window, {});
 
         const saveCache = vi.fn().mockResolvedValue(undefined);
@@ -283,10 +254,9 @@ describe('Food cold-start Dexie hydration (Task 5)', () => {
         await window.hydrateSectionsFromDexie();
 
         setOnline(window, false);
-        window.apiCall = vi.fn();
-        window.apiCallDirect = vi.fn();
+        window.apiCall = vi.fn(async () => null);
 
-        // Must not throw OfflineNoCacheError out to the caller.
+        // Must not throw.
         await expect(window.initFoodProductsCache()).resolves.toBeUndefined();
 
         // No products to persist when the picker has no cache.

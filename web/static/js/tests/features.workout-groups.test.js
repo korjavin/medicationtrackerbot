@@ -471,7 +471,6 @@ describe('features/workout/groups.js — scan-back anchors (med-qj4.9)', () => {
 
   afterEach(() => {
     consoleErrorSpy.mockRestore();
-    delete env.window.__MEDTRACKER_CLOUD__;
     env.cleanup();
     env = null;
   });
@@ -547,20 +546,14 @@ describe('features/workout/groups.js — scan-back anchors (med-qj4.9)', () => {
     expect(printed[0]).not.toContain('<figure class="qr">');
   });
 
-  it('every Plan row gets a Scan button in cloud mode only', () => {
+  it('every Plan row gets a Scan button next to Print, and it does not open Edit', () => {
     const { window, document } = env;
     const container = document.getElementById('workout-groups-list');
 
-    // Legacy/bot mode: no Scan button, Print untouched.
-    window._renderWorkoutGroups(container, [GROUP]);
-    expect(container.querySelectorAll('button[aria-label="Scan filled sheet"]')).toHaveLength(0);
-    expect(container.querySelectorAll('button[aria-label="Print plan"]')).toHaveLength(1);
-
-    // Cloud mode: Scan sits next to Print and does not open Edit.
-    window.__MEDTRACKER_CLOUD__ = true;
     window._renderWorkoutGroups(container, [GROUP]);
     const scanButtons = container.querySelectorAll('button[aria-label="Scan filled sheet"]');
     expect(scanButtons).toHaveLength(1);
+    expect(container.querySelectorAll('button[aria-label="Print plan"]')).toHaveLength(1);
 
     const scanSpy = vi.fn();
     window.WorkoutScan.scan = scanSpy;
@@ -571,6 +564,20 @@ describe('features/workout/groups.js — scan-back anchors (med-qj4.9)', () => {
     expect(scanSpy).toHaveBeenCalledTimes(1);
     expect(scanSpy.mock.calls[0][0].id).toBe(5);
     expect(openEdit).not.toHaveBeenCalled();
+  });
+
+  it('omits the Scan button when the WorkoutScan seam is absent', () => {
+    const { window, document } = env;
+    const container = document.getElementById('workout-groups-list');
+    const kept = window.WorkoutScan;
+    delete window.WorkoutScan;
+    try {
+      window._renderWorkoutGroups(container, [GROUP]);
+      expect(container.querySelectorAll('button[aria-label="Scan filled sheet"]')).toHaveLength(0);
+      expect(container.querySelectorAll('button[aria-label="Print plan"]')).toHaveLength(1);
+    } finally {
+      window.WorkoutScan = kept;
+    }
   });
 });
 

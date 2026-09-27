@@ -1,15 +1,12 @@
 // features/settings/importexport.js — Settings → Import/Export section (C2e
-// Task 6). One shared screen serves both runtimes:
+// Task 6). Fully client-side against the unlocked vault via
+// window.CloudVault.{exportAll,importAll} — zero-knowledge forbids the
+// plaintext ever reaching the server, so no /api export/import route is
+// ever fetched here.
 //
-//   - Bot mode: export = GET /api/export, import = POST /api/import.
-//   - Cloud mode (window.__MEDTRACKER_CLOUD__): fully client-side against the
-//     unlocked vault via window.CloudVault.{exportAll,importAll} — zero-knowledge
-//     forbids the plaintext ever reaching the server, so /api/export|/api/import
-//     are NEVER fetched here.
-//
-// Optional passphrase encryption runs browser-side in BOTH modes via
-// window.BackupCrypto (vendored age/typage). Empty passphrase is allowed but
-// nudges the user because the backup carries their provider API keys.
+// Optional passphrase encryption runs browser-side via window.BackupCrypto
+// (vendored age/typage). Empty passphrase is allowed but nudges the user
+// because the backup carries their provider API keys.
 //
 // Import is replace-only and destructive: the user confirms, then the whole
 // dataset is wiped and re-inserted. Cloud import forces one snapshot upload
@@ -18,8 +15,6 @@
     'use strict';
 
     function el(id) { return document.getElementById(id); }
-
-    function isCloud() { return !!window.__MEDTRACKER_CLOUD__; }
 
     // Import lifecycle state (med-0ol.1/.4). A .nxk / full-vault import runs for a
     // while; without feedback the user assumes it failed and clicks again (double
@@ -63,22 +58,10 @@
     // settings.integrations + api_tokens (absent, not blank — the importer reads
     // absence as "leave the destination's secrets alone").
     async function readVaultJSON(includeSecrets) {
-        if (isCloud()) {
-            if (!window.CloudVault || typeof window.CloudVault.exportAll !== 'function') {
-                throw new Error('Vault not ready — unlock first');
-            }
-            return await window.CloudVault.exportAll({ includeSecrets });
+        if (!window.CloudVault || typeof window.CloudVault.exportAll !== 'function') {
+            throw new Error('Vault not ready — unlock first');
         }
-        // A full vault is every domain over all history; the default 60s
-        // apiCall timeout aborts long exports mid-download. Matches the
-        // server's vaultIOTimeout.
-        const vault = await apiCall(`/api/export?include_secrets=${includeSecrets ? '1' : '0'}`,
-            'GET', null, { timeoutMs: 10 * 60_000 });
-        if (!vault) throw new Error('Export failed');
-        // ponytail: no indent — the file is gzipped anyway, and a real vault is
-        // hundreds of MB, so pretty-printing only doubles the string we hold in
-        // memory. `gunzip -c … | jq` is the human-readable path.
-        return JSON.stringify(vault);
+        return await window.CloudVault.exportAll({ includeSecrets });
     }
 
     function todayStamp() {
@@ -219,32 +202,14 @@
 
         setImportBusy(true);
         try {
-            if (isCloud()) {
-                await window.CloudVault.importAll(json);
-                // Clear busy BEFORE reload — otherwise beforeUnloadGuard would
-                // prompt on our own intended navigation.
-                setImportBusy(false);
-                // Full refresh so every section re-renders from the restored vault
-                // (simplest correct path — same as post-bootstrap reload).
-                location.reload();
-                return;
-            }
-            const vault = JSON.parse(json);
-            // gzip the upload: a full vault's JSON exceeds the 64MB body cap
-            // (http.MaxBytesReader), so an uncompressed POST can't restore a real
-            // backup at all. The handler gunzips on Content-Encoding.
-            const body = await window.BackupCrypto.gzipString(
-                JSON.stringify({ ...vault, mode: 'replace' }));
-            const res = await apiCall('/api/import', 'POST', body,
-                { timeoutMs: 10 * 60_000, headers: { 'Content-Encoding': 'gzip' } });
-            if (!res) { setImportBusy(false); return; } // apiCall already surfaced the error
+            await window.CloudVault.importAll(json);
+            // Clear busy BEFORE reload — otherwise beforeUnloadGuard would
+            // prompt on our own intended navigation.
             setImportBusy(false);
-            // Blocking on purpose (med-omvw review): showToast reveals on a
-            // delayed callback, so the reload below would kill the toast
-            // before it is ever visible. The user must read this before the
-            // page goes away.
-            safeAlert('Import complete.');
+            // Full refresh so every section re-renders from the restored vault
+            // (simplest correct path — same as post-bootstrap reload).
             location.reload();
+            return;
         } catch (e) {
             console.error('Import failed:', e);
             setImportBusy(false);
@@ -328,18 +293,18 @@
     }
 
     function bindControls() {
-        // The .nxk endpoint only exists on cmd/cloud; reveal the control there.
+        // The .nxk endpoint lives on cmd/cloud; the control is always visible.
         const nxkGroup = el('importexport-nxk-group');
-        if (nxkGroup) nxkGroup.hidden = !isCloud();
+        if (nxkGroup) nxkGroup.hidden = false;
         const nxkBtn = el('importexport-nxk-btn');
         if (nxkBtn && !nxkBtn.dataset.bound) {
             nxkBtn.dataset.bound = '1';
             nxkBtn.addEventListener('click', () => { doNxkImport(); });
         }
 
-        // Reset local sync — cloud only (rebuilds the device from the server).
+        // Reset local sync rebuilds the device from the server; always visible.
         const resetGroup = el('importexport-reset-sync-group');
-        if (resetGroup) resetGroup.hidden = !isCloud();
+        if (resetGroup) resetGroup.hidden = false;
         const resetBtn = el('importexport-reset-sync-btn');
         if (resetBtn && !resetBtn.dataset.bound) {
             resetBtn.dataset.bound = '1';

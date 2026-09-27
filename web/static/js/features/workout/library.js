@@ -487,7 +487,7 @@ async function saveExerciseLibraryItem() {
 // cannot classify gets one LLM pass (names only). Best-effort: a failure just
 // leaves the row untagged, exactly where a manual tag would fix it.
 async function _autoTagIfUnresolved(name) {
-    if (!window.WorkoutExerciseCatalog || !window.__MEDTRACKER_CLOUD__) return;
+    if (!window.WorkoutExerciseCatalog) return;
     if (await window.WorkoutExerciseCatalog.getBodyPart(name)) return;
     try {
         const res = await apiCall('/api/workout/exercise-library/auto-tag', 'POST', { names: [name] });

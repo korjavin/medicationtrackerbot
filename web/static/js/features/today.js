@@ -1279,7 +1279,7 @@
     }
 
     function briefOpenerOrNull() {
-        if (typeof window === 'undefined' || !window.__MEDTRACKER_CLOUD__) return null;
+        if (typeof window === 'undefined') return null;
         const brief = window.DoctorBrief;
         return (brief && typeof brief.open === 'function') ? () => brief.open() : null;
     }

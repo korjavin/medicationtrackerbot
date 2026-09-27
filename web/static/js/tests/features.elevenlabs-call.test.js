@@ -25,7 +25,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const ELEVENLABS_JS = path.join(REPO_ROOT, 'web/static/js/features/elevenlabs-call.js');
-const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
 
 function createEnv() {
     const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -34,9 +33,13 @@ function createEnv() {
     });
     const { window } = dom;
 
-    // The script under test calls fetch() unless window.offlineAwareApiCall
-    // or window.apiCallDirect is provided. Provide a stubbable apiCallDirect.
-    window.apiCallDirect = vi.fn(async () => ({ signed_url: 'wss://stub.example/' }));
+    // Default BYO seam: vault key present, signed URL resolves. Tests
+    // override per-case (trial, consent, failures).
+    window.CloudElevenLabs = {
+        hasKey: vi.fn(async () => true),
+        fetchSignedURL: vi.fn(async () => 'wss://stub.example/'),
+        uploadFile: vi.fn(async () => 'file_abc'),
+    };
 
     window.eval(fs.readFileSync(ELEVENLABS_JS, 'utf8'));
 
@@ -51,9 +54,9 @@ function createEnv() {
 // startCall() awaits Conversation.startSession({...}) so we need to
 // call onConnect from inside that call to flip state to 'in_call'.
 //
-// uploadFile is no longer called by the controller — sendPhoto now POSTs
-// the file to /api/elevenlabs/upload-file via the global fetch (the server
-// proxies it to ElevenLabs with xi-api-key). The fake still keeps a
+// uploadFile is never called by the controller — sendPhoto uploads through
+// window.CloudElevenLabs.uploadFile (browser-direct with the vault key) and
+// forwards the returned fileId to the SDK. The fake still keeps an
 // uploadFile spy for legacy assertions but it should never be invoked.
 function makeFakeConversation(overrides = {}) {
     const conv = {
@@ -67,18 +70,11 @@ function makeFakeConversation(overrides = {}) {
     return conv;
 }
 
-// Default fetch stub for the upload-file proxy. Tests can override
-// window.fetch after createConversationEnv() to simulate failures.
-function makeUploadFetchStub({ fileId = 'file_abc', status = 200 } = {}) {
+// Default fetch stub: the controller only fetches the same-origin trial
+// route (/api/trial/elevenlabs/signed-url), which trial tests stub
+// per-case — any other URL here is a leak and throws.
+function makeThrowingFetchStub() {
     return vi.fn(async (url) => {
-        if (typeof url === 'string' && url.startsWith('/api/elevenlabs/upload-file')) {
-            return {
-                ok: status >= 200 && status < 300,
-                status,
-                async json() { return { file_id: fileId }; },
-                async text() { return ''; },
-            };
-        }
         throw new Error(`Unexpected fetch: ${url}`);
     });
 }
@@ -148,19 +144,18 @@ function createConversationEnv({ conv } = {}) {
     const conversation = conv || makeFakeConversation();
 
     window.__TEST_CONVERSATION__ = conversation;
-    // Default to a successful upload-file proxy response. Tests that need
-    // failure modes can reassign window.fetch after createConversationEnv().
-    window.fetch = makeUploadFetchStub();
-    window.userInitData = 'init=stub';
+    // A fetch that throws on any URL: uploads go through the
+    // CloudElevenLabs seam below, so a fetch here is a leak. Trial tests
+    // reassign window.fetch per-case.
+    window.fetch = makeThrowingFetchStub();
 
-    // Load the real makeAuthHeaders helper into this DOM so the
-    // controller's upload-file fetch reaches the same auth-header
-    // construction path used in production. core/api.js also assigns
-    // window.apiCallDirect; we override it below with the signed-URL
-    // stub so the signed-URL fetch in startCall() does not hit the
-    // upload-only fetch stub.
-    window.eval(fs.readFileSync(CORE_API_JS, 'utf8'));
-    window.apiCallDirect = vi.fn(async () => ({ signed_url: 'wss://stub.example/' }));
+    // Default BYO seam: vault key present, signed URL + upload resolve.
+    // Tests override per-case (trial, consent, failures).
+    window.CloudElevenLabs = {
+        hasKey: vi.fn(async () => true),
+        fetchSignedURL: vi.fn(async () => 'wss://stub.example/'),
+        uploadFile: vi.fn(async () => 'file_abc'),
+    };
 
     // Replace import(SDK_URL) with a resolved promise to a fake SDK whose
     // Conversation.startSession returns our injected conversation and
@@ -441,27 +436,21 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
         }
     });
 
-    it('happy path: posts to /api/elevenlabs/upload-file then sends multimodal message and toggles uploading', async () => {
+    it('happy path: uploads via CloudElevenLabs.uploadFile then sends multimodal message and toggles uploading', async () => {
         const { window, conversation, events, cleanup } = createConversationEnv();
         try {
             await startCall(window);
             const blob = makeImageBlob(window);
             const before = events.length;
             await window.WGCallAgent.sendPhoto(blob);
-            // The proxy fetch — not the SDK's uploadFile — handled the upload.
+            // The BYO seam — not the SDK's uploadFile — handled the upload.
             expect(conversation.uploadFile).not.toHaveBeenCalled();
-            expect(window.fetch).toHaveBeenCalledTimes(1);
-            const [url, init] = window.fetch.mock.calls[0];
-            expect(url).toBe('/api/elevenlabs/upload-file?conversation_id=conv_test');
-            expect(init.method).toBe('POST');
-            expect(init.body).toBeInstanceOf(window.FormData);
-            // FormData.append(blob, filename) wraps the Blob as a File; the
-            // bytes/type should round-trip through the wrapper.
-            const sentFile = init.body.get('file');
-            expect(sentFile instanceof window.Blob || sentFile instanceof window.File).toBe(true);
-            expect(sentFile.type).toBe('image/jpeg');
-            expect(sentFile.size).toBe(blob.size);
-            expect(init.headers['X-Telegram-Init-Data']).toBe('init=stub');
+            expect(window.CloudElevenLabs.uploadFile).toHaveBeenCalledTimes(1);
+            const [convId, sentFile] = window.CloudElevenLabs.uploadFile.mock.calls[0];
+            expect(convId).toBe('conv_test');
+            expect(sentFile).toBe(blob);
+            // No proxy fetch: the upload never touches our backend.
+            expect(window.fetch).not.toHaveBeenCalled();
             expect(conversation.sendMultimodalMessage).toHaveBeenCalledWith({ fileId: 'file_abc' });
             // Expect at least two new events: uploading: true, then false.
             const after = events.slice(before);
@@ -477,13 +466,8 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
     it('preserves a live mode-change status across the upload (does not blank "Listening…")', async () => {
         const { window, events, cleanup } = createConversationEnv();
         let resolveUpload;
-        window.fetch = vi.fn(() => new Promise((resolve) => {
-            resolveUpload = () => resolve({
-                ok: true,
-                status: 200,
-                async json() { return { file_id: 'f' }; },
-                async text() { return ''; },
-            });
+        window.CloudElevenLabs.uploadFile = vi.fn(() => new Promise((resolve) => {
+            resolveUpload = () => resolve('f');
         }));
         try {
             const { opts } = await startCall(window);
@@ -509,13 +493,8 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
     it('hang-up during in-flight upload does not clobber idle state back to in_call', async () => {
         const { window, conversation, events, cleanup } = createConversationEnv();
         let resolveUpload;
-        window.fetch = vi.fn(() => new Promise((resolve) => {
-            resolveUpload = () => resolve({
-                ok: true,
-                status: 200,
-                async json() { return { file_id: 'late_file' }; },
-                async text() { return ''; },
-            });
+        window.CloudElevenLabs.uploadFile = vi.fn(() => new Promise((resolve) => {
+            resolveUpload = () => resolve('late_file');
         }));
         try {
             await startCall(window);
@@ -542,7 +521,7 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
     it('upload failure after hang-up leaves UI idle (no in_call clobber)', async () => {
         const { window, events, cleanup } = createConversationEnv();
         let rejectUpload;
-        window.fetch = vi.fn(() => new Promise((_, reject) => { rejectUpload = reject; }));
+        window.CloudElevenLabs.uploadFile = vi.fn(() => new Promise((_, reject) => { rejectUpload = reject; }));
         try {
             await startCall(window);
             const blob = new window.Blob(['x'], { type: 'image/jpeg' });
@@ -561,12 +540,12 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
     it('successful retry after a prior failure clears the failure status', async () => {
         const { window, events, cleanup } = createConversationEnv();
         let firstAttempt = true;
-        window.fetch = vi.fn(async () => {
+        window.CloudElevenLabs.uploadFile = vi.fn(async () => {
             if (firstAttempt) {
                 firstAttempt = false;
-                return { ok: false, status: 500, async json() { return {}; }, async text() { return 'boom'; } };
+                throw new Error('boom');
             }
-            return { ok: true, status: 200, async json() { return { file_id: 'file_xyz' }; }, async text() { return ''; } };
+            return 'file_xyz';
         });
         try {
             await startCall(window);
@@ -586,7 +565,7 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
 
     it('upload failure: keeps call alive, sets status, clears uploading', async () => {
         const { window, conversation, events, cleanup } = createConversationEnv();
-        window.fetch = vi.fn(async () => { throw new Error('network'); });
+        window.CloudElevenLabs.uploadFile = vi.fn(async () => { throw new Error('network'); });
         try {
             await startCall(window);
             const blob = makeImageBlob(window);
@@ -604,59 +583,8 @@ describe('features/elevenlabs-call.js — sendPhoto', () => {
         }
     });
 
-    it('non-2xx upload-file proxy response surfaces "Photo upload failed"', async () => {
+    it('CloudElevenLabs.uploadFile rejection surfaces "Photo upload failed" and rejects', async () => {
         const { window, conversation, events, cleanup } = createConversationEnv();
-        window.fetch = vi.fn(async () => ({
-            ok: false,
-            status: 401,
-            async json() { return {}; },
-            async text() { return 'sign_in_required'; },
-        }));
-        try {
-            await startCall(window);
-            const blob = new window.Blob(['x'], { type: 'image/jpeg' });
-            await expect(window.WGCallAgent.sendPhoto(blob)).rejects.toThrow();
-            const last = events[events.length - 1];
-            expect(last.state).toBe('in_call');
-            expect(last.message).toBe('Photo upload failed');
-            expect(conversation.sendMultimodalMessage).not.toHaveBeenCalled();
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('cloud mode: uploads browser-direct via CloudElevenLabs.uploadFile (not the proxy) and forwards fileId', async () => {
-        const { window, conversation, cleanup } = createConversationEnv();
-        window.__MEDTRACKER_CLOUD__ = true;
-        window.CloudElevenLabs = {
-            hasKey: async () => true,
-            fetchSignedURL: async () => 'wss://stub.example/',
-            uploadFile: vi.fn(async () => 'cloud_file_1'),
-        };
-        try {
-            await startCall(window);
-            const blob = makeImageBlob(window);
-            await window.WGCallAgent.sendPhoto(blob);
-            // The cloud client handled the upload with (conversationId, file).
-            expect(window.CloudElevenLabs.uploadFile).toHaveBeenCalledTimes(1);
-            const [convId, sentFile] = window.CloudElevenLabs.uploadFile.mock.calls[0];
-            expect(convId).toBe('conv_test');
-            expect(sentFile).toBe(blob);
-            // The bot-mode proxy fetch must NOT be used in cloud mode.
-            const proxyCalls = window.fetch.mock.calls.filter(
-                ([url]) => typeof url === 'string' && url.startsWith('/api/elevenlabs/upload-file'),
-            );
-            expect(proxyCalls).toHaveLength(0);
-            // The returned fileId is forwarded to the SDK.
-            expect(conversation.sendMultimodalMessage).toHaveBeenCalledWith({ fileId: 'cloud_file_1' });
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('cloud mode: CloudElevenLabs.uploadFile rejection surfaces "Photo upload failed" and rejects', async () => {
-        const { window, conversation, events, cleanup } = createConversationEnv();
-        window.__MEDTRACKER_CLOUD__ = true;
         window.CloudElevenLabs = {
             hasKey: async () => true,
             fetchSignedURL: async () => 'wss://stub.example/',
@@ -1201,10 +1129,10 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
         }
     });
 
-    it('bot mode registers no clientTools', async () => {
+    it('registers no clientTools without a dispatcher', async () => {
         const { window, cleanup } = createConversationEnv();
         try {
-            // No __MEDTRACKER_CLOUD__ flag → bot mode.
+            // No CloudMCPDispatcher in this env → no tools.
             const { opts } = await startCall(window);
             expect(opts.clientTools).toBeUndefined();
         } finally {
@@ -1345,7 +1273,7 @@ describe('features/elevenlabs-call.js — connect watchdog + cancel token', () =
         window.clearTimeout = (...args) => globalThis.clearTimeout(...args);
     }
 
-    // The connect chain is microtask-only under these stubs (apiCallDirect +
+    // The connect chain is microtask-only under these stubs (CloudElevenLabs +
     // a pre-resolved SDK), so draining microtasks is enough to reach
     // startSession — and unlike a setTimeout(0) drain it works with fake
     // timers installed.
@@ -1700,8 +1628,8 @@ describe('features/elevenlabs-call.js — trial-voice fallback precedence (cloud
             window.document.head.appendChild(meta);
             window.CloudElevenLabs = { hasKey: vi.fn(async () => false), fetchSignedURL: vi.fn() };
             window.apiCall = vi.fn(async () => ({ ai: null, voice: null, tg: null }));
-            // The upload-only fetch stub throws on any other URL, so a leaked
-            // trial fetch would surface as a different error message here.
+            // The default fetch stub throws on any URL, so a leaked trial
+            // fetch would surface as a different error message here.
             const { card } = await startCall(window);
             expect(card.dataset.state).toBe('error');
             expect(window.WGCallAgent.getState().message).toMatch(/needs your consent/);

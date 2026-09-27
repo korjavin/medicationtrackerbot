@@ -62,22 +62,22 @@ describe('features/workout/scan.js (med-qj4.9)', () => {
     });
   });
 
-  it('outside cloud mode it alerts and never opens the picker', async () => {
+  it('without the sheet-AI seam it alerts and never opens the picker', async () => {
     const { window } = env;
-    delete window.__MEDTRACKER_CLOUD__;
+    delete window.CloudWorkoutSheetAI;
     window.MediaCapture.pickPhoto = vi.fn();
     stubApi(window);
 
     await window.WorkoutScan.scan(GROUP);
 
     expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
+    expect(window.Telegram.WebApp.showAlert.mock.calls[0][0]).toContain('unavailable');
     expect(window.MediaCapture.pickPhoto).not.toHaveBeenCalled();
     expect(window.WorkoutScan._pending).toBeNull();
   });
 
   it('picker → parse → review: pending state lands and the modal opens', async () => {
     const { window, document } = env;
-    window.__MEDTRACKER_CLOUD__ = true;
     stubApi(window);
     const file = new window.File([new window.Blob(['x'])], 'sheet.jpg', { type: 'image/jpeg' });
     window.MediaCapture.pickPhoto = vi.fn(async () => file);
@@ -97,13 +97,11 @@ describe('features/workout/scan.js (med-qj4.9)', () => {
     expect(document.getElementById('workout-scan-modal').classList.contains('hidden')).toBe(false);
     expect(document.getElementById('workout-scan-skipped').textContent).toContain('Mystery lift');
     expect(document.querySelectorAll('[data-scan-set]')).toHaveLength(3);
-    delete window.__MEDTRACKER_CLOUD__;
     delete window.CloudWorkoutSheetAI;
   });
 
   it('a cancelled picker resolves to no-op', async () => {
     const { window } = env;
-    window.__MEDTRACKER_CLOUD__ = true;
     stubApi(window);
     window.MediaCapture.pickPhoto = vi.fn(async () => null);
     window.CloudWorkoutSheetAI = { parseSheetFromPhoto: vi.fn() };
@@ -112,7 +110,6 @@ describe('features/workout/scan.js (med-qj4.9)', () => {
 
     expect(window.CloudWorkoutSheetAI.parseSheetFromPhoto).not.toHaveBeenCalled();
     expect(window.WorkoutScan._pending).toBeNull();
-    delete window.__MEDTRACKER_CLOUD__;
     delete window.CloudWorkoutSheetAI;
   });
 
@@ -136,7 +133,6 @@ describe('features/workout/scan.js (med-qj4.9)', () => {
 
   it('confirm logs the edited review and closes with a summary', async () => {
     const { window, document } = env;
-    window.__MEDTRACKER_CLOUD__ = true;
     window.WorkoutScan._pending = { group: GROUP, planContext: { groupId: 5 }, sets: SETS, skipped: [], unit: 'kg' };
     window.WorkoutScan.renderReview();
     window.CloudWorkoutSheetAI = {
@@ -154,7 +150,6 @@ describe('features/workout/scan.js (med-qj4.9)', () => {
     expect(document.getElementById('workout-scan-modal').classList.contains('hidden')).toBe(true);
     expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
     expect(window.Telegram.WebApp.showAlert.mock.calls[0][0]).toContain('Logged 2 exercises');
-    delete window.__MEDTRACKER_CLOUD__;
     delete window.CloudWorkoutSheetAI;
   });
 

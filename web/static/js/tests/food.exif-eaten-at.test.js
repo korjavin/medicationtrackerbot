@@ -246,7 +246,7 @@ describe('resolveFoodPhotoEatenAt', () => {
     });
 });
 
-describe('uploadFoodPhoto sends the resolved eaten_at to the server', () => {
+describe('uploadFoodPhoto sends the resolved eaten_at to the AI parse', () => {
     let env;
     beforeEach(() => { env = loadFrontendEnv(); });
     afterEach(() => { env.cleanup(); env = null; });
@@ -264,16 +264,11 @@ describe('uploadFoodPhoto sends the resolved eaten_at to the server', () => {
         }
 
         let captured = null;
-        env.window.fetch = async (url, opts) => {
-            if (typeof url === 'string' && url.includes('/food/log/from-photo')) {
-                captured = opts && opts.body;
-            }
-            return {
-                ok: true,
-                status: 200,
-                async json() { return { items: [] }; },
-                async text() { return ''; },
-            };
+        env.window.CloudFoodAI = {
+            parseMealFromPhoto: async (_file, opts) => {
+                captured = opts && opts.eatenAt;
+                return { items: [], failed: 0 };
+            },
         };
 
         const buffer = buildJpegWithExif();
@@ -285,34 +280,32 @@ describe('uploadFoodPhoto sends the resolved eaten_at to the server', () => {
     it('sends EXIF photo time when within 1h of now (no prompt)', async () => {
         const now = Date.now();
         const photoTime = new Date(now - 30 * 60 * 1000); // 30 min before now
-        const form = await captureUpload({ photoTime });
-        expect(form).not.toBeNull();
-        expect(typeof form.get).toBe('function');
-        expect(form.get('eaten_at')).toBe(photoTime.toISOString());
+        const eatenAt = await captureUpload({ photoTime });
+        // Realm-safe Date check (constructed inside the JSDOM window).
+        expect(typeof eatenAt.toISOString).toBe('function');
+        expect(eatenAt.toISOString()).toBe(photoTime.toISOString());
     });
 
     it('sends photo time when user accepts the prompt for an old photo', async () => {
         const photoTime = new Date('2024-01-01T08:00:00Z');
-        const form = await captureUpload({ photoTime, confirmAnswer: true });
-        expect(form.get('eaten_at')).toBe(photoTime.toISOString());
+        const eatenAt = await captureUpload({ photoTime, confirmAnswer: true });
+        expect(eatenAt.toISOString()).toBe(photoTime.toISOString());
     });
 
     it('sends "now" when user declines the prompt for an old photo', async () => {
         const photoTime = new Date('2024-01-01T08:00:00Z');
         const before = Date.now();
-        const form = await captureUpload({ photoTime, confirmAnswer: false });
+        const eatenAt = await captureUpload({ photoTime, confirmAnswer: false });
         const after = Date.now();
-        const sent = new Date(form.get('eaten_at')).getTime();
-        expect(sent).toBeGreaterThanOrEqual(before);
-        expect(sent).toBeLessThanOrEqual(after);
+        expect(eatenAt.getTime()).toBeGreaterThanOrEqual(before);
+        expect(eatenAt.getTime()).toBeLessThanOrEqual(after);
     });
 
     it('falls back to "now" when no EXIF data is available', async () => {
         const before = Date.now();
-        const form = await captureUpload({ photoTime: null });
+        const eatenAt = await captureUpload({ photoTime: null });
         const after = Date.now();
-        const sent = new Date(form.get('eaten_at')).getTime();
-        expect(sent).toBeGreaterThanOrEqual(before);
-        expect(sent).toBeLessThanOrEqual(after);
+        expect(eatenAt.getTime()).toBeGreaterThanOrEqual(before);
+        expect(eatenAt.getTime()).toBeLessThanOrEqual(after);
     });
 });

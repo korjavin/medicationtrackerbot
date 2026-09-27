@@ -12,12 +12,13 @@
 //                status line reflects agent mode (Listening… / Speaking…)
 //   error      — primary button reads "Try again"; click → startCall()
 //
-// The signed URL is fetched from /api/elevenlabs/signed-url, which keeps
-// ELEVENLABS_API_KEY server-side. The SDK handles the WebSocket session +
-// AudioWorklets; every worklet module it loads is self-hosted (WORKLET_PATHS
-// and LIBSAMPLERATE_PATH below) so the DEK-bearing document can keep a plain
-// `script-src 'self'` — see setSecurityHeaders in
-// internal/cloudserver/router.go (bd med-yor.8, med-yor.17).
+// The signed URL is minted browser-direct from the vault's ElevenLabs key
+// (window.CloudElevenLabs; the key never crosses /api). The SDK handles the
+// WebSocket session + AudioWorklets; every worklet module it loads is
+// self-hosted (WORKLET_PATHS and LIBSAMPLERATE_PATH below) so the
+// DEK-bearing document can keep a plain `script-src 'self'` — see
+// setSecurityHeaders in internal/cloudserver/router.go (bd med-yor.8,
+// med-yor.17).
 //
 // The SDK is vendored (bd med-7e7.1) rather than pulled from esm.sh: in cloud
 // mode this page holds the in-memory DEK, and a third-party script executing
@@ -151,42 +152,23 @@
     }
 
     async function fetchSignedURL() {
-        // Cloud mode has no server signed-URL route — mint it browser-direct
+        // There is no server signed-URL route — mint it browser-direct
         // from the vault's ElevenLabs key (BYO; key never crosses /api). First
         // auto-provision the tools + MedTracker agent from code (idempotent;
         // reprovisions only on a toolset-version bump) so the user configures
         // only the API key. Provisioning errors surface as the call status.
-        if (window.__MEDTRACKER_CLOUD__ && window.CloudElevenLabs) {
-            const hasKey = await window.CloudElevenLabs.hasKey();
-            if (!hasKey && trialVoiceAvailable()) {
-                await ensureTrialVoiceConsent();
-                return fetchTrialSignedURL();
-            }
-            // No key + no trial: provision() throws the existing
-            // "Set your ElevenLabs API key…" error.
-            let agentId;
-            if (window.CloudElevenLabsAgent) {
-                agentId = await window.CloudElevenLabsAgent.provision();
-            }
-            return window.CloudElevenLabs.fetchSignedURL(agentId);
+        const hasKey = await window.CloudElevenLabs.hasKey();
+        if (!hasKey && trialVoiceAvailable()) {
+            await ensureTrialVoiceConsent();
+            return fetchTrialSignedURL();
         }
-        const apiCall = (typeof window.offlineAwareApiCall === 'function')
-            ? window.offlineAwareApiCall
-            : (typeof window.apiCallDirect === 'function' ? window.apiCallDirect : null);
-        if (apiCall) {
-            const data = await apiCall('/api/elevenlabs/signed-url', 'GET');
-            if (!data || !data.signed_url) throw new Error('Response missing signed_url');
-            return data.signed_url;
+        // No key + no trial: provision() throws the existing
+        // "Set your ElevenLabs API key…" error.
+        let agentId;
+        if (window.CloudElevenLabsAgent) {
+            agentId = await window.CloudElevenLabsAgent.provision();
         }
-        const resp = await fetch('/api/elevenlabs/signed-url', { method: 'GET' });
-        if (!resp.ok) {
-            const err = new Error(`Failed to get signed URL (${resp.status})`);
-            err.status = resp.status;
-            throw err;
-        }
-        const data = await resp.json();
-        if (!data || !data.signed_url) throw new Error('Response missing signed_url');
-        return data.signed_url;
+        return window.CloudElevenLabs.fetchSignedURL(agentId);
     }
 
     // Cloud-only dynamic MCP client-tools. The ElevenLabs agent invokes these
@@ -198,7 +180,7 @@
     // Returns JSON strings the agent reads; dispatcher errors come back as a
     // short string rather than throwing into the SDK.
     function buildClientTools() {
-        if (!window.__MEDTRACKER_CLOUD__ || !window.CloudMCPDispatcher) return undefined;
+        if (!window.CloudMCPDispatcher) return undefined;
         // guard() is the single place a dispatcher throw becomes a short JSON
         // string. The workout tools chain several dispatches, so the try/catch
         // has to wrap the whole tool body, not one handle() call.
@@ -589,59 +571,15 @@
             : (conv.conversationId || conv.id || null);
     }
 
-    // Mode-aware file upload for the in-call "Send photo" control. Cloud mode
-    // POSTs multipart straight to api.elevenlabs.io with the user's vault key
+    // File upload for the in-call "Send photo" control. POSTs multipart
+    // straight to api.elevenlabs.io with the user's vault key
     // (window.CloudElevenLabs.uploadFile — the BYO seam, key never crosses /api).
-    // Bot mode proxies through the server route so the operator's key stays
-    // hidden (see uploadFileViaProxy).
     async function uploadFile(conv, file) {
-        if (window.__MEDTRACKER_CLOUD__ && window.CloudElevenLabs
-            && typeof window.CloudElevenLabs.uploadFile === 'function') {
-            const conversationId = resolveConversationId(conv);
-            if (!conversationId) {
-                throw new Error('Conversation id unavailable');
-            }
-            return window.CloudElevenLabs.uploadFile(conversationId, file);
-        }
-        return uploadFileViaProxy(conv, file);
-    }
-
-    // Proxy the file through our backend so the server's xi-api-key can sign
-    // the upload. The SDK's conv.uploadFile() posts directly to ElevenLabs
-    // from the browser and 401s with `sign_in_required` because we never
-    // expose the API key to the client.
-    async function uploadFileViaProxy(conv, file) {
         const conversationId = resolveConversationId(conv);
         if (!conversationId) {
             throw new Error('Conversation id unavailable');
         }
-        const form = new FormData();
-        form.append('file', file, (file && file.name) || 'photo.jpg');
-        const url = `/api/elevenlabs/upload-file?conversation_id=${encodeURIComponent(conversationId)}`;
-        // FormData bodies set their own Content-Type with boundary, so the
-        // helper's plain auth-only headers form applies here.
-        const resp = await fetch(url, { method: 'POST', headers: window.makeAuthHeaders(), body: form });
-        if (!resp.ok) {
-            if (resp.status === 429 && window.DemoBanner && typeof window.DemoBanner.tryHandleResponse === 'function') {
-                const demoParsed = await window.DemoBanner.tryHandleResponse(resp);
-                if (demoParsed) {
-                    const demoErr = new Error('Demo rate limit reached');
-                    demoErr.status = 429;
-                    demoErr.demoLimit = demoParsed;
-                    throw demoErr;
-                }
-            }
-            const text = await resp.text().catch(() => '');
-            const err = new Error(`Upload failed (${resp.status})${text ? `: ${text}` : ''}`);
-            err.status = resp.status;
-            throw err;
-        }
-        const data = await resp.json().catch(() => null);
-        const fileId = data && (data.file_id || data.fileId);
-        if (!fileId) {
-            throw new Error('Upload missing file_id');
-        }
-        return fileId;
+        return window.CloudElevenLabs.uploadFile(conversationId, file);
     }
 
     async function sendPhoto(file) {
@@ -830,9 +768,8 @@
         });
         controls.appendChild(muteBtn);
 
-        // Photo upload is mode-aware: cloud mode POSTs browser-direct to
-        // api.elevenlabs.io with the vault key (window.CloudElevenLabs.uploadFile),
-        // bot mode proxies through /api/elevenlabs/upload-file. Render in both.
+        // Photo upload POSTs browser-direct to api.elevenlabs.io with the
+        // vault key (window.CloudElevenLabs.uploadFile).
         const photoBtn = document.createElement('button');
         photoBtn.type = 'button';
         photoBtn.className = 'wg-call-card__photo';
