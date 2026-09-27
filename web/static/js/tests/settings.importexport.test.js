@@ -304,6 +304,61 @@ describe('Settings → Import/Export section', () => {
         });
     });
 
+    // med-0tp — the un-openable inbox count. Seals for a device key this one
+    // does not have stay QUEUED forever for another device; the count surfaces
+    // inside the reset group so the escape hatch is reachable from it.
+    describe('un-openable inbox note', () => {
+        it('lives inside the reset-sync group, next to the escape hatch', () => {
+            const note = env.document.getElementById('importexport-inbox-unopenable-note');
+            expect(note).not.toBeNull();
+            expect(note.closest('#importexport-reset-sync-group')).not.toBeNull();
+        });
+
+        it('stays hidden when the vault is not ready', () => {
+            // The harness provides no CloudVault; bindControls ran at load.
+            const note = env.document.getElementById('importexport-inbox-unopenable-note');
+            expect(note.hidden).toBe(true);
+            expect(note.textContent).toBe('');
+        });
+
+        it('shows the count when seals are stuck', async () => {
+            const { window, document } = env;
+            window.CloudVault = { getInboxUnopenableCount: vi.fn(async () => 2) };
+            window.SettingsImportExport.load();
+            const note = document.getElementById('importexport-inbox-unopenable-note');
+            await vi.waitFor(() => expect(note.hidden).toBe(false));
+            expect(note.textContent).toContain('2 messages could not be opened on this device');
+            expect(note.textContent).toContain('sealed to a device key');
+            expect(window.CloudVault.getInboxUnopenableCount).toHaveBeenCalled();
+        });
+
+        it('uses the singular for one stuck message', async () => {
+            const { window, document } = env;
+            window.CloudVault = { getInboxUnopenableCount: vi.fn(async () => 1) };
+            window.SettingsImportExport.load();
+            const note = document.getElementById('importexport-inbox-unopenable-note');
+            await vi.waitFor(() => expect(note.hidden).toBe(false));
+            expect(note.textContent).toContain('1 message could not be opened on this device');
+            expect(note.textContent).toContain('sealed to a device key');
+        });
+
+        it('stays hidden when the count is 0', async () => {
+            const { window, document } = env;
+            window.CloudVault = { getInboxUnopenableCount: vi.fn(async () => 0) };
+            await window.SettingsImportExport.refreshUnopenableNote();
+            const note = document.getElementById('importexport-inbox-unopenable-note');
+            expect(note.hidden).toBe(true);
+        });
+
+        it('stays hidden when the getter rejects', async () => {
+            const { window, document } = env;
+            window.CloudVault = { getInboxUnopenableCount: vi.fn(async () => { throw new Error('vault locked'); }) };
+            await window.SettingsImportExport.refreshUnopenableNote();
+            const note = document.getElementById('importexport-inbox-unopenable-note');
+            expect(note.hidden).toBe(true);
+        });
+    });
+
     // med-0ol.1/.4 — a big import runs for a while; without feedback the user
     // clicks again (double submit), and closing the tab mid-upload corrupts it.
     describe('import busy state + navigation guard', () => {

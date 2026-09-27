@@ -146,6 +146,7 @@ export async function clearInbox({ fetchImpl = fetch } = {}) {
   const res = await fetchImpl('/api/inbox', deadline({ method: 'DELETE' }));
   if (!res.ok) throw new Error(`could not clear the inbox (${res.status})`);
   const { cleared = 0 } = await res.json();
+  lastUnopenableCount = 0;
   return cleared;
 }
 
@@ -153,6 +154,17 @@ export async function clearInbox({ fetchImpl = fetch } = {}) {
 // both apply every event and race on the ack; across tabs/devices that is fine
 // (deletes are idempotent, applies converge) but within a tab it is pure waste.
 const draining = new Set();
+
+// Last observed count of sealed events this device could not open (med-0tp).
+// Every drain that lists the mailbox refreshes it; Settings reads it through
+// getUnopenableCount so a "Queued" command stuck on a superseded device key is
+// visible instead of silent. Last completed drain wins (one account per tab in
+// practice). Drains that never list (wedged, skipped, no key) or abort on a
+// leading stall leave it untouched — the count is unknown, not zero.
+let lastUnopenableCount = 0;
+export function getUnopenableCount() {
+  return lastUnopenableCount;
+}
 
 // drainInbox applies every pending event, then acks it. The binding rules
 // (docs/cloud-mode.md → "Drain protocol") in the order they appear here:
@@ -191,7 +203,10 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
     if (!privateKey) return { applied: 0, failed: 0 };
 
     const pending = await listInboxEvents(ctx, privateKey, { fetchImpl });
-    if (pending.length === 0) return { applied: 0, failed: 0 };
+    if (pending.length === 0) {
+      lastUnopenableCount = 0;
+      return { applied: 0, failed: 0 };
+    }
 
     // Rule 4. Ties (same second) fall back to arrival order. An un-openable
     // event carries no sealed instant, so it sorts LAST: the events we can
@@ -244,6 +259,7 @@ export async function drainInbox(ctx, { apply, records, fetchImpl = fetch, flush
     }
     // `unopenable`/`stalled` only appear when they happened — the report is read
     // by the poller's backoff gate and asserted verbatim by its tests.
+    if (!stalled) lastUnopenableCount = unopenable;
     const report = { applied, failed };
     if (unopenable) report.unopenable = unopenable;
     if (stalled) report.stalled = true;
