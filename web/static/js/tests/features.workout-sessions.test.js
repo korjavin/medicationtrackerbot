@@ -4,7 +4,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
-import { achievableLoads, loadingFor, nearestLoads } from '../../../../web/domain/equipment.js';
+import {
+  achievableLoads, loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad,
+} from '../../../../web/domain/equipment.js';
 
 // Wires a Map-backed ApiCache into the env so DataStore.applyOptimistic
 // reads/writes are observable to the test. Returns the underlying Map and a
@@ -2238,7 +2240,9 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
       return [];
     });
     window.WorkoutEquipment.list = async () => (inventory || [BAR8]);
-    window.WorkoutGroups.loadEquipmentDomain = async () => ({ loadingFor, nearestLoads });
+    window.WorkoutGroups.loadEquipmentDomain = async () => ({
+      loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad,
+    });
     await window.showWorkoutSessionModal(sess.id);
     // The chip attaches fire-and-forget; drain the stubbed hops.
     await new Promise((r) => setTimeout(r, 0));
@@ -2359,6 +2363,40 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
     expect(card.querySelector('.wg-workouts-session-exercise__mono').textContent).toBe('3 × 5 · 72 kg');
   });
 
+  it('a plan-row override wins over the library binding (med-3gln)', async () => {
+    const { window, document } = env;
+    // The library binds the 8kg bar, but the plan row overrides to the
+    // loadable kettlebell: the chip draws the KB stack for the 9kg log.
+    await openChipSession(window, {
+      logs: [chipLog({ exercise_name: 'KB press', weight_kg: 9 })],
+      rows: [{ ...ROWS[0], equipment_id: 4 }],
+      lib: libFor(3),
+      inventory: [BAR8, KB4],
+    });
+
+    const chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
+    expect(chip).not.toBeNull();
+    expect(chip.querySelector('svg.wg-plates')).not.toBeNull();
+    expect(chip.querySelector('.wg-plates__text').textContent).toBe('4 + 2 · 2 · 1');
+    expect(chip.textContent).not.toContain('/ side');
+  });
+
+  it('a row override with no library link still shows the chip (med-3gln)', async () => {
+    const { window, document } = env;
+    const rowNoLib = { ...ROWS[0], equipment_id: 3 };
+    delete rowNoLib.exercise_library_id;
+    await openChipSession(window, {
+      rows: [rowNoLib],
+      lib: libFor(null),
+      inventory: [BAR8],
+    });
+
+    const chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
+    expect(chip).not.toBeNull();
+    expect(chip.querySelector('.wg-plates__text').textContent).toBe('8 + 15 · 10 · 5 · 2 / side');
+    expect(chip.querySelector('.wg-plates__delta')).toBeNull();
+  });
+
   it('a rejected equipment read leaves the cards exactly as today', async () => {
     const { window, document } = env;
     const sess = chipSession();
@@ -2370,7 +2408,9 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
       return null;
     });
     window.WorkoutEquipment.list = async () => { throw new Error('offline'); };
-    window.WorkoutGroups.loadEquipmentDomain = async () => ({ loadingFor, nearestLoads });
+    window.WorkoutGroups.loadEquipmentDomain = async () => ({
+      loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad,
+    });
     await window.showWorkoutSessionModal(sess.id);
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
@@ -2419,7 +2459,9 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
       return [];
     });
     window.WorkoutEquipment.list = async () => [BAR8];
-    window.WorkoutGroups.loadEquipmentDomain = async () => ({ loadingFor, nearestLoads });
+    window.WorkoutGroups.loadEquipmentDomain = async () => ({
+      loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad,
+    });
     await window.showWorkoutSessionModal(sess.id);
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
@@ -2445,7 +2487,9 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
       return [];
     });
     window.WorkoutEquipment.list = async () => [BAR8];
-    window.WorkoutGroups.loadEquipmentDomain = async () => ({ loadingFor, nearestLoads });
+    window.WorkoutGroups.loadEquipmentDomain = async () => ({
+      loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad,
+    });
     await window.showWorkoutSessionModal(sess.id);
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));

@@ -525,8 +525,9 @@ async function _maybeAttachBodyPartChip(headerRow, log) {
 //
 // Gear resolves once per session open and is cached on
 // window.WorkoutSessionsState.plateGear ({ sessionId, rowsById, libById,
-// eqById, loadingFor, nearestLoads } or { sessionId, failed: true }); any
-// fetch/import failure resolves to failed so cards render exactly as today.
+// eqById, loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad }
+// or { sessionId, failed: true }); any fetch/import failure resolves to
+// failed so cards render exactly as today.
 
 // _sessionPlateGearSync returns the cached gear map for the open session, or
 // null when nothing usable is cached (cold, failed, or a stale session).
@@ -603,10 +604,14 @@ async function _buildSessionPlateGear(sessionData) {
         const domain = await window.WorkoutGroups.loadEquipmentDomain();
         const loadingFor = domain && domain.loadingFor;
         const nearestLoads = domain && domain.nearestLoads;
-        if (typeof loadingFor !== 'function' || typeof nearestLoads !== 'function') return fail();
+        const equipmentIdForExercise = domain && domain.equipmentIdForExercise;
+        const pickNearestLoad = domain && domain.pickNearestLoad;
+        if (typeof loadingFor !== 'function' || typeof nearestLoads !== 'function'
+            || typeof equipmentIdForExercise !== 'function' || typeof pickNearestLoad !== 'function') return fail();
         return {
             sessionId: sessionId, rowsById: rowsById, libById: libById,
-            eqById: eqById, loadingFor: loadingFor, nearestLoads: nearestLoads
+            eqById: eqById, loadingFor: loadingFor, nearestLoads: nearestLoads,
+            equipmentIdForExercise: equipmentIdForExercise, pickNearestLoad: pickNearestLoad
         };
     } catch (_) {
         return fail();
@@ -616,26 +621,18 @@ async function _buildSessionPlateGear(sessionData) {
 // _sessionEquipmentForLog maps a session log to its bound equipment record.
 // Ad-hoc / library-sourced logs carry the library id directly as exercise_id
 // (toLogResponse source === 'library'); plan-backed logs carry the plan row
-// id and resolve through the row's library link. Unbound → null.
+// id and resolve through the row — the row's own equipment_id override, else
+// the library binding (equipmentIdForExercise, the shared rule). Unbound →
+// null.
 function _sessionEquipmentForLog(log, gear) {
     if (!log || !gear || gear.failed) return null;
-    const libId = log.source === 'library'
-        ? log.exercise_id
-        : (gear.rowsById[log.exercise_id] || {}).exercise_library_id;
-    if (libId === null || libId === undefined) return null;
-    const row = gear.libById[libId];
-    if (!row || row.equipment_id === null || row.equipment_id === undefined) return null;
-    return gear.eqById[row.equipment_id] || null;
-}
-
-// _sessionPickNearest chooses the rung to show from a nearestLoads bracket:
-// the closer rung, ties going to below (owner decision).
-function _sessionPickNearest(below, above, w) {
-    if (below === null || below === undefined) {
-        return (above === null || above === undefined) ? null : above;
-    }
-    if (above === null || above === undefined) return below;
-    return (w - below) <= (above - w) ? below : above;
+    const planRow = log.source === 'library' ? null : (gear.rowsById[log.exercise_id] || null);
+    const libRow = log.source === 'library'
+        ? gear.libById[log.exercise_id]
+        : (planRow ? gear.libById[planRow.exercise_library_id] : null);
+    const eqId = gear.equipmentIdForExercise(planRow || null, libRow || null);
+    if (eqId === null || eqId === undefined) return null;
+    return gear.eqById[eqId] || null;
 }
 
 // Plate/bar kg print at most 2dp (the domain grid); String() keeps integers
@@ -692,7 +689,7 @@ function _renderSessionPlateChip(entry, log, gear) {
                 addText(`below bar (${_sessionPlateR2(bar)} kg)`, 'wg-plates__text');
             } else {
                 const near = gear.nearestLoads(eq.loads_kg, w);
-                const chosen = _sessionPickNearest(near.below, near.above, w);
+                const chosen = gear.pickNearestLoad(near.below, near.above, w);
                 if (chosen === null) return false;
                 const best = gear.loadingFor(eq, chosen);
                 if (!best) return false;
@@ -709,7 +706,7 @@ function _renderSessionPlateChip(entry, log, gear) {
             .map(Number).filter((n) => Number.isFinite(n) && n > 0);
         if (loads.indexOf(w) !== -1) return false;
         const near = gear.nearestLoads(loads, w);
-        const chosen = _sessionPickNearest(near.below, near.above, w);
+        const chosen = gear.pickNearestLoad(near.below, near.above, w);
         if (chosen === null) return false;
         addText(`nearest: ${_sessionPlateR2(chosen)} kg`, 'wg-plates__text');
     } else {

@@ -1430,6 +1430,100 @@ describe('cloud MCP workouts.progression_preview compute', () => {
     expect(exercises[0].equipment).toBeNull();
   });
 
+  // med-3gln: the plan row's own equipment_id overrides the library
+  // binding for progression — the bump snaps to the override gear's rungs.
+  it('snaps the bump to the row-override rungs when the row disagrees with the library', async () => {
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const records = createInMemoryRecordsPort({
+      workoutexercise: [{
+        recordId: 'ex-30', id: 30, variant_id: 3, exercise_name: 'Curl',
+        target_sets: 3, target_reps_min: 8, target_reps_max: 10, target_weight_kg: 12,
+        exercise_library_id: 7, equipment_id: 6,
+        progression_rule: { type: 'linear', increment_kg: 2.5 },
+      }],
+      exerciselibrary: [{ recordId: 'lib-7', id: 7, name: 'Curl', equipment_id: 5 }],
+      equipment: [
+        { recordId: 'eq-5', id: 5, name: 'Hex DBs', kind: 'fixed', loads_kg: [10, 12, 14, 16] },
+        { recordId: 'eq-6', id: 6, name: 'Adjustables', kind: 'fixed', loads_kg: [12, 15, 17.5] },
+      ],
+      exerciselog: [{
+        recordId: 'log-30', id: 30, exercise_id: 30, status: 'completed',
+        sets_completed: 3, reps_completed: 10, weight_kg: 12,
+        logged_at: '2026-07-05T18:30:00.000Z',
+      }],
+    });
+    const router = createApiRouter(null, { records, now, timeZone: 'UTC' });
+    const { exercises } = await router('/api/workout/progression-preview', 'GET');
+    expect(exercises).toHaveLength(1);
+    // 14.5 is not an Adjustables rung — nearest above 12 to 14.5 is 15 (the
+    // library gear's 14 is ignored: the row override wins).
+    expect(exercises[0]).toMatchObject({
+      exercise_id: 30,
+      changed: true,
+      equipment: { id: 6, name: 'Adjustables', min_step_kg: 2.5 },
+      snap: { raw_kg: 14.5, snapped_kg: 15, reason: null },
+      proposed: { target_weight_kg: 15 },
+    });
+  });
+
+  it('resolves the row override for an exercise with no library link', async () => {
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const records = createInMemoryRecordsPort({
+      workoutexercise: [{
+        recordId: 'ex-31', id: 31, variant_id: 3, exercise_name: 'Curl',
+        target_sets: 3, target_reps_min: 8, target_reps_max: 10, target_weight_kg: 12,
+        exercise_library_id: null, equipment_id: 5,
+        progression_rule: { type: 'linear', increment_kg: 2.5 },
+      }],
+      equipment: [{ recordId: 'eq-5', id: 5, name: 'Hex DBs', kind: 'fixed', loads_kg: [10, 12, 14, 16] }],
+      exerciselog: [{
+        recordId: 'log-31', id: 31, exercise_id: 31, status: 'completed',
+        sets_completed: 3, reps_completed: 10, weight_kg: 12,
+        logged_at: '2026-07-05T18:30:00.000Z',
+      }],
+    });
+    const router = createApiRouter(null, { records, now, timeZone: 'UTC' });
+    const { exercises } = await router('/api/workout/progression-preview', 'GET');
+    expect(exercises).toHaveLength(1);
+    expect(exercises[0]).toMatchObject({
+      exercise_id: 31,
+      equipment: { id: 5, name: 'Hex DBs', min_step_kg: 2 },
+      snap: { raw_kg: 14.5, snapped_kg: 14, reason: null },
+      proposed: { target_weight_kg: 14 },
+    });
+  });
+
+  it('a dangling row override reads as unbound even when the library is bound', async () => {
+    // Precedence is row ?? library with no fallback past a dangling row id:
+    // an override pointing at deleted gear reads as unbound (classic bump),
+    // exactly like a dangling library binding.
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const records = createInMemoryRecordsPort({
+      workoutexercise: [{
+        recordId: 'ex-32', id: 32, variant_id: 3, exercise_name: 'Curl',
+        target_sets: 3, target_reps_min: 8, target_reps_max: 10, target_weight_kg: 12,
+        exercise_library_id: 7, equipment_id: 999,
+        progression_rule: { type: 'linear', increment_kg: 2.5 },
+      }],
+      exerciselibrary: [{ recordId: 'lib-7', id: 7, name: 'Curl', equipment_id: 5 }],
+      equipment: [{ recordId: 'eq-5', id: 5, name: 'Hex DBs', kind: 'fixed', loads_kg: [10, 12, 14, 16] }],
+      exerciselog: [{
+        recordId: 'log-32', id: 32, exercise_id: 32, status: 'completed',
+        sets_completed: 3, reps_completed: 10, weight_kg: 12,
+        logged_at: '2026-07-05T18:30:00.000Z',
+      }],
+    });
+    const router = createApiRouter(null, { records, now, timeZone: 'UTC' });
+    const { exercises } = await router('/api/workout/progression-preview', 'GET');
+    expect(exercises).toHaveLength(1);
+    expect(exercises[0]).toMatchObject({
+      equipment: null,
+      snap: { raw_kg: 14.5, snapped_kg: 14.5, reason: null },
+      proposed: { target_weight_kg: 14.5 },
+    });
+    expect(exercises[0].equipment).toBeNull();
+  });
+
   it('rejects a double rule whose min_reps exceeds max_reps', async () => {
     const now = () => Date.parse('2026-07-06T12:00:00.000Z');
     const router = createApiRouter(null, {

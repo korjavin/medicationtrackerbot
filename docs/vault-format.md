@@ -455,7 +455,8 @@ Export → import → export (and each single hop) must be
   `.nxk` migration of the same night/session converges to one record instead of double-
   counting.
 - **Cloud-only equipment** — `workouts.equipment` and the per-row
-  `library.equipment_id` are cloud inventory (med-niix.1/med-niix.5). Legacy bot
+  `library.equipment_id` / `exercises.equipment_id` are cloud inventory
+  (med-niix.1/med-niix.5/med-3gln). Legacy bot
   files omit them; equality holds after stripping, the way
   `med_reminder_pref` is stripped.
 - **Timestamp offsets** — timestamps compare as **instants**, not as text. (Legacy

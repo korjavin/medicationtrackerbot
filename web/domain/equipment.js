@@ -412,6 +412,34 @@ export function createEquipmentDomain({ records, now }) {
   };
 }
 
+// equipmentIdForExercise is THE equipment-resolution rule (med-3gln): the
+// plan row's own equipment_id overrides the library row's binding, and an
+// unset row falls back to the library. Either side may be null (a row without
+// a library link, a library-sourced log with no plan row); null means
+// unbound. The single shared helper — resolveEquipmentLoads (progression),
+// the print sheet, and the session chip all call this instead of duplicating
+// the precedence.
+export function equipmentIdForExercise(exercise, library) {
+  if (exercise && exercise.equipment_id !== null && exercise.equipment_id !== undefined) {
+    return exercise.equipment_id;
+  }
+  if (library && library.equipment_id !== null && library.equipment_id !== undefined) {
+    return library.equipment_id;
+  }
+  return null;
+}
+
+// pickNearestLoad chooses the rung to show from a nearestLoads bracket: the
+// closer rung, ties going to below (owner decision). Shared by the session
+// chip and the print sheet so the tie-break can never drift between them.
+export function pickNearestLoad(below, above, kg) {
+  if (below === null || below === undefined) {
+    return (above === null || above === undefined) ? null : above;
+  }
+  if (above === null || above === undefined) return below;
+  return (Number(kg) - below) <= (above - Number(kg)) ? below : above;
+}
+
 // nearestLoads brackets a target kg within an ascending achievable-loads list
 // (med-v75c.2): { below, above }, each a rung or null past the ends. An exact
 // hit returns the rung twice. Pure lookup - the 0.25-kg grid snapping already

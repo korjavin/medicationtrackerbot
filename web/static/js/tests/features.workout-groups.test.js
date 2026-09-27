@@ -4,7 +4,9 @@
 // the closure-private editing state is reachable via the
 // window.WorkoutEdit getter/setter façade.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadingFor } from '../../../../web/domain/equipment.js';
+import {
+  achievableLoads, loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad,
+} from '../../../../web/domain/equipment.js';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
 describe('features/workout/groups.js — split-file integration', () => {
@@ -690,7 +692,9 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
     window.WorkoutGroups.makePlanQr = async () => { throw new Error('no qr in test'); };
     // The domain module itself, injected through the namespace seam exactly
     // as production does — the harness never resolves the URL.
-    window.WorkoutGroups.loadEquipmentDomain = async () => ({ loadingFor });
+    window.WorkoutGroups.loadEquipmentDomain = async () => ({
+      loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad,
+    });
 
     stubPlan();
     window.WorkoutEquipment.list = async () => [BAR];
@@ -728,5 +732,103 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
     expect(printed).toHaveLength(1);
     expect(printed[0].html).not.toContain('<svg');
     expect(printed[0].html).toContain('Bench press');
+  });
+
+  it('a note entry prints the delta line under the glyph', () => {
+    const { window } = env;
+    const html = window.WorkoutGroups.buildDocument(
+      GROUP, days([ex({ target_weight_kg: 63 })]),
+      { unit: 'kg', loadingByExerciseId: { 1: { ...loading62[1], note: '62.5 kg (-0.5 kg)' } } },
+    );
+    expect(html).toContain('20 + 20 \u00b7 1.25 / side');
+    expect(html).toContain('62.5 kg (-0.5 kg)');
+    expect((html.match(/<rect/g) || []).length).toBe(4);
+    expect((html.match(/<span class="platestxt"/g) || []).length).toBe(2);
+  });
+
+  it('a note-only entry prints text with no glyph (but keeps the plate stylesheet)', () => {
+    const { window } = env;
+    const html = window.WorkoutGroups.buildDocument(
+      GROUP, days([ex({ target_weight_kg: 15 })]),
+      { unit: 'kg', loadingByExerciseId: { 1: { note: 'below bar (20 kg)' } } },
+    );
+    expect(html).toContain('below bar (20 kg)');
+    expect(html).not.toContain('<svg');
+    expect(html).toContain('.plates');
+  });
+
+  it('print() resolves the row override and falls back to nearest + delta when unreachable', async () => {
+    const { window } = env;
+    // The library binds the Ohio bar (id 3); the plan row overrides to the
+    // short bar (id 4, 8kg + 15/10/5/2/1.25 pairs). Target 73 is unreachable
+    // on the short bar: nearest below is 72 (tie-break irrelevant here —
+    // 72 is strictly closer than the 74.5 above).
+    const SHORT = {
+      id: 4, kind: 'plated', name: 'Short bar', bar_kg: 8, sides: 2, pair: false,
+      plates: [{ kg: 15, count: 2 }, { kg: 10, count: 2 }, { kg: 5, count: 2 }, { kg: 2, count: 2 }, { kg: 1.25, count: 2 }],
+    };
+    SHORT.loads_kg = achievableLoads(SHORT);
+    window.apiCall = vi.fn(async (url) => {
+      if (url.startsWith('/api/workout/variants?group_id=')) return [{ id: 30, name: 'Main' }];
+      if (url.includes('/api/workout/exercises?variant_id=')) {
+        return [ex({ target_weight_kg: 73, equipment_id: 4 })];
+      }
+      if (url === '/api/workout/exercise-library') return LIB;
+      return null;
+    });
+    const printed = [];
+    window.WorkoutGroups.loadPrintDoc = async () => ({
+      printDoc: (d, html, cls, css) => printed.push({ html, css }),
+    });
+    window.WorkoutGroups.makePlanQr = async () => { throw new Error('no qr in test'); };
+    window.WorkoutGroups.loadEquipmentDomain = async () => ({
+      loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad,
+    });
+    window.WorkoutEquipment.list = async () => [BAR, SHORT];
+
+    await window.WorkoutGroups.print(GROUP);
+
+    expect(printed).toHaveLength(1);
+    // Glyph from the OVERRIDE gear (short bar), not the library's Ohio bar.
+    expect(printed[0].html).toContain('8 + 15 \u00b7 10 \u00b7 5 \u00b7 2 / side');
+    expect(printed[0].html).not.toContain('20 + 20');
+    expect(printed[0].html).toContain('72 kg (-1 kg)');
+    expect(printed[0].css).toContain('.plates');
+  });
+
+  it('print() resolves a row override with no library link, and prints fixed/below-bar notes', async () => {
+    const { window } = env;
+    const FIXED = { id: 5, kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16] };
+    const rowNoLib = ex({ id: 2, target_weight_kg: 13, equipment_id: 5 });
+    delete rowNoLib.exercise_library_id;
+    window.apiCall = vi.fn(async (url) => {
+      if (url.startsWith('/api/workout/variants?group_id=')) return [{ id: 30, name: 'Main' }];
+      if (url.includes('/api/workout/exercises?variant_id=')) {
+        return [
+          rowNoLib,
+          ex({ id: 3, target_weight_kg: 15 }), // below the Ohio bar → text only
+        ];
+      }
+      if (url === '/api/workout/exercise-library') return LIB;
+      return null;
+    });
+    const printed = [];
+    window.WorkoutGroups.loadPrintDoc = async () => ({
+      printDoc: (d, html, cls, css) => printed.push({ html, css }),
+    });
+    window.WorkoutGroups.makePlanQr = async () => { throw new Error('no qr in test'); };
+    window.WorkoutGroups.loadEquipmentDomain = async () => ({
+      loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad,
+    });
+    window.WorkoutEquipment.list = async () => [BAR, FIXED];
+
+    await window.WorkoutGroups.print(GROUP);
+
+    expect(printed).toHaveLength(1);
+    // 13 on [10,12,14,16]: tie between 12 and 14 → below.
+    expect(printed[0].html).toContain('nearest: 12 kg');
+    expect(printed[0].html).toContain('below bar (20 kg)');
+    expect(printed[0].html).not.toContain('<svg');
+    expect(printed[0].css).toContain('.plates');
   });
 });

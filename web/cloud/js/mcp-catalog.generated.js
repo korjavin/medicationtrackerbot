@@ -1646,7 +1646,7 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/workout/exercises/create",
     "risk": "write",
-    "description": "Add a new exercise to a workout variant. Optionally attach a progression_rule and/or a per-exercise training_goal override; both are omitted from the stored exercise when not sent.",
+    "description": "Add a new exercise to a workout variant. Optionally attach a progression_rule, a per-exercise training_goal override, and/or a plan-row equipment_id override; all are omitted from the stored exercise when not sent (no equipment_id means the row inherits the library row's equipment binding).",
     "response_summary": "Empty body on success (HTTP 200/201) with the created exercise persisted.",
     "required": [
       "variant_id",
@@ -1731,6 +1731,13 @@ export const CATALOG = [
             "general"
           ],
           "description": "Per-exercise override of the routine's training goal. Omit to inherit the group's goal."
+        },
+        "equipment_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Optional plan-row equipment override (equipment inventory id, see workouts.equipment.list). Overrides the library row's binding for this plan row only; omit to inherit the library binding."
         }
       }
     }
@@ -1766,7 +1773,7 @@ export const CATALOG = [
     "path": "/api/workout/exercises",
     "risk": "read",
     "description": "List all exercises in a workout variant. Returns exercises with their default sets, reps, and weight.",
-    "response_summary": "JSON array of exercise objects with id, variant_id, exercise_name, target_sets, target_reps_min, order_index, exercise_library_id (the canonical library row the name resolves through); target_reps_max, target_weight_kg, and exercise_library_id are omitted when unset. progression_rule {type, increment_kg, min_reps?, max_reps?} is present only when a linear/double rule is set; training_goal is present only when the exercise overrides its group's goal (absent = inherits).",
+    "response_summary": "JSON array of exercise objects with id, variant_id, exercise_name, target_sets, target_reps_min, order_index, exercise_library_id (the canonical library row the name resolves through); target_reps_max, target_weight_kg, and exercise_library_id are omitted when unset. progression_rule {type, increment_kg, min_reps?, max_reps?} is present only when a linear/double rule is set; training_goal is present only when the exercise overrides its group's goal (absent = inherits); equipment_id is present only when the plan row carries its own equipment override (absent = inherits the library row's binding).",
     "params_schema": {
       "type": "object",
       "required": [
@@ -1797,7 +1804,7 @@ export const CATALOG = [
     "method": "PUT",
     "path": "/api/workout/exercises/update",
     "risk": "write",
-    "description": "Update the configuration of a workout exercise (name, target sets/reps, weight, ordering, progression rule, training-goal override). The plain fields are a FULL REPLACEMENT — fetch the current exercise via workouts.exercises.list and send every field back. progression_rule and training_goal are the exception: OMIT the key to keep the stored value; send progression_rule {\"type\": \"none\"} to clear the rule, or training_goal \"\" to drop the override and inherit the group's goal. Goes through backend domain validation; the existing exercise must belong to a variant the user owns.",
+    "description": "Update the configuration of a workout exercise (name, target sets/reps, weight, ordering, progression rule, training-goal override, plan-row equipment override). The plain fields are a FULL REPLACEMENT — fetch the current exercise via workouts.exercises.list and send every field back. progression_rule, training_goal, and equipment_id are the exception: OMIT the key to keep the stored value; send progression_rule {\"type\": \"none\"} to clear the rule, training_goal \"\" to drop the override and inherit the group's goal, or equipment_id null to clear the row override and inherit the library row's binding. Goes through backend domain validation; the existing exercise must belong to a variant the user owns.",
     "response_summary": "Empty body on success (HTTP 200); 4xx with error message on validation failure.",
     "required": [
       "id",
@@ -1891,6 +1898,13 @@ export const CATALOG = [
             ""
           ],
           "description": "Per-exercise override of the routine's training goal. Omit to keep the stored override; send \"\" to drop it and inherit the group's goal."
+        },
+        "equipment_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Plan-row equipment override (equipment inventory id, see workouts.equipment.list). Omit to keep the stored override; send null to clear it and inherit the library row's binding."
         }
       }
     }

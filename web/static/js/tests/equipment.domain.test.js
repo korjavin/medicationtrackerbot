@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   createEquipmentDomain, achievableLoads, loadingFor, minStep, snapLoad,
-  nearestLoads,
+  nearestLoads, equipmentIdForExercise, pickNearestLoad,
 } from '../../../../web/domain/equipment.js';
 import {
   recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES,
@@ -440,5 +440,41 @@ describe('nearestLoads (med-v75c.2)', () => {
     for (const rung of loads) {
       expect(loadingFor(eq, rung)).not.toBeNull();
     }
+  });
+});
+
+describe('equipmentIdForExercise + pickNearestLoad (med-3gln)', () => {
+  it('the row override wins over the library binding', () => {
+    expect(equipmentIdForExercise({ equipment_id: 5 }, { equipment_id: 6 })).toBe(5);
+  });
+
+  it('an unset row falls back to the library binding', () => {
+    expect(equipmentIdForExercise({}, { equipment_id: 6 })).toBe(6);
+    expect(equipmentIdForExercise({ equipment_id: null }, { equipment_id: 6 })).toBe(6);
+    expect(equipmentIdForExercise(null, { equipment_id: 6 })).toBe(6);
+  });
+
+  it('a row without a library link still resolves its override', () => {
+    expect(equipmentIdForExercise({ equipment_id: 5 }, null)).toBe(5);
+    expect(equipmentIdForExercise({ equipment_id: 5 }, {})).toBe(5);
+  });
+
+  it('unbound on both sides reads as null', () => {
+    expect(equipmentIdForExercise({}, {})).toBeNull();
+    expect(equipmentIdForExercise(null, null)).toBeNull();
+    expect(equipmentIdForExercise({ equipment_id: null }, { equipment_id: null })).toBeNull();
+  });
+
+  it('picks the closer rung, ties going below', () => {
+    expect(pickNearestLoad(72, 74.5, 73)).toBe(72);
+    expect(pickNearestLoad(60, 62.5, 62)).toBe(62.5);
+    expect(pickNearestLoad(70, 74, 72)).toBe(70); // exact tie → below
+    expect(pickNearestLoad(72, 72, 72)).toBe(72); // exact hit brackets twice
+  });
+
+  it('picks the surviving end past the bracket ends', () => {
+    expect(pickNearestLoad(null, 20, 10)).toBe(20);
+    expect(pickNearestLoad(25, null, 30)).toBe(25);
+    expect(pickNearestLoad(null, null, 20)).toBeNull();
   });
 });

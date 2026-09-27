@@ -372,6 +372,65 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
         expect(list.find((i) => i.id === bound.id).equipment_id).toBe(50);
     });
 
+    // med-3gln: optional per-plan-row equipment override. equipment_id is a
+    // nullable numeric on the exercise row, emitted only when set; absent
+    // means "inherit the library row's binding". Like the library binding,
+    // the id is not FK validated on write — it only resolves against the
+    // inventory at read time.
+    it('exercise equipment_id round-trips; unset omits the field', async () => {
+        const { window } = env;
+        const group = await window.apiCall('/api/workout/groups/create', 'POST', { name: 'Push' });
+        const variant = await window.apiCall('/api/workout/variants/create', 'POST', { group_id: group.id, name: 'A' });
+        const base = {
+            variant_id: variant.id, exercise_name: 'Bench Press',
+            target_sets: 3, target_reps_min: 8, order_index: 0,
+        };
+
+        // Unset create omits the field entirely.
+        const free = await window.apiCall('/api/workout/exercises/create', 'POST', base);
+        expect('equipment_id' in free).toBe(false);
+
+        // The override round-trips through create/list/update.
+        const bound = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            ...base, exercise_name: 'Overhead Press', equipment_id: 51,
+        });
+        expect(bound.equipment_id).toBe(51);
+        let list = await window.apiCall(`/api/workout/exercises?variant_id=${variant.id}`);
+        expect(list.find((e) => e.id === bound.id).equipment_id).toBe(51);
+        expect('equipment_id' in list.find((e) => e.id === free.id)).toBe(false);
+
+        // Rebind to another gear, then clear with explicit null.
+        await window.apiCall(`/api/workout/exercises/update?id=${bound.id}`, 'PUT', {
+            ...base, exercise_name: 'Overhead Press', equipment_id: 50,
+        });
+        list = await window.apiCall(`/api/workout/exercises?variant_id=${variant.id}`);
+        expect(list.find((e) => e.id === bound.id).equipment_id).toBe(50);
+        await window.apiCall(`/api/workout/exercises/update?id=${bound.id}`, 'PUT', {
+            ...base, exercise_name: 'Overhead Press', equipment_id: null,
+        });
+        list = await window.apiCall(`/api/workout/exercises?variant_id=${variant.id}`);
+        expect('equipment_id' in list.find((e) => e.id === bound.id)).toBe(false);
+    });
+
+    // med-3gln: an update body WITHOUT the key (e.g. the MCP
+    // workouts.exercises.update op built from a list read that predates the
+    // field) preserves the stored override; only an explicit null clears it.
+    // Same rule as equipment_id on updateLibraryItem (#897).
+    it('exercise update without equipment_id preserves the stored override', async () => {
+        const { window } = env;
+        const group = await window.apiCall('/api/workout/groups/create', 'POST', { name: 'Push' });
+        const variant = await window.apiCall('/api/workout/variants/create', 'POST', { group_id: group.id, name: 'A' });
+        const bound = await window.apiCall('/api/workout/exercises/create', 'POST', {
+            variant_id: variant.id, exercise_name: 'Bench Press',
+            target_sets: 3, target_reps_min: 8, order_index: 0, equipment_id: 51,
+        });
+        await window.apiCall(`/api/workout/exercises/update?id=${bound.id}`, 'PUT', {
+            exercise_name: 'Bench Press', target_sets: 5, target_reps_min: 8, order_index: 0
+        });
+        const list = await window.apiCall(`/api/workout/exercises?variant_id=${variant.id}`);
+        expect(list.find((e) => e.id === bound.id).equipment_id).toBe(51);
+    });
+
     it('exercise library create/list/update/delete round-trips with name-uniqueness enforced', async () => {
         const { window } = env;
         const item = await window.apiCall('/api/workout/exercise-library/create', 'POST', {

@@ -37,7 +37,7 @@
 // is an ESM cycle — safe because both modules export hoisted function
 // declarations and only touch the imports inside function bodies, never at
 // module top-level.
-import { achievableLoads, snapLoad, minStep, EQUIPMENT_RECORD_TYPE } from './equipment.js';
+import { achievableLoads, snapLoad, minStep, EQUIPMENT_RECORD_TYPE, equipmentIdForExercise } from './equipment.js';
 import { localDateParts, localWallToUtcMs } from './medschedule.js';
 import { formatHHMM } from './reminders.js';
 import {
@@ -232,6 +232,9 @@ function toExerciseResponse(record, libById) {
   if (hasValue(record.target_reps_max)) resp.target_reps_max = record.target_reps_max;
   if (hasValue(record.target_weight_kg)) resp.target_weight_kg = record.target_weight_kg;
   if (hasValue(libId)) resp.exercise_library_id = libId;
+  // Optional per-plan-row equipment override (med-3gln): emitted only when
+  // set. Absent means "inherit the library row's binding".
+  if (hasValue(record.equipment_id)) resp.equipment_id = record.equipment_id;
   if (record.progression_rule && record.progression_rule.type !== 'none') {
     resp.progression_rule = record.progression_rule;
   }
@@ -602,8 +605,8 @@ function snapBump(loads, weightBase, increment) {
 // hitting the rep target is enough. Nothing here changes for an exercise without
 // an opt-in rule, and nothing changes for a log that carries no RPE.
 // `loads` (med-niix.2) is the bound equipment's achievable rungs, resolved ONCE
-// per propagate/preview/suggest pass via the exercise's library row
-// equipment_id — null when unbound, and the load bump passes through
+// per propagate/preview/suggest pass via the exercise's row-or-library
+// equipment_id (med-3gln) — null when unbound, and the load bump passes through
 // untouched. Returns { patch, snap }: the plan delta plus the load proposal's
 // snap detail for preview/suggest entries — raw_kg is the classic
 // logged+increment where the bump fires (the held weight where it doesn't,
@@ -960,6 +963,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       target_reps_max: numOrNull(input && input.target_reps_max, true),
       target_weight_kg: numOrNull(input && input.target_weight_kg),
       order_index: Number(input && input.order_index) || 0,
+      equipment_id: numOrNull(input && input.equipment_id, true),
     };
     const rule = normalizeProgressionRule(input && input.progression_rule);
     if (rule) record.progression_rule = anchorDoubleWindow(rule, record);
@@ -981,19 +985,26 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return toExerciseResponse(record);
   }
 
-  // resolveEquipmentLoads (med-niix.2) follows one exercise's library link —
-  // plan row exercise_library_id → library row equipment_id → equipment record
-  // → achievableLoads. Resolved ONCE per propagate/preview/suggest pass, never
-  // per set. Unbound (no library link, no binding, a dangling id, or gear with
-  // no computable loads) reads as { equipment: null, loads: null }, and
-  // progression behaves exactly as without equipment.
-  // ponytail: no per-plan-row override — binding is library-level only, so a
-  // second bar for the same lift waits for a real case (see the epic).
-  async function resolveEquipmentLoads(libraryId) {
-    if (!hasValue(libraryId)) return { equipment: null, loads: null };
-    const lib = await findByNumericId(records, WORKOUT_RECORD_TYPES.LIBRARY, libraryId);
-    if (!lib || !hasValue(lib.equipment_id)) return { equipment: null, loads: null };
-    const item = await findByNumericId(records, EQUIPMENT_RECORD_TYPE, lib.equipment_id);
+  // resolveEquipmentLoads (med-niix.2, med-3gln) resolves one exercise's
+  // equipment — the plan row's own equipment_id override, else the library
+  // row's binding (equipmentIdForExercise, shared with the print sheet and the
+  // session chip) — then follows it to the equipment record → achievableLoads.
+  // `exercise` is the plan row, or { exercise_library_id } for a log with no
+  // plan row, or null. Resolved ONCE per propagate/preview/suggest pass, never
+  // per set. Unbound (no override, no library link, no binding, a dangling id,
+  // or gear with no computable loads) reads as { equipment: null, loads: null },
+  // and progression behaves exactly as without equipment.
+  async function resolveEquipmentLoads(exercise) {
+    const libraryId = exercise ? exercise.exercise_library_id : null;
+    if (!hasValue(libraryId) && !(exercise && hasValue(exercise.equipment_id))) {
+      return { equipment: null, loads: null };
+    }
+    const lib = hasValue(libraryId)
+      ? await findByNumericId(records, WORKOUT_RECORD_TYPES.LIBRARY, libraryId)
+      : null;
+    const equipmentId = equipmentIdForExercise(exercise, lib);
+    if (!hasValue(equipmentId)) return { equipment: null, loads: null };
+    const item = await findByNumericId(records, EQUIPMENT_RECORD_TYPE, equipmentId);
     if (!item) return { equipment: null, loads: null };
     const loads = achievableLoads(item);
     if (loads.length === 0) return { equipment: null, loads: null };
@@ -1094,6 +1105,12 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     } else if (input && 'progression_rule' in input) {
       delete updated.progression_rule;
     }
+    // Per-plan-row equipment override (med-3gln): key PRESENT (even null)
+    // replaces the stored override — null clears it back to "inherit the
+    // library binding"; a payload that OMITS the key preserves the stored
+    // value (same rule as progression_rule/training_goal above, and as
+    // equipment_id on updateLibraryItem in #897).
+    if (input && 'equipment_id' in input) updated.equipment_id = numOrNull(input.equipment_id, true);
     // Per-exercise goal override: a valid enum sets it; the editor sending a
     // blank value (key PRESENT) clears it back to "inherit"; a payload that
     // OMITS the key preserves the stored override (mirrors progression_rule).
@@ -1956,7 +1973,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // The bound equipment's rungs resolve once here, never per set; only the
     // patch half of the result is written back — the snap detail is a
     // preview/suggest explanation, not plan state.
-    const bound = await resolveEquipmentLoads(exercise.exercise_library_id);
+    const bound = await resolveEquipmentLoads(exercise);
     const { patch } = progressionPatch(exercise, sets, reps, weight, perSet, await effectiveGoal(exercise), bound.loads);
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, {
       ...exercise,
@@ -2929,7 +2946,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       const sets = latest.sets_completed === 0 ? null : latest.sets_completed;
       const reps = latest.reps_completed === 0 ? null : latest.reps_completed;
       const goal = await effectiveGoal(exercise);
-      const bound = await resolveEquipmentLoads(exercise.exercise_library_id);
+      const bound = await resolveEquipmentLoads(exercise);
       const { patch, snap } = progressionPatch(exercise, sets, reps, latest.weight_kg, latest.sets, goal, bound.loads);
       // Effort of that log, in the goal's own terms: the TOP (hardest-rated)
       // work set, formatted — the evidence riding along with each entry.
@@ -3085,15 +3102,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // answer for a goal that prescribes no progression, not a missing feature.
     // The exercise does not exist yet at suggest time, so the binding resolves
     // through the latest log instead: a schedule log's exercise_id names a
-    // workoutexercise row (follow its exercise_library_id); a library log's id
-    // already names the library row. Anything else → unbound.
-    let libraryId = null;
-    if (latest.source === 'library') libraryId = latest.exercise_id;
+    // workoutexercise row (follow the row itself — override included); a
+    // library log's id already names the library row. Anything else → unbound.
+    let exercise = null;
+    if (latest.source === 'library') exercise = { exercise_library_id: latest.exercise_id };
     else if (latest.exercise_id > 0) {
-      const row = await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, latest.exercise_id);
-      libraryId = row ? row.exercise_library_id ?? null : null;
+      exercise = await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, latest.exercise_id);
     }
-    const bound = await resolveEquipmentLoads(libraryId);
+    const bound = await resolveEquipmentLoads(exercise);
     const { patch, snap } = progressionPatch(plan, sets, reps, latest.weight_kg, latest.sets, goal, bound.loads);
     const lastWeight = hasValue(latest.weight_kg) && latest.weight_kg > 0 ? latest.weight_kg : null;
     // {} means the rule held the plan with no anchor to hold it at; fall back to
