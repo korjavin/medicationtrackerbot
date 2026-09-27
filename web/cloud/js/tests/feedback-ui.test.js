@@ -27,7 +27,6 @@ describe('feedback-ui', () => {
         // first card, before the existing Sync section) — seed that shape.
         document.body.innerHTML =
             '<div id="settings-view">'
-            + '<div id="settings-stale-badge" class="hidden"></div>'
             + '<section class="wg-card wg-settings-section wg-settings-sync"><h3>Sync</h3></section>'
             + '</div>';
         enqueueFeedback.mockReset();

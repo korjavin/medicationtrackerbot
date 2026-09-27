@@ -75,21 +75,17 @@ describe('app.js weight modal helpers and workout start modal flows', () => {
     const { window, cleanup } = loadFrontendEnv();
 
     try {
-      const confirmDeleteSpy = vi.fn().mockResolvedValue(undefined);
-      const updateStatusSpy = vi.fn();
       const loadWeightSpy = vi.fn();
       const invalidateSpy = vi.fn().mockResolvedValue(undefined);
 
-      window.MedTrackerDB = { WeightStore: { confirmDelete: confirmDeleteSpy } };
-      window.SyncManager = { updateStatus: updateStatusSpy };
       window.loadWeightLogs = loadWeightSpy;
       window.DataStore.invalidateTags = invalidateSpy;
       window.DataStore.invalidateKey = vi.fn().mockResolvedValue(undefined);
       window.apiCall = vi.fn().mockResolvedValue({ ok: true });
 
+      // Local-only ids never reach the server — just re-render from cache.
       await window._deleteWeightApi('local_12');
-      expect(confirmDeleteSpy).toHaveBeenCalledWith(12);
-      expect(updateStatusSpy).toHaveBeenCalled();
+      expect(window.apiCall).not.toHaveBeenCalled();
       expect(loadWeightSpy).toHaveBeenCalled();
 
       await window._deleteWeightApi(42);

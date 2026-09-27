@@ -769,7 +769,7 @@ export async function markForceSnapshotPending() {
 // the app forever, so the force-snapshot path records a durable error instead.
 // 401/403/408/429 are transient (auth expiry / proxy timeout / rate-limit — a
 // reverse proxy in front of cmd/cloud can return these even though the Go server
-// didn't); mirrors web/static/js/sync.js isPermanentSyncError.
+// didn't); mirrors the former web/static/js/sync.js isPermanentSyncError policy.
 function isPermanentSyncStatus(status) {
   return status >= 400 && status < 500 && ![401, 403, 408, 429].includes(status);
 }

@@ -15,25 +15,21 @@ describe('sync.js SyncManager unit tests', () => {
     consoleErrorSpy.mockRestore();
   });
 
-  it('updateStatus aggregates pending counts and notifies status callbacks', async () => {
-    const { window, document, cleanup } = loadSyncEnv({
-      bpPending: 1,
-      weightPending: 2,
-      intakePending: 3
-    });
+  it('updateStatus reports zero pending and notifies status callbacks', async () => {
+    const { window, document, cleanup } = loadSyncEnv();
 
     try {
       const callback = vi.fn();
       window.SyncManager.onStatusChange(callback);
 
-      await window.SyncManager.updateStatus();
+      const total = await window.SyncManager.updateStatus();
 
+      expect(total).toBe(0);
       expect(callback).toHaveBeenCalledTimes(1);
       const status = callback.mock.calls[0][0];
-      expect(status.pendingCount).toBe(6);
-      expect(status.bpPending).toBe(1);
-      expect(status.weightPending).toBe(2);
-      expect(document.getElementById('sync-status-bar').className).toContain('pending');
+      expect(status.pendingCount).toBe(0);
+      expect(status.rejectedCount).toBe(0);
+      expect(document.getElementById('sync-status-bar').className).toContain('synced');
     } finally {
       cleanup();
     }
@@ -73,24 +69,21 @@ describe('sync.js SyncManager unit tests', () => {
     }
   });
 
-  it('handleOnline sets online state, updates status, syncs and requests soft refresh', () => {
+  it('handleOnline sets online state, updates status and requests soft refresh', () => {
     const { window, cleanup } = loadSyncEnv();
 
     try {
       window.SyncManager.isOnline = false;
       const updateStatusSpy = vi.fn();
-      const syncAllSpy = vi.fn();
       const requestRefreshSpy = vi.fn();
 
       window.SyncManager.updateStatus = updateStatusSpy;
-      window.SyncManager.syncAll = syncAllSpy;
       window.requestTabRefresh = requestRefreshSpy;
 
       window.SyncManager.handleOnline();
 
       expect(window.SyncManager.isOnline).toBe(true);
       expect(updateStatusSpy).toHaveBeenCalledTimes(1);
-      expect(syncAllSpy).toHaveBeenCalledTimes(1);
       expect(requestRefreshSpy).toHaveBeenCalledWith({ source: 'online' });
     } finally {
       cleanup();
@@ -102,7 +95,6 @@ describe('sync.js SyncManager unit tests', () => {
 
     try {
       window.SyncManager.updateStatus = vi.fn();
-      window.SyncManager.syncAll = vi.fn();
       window.requestTabRefresh = undefined;
 
       const reloadSpy = vi.fn();
@@ -133,62 +125,18 @@ describe('sync.js SyncManager unit tests', () => {
     }
   });
 
-  it('isPermanentSyncError treats 429 as transient (retriable)', () => {
+  it('isServerError detects 5xx by status code or proxy message', () => {
     const { window, cleanup } = loadSyncEnv();
 
     try {
-      // Access the function via window eval scope
-      const isPermanent = (status) => {
-        const err = new Error('test');
-        err.status = status;
-        // The function is in the closure scope, but we can test via sync behavior
-        // Instead, directly test the logic
-        return window.eval(`isPermanentSyncError(Object.assign(new Error("test"), { status: ${status} }))`);
-      };
-
-      // 429 Too Many Requests should be transient
-      expect(isPermanent(429)).toBe(false);
-      // 401/403 should be transient
-      expect(isPermanent(401)).toBe(false);
-      expect(isPermanent(403)).toBe(false);
-      // Other 4xx should be permanent
-      expect(isPermanent(400)).toBe(true);
-      expect(isPermanent(404)).toBe(true);
-      expect(isPermanent(422)).toBe(true);
-      // 5xx should be transient (no status match in 400-499 range)
-      expect(isPermanent(500)).toBe(false);
-      expect(isPermanent(502)).toBe(false);
-      // No error should not be permanent
-      expect(window.eval('isPermanentSyncError(null)')).toBe(false);
-      // No status should not be permanent
-      expect(window.eval('isPermanentSyncError(new Error("network"))')).toBe(false);
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('syncAll skips work when offline or already syncing', async () => {
-    const { window, cleanup } = loadSyncEnv();
-
-    try {
-      const bpSpy = vi.fn();
-      const weightSpy = vi.fn();
-      const intakeSpy = vi.fn();
-
-      window.SyncManager.syncBPReadings = bpSpy;
-      window.SyncManager.syncWeightLogs = weightSpy;
-      window.SyncManager.syncIntakeLogs = intakeSpy;
-
-      window.SyncManager.isOnline = false;
-      await window.SyncManager.syncAll();
-
-      window.SyncManager.isOnline = true;
-      window.SyncManager.isSyncing = true;
-      await window.SyncManager.syncAll();
-
-      expect(bpSpy).not.toHaveBeenCalled();
-      expect(weightSpy).not.toHaveBeenCalled();
-      expect(intakeSpy).not.toHaveBeenCalled();
+      expect(typeof window.isServerError).toBe('function');
+      const err = (status) => Object.assign(new Error('x'), { status });
+      expect(window.isServerError(err(500))).toBe(true);
+      expect(window.isServerError(err(502))).toBe(true);
+      expect(window.isServerError(err(404))).toBe(false);
+      expect(window.isServerError(new Error('Bad Gateway'))).toBe(true);
+      expect(window.isServerError(new Error('Service Unavailable'))).toBe(true);
+      expect(window.isServerError(new Error('Failed to fetch'))).toBe(false);
     } finally {
       cleanup();
     }

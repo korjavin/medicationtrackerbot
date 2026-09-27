@@ -17,7 +17,6 @@ const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
-const WG_STALE_BADGE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-stale-badge.js');
 const TODAY_JS = path.join(REPO_ROOT, 'web/static/js/features/today.js');
 
 // Standalone copies of app.js's medication schedule helpers — duplicated
@@ -73,7 +72,6 @@ function loadEnv() {
     window.eval(fs.readFileSync(EMPTY_STATE_JS, 'utf8') + '\nwindow.createEmptyState = createEmptyState;');
     window.eval(fs.readFileSync(WG_ICONS_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_SPARKLINE_JS, 'utf8'));
-    window.eval(fs.readFileSync(WG_STALE_BADGE_JS, 'utf8'));
     window.eval(fs.readFileSync(TODAY_JS, 'utf8'));
     return {
         window,
@@ -118,13 +116,9 @@ describe('Today next-intake meds fallback', () => {
         const expected = new Date(now);
         expected.setHours(9, 0, 0, 0);
         expect(state.nextMed.value.scheduledAt).toBe(expected.toISOString());
-        // Meta carries the medications cache freshness so the chip can render.
+        // Meta carries the medications cache freshness as provenance.
         expect(state.nextMed.meta).toEqual({ fetchedAt, isStale: true });
 
-        // Render with the freshness fed via state.__fetchedAt (mirrors what
-        // app.js does after _todayReadCaches sets oldestCacheTimestamp).
-        state.__fetchedAt = fetchedAt;
-        state.__navigatorOffline = true;
         const root = env.document.createElement('div');
         env.render(state, root, { now });
 
@@ -132,10 +126,6 @@ describe('Today next-intake meds fallback', () => {
         expect(medsCard).not.toBeNull();
         const names = Array.from(medsCard.querySelectorAll('.wg-today-meds__name')).map((n) => n.textContent);
         expect(names).toEqual(['Aspirin']);
-        // Stale chip is mounted at the top of Today and reads "Offline · …".
-        const badge = root.querySelector('.today-stale-badge-row .wg-stale-badge');
-        expect(badge).not.toBeNull();
-        expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
     });
 
     it('groups multiple meds scheduled at the same slot (server next_intake parity)', () => {
@@ -209,7 +199,7 @@ describe('Today next-intake meds fallback', () => {
         expect(state.nextMed.value.ids).toEqual([42]);
     });
 
-    it('shows the existing offline empty state when neither next_intake nor medications cache is present', () => {
+    it('shows the missing-dose empty state when neither next_intake nor medications cache is present', () => {
         const now = new Date('2026-05-09T07:30:00');
         const bootstrap = {
             features: FEATURES_MED_ONLY
@@ -219,14 +209,13 @@ describe('Today next-intake meds fallback', () => {
         const state = env.aggregate(bootstrap, null, now, HELPERS);
         expect(state.nextMed.status).toBe('missing');
 
-        state.__offline = true;
         const root = env.document.createElement('div');
         env.render(state, root, { now });
 
         const medsCard = root.querySelector('.wg-today-meds');
         expect(medsCard).not.toBeNull();
         const kicker = medsCard.querySelector('.wg-next-action-card__kicker');
-        expect(kicker.textContent).toBe('Next dose data unavailable offline');
+        expect(kicker.textContent).toBe('No scheduled doses');
     });
 
     it('returns missing when medications list is present but every entry has no computable next dose', () => {
@@ -245,8 +234,8 @@ describe('Today next-intake meds fallback', () => {
 
         const state = env.aggregate(bootstrap, null, now, HELPERS);
         expect(state.nextMed.status).toBe('missing');
-        // The medications cache freshness should still surface on the chip so
-        // the user knows the data backing the empty state is from the cached
+        // The medications cache freshness should still surface in the cell meta
+        // so the user knows the data backing the empty state is from the cached
         // list — falling back silently to no meta hides provenance.
         expect(state.nextMed.meta).toEqual({
             fetchedAt: bootstrap.__medications_meta.fetchedAt,

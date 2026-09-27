@@ -142,13 +142,6 @@ describe('BP cold-start Dexie hydration (Task 1)', () => {
         const rows = list.querySelectorAll('li');
         expect(rows.length).toBeGreaterThanOrEqual(1);
 
-        const slot = document.getElementById('bp-stale-badge');
-        expect(slot).not.toBeNull();
-        const badge = slot.querySelector('.wg-stale-badge');
-        expect(badge).not.toBeNull();
-        expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
-        // 90m old offline → "Offline · 1h old" (formatAge truncates to whole hours).
-        expect(badge.textContent).toMatch(/^Offline · 1h old$/);
     });
 
     it('shows the explicit "No cached data" empty state when Dexie is empty and we are offline', async () => {

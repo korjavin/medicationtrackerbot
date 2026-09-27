@@ -169,11 +169,6 @@ describe('Workouts cold-start Dexie hydration (Task 3)', () => {
         expect(container.textContent).toContain('Morning Routine');
         expect(container.textContent).toContain('Evening Routine');
 
-        const slot = document.getElementById('workout-groups-stale-badge');
-        expect(slot).not.toBeNull();
-        const badge = slot.querySelector('.wg-stale-badge');
-        expect(badge).not.toBeNull();
-        expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
     });
 
     it('loadWorkoutHistoryTab renders cached sessions on offline cold start', async () => {

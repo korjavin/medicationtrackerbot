@@ -206,12 +206,10 @@ async function loadBPReadings() {
         onCached: async (cached) => {
             renderedSomething = true;
             await _renderBPData(cached.readingsRes, cached.goalRes, cached.statsRes);
-            await renderBPStaleBadge();
         },
         onFresh: async (fresh) => {
             renderedSomething = true;
             await _renderBPData(fresh.readingsRes, fresh.goalRes, fresh.statsRes);
-            await renderBPStaleBadge();
         },
         onError: async (e, cached) => {
             console.error('Failed to load BP data:', e);
@@ -221,72 +219,18 @@ async function loadBPReadings() {
                 renderedSomething = true;
                 list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
             }
-            await renderBPStaleBadge();
         }
     });
     if (!renderedSomething && list) {
         list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
-        await renderBPStaleBadge();
     }
-}
-
-// Mounts the wg-stale-badge into the BP section header from the api_cache
-// 'bp' timestamp (warmed by /api/bootstrap and refreshed by loadBPReadings).
-// Mirrors the Food / Today wiring from Task 5; tone is offline whenever
-// navigator.onLine is false so users can tell stale-cache from fresh data.
-async function renderBPStaleBadge() {
-    const slot = document.getElementById('bp-stale-badge');
-    if (!slot) return;
-    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
-    if (!api || typeof api.mountFromKey !== 'function') {
-        slot.replaceChildren();
-        slot.classList.add('hidden');
-        return;
-    }
-    await api.mountFromKey({ slot, key: 'bp' });
 }
 
 async function _renderBPData(readingsRes, goalRes, statsRes) {
     const list = document.getElementById('bp-list');
     if (!list) return;
 
-    // Merge server data with pending local writes
-    let allReadings = readingsRes || [];
-    if (window.MedTrackerDB) {
-        try {
-            const pendingReadings = await window.MedTrackerDB.BPStore.getPending();
-            const pendingFormatted = pendingReadings.map(r => ({
-                id: `local_${r.localId}`,
-                localId: r.localId,
-                measured_at: r.measured_at,
-                systolic: r.systolic,
-                diastolic: r.diastolic,
-                pulse: r.pulse,
-                site: r.site,
-                position: r.position,
-                notes: r.notes,
-                isLocal: true
-            }));
-            const rejectedReadings = await window.MedTrackerDB.BPStore.getRejected();
-            const rejectedFormatted = rejectedReadings.map(r => ({
-                id: `local_${r.localId}`,
-                localId: r.localId,
-                measured_at: r.measured_at,
-                systolic: r.systolic,
-                diastolic: r.diastolic,
-                pulse: r.pulse,
-                site: r.site,
-                position: r.position,
-                notes: r.notes,
-                isLocal: true,
-                isRejected: true,
-                errorMessage: r.errorMessage
-            }));
-            allReadings = [...pendingFormatted, ...rejectedFormatted, ...allReadings];
-        } catch (e) {
-            console.error('Failed to get pending BP readings:', e);
-        }
-    }
+    const allReadings = readingsRes || [];
 
     const activeRange = getActiveBPRange();
 
@@ -578,8 +522,6 @@ function buildBPHistoryGroup(label, readings) {
 function buildBPReadingRow(reading) {
     const item = document.createElement('li');
     item.className = 'wg-card wg-bp-reading-row';
-    if (reading.isLocal) item.classList.add('wg-bp-reading-row--pending');
-    if (reading.isRejected) item.classList.add('wg-bp-reading-row--rejected');
     item.setAttribute('data-reading-id', String(reading.id));
 
     const body = document.createElement('div');
@@ -621,12 +563,6 @@ function buildBPReadingRow(reading) {
     statusTag.textContent = category.label;
     meta.appendChild(statusTag);
 
-    if (reading.isRejected) {
-        meta.appendChild(buildBPSyncTag('rejected', 'Failed', reading.errorMessage));
-    } else if (reading.isLocal) {
-        meta.appendChild(buildBPSyncTag('pending', 'Pending'));
-    }
-
     body.appendChild(meta);
     item.appendChild(body);
 
@@ -636,14 +572,6 @@ function buildBPReadingRow(reading) {
     item.appendChild(actions);
 
     return item;
-}
-
-function buildBPSyncTag(kind, label, tooltip) {
-    const tag = document.createElement('span');
-    tag.className = `wg-tag wg-tag--mono wg-tag--${kind} wg-bp-reading-row__sync`;
-    tag.textContent = label;
-    if (tooltip) tag.title = tooltip;
-    return tag;
 }
 
 function buildBPReadingDeleteButton(reading) {
@@ -673,13 +601,9 @@ async function deleteBPReading(id) {
 }
 
 async function _deleteBPApi(id) {
-    // Check if this is a local-only reading
+    // Local-only ids (DataStore optimistic rows) never reach the server —
+    // just re-render from the cache.
     if (typeof id === 'string' && id.startsWith('local_')) {
-        const localId = parseInt(id.replace('local_', ''), 10);
-        if (window.MedTrackerDB) {
-            await window.MedTrackerDB.BPStore.confirmDelete(localId);
-            if (window.SyncManager) window.SyncManager.updateStatus();
-        }
         await loadBPReadings();
         return;
     }
@@ -720,20 +644,6 @@ async function _deleteBPApi(id) {
     await window.DataStore.invalidateTags(['bp', 'gamification']);
     if (window.DataStore.clearCached) {
         await window.DataStore.clearCached('bp');
-    }
-    // Also remove from local IndexedDB if it exists there
-    if (window.MedTrackerDB) {
-        try {
-            // Find and delete the local record with this serverId
-            const allReadings = await window.MedTrackerDB.BPStore.getAll();
-            const localRecord = allReadings.find(r => r.serverId === parseInt(id, 10));
-            if (localRecord && localRecord.localId) {
-                await window.MedTrackerDB.BPStore.confirmDelete(localRecord.localId);
-                if (window.SyncManager) window.SyncManager.updateStatus();
-            }
-        } catch (e) {
-            console.error('Failed to delete from local DB:', e);
-        }
     }
     await loadBPReadings();
 }

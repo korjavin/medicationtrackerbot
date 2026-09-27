@@ -287,7 +287,7 @@ export async function mountFeedbackLauncher(ctx) {
     section.appendChild(rows);
 
     // First card from the top: insert before the first existing settings
-    // section/group (after the thin stale-badge row, which is usually hidden).
+    // section/group.
     const firstSection = settingsView.querySelector('.wg-settings-section, .wg-settings-group');
     if (firstSection) settingsView.insertBefore(section, firstSection);
     else settingsView.appendChild(section);

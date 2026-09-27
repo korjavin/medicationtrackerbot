@@ -83,7 +83,7 @@ Checklists live with the docs that own them — this section only routes to them
 - **New MCP tool.** Prefer a registry op ([docs/architecture.md §7](docs/architecture.md#7-mcp)); read ops carry a `ResponseExample` sample (`TestResponseExamplesAreValidJSON` in `registry_test.go` asserts populated ones parse as JSON).
 - **New egress path.** Manifest entry plus regen ([docs/architecture.md §8](docs/architecture.md#8-privacy-boundaries-are-generated-not-written)).
 - **New HTTP route.** Cloud route plus the `apishim.js` route that answers it ([docs/architecture.md](docs/architecture.md) §1).
-- **Local-first read.** `window.cachedFetch` + `<wg-stale-badge>` ([docs/frontend.md](docs/frontend.md#local-first-read-resilience); reference: `food.offline-cached-fetch.test.js`). TODO (med-a9n5.9): drop `<wg-stale-badge>` from this line when that bead retires the badge.
+- **Local-first read.** `window.cachedFetch` ([docs/frontend.md](docs/frontend.md#local-first-read-resilience); reference: `food.offline-cached-fetch.test.js`).
 
 ## Issue Tracking
 

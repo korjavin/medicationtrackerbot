@@ -140,47 +140,6 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
         ]));
     });
 
-    it('surfaces offline-pending readings with a .wg-tag--pending badge and row modifier', () => {
-        const { document, window } = env;
-        window.renderBPReadings([
-            {
-                id: 'local_7', localId: 7, measured_at: midnight(0).toISOString(),
-                systolic: 124, diastolic: 80, pulse: 70, isLocal: true
-            }
-        ]);
-
-        const row = document.querySelector('#bp-list .wg-bp-reading-row');
-        expect(row.classList.contains('wg-bp-reading-row--pending')).toBe(true);
-
-        const badge = row.querySelector('.wg-tag--pending');
-        expect(badge).not.toBeNull();
-        expect(badge.classList.contains('wg-tag')).toBe(true);
-        expect(badge.classList.contains('wg-tag--mono')).toBe(true);
-        expect(badge.textContent).toBe('Pending');
-    });
-
-    it('surfaces rejected readings with a .wg-tag--rejected badge + errorMessage tooltip', () => {
-        const { document, window } = env;
-        window.renderBPReadings([
-            {
-                id: 'local_8', localId: 8, measured_at: midnight(0).toISOString(),
-                systolic: 126, diastolic: 82, pulse: 70,
-                isLocal: true, isRejected: true, errorMessage: 'HTTP 400: Bad Request'
-            }
-        ]);
-
-        const row = document.querySelector('#bp-list .wg-bp-reading-row');
-        expect(row.classList.contains('wg-bp-reading-row--rejected')).toBe(true);
-
-        const badge = row.querySelector('.wg-tag--rejected');
-        expect(badge).not.toBeNull();
-        expect(badge.textContent).toBe('Failed');
-        expect(badge.title).toBe('HTTP 400: Bad Request');
-
-        // A rejected row does NOT also render the pending badge.
-        expect(row.querySelector('.wg-tag--pending')).toBeNull();
-    });
-
     it('renders a .wg-icon-btn trailing delete that invokes deleteBPReading with the reading id', () => {
         const { document, window } = env;
         const deleteSpy = vi.fn();

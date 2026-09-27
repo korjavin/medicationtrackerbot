@@ -9,7 +9,7 @@
 // safeConfirm, withSubmit, formatDate, editingMedId, medications, loadMeds,
 // populateMedFilter, renderInventory, renderHistory, loadInventory,
 // switchTab, window.DataStore, window.PushModalState, window.ModalManager,
-// window.MedTrackerDB, window.WGStaleBadge. The optimistic helpers
+// window.MedTrackerDB. The optimistic helpers
 // (_applyOptimisticHistoryFlip / _commitOptimistic / _rollbackOptimistic) are
 // also reached by features/meds.js via bare name + typeof guards, so they
 // stay function-scoped globals here rather than being privatised.
@@ -302,38 +302,19 @@ async function loadHistory() {
         allowNullFresh: true,
         onCached: async (cached) => {
             renderHistory(cached);
-            await renderMedsHistoryStaleBadge(cacheKey);
         },
         onFresh: async (fresh) => {
             if (fresh && window.MedTrackerDB?.IntakeHistoryStore) {
                 await window.MedTrackerDB.IntakeHistoryStore.saveCache(cacheKey, fresh);
             }
             renderHistory(fresh || []);
-            await renderMedsHistoryStaleBadge(cacheKey);
         },
         onError: async (_err, cached) => {
             if (!cached) renderHistory([]);
-            await renderMedsHistoryStaleBadge(cacheKey);
         }
     });
     renderNextIntakeTrigger();
     return result;
-}
-
-// Mounts the wg-stale-badge into the Meds History subtab from the active
-// `history_<days>_<medId>` api_cache key. Re-runs whenever the user flips the
-// filters because the cache key shifts with them. Mirrors the BP/Weight Task 6
-// pattern.
-async function renderMedsHistoryStaleBadge(cacheKey) {
-    const slot = document.getElementById('meds-history-stale-badge');
-    if (!slot) return;
-    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
-    if (!api || typeof api.mountFromKey !== 'function') {
-        slot.replaceChildren();
-        slot.classList.add('hidden');
-        return;
-    }
-    await api.mountFromKey({ slot, key: cacheKey });
 }
 
 // module-state: holds the next-intake countdown setInterval handle so a
@@ -946,7 +927,6 @@ window.MedsHistory = {
     addTimeInput,
     removeTime,
     loadHistory,
-    renderMedsHistoryStaleBadge,
     renderNextIntakeTrigger,
     triggerNextIntake,
     closeMedicationConfirmModal,

@@ -12,9 +12,9 @@
 //   - the editor modal flows (open/add/edit/close/save/delete)
 //
 // Read path is local-first per CLAUDE.md "Adding a local-first read":
-// list via window.cachedFetch (key `workout_equipment`) + <wg-stale-badge>
-// mounted from the same key; OfflineNoCacheError renders an explicit empty
-// state. Writes go through DataStore.applyOptimistic (rule 9).
+// list via window.cachedFetch (key `workout_equipment`);
+// OfflineNoCacheError renders an explicit empty state. Writes go through
+// DataStore.applyOptimistic (rule 9).
 //
 // The list shows the API's computed min_step_kg / max_kg verbatim — never
 // recomputed client-side (the knapsack lives in web/domain/equipment.js).
@@ -64,7 +64,6 @@ async function loadWorkoutEquipment() {
             console.error('Error loading workout equipment:', e);
             _renderWorkoutEquipmentEmpty(container, 'Failed to load equipment.');
         }
-        await renderWorkoutEquipmentStaleBadge();
         return;
     }
 
@@ -77,17 +76,14 @@ async function loadWorkoutEquipment() {
         const items = result && Array.isArray(result.data) ? result.data : [];
         window.WorkoutEdit.cachedEquipment = items;
         _renderWorkoutEquipment(container, items);
-        await renderWorkoutEquipmentStaleBadge();
     } catch (e) {
         if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {
             window.WorkoutEdit.cachedEquipment = [];
             _renderWorkoutEquipmentEmpty(container, 'No cached equipment — connect to load.');
-            await renderWorkoutEquipmentStaleBadge();
             return;
         }
         console.error('Error loading workout equipment:', e);
         _renderWorkoutEquipmentEmpty(container, 'Failed to load equipment.');
-        await renderWorkoutEquipmentStaleBadge();
     }
 }
 
@@ -117,18 +113,6 @@ async function getWorkoutEquipmentList() {
         window.WorkoutEdit.cachedEquipment = [];
         throw e;
     }
-}
-
-async function renderWorkoutEquipmentStaleBadge() {
-    const slot = (typeof document !== 'undefined') ? document.getElementById('workout-equipment-stale-badge') : null;
-    if (!slot) return;
-    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
-    if (!api || typeof api.mountFromKey !== 'function') {
-        slot.replaceChildren();
-        slot.classList.add('hidden');
-        return;
-    }
-    await api.mountFromKey({ slot, key: WORKOUT_EQUIPMENT_CACHE_KEY });
 }
 
 function _renderWorkoutEquipmentEmpty(container, message) {

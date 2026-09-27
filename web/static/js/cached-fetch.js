@@ -57,7 +57,7 @@
         }
         if (typeof err.status === 'number' && err.status >= 500) return true;
         const msg = err.message || '';
-        // Narrow TypeError check (matches sync.js's isNetworkError): only a
+        // Narrow TypeError check (the offline-fallback policy): only a
         // TypeError that mentions fetch OR is observed while the browser is
         // offline counts as a network failure. A bare TypeError (e.g. "Cannot
         // read property 'x' of undefined" from a transform/contract bug) is

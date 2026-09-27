@@ -47,7 +47,6 @@ describe('Today next_intake offline read', () => {
     };
 
     const state = env.aggregate(bootstrap, null, now);
-    state.__offline = true;
 
     expect(state.nextMed.status).toBe('ok');
     expect(state.nextMed.value.names).toEqual(['Aspirin', 'Metformin']);
@@ -56,17 +55,16 @@ describe('Today next_intake offline read', () => {
     const root = env.window.document.createElement('div');
     env.render(state, root, { now });
 
-    expect(root.querySelector('.today-offline-banner')).not.toBeNull();
     const medsCard = root.querySelector('.wg-today-meds');
     expect(medsCard).not.toBeNull();
     const names = Array.from(medsCard.querySelectorAll('.wg-today-meds__name')).map((n) => n.textContent);
     expect(names).toEqual(['Aspirin', 'Metformin']);
-    // Kicker should not be the offline-fallback string when value is present.
+    // Kicker shows the countdown when a value is present.
     const kicker = medsCard.querySelector('.wg-next-action-card__kicker');
-    expect(kicker.textContent).not.toContain('Next dose data unavailable offline');
+    expect(kicker.textContent).toContain('Next');
   });
 
-  it('shows the offline fallback string when no next_intake is cached but the user has data offline', () => {
+  it('shows "No scheduled doses" when no next_intake is cached', () => {
     const now = new Date('2026-05-09T09:00:00Z');
     // Bootstrap landed with no next_intake (e.g. backend errored) — but we
     // know the user has at least feature enabled and is offline.
@@ -76,7 +74,6 @@ describe('Today next_intake offline read', () => {
     };
 
     const state = env.aggregate(bootstrap, null, now);
-    state.__offline = true;
 
     expect(state.nextMed.status).toBe('missing');
 
@@ -86,7 +83,7 @@ describe('Today next_intake offline read', () => {
     const medsCard = root.querySelector('.wg-today-meds');
     expect(medsCard).not.toBeNull();
     const kicker = medsCard.querySelector('.wg-next-action-card__kicker');
-    expect(kicker.textContent).toBe('Next dose data unavailable offline');
+    expect(kicker.textContent).toBe('No scheduled doses');
   });
 
   it('renders the explicit empty state without throwing when no caches exist at all', () => {
@@ -96,9 +93,8 @@ describe('Today next_intake offline read', () => {
     };
 
     const state = env.aggregate(bootstrap, null, now);
-    // Both flags set when latestCacheTimestamp is null AND we're offline.
+    // Set when latestCacheTimestamp is null (no cache entry of any kind).
     state.__firstRun = true;
-    state.__offline = true;
 
     const root = env.window.document.createElement('div');
     expect(() => env.render(state, root, { now })).not.toThrow();
@@ -107,7 +103,7 @@ describe('Today next_intake offline read', () => {
     // card and no JS error in the process.
     const empty = root.querySelector('.today-empty-firstrun');
     expect(empty).not.toBeNull();
-    expect(empty.textContent).toBe('Offline — reconnect to load your day');
+    expect(empty.textContent).toBe('Connect to load your day');
     expect(root.querySelector('.wg-today-meds')).toBeNull();
   });
 

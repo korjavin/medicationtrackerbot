@@ -57,11 +57,9 @@ async function loadWorkoutHistoryTab() {
         },
         onCached: async (cached) => {
             _renderWorkoutHistory(container, cached.sessions || [], cached.miband || [], userTz);
-            await renderWorkoutHistoryStaleBadge();
         },
         onFresh: async (fresh) => {
             _renderWorkoutHistory(container, fresh.sessions || [], fresh.miband || [], userTz);
-            await renderWorkoutHistoryStaleBadge();
         },
         onError: async (error, cached) => {
             console.error('Error loading workout history:', error);
@@ -71,7 +69,6 @@ async function loadWorkoutHistoryTab() {
                 message.textContent = 'Error loading history';
                 container.replaceChildren(message);
             }
-            await renderWorkoutHistoryStaleBadge();
         }
     });
 }

@@ -206,6 +206,13 @@ class FakeDexie {
     return {
       stores: (schema) => {
         for (const [tableName, schemaText] of Object.entries(schema)) {
+          // Dexie drops a table when its schema entry is null (db.js v7
+          // drops the bot-mode offline write queues).
+          if (schemaText === null) {
+            delete this.tables[tableName];
+            delete this[tableName];
+            continue;
+          }
           const firstToken = schemaText.split(',')[0].trim();
           const autoIncrement = firstToken.startsWith('++');
           const primaryKey = firstToken

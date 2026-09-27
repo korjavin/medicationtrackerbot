@@ -1045,21 +1045,6 @@
         content.replaceChildren(...cards);
     }
 
-    // Mounts the freshness chip into the Journey header from the api_cache
-    // 'gamification' timestamp (warmed by cachedFetch). Tone flips to offline
-    // whenever navigator.onLine is false. Best-effort — never throws.
-    async function mountBadge() {
-        const slot = document.getElementById('journey-stale-badge');
-        if (!slot) return;
-        const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
-        if (!api || typeof api.mountFromKey !== 'function') {
-            slot.replaceChildren();
-            slot.classList.add('hidden');
-            return;
-        }
-        await api.mountFromKey({ slot, key: CACHE_KEY, staleAfterMs: STALE_AFTER_MS });
-    }
-
     // Fetches the tier-3 sleep→BP insight through its own cachedFetch entry
     // (Task 3) — only called once the Journey payload reports tier 3
     // unlocked, so accounts below level 5 never pay for the extra request.
@@ -1188,7 +1173,6 @@
                 console.error('Failed to load gamification journey:', e);
                 renderEmpty(content, 'Failed to load your Journey.');
             }
-            await mountBadge();
             return;
         }
 
@@ -1221,15 +1205,12 @@
                 const narrative = { atlas, experiments, chapter, traits, keystones, narration };
                 if (!data) render({ enabled: false, ...narrative });
                 else { Object.assign(data, narrative); render(data); }
-                await mountBadge();
                 return;
             }
             render(data);
-            await mountBadge();
         } catch (e) {
             if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {
                 renderEmpty(content, 'No cached Journey data — connect to load.');
-                await mountBadge();
                 return;
             }
             console.error('Failed to load gamification journey:', e);

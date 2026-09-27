@@ -181,14 +181,9 @@ describe('Health cold-start Dexie hydration (Task 4)', () => {
         expect(content.textContent).toContain('SLEEP');
         expect(content.textContent).toContain('STEPS');
 
-        const slot = document.getElementById('health-overview-stale-badge');
-        expect(slot).not.toBeNull();
-        const badge = slot.querySelector('.wg-stale-badge');
-        expect(badge).not.toBeNull();
-        expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
     });
 
-    it('loadNotes renders cached notes + offline stale chip on cold start', async () => {
+    it('loadNotes renders cached notes on cold start', async () => {
         const { window, document } = env;
         setAuthCache(window);
         const cachedAt = Date.now() - 15 * 60 * 1000; // 15 min ago
@@ -210,11 +205,6 @@ describe('Health cold-start Dexie hydration (Task 4)', () => {
         expect(list.textContent).toContain('Felt energetic');
         expect(list.textContent).toContain('Slept 8 hrs');
 
-        const slot = document.getElementById('health-notes-stale-badge');
-        expect(slot).not.toBeNull();
-        const badge = slot.querySelector('.wg-stale-badge');
-        expect(badge).not.toBeNull();
-        expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
     });
 
     it('TZ-mismatch fallback: seeds current-TZ key from the most-recent health_overview_* entry', async () => {
@@ -249,9 +239,8 @@ describe('Health cold-start Dexie hydration (Task 4)', () => {
         const seeded = await window.DataStore.getCached(currentTzKey);
         expect(seeded).toEqual(newerData);
 
-        // The preserved timestamp drives the stale chip — it must equal the
-        // fallback row's original write time (not Date.now()), so the chip
-        // surfaces real age rather than "Updated just now".
+        // The preserved timestamp must equal the fallback row's original
+        // write time (not Date.now()).
         const meta = await window.MedTrackerDB.ApiCache.getWithMeta(currentTzKey);
         expect(meta.timestamp).toBe(newerTs);
     });
@@ -280,10 +269,6 @@ describe('Health cold-start Dexie hydration (Task 4)', () => {
         expect(content.classList.contains('hidden')).toBe(false);
         expect(content.textContent).toContain('SLEEP');
 
-        const slot = document.getElementById('health-overview-stale-badge');
-        const badge = slot.querySelector('.wg-stale-badge');
-        expect(badge).not.toBeNull();
-        expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
     });
 
     it('loadNotes shows "No cached data" empty state when Dexie is empty and offline', async () => {

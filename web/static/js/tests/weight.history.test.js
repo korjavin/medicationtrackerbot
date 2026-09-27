@@ -106,47 +106,6 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         expect(time.textContent.length).toBeGreaterThan(0);
     });
 
-    it('surfaces offline-pending logs with a .wg-tag--pending badge + row modifier', () => {
-        const { document, window } = env;
-        window.renderWeightLogs([
-            {
-                id: 'local_7', localId: 7, measured_at: midnight(0).toISOString(),
-                weight: 79.5, isLocal: true
-            }
-        ]);
-
-        const row = document.querySelector('#weight-list .wg-weight-history-row');
-        expect(row.classList.contains('wg-weight-history-row--pending')).toBe(true);
-
-        const badge = row.querySelector('.wg-tag--pending');
-        expect(badge).not.toBeNull();
-        expect(badge.classList.contains('wg-tag')).toBe(true);
-        expect(badge.classList.contains('wg-tag--mono')).toBe(true);
-        expect(badge.textContent).toBe('Pending');
-    });
-
-    it('surfaces rejected logs with a .wg-tag--rejected badge + errorMessage tooltip', () => {
-        const { document, window } = env;
-        window.renderWeightLogs([
-            {
-                id: 'local_8', localId: 8, measured_at: midnight(0).toISOString(),
-                weight: 79.5, isLocal: true, isRejected: true,
-                errorMessage: 'HTTP 400: Bad Request'
-            }
-        ]);
-
-        const row = document.querySelector('#weight-list .wg-weight-history-row');
-        expect(row.classList.contains('wg-weight-history-row--rejected')).toBe(true);
-
-        const badge = row.querySelector('.wg-tag--rejected');
-        expect(badge).not.toBeNull();
-        expect(badge.textContent).toBe('Failed');
-        expect(badge.title).toBe('HTTP 400: Bad Request');
-
-        // A rejected row does NOT also render the pending badge.
-        expect(row.querySelector('.wg-tag--pending')).toBeNull();
-    });
-
     it('renders trailing .wg-icon-btn edit + delete that invoke the existing handlers', () => {
         const { document, window } = env;
         const deleteSpy = vi.fn();

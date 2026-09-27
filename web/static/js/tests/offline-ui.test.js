@@ -72,7 +72,6 @@ describe('Offline UI indicators', () => {
       try {
         const banner = document.getElementById('offline-banner');
         vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
-        vi.spyOn(window.SyncManager, 'syncAll').mockResolvedValue(undefined);
 
         // First go offline
         window.SyncManager.handleOffline();
@@ -255,68 +254,15 @@ describe('Offline UI indicators', () => {
     });
   });
 
-  describe('saved locally toast messages', () => {
-    it('shows "saved locally" for offline BP write', async () => {
-      const { window, cleanup } = loadSyncEnv();
+  describe('showToast', () => {
+    it('renders a toast with the message and type class', () => {
+      const { window, document, cleanup } = loadSyncEnv();
       try {
-        window.SyncManager.isOnline = false;
-        const saveSpy = vi.fn().mockResolvedValue({ localId: 1 });
-        window.MedTrackerDB.BPStore.save = saveSpy;
-        vi.spyOn(window.SyncManager, 'registerBackgroundSync').mockResolvedValue(undefined);
-        const toastSpy = vi.spyOn(window.SyncManager, 'showToast').mockImplementation(() => {});
-        vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
-
-        await window.offlineAwareApiCall('/api/bp', 'POST', { systolic: 120, diastolic: 80 });
-
-        expect(toastSpy).toHaveBeenCalledWith(
-          expect.stringContaining('saved locally'),
-          'info'
-        );
-      } finally {
-        cleanup();
-      }
-    });
-
-    it('shows "saved locally" for offline weight write', async () => {
-      const { window, cleanup } = loadSyncEnv();
-      try {
-        window.SyncManager.isOnline = false;
-        const saveSpy = vi.fn().mockResolvedValue({ localId: 2 });
-        window.MedTrackerDB.WeightStore.save = saveSpy;
-        vi.spyOn(window.SyncManager, 'registerBackgroundSync').mockResolvedValue(undefined);
-        const toastSpy = vi.spyOn(window.SyncManager, 'showToast').mockImplementation(() => {});
-        vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
-
-        await window.offlineAwareApiCall('/api/weight', 'POST', { weight: 75 });
-
-        expect(toastSpy).toHaveBeenCalledWith(
-          expect.stringContaining('saved locally'),
-          'info'
-        );
-      } finally {
-        cleanup();
-      }
-    });
-
-    it('shows "confirmed locally" for offline medication confirm', async () => {
-      const { window, cleanup } = loadSyncEnv();
-      try {
-        window.SyncManager.isOnline = false;
-        const saveSpy = vi.fn().mockResolvedValue({ localId: 3 });
-        window.MedTrackerDB.IntakeQueueStore.save = saveSpy;
-        vi.spyOn(window.SyncManager, 'registerBackgroundSync').mockResolvedValue(undefined);
-        const toastSpy = vi.spyOn(window.SyncManager, 'showToast').mockImplementation(() => {});
-        vi.spyOn(window.SyncManager, 'updateStatus').mockResolvedValue(undefined);
-
-        await window.offlineAwareApiCall('/api/medications/confirm-schedule', 'POST', {
-          scheduled_at: '2026-01-01T08:00:00Z',
-          medication_ids: [1, 2]
-        });
-
-        expect(toastSpy).toHaveBeenCalledWith(
-          expect.stringContaining('locally'),
-          'info'
-        );
+        window.SyncManager.showToast('hello', 'info');
+        const toast = document.querySelector('.sync-toast');
+        expect(toast).toBeTruthy();
+        expect(toast.textContent).toBe('hello');
+        expect(toast.classList.contains('info')).toBe(true);
       } finally {
         cleanup();
       }

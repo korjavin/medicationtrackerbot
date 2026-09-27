@@ -1,8 +1,8 @@
 // Verifies that workout-mutation invalidation drops both the DataStore
 // api_cache entries (via the 'workout' tag) and the legacy WorkoutStore
 // Dexie cache, so a successful save followed by a failed reload cannot
-// resurrect the pre-mutation payload through offlineAwareApiCall's
-// handleOfflineWorkoutRead fallback.
+// resurrect the pre-mutation payload through the offline workout-cache
+// fallback.
 //
 // Also verifies that the explicit workout cache keys are reachable from a
 // push-modal mutation (snoozeWorkout / skipWorkout in app.js) before the
