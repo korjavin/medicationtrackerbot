@@ -2402,6 +2402,32 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
     expect(chips[0].querySelector('.wg-plates__delta').textContent).toBe('72 kg (-1 kg)');
   });
 
+  // A completion snapshot freezes the plan as performed: the live variant
+  // is never consulted (med-qj4.2.1 contract), so plan-row cards stay
+  // chipless — the snapshot carries no library id to resolve them by.
+  it('a snapshot session never consults the live variant and stays chipless', async () => {
+    const { window, document } = env;
+    const calls = [];
+    const sess = chipSession({ variant_id: 7, status: 'completed',
+      exercise_snapshot: [{ exercise_id: 101, exercise_name: 'Bench press', target_sets: 3, target_reps_min: 5, target_weight_kg: 72, order_index: 0 }] });
+    window.apiCall = vi.fn(async (endpoint) => {
+      calls.push(endpoint);
+      if (String(endpoint).startsWith('/api/workout/sessions/details')) return { session: sess, logs: [chipLog()] };
+      if (String(endpoint).includes('/api/workout/exercises?variant_id=')) return ROWS;
+      if (endpoint === '/api/workout/exercise-library') return libFor(3);
+      if (endpoint === '/api/workout/equipment') return [BAR8];
+      return [];
+    });
+    window.WorkoutEquipment.list = async () => [BAR8];
+    window.WorkoutGroups.loadEquipmentDomain = async () => ({ loadingFor, nearestLoads });
+    await window.showWorkoutSessionModal(sess.id);
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(calls.some((c) => c.startsWith('/api/workout/exercises'))).toBe(false);
+    expect(firstCard(document).querySelector('.wg-workouts-session-exercise__plates')).toBeNull();
+  });
+
   it('an lb preference labels the plate line as kg', async () => {
     const { window, document } = env;
     window.weightUnitPreference = 'lb';

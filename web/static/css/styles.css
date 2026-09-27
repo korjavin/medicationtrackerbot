@@ -640,6 +640,7 @@
     --wg-workouts-session-set-row-min-h: 28px;
     --wg-workouts-session-set-row-gap: 8px;
     --wg-workouts-session-set-row-size: 13px;
+    --wg-plates-label-size: 7px;
     --wg-workouts-session-action-gap: 8px;
     --wg-workouts-groups-row-cols: 1fr auto;
     --wg-workouts-groups-row-gap: 10px;
@@ -7447,7 +7448,7 @@ textarea.wg-input {
 
 .wg-plates__label {
     fill: var(--wg-fg-2);
-    font-size: 7px;
+    font-size: var(--wg-plates-label-size);
     text-anchor: middle;
     font-family: var(--wg-font-mono);
 }

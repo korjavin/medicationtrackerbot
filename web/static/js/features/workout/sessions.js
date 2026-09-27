@@ -554,16 +554,21 @@ async function _sessionPlateGear() {
 }
 
 // _buildSessionPlateGear fetches the plan rows (for the variant behind this
-// session — the snapshot carries no library id), the exercise library, and
-// the equipment inventory, plus the domain plate math. Never throws: any
-// failure resolves to { sessionId, failed: true } (no chips).
+// session), the exercise library, and the equipment inventory, plus the
+// domain plate math. Never throws: any failure resolves to
+// { sessionId, failed: true } (no chips). A completion snapshot freezes the
+// plan as performed: the live variant is never consulted for such sessions
+// (the med-qj4.2.1 no-fetch contract covers this read too), so their
+// plan-row logs stay chipless — the snapshot carries no library id to
+// resolve them by.
 async function _buildSessionPlateGear(sessionData) {
     const sessionId = sessionData ? sessionData.id : null;
     const fail = () => ({ sessionId: sessionId, failed: true });
     try {
         const variantId = sessionData ? Number(sessionData.variant_id) : 0;
         const rowsById = {};
-        if (variantId > 0) {
+        const hasSnapshot = !!(sessionData && Array.isArray(sessionData.exercise_snapshot));
+        if (variantId > 0 && !hasSnapshot) {
             const rows = await apiCall(`/api/workout/exercises?variant_id=${variantId}`);
             if (!Array.isArray(rows)) return fail();
             for (const r of rows) {
@@ -677,16 +682,15 @@ function _renderSessionPlateChip(entry, log, gear) {
             // sheet (which draws no glyph for an empty per_side).
             return false;
         } else {
-            const near = gear.nearestLoads(eq.loads_kg, w);
-            const chosen = _sessionPickNearest(near.below, near.above, w);
-            if (chosen === null) {
-                const bar = Number(eq.bar_kg);
-                if (Number.isFinite(bar) && w < bar) {
-                    addText(`below bar (${_sessionPlateR2(bar)} kg)`, 'wg-plates__text');
-                } else {
-                    return false;
-                }
+            // Below the bar nothing is achievable: say so instead of
+            // suggesting the bare bar as a "nearest" rung above the target.
+            const bar = Number(eq.bar_kg);
+            if (Number.isFinite(bar) && w < bar) {
+                addText(`below bar (${_sessionPlateR2(bar)} kg)`, 'wg-plates__text');
             } else {
+                const near = gear.nearestLoads(eq.loads_kg, w);
+                const chosen = _sessionPickNearest(near.below, near.above, w);
+                if (chosen === null) return false;
                 const best = gear.loadingFor(eq, chosen);
                 if (!best) return false;
                 if (best.per_side.length > 0) {
