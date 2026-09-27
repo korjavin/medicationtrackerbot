@@ -844,6 +844,47 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(planSelectOf(document).value).toBe('51');
     });
 
+    it('a rename keeps an unsaved equipment pick (codex med-3gln review)', async () => {
+      const { window, document } = env;
+      const calls = stubPlan(window, {
+        exercises: boundExercise(40, { equipment_id: 50 }),
+        library: [libraryRow(), { id: 41, name: 'Curl' }],
+      });
+      await window.showEditExerciseModal(7);
+      expect(planSelectOf(document).value).toBe('50');
+
+      // Pick new gear, THEN rename: the refill must keep the live pick, not
+      // restore the open-time override.
+      planSelectOf(document).value = '51';
+      const nameEl = document.getElementById('workout-exercise-name');
+      nameEl.value = 'Curl';
+      await nameEl.onchange();
+      await vi.waitFor(() => {
+        expect(blankLabelOf(document)).toBe('None');
+      });
+      expect(planSelectOf(document).value).toBe('51');
+
+      await window.saveExercise();
+
+      const writes = exerciseWrites(calls);
+      expect(writes).toHaveLength(1);
+      expect(writes[0][2]).toMatchObject({ equipment_id: 51 });
+    });
+
+    it('a picker pick keeps an unsaved equipment pick', async () => {
+      const { window, document } = env;
+      stubPlan(window, { exercises: [], library: [libraryRow()] });
+
+      await window.showAddExerciseModal();
+      planSelectOf(document).value = '51';
+
+      await window.onPlanExercisePicked({ id: 40, name: 'Bench Press' });
+      await vi.waitFor(() => {
+        expect(blankLabelOf(document)).toBe('from library: Ohio bar');
+      });
+      expect(planSelectOf(document).value).toBe('51');
+    });
+
     it('opening Edit clears the previous select synchronously', async () => {
       const { window, document } = env;
       stubPlan(window, {

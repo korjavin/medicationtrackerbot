@@ -299,6 +299,15 @@ let _equipmentHintSeq = 0; // module-state: ticket for the in-flight plan-equipm
 // a stale inventory can never clear it blind.
 let _planRowEquipmentId = '';
 let _planInheritedEquipment = null;
+// The selection a name-driven refill (picker pick, rename) must keep showing:
+// the live pick when the select holds a real inventory read, else the stored
+// override from modal open. Without this a refill would restore the open-time
+// value and silently discard an unsaved pick made before the rename.
+function _currentPlanEquipmentPick() {
+    const select = document.getElementById('workout-exercise-equipment');
+    if (select && select.dataset.loaded === 'true') return select.value || '';
+    return _planRowEquipmentId || '';
+}
 // Synchronous reset of the plan modal's Equipment select, called before the
 // first await on every entry path (open Add/Edit, picker pick, rename): the
 // modal is shared, so the previous open's options/selection must not survive
@@ -434,10 +443,11 @@ async function _fillPlanExerciseEquipment(rowEquipmentId, libraryId, ticket = nu
 
 // A hand-typed rename (no picker pick, so no change event and no onPick)
 // re-resolves the inherited label against the library row for the new name —
-// the row override itself is name-independent and stays selected. Unknown
+// the live pick itself is name-independent and stays selected. Unknown
 // name labels blank as None. The rename path passes its own entry ticket so
 // ordering holds across the lookup fetch too.
 async function _refreshPlanEquipmentForName(name) {
+    const live = _currentPlanEquipmentPick();
     _resetPlanEquipmentSelect();
     const ticket = ++_equipmentHintSeq;
     const clean = (name || '').trim().toLowerCase();
@@ -453,7 +463,7 @@ async function _refreshPlanEquipmentForName(name) {
             (i) => String(i && i.name || '').trim().toLowerCase() === clean) || null;
         libId = row ? row.id : null;
     }
-    await _fillPlanExerciseEquipment(_planRowEquipmentId, libId, ticket);
+    await _fillPlanExerciseEquipment(live, libId, ticket);
 }
 
 async function showAddExerciseModal() {
@@ -509,13 +519,14 @@ function onPlanExercisePicked(item) {
     // have ad-hoc logs behind it, and that history is the whole point.
     const suggested = applyWeightSuggestion(effectiveExerciseGoal());
     // Fire-and-forget, like the hint before it.
+    const live = _currentPlanEquipmentPick();
     _resetPlanEquipmentSelect();
     // A library pick re-resolves the inherited label from that row; a
-    // catalog-only pick (no row yet) labels blank as None. The stored row
-    // override stays selected either way. Each fill takes its own ticket, so
-    // an in-flight fill cannot paint over a newer pick.
-    if (item && item.id != null) _fillPlanExerciseEquipment(_planRowEquipmentId, item.id).catch(() => {});
-    else _fillPlanExerciseEquipment(_planRowEquipmentId, null).catch(() => {});
+    // catalog-only pick (no row yet) labels blank as None. The live pick
+    // stays selected either way. Each fill takes its own ticket, so an
+    // in-flight fill cannot paint over a newer pick.
+    if (item && item.id != null) _fillPlanExerciseEquipment(live, item.id).catch(() => {});
+    else _fillPlanExerciseEquipment(live, null).catch(() => {});
     if (!item || item.id == null) return suggested;
     if (!document.getElementById('workout-exercise-sets').value && item.default_sets)
         document.getElementById('workout-exercise-sets').value = item.default_sets;
