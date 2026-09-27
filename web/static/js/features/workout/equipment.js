@@ -45,6 +45,9 @@ const WORKOUT_EQUIPMENT_URL = '/api/workout/equipment';
 // ponytail: mirrors the domain's MAX_FIXED_LOADS ceiling (web/domain/equipment.js)
 // so the generator can never build a list the API would reject.
 const WORKOUT_EQUIPMENT_MAX_GENERATED_LOADS = 200;
+// med-v75c.1: the shared Type select values, stored as `implement` on both
+// kinds (mirrors the domain's IMPLEMENT_VALUES in web/domain/equipment.js).
+const WORKOUT_EQUIPMENT_IMPLEMENTS = ['barbell', 'dumbbell', 'kettlebell', 'other'];
 
 async function loadWorkoutEquipment() {
     const container = document.getElementById('workout-equipment-list');
@@ -183,7 +186,9 @@ function _buildWorkoutEquipmentRow(doc, item) {
 
     const kindTag = doc.createElement('span');
     kindTag.className = 'wg-tag wg-tag--mono wg-equipment-row__kind';
-    kindTag.textContent = item.kind === 'plated' ? 'Plated' : 'Fixed';
+    const kindLabel = item.kind === 'plated' ? 'Plated' : 'Fixed';
+    const implementLabel = _implementLabel(item.implement);
+    kindTag.textContent = implementLabel ? `${implementLabel} · ${kindLabel}` : kindLabel;
     title.appendChild(kindTag);
 
     const name = doc.createElement('span');
@@ -265,29 +270,47 @@ function _setEquipmentKind(kind) {
     if (plated) plated.hidden = want !== 'plated';
 }
 
+// Display label for the stored implement enum; unknown/absent renders no
+// prefix so legacy rows keep their bare kind tag.
+function _implementLabel(implement) {
+    switch (implement) {
+        case 'barbell': return 'Barbell';
+        case 'dumbbell': return 'Dumbbell';
+        case 'kettlebell': return 'Kettlebell';
+        case 'other': return 'Other';
+        default: return null;
+    }
+}
+
 function _getEquipmentType() {
     const el = document.getElementById('workout-equipment-type');
-    const value = el ? el.value : 'barbell';
-    return value === 'kettlebell' || value === 'dumbbells' ? value : 'barbell';
+    const value = el ? el.value : '';
+    // Blank ("—") or anything unrecognized reads as unset; the payload omits
+    // implement and plated geometry falls back to barbell.
+    return WORKOUT_EQUIPMENT_IMPLEMENTS.indexOf(value) === -1 ? '' : value;
 }
 
 function _setEquipmentType(type) {
     const el = document.getElementById('workout-equipment-type');
     if (!el) return;
-    el.value = type === 'kettlebell' || type === 'dumbbells' ? type : 'barbell';
+    el.value = WORKOUT_EQUIPMENT_IMPLEMENTS.indexOf(type) === -1 ? '' : type;
 }
 
 // ponytail: only three (sides, pair) combinations exist in practice, so a
 // record outside them (e.g. sides:1 pair:true) opens on the nearest option —
-// pair wins the tie, keeping a deliberate pair:true record on dumbbells.
+// sides:1 wins the tie, matching the read path's derive order
+// (defaultPlatedImplement in web/domain/equipment.js).
 function _sidesPairToEquipmentType(sides, pair) {
-    if (pair) return 'dumbbells';
-    return sides === 1 ? 'kettlebell' : 'barbell';
+    if (sides === 1) return 'kettlebell';
+    if (pair) return 'dumbbell';
+    return 'barbell';
 }
 
 function _equipmentTypeToSidesPair(type) {
     if (type === 'kettlebell') return { sides: 1, pair: false };
-    if (type === 'dumbbells') return { sides: 2, pair: true };
+    if (type === 'dumbbell') return { sides: 2, pair: true };
+    // other rides on the barbell geometry (sides:2, single) — implement is a
+    // label, so an unrecognized shape still loads like a bar.
     return { sides: 2, pair: false };
 }
 
@@ -452,12 +475,20 @@ async function showEditWorkoutEquipmentModal(id) {
     if (platesEl) platesEl.replaceChildren();
     const kind = item.kind === 'plated' ? 'plated' : 'fixed';
     _setEquipmentKind(kind);
+    // The shared Type select preselects the stored implement; a legacy plated
+    // record without one falls back to sides/pair, while a legacy fixed
+    // record opens on the blank "—" option so saving it never stamps a
+    // label the user never chose.
+    let type = item.implement;
+    if (WORKOUT_EQUIPMENT_IMPLEMENTS.indexOf(type) === -1) {
+        type = kind === 'plated' ? _sidesPairToEquipmentType(item.sides, item.pair) : '';
+    }
+    _setEquipmentType(type);
     if (kind === 'fixed') {
         const loads = Array.isArray(item.loads_kg) ? item.loads_kg : [];
         document.getElementById('workout-equipment-loads').value = loads.join(', ');
     } else {
         document.getElementById('workout-equipment-bar').value = item.bar_kg != null ? String(item.bar_kg) : '';
-        _setEquipmentType(_sidesPairToEquipmentType(item.sides, item.pair));
         const rows = Array.isArray(item.plates) && item.plates.length > 0 ? item.plates : [{ kg: '', count: '' }];
         rows.forEach((p) => _addEquipmentPlateRow(p.kg, p.count));
     }
@@ -481,7 +512,10 @@ function _buildEquipmentPayload() {
             safeAlert('Fixed loads must be positive numbers, comma-separated (or use the generator).');
             return null;
         }
-        return { kind: 'fixed', name, loads_kg: loads };
+        const fixedPayload = { kind: 'fixed', name, loads_kg: loads };
+        const fixedImplement = _getEquipmentType();
+        if (fixedImplement) fixedPayload.implement = fixedImplement;
+        return fixedPayload;
     }
     const barKg = Number(document.getElementById('workout-equipment-bar').value);
     if (!Number.isFinite(barKg) || barKg <= 0) {
@@ -490,8 +524,9 @@ function _buildEquipmentPayload() {
     }
     const plates = _readEquipmentPlateRows();
     if (plates === null) return null;
-    const { sides, pair } = _equipmentTypeToSidesPair(_getEquipmentType());
-    return {
+    const implement = _getEquipmentType();
+    const { sides, pair } = _equipmentTypeToSidesPair(implement);
+    const platedPayload = {
         kind: 'plated',
         name,
         bar_kg: barKg,
@@ -499,6 +534,8 @@ function _buildEquipmentPayload() {
         pair,
         plates
     };
+    if (implement) platedPayload.implement = implement;
+    return platedPayload;
 }
 
 // Writes honour rule 9: the projected row lands in the `workout_equipment`

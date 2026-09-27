@@ -11,6 +11,11 @@
 //           kettlebell (sides:1), plate-loaded dumbbells (sides:2, pair:true).
 // Each barbell owns its plate list; three bars with different sleeve diameters
 // are three records.
+// Both kinds carry an optional implement label (med-v75c.1): barbell |
+// dumbbell | kettlebell | other. It is display-only — the solver and
+// achievableLoads keep reading sides/pair; plated writes default it from
+// sides/pair when absent, and legacy plated records without it derive the
+// same default on READ (never persisted outside a user write).
 // ponytail: plates live on the bar; a shared plate pool with diameter matching
 // only if two bars ever share plates.
 //
@@ -240,6 +245,27 @@ function validatePlates(plates) {
   return mergePlateRows(rows);
 }
 
+const IMPLEMENT_VALUES = ['barbell', 'dumbbell', 'kettlebell', 'other'];
+
+// defaultPlatedImplement is the label a plated write/read falls back to when
+// the payload (or a legacy record) carries no implement: a single-sleeve
+// implement is a kettlebell, a pair is dumbbells, otherwise a barbell.
+function defaultPlatedImplement(sides, pair) {
+  if (sides === 1) return 'kettlebell';
+  if (pair) return 'dumbbell';
+  return 'barbell';
+}
+
+// Absent (undefined/null) stays absent — the caller decides whether to fill
+// the plated default; anything else must be one of the four values.
+function validateImplement(value) {
+  if (value === undefined || value === null) return undefined;
+  if (!IMPLEMENT_VALUES.includes(value)) {
+    throw invalidRequest("implement must be one of 'barbell', 'dumbbell', 'kettlebell', 'other'");
+  }
+  return value;
+}
+
 function validateLoads(loads) {
   if (!Array.isArray(loads) || loads.length === 0) {
     throw invalidRequest('loads_kg must be a non-empty array');
@@ -268,6 +294,8 @@ function validateEquipmentInput(input) {
   const out = { name, kind };
   if (kind === 'fixed') {
     out.loads_kg = validateLoads(input.loads_kg);
+    const implement = validateImplement(input.implement);
+    if (implement !== undefined) out.implement = implement;
   } else {
     const barKg = Number(input.bar_kg);
     if (!Number.isFinite(barKg) || barKg <= 0) {
@@ -281,6 +309,7 @@ function validateEquipmentInput(input) {
     out.sides = sides;
     out.pair = !!(input.pair);
     out.plates = validatePlates(input.plates);
+    out.implement = validateImplement(input.implement) || defaultPlatedImplement(sides, out.pair);
   }
   return out;
 }
@@ -298,6 +327,13 @@ function toEquipmentResponse(record) {
     min_step_kg: minStep(loads),
     max_kg: loads.length > 0 ? loads[loads.length - 1] : null,
   };
+  // A vault body bypasses validation on import, so only a genuine enum
+  // value counts as set; anything else derives (plated) or omits (fixed).
+  if (IMPLEMENT_VALUES.includes(record.implement)) {
+    resp.implement = record.implement;
+  } else if (record.kind === 'plated') {
+    resp.implement = defaultPlatedImplement(record.sides, record.pair);
+  }
   if (record.kind === 'plated') {
     resp.bar_kg = record.bar_kg;
     resp.sides = record.sides;
@@ -356,6 +392,9 @@ export function createEquipmentDomain({ records, now }) {
       ? ['bar_kg', 'sides', 'pair', 'plates']
       : ['loads_kg'];
     for (const k of disowned) delete updated[k];
+    // implement is deliberately NOT stripped: omitting it preserves the stored
+    // label (a stale second device or an older MCP caller must not wipe a
+    // user-set type), and it survives kind changes — it lives on both kinds.
     await records.put(EQUIPMENT_RECORD_TYPE, updated);
   }
 

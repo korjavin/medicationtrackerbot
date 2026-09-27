@@ -170,7 +170,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         });
         expect(calls[0][0]).toBe('/api/workout/equipment');
         expect(calls[0][1]).toBe('POST');
-        expect(calls[0][2]).toEqual({ kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16] });
+        expect(calls[0][2]).toEqual({ kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16], implement: 'barbell' });
 
         await vi.waitFor(() => {
             expect(rowsOf(document).map((r) => r.querySelector('.wg-equipment-row__steps').textContent))
@@ -214,7 +214,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         });
         expect(calls[0][2]).toEqual({
             kind: 'plated', name: 'Ohio bar', bar_kg: 20, sides: 2, pair: false,
-            plates: [{ kg: 20, count: 2 }, { kg: 10, count: 2 }]
+            plates: [{ kg: 20, count: 2 }, { kg: 10, count: 2 }], implement: 'barbell'
         });
     });
 
@@ -232,7 +232,8 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         const cases = [
             ['barbell', { sides: 2, pair: false }],
             ['kettlebell', { sides: 1, pair: false }],
-            ['dumbbells', { sides: 2, pair: true }]
+            ['dumbbell', { sides: 2, pair: true }],
+            ['other', { sides: 2, pair: false }]
         ];
         for (const [type, want] of cases) {
             calls.length = 0;
@@ -248,12 +249,12 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
             expect(calls[0][2]).toEqual({
                 kind: 'plated', name: `${type} rig`, bar_kg: 20,
                 sides: want.sides, pair: want.pair,
-                plates: [{ kg: 10, count: 2 }]
+                plates: [{ kg: 10, count: 2 }], implement: type
             });
         }
     });
 
-    it('editing a pair:true record reopens with the dumbbells Type selected', async () => {
+    it('editing a pair:true record reopens with the dumbbell Type selected', async () => {
         const { window, document } = env;
         const pairRecord = { ...PLATED_BAR, id: 7, name: 'Loadable DBs', sides: 2, pair: true };
         seedOnlineList(window, [pairRecord]);
@@ -262,11 +263,11 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         await window.WorkoutEquipment.openEdit(pairRecord.id);
 
         expect(document.getElementById('workout-equipment-modal-title').textContent).toBe('Edit Equipment');
-        expect(document.getElementById('workout-equipment-type').value).toBe('dumbbells');
+        expect(document.getElementById('workout-equipment-type').value).toBe('dumbbell');
         expect(document.getElementById('workout-equipment-bar').value).toBe('20');
     });
 
-    it('editing a record outside the three combinations opens the nearest Type', async () => {
+    it('editing a record outside the three combinations opens kettlebell (sides:1 wins)', async () => {
         const { window, document } = env;
         const oddRecord = { ...PLATED_BAR, id: 8, name: 'Odd bell', sides: 1, pair: true };
         seedOnlineList(window, [oddRecord]);
@@ -274,10 +275,100 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
 
         await window.WorkoutEquipment.openEdit(oddRecord.id);
 
-        expect(document.getElementById('workout-equipment-type').value).toBe('dumbbells');
+        expect(document.getElementById('workout-equipment-type').value).toBe('kettlebell');
     });
 
-    it('plated editor shows one Type select and nothing wider than the modal at phone width', () => {
+    it('with kind=fixed the shared Type select stays visible and saves onto the payload', async () => {
+        const { window, document } = env;
+        seedOnlineList(window, []);
+        const calls = [];
+        window.apiCall = vi.fn(async (url, method, body) => {
+            calls.push([url, method, body]);
+            if (method === 'POST') return { ...FIXED_DB, id: 9, implement: 'kettlebell' };
+            return null;
+        });
+        window.apiCallDirect = vi.fn(async () => []);
+
+        document.getElementById('add-workout-equipment-btn').click();
+        const type = document.getElementById('workout-equipment-type');
+        // Visible under kind=fixed: no hidden ancestor (it left the sectioned halves).
+        expect(type.closest('[hidden]')).toBeNull();
+        expect(document.getElementById('workout-equipment-fixed-section').hidden).toBe(false);
+
+        document.getElementById('workout-equipment-name').value = 'KB';
+        document.getElementById('workout-equipment-loads').value = '8';
+        type.value = 'kettlebell';
+        await window.WorkoutEquipment.save();
+
+        expect(calls[0][2]).toEqual({ kind: 'fixed', name: 'KB', loads_kg: [8], implement: 'kettlebell' });
+    });
+
+    it('editing a legacy sides:1 record without implement preselects kettlebell', async () => {
+        const { window, document } = env;
+        const legacyBell = { ...PLATED_BAR, id: 11, name: 'Legacy bell', sides: 1, pair: false };
+        delete legacyBell.implement; // legacy body: no implement key at all
+        seedOnlineList(window, [legacyBell]);
+        await window.WorkoutEquipment.load();
+
+        await window.WorkoutEquipment.openEdit(legacyBell.id);
+
+        expect(document.getElementById('workout-equipment-type').value).toBe('kettlebell');
+    });
+
+    it('editing a legacy fixed item opens blank and a rename sends no implement', async () => {
+        const { window, document } = env;
+        seedOnlineList(window, [FIXED_DB]);
+        await window.WorkoutEquipment.load();
+
+        const calls = [];
+        window.apiCall = vi.fn(async (url, method, body) => {
+            calls.push([url, method, body]);
+            if (method === 'PUT') return true;
+            if (url === '/api/workout/equipment' && method === 'GET') return [structuredClone(FIXED_DB)];
+            return null;
+        });
+        window.apiCallDirect = vi.fn(async () => [structuredClone(FIXED_DB)]);
+
+        await window.WorkoutEquipment.openEdit(FIXED_DB.id);
+        expect(document.getElementById('workout-equipment-type').value).toBe('');
+
+        document.getElementById('workout-equipment-name').value = 'Hex DBs v2';
+        await window.WorkoutEquipment.save();
+
+        expect(calls[0][1]).toBe('PUT');
+        expect(calls[0][2]).toEqual({ kind: 'fixed', name: 'Hex DBs v2', loads_kg: [10, 12, 14, 16] });
+        expect('implement' in calls[0][2]).toBe(false);
+    });
+
+    it('editing a record with a stored implement preselects it over sides/pair', async () => {
+        const { window, document } = env;
+        const odd = { ...PLATED_BAR, id: 12, name: 'Odd bar', sides: 2, pair: false, implement: 'other' };
+        const kb = { ...FIXED_DB, id: 13, name: 'KB', loads_kg: [8], implement: 'kettlebell' };
+        seedOnlineList(window, [odd, kb]);
+        await window.WorkoutEquipment.load();
+
+        await window.WorkoutEquipment.openEdit(odd.id);
+        expect(document.getElementById('workout-equipment-type').value).toBe('other');
+        window.WorkoutEquipment.close();
+
+        await window.WorkoutEquipment.openEdit(kb.id);
+        expect(document.getElementById('workout-equipment-type').value).toBe('kettlebell');
+    });
+
+    it('list rows prefix the kind tag with the implement label when set', async () => {
+        const { window, document } = env;
+        seedOnlineList(window, [
+            { ...FIXED_DB, id: 21, implement: 'kettlebell' },
+            { ...PLATED_BAR, id: 22, implement: 'barbell' }
+        ]);
+
+        await window.WorkoutEquipment.load();
+
+        const tags = rowsOf(document).map((r) => r.querySelector('.wg-equipment-row__kind').textContent);
+        expect(tags).toEqual(['Kettlebell · Fixed', 'Barbell · Plated']);
+    });
+
+    it('editor shows one shared Type select and nothing wider than the modal at phone width', () => {
         const { document } = env;
         // The Sides segment + Pair checkbox are gone; one Type select remains.
         expect(document.getElementById('workout-equipment-sides')).toBeNull();
@@ -286,7 +377,11 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(type).not.toBeNull();
         expect(type.tagName.toLowerCase()).toBe('select');
         expect(Array.from(type.querySelectorAll('option')).map((o) => o.value))
-            .toEqual(['barbell', 'kettlebell', 'dumbbells']);
+            .toEqual(['', 'barbell', 'dumbbell', 'kettlebell', 'other']);
+        expect(type.querySelector('option[value=""]').textContent).toBe('—');
+        // Shared by both kinds: it lives outside the plated section.
+        expect(type.closest('#workout-equipment-plated-section')).toBeNull();
+        expect(type.closest('#workout-equipment-fixed-section')).toBeNull();
         // Full-width field like #exercise-library-equipment: sharing a row
         // with Bar would truncate the long option labels at phone width.
         expect(type.closest('.wg-equipment-modal__row')).toBeNull();
@@ -513,6 +608,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(calls[0][0]).toBe('/api/workout/equipment/1');
         expect(calls[0][1]).toBe('PUT');
         expect(calls[0][2]).toEqual({ kind: 'fixed', name: 'Hex DBs v2', loads_kg: [10, 12] });
+        expect('implement' in calls[0][2]).toBe(false);
 
         await vi.waitFor(() => {
             expect(rowsOf(document).map((r) => r.querySelector('.wg-equipment-row__name').textContent))
