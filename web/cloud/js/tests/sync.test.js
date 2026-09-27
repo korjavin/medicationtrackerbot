@@ -2292,3 +2292,98 @@ describe('derived writes are put-if-absent, not floor-then-hope (med-qhpu)', () 
     expect(raw.id).toBe(42);
   });
 });
+
+// med-z2dq — pending overlay on a re-bootstrapped snapshot must apply LWW per
+// recordId. A stale derived row (clientTs 0) queued offline must not overwrite
+// a newer imported tombstone when the snapshot lands; the losing pending op is
+// dropped so it never flushes the resurrection back.
+describe('pending overlay on a re-bootstrapped snapshot applies LWW (med-z2dq)', () => {
+  const SLOT = 'session-7-2026-08-31';
+
+  const seedPending = async (records) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'pending'], 'readwrite');
+        for (const r of records) {
+          tx.objectStore('records').put(r);
+          tx.objectStore('pending').put({ recordId: r.recordId, recordType: r.recordType });
+        }
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const getRaw = async (recordId) => {
+    const db = await openDb();
+    try {
+      const tx = db.transaction('records', 'readonly');
+      return await new Promise((resolve, reject) => {
+        const req = tx.objectStore('records').get(recordId);
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const readPendingIds = async () => {
+    const db = await openDb();
+    try {
+      const tx = db.transaction('pending', 'readonly');
+      return await new Promise((resolve, reject) => {
+        const req = tx.objectStore('pending').getAll();
+        req.onsuccess = () => resolve((req.result || []).map((r) => r.recordId));
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+  });
+
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('a clientTs-0 pending row loses to an imported tombstone; the stale pending op is dropped', async () => {
+    await seedPending([
+      { recordId: SLOT, recordType: 'workoutsession', clientTs: 0, deleted: false, status: 'pending' },
+    ]);
+
+    await replaceAllRecords([
+      { recordId: SLOT, recordType: 'workoutsession', clientTs: 7000, deleted: true },
+    ]);
+
+    const raw = await getRaw(SLOT);
+    expect(raw.deleted).toBe(true);
+    expect(raw.clientTs).toBe(7000);
+    expect(await readPendingIds()).toEqual([]);
+  });
+
+  it('a newer pending row still overlays the snapshot and stays queued', async () => {
+    await seedPending([
+      { recordId: SLOT, recordType: 'workoutsession', clientTs: 9000, deleted: false, status: 'completed' },
+    ]);
+
+    await replaceAllRecords([
+      { recordId: SLOT, recordType: 'workoutsession', clientTs: 7000, deleted: true },
+    ]);
+
+    const raw = await getRaw(SLOT);
+    expect(raw.deleted).toBe(false);
+    expect(raw.clientTs).toBe(9000);
+    expect((await getRaw(SLOT)).status).toBe('completed');
+    expect(await readPendingIds()).toEqual([SLOT]);
+  });
+});

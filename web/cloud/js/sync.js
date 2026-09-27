@@ -231,20 +231,32 @@ export async function replaceAllRecords(records) {
   // (or a compaction re-bootstrap from pullTail) clears the whole store, but
   // pending writes are unsynced local truth the snapshot doesn't contain yet —
   // wiping them loses the user's note and orphans its 'pending' row forever.
-  // Re-overlay them after the clear; the oplog tail LWW-corrects them once the
-  // server assigns their real seq.
+  // Re-overlay them after the clear, LWW-compared per recordId (med-z2dq): a
+  // snapshot row with a HIGHER clientTs wins and the stale pending op is
+  // dropped, so a re-bootstrap can't resurrect e.g. a clientTs-0 derived row
+  // over an imported tombstone. Ties keep the pending row, matching
+  // applyIncoming's strict-`>` rule (local wins ties).
   await withRecordsLock(async () => {
     const pending = await readPending();
+    const snapshotById = new Map(records.map((r) => [r.recordId, r]));
     const overlay = [];
+    const losingPending = [];
     for (const { recordId } of pending) {
       const r = await getRecord(recordId);
-      if (r) overlay.push(r);
+      if (!r) continue;
+      const snap = snapshotById.get(recordId);
+      if (snap && snap.clientTs > r.clientTs) {
+        losingPending.push(recordId);
+        continue;
+      }
+      overlay.push(r);
     }
     await withStore('records', 'readwrite', (store) => {
       store.clear();
       for (const record of records) store.put(record);
       for (const record of overlay) store.put(record);
     });
+    if (losingPending.length > 0) await clearPending(losingPending);
   });
   invalidateRecords();
 }
