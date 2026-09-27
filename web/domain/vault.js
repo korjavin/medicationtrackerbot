@@ -39,6 +39,10 @@
 //     medintake.js look up by exact recordId); every older plan lands on a
 //     `tzplanhistory-<idx>` recordId of the same `tzplan` type, ignored by
 //     those readers and re-merged on export.
+//   - intake + workoutsession tombstones at deterministic slot ids are
+//     suppression signals (bd med-jtaj): recordsToVault carries them as
+//     data.tombstones and vaultToRecords re-materializes them as bodyless
+//     deleted rows. All other tombstones are delete-by-absence (dropped).
 //   - timezone_history, gamification and api_tokens have no cloud consumer, so
 //     imported entries land in passthrough `tzhistory` / `gamification` /
 //     `apitokens` stores purely for backup fidelity. The reminder-pref bodies
@@ -71,6 +75,14 @@ export const VAULT_MANAGED_TYPES = new Set([
   'settings', 'features', 'taborder', 'foodtargets', 'integrations', 'medreminderpref',
   'bpreminderpref', 'weightreminderpref', 'gamification', 'apitokens',
 ]);
+
+// Record types whose rows are lazily materialized into deterministic recordIds
+// (intake-<medId>-<slot>, session-<groupId>-<date>) via putIfAbsent: for these,
+// a tombstone is a suppression signal ("deliberately deleted, do not
+// re-materialize"), not just the absence of a row — so the vault must carry it.
+// Every other type is delete-by-absence: a missing row stays missing after a
+// replace-only import, and its tombstones are correctly dropped on export.
+export const TOMBSTONED_SLOT_TYPES = new Set(['intake', 'workoutsession']);
 
 // The tz-plan statuses bot mode treats as the single live plan
 // (tz.GetLatestActiveOrPendingTransitionPlan). NOTIFIED is a real persistent
@@ -138,8 +150,16 @@ function sortBy(arr, keyFn) {
 
 export function recordsToVault(records, { now, includeSecrets = true } = {}) {
   const byType = new Map();
+  const tombstones = [];
   for (const rec of records) {
-    if (rec.deleted) continue;
+    if (rec.deleted) {
+      // Derived-slot suppression signals survive the round-trip (bd med-jtaj);
+      // every other tombstone is delete-by-absence and stays dropped.
+      if (TOMBSTONED_SLOT_TYPES.has(rec.recordType)) {
+        tombstones.push({ recordType: rec.recordType, recordId: rec.recordId });
+      }
+      continue;
+    }
     const list = byType.get(rec.recordType);
     if (list) list.push(rec);
     else byType.set(rec.recordType, [rec]);
@@ -310,6 +330,11 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
   // Same rule as `integrations`: emit `[]` (not absent) so a restore can clear
   // stale tokens on the destination.
   if (includeSecrets) data.api_tokens = (tokensRec && tokensRec.tokens) || [];
+  // Omitted (not `[]`) when empty: absent and empty compare equal, and an
+  // empty store must export byte-identical to a pre-tombstone client.
+  if (tombstones.length > 0) {
+    data.tombstones = sortBy(tombstones, (t) => `${t.recordType}:${t.recordId}`);
+  }
 
   return {
     format: VAULT_FORMAT,
@@ -562,6 +587,22 @@ export function vaultToRecords(vault, { now } = {}) {
     });
   }
   if (data.api_tokens) push('apitokens', 'apitokens', { tokens: [...data.api_tokens] });
+
+  // --- tombstones (derived-slot suppression signals, bd med-jtaj) ---
+  // Old files predate the key and import exactly as before (no tombstones).
+  // Unknown types are ignored for forward-compat; a tombstone colliding with
+  // a live row in the same file loses (the live row is the truth).
+  for (const t of data.tombstones || []) {
+    if (!t || !TOMBSTONED_SLOT_TYPES.has(t.recordType)) continue;
+    if (typeof t.recordId !== 'string' || t.recordId === '') {
+      throw new Error(`Corrupt backup: tombstone has no usable id ${JSON.stringify(t && t.recordId)}`);
+    }
+    if (usedIds.has(`${t.recordType}:${t.recordId}`)) continue;
+    usedIds.add(`${t.recordType}:${t.recordId}`);
+    // Bodyless, like records.del writes: no reader may need a body off these
+    // (the reminder horizon reads the day off the slot id).
+    out.push({ recordType: t.recordType, recordId: t.recordId, clientTs: nowMs, deleted: true });
+  }
 
   return out;
 }

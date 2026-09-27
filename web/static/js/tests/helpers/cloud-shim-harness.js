@@ -59,10 +59,13 @@ export function createInMemoryRecordsPort(seed = {}) {
             byId.set(record.recordId, record);
             return record;
         },
+        // Bodyless, like sync.js recordsPort.del (which writes via writeRecord):
+        // a tombstone is { recordId, clientTs, deleted } — no reader may need a
+        // body off it (the reminder horizon reads the day off the slot id, bd
+        // med-jtaj). Keeping the body here let suites pass against shapes the
+        // real store never holds.
         async del(recordType, recordId) {
-            const byId = bucket(recordType);
-            const existing = byId.get(recordId) || { recordId };
-            byId.set(recordId, { ...existing, deleted: true });
+            bucket(recordType).set(recordId, { recordId, clientTs: Date.now(), deleted: true });
         }
     };
 }
