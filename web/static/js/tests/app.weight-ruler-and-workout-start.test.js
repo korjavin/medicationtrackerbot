@@ -33,7 +33,7 @@ describe('app.js weight modal helpers and workout start modal flows', () => {
 
     try {
       const alertSpy = vi.fn();
-      window.Telegram.WebApp.showAlert = alertSpy;
+      window.alert = alertSpy;
       window.loadWorkouts = vi.fn();
       window.switchTab = vi.fn();
 
@@ -114,12 +114,8 @@ describe('app.js weight modal helpers and workout start modal flows', () => {
       await window.deleteWeightLog(2);
       expect(deleteSpy).toHaveBeenCalledWith(2);
 
-      // When Telegram.showConfirm throws, the fallback now uses the in-page
-      // <mt-modal>; safeConfirm is the only public surface, so we keep
-      // asserting that callers go through it.
-      window.Telegram.WebApp.showConfirm = vi.fn(() => {
-        throw new Error('unsupported');
-      });
+      // safeConfirm is the only public surface, so we keep asserting that
+      // callers go through it.
       await window.deleteWeightLog(3);
       expect(confirmTrueSpy).toHaveBeenCalled();
       confirmTrueSpy.mockRestore();

@@ -369,7 +369,7 @@ describe('app.js medication, history and intake flows', () => {
     try {
       const container = document.getElementById('next-intake-trigger');
       const alertSpy = vi.fn();
-      window.Telegram.WebApp.showAlert = alertSpy;
+      window.alert = alertSpy;
 
       // fetchFresh is called for its cache side-effect; the caller reads the
       // authoritative value via getCached. Mock getCached to drive the render:

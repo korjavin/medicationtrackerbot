@@ -1440,11 +1440,6 @@ describe('Architecture – design tokens', () => {
             '.mb-xs', '.mb-sm', '.mb-md', '.mb-lg',
             '.mt-sm', '.mt-md', '.mt-xs',
             '.m-0', '.fw-medium', '.w-full',
-            // Login components
-            '.login-container', '.login-title', '.login-message',
-            '.login-tg-container', '.login-tg-hint', '.login-tg-link',
-            '.login-divider', '.login-divider-line', '.login-setup-link',
-            '.btn-oidc',
             // Status
             '.status-success', '.status-error', '.status-muted',
             // Medication

@@ -2711,85 +2711,6 @@ input:checked+.toggle-slider:before {
     width: 100%;
 }
 
-/* ========== Login Page ========== */
-
-.login-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 60vh;
-    gap: var(--space-xl);
-    padding: var(--space-xl);
-}
-
-.login-title {
-    color: var(--text-color);
-    margin-bottom: var(--space-md);
-}
-
-.login-message {
-    color: var(--text-color);
-    text-align: center;
-    max-width: 400px;
-    line-height: 1.6;
-}
-
-.login-tg-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-md);
-}
-
-.login-tg-hint {
-    margin: 0;
-    color: var(--text-color);
-    text-align: center;
-    max-width: 320px;
-    line-height: 1.5;
-}
-
-.login-tg-link {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: var(--space-md) var(--space-xl);
-    font-size: var(--font-size-lg);
-    background: var(--link-color);
-    color: #fff;
-    border-radius: var(--radius-sm);
-    text-decoration: none;
-}
-
-.login-divider {
-    display: flex;
-    align-items: center;
-    gap: var(--space-md);
-    color: var(--hint-color);
-    margin: var(--space-md) 0;
-}
-
-.login-divider-line {
-    flex: 1;
-    height: 1px;
-    background: var(--color-border-divider);
-}
-
-.login-setup-link {
-    margin-top: var(--space-xs);
-    font-size: var(--font-size-sm);
-    color: var(--link-color);
-}
-
-/* OIDC button with dynamic color support via CSS custom properties */
-.btn-oidc {
-    --_oidc-bg: var(--button-color);
-    --_oidc-text: var(--button-text-color);
-    background: var(--_oidc-bg);
-    color: var(--_oidc-text);
-}
-
 /* ========== Webpush Status ========== */
 
 .status-success {
@@ -11988,13 +11909,6 @@ textarea.wg-input {
    tick and by any future empty-state gating. */
 .wg-settings-hidden {
     display: none !important;
-}
-
-/* Hide the OIDC setup card when the flow is disabled (container stays in
-   the DOM so app.js can populate it, but nothing should render visually
-   when it's empty). */
-.wg-settings-oidc:empty {
-    display: none;
 }
 
 /* Collapsible settings groups (med-eas.50) — native <details>/<summary>

@@ -28,6 +28,8 @@ describe('Food section-header stale badge', () => {
 
     beforeEach(() => {
         env = loadFrontendEnv();
+        // Bot-mode suite: the harness defaults to cloud; restore the bot path.
+        delete env.window.__MEDTRACKER_CLOUD__;
         const { document } = env;
         document.getElementById('food-date-filter').value = '2026-05-09';
         env.window.loadFoodTargets = async () => {};

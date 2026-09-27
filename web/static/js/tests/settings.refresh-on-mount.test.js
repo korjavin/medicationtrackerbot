@@ -91,6 +91,8 @@ describe('Settings on-mount refresh (Task 7)', () => {
 
     beforeEach(() => {
         env = loadFrontendEnv();
+        // Bot-mode suite: the harness defaults to cloud; restore the bot path.
+        delete env.window.__MEDTRACKER_CLOUD__;
     });
 
     afterEach(() => {

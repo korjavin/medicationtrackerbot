@@ -475,6 +475,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
     it('loadSettings renders feature toggles, food macros, and the stale chip from a warm cache (offline)', async () => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();
+        delete window.__MEDTRACKER_CLOUD__; // bot-mode stale chip (cloud suppresses it)
         try {
             const bundle = {
                 featureSettings: { medication: true, workout: false, food: true, bp: true, weight: false, health: true },
@@ -634,6 +635,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         try {
             window.apiCall = vi.fn(async () => { throw new Error('offline'); });
 
+            delete window.__MEDTRACKER_CLOUD__; // harness defaults to cloud; test the bot-first branch
             await window.loadSettings();
             expect(document.querySelector('.wg-settings-cloud-devices').classList.contains('wg-settings-hidden')).toBe(true);
 
@@ -672,6 +674,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             try {
                 // Server/mobile build: hidden.
                 window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+                delete window.__MEDTRACKER_CLOUD__; // harness defaults to cloud; test the bot-first branch
                 await window.loadSettings();
                 expect(document.querySelector('.wg-settings-privacy').classList.contains('wg-settings-hidden')).toBe(true);
 
@@ -739,6 +742,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             const { window, document, cleanup } = loadFrontendEnv();
             try {
                 window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+                delete window.__MEDTRACKER_CLOUD__; // harness defaults to cloud; test the bot-first branch
                 await window.loadSettings();
                 expect(document.querySelector('.wg-settings-danger').classList.contains('wg-settings-hidden')).toBe(true);
 
@@ -1172,6 +1176,7 @@ describe('Settings → Invite a friend (cloud mode)', () => {
     it('hides the invite row outside cloud mode', async () => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();
+        delete window.__MEDTRACKER_CLOUD__; // harness defaults to cloud; test outside-cloud behavior
         try {
             window.apiCall = vi.fn(async () => { throw new Error('offline'); });
             await window.loadSettings();

@@ -374,7 +374,6 @@ export function createApiRouter(ctx, {
   // Each one logs once at debug so gaps are discoverable without spamming
   // the console on every poll.
   const STUBS = {
-    'GET /auth/status': () => ({ authenticated: true, method: 'cookie' }),
     'GET /api/bootstrap': bootstrapPayload,
     'GET /api/init': async () => ({ features: clampFeatures(await settings.getFeatures()) }),
     'GET /api/settings': async () => {

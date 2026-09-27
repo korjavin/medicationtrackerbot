@@ -67,6 +67,8 @@ describe('BP cold-start Dexie hydration (Task 1)', () => {
 
     beforeEach(() => {
         env = loadFrontendEnv();
+        // Bot-mode suite: the harness defaults to cloud (which suppresses stale chips); restore the bot path.
+        delete env.window.__MEDTRACKER_CLOUD__;
     });
 
     afterEach(() => {

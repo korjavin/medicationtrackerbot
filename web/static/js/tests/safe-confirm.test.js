@@ -5,9 +5,7 @@
  * was replaced with an in-page <mt-modal>. The browser-mode tests assert
  * that the modal mounts, the buttons resolve the promise with the
  * expected boolean, the modal is removed from the DOM after resolve, and
- * that Escape / backdrop click both resolve false. The Telegram-mode
- * test guarantees tg.showConfirm is still the preferred path and that
- * no <mt-modal> is mounted when Telegram context is available.
+ * that Escape / backdrop click both resolve false.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -16,8 +14,7 @@ describe('safeConfirm — browser mode (no Telegram context)', () => {
     let env;
 
     beforeEach(() => {
-        // telegramInitData is '' so hasTelegramContext is false in safeConfirm.
-        env = loadFrontendEnv({ telegramInitData: '' });
+        env = loadFrontendEnv();
     });
 
     afterEach(() => {
@@ -119,7 +116,7 @@ describe('safeConfirm — browser mode (no Telegram context)', () => {
     });
 });
 
-describe('safeConfirm — Telegram mode', () => {
+describe('safeAlert — adapter delegation', () => {
     let env;
 
     afterEach(() => {
@@ -127,69 +124,16 @@ describe('safeConfirm — Telegram mode', () => {
         env = null;
     });
 
-    it('uses tg.showConfirm and does not mount an mt-modal', async () => {
-        env = loadFrontendEnv({ telegramInitData: 'user=abc' });
-        const { window, document } = env;
-
-        const showConfirmSpy = vi.fn((_msg, cb) => cb(true));
-        window.Telegram.WebApp.showConfirm = showConfirmSpy;
-
-        const promise = window.safeConfirm('TG path');
-        // mt-modal must NOT be created when Telegram path is available
-        expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
-        expect(document.querySelector('.mt-confirm-backdrop')).toBeNull();
-
-        await expect(promise).resolves.toBe(true);
-        expect(showConfirmSpy).toHaveBeenCalledWith('TG path', expect.any(Function));
-    });
-
-    it('uses the in-page modal when custom labels are requested (tg popup cannot render them)', async () => {
-        env = loadFrontendEnv({ telegramInitData: 'user=abc' });
-        const { window, document } = env;
-
-        const showConfirmSpy = vi.fn((_msg, cb) => cb(true));
-        window.Telegram.WebApp.showConfirm = showConfirmSpy;
-
-        const promise = window.safeConfirm('Labelled', null, { confirmLabel: 'Use photo time' });
-        const modal = document.querySelector('mt-modal.mt-confirm-modal');
-        expect(modal).not.toBeNull();
-        expect(showConfirmSpy).not.toHaveBeenCalled();
-        modal.querySelector('.mt-confirm-modal__confirm').click();
-        await expect(promise).resolves.toBe(true);
-    });
-
-    it('falls back to the in-page modal when tg.showConfirm throws', async () => {
-        env = loadFrontendEnv({ telegramInitData: 'user=abc' });
-        const { window, document } = env;
-
-        window.Telegram.WebApp.showConfirm = vi.fn(() => { throw new Error('unsupported'); });
-
-        const promise = window.safeConfirm('TG fallback');
-        const modal = document.querySelector('mt-modal.mt-confirm-modal');
-        expect(modal).not.toBeNull();
-        modal.querySelector('.mt-confirm-modal__cancel').click();
-        await expect(promise).resolves.toBe(false);
-    });
-
-    // Regression: core/utils.js was migrated (Task 3) to route safeAlert /
-    // safeConfirm through window.MessengerAdapter rather than reading
-    // window.Telegram.WebApp directly. These two tests pin that the
-    // delegation actually happens — if a future refactor reintroduces a
-    // direct Telegram.WebApp read in utils.js the adapter spies stop firing.
+    // Regression: core/utils.js routes safeAlert through
+    // window.MessengerAdapter rather than reaching for a host SDK directly.
+    // Pin that the delegation happens — if a future refactor reintroduces a
+    // direct host-SDK read in utils.js the adapter spy stops firing.
     it('safeAlert delegates to MessengerAdapter.alert', () => {
-        env = loadFrontendEnv({ telegramInitData: 'user=abc' });
+        env = loadFrontendEnv();
         const { window } = env;
         const alertSpy = vi.spyOn(window.MessengerAdapter, 'alert');
         window.safeAlert('hello-from-adapter');
         expect(alertSpy).toHaveBeenCalledWith('hello-from-adapter');
-    });
-
-    it('safeConfirm delegates to MessengerAdapter.confirm in Telegram context', async () => {
-        env = loadFrontendEnv({ telegramInitData: 'user=abc' });
-        const { window } = env;
-        const confirmSpy = vi.spyOn(window.MessengerAdapter, 'confirm');
-        await window.safeConfirm('via-adapter');
-        expect(confirmSpy).toHaveBeenCalledWith('via-adapter');
     });
 });
 
@@ -197,7 +141,7 @@ describe('safeToast — toast dispatch with alert fallback (med-omvw)', () => {
     let env;
 
     beforeEach(() => {
-        env = loadFrontendEnv({ telegramInitData: '' });
+        env = loadFrontendEnv();
     });
 
     afterEach(() => {

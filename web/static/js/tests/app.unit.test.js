@@ -178,22 +178,17 @@ describe('app.js unit tests', () => {
     try {
       expect(window.customElements.get('mt-setting-toggle')).toBeDefined();
 
-      const webpushToggle = document.getElementById('webpush-toggle');
       const bpFeatureToggle = document.getElementById('bp-feature-toggle');
       const foodIntakeToggle = document.getElementById('food-intake-toggle');
-      expect(webpushToggle).toBeTruthy();
       expect(bpFeatureToggle).toBeTruthy();
       expect(foodIntakeToggle).toBeTruthy();
 
-      const webpushSetting = webpushToggle.closest('mt-setting-toggle');
       const bpFeatureSetting = bpFeatureToggle.closest('mt-setting-toggle');
-      expect(webpushSetting).toBeTruthy();
       // Phase 9 Task 5 removed the `divider` attribute from the markup (section
       // cards now provide the grouping). The BP toggle is grouped inside the
       // Features section card, so it no longer carries the divider class.
       expect(bpFeatureSetting.classList.contains('setting-item-divider')).toBe(false);
       expect(bpFeatureSetting.closest('.wg-settings-features')).toBeTruthy();
-      expect(webpushSetting.querySelector('h3').textContent).toBe('Web Push Notifications');
     } finally {
       cleanup();
     }
@@ -390,21 +385,4 @@ describe('app.js unit tests', () => {
     }
   });
 
-  // Regression for Task 3 of the messenger-adapter plan: app.js' boot block
-  // used to read window.Telegram.WebApp.initData directly. After migration,
-  // window.userInitData is populated from MessengerAdapter.identityToken()
-  // and the SDK ready/expand are invoked via MessengerAdapter.init(). These
-  // two assertions pin the new contract: the value comes from the adapter,
-  // and there is no top-level `window.tg` Telegram alias anymore.
-  it('app.js sources window.userInitData from MessengerAdapter.identityToken()', () => {
-    const { window, cleanup } = loadFrontendEnv({ telegramInitData: 'init-data-payload' });
-    try {
-      expect(window.userInitData).toBe('init-data-payload');
-      expect(window.userInitData).toBe(window.MessengerAdapter.identityToken());
-      // No more `window.tg` shim — every Telegram reach goes through the adapter.
-      expect(window.tg).toBeUndefined();
-    } finally {
-      cleanup();
-    }
-  });
 });

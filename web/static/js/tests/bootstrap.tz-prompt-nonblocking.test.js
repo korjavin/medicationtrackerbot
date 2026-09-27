@@ -82,7 +82,6 @@ function forceDetectedTimezone(window, detectedTz) {
 function stubBootstrapFetch(window) {
     vi.spyOn(window, 'fetch').mockImplementation(async (url) => {
         if (url === '/api/bootstrap') return createMockResponse({ json: {} });
-        if (url === '/auth/status') return createMockResponse({ json: { authenticated: true } });
         return createMockResponse({ json: {} });
     });
 }
@@ -90,7 +89,6 @@ function stubBootstrapFetch(window) {
 function stubBootstrapGlobals(window) {
     window.switchTab = vi.fn();
     window.checkAuth = vi.fn().mockResolvedValue(true);
-    window.initOIDCSetupBanner = vi.fn();
     window.handleDeepLinks = vi.fn();
 }
 
@@ -154,7 +152,6 @@ describe('bootstrap.js TZ prompt is non-blocking', () => {
         const switchTabSpy = vi.fn();
         window.switchTab = switchTabSpy;
         window.checkAuth = vi.fn().mockResolvedValue(true);
-        window.initOIDCSetupBanner = vi.fn();
         window.handleDeepLinks = vi.fn();
 
         const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
