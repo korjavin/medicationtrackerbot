@@ -51,7 +51,7 @@ output(result)`,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "days":   {"type": "integer", "minimum": 1, "description": "Look back this many days (default 3; capped by MCP_MAX_QUERY_DAYS)"},
+    "days":   {"type": "integer", "minimum": 1, "description": "Look back this many days (default 3)"},
     "med_id": {"type": "integer", "description": "Filter to a single medication by id"}
   }
 }`),

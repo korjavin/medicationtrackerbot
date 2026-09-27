@@ -9,7 +9,7 @@ export const CATALOG = [
     "method": "POST",
     "path": "/api/food/log",
     "risk": "write",
-    "description": "Log a food intake entry. Before logging, prefer to search the user's catalog with food.products.search or food.products.frequent and pass the matching product_id so this entry rolls up under the same product. If you only pass name (no product_id), the server upserts a food_products row by name — so the name you choose becomes the shared identity for every future log of this food. Always normalize names to canonical English (e.g. \"boiled egg\", not \"вареное яйцо\"), in their generic form without meal-time, quantity, or context annotations (e.g. \"boiled egg\", not \"boiled eggs breakfast\" or \"boiled eggs airline\"). When in doubt, search first and reuse the existing product_id rather than creating a near-duplicate. Goes through FoodService validation; macros must be non-negative. When per_100g is true, the server scales values by the consumed weight.",
+    "description": "Log a food intake entry. Before logging, prefer to search the user's catalog with food.products.search or food.products.frequent and pass the matching product_id so this entry rolls up under the same product. If you only pass name (no product_id), the server upserts a food_products row by name — so the name you choose becomes the shared identity for every future log of this food. Normalize names to canonical English (e.g. \"boiled egg\", not \"вареное яйцо\"), in their generic form without meal-time, quantity, or context annotations (e.g. \"boiled egg\", not \"boiled eggs breakfast\" or \"boiled eggs airline\"). Goes through FoodService validation; macros must be non-negative. When per_100g is true, the server scales values by the consumed weight.",
     "response_summary": "{status, id, product_id, name} — product_id is the food_products row that was matched or upserted from name; null only if no name was provided.",
     "required": [
       "name",
@@ -134,7 +134,7 @@ export const CATALOG = [
           "type": "integer",
           "minimum": 1,
           "maximum": 366,
-          "description": "Number of days to include (default 1, max 366; also capped by MCP_MAX_QUERY_DAYS). This response has no row limit — it grows with the window — so the window is the bound. Split a longer span into several calls by moving 'date' back."
+          "description": "Number of days to include (default 1, max 366). This response has no row limit — it grows with the window — so the window is the bound. Split a longer span into several calls by moving 'date' back."
         },
         "tz": {
           "type": "string",
@@ -320,7 +320,7 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/food/products/search",
     "risk": "read",
-    "description": "Search the user's saved food products (and the open_food_facts cache) by name. ALWAYS call this before food.log.create unless you already have a product_id. Logging the same food without a product_id creates a NEW duplicate product row each time, breaking history rollup and statistics. Search with the canonical English term (e.g. \"boiled egg\", not \"вареное яйцо\" or \"boiled eggs breakfast\") so you find existing rows even when the user described the meal in another language or with situational notes.",
+    "description": "Search the user's saved food products (and the open_food_facts cache) by name. Use it before food.log.create to find an existing product_id: food.log.create without a product_id upserts a product by exact name, so a differently spelled or annotated name for the same food creates a separate product, breaking history rollup and statistics. Search with the canonical English term (e.g. \"boiled egg\", not \"вареное яйцо\" or \"boiled eggs breakfast\") so you find existing rows even when the user described the meal in another language or with situational notes.",
     "response_summary": "JSON array of matching products with id, name, barcode, per-100g macros.",
     "params_schema": {
       "type": "object",
@@ -405,7 +405,7 @@ export const CATALOG = [
         "days": {
           "type": "integer",
           "minimum": 1,
-          "description": "Window length in days (default 7; capped by MCP_MAX_QUERY_DAYS)"
+          "description": "Window length in days (default 7)"
         },
         "tz": {
           "type": "string"
@@ -565,7 +565,7 @@ export const CATALOG = [
         "days": {
           "type": "integer",
           "minimum": 1,
-          "description": "Look back this many days (default 30; capped by MCP_MAX_QUERY_DAYS)"
+          "description": "Look back this many days (default 30)"
         },
         "limit": {
           "type": "integer",
@@ -717,7 +717,7 @@ export const CATALOG = [
         "days": {
           "type": "integer",
           "minimum": 1,
-          "description": "Look back this many days (default 30; capped by MCP_MAX_QUERY_DAYS)"
+          "description": "Look back this many days (default 30)"
         },
         "limit": {
           "type": "integer",
@@ -757,7 +757,7 @@ export const CATALOG = [
         "days": {
           "type": "integer",
           "minimum": 1,
-          "description": "Look back this many days from now (default 90; ignored when 'from' is set; may be capped by MCP_MAX_QUERY_DAYS)"
+          "description": "Look back this many days from now (default 90; ignored when 'from' is set)"
         },
         "from": {
           "type": "string",
@@ -884,7 +884,7 @@ export const CATALOG = [
         "days": {
           "type": "integer",
           "minimum": 1,
-          "description": "Look back this many days (default 30; capped by MCP_MAX_QUERY_DAYS)"
+          "description": "Look back this many days (default 30)"
         },
         "limit": {
           "type": "integer",
@@ -1103,7 +1103,7 @@ export const CATALOG = [
         "days": {
           "type": "integer",
           "minimum": 1,
-          "description": "Look back this many days (default 3; capped by MCP_MAX_QUERY_DAYS)"
+          "description": "Look back this many days (default 3)"
         },
         "med_id": {
           "type": "integer",

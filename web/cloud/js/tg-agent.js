@@ -20,22 +20,26 @@ const DEFAULT_MAX_ROUNDS = 5;
 const SYSTEM_PROMPT = `You are a health-tracking assistant reachable over Telegram chat. The user texts you in natural language to log health data (food, blood pressure, weight, medications, workouts, notes) or to ask about their own data.
 
 How to work:
-- Discover what you can do with the mcp_help tool. Call it with no arguments for the catalog, or with a short "query" to search (e.g. "blood pressure", "log food").
-- Run exactly one operation per mcp_call. Put the operation's arguments in "params". For a WRITE (logging/creating/updating/deleting) you MUST pass mode:"write" and a short "intent".
-- To LOG FOOD from a free-text description, to log food from a free-text description call food.log.from_description (it estimates macros); do not compute macros yourself.
+- Use mcp_help to find operations and mcp_call to run them.
+- To log food from a free-text description, call food.log.from_description — it estimates the macros, so don't compute them yourself.
 - Only act on what the user actually said. If they just chat or greet, reply briefly without calling tools. Never fabricate data you did not read.
 - When the user reveals a durable shorthand or term mapping worth applying next time (e.g. "by 'my usual' I mean 2 eggs and toast"), call remember_preference once with a single concise line. Only durable phrasing — not per-message content, not health-data values.
-- Keep your final reply short and plain (a sentence or two, no markdown) — it is shown as a Telegram message.`;
+- Your final reply is sent as a plain-text Telegram message: keep it short, no markdown.`;
 
 const TOOLS = [
   {
     type: 'function',
     function: {
       name: 'mcp_help',
-      description: 'Discover available health-data operations. No arguments returns the full catalog; pass a "query" to search it.',
+      description: 'Search the catalog of health-data operations this app supports. No arguments returns a terse catalog grouped by topic; "query" keyword-searches it; "topic" filters to one area; "operation_id"/"operation_ids" return full params/body schemas. Returns operations, not data — run one with mcp_call. Every response includes current_time; use it for relative dates.',
       parameters: {
         type: 'object',
-        properties: { query: { type: 'string', description: 'optional search terms' } },
+        properties: {
+          query: { type: 'string', description: 'optional search terms' },
+          topic: { type: 'string', description: 'optional topic filter, e.g. "food"' },
+          operation_id: { type: 'string', description: 'return the full schema of this operation' },
+          operation_ids: { type: 'array', items: { type: 'string' }, description: 'return full schemas of several operations' },
+        },
       },
     },
   },
@@ -43,13 +47,14 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'mcp_call',
-      description: 'Run ONE health-data operation discovered via mcp_help.',
+      description: 'Run exactly one operation from mcp_help and return its JSON result. Reads use mode "read_only" (the default). Any create/update/delete needs mode "write" and a one-line intent, otherwise the call is rejected with an error explaining what is missing. Errors come back as {error} so you can correct the arguments and retry.',
       parameters: {
         type: 'object',
         properties: {
           operation_id: { type: 'string', description: 'the operation id from mcp_help' },
           params: { type: 'object', description: 'the operation arguments (query + body fields)' },
           path_params: { type: 'object', description: 'values for {slot} path segments, e.g. {"id": 42}' },
+          body: { type: 'object', description: 'request body fields (merged with params)' },
           mode: { type: 'string', enum: ['read_only', 'write'], description: 'use "write" for any create/update/delete' },
           intent: { type: 'string', description: 'one short line stating why, required for writes' },
         },
@@ -61,7 +66,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'remember_preference',
-      description: 'Record ONE short durable phrasing or term mapping about how this user talks (e.g. \'"my usual" = 2 eggs + toast\'). NOT per-message content, NOT health-data values.',
+      description: 'Record ONE short durable phrasing or term mapping about how this user talks (e.g. \'"my usual" = 2 eggs + toast\'). Not per-message content or health-data values. Returns {ok:true}; the note is shown to future conversations with this user.',
       parameters: {
         type: 'object',
         properties: { note: { type: 'string', description: 'one concise line' } },
@@ -94,13 +99,14 @@ export function createTGAgent({ chat, dispatcher, prefs = NOOP_PREFS, history = 
     const args = parseArgs(call.function && call.function.arguments);
     try {
       if (name === 'mcp_help') {
-        return await dispatcher.handle('mcp_help', args.query ? { query: args.query } : {});
+        return await dispatcher.handle('mcp_help', args || {});
       }
       if (name === 'mcp_call') {
         return await dispatcher.handle('mcp_call', {
           operation_id: args.operation_id,
           params: args.params || {},
           path_params: args.path_params || {},
+          body: args.body || {},
           mode: args.mode,
           intent: args.intent,
         });
@@ -165,7 +171,7 @@ export function createTGAgent({ chat, dispatcher, prefs = NOOP_PREFS, history = 
     // Ran the round budget out mid-tool-use. Force a final plain answer with no
     // tools so the user gets a reply instead of a dangling "Queued".
     const final = await chat({
-      messages: [...messages, { role: 'user', content: 'Now answer me in one or two plain sentences based on what you did.' }],
+      messages: [...messages, { role: 'user', content: 'Now reply to me in plain text, briefly, with what you did.' }],
     });
     return finish((final && final.content ? String(final.content) : '').trim());
   }

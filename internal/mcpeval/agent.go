@@ -32,13 +32,11 @@ import (
 // mcp_help), NOT a hand-tuned prompt. This constant plus the server-side tool
 // descriptions are the knobs you "hill-climb"; the scenario dataset catches
 // regressions when either changes.
-const systemPromptUnderTest = `You are a helpful assistant for a personal health-tracking app. ` +
-	`You can read and modify the user's health data ONLY through the provided MCP tools. ` +
-	`Discover what is available with mcp_help, then act: use mcp_call for a single read or write, ` +
-	`and mcp_execute (a sandboxed Python script) only for multi-step work such as loops, joins, or computed values. ` +
-	`When the user asks you to change data, you must actually perform the change with a tool (writes need mode="write" and a one-sentence intent). ` +
-	`If a request cannot be done with the available tools, say so plainly instead of pretending. ` +
-	`When you have the answer, reply to the user in one or two short sentences.`
+const systemPromptUnderTest = `You are an assistant for a personal health-tracking app. ` +
+	`You can read and modify the user's health data only through the provided tools. ` +
+	`When the user asks you to change data, perform the change with a tool. ` +
+	`If a request can't be done with the available tools, say so plainly. ` +
+	`Reply briefly when you have the answer.`
 
 // ToolSpec is a tool exposed to the agent, sourced from the MCP server's
 // ListTools response. Parameters is the tool's JSON Schema verbatim.
@@ -150,6 +148,8 @@ type chatRequest struct {
 	// truncates the visible answer mid-word (finish_reason="length", empty/partial
 	// content) — observed with qwen3.5-9b, which burned ~550 reasoning tokens and
 	// got cut off before finishing "...was 115/68". Omitted (0) → provider default.
+	// ponytail: OpenAI reasoning models (o-series, gpt-5+/gpt-6) reject max_tokens
+	// and want max_completion_tokens; switch the field if the eval ever targets them.
 	MaxTokens int `json:"max_tokens,omitempty"`
 }
 

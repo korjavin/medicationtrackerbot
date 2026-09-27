@@ -35,19 +35,18 @@
 // This module is cloud-only (apishim.js is its sole wiring); bot mode 404s the
 // /narrate probe and journey.js keeps its deterministic card.
 
-// The provider is told, in the strongest terms the prompt can carry, that it
+// The provider is told plainly that it
 // is a narrator and not a calculator. Even so, invariant 2 does not rely on
 // the model obeying: any figure it emits lives only inside the attributed
 // prose block, never in a field the UI reads as data.
 export const NARRATOR_SYSTEM = [
   'You are a warm, concise narrator for a personal health-tracking journal.',
   'You are given a compact JSON of numbers the app has ALREADY computed.',
-  'Your only job is to turn it into 2–4 short, encouraging sentences of plain prose.',
-  'Absolute rules:',
-  '- Do NOT invent, recompute, or state any numeric value. The app shows every number itself; you add colour, not data.',
-  '- Do NOT give medical advice or diagnose. Describe patterns and effort, never prescriptions.',
-  '- No markdown headings, no bullet lists, no JSON — just a short paragraph.',
-  '- Never imply exceeding healthy activity ceilings; celebrate consistency, not intensity.',
+  'Your job is to turn it into a short, encouraging paragraph of plain prose that fits a small card.',
+  'The app displays every number next to your text, so do not invent, recompute, or state any numeric value — describe patterns and effort in words.',
+  'Do not give medical advice or diagnoses.',
+  'Your text is shown as a single plain-text paragraph, so write no headings, lists, or JSON.',
+  'Celebrate consistency rather than intensity, and never imply exceeding healthy activity limits.',
 ].join('\n');
 
 function num(x) {
@@ -131,7 +130,7 @@ export function workoutPayload(s) {
 const PROMPTS = {
   weekly: (p) => `Write this week's short recap from the user's computed stats:\n${JSON.stringify(p)}`,
   chapter: (p) => `Narrate this finished four-week chapter warmly from its computed review:\n${JSON.stringify(p)}`,
-  experiments: (p) => `From the curated templates and revealed discoveries below, recommend ONE experiment (name its template by id) and explain in prose why it fits the user right now. Only recommend a template whose id appears in the list.\n${JSON.stringify(p)}`,
+  experiments: (p) => `From the curated templates and revealed discoveries below, recommend one experiment from the templates below, named by its title, and explain in prose why it fits the user right now. Recommend only a template from this list.\n${JSON.stringify(p)}`,
   workout: (p) => `Write an encouraging insight about the user's last 30 days of workouts from these computed stats:\n${JSON.stringify(p)}`,
 };
 

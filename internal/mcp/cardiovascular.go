@@ -425,7 +425,7 @@ func registerCardiovascularTool(mcpServer *sdkmcp.Server, s *Server) {
 	sdkmcp.AddTool(mcpServer,
 		&sdkmcp.Tool{
 			Name:        "analyze_cardiovascular",
-			Description: "Comprehensive cardiovascular health analysis. Returns blood pressure readings with daily averages, active medications and adherence, sleep duration and quality, heart rate and SpO2 trends, and personal diary notes — all in one call. Maximum 90 days per query. Use this for any question about blood pressure, heart health, medication effects, or sleep quality.",
+			Description: "Comprehensive cardiovascular health analysis. Returns blood pressure readings with daily averages, active medications and adherence, sleep duration and quality, heart rate and SpO2 trends, and personal diary notes — all in one call. Maximum 90 days per query. Use it when a question spans several of these domains (e.g. whether a medication change affected BP or sleep); a single-metric read is cheaper with health.bp.list.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {

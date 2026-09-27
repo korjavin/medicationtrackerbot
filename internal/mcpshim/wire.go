@@ -25,6 +25,6 @@ type CallInput struct {
 	Params      map[string]any `json:"params,omitempty" jsonschema:"parameters for the operation, per its params_schema in mcp_help"`
 	PathParams  map[string]any `json:"path_params,omitempty" jsonschema:"values for the operation's {placeholder} path slots, per its path_params in mcp_help"`
 	Body        map[string]any `json:"body,omitempty" jsonschema:"request body for a write operation, per its body_schema in mcp_help"`
-	Mode        string         `json:"mode,omitempty" jsonschema:"read-only (default) or write; a write operation requires write"`
+	Mode        string         `json:"mode,omitempty" jsonschema:"\"read_only\" (default) or \"write\"; an operation that changes data requires \"write\" plus a non-empty intent"`
 	Intent      string         `json:"intent,omitempty" jsonschema:"required and non-empty when mode is write: why this write is being made"`
 }

@@ -578,7 +578,7 @@ What IS working well and should be preserved:
 **Error text (verbatim from console):**
 ```
 (index):1 Uncaught (in promise) t {_e: Error
-    at U (https://med.kfamcloud.com/static/vendor/dexie.min.js:1:4449)
+    at U (https://<host>/static/vendor/dexie.min.js:1:4449)
     at new t (https://…,
     name: 'ConstraintError',
     message: 'Key already exists in the object store.\n ConstraintError: Key already exists in the object store.',

@@ -388,7 +388,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "mcp_help",
-			Description: "Discover backend operations to run with mcp_call (single op) or mcp_execute (multi-step script). The catalog (omit all args, or pass 'all'), a topic ('workouts', 'medications', 'food', 'health'), and query='blood pressure' keyword-search all return a TERSE flat list — id, topic, method, risk, a one-line description, and each write op's required input field names. That flat list is enough to form most calls directly. To get a single operation's FULL params/body schemas + a runnable Python example, drill in with operation_id='workouts.groups.list' (or operation_ids=[...] to batch-fetch several). operation_id(s) > query > topic in precedence. Read-only and safe to call before any write.",
+			Description: "Discover backend operations to run with mcp_call (single op) or mcp_execute (multi-step script). The catalog (omit all args, or pass 'all'), a topic (e.g. 'workouts', 'medications', 'food', 'health', 'gamification'), and query='blood pressure' keyword-search all return a TERSE flat list — id, topic, method, risk, a one-line description, and each write op's required input field names. That flat list is enough to form most calls directly. To get a single operation's FULL params/body schemas + a runnable Python example, drill in with operation_id='workouts.groups.list' (or operation_ids=[...] to batch-fetch several). operation_id(s) > query > topic in precedence. Read-only and safe to call before any write.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -419,7 +419,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "mcp_execute",
-			Description: "Run a sandboxed Python script against backend APIs — use this ONLY for multi-step work (loops, joining several operations, computed values). For a single read or write, prefer mcp_call (no script, no subprocess). The script MUST call output(value) exactly once — calling it zero times or more than once aborts the run. Discover operations via mcp_help BEFORE writing the script. For writes, pass mode='write' AND a non-empty intent (a one-sentence human-readable summary of what the script will change, e.g. 'Archive medication Lisinopril'). topic_allowlist (optional) restricts which operation topics the script may access; an empty list means all topics are allowed. Timestamps inside scripts use the user's stored timezone unless an operation accepts an explicit tz/tz_offset. Returns {status, result, error, api_calls, stdout, stderr}.",
+			Description: "Run a sandboxed Python script against backend APIs — use it for multi-step work (loops, joining several operations, computed values); a single read or write is simpler with mcp_call. Inside the script, `from medtracker import api, output` and call operations with api.call(operation_id, params=None, body=None, path_params=None), which returns the parsed response or raises medtracker.exceptions.ProxyDenied / BackendError / BackendTransportError / TimeoutError. The script must call output(value) exactly once — zero or multiple calls abort the run. For writes, pass mode='write' AND a non-empty intent (a one-sentence human-readable summary of what the script will change, e.g. 'Archive medication Lisinopril'). topic_allowlist (optional) restricts which operation topics the script may access; an empty list means all topics are allowed. Timestamps inside scripts use the user's stored timezone unless an operation accepts an explicit tz/tz_offset. Returns {status, result, error, api_calls, stdout, stderr, warnings}; status is one of ok, script_error, timeout, sandbox_startup_failure, proxy_denied, backend_application_error, backend_transport_error, and any non-ok status is returned as an MCP error.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"required": ["script"],
@@ -460,7 +460,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "mcp_call",
-			Description: "Run ONE backend operation directly — use this for single reads/writes (e.g. 'list my blood pressure', 'archive a medication'). Use mcp_execute when you need a multi-step script (loops, joining several operations, computed values); for an aggregate over many rows (average, sum, count, grouping) use mcp_execute so the arithmetic runs in the script. Discover operations and their schemas via mcp_help first; mcp_help also returns current_time, which you should use for relative dates ('today'/'now') instead of guessing the date or year. Pass operation_id plus params/path_params/body as needed. Writes require mode='write' AND a non-empty intent (a one-sentence human-readable summary of the change). Returns {status, result, error, api_calls}; status is one of ok/proxy_denied/backend_application_error/backend_transport_error.",
+			Description: "Run ONE backend operation directly — use this for single reads/writes (e.g. 'list my blood pressure', 'archive a medication'). Use mcp_execute when you need a multi-step script (loops, joining several operations, computed values); for an aggregate over many rows (average, sum, count, grouping) use mcp_execute so the arithmetic runs in the script. Discover operations and their schemas via mcp_help first; mcp_help also returns current_time, which you should use for relative dates ('today'/'now') instead of guessing the date or year. Pass operation_id plus params/path_params/body as needed. Writes require mode='write' AND a non-empty intent (a one-sentence human-readable summary of the change). Before forwarding, it repairs common input mistakes (write fields placed in params are moved into body, a stringified body is unwrapped, now/today/yesterday/tomorrow in timestamp fields are resolved) and reports each repair in warnings; schema type mismatches are warnings, but a write missing a required field is rejected. Returns {status, result, error, api_calls, warnings}; status is one of ok/proxy_denied/backend_application_error/backend_transport_error.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"required": ["operation_id"],
@@ -709,7 +709,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "log_food_intake",
-			Description: "Log a single food intake entry with macros (kcal calories, gram-based carbs/protein/fat) and the time eaten. Use when you can estimate or look up nutritional info from a description or photo of a meal. eaten_at can be any past date for backfill (no window limit) or 'now'. The name is the shared identity for every future log of this food, so always normalize it: canonical English, lowercase, generic ingredient form, no situational notes (good: \"boiled egg\", \"oatmeal\", \"chicken breast\"; bad: \"вареное яйцо\", \"boiled eggs breakfast\", \"boiled eggs airline\", \"2 boiled eggs\"). Prefer a name the user has already logged (visible via get_food_intake) so logs roll up under one product. SIDE EFFECT: each call creates a new row — duplicates are NOT deduplicated, so verify before re-logging. NOTE: this legacy tool always creates a fresh ad-hoc product; for entries that should reuse a saved product, prefer the food.products.search + food.log.create flow via mcp_execute.",
+			Description: "Log a single food intake entry with macros (kcal calories, gram-based carbs/protein/fat) and the time eaten. Use when you can estimate or look up nutritional info from a description or photo of a meal. eaten_at can be any past date for backfill (no window limit) or 'now'. The name is the shared identity for every future log of this food, so always normalize it: canonical English, lowercase, generic ingredient form, no situational notes (good: \"boiled egg\", \"oatmeal\", \"chicken breast\"; bad: \"вареное яйцо\", \"boiled eggs breakfast\", \"boiled eggs airline\", \"2 boiled eggs\"). Prefer a name the user has already logged (visible via get_food_intake) so logs roll up under one product. SIDE EFFECT: each call creates a new row — duplicates are NOT deduplicated, so verify before re-logging. The product is upserted by exact name, so a name the user has already logged reuses that product.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"required": ["name", "eaten_at", "calories", "carbs_g", "protein_g", "fat_g", "weight_g"],
@@ -752,7 +752,7 @@ func (s *Server) registerTools() {
 	mcp.AddTool(s.mcpServer,
 		&mcp.Tool{
 			Name:        "workout_log",
-			Description: "Granular workout exercise logger. operation='help' returns the full protocol document with detailed shapes, resolution rules, and idempotency semantics — CALL FIRST before any other operation. operation='log' upserts exercises into a session: idempotent by (session_id + exercise_name), so a second call with the same exercise name updates the existing row instead of duplicating. operation='get' lists recent N sessions with exercise logs (default N=10, max 50). operation='delete_exercise' removes one exercise log by resolved name. session_ref is an alternative to session_id: 'last' = most recent session, 'today' = today's session, 'YYYY-MM-DD' = session on that date.",
+			Description: "Granular workout exercise logger. operation='help' returns the full protocol document with detailed shapes, resolution rules, and idempotency semantics. operation='log' upserts exercises into a session: idempotent by (session_id + exercise_name), so a second call with the same exercise name updates the existing row instead of duplicating. operation='get' lists recent N sessions with exercise logs (default N=10, max 50). operation='delete_exercise' removes one exercise log by resolved name. session_ref is an alternative to session_id: 'last' = most recent session, 'today' = today's session, 'YYYY-MM-DD' = session on that date.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"required": ["operation"],
@@ -760,7 +760,7 @@ func (s *Server) registerTools() {
 					"operation": {
 						"type": "string",
 						"enum": ["help", "log", "get", "delete_exercise"],
-						"description": "Selects the operation. Call \"help\" first for the full protocol document."
+						"description": "Selects the operation; \"help\" returns the protocol document."
 					},
 					"session_id": {
 						"type": "integer",

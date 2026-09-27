@@ -53,7 +53,7 @@ func main() {
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        "mcp_help",
-		Description: "Discover the small catalog of Med Tracker operations this connector can run. Call with no arguments for the terse catalog, then pass operation_id (or operation_ids) to get an operation's full schemas." + toolDescriptionSuffix,
+		Description: "Discover the Med Tracker operations this connector can run. No arguments returns the terse catalog (id, topic, method, risk, one-line description, required write fields) plus a usage protocol; topic= or query= return a filtered terse list; operation_id / operation_ids return full params/body schemas. Every response includes current_time (UTC) for resolving relative dates." + toolDescriptionSuffix,
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, input mcpshim.HelpInput) (*sdkmcp.CallToolResult, any, error) {
 		result, err := client.Call(ctx, "mcp_help", input)
 		if err != nil {
@@ -64,7 +64,7 @@ func main() {
 
 	sdkmcp.AddTool(server, &sdkmcp.Tool{
 		Name:        "mcp_call",
-		Description: "Run exactly one Med Tracker operation by id (ids and schemas come from mcp_help). Pass params for query fields, path_params for {placeholder} slots in the route, and body as a JSON object for writes. Any operation that changes data requires mode='write' and a one-sentence intent; reads never mutate. Returns the operation's result, or an error naming the reason (no device unlocked and online, unknown operation, validation failure)." + toolDescriptionSuffix,
+		Description: "Run exactly one Med Tracker operation by id (ids and schemas come from mcp_help). Pass params for query fields, path_params for {placeholder} slots in the route, and body as a JSON object for writes. Any operation that changes data requires mode='write' and a one-sentence intent; reads never mutate. Returns the operation's result, or an error naming the reason (no device unlocked and online, unknown operation, validation failure). Returns {status, result, api_calls, warnings}; warnings report any input the responder repaired. A write-risk operation called without mode='write' is rejected." + toolDescriptionSuffix,
 	}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, input mcpshim.CallInput) (*sdkmcp.CallToolResult, any, error) {
 		result, err := client.Call(ctx, "mcp_call", input)
 		if err != nil {
