@@ -166,8 +166,8 @@ export function loadFrontendEnv({ withWorkout = false, url = 'https://example.te
 
   // Cloud default: the app under test boots as the cloud origin does —
   // window.__MEDTRACKER_CLOUD__ set before any script evals, no Telegram
-  // WebApp mock (messenger-adapter.js picks BrowserAdapter), no
-  // BOT_USERNAME/OIDC_CONFIG globals (config.js is gone).
+  // WebApp mock (messenger-adapter.js picks BrowserAdapter), and no
+  // BOT_USERNAME/OIDC_CONFIG globals (the bot config script is gone).
   window.__MEDTRACKER_CLOUD__ = true;
   window.alert = () => {};
   window.confirm = () => true;
