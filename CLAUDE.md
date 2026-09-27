@@ -19,11 +19,11 @@ Self-hosted health-tracking PWA (meds, BP, weight, workouts, sleep, food, diary)
 9. **Frontend write handlers MUST use `DataStore.applyOptimistic`** (commit/rollback), never `invalidateTags + loadX()` — that pattern is only for read-only refreshes and the rollback path. See [docs/frontend.md → Optimistic Write Updates](docs/frontend.md#optimistic-write-updates).
 10. **Device-capability access routes through `web/static/js/native/`** (`window.MediaCapture` / `window.Barcode`), never raw `getUserMedia`/`BarcodeDetector`. Enforced by `web/static/js/tests/architecture.native-abstractions.test.js`, no allowlist; `window.Capacitor`/`isNativePlatform` banned everywhere. New capability: `native/<cap>.js` + `registerImpl` + `web/static/js/tests/native.<cap>.test.js`. See [docs/frontend.md → Device-Capability Abstractions](docs/frontend.md#device-capability-abstractions).
 11. **The app document must not load the Telegram SDK or show a Telegram login** — no `<script src="https://telegram.org/...">` in `web/static/index.html` (SDK is runtime-injected by `messenger-adapter.js`, skipped in cloud mode) and no Telegram login screen in cloud (`checkAuth()` short-circuits on `window.__MEDTRACKER_CLOUD__`). Enforced by `architecture.no-telegram-in-html.test.js`.
-12. **A read path that lazily materializes a record into a deterministic recordId must stamp it `clientTs: 0` and write it via `records.putIfAbsent`**, never `now()` + `put`. Ask: *could a device that hasn't synced recently create this same recordId?* If yes, it is derived state: it takes the floor and never overwrites the slot — otherwise a stale device re-derives the row in its initial state and LWW erases the real one (a confirmed dose reverting to Pending, a finished workout deleted). Two caveats: `putIfAbsent` treats a tombstone as occupied, so a delete path must replace the slot rather than rely on re-materialization to undo itself; and a read/timer-side *transition* on a singleton the device may hold stale (the gamification journal, the tz plan) takes the floor too but keeps plain `put`, so it beats exactly the version it read and nothing newer. Mechanics, incident write-ups, and the current list of floored writers: [docs/cloud-mode.md → Sync protocol](docs/cloud-mode.md#sync-protocol) guard 3.
+12. **Derived writes take the floor**: a read path that lazily materializes a record into a deterministic recordId stamps `clientTs: 0` and writes via `records.putIfAbsent`, never `now()` + `put`. Full rule, caveats, and floored-writer list: [docs/cloud-mode.md → Sync protocol](docs/cloud-mode.md#sync-protocol) guard 3.
 
 ## Build
 
-Plain `go build ./...` — no build tags. **`cmd/cloud` is the only shipped binary** (`Dockerfile` builds and runs only `./cloud`). Everything else under `cmd/` is dev/operator tooling, plus `cmd/bot` and `cmd/installer` which are **not built, shipped, or deployed** — their source must keep compiling and passing `go test ./...` so it cannot rot, and no doc may present them as deployment targets. The Capacitor Android shell was removed (branch `mobile` preserves it). `DEMO_MODE` is not a cloud flag — nothing in `cmd/cloud` reads it ([docs/archive/demo-mode.md](docs/archive/demo-mode.md)).
+Plain `go build ./...` — no build tags. **`cmd/cloud` is the only shipped binary** (`Dockerfile` builds and runs only `./cloud`). Everything else under `cmd/` is dev/operator tooling, plus `cmd/bot` and `cmd/installer` which are **not built, shipped, or deployed** — their source must keep compiling and passing `go test ./...` so it cannot rot, and no doc may present them as deployment targets. `DEMO_MODE` is not a cloud flag — nothing in `cmd/cloud` reads it ([docs/archive/demo-mode.md](docs/archive/demo-mode.md)).
 
 Config layering: env var → settings table → built-in default (`internal/config`: `LoadFromEnv` + `LoadFromSettings` + `Merge`). User-editable provider keys (OpenAI, Food DB, ElevenLabs) live in the settings row, editable via Settings → Integrations.
 
@@ -79,40 +79,13 @@ Data import tools: `cmd/importer` (JSON export), `cmd/bpimporter` (CSV), `cmd/ge
 
 ## Common Tasks
 
-### Adding a new health metric
+Checklists live with the docs that own them — this section only routes to them.
 
-No server-side schema change — the server stores opaque records; a new metric is a record type plus browser code.
-
-1. Pick a record-id convention: deterministic id (`intake-<medId>-<slotUnix>`) when two devices can materialize the same logical row (LWW convergence), fixed id for singletons, random otherwise.
-2. Write `web/domain/<feature>.js` — pure, injected ports only (`createXDomain({ records, now, timeZone })`).
-3. Route `/api/<feature>*` in `web/cloud/js/apishim.js`; keep the wire shape the UI expects (the vault export stores the same shape).
-4. Add the UI in `web/static/`, talking only to `/api/*`.
-5. Reminders: extend the horizon computation in `web/domain/reminders.js`; the server cannot compute schedules.
-6. Export/import: add to `web/domain/vault.js` **and the golden fixture**, or the round-trip test won't cover it and restore silently drops it.
-7. MCP: register the op in `internal/mcp/registry/`, run `go run ./cmd/genmcpcatalog`; the responder dispatches through the same router as step 3.
-
-Any new dose-like timestamp column (participates in SQL equality) must be `INTEGER` unix-seconds-UTC, not `DATETIME` text — normalize via `storedb.TimeToUnix`/`UnixToTime`. Enforced by `TestDoseTimeColumnsAreInteger` (`internal/store/store_time_invariants_test.go`); new columns go in that allowlist and the `internal/store/store.go` package comment.
-
-### Adding an MCP tool
-
-Prefer a registry op (`internal/mcp/registry/`) over a new top-level tool — it becomes reachable via `mcp_help`/`mcp_call`/`mcp_execute` with no new registration. Populate `ResponseExample` for read ops (copied from the handler's real JSON — a test asserts the shape). `mcp_execute` has **no cloud path**; a registry op is the only surface that reaches cloud. Then:
-
-- Regenerate `web/cloud/js/mcp-catalog.generated.js` (`go run ./cmd/genmcpcatalog`) or add a reasoned `catalogjs.Excluded` entry — `internal/mcp/catalogjs/drift_test.go` fails CI otherwise.
-- The op must be routable in cloud via `apishim.js`'s `createApiRouter` — **never** a bespoke branch in `mcp-responder.js`. Missing routes fail CI in `web/cloud/js/tests/mcp-responder.test.js`. Behavior the domain layer lacks goes in `web/domain/*.js`.
-
-Details: [docs/architecture.md §7](docs/architecture.md#7-mcp); archived runbooks in [docs/archive/](docs/archive/).
-
-### Adding an egress path
-
-`web/cloud/js/privacy-manifest.js` is the single source of truth for what leaves the vault; the docs table and Settings copy are generated from it. `architecture.privacy-claims.test.js` scans real call sites and third-party host literals and fails CI on anything unclaimed. Add the manifest entry (with `file:line` evidence and `userCopy`), run `pnpm privacy:docs`, commit the regenerated table. Don't flatten activation classes (food DB and RxNav have no toggle; RxNav has no BYO).
-
-### Adding a new HTTP route
-
-A cloud route = `internal/cloudserver` route **plus** the `apishim.js` route that answers it in the browser (the server only moves ciphertext). Agent-reachable → add a registry op and regenerate the catalog. On the legacy Go server, `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` still enforces registry-or-exempt (`internal/server/mcp_coverage_exempt.go`, with `Reason`) — read [docs/archive/mcp-coverage.md](docs/archive/mcp-coverage.md) before silencing it.
-
-### Adding a local-first read
-
-Route reads through `window.cachedFetch(key, url, {...})` and mount `<wg-stale-badge>` via `WGStaleBadge.mountFromKey`; catch `window.OfflineNoCacheError` with an explicit empty state. Tests: warm-cache offline render + no-cache empty state (reference: `food.offline-cached-fetch.test.js`). See [docs/frontend.md → Local-First Read Resilience](docs/frontend.md#local-first-read-resilience).
+- **New health metric.** No server schema change: a record type plus browser code. Record-id conventions, domain ports, and apishim routing ([docs/architecture.md](docs/architecture.md) §§1–3), reminders if it needs them (§5), export shape plus the `tests/fixtures/vault-v1.json` pin ([docs/vault-format.md](docs/vault-format.md#the-golden-fixture)), registry op for agent reach ([§7](docs/architecture.md#7-mcp)). Legacy SQL only: new dose-like timestamp columns stay `INTEGER` unix-seconds-UTC ([docs/archive/architecture-bot-mode.md](docs/archive/architecture-bot-mode.md), `internal/store/store.go` package comment).
+- **New MCP tool.** Prefer a registry op ([docs/architecture.md §7](docs/architecture.md#7-mcp)); read ops populate `ResponseExample` from the handler's real JSON. `mcp_execute` has no cloud path ([docs/cloud-mode.md](docs/cloud-mode.md#mcp)).
+- **New egress path.** Manifest entry plus regen ([docs/architecture.md §8](docs/architecture.md#8-privacy-boundaries-are-generated-not-written)).
+- **New HTTP route.** Cloud route plus the `apishim.js` route that answers it ([docs/architecture.md](docs/architecture.md) §1); legacy registry-or-exempt rule in [docs/archive/mcp-coverage.md](docs/archive/mcp-coverage.md).
+- **Local-first read.** `window.cachedFetch` + `<wg-stale-badge>` ([docs/frontend.md](docs/frontend.md#local-first-read-resilience); reference: `food.offline-cached-fetch.test.js`).
 
 ## Issue Tracking
 
