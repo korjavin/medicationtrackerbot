@@ -19,7 +19,7 @@ import {
 import { establishLdkCache } from './unlock.js';
 import { isIOS, isMobile, isStandalone, iosInstallStepsHtml } from './push.js';
 import { downloadDoc, printDoc } from './print-doc.js';
-import { isLocalOnlyPocEnabled } from './credential-mode.js';
+import { isLocalOnlyPocAvailable } from './credential-mode.js';
 import { probePrfResult, clientPrfHint, buildDiagnosticReport, downloadDiagnosticReport } from './prf-diagnostic.js';
 
 const EXPIRED_LINK_MESSAGE = 'Could not start passkey registration — the invite link may be expired.';
@@ -223,8 +223,9 @@ async function startRegistration(app, claimToken) {
 // opts.credentialId + opts.createPrfEnabled (the failed, never-registered
 // credential) let the POC's diagnostic harness re-probe it. The default
 // rendering is byte-identical to before: the diagnostic section appears only
-// behind the explicit local-only POC opt-in, and "try another authenticator"
-// stays the first, primary guidance either way.
+// when the browser opted in AND the operator advertises the POC (checked
+// asynchronously — the section pops in once /api/version answers), and "try
+// another authenticator" stays the first, primary guidance either way.
 export function renderUnsupportedAuthenticator(app, opts = {}) {
   app.innerHTML = `
     <section class="wizard-step">
@@ -233,9 +234,13 @@ export function renderUnsupportedAuthenticator(app, opts = {}) {
          needs to protect your data. Try a hardware security key (e.g. a
          YubiKey) or a different device or browser.</p>
     </section>`;
-  if (isLocalOnlyPocEnabled() && opts.credentialId) {
-    appendDiagnosticSection(app, opts);
-  }
+  if (!opts.credentialId) return;
+  void isLocalOnlyPocAvailable().then(
+    (available) => {
+      if (available) appendDiagnosticSection(app, opts);
+    },
+    () => {}
+  );
 }
 
 // POC-only (med-eas.2.1): re-probes the failed credential and downloads a
@@ -244,6 +249,7 @@ export function renderUnsupportedAuthenticator(app, opts = {}) {
 // the research doc asks for without enrolling anything.
 function appendDiagnosticSection(app, { credentialId, createPrfEnabled }) {
   const section = app.querySelector('section');
+  if (!section) return;
   const box = document.createElement('div');
   box.innerHTML = `
     <p>Experimental: run a compatibility check on this passkey and download

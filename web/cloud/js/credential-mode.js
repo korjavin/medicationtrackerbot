@@ -83,3 +83,43 @@ export const LOCAL_ONLY_WARNING_COPY =
   'This passkey can sign this browser in, but it cannot recover your ' +
   'encryption key. If this browser\u2019s storage is cleared or you move to ' +
   'another device, you will need your Emergency Kit or an already unlocked device.';
+
+// --- Server advertisement (operator kill-switch) ---------------------------
+// The local opt-in above is necessary but not sufficient: the POC activates
+// only when the deployment ALSO advertises local_only_poc:true on the
+// existing GET /api/version response (CLOUD_LOCAL_ONLY_POC, default off).
+// Both halves fail closed — a crafted ?local-only-poc=1 link, a stale
+// localStorage key, or a version-fetch failure can never enable the
+// fallback on an operator that never turned it on.
+
+let serverPocPromise = null;
+
+// localOnlyPocServerEnabled resolves the operator switch, caching the
+// in-flight promise so concurrent callers share one no-store fetch.
+export function localOnlyPocServerEnabled() {
+  if (!serverPocPromise) {
+    serverPocPromise = (async () => {
+      try {
+        const res = await fetch('/api/version', { cache: 'no-store' });
+        if (!res.ok) return false;
+        const body = await res.json();
+        return body?.local_only_poc === true;
+      } catch {
+        return false;
+      }
+    })();
+  }
+  return serverPocPromise;
+}
+
+// isLocalOnlyPocAvailable is the gate every POC entry point checks: local
+// opt-in AND operator advertisement. Short-circuits before any fetch when
+// the browser never opted in.
+export async function isLocalOnlyPocAvailable() {
+  if (!isLocalOnlyPocEnabled()) return false;
+  return localOnlyPocServerEnabled();
+}
+
+export function resetLocalOnlyPocCacheForTests() {
+  serverPocPromise = null;
+}

@@ -65,6 +65,10 @@ type WebAuthnAPI struct {
 	// begin+finish, which also carry the signup-claim and device-enrollment
 	// tokens) per client IP. Shared by AccountAPI's re-auth route too.
 	limiter *rateLimiter
+	// localOnlyPOC is the operator kill-switch for the med-eas.2.1 POC
+	// (CLOUD_LOCAL_ONLY_POC, cmd/cloud). Default false: register/finish
+	// rejects mode:"local_only" unless the operator enabled it.
+	localOnlyPOC bool
 }
 
 // NewWebAuthnAPI builds the WebAuthn handlers. sessionSecret mints the HMAC
@@ -78,6 +82,12 @@ func NewWebAuthnAPI(store webauthnStore, sessionSecret string) *WebAuthnAPI {
 		reauthChallenges: newChallengeStore[loginChallenge](),
 		limiter:          newRateLimiter(ceremonyRateLimitMax, ceremonyRateLimitWindow),
 	}
+}
+
+// SetLocalOnlyPOC enables the explicit local-only passkey POC (med-eas.2.1)
+// on the registration ceremony. Default off.
+func (a *WebAuthnAPI) SetLocalOnlyPOC(enabled bool) {
+	a.localOnlyPOC = enabled
 }
 
 // RegisterRoutes adds the WebAuthn ceremony routes to mux, so callers that
@@ -421,6 +431,14 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 	}
 	localOnly := mode == cloudstore.CredentialModeLocalOnly
 	if localOnly {
+		// Operator kill-switch first: without CLOUD_LOCAL_ONLY_POC no
+		// register/finish path accepts the fallback, whatever the client
+		// claims — a crafted request or a stale flagged browser cannot
+		// enroll local-only on an operator that never enabled it.
+		if !a.localOnlyPOC {
+			http.Error(w, "local-only POC is not enabled", http.StatusBadRequest)
+			return
+		}
 		// A local-only credential must not smuggle an envelope (or any other
 		// decrypting share) server-side: the device-local LDK is its only DEK
 		// route, and the server must store nothing new that decrypts.
@@ -428,11 +446,13 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "local-only credentials carry no envelope", http.StatusBadRequest)
 			return
 		}
-		// POC boundary: the account's FIRST credential is always PRF-backed,
-		// so a local-only fallback is only ever an additional credential on
-		// an account that already has a PRF unwrap path plus recovery
-		// material. This keeps the "recovery confirmed before local-only"
-		// acceptance check meaningful instead of circular.
+		// POC boundary: local-only cannot bootstrap an account via the claim
+		// gate — the first enrollment is always PRF-backed, so the account
+		// starts life with a PRF unwrap path plus recovery material. (This is
+		// an enrollment-gate restriction, not an account-level invariant: an
+		// account whose PRF credentials were all revoked can later hold only
+		// local-only credentials plus recovery material. Future guards must
+		// not assume a PRF credential exists.)
 		if challenge.gate == gateClaim {
 			http.Error(w, "local-only cannot be the account's first credential", http.StatusBadRequest)
 			return

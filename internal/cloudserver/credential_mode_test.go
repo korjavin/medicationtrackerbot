@@ -17,8 +17,18 @@ import (
 )
 
 // newCredentialModeHandler wires the WebAuthn + transfer + device + envelope
-// routes so the tests below drive the local-only POC contract end to end.
+// routes so the tests below drive the local-only POC contract end to end,
+// with the operator POC switch on.
 func newCredentialModeHandler(t *testing.T) (http.Handler, *cloudstore.Repo, string, string) {
+	t.Helper()
+	return newCredentialModeHandlerWithPOC(t, true)
+}
+
+// newCredentialModeHandlerWithPOC is newCredentialModeHandler with an
+// explicit operator switch: false leaves the POC kill-switch off (the
+// production default), so local-only finishes must be rejected and
+// /api/version must not advertise the fallback.
+func newCredentialModeHandlerWithPOC(t *testing.T, pocEnabled bool) (http.Handler, *cloudstore.Repo, string, string) {
 	t.Helper()
 	store := setupStore(t)
 	account, claimToken := setupInvite(t, store)
@@ -26,6 +36,7 @@ func newCredentialModeHandler(t *testing.T) (http.Handler, *cloudstore.Repo, str
 
 	secret := "test-session-secret-at-least-32-bytes-long"
 	webauthnAPI := NewWebAuthnAPI(store, secret)
+	webauthnAPI.SetLocalOnlyPOC(pocEnabled)
 	transferAPI := NewTransferAPI(store, secret)
 	deviceAPI := NewDeviceAPI(store, secret)
 	envelopeAPI := NewEnvelopeAPI(store, secret)
@@ -35,7 +46,9 @@ func newCredentialModeHandler(t *testing.T) (http.Handler, *cloudstore.Repo, str
 	deviceAPI.RegisterRoutes(mux)
 	envelopeAPI.RegisterRoutes(mux)
 
-	return New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false), store, host, claimToken
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+	h.SetLocalOnlyPOC(pocEnabled)
+	return h, store, host, claimToken
 }
 
 // finishRegistrationWithMode is finishRegistration with an explicit mode and
@@ -136,6 +149,54 @@ func setRecoveryMaterial(t *testing.T, store *cloudstore.Repo, accountID string)
 	}
 }
 
+// TestRegisterFinish_LocalOnlyRejectedWhenOperatorSwitchOff pins the
+// server-side kill-switch: with CLOUD_LOCAL_ONLY_POC unset (the default),
+// every register/finish path rejects mode:"local_only" with 400 — a crafted
+// request or a stale flagged browser cannot enroll the fallback — and
+// nothing is persisted.
+func TestRegisterFinish_LocalOnlyRejectedWhenOperatorSwitchOff(t *testing.T) {
+	h, store, host, claimToken := newCredentialModeHandlerWithPOC(t, false)
+	session := registerAndGetSession(t, h, host, claimToken)
+	accountID := accountIDFromSession(t, session)
+	setRecoveryMaterial(t, store, accountID)
+
+	token := claimTransferSlot(t, h, host, session)
+	opts, challengeCookie, code := beginRegistrationWithEnrollmentToken(t, h, host, token)
+	if code != http.StatusOK {
+		t.Fatalf("register/begin status = %d, want 200", code)
+	}
+	rp := virtualwebauthn.RelyingParty{Name: "Med Tracker Cloud", ID: host, Origin: "http://" + host}
+	response := virtualwebauthn.CreateAttestationResponse(rp, virtualwebauthn.NewAuthenticator(), virtualwebauthn.NewCredential(virtualwebauthn.KeyTypeEC2), *opts)
+	rec := finishRegistrationWithMode(t, h, host, challengeCookie, response, cloudstore.CredentialModeLocalOnly, nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("local-only finish with switch off status = %d, want 400", rec.Code)
+	}
+
+	creds, err := store.CredentialsByAccount(t.Context(), accountID)
+	if err != nil {
+		t.Fatalf("CredentialsByAccount: %v", err)
+	}
+	if len(creds) != 1 {
+		t.Fatalf("expected only the first credential after rejection, got %d", len(creds))
+	}
+
+	// The same deployment does not advertise the fallback either.
+	versionReq := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+	versionReq.Host = host
+	versionRec := httptest.NewRecorder()
+	h.ServeHTTP(versionRec, versionReq)
+	if versionRec.Code != http.StatusOK {
+		t.Fatalf("GET /api/version status = %d, want 200", versionRec.Code)
+	}
+	var version map[string]any
+	if err := json.Unmarshal(versionRec.Body.Bytes(), &version); err != nil {
+		t.Fatalf("unmarshal version: %v", err)
+	}
+	if version["local_only_poc"] != false {
+		t.Fatalf("local_only_poc = %v with switch off, want false", version["local_only_poc"])
+	}
+}
+
 // TestRegisterFinish_LocalOnlyViaEnrollmentToken is the POC's core server
 // contract: a second device whose authenticator lacks PRF enrolls with an
 // explicit local_only mode and NO envelope; the credential persists with its
@@ -207,8 +268,9 @@ func TestRegisterFinish_LocalOnlyViaEnrollmentToken(t *testing.T) {
 }
 
 // TestRegisterFinish_LocalOnlyFirstCredentialRejected pins the POC boundary:
-// the account's first credential is always PRF-backed. The rejection happens
-// before the claim is consumed, so the invite stays usable for a PRF retry.
+// local-only cannot bootstrap an account via the claim gate — the first
+// enrollment is always PRF-backed. The rejection happens before the claim is
+// consumed, so the invite stays usable for a PRF retry.
 func TestRegisterFinish_LocalOnlyFirstCredentialRejected(t *testing.T) {
 	h, _, host, claimToken := newCredentialModeHandler(t)
 

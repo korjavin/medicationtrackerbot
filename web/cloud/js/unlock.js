@@ -11,7 +11,7 @@ import {
   toBase64Url,
 } from './crypto.js';
 import { openDb } from './localdb.js';
-import { CREDENTIAL_MODE_LOCAL_ONLY, isLocalOnlyPocEnabled } from './credential-mode.js';
+import { CREDENTIAL_MODE_LOCAL_ONLY, isLocalOnlyPocAvailable } from './credential-mode.js';
 
 const STORE_NAME = 'device';
 const LDK_RECORD_KEY = 'ldk';
@@ -114,7 +114,7 @@ export async function assertPasskey() {
   });
 
   const prfOutput = assertion.getClientExtensionResults().prf?.results?.first;
-  if (!isLocalOnlyPocEnabled()) {
+  if (!(await isLocalOnlyPocAvailable())) {
     // Production path, unchanged: PRF output is mandatory, and it is
     // checked before any session is minted.
     if (!prfOutput) throw new Error("This passkey doesn't support the security feature this app needs.");
@@ -411,6 +411,14 @@ async function writeLdkRecord(record) {
 // staged record behind to imply an enrollment that never happened.
 export async function clearLdkCache() {
   await clearLdkRecord();
+}
+
+// Exported so claim.js can put back the cache a failed local-only
+// enrollment overwrote: establishLdkCache replaces the singleton record, so
+// a browser that already held a warm cache (e.g. re-running recovery) keeps
+// it when the enrollment fails instead of losing warm unlock.
+export async function restoreLdkCache(record) {
+  await writeLdkRecord(record);
 }
 
 async function clearLdkRecord() {

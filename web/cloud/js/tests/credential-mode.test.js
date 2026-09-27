@@ -1,18 +1,25 @@
 // Explicit credential modes + the POC opt-in flag (med-eas.2.1). The flag
 // defaults off everywhere: local-only enrollment and unlock must be
 // impossible to reach by accident.
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CREDENTIAL_MODE_LOCAL_ONLY,
   CREDENTIAL_MODE_PRF,
   LOCAL_ONLY_WARNING_COPY,
+  isLocalOnlyPocAvailable,
   isLocalOnlyPocEnabled,
   isValidCredentialMode,
   normalizeCredentialMode,
+  resetLocalOnlyPocCacheForTests,
 } from '../credential-mode.js';
+
+beforeEach(() => {
+  resetLocalOnlyPocCacheForTests();
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  delete global.fetch;
 });
 
 describe('credential-mode', () => {
@@ -84,5 +91,50 @@ describe('credential-mode', () => {
       },
     });
     expect(isLocalOnlyPocEnabled()).toBe(false);
+  });
+});
+
+describe('isLocalOnlyPocAvailable (server gate)', () => {
+  function stubVersion(body) {
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => body }));
+  }
+
+  it('requires local opt-in AND operator advertisement', async () => {
+    vi.stubGlobal('location', { search: '?local-only-poc=1' });
+    vi.stubGlobal('localStorage', undefined);
+    stubVersion({ build_id: 'test', local_only_poc: true });
+    expect(await isLocalOnlyPocAvailable()).toBe(true);
+  });
+
+  it('stays off when the operator switch is off, even with a local opt-in', async () => {
+    vi.stubGlobal('location', { search: '?local-only-poc=1' });
+    vi.stubGlobal('localStorage', undefined);
+    stubVersion({ build_id: 'test', local_only_poc: false });
+    expect(await isLocalOnlyPocAvailable()).toBe(false);
+  });
+
+  it('fails closed when the version fetch fails', async () => {
+    vi.stubGlobal('location', { search: '?local-only-poc=1' });
+    vi.stubGlobal('localStorage', undefined);
+    global.fetch = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    expect(await isLocalOnlyPocAvailable()).toBe(false);
+  });
+
+  it('short-circuits before any fetch without a local opt-in', async () => {
+    vi.stubGlobal('location', { search: '' });
+    vi.stubGlobal('localStorage', undefined);
+    stubVersion({ build_id: 'test', local_only_poc: true });
+    expect(await isLocalOnlyPocAvailable()).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('shares one version fetch across concurrent callers', async () => {
+    vi.stubGlobal('location', { search: '?local-only-poc=1' });
+    vi.stubGlobal('localStorage', undefined);
+    stubVersion({ build_id: 'test', local_only_poc: true });
+    await Promise.all([isLocalOnlyPocAvailable(), isLocalOnlyPocAvailable()]);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });

@@ -19,11 +19,11 @@ import {
   timingSafeEqual,
 } from './crypto.js';
 import { renderUnsupportedAuthenticator } from './signup.js';
-import { establishLdkCache, readLdkRecord, unwrapWithLdk, clearLdkCache } from './unlock.js';
+import { establishLdkCache, readLdkRecord, unwrapWithLdk, clearLdkCache, restoreLdkCache } from './unlock.js';
 import {
   CREDENTIAL_MODE_LOCAL_ONLY,
   LOCAL_ONLY_WARNING_COPY,
-  isLocalOnlyPocEnabled,
+  isLocalOnlyPocAvailable,
 } from './credential-mode.js';
 
 export async function runClaimFlow() {
@@ -149,7 +149,7 @@ export async function enrollWithToken(app, { enrollmentToken, accountId, dek }, 
   });
   const prfOutput = prfAssertion.getClientExtensionResults().prf?.results?.first;
   if (!prfOutput) {
-    if (isLocalOnlyPocEnabled() && opts.allowLocalOnly !== false) {
+    if ((await isLocalOnlyPocAvailable()) && opts.allowLocalOnly !== false) {
       return renderLocalOnlyConsent(app, { credential, enrollmentToken, accountId, dek });
     }
     renderUnsupportedAuthenticator(app);
@@ -263,45 +263,58 @@ function renderLocalOnlyFailure(app, err) {
 // still unspent and nothing is committed anywhere — and the server commits
 // only when usable recovery material exists (checked in the same transaction
 // as the insert, so a crash past finish cannot strand a kit-less
-// credential). Throws on any failure; a failed finish also clears the staged
-// LDK so no cache implies an enrollment that never happened.
+// credential). Throws on any failure; EVERY failure path below funnels
+// through the outer catch, which puts the LDK cache back the way it found
+// it — restoring the pre-existing record when there was one, clearing the
+// staged one otherwise — so a failed enrollment never leaves a warm cache
+// for a device that was never enrolled (that cache would warm-redirect into
+// the app with no valid session and 401 on every call).
 export async function enrollLocalOnly(app, { credential, accountId, dek }) {
+  const prior = await readLdkRecord().catch(() => null);
   await establishLdkCache(dek, accountId);
-  await verifyLdkDurable(dek, accountId);
-
-  const finishBody = credential.toJSON();
-  // Never transmit the PRF output — and a local-only finish carries no
-  // envelope at all (the server rejects one if present).
-  if (finishBody.clientExtensionResults) delete finishBody.clientExtensionResults.prf;
-
-  const finishRes = await fetch('/api/webauthn/register/finish', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ credential: finishBody, mode: CREDENTIAL_MODE_LOCAL_ONLY }),
-  });
-  if (finishRes.status === 409) {
-    // The server refused to commit without usable recovery material; the
-    // token is unspent, so saving a kit and retrying needs no fresh code.
-    await clearLdkCache().catch(() => {});
-    throw new Error('No Emergency Kit is on file for this account — save one from a PRF device first.');
-  }
-  if (!finishRes.ok) {
-    await clearLdkCache().catch(() => {});
-    throw new Error('Passkey registration failed. Please try again.');
-  }
-
-  // The server committed only because usable recovery material exists; the
-  // client-visible half is re-confirmed as defense-in-depth, rolling the
-  // credential back on anything unexpected.
-  const credentialId = new Uint8Array(credential.rawId);
   try {
-    await confirmRecoveryMaterial();
+    await verifyLdkDurable(dek, accountId);
+
+    const finishBody = credential.toJSON();
+    // Never transmit the PRF output — and a local-only finish carries no
+    // envelope at all (the server rejects one if present).
+    if (finishBody.clientExtensionResults) delete finishBody.clientExtensionResults.prf;
+
+    const finishRes = await fetch('/api/webauthn/register/finish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential: finishBody, mode: CREDENTIAL_MODE_LOCAL_ONLY }),
+    });
+    if (finishRes.status === 409) {
+      // The server refused to commit without usable recovery material; the
+      // token is unspent, so saving a kit and retrying needs no fresh code.
+      throw new Error('No Emergency Kit is on file for this account — save one from a PRF device first.');
+    }
+    if (!finishRes.ok) {
+      throw new Error('Passkey registration failed. Please try again.');
+    }
+
+    // The server committed only because usable recovery material exists; the
+    // client-visible half is re-confirmed as defense-in-depth, rolling the
+    // credential back on anything unexpected.
+    const credentialId = new Uint8Array(credential.rawId);
+    try {
+      await confirmRecoveryMaterial();
+    } catch (err) {
+      try {
+        await fetch(`/api/devices/${toBase64Url(credentialId)}`, { method: 'DELETE' });
+      } catch {
+        // The rollback is best-effort; the user-visible error is the reason
+        // enrollment failed, not the cleanup.
+      }
+      throw err;
+    }
   } catch (err) {
     try {
-      await fetch(`/api/devices/${toBase64Url(credentialId)}`, { method: 'DELETE' });
+      if (prior) await restoreLdkCache(prior);
+      else await clearLdkCache();
     } catch {
-      // The rollback is best-effort; the user-visible error is the reason
-      // enrollment failed, not the cleanup.
+      // Cache housekeeping must not mask the enrollment error.
     }
     throw err;
   }

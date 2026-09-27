@@ -37,9 +37,12 @@ comprehension testing.
 
 ## What was built
 
-Delivered behind the explicit opt-in `?local-only-poc=1` (or
-`localStorage['med-local-only-poc']='1'` — no in-product toggle, so nobody
-enables it by accident). Default behavior is byte-identical to the PRF-only
+Delivered behind two switches that must BOTH be on: the browser opt-in
+`?local-only-poc=1` (sticky to localStorage; no in-product toggle, so nobody
+enables it by accident) AND the operator flag `CLOUD_LOCAL_ONLY_POC`
+(default off), enforced in `register/finish` and advertised on the existing
+`GET /api/version` response. A crafted link or stale browser flag alone can
+never enable the fallback. Default behavior is byte-identical to the PRF-only
 product: PRF stays the default path and its immediate-assertion probe is
 unchanged.
 
@@ -112,13 +115,15 @@ unchanged.
 
 ## Deliberate POC boundaries (not oversights)
 
-- **First credential must be PRF-backed.** The server rejects a local-only
-  first credential, answering the research doc's open question
-  conservatively for the POC: local-only is only ever an additional
-  credential on an account that already has a PRF unwrap path plus recovery
-  material. This keeps criterion 3 meaningful instead of circular (a
-  first-credential local-only flow would need recovery material uploaded
-  before any session exists).
+- **Account bootstrap must be PRF-backed.** The server rejects local-only
+  enrollment via the claim gate, answering the research doc's open question
+  conservatively for the POC: every account starts life with a PRF unwrap
+  path plus recovery material. This keeps criterion 3 meaningful instead of
+  circular (a first-credential local-only flow would need recovery material
+  uploaded before any session exists). This is an enrollment-gate
+  restriction, not an account-level invariant — an account whose PRF
+  credentials were all revoked can later hold only local-only credentials
+  plus recovery material.
 - **No session-gate local-only UI.** The server accepts local-only
   enrollment behind plain session auth (an unlocked device adding a local
   passkey), but no client screen drives that gate — the POC's client covers
@@ -132,6 +137,25 @@ unchanged.
   optional"), so there is no toggle to gate; when it lands, local-only
   credentials must refuse to enroll under it.
 - **No manager allowlist, no feature sniff, no XOR split.** As specified.
+
+## Known POC limitations (from the #888 compatibility review)
+
+- The POC unlock path mints a session before rejecting a PRF credential
+  whose authenticator dropped PRF output (`finishPocUnlock` runs
+  `login/finish`, then finds no output for a PRF-labelled credential and
+  throws). Production checks before finish; the DEK is never exposed, but
+  the probe ordering differs on flagged browsers.
+- Rolling the binary back after migration 025 has run makes local-only rows
+  look like broken PRF devices to the old client ("unverified — remove?",
+  no envelope), and the old delete guard counts all credentials. Both are
+  harmless, and the rollback direction is not a supported POC operation.
+- `credentials.mode` has no CHECK constraint; the application validates the
+  label on write (unknown modes rejected with 400).
+- Failed local-only enrollment restores the LDK record it found (or clears
+  the staged one when there was none), but a crash between staging and the
+  outer catch — or a tab closed mid-ceremony — can still leave a staged
+  cache behind. The next visit then warm-redirects without a valid session
+  until the user cold-unlocks; nothing decryptable is stranded server-side.
 
 ## Remaining work before any ship decision
 

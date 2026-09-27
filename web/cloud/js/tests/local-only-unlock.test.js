@@ -2,12 +2,17 @@
 // local_only credential opens the warm LDK cache; a cleared cache or fresh
 // profile demands the Emergency Kit / trusted-device transfer; PRF
 // credentials without PRF output keep the production error (no downgrade).
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assertPasskey, establishLdkCache } from '../unlock.js';
+import { resetLocalOnlyPocCacheForTests } from '../credential-mode.js';
 import { toBase64Url } from '../crypto.js';
 
 const ACCOUNT = 'acct-local-9';
 const CRED_ID = globalThis.crypto.getRandomValues(new Uint8Array(16));
+
+beforeEach(() => {
+  resetLocalOnlyPocCacheForTests();
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -58,7 +63,7 @@ function installFakeIdb() {
   });
 }
 
-function installCeremony({ mode, prfBytes = null }) {
+function installCeremony({ mode, prfBytes = null, pocAdvertised = true }) {
   const fetchUrls = [];
   vi.stubGlobal('PublicKeyCredential', { parseRequestOptionsFromJSON: (x) => x || {} });
   vi.stubGlobal('navigator', {
@@ -76,6 +81,9 @@ function installCeremony({ mode, prfBytes = null }) {
     vi.fn(async (url) => {
       const u = String(url);
       fetchUrls.push(u);
+      if (u === '/api/version') {
+        return { ok: true, json: async () => ({ build_id: 'test', local_only_poc: pocAdvertised }) };
+      }
       if (u === '/api/webauthn/login/begin') return { ok: true, json: async () => ({ publicKey: {} }) };
       if (u === '/api/webauthn/login/finish') return { ok: true, json: async () => ({ account_id: ACCOUNT }) };
       if (u === '/api/devices') {
@@ -146,6 +154,17 @@ describe('local-only unlock (unlock.js)', () => {
     expect(global.fetch.mock.calls.map((c) => String(c[0]))).not.toContainEqual(
       expect.stringContaining('/api/envelopes/')
     );
+  });
+
+  it('stays on the production path when the operator switch is off (crafted link neutered)', async () => {
+    installFakeIdb();
+    vi.stubGlobal('location', { search: '?local-only-poc=1' });
+    const fetchUrls = installCeremony({ mode: 'local_only', pocAdvertised: false });
+
+    const err = await assertPasskey().catch((e) => e);
+    expect(err.message).toContain("doesn't support the security feature");
+    expect(fetchUrls).toContain('/api/webauthn/login/begin');
+    expect(fetchUrls).not.toContain('/api/webauthn/login/finish');
   });
 
   it('throws before login/finish with the flag off (default path unchanged)', async () => {
