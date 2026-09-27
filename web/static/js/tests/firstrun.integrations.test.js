@@ -78,7 +78,7 @@ describe('firstrun integrations screen', () => {
             expect(url).not.toBeNull();
             expect(url.value).toBe('https://api.openai.com/v1');
             expect(model).not.toBeNull();
-            expect(model.value).toBe('gpt-4o-mini');
+            expect(model.value).toBe('gpt-6-luna');
 
             expect(document.querySelector('[data-firstrun-action="save"]')).not.toBeNull();
             expect(document.querySelector('[data-firstrun-action="skip"]')).not.toBeNull();
@@ -145,7 +145,7 @@ describe('firstrun integrations screen', () => {
                 openai: {
                     api_key: 'sk-test-1234',
                     url: 'https://api.openai.com/v1',
-                    model: 'gpt-4o-mini',
+                    model: 'gpt-6-luna',
                 },
             });
         } finally { cleanup(); }
@@ -279,7 +279,7 @@ describe('firstrun integrations screen', () => {
                 openai: {
                     api_key: 'sk-via-helper',
                     url: 'https://api.openai.com/v1',
-                    model: 'gpt-4o-mini',
+                    model: 'gpt-6-luna',
                 },
             });
             expect(fetchMock).not.toHaveBeenCalled();
