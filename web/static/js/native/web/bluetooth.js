@@ -19,11 +19,22 @@
 // navigator.bluetooth is absent (Safari/iOS, Firefox) and feature code hides
 // its UI on that, never throws.
 //
+// Two chooser modes (med-byks.7): the default filtered request lists only
+// 0x180D advertisers, while requestHeartRateDevice({ all: true }) opens the
+// unfiltered chooser (acceptAllDevices + optionalServices heart_rate) for
+// bands that expose 0x180D over GATT without advertising it. After connect,
+// subscribeHeartRate() best-effort dumps the accessible primary services
+// via the optional callbacks.onServices(uuids) hook for the session log;
+// getPrimaryServices() only ever returns services the chooser grant covers,
+// so the dump is diagnostic, never an inventory.
+//
 // Errors are normalized to a { name: 'BluetoothError', code, message }
 // shape. Codes: NOT_SUPPORTED (no Web Bluetooth), NOT_FOUND (chooser
 // dismissed or no matching advertiser), NO_DEVICE (subscribe with no chosen
-// device — call requestHeartRateDevice first), UNAVAILABLE (connect/service/
-// notification failures and anything else; message carries the detail).
+// device — call requestHeartRateDevice first), NO_SERVICE (the chosen
+// device's GATT server has no 0x180D — the show-all pick while HR broadcast
+// is off), UNAVAILABLE (connect/characteristic/notification failures and
+// anything else; message carries the detail).
 //
 // Load order: must be after web/static/js/native/index.js so the foundation's
 // registerImpl helper is available.
@@ -31,9 +42,10 @@
     'use strict';
 
     // GATT identifiers as the string aliases the Web Bluetooth API accepts
-    // ('heart_rate' = 0x180D, 'heart_rate_measurement' = 0x2A37). The filter
-    // alone grants access to 0x180D, so no optionalServices list is needed —
-    // the impl never touches any other service.
+    // ('heart_rate' = 0x180D, 'heart_rate_measurement' = 0x2A37). The
+    // filtered chooser grants access to 0x180D on its own; the show-all
+    // chooser (acceptAllDevices) needs heart_rate in optionalServices for
+    // the same grant. The impl never touches any other service.
     var HEART_RATE_SERVICE = 'heart_rate';
     var HEART_RATE_MEASUREMENT = 'heart_rate_measurement';
 
@@ -158,7 +170,12 @@
         } catch (_) { /* teardown is best-effort */ }
     }
 
-    function requestHeartRateDevice() {
+    // options.all === true opens the UNFILTERED chooser — every nearby BLE
+    // device is listed — for bands that expose 0x180D over GATT without
+    // advertising it (the filter would hide them). heart_rate rides in
+    // optionalServices so the grant still covers 0x180D when present. Any
+    // other options value (including none) keeps the filtered chooser.
+    function requestHeartRateDevice(options) {
         var bt = bluetoothOrNull();
         if (!bt) {
             return Promise.reject(bluetoothError(
@@ -166,7 +183,11 @@
                 'Web Bluetooth is not available in this browser'
             ));
         }
-        return bt.requestDevice({ filters: [{ services: [HEART_RATE_SERVICE] }] })
+        var showAll = !!(options && options.all === true);
+        var requestOpts = showAll
+            ? { acceptAllDevices: true, optionalServices: [HEART_RATE_SERVICE] }
+            : { filters: [{ services: [HEART_RATE_SERVICE] }] };
+        return bt.requestDevice(requestOpts)
             .then(function (device) {
                 pendingDevice = device;
                 return deviceInfo(device);
@@ -176,12 +197,51 @@
             });
     }
 
+    // Best-effort dump of the primary services this origin may access on the
+    // connected server, reported as plain UUID strings via onServices.
+    // getPrimaryServices() with no arguments only returns services the
+    // chooser grant covers (the filter service, or optionalServices in
+    // show-all mode), so the dump is a diagnostic hint, never an inventory —
+    // and it rejects (SecurityError) when the grant covers nothing usable.
+    // Either way subscribe continues: this helper never throws, and skips
+    // the extra round trip entirely when no onServices callback was given.
+    function reportPrimaryServices(server, onServices) {
+        if (typeof onServices !== 'function') return Promise.resolve();
+        var pending;
+        try {
+            if (!server || typeof server.getPrimaryServices !== 'function') return Promise.resolve();
+            pending = server.getPrimaryServices();
+        } catch (_) {
+            return Promise.resolve();
+        }
+        return Promise.resolve(pending).then(
+            function (services) {
+                var uuids = [];
+                try {
+                    var n = (services && typeof services.length === 'number') ? services.length : 0;
+                    for (var i = 0; i < n; i++) {
+                        var uuid = services[i] && services[i].uuid;
+                        uuids.push(uuid ? String(uuid) : '?');
+                    }
+                } catch (_) {
+                    return;
+                }
+                try { onServices(uuids); } catch (_) { /* caller errors must not break the chain */ }
+            },
+            function () { /* SecurityError etc: best-effort, skip silently */ }
+        );
+    }
+
     // callbacks: { onReading({ bpm, contact, rrIntervals, timestamp }),
-    //             onDisconnect({ id, name }) } — onDisconnect is optional and
-    // fires on an unsolicited gattserverdisconnected (an explicit
-    // unsubscribe() never calls it). Resolves with { id, name } once
-    // notifications are flowing. A previous live subscription is torn down
-    // first so back-to-back subscribes (Reconnect) cannot stack listeners.
+    //             onDisconnect({ id, name }), onServices([uuid, ...]) } —
+    // onDisconnect is optional and fires on an unsolicited
+    // gattserverdisconnected (an explicit unsubscribe() never calls it);
+    // onServices is optional and receives the best-effort primary-services
+    // dump (plain UUID strings, possibly empty) once per subscribe — it may
+    // never fire when the dump is unavailable. Resolves with { id, name }
+    // once notifications are flowing. A previous live subscription is torn
+    // down first so back-to-back subscribes (Reconnect) cannot stack
+    // listeners.
     function subscribeHeartRate(callbacks) {
         if (!callbacks || typeof callbacks.onReading !== 'function') {
             return Promise.reject(bluetoothError(
@@ -239,8 +299,26 @@
         if (!gatt || typeof gatt.connect !== 'function') {
             return Promise.reject(bluetoothError('UNAVAILABLE', 'Device has no GATT server'));
         }
+        var onServices = callbacks.onServices;
         return gatt.connect()
-            .then(function (server) { return server.getPrimaryService(HEART_RATE_SERVICE); })
+            .then(function (server) {
+                return reportPrimaryServices(server, onServices).then(function () {
+                    return server;
+                });
+            })
+            .then(function (server) {
+                return server.getPrimaryService(HEART_RATE_SERVICE).catch(function (e) {
+                    // Only the service-not-present failure maps to NO_SERVICE
+                    // (the show-all pick while HR broadcast is off on the
+                    // band); anything else falls through to normalizeError.
+                    if (e && e.name !== 'BluetoothError' && /NotFoundError/i.test(String(e.name || e))) {
+                        var label = device.name || device.id || 'device';
+                        throw bluetoothError('NO_SERVICE',
+                            '"' + label + '" has no heart_rate service (0x180D)');
+                    }
+                    throw e;
+                });
+            })
             .then(function (service) { return service.getCharacteristic(HEART_RATE_MEASUREMENT); })
             .then(function (characteristic) {
                 sub.characteristic = characteristic;
@@ -255,7 +333,15 @@
             })
             .catch(function (e) {
                 stopActiveQuietly();
-                pendingDevice = device; // a failed connect keeps the grant for retry
+                // A failed subscribe must not strand the radio link: the
+                // show-all path routinely lands on devices without 0x180D,
+                // and stopActiveQuietly only covers a live subscription, so
+                // disconnect the fresh GATT connection explicitly. Best
+                // effort — after a failed connect() this is a no-op.
+                try {
+                    if (gatt && typeof gatt.disconnect === 'function') gatt.disconnect();
+                } catch (_) { /* ignore */ }
+                pendingDevice = device; // a failed subscribe keeps the grant for retry
                 throw (e && e.name === 'BluetoothError') ? e : normalizeError(e);
             });
     }

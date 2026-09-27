@@ -7,9 +7,11 @@
 // browser Bluetooth API or GATT handles.
 //
 // The card is a hardware-test instrument for the owner, not a product
-// surface: Connect opens the 0x180D chooser, live bpm renders while
-// subscribed, and an in-memory session log (connect/disconnect events,
-// time-to-first-reading, errors) can be copied for the go/no-go writeup in
+// surface: Connect opens the 0x180D-filtered chooser, Show all devices opens
+// the unfiltered chooser for bands that expose 0x180D over GATT without
+// advertising it (med-byks.7), live bpm renders while subscribed, and an
+// in-memory session log (connect/disconnect events, time-to-first-reading,
+// errors) can be copied for the go/no-go writeup in
 // docs/research/mi-band-hr-poc.md. NOTHING persists: no hrsample writes, no
 // apiCall, no DataStore, no localStorage. Product wiring is med-byks.4.
 //
@@ -129,6 +131,7 @@
             : '';
         els.connect.textContent = state.hasDevice && !state.connected ? 'Reconnect' : 'Connect';
         els.connect.disabled = state.busy || state.connected;
+        els.showAll.disabled = state.busy || state.connected;
         els.disconnect.classList.toggle('hidden', !state.connected && !state.busy);
         els.disconnect.disabled = state.busy;
         els.copy.disabled = state.log.length === 0;
@@ -184,6 +187,11 @@
         els.connect.type = 'button';
         els.connect.addEventListener('click', onConnectClick);
         actions.appendChild(els.connect);
+        els.showAll = mk('button', 'wg-gloss wg-live-hr__show-all', 'Show all devices');
+        els.showAll.id = 'live-hr-show-all-btn';
+        els.showAll.type = 'button';
+        els.showAll.addEventListener('click', onShowAllClick);
+        actions.appendChild(els.showAll);
         els.disconnect = mk('button', 'wg-gloss wg-live-hr__disconnect hidden', 'Disconnect');
         els.disconnect.id = 'live-hr-disconnect-btn';
         els.disconnect.type = 'button';
@@ -216,6 +224,7 @@
         els.device = document.getElementById('live-hr-device');
         els.readings = document.getElementById('live-hr-readings');
         els.connect = document.getElementById('live-hr-connect-btn');
+        els.showAll = document.getElementById('live-hr-show-all-btn');
         els.disconnect = document.getElementById('live-hr-disconnect-btn');
         els.copy = document.getElementById('live-hr-copy-btn');
         els.log = document.getElementById('live-hr-log');
@@ -244,24 +253,42 @@
         render();
     }
 
+    function handleServices(uuids) {
+        addLog('primary services: ' + ((uuids && uuids.length) ? uuids.join(', ') : '(none visible)'));
+    }
+
     function onConnectClick() {
+        startConnect(false);
+    }
+
+    function onShowAllClick() {
+        startConnect(true);
+    }
+
+    // showAll forces a fresh chooser in accept-all mode even when a grant is
+    // already stored — the point is to pick a band the 0x180D filter hides.
+    function startConnect(showAll) {
         var cap = bt();
         if (!cap || state.busy || state.connected) return;
         state.busy = true;
         render();
-        var reconnect = state.hasDevice;
-        setStatus(reconnect ? 'Reconnecting…' : 'Scanning for HR devices…');
-        addLog(reconnect
-            ? 'reconnect: reusing stored chooser grant (no chooser)'
-            : 'connect: opening chooser (filter: heart_rate / 0x180D)');
+        var hadDevice = state.hasDevice;
+        var reconnect = hadDevice && !showAll;
+        setStatus(showAll ? 'Scanning all nearby devices…' : (reconnect ? 'Reconnecting…' : 'Scanning for HR devices…'));
+        addLog(showAll
+            ? 'connect: opening chooser (show all devices; optionalServices: heart_rate)'
+            : (reconnect
+                ? 'reconnect: reusing stored chooser grant (no chooser)'
+                : 'connect: opening chooser (filter: heart_rate / 0x180D)'));
         var pickedName = state.deviceName;
-        var needPicker = !state.hasDevice;
+        var needPicker = showAll || !hadDevice;
         var picked = needPicker
-            ? cap.requestHeartRateDevice().then(function (info) {
+            ? cap.requestHeartRateDevice(showAll ? { all: true } : undefined).then(function (info) {
                 state.hasDevice = true;
                 pickedName = (info && info.name) || '(unnamed device)';
                 state.deviceName = pickedName;
-                addLog('device chosen: "' + pickedName + '"' + (info && info.id ? ' <' + info.id + '>' : ''));
+                addLog('device chosen: "' + pickedName + '"' + (info && info.id ? ' <' + info.id + '>' : '')
+                    + (showAll ? ' (mode: show-all)' : ' (mode: filter)'));
             })
             : Promise.resolve();
         picked
@@ -272,7 +299,7 @@
                 state.readings = 0;
                 state.ttfrMs = null;
                 state.bpm = null;
-                return cap.subscribeHeartRate({ onReading: handleReading, onDisconnect: handleDisconnect });
+                return cap.subscribeHeartRate({ onReading: handleReading, onDisconnect: handleDisconnect, onServices: handleServices });
             })
             .then(function () {
                 state.connected = true;
@@ -283,10 +310,23 @@
                 var code = (e && e.code) || '';
                 var msg = (e && e.message) || String(e);
                 if (code === 'NOT_FOUND' && needPicker) {
-                    state.hasDevice = false;
-                    state.deviceName = '';
-                    addLog('chooser dismissed or no 0x180D advertiser found');
+                    // A dismissed show-all chooser keeps a previously stored
+                    // grant; a dismissed first pick leaves no grant at all.
+                    state.hasDevice = showAll ? hadDevice : false;
+                    if (!state.hasDevice) state.deviceName = '';
+                    addLog(showAll
+                        ? 'show-all chooser dismissed' + (hadDevice ? ' — previous grant kept' : '')
+                        : 'chooser dismissed or no 0x180D advertiser found');
                     setStatus('Disconnected');
+                } else if (code === 'NO_SERVICE') {
+                    // Show-all pick whose GATT server has no 0x180D: expected
+                    // while HR broadcast is off on the band. The impl already
+                    // disconnected; log the actionable line and stay on the
+                    // card — never throw to the UI. The grant is kept, so
+                    // Reconnect retries without the chooser once broadcast
+                    // is enabled.
+                    addLog(pickedName + ': no heart_rate service (0x180D) — enable HR broadcast on the band');
+                    setStatus('No heart-rate service on ' + pickedName);
                 } else {
                     addLog('error: ' + msg + (code ? ' (' + code + ')' : ''));
                     setStatus('Error: ' + msg);

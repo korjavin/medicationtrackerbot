@@ -1,10 +1,11 @@
 /**
  * native.bluetooth.test.js
  *
- * Pins the Bluetooth abstraction contract (HR slice, med-byks.1): a web impl
- * that owns the only navigator.bluetooth call site, shows the chooser
- * filtered to the Heart Rate service 0x180D, and delivers parsed 0x2A37
- * readings — feature code never sees GATT handles.
+ * Pins the Bluetooth abstraction contract (HR slice, med-byks.1, show-all
+ * mode med-byks.7): a web impl that owns the only navigator.bluetooth call
+ * site, shows the chooser filtered to the Heart Rate service 0x180D (or
+ * unfiltered with { all: true }), maps a missing 0x180D to NO_SERVICE, and
+ * delivers parsed 0x2A37 readings — feature code never sees GATT handles.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
@@ -76,8 +77,9 @@ function makeListeners() {
 }
 
 // Fake GATT chain: device -> server -> service -> characteristic, wired so
-// device.gatt.connect() resolves through to the characteristic.
-function makeFakeDevice({ id = 'dev-1', name = 'Mi Band 7' } = {}) {
+// device.gatt.connect() resolves through to the characteristic. `services`
+// is the UUID list the fake server's getPrimaryServices() reports.
+function makeFakeDevice({ id = 'dev-1', name = 'Mi Band 7', services = ['heart_rate'] } = {}) {
     const charListeners = makeListeners();
     const deviceListeners = makeListeners();
     const characteristic = {
@@ -91,6 +93,7 @@ function makeFakeDevice({ id = 'dev-1', name = 'Mi Band 7' } = {}) {
     };
     const server = {
         getPrimaryService: vi.fn(() => Promise.resolve(service)),
+        getPrimaryServices: vi.fn(() => Promise.resolve(services.map((uuid) => ({ uuid })))),
     };
     const gatt = {
         connect: vi.fn(() => Promise.resolve(server)),
@@ -307,6 +310,99 @@ describe('native/web/bluetooth.js — web impl', () => {
         // Explicit teardown is not an unsolicited drop.
         expect(onDisconnect).not.toHaveBeenCalled();
         expect(await env.window.Bluetooth.unsubscribe()).toBe(false);
+    });
+
+    it('requestHeartRateDevice({ all: true }) opens the unfiltered chooser with heart_rate optional', async () => {
+        const device = makeFakeDevice();
+        const requestDevice = vi.fn(() => Promise.resolve(device));
+        env = loadEnv({ bluetooth: { requestDevice } });
+        const info = await env.window.Bluetooth.requestHeartRateDevice({ all: true });
+        expect(requestDevice).toHaveBeenCalledTimes(1);
+        expect(requestDevice).toHaveBeenCalledWith({ acceptAllDevices: true, optionalServices: ['heart_rate'] });
+        expect(info).toEqual({ id: 'dev-1', name: 'Mi Band 7' });
+    });
+
+    it('requestHeartRateDevice without all:true keeps the filtered chooser', async () => {
+        const device = makeFakeDevice();
+        const requestDevice = vi.fn(() => Promise.resolve(device));
+        env = loadEnv({ bluetooth: { requestDevice } });
+        await env.window.Bluetooth.requestHeartRateDevice({});
+        await env.window.Bluetooth.requestHeartRateDevice({ all: false });
+        expect(requestDevice).toHaveBeenCalledTimes(2);
+        for (const call of requestDevice.mock.calls) {
+            expect(call[0]).toEqual({ filters: [{ services: ['heart_rate'] }] });
+        }
+    });
+
+    it('subscribe maps a missing 0x180D to NO_SERVICE, disconnects, and keeps the grant', async () => {
+        const device = makeFakeDevice();
+        device._server.getPrimaryService
+            .mockRejectedValueOnce(namedError('NotFoundError', 'No such service'));
+        const requestDevice = vi.fn(() => Promise.resolve(device));
+        env = loadEnv({ bluetooth: { requestDevice } });
+        await env.window.Bluetooth.requestHeartRateDevice({ all: true });
+        const err = await env.window.Bluetooth
+            .subscribeHeartRate({ onReading: () => {} })
+            .catch((e) => e);
+        expect(err.name).toBe('BluetoothError');
+        expect(err.code).toBe('NO_SERVICE');
+        expect(err.message).toContain('0x180D');
+        // The failed subscribe leaves no stranded GATT connection ...
+        expect(device.gatt.disconnect).toHaveBeenCalledTimes(1);
+        // ... but the chooser grant survives for retry once HR broadcast is on.
+        await env.window.Bluetooth.subscribeHeartRate({ onReading: () => {} });
+        expect(requestDevice).toHaveBeenCalledTimes(1);
+        expect(device.gatt.connect).toHaveBeenCalledTimes(2);
+    });
+
+    it('subscribe maps a non-NotFound service failure to UNAVAILABLE, not NO_SERVICE', async () => {
+        const device = makeFakeDevice();
+        device._server.getPrimaryService
+            .mockRejectedValueOnce(namedError('NetworkError', 'link dropped'));
+        env = loadEnv({ bluetooth: { requestDevice: vi.fn(() => Promise.resolve(device)) } });
+        await env.window.Bluetooth.requestHeartRateDevice();
+        const err = await env.window.Bluetooth
+            .subscribeHeartRate({ onReading: () => {} })
+            .catch((e) => e);
+        expect(err.name).toBe('BluetoothError');
+        expect(err.code).toBe('UNAVAILABLE');
+    });
+
+    it('subscribe reports the primary-services dump via onServices', async () => {
+        const device = makeFakeDevice({ services: ['heart_rate', 'battery_service'] });
+        env = loadEnv({ bluetooth: { requestDevice: vi.fn(() => Promise.resolve(device)) } });
+        const onServices = vi.fn();
+        await env.window.Bluetooth.requestHeartRateDevice();
+        await env.window.Bluetooth.subscribeHeartRate({ onReading: () => {}, onServices });
+        expect(device._server.getPrimaryServices).toHaveBeenCalledTimes(1);
+        expect(onServices).toHaveBeenCalledTimes(1);
+        expect(onServices).toHaveBeenCalledWith(['heart_rate', 'battery_service']);
+    });
+
+    it('subscribe continues when the services dump rejects', async () => {
+        const device = makeFakeDevice();
+        device._server.getPrimaryServices
+            .mockRejectedValueOnce(namedError('SecurityError', 'denied'));
+        env = loadEnv({ bluetooth: { requestDevice: vi.fn(() => Promise.resolve(device)) } });
+        const onServices = vi.fn();
+        const onReading = vi.fn();
+        await env.window.Bluetooth.requestHeartRateDevice();
+        await env.window.Bluetooth.subscribeHeartRate({ onReading, onServices });
+        expect(onServices).not.toHaveBeenCalled();
+        notify(device._characteristic, [0x00, 72]);
+        expect(onReading).toHaveBeenCalledTimes(1);
+    });
+
+    it('subscribe continues when the server has no getPrimaryServices', async () => {
+        const device = makeFakeDevice();
+        delete device._server.getPrimaryServices;
+        env = loadEnv({ bluetooth: { requestDevice: vi.fn(() => Promise.resolve(device)) } });
+        const onReading = vi.fn();
+        await env.window.Bluetooth.requestHeartRateDevice();
+        await env.window.Bluetooth.subscribeHeartRate({ onReading, onServices: vi.fn() });
+        notify(device._characteristic, [0x00, 73]);
+        expect(onReading).toHaveBeenCalledTimes(1);
+        expect(onReading.mock.calls[0][0].bpm).toBe(73);
     });
 
     it('a failed connect keeps the grant for retry and surfaces UNAVAILABLE', async () => {

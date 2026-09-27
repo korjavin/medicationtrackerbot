@@ -38,13 +38,17 @@ not as a standalone page:
    record the exact menu path below; on newer bands the broadcast
    may only be active **during a workout** — record which).
 4. Vitals → Live heart rate → **Connect** (a user gesture is
-   required), pick the band in the browser chooser.
+   required), pick the band in the browser chooser. If the filtered
+   chooser finds nothing, use **Show all devices** instead — the band
+   may expose 0x180D over GATT without advertising it (med-byks.7).
 5. Observe: live bpm, connection status, time-to-first-reading, and
    the session log. Copy the log into the results table.
 6. Exercise the edge cases: walk out of range / kill the band's
    broadcast and note reconnect behavior; press Reconnect (must NOT
    re-show the chooser); Disconnect and Connect again (MUST re-show
-   the chooser); hold a session past 60 s of notifications.
+   the chooser); hold a session past 60 s of notifications; via Show
+   all devices, pick a device with no 0x180D and confirm the `no
+   heart_rate service (0x180D)` log line plus a clean disconnect.
 
 Desktop Chrome first, then Android Chrome (the realistic pairing
 device).
@@ -59,13 +63,38 @@ navigator.bluetooth.requestDevice({ filters: [{ services: ['heart_rate'] }] })
   → startNotifications() → 'characteristicvaluechanged'
 ```
 
-The `heart_rate` filter alone grants access to 0x180D, so no
-`optionalServices` list is needed. The chooser grant is
-**per-origin per-device** and survives disconnects: after an
-unsolicited `gattserverdisconnected` the impl keeps the device
-handle and a later `subscribeHeartRate()` reconnects without the
-chooser. Only an explicit `unsubscribe()` (the card's Disconnect
-button) drops the handle; the next session re-shows the chooser.
+Two chooser modes (med-byks.7):
+
+- **Filtered** (the card's Connect button):
+  `requestDevice({ filters: [{ services: ['heart_rate'] }] })` —
+  the chooser lists only 0x180D advertisers. The filter alone
+  grants access to 0x180D.
+- **Show all** (the card's Show all devices button):
+  `requestDevice({ acceptAllDevices: true, optionalServices:
+  ['heart_rate'] })` — the chooser lists every nearby BLE device,
+  for bands that expose 0x180D over GATT without advertising it.
+  `heart_rate` rides in `optionalServices` so the grant still
+  covers 0x180D when present; no longer list is kept — the
+  optionalServices list bounds what `getPrimaryServices()` can
+  report, but widening it would over-grant the origin.
+
+After either pick the chain is the same: `device.gatt.connect()`
+→ `getPrimaryService('heart_rate')` → characteristic →
+notifications. A show-all pick whose GATT server has no 0x180D
+fails `getPrimaryService` with `NotFoundError`, which the impl
+maps to `NO_SERVICE`: the card logs `<name>: no heart_rate
+service (0x180D) — enable HR broadcast on the band` and
+disconnects instead of throwing. Every subscribe also
+best-effort dumps `server.getPrimaryServices()` (UUID strings;
+`SecurityError` swallowed) into the session log to show what the
+grant covers.
+
+The chooser grant is **per-origin per-device** and survives
+disconnects: after an unsolicited `gattserverdisconnected` the
+impl keeps the device handle and a later `subscribeHeartRate()`
+reconnects without the chooser. Only an explicit `unsubscribe()`
+(the card's Disconnect button) drops the handle; the next session
+re-shows the chooser.
 
 ## 0x2A37 parsing notes (Heart Rate Measurement, SIG HRS 1.0)
 
