@@ -3,8 +3,8 @@
 // same file can later run inside the Go server via goja (C6). Reproduces bot
 // mode's two top-level composite MCP tools — analyze_cardiovascular /
 // analyze_fitness — client-side over vault data (docs/plans/20260717-cloud-analysis-pathb.md).
-// Oracle: internal/mcp/cardiovascular.go + internal/mcp/fitness.go (value-exact
-// against cardiovascular_test.go / fitness_test.go).
+// Oracle: internal/mcp/cardiovascular.go + fitness.go (removed with bot
+// mode; value-exact against the Go tests at port time).
 //
 // Feature gates are passed in via each call's `features` map (the router reads
 // settings.getFeatures()); a disabled/failed section is added to an `unavailable`

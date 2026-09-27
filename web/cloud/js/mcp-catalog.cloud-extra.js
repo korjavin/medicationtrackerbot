@@ -7,7 +7,7 @@
 // Cloud-only ops with no Go registry counterpart (served by apishim.js's
 // createApiRouter over web/domain modules). The two composite analyses mirror
 // bot mode's analyze_cardiovascular / analyze_fitness top-level MCP tools
-// (internal/mcp/cardiovascular.go + fitness.go), but are computed in-tab over
+// (removed with bot mode), but are computed in-tab over
 // vault data by web/domain/analysis.js. Same op-entry shape as the generated
 // catalog: {id, topic, method, path, risk, description, response_summary,
 // required, params_schema, body_schema, response_example} — `required` mirrors

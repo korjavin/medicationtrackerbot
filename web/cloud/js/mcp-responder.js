@@ -56,7 +56,7 @@ export const USAGE_PROTOCOL = 'Decision rule: (1) Discover — call mcp_help wit
   + "actionable error instead of hanging. For relative dates ('today', 'now', 'yesterday', 'last N days') use this "
   + "response's current_time as the real clock — never guess the date or year.";
 
-// currentTimeHint mirrors internal/mcp/help.go's helper of the same name: a
+// currentTimeHint mirrors the removed bot-mode helper of the same name: a
 // tool-only agent has no other clock, and the wired writes take an explicit
 // timestamp (health.bp.create/health.weight.create require measured_at), so an
 // unstamped response invites a guessed year. Same layout as Go's, weekday
@@ -72,8 +72,9 @@ function currentTimeHint(nowMs) {
 const BY_ID = CATALOG.reduce((m, op) => { m[op.id] = op; return m; }, Object.create(null));
 const TOPICS = [...new Set(CATALOG.map((op) => op.topic))].sort();
 
-// Ported from internal/mcp/proxy's Levenshtein helper. O(n·m) per entry, run
-// once per catalog entry on an unknown op — a rare, already-failing path.
+// Ported from bot mode's Levenshtein helper (removed with the Go MCP server).
+// O(n·m) per entry, run once per catalog entry on an unknown op — a rare,
+// already-failing path.
 function levenshtein(a, b) {
   const dp = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
   for (let i = 0; i <= a.length; i++) dp[i][0] = i;
@@ -88,7 +89,7 @@ function levenshtein(a, b) {
   return dp[a.length][b.length];
 }
 
-// suggestOperations mirrors internal/mcp/proxy's did-you-mean semantics
+// suggestOperations implements did-you-mean for unknown ops
 // (substring match first, Levenshtein ≤3 fallback, top 3). The query itself is
 // never a candidate: unlike bot mode, cloud mode's catalog is wider than its
 // dispatch table, so an id that fails to dispatch may still be catalogued, and
@@ -179,11 +180,10 @@ function takeWithinBudget(ids) {
   return { kept, dropped: ids.slice(kept.length) };
 }
 
-// buildHelp mirrors internal/mcp/help.go's precedence: ids > query > topic >
+// buildHelp applies mcp_help precedence: ids > query > topic >
 // full catalog. Only an id drill-in returns full entries (budgeted — see
-// HELP_ENTRY_BUDGET_BYTES). Query matches stay compact deliberately:
-// help.go:161-167 records that full nested schemas on a query response make
-// weaker models emit an empty turn.
+// HELP_ENTRY_BUDGET_BYTES). Query matches stay compact deliberately: full
+// nested schemas on a query response make weaker models emit an empty turn.
 function buildHelp(params) {
   const p = params || {};
   const requested = [p.operation_id, ...(Array.isArray(p.operation_ids) ? p.operation_ids : [])]
@@ -265,7 +265,7 @@ class MCPError extends Error {
   }
 }
 
-// Mirrors proxy.ModeReadOnly / proxy.ModeWrite (internal/mcp/proxy/proxy.go:26).
+// Mode constants, mirroring the removed bot-mode proxy's ModeReadOnly/ModeWrite.
 export const MODE_READ_ONLY = 'read_only';
 export const MODE_WRITE = 'write';
 
@@ -523,12 +523,12 @@ export function createDispatcher({ router, now = Date.now }) {
 
   async function handle(method, params) {
     if (method === 'mcp_help') {
-      // Stamped here, where every mcp_help variant converges (help.go:76 does
-      // the same), so no branch can ship an unclocked response.
+      // Stamped here, where every mcp_help variant converges, so no branch
+      // can ship an unclocked response.
       return { ...buildHelp(params), current_time: currentTimeHint(now()) };
     }
     if (method === 'mcp_call') {
-      // Full bot-mode envelope (internal/mcp/call.go:20-27): operation_id is
+      // Full mcp_call envelope: operation_id is
       // primary, `op` stays a back-compat alias because existing pairings and
       // older mcpshim binaries still send it.
       const p = params || {};
@@ -542,7 +542,7 @@ export function createDispatcher({ router, now = Date.now }) {
         throw new MCPError(-32602, `unknown operation "${opID}"${hint}`);
       }
 
-      // Absent mode means read-only, matching call.go:70-73.
+      // Absent mode means read-only: reads are the safe default.
       const mode = p.mode == null || p.mode === '' ? MODE_READ_ONLY : String(p.mode);
       if (mode !== MODE_READ_ONLY && mode !== MODE_WRITE) {
         throw new MCPError(-32602, `mode must be "${MODE_READ_ONLY}" or "${MODE_WRITE}", got "${mode}"`);
