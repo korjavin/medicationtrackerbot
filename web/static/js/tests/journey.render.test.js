@@ -146,6 +146,36 @@ describe('Journey render', () => {
         ]);
     });
 
+    // With the strip present (med-huec): the same full payload plus one
+    // whats_new line renders at most 9 cards — the strip leads, the other
+    // eight keep their personal-first order.
+    it('with the strip present, renders at most 9 cards, strip first', () => {
+        env.window.Gamification.render(journey({
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'trait', text: 'You\u2019re now a Consistent Mover.', target: 'journey-traits-card' }] },
+            weekly_review: { enabled: true, quiet: true, levers: [], gauges: {}, health_score: {} },
+            gauges: { enabled: true, weight: { status: 'insufficient_data' }, bp: { status: 'insufficient_data' }, resting_hr: { status: 'insufficient_data' } },
+            traits: { enabled: true, traits: [{ id: 't', title: 'T', state: 'held', on_28d: 24, lever_label: 'nights' }] },
+            experiments: { enabled: true, can_start: true, templates: [] },
+            chapter: { enabled: true, active: null, can_start: true, review: { title: 'The Steady Month', text: 'recap' }, themes: [{ id: 'x', title: 'X', blurb: 'b' }] },
+            keystones: { enabled: true, keystones: [{ id: 'k', title: 'K', earned_at: Date.UTC(2026, 4, 1) }] },
+            narration: { enabled: true },
+        }));
+        const cards = [...env.document.querySelectorAll('#journey-content > .wg-card')];
+        expect(cards.length).toBeLessThanOrEqual(9);
+        expect(cards[0].classList.contains('wg-journey-whatsnew')).toBe(true);
+        expect(cards.map((c) => c.className.split(' ').pop())).toEqual([
+            'wg-journey-whatsnew',
+            'wg-journey-atlas',
+            'wg-journey-weekly',
+            'wg-journey-gauges',
+            'wg-journey-score',
+            'wg-journey-traits',
+            'wg-journey-chapter',
+            'wg-journey-keystones',
+            'wg-journey-narrator',
+        ]);
+    });
+
     // The insight-ladder card was retired in the gamification redesign (Phase
     // 5): the narrative layer (chapters / traits / keystones) replaces the
     // level-gated ladder progression. The sleep→BP and good-day insight cards
@@ -714,6 +744,17 @@ describe('Journey render', () => {
         expect(dormant.querySelector('.wg-journey-trait__sub').textContent).toMatch(/rekindles it. Nothing was lost/i);
         expect(card.querySelector('.wg-journey-trait--held')).not.toBeNull();
         expect(card.querySelector('.wg-journey-trait--developing')).not.toBeNull();
+    });
+
+    it('renders a singular rekindle unit when one lever day is left (med-huec)', () => {
+        env.window.Gamification.render(journey({
+            traits: {
+                enabled: true,
+                traits: [{ id: 'consistent_mover', title: 'Consistent Mover', state: 'dormant', on_28d: 10, earn: 12, rekindle: 3, rekindle_remaining: 1, lever_label: 'move days' }],
+            },
+        }));
+        const sub = env.document.querySelector('.wg-journey-trait--dormant .wg-journey-trait__sub');
+        expect(sub.textContent).toBe('Dormant — 1 more move day rekindles it. Nothing was lost.');
     });
 
     it('renders the keystones timeline; omits the card when empty', () => {

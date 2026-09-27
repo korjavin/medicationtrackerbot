@@ -857,7 +857,8 @@
         if (t.state === 'dormant') {
             const need = Number(t.rekindle_remaining);
             const n = Number.isFinite(need) ? need : Number(t.rekindle) || 0;
-            return `Dormant — ${n} more ${t.lever_label} rekindles it. Nothing was lost.`;
+            const unit = n === 1 ? String(t.lever_label).replace(/s$/, '') : t.lever_label;
+            return `Dormant — ${n} more ${unit} rekindles it. Nothing was lost.`;
         }
         const remaining = Number(t.remaining) || 0;
         return `${Number(t.on_28d) || 0} of ${Number(t.earn) || 0} ${t.lever_label} — ${remaining} more to earn it.`;

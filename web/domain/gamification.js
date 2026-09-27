@@ -1133,17 +1133,20 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   }
 
   // getWhatsNew composes the existing narrative reads into at most four short
-  // event lines for the Journey's first card. Nothing new is computed or
-  // persisted: every candidate is a field that already exists on a payload the
-  // screen fetches, and "seen" reuses what exists — the Atlas seen flags plus a
-  // 7-day earned_at window for keystones and traits. No last-visit timestamp,
-  // no localStorage, so items age out on their own.
+  // event lines for the Journey's first card. Nothing is persisted: every
+  // candidate is a field that already exists on a payload the screen fetches
+  // (the dormant-since replay is pure over the same day map), and "seen"
+  // reuses what exists — the Atlas seen flags plus a 7-day window for
+  // keystones (earned_at), fresh traits (earned_at), dormant traits
+  // (dormancy transition), and verdicts (resolved_at). No last-visit
+  // timestamp, no localStorage, so items age out on their own.
   //
-  // Priority: unseen discoveries (max 2) -> a resolved trial -> a fresh
-  // keystone -> a trait (freshly earned, else dormant) -> this morning's
-  // forecast resolution. When none of those fired, ONE anticipation line for
-  // the developing probe closest to revealing (goal gradient) — and only once
-  // that probe has real data, so a fresh account shows no strip at all.
+  // Priority: unseen discoveries (max 2) -> a recently resolved trial -> a
+  // fresh keystone -> a trait (freshly earned, else recently dormant) -> this
+  // morning's forecast resolution. When none of those fired, ONE anticipation
+  // line for the developing probe closest to revealing (goal gradient) — and
+  // only once that probe has real data, so a fresh account shows no strip at
+  // all.
   //
   // ponytail: composing the reads costs four extra buildDays() passes on the
   // Atlas read (~6x its record reads), and journey.js fetches traits /
@@ -1175,10 +1178,15 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       });
     }
 
-    // 2. A trial that resolved and hasn't been acknowledged. no_effect reads
-    // exactly like effect (§3.3) — the milestone is running a clean trial.
+    // 2. A trial that resolved in the last 7 days and hasn't been
+    // acknowledged. no_effect reads exactly like effect (§3.3) — the milestone
+    // is running a clean trial. An old unacknowledged verdict is not news (it
+    // still waits on its own card); without the gate it would pin the strip
+    // non-empty and starve the anticipation fallback forever (med-huec).
     const verdict = experiments && experiments.verdict;
-    if (verdict) {
+    const verdictRecent = verdict && Number.isFinite(verdict.resolved_at)
+      && nowMs - verdict.resolved_at <= WHATS_NEW_RECENT_MS;
+    if (verdictRecent) {
       items.push({
         kind: 'experiment',
         text: `Your trial finished — ${verdict.title || 'your trial'}: ${verdictLabel(verdict.verdict)}.`,
@@ -1197,12 +1205,16 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       });
     }
 
-    // 4. One trait line: a freshly earned identity wins; otherwise a dormant
-    // one carries the existing rekindle copy — an invitation, never a loss.
+    // 4. One trait line: a freshly earned identity wins; otherwise a
+    // recently dormant one carries the existing rekindle copy — an invitation,
+    // never a loss. A long-dormant trait is not news (it still waits on its
+    // own card); without the gate it would pin the strip non-empty and starve
+    // the anticipation fallback forever (med-huec).
     const traitList = (traits && traits.traits) || [];
     const fresh = traitList.find((t) => t.state === 'held'
       && Number.isFinite(t.earned_at) && nowMs - t.earned_at <= WHATS_NEW_RECENT_MS);
-    const dormant = traitList.find((t) => t.state === 'dormant');
+    const dormant = traitList.find((t) => t.state === 'dormant'
+      && Number.isFinite(t.dormant_since) && nowMs - t.dormant_since <= WHATS_NEW_RECENT_MS);
     if (fresh) {
       const an = /^[aeiou]/i.test(fresh.title || '') ? 'an' : 'a';
       items.push({
@@ -1213,12 +1225,15 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     } else if (dormant) {
       const left = Number.isFinite(dormant.rekindle_remaining)
         ? dormant.rekindle_remaining : (Number(dormant.rekindle) || 0);
+      // Singular unit for one ("1 more move day"), matching the card.
+      const unit = left === 1
+        ? String(dormant.lever_label).replace(/s$/, '') : dormant.lever_label;
       items.push({
         kind: 'trait',
         // Verbatim the card's own rekindle copy (journey.js traitSubtitle),
         // reassurance included — a dormant trait is an invitation back, and
         // dropping "Nothing was lost" would turn it into a loss notice.
-        text: `${dormant.title} is dormant — ${left} more ${dormant.lever_label} rekindles it. Nothing was lost.`,
+        text: `${dormant.title} is dormant — ${left} more ${unit} rekindles it. Nothing was lost.`,
         target: 'journey-traits-card',
       });
     }
@@ -1793,6 +1808,58 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // journal.traits[id].earned_at — the durable "this was once true", which is
   // what lets a lapsed trait render DORMANT (never deleted). Recovery mode
   // pauses the dormancy clock: a sick week can't demote a held trait (§5).
+  //
+  // traitDormantSinceMs derives WHEN a currently-dormant trait lapsed — the
+  // day-start of the first dormant day — by replaying evalTrait's own held
+  // rule against trailing windows ending on each past day. No new persisted
+  // field: the transition is a pure function of the logged lever days, so an
+  // old dormant is old on every device the moment this ships (a first-seen
+  // stamp would show every stale dormant as fresh for a week). Null when the
+  // last held day is older than the 90-day window or predates the earn —
+  // both mean "dormant for a long time".
+  //
+  // The replay walks LOCAL date keys, never fixed 24-hour steps: across a
+  // spring-forward night one local date is only 23 hours long, and an
+  // hour-based walk can skip it entirely and misdate the transition by a day.
+  function traitDormantSinceMs(trait, days, earnedAtMs, nowMs) {
+    const onKeys = [];
+    for (const d of days.values()) {
+      let lever = false;
+      try { lever = trait.lever(d) === true; } catch (_) { lever = false; }
+      if (lever) onKeys.push(d.key);
+    }
+    const todayKey = localDayString(nowMs, timeZone);
+    const earnedKey = Number.isFinite(earnedAtMs)
+      ? localDayString(earnedAtMs, timeZone) : null;
+    for (let back = 1; back <= WINDOW_DAYS; back++) {
+      const asOfKey = addDays(todayKey, -back);
+      if (earnedKey && asOfKey < earnedKey) break;
+      // Same inclusive windows evalTrait uses, ending at asOf instead of now.
+      const earnStart = addDays(asOfKey, -TRAIT_EARN_WINDOW_DAYS);
+      const rekindleStart = addDays(asOfKey, -TRAIT_REKINDLE_WINDOW_DAYS);
+      let on28 = 0;
+      let on7 = 0;
+      for (const key of onKeys) {
+        if (key < earnStart || key > asOfKey) continue;
+        on28 += 1;
+        if (key >= rekindleStart) on7 += 1;
+      }
+      // Dormant implies earned, and asOf is past the earn (break above), so
+      // the rekindle arm applies exactly as it does in evalTrait today.
+      if (on28 >= trait.earn || on7 >= trait.rekindle) {
+        return zoneDayStartMs(addDays(asOfKey, 1));
+      }
+    }
+    return null;
+  }
+  // zoneDayStartMs converts a local date key to its zone midnight. Noon UTC
+  // always falls on the key itself or the day after (never before), so one
+  // conditional step lands an anchor inside the key in every zone.
+  function zoneDayStartMs(key) {
+    let anchor = Date.parse(`${key}T12:00:00Z`);
+    if (localDayString(anchor, timeZone) > key) anchor -= DAY_MS;
+    return dayStartMs(anchor, timeZone);
+  }
   function evalTrait(trait, days, persistedTraits, paused, nowMs) {
     const earnStart = localDayString(nowMs - TRAIT_EARN_WINDOW_DAYS * DAY_MS, timeZone);
     const rekindleStart = localDayString(nowMs - TRAIT_REKINDLE_WINDOW_DAYS * DAY_MS, timeZone);
@@ -1831,7 +1898,10 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       recovery_held: recoveryHeld,
     };
     if (state === 'developing') view.remaining = Math.max(0, trait.earn - on28);
-    if (state === 'dormant') view.rekindle_remaining = Math.max(0, trait.rekindle - on7);
+    if (state === 'dormant') {
+      view.rekindle_remaining = Math.max(0, trait.rekindle - on7);
+      view.dormant_since = traitDormantSinceMs(trait, days, view.earned_at, nowMs);
+    }
     return view;
   }
 
