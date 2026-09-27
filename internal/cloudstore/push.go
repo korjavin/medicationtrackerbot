@@ -166,7 +166,9 @@ type ScheduledPushInput struct {
 // ReplaceSchedule replaces accountID's unsent schedule with entries in one
 // transaction (delete-then-insert), matching the client scheduler's
 // replace-all semantics. Already-sent entries are left untouched so the
-// relay's send history survives a client re-schedule.
+// relay's send history survives a client re-schedule. It also stamps
+// sync_state.last_schedule_unix with now — on EMPTY batches too, since an
+// empty upload is the 'reminders deliberately off' signal (med-ei2).
 func (r *Repo) ReplaceSchedule(ctx context.Context, accountID string, entries []ScheduledPushInput, now time.Time) error {
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
 		// Only wipe the account's own client rows: relay-inserted workout snooze
@@ -192,6 +194,18 @@ func (r *Repo) ReplaceSchedule(ctx context.Context, accountID string, entries []
 				accountID, storedb.TimeToUnix(e.FireAt), ct, delivery, e.TGText, e.TGCallback, e.TGMedIDs); err != nil {
 				return err
 			}
+		}
+		// Stamp the upload itself (med-ei2): every replace-all PUT — empty
+		// batches included — records when the client last pushed a schedule,
+		// so the dry-queue predicate can tell 'reminders deliberately off'
+		// (fresh stamp, empty queue) from 'browser stopped re-uploading'
+		// (stale stamp, dry queue). Same lazy upsert shape as the
+		// last_sync_unix touches in sync.go: only this column moves.
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO sync_state (account_id, last_seq, last_schedule_unix) VALUES (?, 0, ?)
+			 ON CONFLICT(account_id) DO UPDATE SET last_schedule_unix = excluded.last_schedule_unix`,
+			accountID, storedb.TimeToUnix(now)); err != nil {
+			return err
 		}
 		return nil
 	})

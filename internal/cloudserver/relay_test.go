@@ -156,6 +156,14 @@ func TestRelay_StaleSyncSweep(t *testing.T) {
 		t.Fatalf("ListOps (touch sync): %v", err)
 	}
 
+	// med-ei2: the PUT above stamped last_schedule_unix with ~now, which now
+	// reads as 'client still uploading — deliberately off'. This test pins the
+	// ROTTED horizon (uploaded long ago, just exhausted), so backdate the stamp
+	// with an empty replace-all — the queue is already empty, no push rows move.
+	if err := store.ReplaceSchedule(ctx, account.ID, nil, time.Now().Add(-200*time.Hour)); err != nil {
+		t.Fatalf("ReplaceSchedule (backdate stamp): %v", err)
+	}
+
 	// A second account that syncs and has a live subscription but never
 	// scheduled a reminder has an "empty queue" too — and must stay silent.
 	other, _ := setupInvite(t, store)
