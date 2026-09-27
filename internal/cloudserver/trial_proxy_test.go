@@ -310,6 +310,87 @@ func TestTrialConfigFromEnv_TrimsTrailingSlash(t *testing.T) {
 	}
 }
 
+// TestTrialConfigFromEnv_DefaultModel pins the med-ibvc default: an operator
+// who sets only TRIAL_OPENAI_API_KEY gets gpt-6-luna on both triples (live
+// API check: the model supports vision and strict json_schema, so the vision
+// triple needs no separate default). An explicit TRIAL_OPENAI_MODEL still wins.
+func TestTrialConfigFromEnv_DefaultModel(t *testing.T) {
+	t.Setenv("TRIAL_OPENAI_API_KEY", "sk-test")
+
+	cfg, err := TrialConfigFromEnv()
+	if err != nil {
+		t.Fatalf("TrialConfigFromEnv: %v", err)
+	}
+	if cfg.OpenAIModel != "gpt-6-luna" {
+		t.Errorf("OpenAIModel = %q, want gpt-6-luna", cfg.OpenAIModel)
+	}
+	if cfg.VisionModel != "gpt-6-luna" {
+		t.Errorf("VisionModel = %q, want gpt-6-luna fallback", cfg.VisionModel)
+	}
+
+	t.Setenv("TRIAL_OPENAI_MODEL", "gpt-4o-mini")
+	cfg, err = TrialConfigFromEnv()
+	if err != nil {
+		t.Fatalf("TrialConfigFromEnv: %v", err)
+	}
+	if cfg.OpenAIModel != "gpt-4o-mini" {
+		t.Errorf("OpenAIModel = %q, want explicit gpt-4o-mini to win", cfg.OpenAIModel)
+	}
+}
+
+// TestTrialProxy_LunaToolsEffort pins the med-ibvc live-API finding:
+// gpt-6-luna answers 400 to function tools at its default reasoning effort,
+// so the proxy injects reasoning_effort "none" when the forced model is luna
+// and the client sent tools. Non-luna models pass through untouched (other
+// providers 400 unknown parameters), and an explicit client value wins.
+func TestTrialProxy_LunaToolsEffort(t *testing.T) {
+	var gotBody string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer upstream.Close()
+
+	post := func(t *testing.T, model, body string) map[string]any {
+		t.Helper()
+		cfg := TrialConfig{OpenAIAPIKey: "sk-trial", OpenAIURL: upstream.URL, OpenAIModel: model, RatePerMinute: 100}
+		h, _, host, claimToken := newTrialTestHandlerAPI(t, cfg)
+		session := registerAndGetSession(t, h, host, claimToken)
+		rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", body, session)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+		}
+		var forwarded map[string]any
+		if err := json.Unmarshal([]byte(gotBody), &forwarded); err != nil {
+			t.Fatalf("upstream body not JSON: %v", err)
+		}
+		return forwarded
+	}
+
+	toolsBody := `{"messages":[],"tools":[{"type":"function","function":{"name":"f"}}]}`
+	if forwarded := post(t, "gpt-6-luna", toolsBody); forwarded["reasoning_effort"] != "none" {
+		t.Errorf("luna+tools reasoning_effort = %v, want none", forwarded["reasoning_effort"])
+	}
+	if forwarded := post(t, "gpt-6-luna-2026-01-01", toolsBody); forwarded["reasoning_effort"] != "none" {
+		t.Errorf("dated luna+tools reasoning_effort = %v, want none", forwarded["reasoning_effort"])
+	}
+	if forwarded := post(t, "openai/gpt-6-luna", toolsBody); forwarded["reasoning_effort"] != "none" {
+		t.Errorf("prefixed luna+tools reasoning_effort = %v, want none", forwarded["reasoning_effort"])
+	}
+	if forwarded := post(t, "gpt-4o-mini", toolsBody); forwarded["reasoning_effort"] != nil {
+		t.Errorf("non-luna+tools reasoning_effort = %v, want key absent", forwarded["reasoning_effort"])
+	}
+	if forwarded := post(t, "gpt-6-luna", `{"messages":[]}`); forwarded["reasoning_effort"] != nil {
+		t.Errorf("luna without tools reasoning_effort = %v, want key absent", forwarded["reasoning_effort"])
+	}
+	explicit := `{"messages":[],"tools":[{"type":"function"}],"reasoning_effort":"low"}`
+	if forwarded := post(t, "gpt-6-luna", explicit); forwarded["reasoning_effort"] != "low" {
+		t.Errorf("explicit reasoning_effort = %v, want low preserved", forwarded["reasoning_effort"])
+	}
+}
+
 // TestTrialProxy_ResponseFormatUnsupported pins the med-0s9 root cause: a
 // trial model without json_schema support (deepseek-chat, most local models)
 // answers 400, and the proxy must name that case rather than flatten it into

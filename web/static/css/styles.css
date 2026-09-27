@@ -1724,51 +1724,8 @@ svg.chart-svg {
 
 /* ==================== Sync Status Styles ==================== */
 
-/* Sync Status Bar */
-.sync-status-bar {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-lg);
-    margin-bottom: var(--space-md);
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-}
-
-.sync-status-bar.offline {
-    background: linear-gradient(135deg, var(--color-status-offline-bg-start) 0%, var(--color-status-offline-bg-end) 100%);
-    color: var(--color-status-offline-text);
-    border: 1px solid var(--color-status-offline-border);
-}
-
-.sync-status-bar.syncing {
-    background: linear-gradient(135deg, var(--color-status-syncing-bg-start) 0%, var(--color-status-syncing-bg-end) 100%);
-    color: var(--color-status-syncing-text);
-    border: 1px solid var(--color-status-syncing-border);
-}
-
-.sync-status-bar.pending {
-    background: linear-gradient(135deg, var(--color-status-pending-bg-start) 0%, var(--color-status-pending-bg-end) 100%);
-    color: var(--color-status-pending-text);
-    border: 1px solid var(--color-status-pending-border);
-}
-
-.sync-status-bar.synced {
-    background: var(--secondary-bg-color);
-    color: var(--hint-color);
-    border: 1px solid transparent;
-    padding: var(--space-xs) var(--space-lg);
-}
-
-#settings-view .sync-status-bar {
-    margin: 0;
-    padding: var(--space-xs) var(--space-md);
-    font-size: var(--font-size-xs);
-    border-radius: var(--radius-pill);
-}
-
+/* Sync Status Bar (med-a9n5.8: bar rules deleted with the Sync card;
+   .sync-icon below stays — sync.js still emits it until F6 lands) */
 .sync-icon {
     font-size: var(--font-size-md);
 }
@@ -1796,39 +1753,6 @@ svg.chart-svg {
     padding: var(--space-xs) var(--space-md);
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-medium);
-}
-
-/* Demo Banner — surfaced from /api/bootstrap when DEMO_MODE=1. Sits
-   directly under #offline-banner and uses Wandergeek sun tokens to set
-   it apart from the red offline strip. Inline-flex layout puts the
-   dismiss `×` button at the trailing edge. */
-.wg-demo-banner {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-sm);
-    background: var(--wg-sun);
-    color: var(--wg-teal-stage);
-    border-bottom: 1px solid var(--wg-sun-deep);
-    text-align: center;
-    padding: var(--space-xs) var(--space-md);
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-}
-
-.wg-demo-banner__text {
-    flex: 1 1 auto;
-}
-
-.wg-demo-banner__dismiss {
-    flex: 0 0 auto;
-    background: transparent;
-    color: var(--wg-teal-stage);
-    border: none;
-    font-size: var(--font-size-lg);
-    line-height: 1;
-    padding: 0 var(--space-xs);
-    cursor: pointer;
 }
 
 /* TZ Transition Plan Card — Wandergeek card surfaced on Today directly above

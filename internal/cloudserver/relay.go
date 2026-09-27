@@ -181,6 +181,21 @@ type Relay struct {
 	wakeMu       sync.Mutex
 	lastWake     map[string]time.Time
 	wakeCooldown time.Duration
+	// trailing marks accounts with a trailing coalesced push wake already
+	// scheduled at the cooldown boundary (bd med-j0tc). Entries live only
+	// until the timer fires, so unlike lastWake this map stays tiny.
+	trailing map[string]bool
+
+	// broker, when set, gets a content-free fan-out on EVERY WakeInbox call —
+	// including ones whose push half the cooldown suppresses. An SSE wake
+	// costs one in-memory nudge per open tab, not silent-push budget, so it is
+	// never coalesced.
+	broker *InboxBroker
+
+	// now/after are time.Now/time.AfterFunc, injectable so trailing-wake
+	// timing tests don't sleep through the real 10s cooldown.
+	now   func() time.Time
+	after func(d time.Duration, f func())
 }
 
 // NewRelay builds a Relay that ticks every 30s. dryQueueWarnWithin is
@@ -198,8 +213,16 @@ func NewRelay(store relayStore, sender PushSender, tg TelegramSender, dryQueueWa
 		dryQueueWarnWithin: dryQueueWarnWithin,
 		lastWake:           make(map[string]time.Time),
 		wakeCooldown:       inboxWakeCooldown,
+		trailing:           make(map[string]bool),
+		now:                time.Now,
+		after:              func(d time.Duration, f func()) { time.AfterFunc(d, f) },
 	}
 }
+
+// SetEventBroker wires the SSE fan-out WakeInbox notifies on every call. A
+// setter (rather than a NewRelay param) so the ~15 existing call sites don't
+// churn; unset leaves WakeInbox push-only, exactly as before.
+func (rl *Relay) SetEventBroker(b *InboxBroker) { rl.broker = b }
 
 // Run ticks until ctx is cancelled. Call it in its own goroutine, passing the
 // same context the HTTP server shuts down on, so the relay stops with it.
@@ -424,7 +447,18 @@ func (rl *Relay) StaleSyncSweep(ctx context.Context) {
 // cmd/cloud's SetInboxWaker wiring. Every failure is logged and swallowed; a
 // wake that never lands only costs the latency the poller already covers.
 func (rl *Relay) WakeInbox(ctx context.Context, accountID string) {
-	if !rl.claimWake(accountID, time.Now()) {
+	// SSE first, on every append: open tabs drain now whether or not the push
+	// half below survives the cooldown (bd med-j0tc). Privacy-safe: a count,
+	// never content.
+	if rl.broker != nil {
+		slog.Info("inbox: sse fanout", "accountID", accountID, "subscribers", rl.broker.Notify(accountID))
+	}
+	if !rl.claimWake(accountID, rl.now()) {
+		// A wake already went out inside this window, and this append arrived
+		// after it — the first wake's drain may already have run. Schedule one
+		// trailing coalesced wake at the boundary instead of dropping this
+		// event's only nudge on the floor.
+		rl.scheduleTrailingWake(accountID)
 		return
 	}
 	subs, err := rl.store.List(ctx, accountID)
@@ -443,9 +477,52 @@ func (rl *Relay) WakeInbox(ctx context.Context, accountID string) {
 	if keys.PublicKey == "" || keys.PrivateKey == "" {
 		return
 	}
+	slog.Info("inbox: push wake attempt", "accountID", accountID, "subs", len(subs))
+	var sent, failed int
 	for _, sub := range subs {
-		rl.send(ctx, sub, keys, inboxWakePayload)
+		if rl.send(ctx, sub, keys, inboxWakePayload) {
+			sent++
+		} else {
+			failed++
+		}
 	}
+	slog.Info("inbox: push wake result", "accountID", accountID, "sent", sent, "failed", failed)
+}
+
+// scheduleTrailingWake arranges one coalesced push wake at the cooldown
+// boundary for an append that landed inside the window. At most one trailing
+// wake is ever pending per account — a burst schedules once, not once per
+// message — and when the timer fires it goes through WakeInbox, so it claims
+// the (now lapsed) window like any other wake and re-arms normally if a newer
+// append beat it there. The fired wake also re-nudges SSE subscribers, which
+// is harmless (an empty drain) and heals a tab that missed the first fan-out
+// mid-reconnect.
+func (rl *Relay) scheduleTrailingWake(accountID string) {
+	rl.wakeMu.Lock()
+	if rl.trailing[accountID] {
+		rl.wakeMu.Unlock()
+		return
+	}
+	remaining := rl.wakeCooldown - rl.now().Sub(rl.lastWake[accountID])
+	if remaining <= 0 {
+		// The window lapsed between claimWake and here; the next append wakes
+		// immediately, so there is nothing to trail.
+		rl.wakeMu.Unlock()
+		return
+	}
+	rl.trailing[accountID] = true
+	after := rl.after
+	rl.wakeMu.Unlock()
+	slog.Info("inbox: push wake trailing scheduled", "accountID", accountID, "in_ms", remaining.Milliseconds())
+	after(remaining, func() {
+		rl.wakeMu.Lock()
+		delete(rl.trailing, accountID)
+		rl.wakeMu.Unlock()
+		// Fresh background context: the webhook request that scheduled this is
+		// long gone by the boundary (and the detached WakeInbox already dropped
+		// it via WithoutCancel); per-sub sends still carry their own timeout.
+		rl.WakeInbox(context.Background(), accountID)
+	})
 }
 
 // claimWake reports whether accountID may wake now, recording the instant when
@@ -460,7 +537,10 @@ func (rl *Relay) claimWake(accountID string, now time.Time) bool {
 	return true
 }
 
-func (rl *Relay) send(ctx context.Context, sub cloudstore.PushSubscription, keys cloudstore.AccountVAPIDKeys, ct []byte) {
+// send reports whether the push service accepted the send. Callers that don't
+// need the outcome (the scheduled sweeps) ignore it; WakeInbox counts it into
+// its attempt/result log pair.
+func (rl *Relay) send(ctx context.Context, sub cloudstore.PushSubscription, keys cloudstore.AccountVAPIDKeys, ct []byte) bool {
 	sendCtx, cancel := context.WithTimeout(ctx, relaySendTimeout)
 	defer cancel()
 
@@ -470,11 +550,12 @@ func (rl *Relay) send(ctx context.Context, sub cloudstore.PushSubscription, keys
 		// endpoint URL — unwrap it so the fingerprint stays the only endpoint
 		// reference in the log (bd med-yor.16).
 		slog.Error("push relay: send failed", "endpoint_fp", endpointFingerprint(sub.Endpoint), "error", urlErrCause(err))
-		return
+		return false
 	}
 	if status == http.StatusNotFound || status == http.StatusGone {
 		if err := rl.store.Disable(ctx, sub.Endpoint); err != nil {
 			slog.Error("push relay: disable subscription", "endpoint_fp", endpointFingerprint(sub.Endpoint), "error", err)
 		}
 	}
+	return true
 }

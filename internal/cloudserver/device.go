@@ -42,8 +42,14 @@ type deviceListItem struct {
 	CredentialID   string     `json:"credential_id"`
 	CreatedAt      time.Time  `json:"created_at"`
 	LastAssertedAt *time.Time `json:"last_asserted_at,omitempty"`
+	// Mode is the explicit credential type ("prf" or "local_only", med-eas.2.1
+	// POC). The client renders local-only credentials distinctly and never
+	// infers the type from envelope absence.
+	Mode string `json:"mode"`
 	// Envelope carries nonce+ct+mac (not just mac) so the client can recompute
 	// and verify the audit tag (docs/cloud-crypto.md envelope-audit MAC).
+	// Local-only credentials carry no envelope — that absence is expected for
+	// them, not an audit failure.
 	Envelope *envelopeWire `json:"envelope,omitempty"`
 }
 
@@ -70,6 +76,7 @@ func (a *DeviceAPI) ListDevices(w http.ResponseWriter, r *http.Request) {
 			CredentialID:   base64.RawURLEncoding.EncodeToString(c.ID),
 			CreatedAt:      c.CreatedAt,
 			LastAssertedAt: c.LastAssertedAt,
+			Mode:           c.Mode,
 		}
 		env, err := a.store.GetEnvelope(r.Context(), session.AccountID, item.CredentialID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {

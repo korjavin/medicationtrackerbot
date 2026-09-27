@@ -90,9 +90,8 @@ const (
 	// mcpRelayRateLimitMax/-Window bound how many frames one pairing may push
 	// through the relay per window — generous for interactive tool calls
 	// (request+response are two frames each) while capping a runaway/abusive
-	// shim or tab. Mirrors internal/mcp/rate_limit.go's limiter, duplicated
-	// here (not shared) because cloudserver must not import internal/mcp
-	// (bot-mode package) any more than it may import internal/server.
+	// shim or tab. Enforced by rate_limit.go's sliding-window limiter,
+	// instantiated per relay below.
 	mcpRelayRateLimitMax    = 120
 	mcpRelayRateLimitWindow = 10 * time.Second
 )
@@ -784,7 +783,7 @@ func newPairingTable(ttl time.Duration) *pairingTable {
 }
 
 // startCleanup runs a background sweep evicting expired pairings, mirroring
-// internal/mcp/rate_limit.go's rateLimiter.startCleanup — without it a
+// rate_limit.go's rateLimiter.startCleanup — without it a
 // long-lived process accumulates one dead entry per pairing ever minted.
 func (t *pairingTable) startCleanup() {
 	ticker := time.NewTicker(pairingCleanupEvery)

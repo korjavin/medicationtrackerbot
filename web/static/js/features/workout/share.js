@@ -214,10 +214,9 @@ async function decryptShareLink(keyB64url, packedStdB64) {
 // createShortLink(token) → '<url>#<base64url K>' or null. Raw fetch, not
 // apiCall: /api/share is a real server route, not an apishim route
 // (precedent: features/settings/importexport.js POSTs /api/vitals/import the
-// same way). ONLY in cloud mode; bot mode never POSTs.
+// same way).
 async function createShortLink(token) {
     try {
-        if (!window.__MEDTRACKER_CLOUD__) return null;
         const c = shareLinkCrypto();
         if (!c) return null;
         const keyBytes = c.getRandomValues(new Uint8Array(16));

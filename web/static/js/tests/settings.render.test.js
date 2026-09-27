@@ -41,7 +41,7 @@ function loadSettingsView() {
 
 // Group summary text (accents/entities decoded) → the section selectors it must contain.
 const GROUPS = [
-    ['Preferences', ['.wg-settings-timezone', '.wg-settings-notifications-cloud', '.wg-settings-features', '.wg-settings-reminders', '.wg-settings-units']],
+    ['Preferences', ['.wg-settings-notifications-cloud', '.wg-settings-features', '.wg-settings-reminders', '.wg-settings-units']],
     ['Targets', ['#food-target-settings', '#gamification-targets-settings']],
     ['Integrations', ['#settings-integrations']],
     ['Devices & connections', ['.wg-settings-cloud-devices', '.wg-settings-cloud-invite']],
@@ -50,16 +50,12 @@ const GROUPS = [
 ];
 
 describe('Settings view collapsible groups (index.html)', () => {
-    it('renders the six <details> groups with their summaries, plus a pinned Sync card outside any group', () => {
+    it('renders the six <details> groups with their summaries', () => {
         const { document, cleanup } = loadSettingsView();
         try {
             const summaries = Array.from(document.querySelectorAll('.wg-settings-group > .wg-settings-group__summary'))
                 .map((s) => s.textContent.trim());
             expect(summaries).toEqual(GROUPS.map(([title]) => title));
-            // Sync stays pinned at the top, not wrapped in a group.
-            const sync = document.querySelector('.wg-settings-sync');
-            expect(sync).not.toBeNull();
-            expect(sync.closest('.wg-settings-group')).toBeNull();
         } finally {
             cleanup();
         }
@@ -117,7 +113,7 @@ describe('Settings view collapsible groups (index.html)', () => {
             window.hideEmptySettingsGroups();
 
             expect(targets.classList.contains('wg-settings-hidden')).toBe(true);
-            const prefs = document.querySelector('.wg-settings-timezone').closest('.wg-settings-group');
+            const prefs = document.querySelector('.wg-settings-notifications').closest('.wg-settings-group');
             expect(prefs.classList.contains('wg-settings-hidden')).toBe(false);
         } finally {
             cleanup();

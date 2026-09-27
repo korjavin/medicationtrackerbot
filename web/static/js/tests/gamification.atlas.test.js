@@ -325,6 +325,140 @@ describe('gamification "since you last looked" strip', () => {
     expect(await gam.getAtlas({ whatsNew: false })).not.toHaveProperty('whats_new');
   });
 
+  // med-huec — the dormant and verdict lines carry a 7-day recency window
+  // so a stale trait or an undismissed verdict stops pinning the strip
+  // non-empty (and starving the anticipation fallback) forever.
+
+  // Three weeks of above-band BP and nothing else: no finding clears its
+  // gate, no keystone, no forecast — the weekend probe holds real pairs, so
+  // the strip falls through to anticipation unless a recent dormant/verdict
+  // line claims it first.
+  function quietVaultWithPairs() {
+    const bp = [];
+    for (let offset = 40; offset <= 60; offset++) bp.push(bpRec(offset, 140));
+    return { bp };
+  }
+
+  function resolvedExpRec(resolvedOffset) {
+    return {
+      recordId: 'exp-1', deleted: false,
+      template_id: 'bedtime_window', status: 'resolved',
+      started_at: NOW - (resolvedOffset + 14) * DAY_MS, duration_days: 14,
+      resolved_at: NOW - resolvedOffset * DAY_MS,
+      acknowledged: false,
+      verdict: { verdict: 'effect', rewarded: true },
+    };
+  }
+
+  it('shows a recently dormant trait, hiding the anticipation fallback', async () => {
+    // Consistent Mover (earn 12/28, rekindle 3/7), earned long ago: 12
+    // workout days with the 4 oldest about to age out of the 28-day window,
+    // so the trait held 4 days ago and lapsed since.
+    const seed = quietVaultWithPairs();
+    seed.workoutsession = [10, 11, 12, 13, 14, 15, 16, 17, 29, 30, 31, 32]
+      .map((offset) => workoutRec(offset));
+    seed.gamificationjournal = [journalRec({
+      traits: { consistent_mover: { earned_at: NOW - 60 * DAY_MS } },
+    })];
+    const { gam } = domainOver(seed);
+
+    const mover = (await gam.getTraits()).traits
+      .find((t) => t.id === 'consistent_mover');
+    expect(mover.state).toBe('dormant');
+    expect(mover.dormant_since).toBeGreaterThan(NOW - 7 * DAY_MS);
+
+    const items = (await gam.getAtlas()).whats_new;
+    expect(items.map((it) => it.kind)).toEqual(['trait']);
+    expect(items[0].text).toContain('is dormant');
+    expect(items[0].target).toBe('journey-traits-card');
+  });
+
+  it('lets a long-dormant trait age out so the anticipation fallback returns', async () => {
+    // Earned 60 days ago with no lever day left in the window: dormant with
+    // no recent transition — not news, so the strip falls through.
+    const seed = quietVaultWithPairs();
+    seed.gamificationjournal = [journalRec({
+      traits: { consistent_mover: { earned_at: NOW - 60 * DAY_MS } },
+    })];
+    const { gam } = domainOver(seed);
+
+    const mover = (await gam.getTraits()).traits
+      .find((t) => t.id === 'consistent_mover');
+    expect(mover.state).toBe('dormant');
+
+    const items = (await gam.getAtlas()).whats_new;
+    expect(items).toHaveLength(1);
+    expect(items[0].kind).toBe('anticipation');
+  });
+
+  it('uses the singular unit when one lever day rekindles a dormant trait', async () => {
+    // The same lapse plus two move days this week: dormant with exactly one
+    // day left to rekindle.
+    const seed = quietVaultWithPairs();
+    seed.workoutsession = [1, 2, 10, 11, 12, 13, 14, 15, 16, 17, 29, 30, 31, 32]
+      .map((offset) => workoutRec(offset));
+    seed.gamificationjournal = [journalRec({
+      traits: { consistent_mover: { earned_at: NOW - 60 * DAY_MS } },
+    })];
+    const { gam } = domainOver(seed);
+
+    const items = (await gam.getAtlas()).whats_new;
+    expect(items.map((it) => it.kind)).toEqual(['trait']);
+    expect(items[0].text)
+      .toBe('Consistent Mover is dormant — 1 more move day rekindles it. Nothing was lost.');
+  });
+
+  it('shows a recently resolved trial, hiding the anticipation fallback', async () => {
+    const seed = quietVaultWithPairs();
+    seed.gamificationexperiment = [resolvedExpRec(2)];
+    const { gam } = domainOver(seed);
+
+    const items = (await gam.getAtlas()).whats_new;
+    expect(items.map((it) => it.kind)).toEqual(['experiment']);
+    expect(items[0].text).toContain('Your trial finished');
+    expect(items[0].target).toBe('journey-experiment-card');
+  });
+
+  it('lets an old unacknowledged verdict age out so the anticipation fallback returns', async () => {
+    const seed = quietVaultWithPairs();
+    seed.gamificationexperiment = [resolvedExpRec(10)];
+    const { gam } = domainOver(seed);
+
+    // The verdict still waits on its own card — it just stops leading news.
+    expect((await gam.listExperiments()).verdict).not.toBeNull();
+
+    const items = (await gam.getAtlas()).whats_new;
+    expect(items).toHaveLength(1);
+    expect(items[0].kind).toBe('anticipation');
+  });
+
+  it('dates the dormancy transition on the local calendar across a DST change', async () => {
+    // Europe/Berlin springs forward on 2026-03-29; at 00:30 local on Mar 30
+    // a fixed-24h replay lands back on Mar 28 and skips Mar 29 entirely. The
+    // transition must come from local date keys, not elapsed hours.
+    const tz = 'Europe/Berlin';
+    const at = Date.parse('2026-03-29T22:30:00Z'); // Mar 30 00:30 CEST
+    const dates = ['2026-02-28',
+      ...Array.from({ length: 11 }, (_, i) => `2026-03-${String(i + 2).padStart(2, '0')}`)];
+    const records = createInMemoryRecordsPort({
+      workoutsession: dates.map((d, i) => ({
+        recordId: `ws-${i}`, deleted: false, status: 'completed', completed_at: `${d}T12:00:00Z`,
+      })),
+      gamificationjournal: [journalRec({
+        traits: { consistent_mover: { earned_at: Date.parse('2026-02-20T12:00:00Z') } },
+      })],
+    });
+    const gam = createGamificationDomain({ records, now: () => at, timeZone: tz });
+    const mover = (await gam.getTraits()).traits
+      .find((t) => t.id === 'consistent_mover');
+    expect(mover.state).toBe('dormant');
+    // Held through Mar 28, dormant since Mar 29 — never Mar 30.
+    const day = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date(mover.dormant_since));
+    expect(day).toBe('2026-03-29');
+  });
+
   it('shows nothing at all on a fresh account', async () => {
     const { gam } = domainOver({});
     expect((await gam.getAtlas()).whats_new).toEqual([]);

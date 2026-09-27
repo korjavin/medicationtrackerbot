@@ -182,20 +182,9 @@ describe('Today shortcut rows — food + vitals split', () => {
             expect(root.querySelector('.wg-today-shortcuts')).toBeNull();
         });
 
-        // Bot mode has no GET /api/brief and does not serve /js/print-doc.js,
-        // so the tile must not be offered there at all.
-        it('is absent outside cloud mode even with window.DoctorBrief present', () => {
-            const root = env.document.getElementById('today-content');
-            env.window.DoctorBrief = { open() {} };
-            env.window.__MEDTRACKER_CLOUD__ = false;
-            env.render(baseState(now), root, { now });
-            expect(root.querySelector('.wg-today-shortcuts--brief')).toBeNull();
-        });
-
-        it('uses window.DoctorBrief.open as the default handler in cloud mode', () => {
+        it('uses window.DoctorBrief.open as the default handler', () => {
             const root = env.document.getElementById('today-content');
             let opened = 0;
-            env.window.__MEDTRACKER_CLOUD__ = true;
             env.window.DoctorBrief = { open() { opened += 1; } };
             env.render(baseState(now), root, { now });
             const tile = root.querySelector('.wg-today-shortcuts--brief .wg-shortcut-tile');

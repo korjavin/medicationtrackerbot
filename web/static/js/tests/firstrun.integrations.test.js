@@ -78,7 +78,7 @@ describe('firstrun integrations screen', () => {
             expect(url).not.toBeNull();
             expect(url.value).toBe('https://api.openai.com/v1');
             expect(model).not.toBeNull();
-            expect(model.value).toBe('gpt-4o-mini');
+            expect(model.value).toBe('gpt-6-luna');
 
             expect(document.querySelector('[data-firstrun-action="save"]')).not.toBeNull();
             expect(document.querySelector('[data-firstrun-action="skip"]')).not.toBeNull();
@@ -110,12 +110,6 @@ describe('firstrun integrations screen', () => {
             expect(noTrial.document.querySelector('[data-firstrun-action="skip"]').textContent).toBe('Skip');
         } finally { noTrial.cleanup(); }
 
-        // Bot mode has no trial path at all, even if a stray meta tag exists.
-        const bot = loadFlow({ bootstrap: { needs_first_run: true }, trialAi: true });
-        try {
-            bot.window.WGFirstRun.mount();
-            expect(bot.document.querySelector('.wg-firstrun-screen__tagline').textContent).not.toMatch(/trial/i);
-        } finally { bot.cleanup(); }
     });
 
     it('Save submits PATCH /api/settings/integrations with the entered key + URL + model', async () => {
@@ -145,7 +139,7 @@ describe('firstrun integrations screen', () => {
                 openai: {
                     api_key: 'sk-test-1234',
                     url: 'https://api.openai.com/v1',
-                    model: 'gpt-4o-mini',
+                    model: 'gpt-6-luna',
                 },
             });
         } finally { cleanup(); }
@@ -279,7 +273,7 @@ describe('firstrun integrations screen', () => {
                 openai: {
                     api_key: 'sk-via-helper',
                     url: 'https://api.openai.com/v1',
-                    model: 'gpt-4o-mini',
+                    model: 'gpt-6-luna',
                 },
             });
             expect(fetchMock).not.toHaveBeenCalled();

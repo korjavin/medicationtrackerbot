@@ -1,7 +1,7 @@
-// Package db owns the shared SQLite connection used by every per-domain
-// repository under internal/store/.
+// Package db owns the shared SQLite connection used by the cloud storage
+// layer (internal/cloudstore).
 //
-// One *DB is opened by the composition root (cmd/bot, cmd/mcptool, etc.) and
+// One *DB is opened by the composition root (cmd/cloud) and
 // passed into each repository constructor. Holding a single *sql.DB means a
 // single connection pool, a single busy-timeout, and a single WAL writer —
 // which is the property the SQLite max-conns=1 strategy relies on.
@@ -25,9 +25,9 @@ type DB struct {
 // pragmas (WAL journal, 5s busy_timeout) and connection-pool limit
 // (MaxOpenConns=1, to avoid WAL-writer contention).
 //
-// Migrations are NOT run here — see (*DB).Migrate. Tests and importers that
-// need a populated schema typically go through store.NewWithDB which runs
-// migrations on the caller's behalf.
+// Migrations are NOT run here — see (*DB).Migrate. Callers that need a
+// populated schema run migrations on their own behalf (cloudstore.New runs
+// Migrate over its embedded migrations).
 func Open(path string) (*DB, error) {
 	sdb, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -45,7 +45,7 @@ func Open(path string) (*DB, error) {
 
 	// Set busy_timeout so concurrent writers retry instead of immediately
 	// returning SQLITE_BUSY ("database is locked"). 5 seconds gives enough
-	// time for the scheduler's simultaneous reminder writes to succeed.
+	// time for concurrent writes to succeed.
 	if _, err := sdb.Exec("PRAGMA busy_timeout = 5000"); err != nil {
 		return nil, fmt.Errorf("failed to set busy_timeout: %w", err)
 	}

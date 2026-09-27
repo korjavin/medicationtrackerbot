@@ -10,7 +10,6 @@ const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const INDEX_HTML = path.join(REPO_ROOT, 'web/static/index.html');
 const UTILS_JS = path.join(REPO_ROOT, 'web/static/js/core/utils.js');
 const MESSENGER_ADAPTER_JS = path.join(REPO_ROOT, 'web/static/js/core/messenger-adapter.js');
-const TIME_FORMAT_JS = path.join(REPO_ROOT, 'web/static/js/core/time-format.js');
 const MT_ELEMENTS_JS = path.join(REPO_ROOT, 'web/static/js/components/mt-elements.js');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
 const STAT_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/stat-card.js');
@@ -183,9 +182,6 @@ export function loadFrontendEnv({ withWorkout = false, url = 'https://example.te
   // module that calls into the adapter (back-button, modal-history,
   // deeplink-router, utils' safeAlert/safeConfirm).
   evalFileCached(window, MESSENGER_ADAPTER_JS);
-  // time-format.js owns Settings timezone/server-clock render helpers; loads
-  // right after utils.js since app.js delegates renderSettingsTimeInfo to it.
-  evalFileCached(window, TIME_FORMAT_JS);
   // wg-toggle.js must load before mt-elements.js so <mt-setting-toggle>
   // upgrades can pick up window.WGToggle in its connectedCallback.
   evalFileCached(window, WG_TOGGLE_JS);

@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -42,6 +43,7 @@ type config struct {
 	tgAPIBaseURL         string
 	internalWebhookBase  string
 	requestInviteEmail   string
+	localOnlyPOC         bool
 	feedbackAgeRecipient string
 	feedbackAdminChatID  int64
 	trial                cloudserver.TrialConfig
@@ -62,6 +64,7 @@ func loadConfig() (config, error) {
 		tgAPIBaseURL:         os.Getenv("CLOUD_TG_API_BASE_URL"),
 		internalWebhookBase:  os.Getenv("CLOUD_INTERNAL_WEBHOOK_BASE"),
 		requestInviteEmail:   os.Getenv("REQUEST_INVITE_EMAIL"),
+		localOnlyPOC:         parseBoolEnv("CLOUD_LOCAL_ONLY_POC"),
 		feedbackAgeRecipient: os.Getenv("FEEDBACK_AGE_RECIPIENT"),
 	}
 	if cfg.internalWebhookBase == "" {
@@ -132,6 +135,14 @@ func loadConfig() (config, error) {
 	}
 
 	return cfg, nil
+}
+
+// parseBoolEnv reads an opt-in env flag: "1" or case-insensitive "true"
+// enables, anything else (including unset) disables. Default-off by design —
+// the caller documents the flag in docs/environment.md.
+func parseBoolEnv(name string) bool {
+	v := os.Getenv(name)
+	return v == "1" || strings.EqualFold(v, "true")
 }
 
 // validateSessionSecret mirrors the length + Shannon-entropy check in
@@ -217,6 +228,7 @@ func main() {
 	slog.Info("VAPID key backfill complete", "accountsBackfilled", backfilled)
 
 	webauthnAPI := cloudserver.NewWebAuthnAPI(store, cfg.sessionSecret)
+	webauthnAPI.SetLocalOnlyPOC(cfg.localOnlyPOC)
 	envelopeAPI := cloudserver.NewEnvelopeAPI(store, cfg.sessionSecret)
 	transferAPI := cloudserver.NewTransferAPI(store, cfg.sessionSecret)
 	shareAPI := cloudserver.NewShareAPI(store, cfg.sessionSecret, cfg.baseDomain)
@@ -245,7 +257,12 @@ func main() {
 	inviteAPI.RegisterRoutes(apiMux)
 	syncAPI.RegisterRoutes(apiMux)
 	pushAPI.RegisterRoutes(apiMux)
-	cloudserver.NewInboxAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
+	// One broker shared by the inbox stream handler and the relay: appends fanned
+	// out here reach every open unlocked tab as an SSE wake (bd med-j0tc).
+	inboxBroker := cloudserver.NewInboxBroker()
+	inboxAPI := cloudserver.NewInboxAPI(store, cfg.sessionSecret)
+	inboxAPI.SetEventBroker(inboxBroker)
+	inboxAPI.RegisterRoutes(apiMux)
 	cloudserver.NewVitalsImportAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
 	mcpRelayAPI.RegisterRoutes(apiMux)
 	mcpRemoteAPI.RegisterRoutes(apiMux)
@@ -304,6 +321,7 @@ func main() {
 	router := cloudserver.New(cfg.baseDomain, store, cloudweb.FS, webstatic.FS, domainweb.FS, apiMux, cfg.foodDBURL, cfg.trial.TrialAIConfigured(), cfg.trial.TrialVoiceConfigured())
 	router.SetMCPHandler(mcpRemoteAPI.Endpoint())
 	router.SetRequestInviteEmail(cfg.requestInviteEmail)
+	router.SetLocalOnlyPOC(cfg.localOnlyPOC)
 	router.SetFeedbackRecipient(cfg.feedbackAgeRecipient)
 	// Base-domain web-feedback reader (bd med-rbl). Mounted unconditionally: it
 	// only ever answers a live capability token, and tokens exist only if the
@@ -318,6 +336,7 @@ func main() {
 		tgSender = tgAPI
 	}
 	relay := cloudserver.NewRelay(store, webPushSender, tgSender, cfg.dryQueueWarnHours)
+	relay.SetEventBroker(inboxBroker)
 	if tgAPI != nil {
 		// Wake the account's devices the instant a Telegram event is sealed
 		// (bd med-5fo), so a "⏳ Queued" reply becomes "✅ Recorded" without
@@ -369,6 +388,11 @@ func main() {
 		}
 	case <-ctx.Done():
 		slog.Info("Shutdown signal received, draining connections")
+		// End SSE inbox streams FIRST: their handlers return only when the
+		// client disconnects (Shutdown never cancels in-flight request
+		// contexts), so without this every deploy with a tab open waits out
+		// the full grace below. Tabs reconnect and drain on open.
+		inboxBroker.Close()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {

@@ -870,20 +870,6 @@ describe('features/workout/share.js — blind short link (med-1yi5.3)', () => {
     expect(toastSpy).not.toHaveBeenCalled();
   });
 
-  it('bot mode never POSTs and shows the long link', async () => {
-    const { window, document } = env;
-    lendWebCrypto(window);
-    expect(window.__MEDTRACKER_CLOUD__).toBeFalsy();
-    stubExport(window);
-    stubQr(window);
-    window.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }));
-
-    await window.WorkoutShare.share({ id: 5, name: 'Push / Pull' });
-
-    expect(window.fetch).not.toHaveBeenCalled();
-    expect(document.getElementById('workout-share-link').value.startsWith('https://example.test/#share-plan=p1.')).toBe(true);
-  });
-
   it('a hanging POST aborts and the modal still opens with the long link', async () => {
     const { window, document } = env;
     lendWebCrypto(window);

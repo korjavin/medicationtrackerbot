@@ -40,8 +40,12 @@ type Handler struct {
 	domain     http.Handler // web/domain modules, mounted under /domain/
 	appIndex   []byte       // web/static/index.html, served at "/" on subdomains
 	buildID    string       // asset fingerprint lifted out of appIndex; see version.go
-	api        http.Handler
-	mcp        http.Handler // Task 2: hosted-remote streamable-HTTP MCP endpoint, mounted at "/mcp/<token>"; nil until SetMCPHandler is called
+	// localOnlyPOC is the operator kill-switch for the med-eas.2.1 POC,
+	// advertised to browsers via GET /api/version. Default false; enabled via
+	// SetLocalOnlyPOC from CLOUD_LOCAL_ONLY_POC (cmd/cloud).
+	localOnlyPOC bool
+	api          http.Handler
+	mcp          http.Handler // Task 2: hosted-remote streamable-HTTP MCP endpoint, mounted at "/mcp/<token>"; nil until SetMCPHandler is called
 	// feedbackReader serves GET /api/feedback/queue on the BASE domain (bd
 	// med-rbl.1). nil (the default, and every deployment without a manager bot)
 	// 404s it, same as an unmounted route.
@@ -97,6 +101,14 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 // than a New param to avoid churning the ~35 test call sites, mirroring
 // SetMCPHandler. The email comes from the operator's REQUEST_INVITE_EMAIL env
 // (cmd/cloud) and is HTML-escaped in both the visible text and the href.
+// SetLocalOnlyPOC enables the explicit local-only passkey POC (med-eas.2.1):
+// GET /api/version advertises it so flagged browsers may offer the fallback.
+// Setter rather than a New param to avoid churning the ~35 test call sites,
+// mirroring SetMCPHandler. Default off.
+func (h *Handler) SetLocalOnlyPOC(enabled bool) {
+	h.localOnlyPOC = enabled
+}
+
 func (h *Handler) SetRequestInviteEmail(email string) {
 	if email == "" {
 		return

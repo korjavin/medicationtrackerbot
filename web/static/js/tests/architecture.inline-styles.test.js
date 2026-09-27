@@ -46,12 +46,12 @@ const ALLOWED = new Map([
         "style.setProperty on a neutral CSS custom property (--fill-pct) — CSS class reads it via width: var(--fill-pct, 0%); no hardcoded visual value lives in JS. Line shifted by the med-ejq.2 over-target modifier (class + doc-comment lines added above).",
     ],
     [
-        'web/static/js/features/food/log.js:1238',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by the C2c Task 4 cloud/bot branch added above the from-description fetch (window.__MEDTRACKER_CLOUD__ calls window.CloudFoodAI instead of POSTing /api/food/log/from-description), then again by the review-fix product_id string-id comment, then again by the cloud-mode cachedFetch-bypass comment in loadFoodLogs, then again by the med-yor.2 Task 4 TrialConsent.retryAfterConsent wrap around the CloudFoodAI description parse.",
+        'web/static/js/features/food/log.js:1151',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by the C2c Task 4 cloud/bot branch added above the from-description fetch (window.__MEDTRACKER_CLOUD__ calls window.CloudFoodAI instead of POSTing /api/food/log/from-description), then again by the review-fix product_id string-id comment, then again by the cloud-mode cachedFetch-bypass comment in loadFoodLogs, then again by the med-yor.2 Task 4 TrialConsent.retryAfterConsent wrap around the CloudFoodAI description parse, then back up by the med-a9n5.7 collapse of the bot-mode branches above it.",
     ],
     [
-        'web/static/js/features/food/log.js:1239',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by the C2c Task 4 cloud/bot branch added above the from-description fetch (window.__MEDTRACKER_CLOUD__ calls window.CloudFoodAI instead of POSTing /api/food/log/from-description), then again by the review-fix product_id string-id comment, then again by the cloud-mode cachedFetch-bypass comment in loadFoodLogs, then again by the med-yor.2 Task 4 TrialConsent.retryAfterConsent wrap around the CloudFoodAI description parse.",
+        'web/static/js/features/food/log.js:1152',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by the C2c Task 4 cloud/bot branch added above the from-description fetch (window.__MEDTRACKER_CLOUD__ calls window.CloudFoodAI instead of POSTing /api/food/log/from-description), then again by the review-fix product_id string-id comment, then again by the cloud-mode cachedFetch-bypass comment in loadFoodLogs, then again by the med-yor.2 Task 4 TrialConsent.retryAfterConsent wrap around the CloudFoodAI description parse, then back up by the med-a9n5.7 collapse of the bot-mode branches above it.",
     ],
     [
         'web/static/js/features/meds.js:83',

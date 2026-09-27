@@ -404,6 +404,35 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(row.getAttribute('role')).toBe('img');
             expect(row.getAttribute('aria-label')).toMatch(/Trained days per weekday: Mon \d+, .*Sun \d+\./);
         });
+
+        // med-ouzf — the grid anchors on the DOMAIN's day (payload `today`),
+        // not the browser-local one.
+        it('anchors the grid on the payload today rather than the browser-local day', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            // Last Monday in browser-local terms, served as the domain's
+            // today: a week back, so the anchor discriminates (row 0 vs row
+            // 1), and a Monday, so the rest of its week is future padding
+            // deterministically.
+            const sinceMonday = (new Date().getDay() + 6) % 7;
+            const domainToday = dayStr(sinceMonday + 7);
+            window._renderWorkoutStats(container, {
+                ...populatedStats(),
+                today: domainToday,
+                daily_activity: [{ date: domainToday, completed: 1, skipped: 0 }],
+            });
+
+            // Under a browser-local anchor this entry would sit in row 1; under
+            // the payload anchor its week IS the current one.
+            const all = cells(container);
+            expect(all).toHaveLength(7);
+            expect(all[0].classList.contains('wg-workouts-stats__calendar-cell--done')).toBe(true);
+            expect(all[0].title).toBe(`${domainToday} \u00b7 completed`);
+            // Tue-Sun pad the row without labels: past the domain's today,
+            // though behind the browser's — under a browser-local anchor they
+            // would carry titles.
+            expect(all.filter((c) => !c.title)).toHaveLength(6);
+        });
     });
 
     it('renders the stat-tile grid with the expected four labels', () => {
@@ -823,6 +852,54 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(caption(container)).toBeNull();
             // The chart itself still draws the partial week.
             expect(container.querySelector('.wg-workouts-stats__legend-label')).not.toBeNull();
+        });
+
+        // med-ouzf — the caption buckets against the payload's `today`, not
+        // the browser-local day.
+        it('the load view captions complete weeks against the payload today', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            // Domain "today" a fortnight back: under a browser-local anchor
+            // every fixture week would read as complete and the caption would
+            // collapse to "Last week no training".
+            const domainToday = dayStr(14);
+            const ms = Date.parse(`${domainToday}T00:00:00Z`);
+            const monday = new Date(ms - ((new Date(ms).getUTCDay() + 6) % 7) * 86400000)
+                .toISOString().slice(0, 10);
+            const shift = (weeks) => new Date(Date.parse(`${monday}T00:00:00Z`) + weeks * 7 * 86400000)
+                .toISOString().slice(0, 10);
+            window._renderWorkoutStats(container, {
+                ...statsWithWeeks([
+                    { week: shift(-2), volume_kg: 10000, hard_sets: 20, reps: 200 },
+                    { week: shift(-1), volume_kg: 12345, hard_sets: 18, reps: 180 },
+                    { week: monday, volume_kg: 999999, hard_sets: 99, reps: 900 },
+                ]),
+                today: domainToday,
+            });
+            clickView(container, 'load');
+
+            expect(caption(container))
+                .toBe('Last week 12.3t \u00b7 18 hard sets \u00b7 +23% vs the week before');
+        });
+
+        // A payload cached before med-ouzf carries no `today` at all — every
+        // fixture above exercises that path. A malformed value must degrade
+        // the same way, not crash the tab or empty the caption.
+        it('the load view falls back to the browser-local day when payload today is malformed', () => {
+            const { document, window } = env;
+            const container = document.getElementById('workout-stats-display');
+            window._renderWorkoutStats(container, {
+                ...statsWithWeeks([
+                    { week: mondayStr(2), volume_kg: 10000, hard_sets: 20, reps: 200 },
+                    { week: mondayStr(1), volume_kg: 12345, hard_sets: 18, reps: 180 },
+                    { week: mondayStr(0), volume_kg: 999999, hard_sets: 99, reps: 900 },
+                ]),
+                today: 'not-a-day',
+            });
+            clickView(container, 'load');
+
+            expect(caption(container))
+                .toBe('Last week 12.3t \u00b7 18 hard sets \u00b7 +23% vs the week before');
         });
 
         it('the balance view splits sets per body part and lists untrained ones', async () => {

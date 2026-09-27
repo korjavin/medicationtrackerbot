@@ -3,9 +3,9 @@ package mcpshim
 // The mcp_help / mcp_call wire envelopes, shared by both Go MCP front ends —
 // cmd/mcpshim (the stdio shim) and internal/cloudserver's hosted endpoint —
 // and decoded on the other side by web/cloud/js/mcp-responder.js. CallInput
-// mirrors bot mode's mcp.CallInput (internal/mcp/call.go). The jsonschema
-// tags are what the SDK advertises to the model, so a dropped field is a
-// field no agent can ever pass.
+// matches the envelope the responder decodes (see createDispatcher). The
+// jsonschema tags are what the SDK advertises to the model, so a dropped
+// field is a field no agent can ever pass.
 
 // HelpInput is mcp_help's argument shape. Without it the SDK advertises no
 // arguments and the agent can never drill in — only an operation_id drill-in

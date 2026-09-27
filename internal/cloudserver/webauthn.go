@@ -39,7 +39,9 @@ type webauthnStore interface {
 	ClaimAndAddCredential(ctx context.Context, subdomain string, tokenHash []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) (*cloudstore.Account, error)
 	ValidEnrollmentToken(ctx context.Context, accountID string, tokenHash []byte, now time.Time) (bool, error)
 	RedeemTransferToken(ctx context.Context, accountID string, tokenHash []byte, cred cloudstore.Credential, env cloudstore.Envelope, now time.Time) error
+	RedeemTransferTokenLocalOnly(ctx context.Context, accountID string, tokenHash []byte, cred cloudstore.Credential, now time.Time) error
 	AddCredentialWithEnvelope(ctx context.Context, sourceCredentialID []byte, cred cloudstore.Credential, env cloudstore.Envelope) error
+	AddCredentialLocalOnly(ctx context.Context, sourceCredentialID []byte, cred cloudstore.Credential) error
 	CredentialsByAccount(ctx context.Context, accountID string) ([]cloudstore.Credential, error)
 	TouchCredential(ctx context.Context, credentialID []byte, signCount uint32, assertedAt time.Time) error
 	CredentialExists(ctx context.Context, accountID string, credentialID []byte) (bool, error)
@@ -63,6 +65,10 @@ type WebAuthnAPI struct {
 	// begin+finish, which also carry the signup-claim and device-enrollment
 	// tokens) per client IP. Shared by AccountAPI's re-auth route too.
 	limiter *rateLimiter
+	// localOnlyPOC is the operator kill-switch for the med-eas.2.1 POC
+	// (CLOUD_LOCAL_ONLY_POC, cmd/cloud). Default false: register/finish
+	// rejects mode:"local_only" unless the operator enabled it.
+	localOnlyPOC bool
 }
 
 // NewWebAuthnAPI builds the WebAuthn handlers. sessionSecret mints the HMAC
@@ -76,6 +82,12 @@ func NewWebAuthnAPI(store webauthnStore, sessionSecret string) *WebAuthnAPI {
 		reauthChallenges: newChallengeStore[loginChallenge](),
 		limiter:          newRateLimiter(ceremonyRateLimitMax, ceremonyRateLimitWindow),
 	}
+}
+
+// SetLocalOnlyPOC enables the explicit local-only passkey POC (med-eas.2.1)
+// on the registration ceremony. Default off.
+func (a *WebAuthnAPI) SetLocalOnlyPOC(enabled bool) {
+	a.localOnlyPOC = enabled
 }
 
 // RegisterRoutes adds the WebAuthn ceremony routes to mux, so callers that
@@ -370,6 +382,10 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 type registerFinishRequest struct {
 	Credential json.RawMessage `json:"credential"`
 	Envelope   envelopeWire    `json:"envelope"`
+	// Mode is the explicit credential type (med-eas.2.1 POC): "prf" (default
+	// when absent, preserving every existing client) or "local_only". A
+	// local-only credential holds no envelope — see RegisterFinish.
+	Mode string `json:"mode,omitempty"`
 }
 
 // RegisterFinish verifies the authenticator's response against the challenge
@@ -402,7 +418,46 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	if len(req.Envelope.Nonce) == 0 || len(req.Envelope.Nonce) > maxNonceLen ||
+	// The mode is explicit in the request, never inferred: absent means the
+	// production PRF default (every existing client), "local_only" is the
+	// POC's opt-in fallback, and anything else is rejected.
+	mode := req.Mode
+	if mode == "" {
+		mode = cloudstore.CredentialModePRF
+	}
+	if !cloudstore.ValidCredentialMode(mode) {
+		http.Error(w, "invalid credential mode", http.StatusBadRequest)
+		return
+	}
+	localOnly := mode == cloudstore.CredentialModeLocalOnly
+	if localOnly {
+		// Operator kill-switch first: without CLOUD_LOCAL_ONLY_POC no
+		// register/finish path accepts the fallback, whatever the client
+		// claims — a crafted request or a stale flagged browser cannot
+		// enroll local-only on an operator that never enabled it.
+		if !a.localOnlyPOC {
+			http.Error(w, "local-only POC is not enabled", http.StatusBadRequest)
+			return
+		}
+		// A local-only credential must not smuggle an envelope (or any other
+		// decrypting share) server-side: the device-local LDK is its only DEK
+		// route, and the server must store nothing new that decrypts.
+		if len(req.Envelope.Nonce) != 0 || len(req.Envelope.CT) != 0 || len(req.Envelope.MAC) != 0 {
+			http.Error(w, "local-only credentials carry no envelope", http.StatusBadRequest)
+			return
+		}
+		// POC boundary: local-only cannot bootstrap an account via the claim
+		// gate — the first enrollment is always PRF-backed, so the account
+		// starts life with a PRF unwrap path plus recovery material. (This is
+		// an enrollment-gate restriction, not an account-level invariant: an
+		// account whose PRF credentials were all revoked can later hold only
+		// local-only credentials plus recovery material. Future guards must
+		// not assume a PRF credential exists.)
+		if challenge.gate == gateClaim {
+			http.Error(w, "local-only cannot be the account's first credential", http.StatusBadRequest)
+			return
+		}
+	} else if len(req.Envelope.Nonce) == 0 || len(req.Envelope.Nonce) > maxNonceLen ||
 		len(req.Envelope.CT) == 0 || len(req.Envelope.CT) > maxCTLen || len(req.Envelope.MAC) > maxMACLen {
 		http.Error(w, "envelope field too large or missing", http.StatusBadRequest)
 		return
@@ -435,6 +490,7 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 		SignCount:      cred.Authenticator.SignCount,
 		BackupEligible: cred.Flags.BackupEligible,
 		BackupState:    cred.Flags.BackupState,
+		Mode:           mode,
 		CreatedAt:      now,
 	}
 	envRow := cloudstore.Envelope{
@@ -457,6 +513,21 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case gateEnrollment:
+		if localOnly {
+			if err := a.store.RedeemTransferTokenLocalOnly(r.Context(), account.ID, challenge.tokenHash, credRow, now); err != nil {
+				if errors.Is(err, cloudstore.ErrTransferSlotInvalid) {
+					http.Error(w, "enrollment token already used or expired", http.StatusConflict)
+					return
+				}
+				if errors.Is(err, cloudstore.ErrLocalOnlyRecoveryRequired) {
+					http.Error(w, "local-only enrollment requires an Emergency Kit on file", http.StatusConflict)
+					return
+				}
+				http.Error(w, "server error", http.StatusInternalServerError)
+				return
+			}
+			break
+		}
 		if err := a.store.RedeemTransferToken(r.Context(), account.ID, challenge.tokenHash, credRow, envRow, now); err != nil {
 			if errors.Is(err, cloudstore.ErrTransferSlotInvalid) {
 				http.Error(w, "enrollment token already used or expired", http.StatusConflict)
@@ -466,6 +537,21 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case gateSession:
+		if localOnly {
+			if err := a.store.AddCredentialLocalOnly(r.Context(), challenge.sessionCredentialID, credRow); err != nil {
+				if errors.Is(err, cloudstore.ErrSourceCredentialRevoked) {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+				if errors.Is(err, cloudstore.ErrLocalOnlyRecoveryRequired) {
+					http.Error(w, "local-only enrollment requires an Emergency Kit on file", http.StatusConflict)
+					return
+				}
+				http.Error(w, "server error", http.StatusInternalServerError)
+				return
+			}
+			break
+		}
 		// The source credential's existence is re-checked inside
 		// AddCredentialWithEnvelope's transaction: RegisterBegin verified it, but
 		// a revocation can land inside the 5-minute challenge TTL. Doing the check

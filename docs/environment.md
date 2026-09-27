@@ -80,6 +80,7 @@ PORT=8080                          # HTTP port (default: 8080)
 CLOUD_CLAIM_TTL=14                 # Invite claim-link validity, in days (default: 14)
 CLOUD_ACCOUNT_QUOTA_BYTES=52428800 # Per-account oplog+snapshot storage cap, in bytes (default: 50MB; 0 disables)
 CLOUD_DRY_QUEUE_WARN_HOURS=120     # Stale-sync warning: how close (hours) the last unsent reminder must be before the hourly sweep nudges a stale-synced account (default: 120)
+CLOUD_LOCAL_ONLY_POC=1             # Explicit local-only passkey POC (med-eas.2.1): "1"/"true" lets register/finish accept mode:"local_only" and advertises local_only_poc:true on GET /api/version so flagged browsers may offer the fallback. Anything else (including unset) disables both halves — the client opt-in alone does nothing and the server rejects the mode with 400. Default: off.
 CLOUD_FOOD_DB_API_KEY=...          # Operator key for a KEYED food DB, forwarded upstream as X-API-Key by the /api/food/* proxy (mirrors bot mode's FOOD_API_KEY). Operator-owned and server-side only — never reaches the browser. Unset = no header sent, for unkeyed instances.
 CLOUD_FOOD_DB_URL=https://food.example.com  # REQUIRED for food search to work out of the box. Operator's default FastFoodDB instance. Requests to this URL are routed through a server-side proxy to bypass CORS restrictions. A URL, not a secret. Unset = no remote food DB: search returns only products the user has already logged, and the UI says "Food database not configured" rather than reporting zero results. Users can still set their own in Settings → Integrations.
 # Trial provider keys (all optional; unset = pure BYO, trial proxy routes return 503).
@@ -87,7 +88,7 @@ CLOUD_FOOD_DB_URL=https://food.example.com  # REQUIRED for food search to work o
 # they never reach the browser. See docs/cloud-mode.md → Trial provider keys.
 TRIAL_OPENAI_API_KEY=...           # Master switch: enables POST /api/trial/openai/chat/completions and the client trial-AI flag
 TRIAL_OPENAI_URL=https://api.openai.com/v1  # OpenAI-compatible base URL (default shown). Must be an absolute http(s) URL — cmd/cloud refuses to start otherwise
-TRIAL_OPENAI_MODEL=gpt-4o-mini     # Model forced server-side on every trial chat call (default shown). Models without response_format json_schema (deepseek-chat, most local models) are fine — the proxy reports the rejection and the client retries with a fenced-JSON prompt
+TRIAL_OPENAI_MODEL=gpt-6-luna      # Model forced server-side on every trial chat call (default shown). Models without response_format json_schema (deepseek-chat, most local models) are fine — the proxy reports the rejection and the client retries with a fenced-JSON prompt
 TRIAL_OPENAI_VISION_API_KEY=...    # Vision triple; each field falls back to the text triple when unset. Overrides only — without TRIAL_OPENAI_API_KEY trial AI stays off
 TRIAL_OPENAI_VISION_URL=...
 TRIAL_OPENAI_VISION_MODEL=...

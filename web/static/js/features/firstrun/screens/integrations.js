@@ -37,7 +37,7 @@
 
     const PATCH_URL = '/api/settings/integrations';
     const DEFAULT_OPENAI_URL = 'https://api.openai.com/v1';
-    const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
+    const DEFAULT_OPENAI_MODEL = 'gpt-6-luna';
 
     function _makeField(id, labelText, value, opts) {
         opts = opts || {};
@@ -111,10 +111,8 @@
     // name="medtracker-trial-ai" content="1"> and web/cloud/js/aiclient.js
     // routes through it whenever the user has no key of their own. Read the
     // same tag Settings → Integrations reads (applyTrialHints), so the two
-    // surfaces can never disagree about whether the trial path exists. Bot
-    // mode never injects the tag, hence the __MEDTRACKER_CLOUD__ guard.
+    // surfaces can never disagree about whether the trial path exists.
     function _trialAvailable() {
-        if (!window.__MEDTRACKER_CLOUD__) return false;
         return document.querySelector('meta[name="medtracker-trial-ai"]')?.content === '1';
     }
 

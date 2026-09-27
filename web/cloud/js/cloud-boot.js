@@ -438,7 +438,7 @@ window.MedTrackerCloudReady = (async function boot() {
         // a first-ever unlock it is what puts that key in the vault — it just no
         // longer gates anything else.
         import('/js/inbox.js')
-            .then(async ({ ensureInboxKey, drainInbox, startInboxPolling }) => {
+            .then(async ({ ensureInboxKey, drainInbox, startInboxPolling, startInboxEventStream }) => {
                 const { createInboxApplier } = await import('/js/inbox-apply.js');
                 const apply = createInboxApplier(ctx);
                 // Awaited and UN-debounced on purpose (bd med-9y9). A drain is
@@ -485,6 +485,13 @@ window.MedTrackerCloudReady = (async function boot() {
                             .catch((e) => console.error('[cloud-boot] inbox wake drain failed', e));
                     });
                 }
+
+                // ...and subscribe to the server's content-free SSE wake (bd
+                // med-j0tc): the same instant drain as the push above, but with
+                // no permission/subscription prerequisite and no external
+                // delivery hop. The 5s poller stays as the fallback when the
+                // stream is down.
+                startInboxEventStream(ctx, { apply, onApplied: afterApply });
 
                 // Both best-effort, each with its own catch — see the ORDER note
                 // above. A failed key publish means the relay refuses inbound

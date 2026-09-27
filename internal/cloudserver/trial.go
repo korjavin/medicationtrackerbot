@@ -12,7 +12,7 @@ import (
 // so a bare TRIAL_OPENAI_API_KEY behaves like a bare BYO key.
 const (
 	trialDefaultOpenAIURL   = "https://api.openai.com/v1"
-	trialDefaultOpenAIModel = "gpt-4o-mini"
+	trialDefaultOpenAIModel = "gpt-6-luna"
 	trialDefaultRatePerMin  = 10
 	// Daily SPEND caps on the operator's own provider key, unlike RatePerMinute
 	// which only smooths bursts. Sized for the "a few friends" deployment this

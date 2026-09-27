@@ -3,10 +3,10 @@
 //
 // Pins three behaviours:
 //
-//   1. A successful POST /api/food/log/from-photo no longer triggers a
+//   1. A successful CloudFoodAI.parseMealFromPhoto no longer triggers a
 //      browser alert. Instead, the in-app `showFoodPhotoSummary` card
 //      renders with one row per parsed item.
-//   2. Clicking Undo issues a DELETE for every item (one fetch per id,
+//   2. Clicking Undo issues a DELETE for every item (one apiCall per id,
 //      in parallel) and then swaps the card content to a "Removed N items"
 //      success message.
 //   3. If any DELETE fails, the card swaps to the error state with a
@@ -76,12 +76,8 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
             window.alert = alertSpy;
         }
 
-        window.fetch = vi.fn().mockResolvedValue({
-            ok: true,
-            status: 200,
-            async json() { return { items: SAMPLE_ITEMS }; },
-            async text() { return JSON.stringify({ items: SAMPLE_ITEMS }); },
-        });
+        const parse = vi.fn(async () => ({ items: SAMPLE_ITEMS, failed: 0 }));
+        window.CloudFoodAI = { parseMealFromPhoto: parse };
 
         const input = document.getElementById('food-photo-input');
         attachFile(input, makeFakeImageFile(env));
@@ -90,6 +86,9 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         await flushPromises();
 
         expect(alertSpy).not.toHaveBeenCalled();
+        expect(parse).toHaveBeenCalledTimes(1);
+        // Realm-safe Date check (constructed inside the JSDOM window).
+        expect(typeof parse.mock.calls[0][1].eatenAt.toISOString).toBe('function');
 
         const card = document.querySelector('.wg-food-photo-summary');
         expect(card).not.toBeNull();
@@ -105,32 +104,19 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
     it('clicking Undo issues a DELETE for every item and swaps card to "Removed N items"', async () => {
         const { document, window } = env;
 
-        const fetchSpy = vi.fn().mockImplementation((url, opts) => {
-            return Promise.resolve({
-                ok: true,
-                status: 200,
-                async json() {
-                    if (opts && opts.method === 'POST') return { items: SAMPLE_ITEMS };
-                    return {};
-                },
-                async text() {
-                    if (opts && opts.method === 'POST') return JSON.stringify({ items: SAMPLE_ITEMS });
-                    return '';
-                },
-            });
-        });
-        window.fetch = fetchSpy;
+        const parse = vi.fn(async () => ({ items: SAMPLE_ITEMS, failed: 0 }));
+        window.CloudFoodAI = { parseMealFromPhoto: parse };
+        const apiSpy = vi.fn(async () => ({ status: 'deleted' }));
+        window.apiCall = apiSpy;
 
         const input = document.getElementById('food-photo-input');
         attachFile(input, makeFakeImageFile(env));
         await window.uploadFoodPhoto(input);
         await flushPromises();
 
-        // One fetch so far: the POST upload.
-        const postCalls = fetchSpy.mock.calls.filter(
-            ([, opts]) => opts && opts.method === 'POST',
-        );
-        expect(postCalls.length).toBe(1);
+        // One AI parse so far; no DELETEs yet.
+        expect(parse).toHaveBeenCalledTimes(1);
+        expect(apiSpy).not.toHaveBeenCalled();
 
         const card = document.querySelector('.wg-food-photo-summary');
         const undoBtn = card.querySelector('.wg-food-photo-summary__undo');
@@ -148,8 +134,8 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         await flushPromises();
         await flushPromises();
 
-        const deleteCalls = fetchSpy.mock.calls.filter(
-            ([, opts]) => opts && opts.method === 'DELETE',
+        const deleteCalls = apiSpy.mock.calls.filter(
+            ([, method]) => method === 'DELETE',
         );
         expect(deleteCalls.length).toBe(SAMPLE_ITEMS.length);
         // URLs include the item ids (one per item).
@@ -179,29 +165,19 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         const { document, window } = env;
 
         let firstDeleteRound = true;
-        const fetchSpy = vi.fn().mockImplementation((url, opts) => {
-            if (opts && opts.method === 'POST') {
-                return Promise.resolve({
-                    ok: true,
-                    status: 200,
-                    async json() { return { items: SAMPLE_ITEMS }; },
-                    async text() { return JSON.stringify({ items: SAMPLE_ITEMS }); },
-                });
+        window.CloudFoodAI = { parseMealFromPhoto: vi.fn(async () => ({ items: SAMPLE_ITEMS, failed: 0 })) };
+        // First DELETE round: id 12 fails, id 11 succeeds.
+        // Second DELETE round (Retry): only id 12 should be re-attempted,
+        // and it should now succeed. If the retry path naively re-issues
+        // a DELETE for id 11 (already deleted), the store would return
+        // 500 and the user would be locked in error state forever.
+        const apiSpy = vi.fn().mockImplementation((url, method) => {
+            if (method === 'DELETE' && firstDeleteRound && url === '/api/food/log/12') {
+                return Promise.resolve(null);
             }
-            // First DELETE round: id 12 fails, id 11 succeeds.
-            // Second DELETE round (Retry): only id 12 should be re-attempted,
-            // and it should now succeed. If the retry path naively re-issues
-            // a DELETE for id 11 (already deleted), the store would return
-            // 500 and the user would be locked in error state forever.
-            if (opts && opts.method === 'DELETE') {
-                if (firstDeleteRound && url === '/api/food/log/12') {
-                    return Promise.resolve({ ok: false, status: 500, async text() { return ''; }, async json() { return {}; } });
-                }
-                return Promise.resolve({ ok: true, status: 200, async text() { return ''; }, async json() { return {}; } });
-            }
-            return Promise.resolve({ ok: true, status: 200, async text() { return ''; }, async json() { return {}; } });
+            return Promise.resolve({ status: 'deleted' });
         });
-        window.fetch = fetchSpy;
+        window.apiCall = apiSpy;
 
         const input = document.getElementById('food-photo-input');
         attachFile(input, makeFakeImageFile(env));
@@ -216,7 +192,7 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         await flushPromises();
 
         // Initial Undo round: 2 deletes, one of them failed.
-        let deleteCalls = fetchSpy.mock.calls.filter(([, opts]) => opts && opts.method === 'DELETE');
+        let deleteCalls = apiSpy.mock.calls.filter(([, method]) => method === 'DELETE');
         expect(deleteCalls.length).toBe(2);
 
         const retry = document.querySelector('.wg-food-photo-summary__retry');
@@ -228,7 +204,7 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         await flushPromises();
         await flushPromises();
 
-        deleteCalls = fetchSpy.mock.calls.filter(([, opts]) => opts && opts.method === 'DELETE');
+        deleteCalls = apiSpy.mock.calls.filter(([, method]) => method === 'DELETE');
         // Total calls: 2 from first round + 1 from retry (only id 12).
         expect(deleteCalls.length).toBe(3);
         expect(deleteCalls[2][0]).toBe('/api/food/log/12');
@@ -244,26 +220,15 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
     it('partial Undo failure puts the card into the error state with a Retry button', async () => {
         const { document, window } = env;
 
-        const fetchSpy = vi.fn().mockImplementation((url, opts) => {
-            if (opts && opts.method === 'POST') {
-                return Promise.resolve({
-                    ok: true,
-                    status: 200,
-                    async json() { return { items: SAMPLE_ITEMS }; },
-                    async text() { return JSON.stringify({ items: SAMPLE_ITEMS }); },
-                });
+        window.CloudFoodAI = { parseMealFromPhoto: vi.fn(async () => ({ items: SAMPLE_ITEMS, failed: 0 })) };
+        // First DELETE fails; second succeeds — partial failure must
+        // surface as the error state, not a half-success.
+        window.apiCall = vi.fn().mockImplementation((url, method) => {
+            if (method === 'DELETE' && url === '/api/food/log/11') {
+                return Promise.resolve(null);
             }
-            // First DELETE fails; second succeeds — partial failure must
-            // surface as the error state, not a half-success.
-            if (opts && opts.method === 'DELETE') {
-                if (url === '/api/food/log/11') {
-                    return Promise.resolve({ ok: false, status: 500, async text() { return ''; }, async json() { return {}; } });
-                }
-                return Promise.resolve({ ok: true, status: 200, async text() { return ''; }, async json() { return {}; } });
-            }
-            return Promise.resolve({ ok: true, status: 200, async text() { return ''; }, async json() { return {}; } });
+            return Promise.resolve({ status: 'deleted' });
         });
-        window.fetch = fetchSpy;
 
         const input = document.getElementById('food-photo-input');
         attachFile(input, makeFakeImageFile(env));

@@ -296,8 +296,9 @@ func contains(ss []string, s string) bool {
 	return false
 }
 
-// mcpEnvelopeFields is the mcp_call wire envelope, matching bot mode's
-// mcp.CallInput (internal/mcp/call.go) plus the `op` back-compat alias that
+// mcpEnvelopeFields is the mcp_call wire envelope, matching the cloud tab
+// responder (web/cloud/js/mcp-responder.js createDispatcher; see
+// docs/cloud-mode.md "MCP") plus the `op` back-compat alias that
 // older pairings and shim binaries still send.
 var mcpEnvelopeFields = []string{"operation_id", "op", "params", "path_params", "body", "mode", "intent"}
 

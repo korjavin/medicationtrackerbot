@@ -2791,35 +2791,35 @@ export const CATALOG = [
 export const EXCLUDED = [
   {
     "id": "gamification.gauges",
-    "reason": "gamification is deferred project-wide; clamped out of apishim.js PORTED_SET"
+    "reason": "gamification is experimental, deliberately not exposed to MCP agents"
   },
   {
     "id": "gamification.insights",
-    "reason": "gamification is deferred project-wide; clamped out of apishim.js PORTED_SET"
+    "reason": "gamification is experimental, deliberately not exposed to MCP agents"
   },
   {
     "id": "gamification.journey",
-    "reason": "gamification is deferred project-wide; clamped out of apishim.js PORTED_SET"
+    "reason": "gamification is experimental, deliberately not exposed to MCP agents"
   },
   {
     "id": "gamification.rings",
-    "reason": "gamification is deferred project-wide; clamped out of apishim.js PORTED_SET"
+    "reason": "gamification is experimental, deliberately not exposed to MCP agents"
   },
   {
     "id": "gamification.summary",
-    "reason": "gamification is deferred project-wide; clamped out of apishim.js PORTED_SET"
+    "reason": "gamification is experimental, deliberately not exposed to MCP agents"
   },
   {
     "id": "gamification.targets.read",
-    "reason": "gamification is deferred project-wide; clamped out of apishim.js PORTED_SET"
+    "reason": "gamification is experimental, deliberately not exposed to MCP agents"
   },
   {
     "id": "gamification.targets.set",
-    "reason": "gamification is deferred project-wide; clamped out of apishim.js PORTED_SET"
+    "reason": "gamification is experimental, deliberately not exposed to MCP agents"
   },
   {
     "id": "gamification.weekly_review",
-    "reason": "gamification is deferred project-wide; clamped out of apishim.js PORTED_SET"
+    "reason": "gamification is experimental, deliberately not exposed to MCP agents"
   },
   {
     "id": "workouts.miband.gps",

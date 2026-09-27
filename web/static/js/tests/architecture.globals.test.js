@@ -40,18 +40,15 @@ const ALLOWED_GLOBALS = new Set([
     'window.onDataStoreUnauthorized',   // data-store.js — guarded re-auth callback tests provide; the app.js definition is gone with the bot login flow
     'window.requestTabRefresh',         // app.js — called by data-store.js on change event
     'window.reloadCurrentTab',          // app.js — called by data-store.js + sync.js
-    'window.renderSettingsTimeInfo',    // app.js — renders read-only timezone/server clock info in settings
     'window.healthOverviewCacheKey',    // features/today-loader.js — timezone-qualified IndexedDB key for health overview; shared with health.js to avoid formula divergence (Plan 2026-06-10 finish-app-js-split, Task 3)
 
     // Core modules
-    'window.DemoBanner',                // core/demo-banner.js — demo-mode banner mount + 429 `demo_rate_limit` popup helper; mounted by auth-bootstrap.js when /api/bootstrap returns demo.enabled=true, invoked by core/api.js on 429 responses with a {error:'demo_rate_limit'} body
     'window.apiCallDirect',             // core/api.js — low-level fetch used by data-store.js
     'window.makeAuthHeaders',           // core/api.js — auth header construction shared by direct-fetch callers (streaming food product search, multipart food-photo upload, ElevenLabs URL fetch, BP/weight CSV exports) that cannot route through apiCallDirect
     'window.makeWriteHeaders',          // core/api.js — makeAuthHeaders + X-Client-ID for direct-fetch *write* sites (food photo POST, food description POST, food log DELETE) so the backend's notifyOnWriteMiddleware can echo the originating clientId back via source_client_id on the SSE payload — preventing self-origin banner regressions on long-running AI flows that exceed the 5s timing-window fallback
     'window.AppKernel',                 // core/app-kernel.js — module registry
     'window.ChartUtils',               // core/chart-utils.js — shared SVG chart utilities
     'window.escapeHtml',               // core/utils.js — canonical HTML entity escaper; consumed by sync.js debug panel + app.js medication schedule renderer
-    'window.TimeFormat',               // core/time-format.js — Settings timezone/server-clock row helpers; exposes render(bundle), ensureTimer(), formatSettingsDateTime, parseRFC3339OffsetMinutes, formatFixedOffsetDateTime
     'window.ModalManager',              // core/modal-manager.js — modal lifecycle façade
     'window.AppStore',                  // core/store.js — ephemeral UI state
     'window.CacheKeys',                 // core/cache-keys.js — centralized registry of api_cache keys, tags, and freshness windows; registerAll() is invoked at boot so tag-based invalidation works regardless of which feature loader has executed

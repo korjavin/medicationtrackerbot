@@ -43,17 +43,27 @@ type inboxStore interface {
 type InboxAPI struct {
 	store         inboxStore
 	sessionSecret string
+	// broker fans durable appends out to open streams (GET /api/inbox/events,
+	// bd med-j0tc). Nil until SetEventBroker — nil serves 503 on the stream so
+	// the tab falls back to the 5s poll.
+	broker *InboxBroker
 }
 
 func NewInboxAPI(store inboxStore, sessionSecret string) *InboxAPI {
 	return &InboxAPI{store: store, sessionSecret: sessionSecret}
 }
 
+// SetEventBroker wires the stream fan-out. A setter (rather than a constructor
+// param) so the Relay built later in cmd/cloud can share the same instance,
+// and so existing NewInboxAPI call sites don't churn.
+func (a *InboxAPI) SetEventBroker(b *InboxBroker) { a.broker = b }
+
 func (a *InboxAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("PUT /api/inbox/key", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.PutInboxKey)))
 	mux.Handle("GET /api/inbox", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.ListInbox)))
 	mux.Handle("DELETE /api/inbox/{id}", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.AckInboxEvent)))
 	mux.Handle("DELETE /api/inbox", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.ClearInbox)))
+	mux.Handle("GET /api/inbox/events", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.ServeInboxEvents)))
 }
 
 type putInboxKeyRequest struct {

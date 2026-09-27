@@ -2537,6 +2537,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // of hard sets and the ±20% band around it, so the Balance view can say "in
   // range / below / above" instead of an uncalibrated absolute. `null` until
   // there is enough history to have a baseline at all (see below).
+  //
+  // med-ouzf adds `today` — the current calendar day ("YYYY-MM-DD") in the
+  // CONFIGURED timeZone, the same zone weekly_volume / daily_activity bucket
+  // in. The Stats surfaces anchor their "today" on it instead of the
+  // browser-local day, so around a Sunday midnight — when the two zones can
+  // disagree about which week is current — the caption and the grid agree with
+  // the buckets they annotate.
   async function getStats(opts) {
     // '180d' has no range pill in the Stats view — it exists because the
     // doctor-visit brief (brief.js) offers a 180-day window and folds its
@@ -2550,6 +2557,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const allSessions = sortSessions(await activeRecords(WORKOUT_RECORD_TYPES.SESSION));
     const sessions = allSessions.slice(0, 500);
     const nowMs = now();
+    // The view-facing "today" (med-ouzf) — the streak walk below reuses it so
+    // there is exactly one "current week" in this function.
+    const today = localDateStr(nowMs, timeZone);
     const since30 = range === 'all' ? -Infinity : nowMs - rangeDays[range] * 24 * 60 * 60 * 1000;
     // The heatmap covers at least 12 weeks (the chart filters down to the
     // active range itself), and everything we have when the range is 'all' —
@@ -2616,7 +2626,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // Consecutive weeks with at least one completed session, counting back
     // from the current week. An untrained current week does not break the
     // streak (it isn't over yet) — we start the walk one week back instead.
-    let cursor = mondayOf(localDateStr(nowMs, timeZone));
+    let cursor = mondayOf(today);
     if (!completedWeeks.has(cursor)) cursor = weekBefore(cursor);
     let currentStreakWeeks = 0;
     while (completedWeeks.has(cursor)) { currentStreakWeeks++; cursor = weekBefore(cursor); }
@@ -2862,6 +2872,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
     return {
       range,
+      today,
       total_sessions: totalSessions,
       completed_sessions: completedSessions,
       skipped_sessions: skippedSessions,

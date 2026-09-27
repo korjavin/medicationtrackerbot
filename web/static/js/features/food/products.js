@@ -3,7 +3,7 @@
 // ====================================
 //
 // Owns the food-product catalogue:
-//   - the OpenFoodFacts-backed search (streaming /api/food/products/search)
+//   - the OpenFoodFacts-backed search (via window.CloudFoodSearch)
 //   - the in-memory + Dexie-cached product list (foodProductsCache)
 //   - the autocomplete datalist (#food-autocomplete-list) and the
 //     barcode autofill that feeds the food-log modal
@@ -175,32 +175,11 @@ async function initFoodProductsCache() {
     }
     if (!cache) {
         try {
-            let products = [];
-            // cachedFetch uses apiCallDirect (raw network) and bypasses the
-            // cloud shim; in cloud mode that 404s on the account subdomain.
-            // Fall through to apiCall so the shim serves it from the vault.
-            if (typeof window.cachedFetch === 'function' && !window.__MEDTRACKER_CLOUD__) {
-                try {
-                    const result = await window.cachedFetch(
-                        'food_products_cache',
-                        '/api/food/products',
-                        {
-                            tags: ['food'],
-                            freshAfterMs: 60 * 60 * 1000,
-                            staleAfterMs: 7 * 24 * 60 * 60 * 1000,
-                            transform: (raw) => (raw && Array.isArray(raw.products)) ? raw.products : []
-                        }
-                    );
-                    products = Array.isArray(result?.data) ? result.data : [];
-                } catch (cfErr) {
-                    if (!(window.OfflineNoCacheError && cfErr instanceof window.OfflineNoCacheError)) {
-                        throw cfErr;
-                    }
-                }
-            } else {
-                const resp = await apiCall('/api/food/products', 'GET');
-                products = resp ? (resp.products || []) : [];
-            }
+            // apiCall serves /api/food/products from the vault via the cloud
+            // shim (cachedFetch's raw-network path 404s on the account
+            // subdomain, so the bot-mode branch was removed).
+            const resp = await apiCall('/api/food/products', 'GET');
+            const products = resp ? (resp.products || []) : [];
             cache = products;
             if (window.MedTrackerDB && cache.length > 0) {
                 await window.MedTrackerDB.FoodProductsStore.saveCache(cache);
@@ -216,7 +195,7 @@ async function initFoodProductsCache() {
 async function onFoodNameChange() {
     // "Parse with AI" mode (Plan 2026-05-17): the food-name input is being
     // used as a meal description, so suppress the product search entirely —
-    // sending a long description through /api/food/products/search would
+    // sending a long description through the product search would
     // pollute the cache and surface no useful matches.
     const modal = document.getElementById('food-modal');
     if (modal && modal.classList.contains('wg-food-modal--ai-mode')) {
@@ -298,198 +277,13 @@ async function onFoodNameChange() {
         const controller = new AbortController();
         window.FoodProducts._setAbortController(controller);
 
-        if (window.__MEDTRACKER_CLOUD__) {
-            // Cloud mode: there is no /api/food/products/search on the wire
-            // (apishim.js intentionally excludes it) — two-phase delivery
-            // straight from web/domain/food.js's search() (local, then a
-            // local+remote merge once the food-DB fetch lands) feeds the
-            // same render callbacks. AbortController state is still tracked
-            // above so cancelInFlightFoodSearch() stays a no-op-safe call.
-            await runCloudFoodSearch(query, requestId);
-            return;
-        }
-
-        let timeoutId;
-
-        try {
-            if (!navigator.onLine) throw new Error("Network request failed");
-
-            timeoutId = setTimeout(() => controller.abort(), 10_000);
-
-            // First pass: local fast search
-            const endpoint = `/api/food/products/search?q=${encodeURIComponent(query)}`;
-            const headers = window.makeAuthHeaders();
-            const res = await fetch(endpoint, { method: "GET", headers, signal: controller.signal });
-
-            if (res.status === 503) throw new Error("Network request failed");
-            if (!res.ok) throw new Error("Search failed");
-            if (requestId !== window.FoodProducts._getRequestId()) return;
-
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder("utf-8");
-            let buffer = "";
-            let localResults = [];
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (value) {
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop();
-
-                    for (const line of lines) {
-                        if (!line.trim()) continue;
-                        try {
-                            const results = JSON.parse(line);
-                            if (requestId !== window.FoodProducts._getRequestId()) return;
-                            localResults = results || [];
-                        } catch (e) { console.error("Parse error on stream chunk", e); }
-                    }
-                }
-                if (done) {
-                    if (buffer.trim()) {
-                        try {
-                            const results = JSON.parse(buffer);
-                            if (requestId === window.FoodProducts._getRequestId()) {
-                                localResults = results || [];
-                            }
-                        } catch (e) { }
-                    }
-                    break;
-                }
-            }
-
-            if (requestId !== window.FoodProducts._getRequestId()) return;
-
-            // Local stream complete — release the 10s search budget. The
-            // remote OpenFoodFacts callback below runs separately (and may
-            // fire much later via a user click) so it shouldn't share the
-            // local-search deadline.
-            clearTimeout(timeoutId);
-            timeoutId = undefined;
-
-            const unique = [];
-            const seen = new Set();
-            for (const p of localResults) {
-                if (!seen.has(p.name)) {
-                    seen.add(p.name);
-                    unique.push(p);
-                }
-            }
-
-            // Define the callback for loading remote OpenFoodFacts. Each
-            // invocation claims a fresh (requestId, controller) lifecycle:
-            // a sibling search cancellation between the original render and
-            // a user click would bump requestId and abort the parent's
-            // controller, leaving a captured pair stale and freezing the
-            // "Loading..." button. Claiming our own lifecycle here means the
-            // click always reaches a real fetch with its own 10s deadline.
-            const loadMoreCallback = async () => {
-                const prevController = window.FoodProducts._getAbortController();
-                if (prevController) prevController.abort();
-                const myController = new AbortController();
-                window.FoodProducts._setAbortController(myController);
-                const myRequestId = window.FoodProducts._nextRequestId();
-
-                setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
-                let remoteTimeoutId;
-                try {
-                    remoteTimeoutId = setTimeout(() => myController.abort(), 10_000);
-                    const remoteEndpoint = `/api/food/products/search?q=${encodeURIComponent(query)}&remote=true`;
-                    const remoteRes = await fetch(remoteEndpoint, { method: "GET", headers, signal: myController.signal });
-                    if (!remoteRes.ok) throw new Error("Remote search failed");
-                    if (myRequestId !== window.FoodProducts._getRequestId()) return;
-
-                    const remoteReader = remoteRes.body.getReader();
-                    const remoteDecoder = new TextDecoder("utf-8");
-                    let remoteBuffer = "";
-                    let remoteResults = [];
-
-                    while (true) {
-                        const { done, value } = await remoteReader.read();
-                        if (value) {
-                            remoteBuffer += remoteDecoder.decode(value, { stream: true });
-                            const lines = remoteBuffer.split('\n');
-                            remoteBuffer = lines.pop();
-                            for (const line of lines) {
-                                if (!line.trim()) continue;
-                                try {
-                                    remoteResults = JSON.parse(line) || [];
-                                } catch (e) { }
-                            }
-                        }
-                        if (done) {
-                            if (remoteBuffer.trim()) {
-                                try {
-                                    remoteResults = JSON.parse(remoteBuffer) || [];
-                                } catch (e) { }
-                            }
-                            break;
-                        }
-                    }
-
-                    if (myRequestId !== window.FoodProducts._getRequestId()) return;
-
-                    // Merge remote on top of local
-                    const mergedUnique = [...unique];
-                    for (const p of remoteResults) {
-                        if (!seen.has(p.name)) {
-                            seen.add(p.name);
-                            mergedUnique.push(p);
-                        }
-                    }
-
-                    renderFoodAutocomplete(mergedUnique, false, null);
-                    setFoodSearchStatus('success', `Found ${mergedUnique.length} result(s).`);
-
-                } catch (e) {
-                    // A new search starting aborts our controller — that is
-                    // the user's intent, not a remote failure. The requestId
-                    // guard filters that case silently. A 10s deadline firing
-                    // surfaces a typed status without console noise. Anything
-                    // else is a genuine remote failure.
-                    if (myRequestId !== window.FoodProducts._getRequestId()) return;
-                    if (e && (e.name === 'AbortError' || e.name === 'TimeoutError')) {
-                        setFoodSearchStatus('success', `Found ${unique.length} local result(s). Remote search timed out.`);
-                        renderFoodAutocomplete(unique, false, null);
-                        return;
-                    }
-                    console.error("Load more failed", e);
-                    setFoodSearchStatus('success', `Found ${unique.length} local result(s). Remote fetch failed.`);
-                    renderFoodAutocomplete(unique, false, null);
-                } finally {
-                    if (remoteTimeoutId !== undefined) clearTimeout(remoteTimeoutId);
-                }
-            };
-
-            renderFoodAutocomplete(unique, navigator.onLine, loadMoreCallback);
-
-            if (unique.length > 0) {
-                setFoodSearchStatus('success', `Found ${unique.length} local result(s).`);
-            } else {
-                setFoodSearchStatus('empty', 'No local products found.');
-                loadMoreCallback();
-            }
-
-        } catch (e) {
-            if (requestId !== window.FoodProducts._getRequestId()) return;
-            // Caller-initiated aborts (new search starting) are filtered by
-            // the requestId guard above; anything left here is either the
-            // 10s timeout firing or an external abort — surface it as a
-            // typed status without console noise.
-            if (e && (e.name === 'AbortError' || e.name === 'TimeoutError')) {
-                setFoodSearchStatus('error', 'Search timed out');
-                return;
-            }
-            console.error('Search failed', e);
-            if (e.name === 'TypeError' || e.message.includes('fetch') || e.message === 'Network request failed' || e.message === 'Failed to fetch' || !navigator.onLine) {
-                setFoodSearchStatus('empty', 'Search finished: no products found.');
-                return;
-            }
-            setFoodSearchStatus('error', 'Search finished with an error. Please try again.');
-        } finally {
-            if (timeoutId !== undefined) clearTimeout(timeoutId);
-        }
+        // There is no /api/food/products/search on the wire (apishim.js
+        // intentionally excludes it) — two-phase delivery straight from
+        // web/domain/food.js's search() (local, then a local+remote merge)
+        // feeds the render callbacks. AbortController state is still tracked
+        // above so cancelInFlightFoodSearch() stays a no-op-safe call.
+        await runCloudFoodSearch(query, requestId);
+        return;
     }, 800));
 }
 
@@ -520,207 +314,11 @@ async function onFoodBarcodeChange() {
         const controller = new AbortController();
         window.FoodProducts._setAbortController(controller);
 
-        if (window.__MEDTRACKER_CLOUD__) {
-            // Cloud mode: same two-phase delivery as onFoodNameChange, with
-            // the direct-barcode-match check runCloudFoodSearch performs
-            // before falling back to rendering a result list.
-            await runCloudFoodSearch(barcode, requestId, { barcode });
-            return;
-        }
-
-        let timeoutId;
-
-        try {
-            if (!navigator.onLine) throw new Error("Network request failed");
-
-            timeoutId = setTimeout(() => controller.abort(), 10_000);
-
-            const endpoint = `/api/food/products/search?q=${encodeURIComponent(barcode)}`;
-            const headers = window.makeAuthHeaders();
-            const res = await fetch(endpoint, { method: "GET", headers, signal: controller.signal });
-
-            if (res.status === 503) throw new Error("Network request failed");
-            if (!res.ok) throw new Error("Search failed");
-            if (requestId !== window.FoodProducts._getRequestId()) return;
-
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder("utf-8");
-            let buffer = "";
-            let localResults = [];
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (value) {
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop();
-
-                    for (const line of lines) {
-                        if (!line.trim()) continue;
-                        try {
-                            const results = JSON.parse(line);
-                            if (requestId !== window.FoodProducts._getRequestId()) return;
-                            localResults = results || [];
-                        } catch (e) { console.error("Parse error on stream chunk", e); }
-                    }
-                }
-                if (done) {
-                    if (buffer.trim()) {
-                        try {
-                            const results = JSON.parse(buffer);
-                            if (requestId === window.FoodProducts._getRequestId()) {
-                                localResults = results || [];
-                            }
-                        } catch (e) { }
-                    }
-                    break;
-                }
-            }
-
-            if (requestId !== window.FoodProducts._getRequestId()) return;
-
-            // Local stream complete — release the 10s budget so the remote
-            // OpenFoodFacts callback below can run on its own deadline.
-            clearTimeout(timeoutId);
-            timeoutId = undefined;
-
-            // Check for direct barcode match first
-            const match = localResults.find(p => p.barcode === barcode);
-            if (match) {
-                document.getElementById('food-name').value = decodeFoodDisplayText(match.name);
-                autofillFoodProduct(match);
-                setFoodSearchStatus('success', 'Product found and filled in.');
-                return;
-            }
-
-            const unique = [];
-            const seen = new Set();
-            for (const p of localResults) {
-                if (!seen.has(p.name)) {
-                    seen.add(p.name);
-                    unique.push(p);
-                }
-            }
-
-            // Same lifecycle pattern as the name-search loadMoreCallback:
-            // claim a fresh (requestId, controller) on each invocation so
-            // an intervening cancellation can't strand the "Loading..."
-            // button with a stale closure.
-            const loadMoreCallback = async () => {
-                const prevController = window.FoodProducts._getAbortController();
-                if (prevController) prevController.abort();
-                const myController = new AbortController();
-                window.FoodProducts._setAbortController(myController);
-                const myRequestId = window.FoodProducts._nextRequestId();
-
-                setFoodSearchStatus('loading', 'Searching OpenFoodFacts...');
-                let remoteTimeoutId;
-                try {
-                    remoteTimeoutId = setTimeout(() => myController.abort(), 10_000);
-                    const remoteEndpoint = `/api/food/products/search?q=${encodeURIComponent(barcode)}&remote=true`;
-                    const remoteRes = await fetch(remoteEndpoint, { method: "GET", headers, signal: myController.signal });
-                    if (!remoteRes.ok) throw new Error("Remote search failed");
-                    if (myRequestId !== window.FoodProducts._getRequestId()) return;
-
-                    const remoteReader = remoteRes.body.getReader();
-                    const remoteDecoder = new TextDecoder("utf-8");
-                    let remoteBuffer = "";
-                    let remoteResults = [];
-
-                    while (true) {
-                        const { done, value } = await remoteReader.read();
-                        if (value) {
-                            remoteBuffer += remoteDecoder.decode(value, { stream: true });
-                            const lines = remoteBuffer.split('\n');
-                            remoteBuffer = lines.pop();
-                            for (const line of lines) {
-                                if (!line.trim()) continue;
-                                try {
-                                    remoteResults = JSON.parse(line) || [];
-                                } catch (e) { }
-                            }
-                        }
-                        if (done) {
-                            if (remoteBuffer.trim()) {
-                                try {
-                                    remoteResults = JSON.parse(remoteBuffer) || [];
-                                } catch (e) { }
-                            }
-                            break;
-                        }
-                    }
-
-                    if (myRequestId !== window.FoodProducts._getRequestId()) return;
-
-                    const remoteMatch = remoteResults.find(p => p.barcode === barcode);
-                    if (remoteMatch) {
-                        document.getElementById('food-name').value = decodeFoodDisplayText(remoteMatch.name);
-                        autofillFoodProduct(remoteMatch);
-                        const list = document.getElementById('food-autocomplete-list');
-                        if (list) list.classList.add('hidden');
-                        setFoodSearchStatus('success', 'Product found and filled in.');
-                        return;
-                    }
-
-                    const mergedUnique = [...unique];
-                    for (const p of remoteResults) {
-                        if (!seen.has(p.name)) {
-                            seen.add(p.name);
-                            mergedUnique.push(p);
-                        }
-                    }
-
-                    renderFoodAutocomplete(mergedUnique, false, null);
-                    setFoodSearchStatus('success', `Found ${mergedUnique.length} result(s).`);
-
-                } catch (e) {
-                    // A new barcode search starting aborts our controller —
-                    // that is the user's intent, not a remote failure. The
-                    // requestId guard filters that case silently. A 10s
-                    // deadline firing surfaces a typed status without console
-                    // noise.
-                    if (myRequestId !== window.FoodProducts._getRequestId()) return;
-                    if (e && (e.name === 'AbortError' || e.name === 'TimeoutError')) {
-                        setFoodSearchStatus('success', `Found ${unique.length} local result(s). Remote search timed out.`);
-                        renderFoodAutocomplete(unique, false, null);
-                        return;
-                    }
-                    console.error("Load more failed", e);
-                    setFoodSearchStatus('success', `Found ${unique.length} local result(s). Remote fetch failed.`);
-                    renderFoodAutocomplete(unique, false, null);
-                } finally {
-                    if (remoteTimeoutId !== undefined) clearTimeout(remoteTimeoutId);
-                }
-            };
-
-            renderFoodAutocomplete(unique, navigator.onLine, loadMoreCallback);
-
-            if (unique.length > 0) {
-                setFoodSearchStatus('success', `Found ${unique.length} local result(s).`);
-            } else {
-                setFoodSearchStatus('empty', 'No local products found.');
-                loadMoreCallback();
-            }
-
-        } catch (e) {
-            if (requestId !== window.FoodProducts._getRequestId()) return;
-            // Caller-initiated aborts (new search starting) are filtered by
-            // the requestId guard above; anything left here is either the
-            // 10s timeout firing or an external abort — surface it as a
-            // typed status without console noise.
-            if (e && (e.name === 'AbortError' || e.name === 'TimeoutError')) {
-                setFoodSearchStatus('error', 'Search timed out');
-                return;
-            }
-            console.error('Barcode search failed', e);
-            if (e.name === 'TypeError' || e.message.includes('fetch') || e.message === 'Network request failed' || e.message === 'Failed to fetch' || !navigator.onLine) {
-                setFoodSearchStatus('empty', 'Search finished: no products found.');
-                return;
-            }
-            setFoodSearchStatus('error', 'Search finished with an error. Please try again.');
-        } finally {
-            if (timeoutId !== undefined) clearTimeout(timeoutId);
-        }
+        // Same two-phase delivery as onFoodNameChange, with the
+        // direct-barcode-match check runCloudFoodSearch performs before
+        // falling back to rendering a result list.
+        await runCloudFoodSearch(barcode, requestId, { barcode });
+        return;
     }, 800));
 }
 

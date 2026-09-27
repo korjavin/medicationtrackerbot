@@ -184,8 +184,8 @@ async function readScanPlanDays(groupId) {
 
 async function scanWorkoutSheet(group) {
     const g = group || {};
-    if (!window.__MEDTRACKER_CLOUD__ || !window.CloudWorkoutSheetAI) {
-        safeToast('Sheet scanning is available in cloud mode.', 'info');
+    if (!window.CloudWorkoutSheetAI) {
+        safeToast('Sheet scanning is unavailable.', 'info');
         return;
     }
     const picker = window.MediaCapture && typeof window.MediaCapture.pickPhoto === 'function'

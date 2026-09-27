@@ -95,17 +95,14 @@
         }
         applyCloudFoodDbPlaceholder();
         applyTrialHints();
-        applyRestartNoteVisibility();
     }
 
     // applyTrialHints shows "Trial key active (rate-limited)…" next to the
     // OpenAI / ElevenLabs key fields when the operator's trial key is
     // available (the boolean <meta name="medtracker-trial-ai/voice"> flags
     // injected by cmd/cloud) and the user has no own key in the vault
-    // (masked value "***" means a key is stored). Cloud-only: bot mode
-    // never injects those tags.
+    // (masked value "***" means a key is stored).
     function applyTrialHints() {
-        if (!window.__MEDTRACKER_CLOUD__) return;
         const hints = [
             ['integrations-openai-trial-hint', 'medtracker-trial-ai', FIELD_IDS.openai.api_key],
             ['integrations-elevenlabs-trial-hint', 'medtracker-trial-voice', FIELD_IDS.elevenlabs.api_key]
@@ -153,8 +150,7 @@
             if (!hint) continue;
             const containerId = hintId + '-consent';
             let container = document.getElementById(containerId);
-            const trialOn = window.__MEDTRACKER_CLOUD__
-                && document.querySelector('meta[name="' + metaName + '"]')?.content === '1';
+            const trialOn = document.querySelector('meta[name="' + metaName + '"]')?.content === '1';
             if (!trialOn) {
                 if (container) container.remove();
                 continue;
@@ -247,7 +243,7 @@
     }
 
     async function loadTrialConsent() {
-        if (!window.__MEDTRACKER_CLOUD__ || typeof apiCall !== 'function') return;
+        if (typeof apiCall !== 'function') return;
         const anyTrial = CONSENT_MOUNTS.some(([metaName]) =>
             document.querySelector('meta[name="' + metaName + '"]')?.content === '1');
         if (!anyTrial) return;
@@ -265,27 +261,11 @@
     // (the <meta name="medtracker-food-db-url"> tag injected by cmd/cloud —
     // see internal/cloudserver/router.go; a CSP-safe carrier since the
     // origin's script-src 'self' blocks inline scripts) as the field's
-    // placeholder when the user hasn't set their own override. Cloud-only:
-    // bot mode never injects that tag, so the placeholder stays empty there.
+    // placeholder when the user hasn't set their own override.
     function applyCloudFoodDbPlaceholder() {
-        if (!window.__MEDTRACKER_CLOUD__) return;
         const input = getInput(FIELD_IDS.food.url);
         if (!input) return;
         input.placeholder = document.querySelector('meta[name="medtracker-food-db-url"]')?.content || '';
-    }
-
-    // The "Changes take effect after the server restarts." copy is only true for
-    // the server build, which caches the AI/food/ElevenLabs clients at boot and
-    // registers no hot-reload. Cloud mode reads the key from the vault per call
-    // in the browser, so changes apply live. Hide the note (and drop the restart
-    // wording in the save toast) there so the UI stops lying. (med-eas.6)
-    function appliesLive() {
-        return !!window.__MEDTRACKER_CLOUD__;
-    }
-
-    function applyRestartNoteVisibility() {
-        const note = document.getElementById('integrations-restart-note');
-        if (note) note.hidden = appliesLive();
     }
 
     // Model-id suggestions (bd med-byom). Strictly a typing aid: the inputs stay
@@ -401,11 +381,9 @@
 
     async function loadIntegrations() {
         if (typeof apiCall !== 'function') return null;
-        // Demo mode hides #settings-integrations via DemoBanner.mount because
-        // the backend returns 403 on GET/PATCH to keep visitors from rotating
-        // operator-owned provider keys. Skip the fetch when the section is
-        // hidden so the demo deployment doesn't log a 403 for every Settings
-        // visit and doesn't advertise the endpoint in DevTools network noise.
+        // Skip the fetch when the section is hidden so a hidden panel
+        // doesn't log failures for every Settings visit or advertise the
+        // endpoint in DevTools network noise.
         const section = (typeof document !== 'undefined')
             ? document.getElementById('settings-integrations')
             : null;
@@ -424,17 +402,15 @@
             // integrations payload itself doesn't wait on it.
             loadTrialConsent();
 
-            if (window.__MEDTRACKER_CLOUD__) {
-                const tgMount = document.getElementById('telegram-settings-mount');
-                if (tgMount && !_telegramMounted) {
-                    _telegramMounted = true;
-                    _telegramModuleLoader()
-                        .then(({ mountTelegram }) => mountTelegram(tgMount, {}))
-                        .catch((err) => {
-                            _telegramMounted = false;
-                            console.error('[settings] telegram module failed', err);
-                        });
-                }
+            const tgMount = document.getElementById('telegram-settings-mount');
+            if (tgMount && !_telegramMounted) {
+                _telegramMounted = true;
+                _telegramModuleLoader()
+                    .then(({ mountTelegram }) => mountTelegram(tgMount, {}))
+                    .catch((err) => {
+                        _telegramMounted = false;
+                        console.error('[settings] telegram module failed', err);
+                    });
             }
 
             return payload;
@@ -487,14 +463,11 @@
         if (handle) { try { await handle.commit(fresh || maskPayload(payload)); } catch (_) { /* best-effort */ } }
 
         if (typeof safeToast === 'function') {
-            safeToast(appliesLive()
-                ? 'Integrations saved.'
-                : 'Integrations saved. Restart the server for the new values to take effect.', 'info');
+            safeToast('Integrations saved.', 'info');
         }
     }
 
     function bindControls() {
-        applyRestartNoteVisibility();
         const btn = document.getElementById('save-integrations-btn');
         if (btn && !btn.dataset.integrationsBound) {
             btn.dataset.integrationsBound = '1';

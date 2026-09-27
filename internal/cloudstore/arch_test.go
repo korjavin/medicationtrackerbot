@@ -9,8 +9,8 @@ import (
 // TestImportBoundary_CloudAndBotStayDecoupled is a durable guard (needed
 // through C0b/C0c/C3a/C1, not just this plan): cloud mode must never grow
 // server-side domain logic or trip the goose migration-registry landmine
-// described in this package's doc comment, and a cloud-only change must
-// never alter bot-mode behavior.
+// described in this package's doc comment. (The cmd/bot half of this guard
+// went away with cmd/bot itself in med-a9n5.1.)
 func TestImportBoundary_CloudAndBotStayDecoupled(t *testing.T) {
 	t.Run("cmd/cloud stays decoupled from bot-mode packages", func(t *testing.T) {
 		deps := goListDeps(t, "./cmd/cloud")
@@ -18,18 +18,6 @@ func TestImportBoundary_CloudAndBotStayDecoupled(t *testing.T) {
 			"internal/store", // only internal/store/db is allowed
 			"internal/domain",
 			"internal/server",
-			"internal/bot",
-			"internal/scheduler",
-		} {
-			assertNoDep(t, deps, forbidden)
-		}
-	})
-
-	t.Run("cmd/bot stays decoupled from cloud-mode packages", func(t *testing.T) {
-		deps := goListDeps(t, "./cmd/bot")
-		for _, forbidden := range []string{
-			"internal/cloudstore",
-			"internal/cloudserver",
 		} {
 			assertNoDep(t, deps, forbidden)
 		}

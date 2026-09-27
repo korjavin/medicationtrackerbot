@@ -5,7 +5,7 @@
 // Owns the "+ Photo" flow on the Food screen:
 //   - window.MediaCapture.pickPhoto() opens the device photo picker
 //   - EXIF + lastModified parsing to pick the right eaten_at timestamp
-//   - POST /api/food/log/from-photo upload + cache invalidation
+//   - browser-direct AI parse (window.CloudFoodAI) + cache invalidation
 //   - the friendly summary card handoff (food-photo-summary.js owns the
 //     UI; this file owns the network + cache-invalidation side)
 //
@@ -251,62 +251,24 @@ async function uploadFoodPhotoFile(file) {
             }
 
             let items, failed;
-            if (window.__MEDTRACKER_CLOUD__) {
-                // Cloud mode: the photo never leaves the device via /api — it
-                // goes straight from the browser to the user's own AI
-                // provider (web/domain/foodai.js + web/cloud/js/aiclient.js).
-                // Trial path may refuse with trial_consent_required; the
-                // TrialConsent seam shows the disclosure dialog and reruns
-                // the parse once on Allow (bd med-yor.2 Task 4).
-                const parsePhoto = () => window.CloudFoodAI.parseMealFromPhoto(file, { eatenAt });
-                let result;
-                try {
-                    result = (window.TrialConsent && typeof window.TrialConsent.retryAfterConsent === 'function')
-                        ? await window.TrialConsent.retryAfterConsent(parsePhoto)
-                        : await parsePhoto();
-                } catch (aiErr) {
-                    if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-                    throw aiErr;
-                }
-                items = Array.isArray(result.items) ? result.items : [];
-                failed = Math.max(0, Math.trunc(Number(result.failed) || 0));
-            } else {
-                const form = new FormData();
-                form.append('image', file, file.name || 'food.jpg');
-                form.append('eaten_at', eatenAt.toISOString());
-
-                let res;
-                try {
-                    res = await fetch('/api/food/log/from-photo', {
-                        method: 'POST',
-                        headers: window.makeWriteHeaders(),
-                        body: form,
-                    });
-                } catch (netErr) {
-                    if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-                    throw netErr;
-                }
-
-                if (!res.ok) {
-                    if (res.status === 429 && window.DemoBanner && typeof window.DemoBanner.tryHandleResponse === 'function') {
-                        const demoParsed = await window.DemoBanner.tryHandleResponse(res);
-                        if (demoParsed) {
-                            if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-                            const demoErr = new Error('Demo rate limit reached');
-                            demoErr.status = 429;
-                            demoErr.demoLimit = demoParsed;
-                            throw demoErr;
-                        }
-                    }
-                    const txt = await res.text();
-                    if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-                    throw new Error(txt || `HTTP ${res.status}`);
-                }
-
-                const data = await res.json().catch(() => null);
-                items = (data && Array.isArray(data.items)) ? data.items : [];
-                failed = Math.max(0, Math.trunc(Number(data && data.failed) || 0));
+            // The photo never leaves the device via /api — it goes straight
+            // from the browser to the user's own AI provider
+            // (web/domain/foodai.js + web/cloud/js/aiclient.js).
+            // Trial path may refuse with trial_consent_required; the
+            // TrialConsent seam shows the disclosure dialog and reruns
+            // the parse once on Allow (bd med-yor.2 Task 4).
+            const parsePhoto = () => window.CloudFoodAI.parseMealFromPhoto(file, { eatenAt });
+            let result;
+            try {
+                result = (window.TrialConsent && typeof window.TrialConsent.retryAfterConsent === 'function')
+                    ? await window.TrialConsent.retryAfterConsent(parsePhoto)
+                    : await parsePhoto();
+            } catch (aiErr) {
+                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+                throw aiErr;
             }
+            items = Array.isArray(result.items) ? result.items : [];
+            failed = Math.max(0, Math.trunc(Number(result.failed) || 0));
 
             // Refresh the timing-window stamp now that the response has
             // landed. The pre-fetch stamp may have aged past SELF_ECHO_WINDOW_MS
@@ -364,9 +326,7 @@ async function uploadFoodPhotoFile(file) {
             }
         } catch (e) {
             console.error('Food photo upload failed:', e);
-            if (!(e && e.demoLimit)) {
-                safeToast('Failed to log food from photo: ' + (e.message || e), 'error');
-            }
+            safeToast('Failed to log food from photo: ' + (e.message || e), 'error');
         } finally {
             if (originalLabel) originalLabel.textContent = restoreLabel;
         }

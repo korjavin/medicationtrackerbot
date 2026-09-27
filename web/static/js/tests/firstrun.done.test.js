@@ -160,17 +160,6 @@ describe('firstrun done screen', () => {
             } finally { cleanup(); }
         });
 
-        it('shows neither in bot mode, where the Connectors page does not exist', () => {
-            const { window, document, cleanup } = loadFlow({
-                bootstrap: { needs_first_run: true }, initialStep: 'done', cloud: false, trialVoice: true,
-            });
-            try {
-                window.WGFirstRun.mount();
-                expect(caps(document)).toEqual([]);
-                const body = document.getElementById('wg-firstrun-overlay-body');
-                expect(body.textContent).not.toMatch(/worth knowing about/);
-            } finally { cleanup(); }
-        });
     });
 
     it('"Open app" still dismisses if the POST rejects (offline-safe)', async () => {
