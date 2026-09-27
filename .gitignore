@@ -39,7 +39,7 @@ __pycache__/
 *.pyc
 .coverage
 
-# mcpeval scorecards (per-run output of cmd/mcpeval)
+# mcpeval scorecards (per-run output of tools/mcpeval-cloud)
 mcpeval-report.json
 mcpeval-report.md
 
