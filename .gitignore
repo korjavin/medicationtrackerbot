@@ -1,6 +1,3 @@
-/bot
-/mcptool
-/seeddemo
 /feedbackpull
 # feedbackpull dev/ops secrets: the sole age private key + decrypted user PII
 # output. Documented workflow creates dev.key + ./inbox|./feedback in the repo
@@ -9,7 +6,6 @@
 /inbox/
 /feedback/
 /vendor/
-meds.db
 *.db
 *.log
 .DS_Store
@@ -33,11 +29,6 @@ coverage/
 # Local-only design reference (mockups, chat transcripts, screenshots with personal data)
 # Referenced read-only by docs/plans/ — never commit.
 .local/
-
-# Python bytecode and coverage artifacts
-__pycache__/
-*.pyc
-.coverage
 
 # mcpeval scorecards (per-run output of tools/mcpeval-cloud)
 mcpeval-report.json
