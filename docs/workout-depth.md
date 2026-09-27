@@ -403,7 +403,7 @@ achievable rung (`nearestLoads(loads, kg)` → `{ below, above }`, tie →
 below) and shows its loading with a delta line (`72 kg (-1 kg)`); fixed gear
 gets a text-only `nearest: N kg` one-liner off-rung, and unbound gear leaves
 the card unchanged. Sessions frozen behind a completion snapshot never consult
-the live variant for the row \u2192 library link, so their plan-row cards stay
+the live variant for the row → library link, so their plan-row cards stay
 chipless (med-qj4.2.1 no-fetch contract).
 
 **MCP** (med-niix.4, cloud-only via the `mcp-catalog.cloud-extra.js` seam —
