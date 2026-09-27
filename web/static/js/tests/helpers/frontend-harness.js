@@ -165,8 +165,8 @@ export function loadFrontendEnv({ withWorkout = false, url = 'https://example.te
   }
 
   // Cloud default: the app under test boots as the cloud origin does —
-  // window.__MEDTRACKER_CLOUD__ set before any script evals, no Telegram
-  // WebApp mock (messenger-adapter.js picks BrowserAdapter), and no
+  // window.__MEDTRACKER_CLOUD__ set before any script evals
+  // (messenger-adapter.js is BrowserAdapter-only), and no
   // BOT_USERNAME/OIDC_CONFIG globals (the bot config script is gone).
   window.__MEDTRACKER_CLOUD__ = true;
   window.alert = () => {};
@@ -176,8 +176,8 @@ export function loadFrontendEnv({ withWorkout = false, url = 'https://example.te
 
   // Core infrastructure files (loaded before data-store.js and app.js)
   evalFileCached(window, UTILS_JS);
-  // messenger-adapter.js selects BrowserAdapter (no window.Telegram.WebApp
-  // in this harness) and exposes window.MessengerAdapter.
+  // messenger-adapter.js exposes window.MessengerAdapter (BrowserAdapter —
+  // the only adapter; no host SDK in this harness).
   // Must load before app.js and any feature
   // module that calls into the adapter (back-button, modal-history,
   // deeplink-router, utils' safeAlert/safeConfirm).
@@ -361,7 +361,7 @@ export function loadFrontendEnv({ withWorkout = false, url = 'https://example.te
   evalFileCached(window, MODAL_HISTORY_JS);
 
   // back-button.js must load before AppBackButton.setup() is called; it also
-  // owns the Telegram BackButton onClick handler that modal-history relies on.
+  // owns the back-button handler (in-app chevron + popstate) that modal-history relies on.
   evalFileCached(window, BACK_BUTTON_JS);
 
   // Fire DOMContentLoaded – triggers setupObserver() inside modal-history.js.

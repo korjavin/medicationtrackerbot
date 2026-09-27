@@ -144,8 +144,8 @@
         // in-memory needs_first_run is flipped to false so a same-session
         // re-mount no-ops.
         //
-        // Prefer window.apiCall when it has loaded — it owns Telegram
-        // initData / cookie auth header injection, so the POST authenticates
+        // Prefer window.apiCall when it has loaded — it owns authenticated
+        // request handling (session cookie), so the POST authenticates
         // on every build (mobile LocalUserResolver accepts unauthenticated
         // requests but the server build's AuthMiddleware would 401 a bare
         // fetch). The Vitest harness loads only the firstrun modules so

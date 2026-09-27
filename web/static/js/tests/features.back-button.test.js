@@ -1,20 +1,20 @@
 /**
  * features.back-button.test.js
  *
- * Task 4 — Telegram WebApp BackButton wiring for section-level navigation.
+ * BrowserAdapter back-button wiring for section-level navigation.
  *
- * features/back-button.js owns the Telegram BackButton onClick handler and
- * drives three behaviors:
- *   1. show on non-Today views, hide on Today (when no modal is open)
- *   2. clicking BackButton returns to Today when no modal is open
- *   3. when a modal IS open, BackButton closes the topmost modal (via ModalManager)
+ * features/back-button.js registers one back handler on
+ * window.MessengerAdapter and drives three behaviors:
+ *   1. show the in-app chevron on non-Today views, hide it on Today (when no modal is open)
+ *   2. back (chevron tap / browser back) returns to Today when no modal is open
+ *   3. when a modal IS open, back closes the topmost modal (via ModalManager)
  *
  * It also exposes AppBackButton.refresh() so modal-history.js can ask for a
  * visibility recomputation after a modal closes on a non-Today section.
  *
- * Uses a hand-rolled JSDOM setup to record ALL BackButton onClick registrations
- * and to exercise the AppBackButton.refresh integration without wiring the full
- * frontend-harness.
+ * Uses a hand-rolled JSDOM setup that loads the real BrowserAdapter and
+ * observes the in-app chevron element (#wg-browser-back-button), without
+ * wiring the full frontend-harness.
  */
 import { describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
@@ -29,19 +29,7 @@ const STORE_JS = path.join(REPO_ROOT, 'web/static/js/core/store.js');
 const MESSENGER_ADAPTER_JS = path.join(REPO_ROOT, 'web/static/js/core/messenger-adapter.js');
 const BACK_BUTTON_JS = path.join(REPO_ROOT, 'web/static/js/features/back-button.js');
 
-function isVersionAtLeast(current, target) {
-    const a = String(current).split('.').map((v) => parseInt(v, 10) || 0);
-    const b = String(target).split('.').map((v) => parseInt(v, 10) || 0);
-    for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
-        const av = a[i] || 0;
-        const bv = b[i] || 0;
-        if (av > bv) return true;
-        if (av < bv) return false;
-    }
-    return true;
-}
-
-function createEnv({ telegramVersion = '6.9' } = {}) {
+function createEnv() {
     const dom = new JSDOM(
         `<!doctype html><html><body>
             <div id="modal-overlay" class="hidden"></div>
@@ -52,24 +40,6 @@ function createEnv({ telegramVersion = '6.9' } = {}) {
         { url: 'https://example.test/', runScripts: 'outside-only' }
     );
     const { window } = dom;
-
-    const backButtonState = {
-        showCalls: 0,
-        hideCalls: 0,
-        handlers: []
-    };
-    const backButton = {
-        show() { backButtonState.showCalls += 1; },
-        hide() { backButtonState.hideCalls += 1; },
-        onClick(cb) { backButtonState.handlers.push(cb); }
-    };
-
-    window.Telegram = {
-        WebApp: {
-            isVersionAtLeast(v) { return isVersionAtLeast(telegramVersion, v); },
-            BackButton: backButton
-        }
-    };
 
     // Minimal switchTab stub: toggles .view.active + publishes currentTab to AppStore.
     window.switchTab = vi.fn((tab) => {
@@ -82,19 +52,25 @@ function createEnv({ telegramVersion = '6.9' } = {}) {
     window.eval(fs.readFileSync(STORE_JS, 'utf8'));
     // Load the messenger adapter so back-button.js can call
     // window.MessengerAdapter.{isBackButtonSupported,onBack,showBack,hideBack}
-    // (the adapter forwards to the Telegram BackButton primed above).
+    // (the BrowserAdapter renders the in-app chevron observed below).
     window.eval(fs.readFileSync(MESSENGER_ADAPTER_JS, 'utf8'));
     window.eval(fs.readFileSync(BACK_BUTTON_JS, 'utf8'));
 
     return {
         window,
         document: window.document,
-        backButtonState,
+        chevronVisible: () => {
+            const el = window.document.getElementById('wg-browser-back-button');
+            return !!el && el.hidden === false;
+        },
+        pressBack: () => {
+            window.dispatchEvent(new window.Event('popstate'));
+        },
         cleanup: () => dom.window.close()
     };
 }
 
-describe('features/back-button.js — Telegram BackButton for section navigation', () => {
+describe('features/back-button.js — BrowserAdapter back chevron for section navigation', () => {
     it('exposes AppBackButton.setup on window', () => {
         const { window, cleanup } = createEnv();
         try {
@@ -105,63 +81,64 @@ describe('features/back-button.js — Telegram BackButton for section navigation
         }
     });
 
-    it('registers a BackButton click handler on setup', () => {
-        const { window, backButtonState, cleanup } = createEnv();
+    it('registers a back handler on setup', () => {
+        const { window, cleanup } = createEnv();
         try {
+            const onBackSpy = vi.spyOn(window.MessengerAdapter, 'onBack');
             window.AppBackButton.setup();
-            expect(backButtonState.handlers.length).toBe(1);
+            expect(onBackSpy).toHaveBeenCalledTimes(1);
+            expect(typeof onBackSpy.mock.calls[0][0]).toBe('function');
         } finally {
             cleanup();
         }
     });
 
-    it('hides the BackButton while on Today', () => {
-        const { window, backButtonState, cleanup } = createEnv();
+    it('hides the chevron while on Today', () => {
+        const { window, chevronVisible, cleanup } = createEnv();
         try {
             window.AppBackButton.setup();
-            // initial currentTab is empty; refreshBackButton(\"\") hides.
-            expect(backButtonState.hideCalls).toBeGreaterThan(0);
-            const baseline = backButtonState.hideCalls;
+            // initial currentTab resolves to Today via the .view.active DOM.
+            expect(chevronVisible()).toBe(false);
             window.switchTab('today');
-            expect(backButtonState.hideCalls).toBeGreaterThan(baseline);
+            expect(chevronVisible()).toBe(false);
         } finally {
             cleanup();
         }
     });
 
-    it('shows the BackButton when navigating to a section view', () => {
-        const { window, backButtonState, cleanup } = createEnv();
+    it('shows the chevron when navigating to a section view', () => {
+        const { window, chevronVisible, cleanup } = createEnv();
         try {
             window.AppBackButton.setup();
-            const before = backButtonState.showCalls;
+            expect(chevronVisible()).toBe(false);
             window.switchTab('bp');
-            expect(backButtonState.showCalls).toBeGreaterThan(before);
+            expect(chevronVisible()).toBe(true);
         } finally {
             cleanup();
         }
     });
 
-    it('hides the BackButton when returning to Today from a section', () => {
-        const { window, backButtonState, cleanup } = createEnv();
+    it('hides the chevron when returning to Today from a section', () => {
+        const { window, chevronVisible, cleanup } = createEnv();
         try {
             window.AppBackButton.setup();
             window.switchTab('bp');
-            const before = backButtonState.hideCalls;
+            expect(chevronVisible()).toBe(true);
             window.switchTab('today');
-            expect(backButtonState.hideCalls).toBeGreaterThan(before);
+            expect(chevronVisible()).toBe(false);
         } finally {
             cleanup();
         }
     });
 
-    it('click handler calls switchTab("today") when no modal is open', () => {
-        const { window, backButtonState, cleanup } = createEnv();
+    it('back handler calls switchTab("today") when no modal is open', () => {
+        const { window, pressBack, cleanup } = createEnv();
         try {
             window.AppBackButton.setup();
             window.switchTab('bp');
             window.switchTab.mockClear();
 
-            backButtonState.handlers[0]();
+            pressBack();
 
             expect(window.switchTab).toHaveBeenCalledWith('today');
         } finally {
@@ -169,8 +146,8 @@ describe('features/back-button.js — Telegram BackButton for section navigation
         }
     });
 
-    it('click handler closes top-most modal (via ModalManager) when one is open', () => {
-        const { window, document, backButtonState, cleanup } = createEnv();
+    it('back handler closes top-most modal (via ModalManager) when one is open', () => {
+        const { window, document, pressBack, cleanup } = createEnv();
         try {
             const closeSpy = vi.fn();
             window.ModalManager = { closeTopMostVisibleModal: closeSpy };
@@ -179,7 +156,7 @@ describe('features/back-button.js — Telegram BackButton for section navigation
             document.getElementById('modal-overlay').classList.remove('hidden');
             window.switchTab.mockClear();
 
-            backButtonState.handlers[0]();
+            pressBack();
 
             expect(closeSpy).toHaveBeenCalled();
             expect(window.switchTab).not.toHaveBeenCalled();
@@ -189,79 +166,62 @@ describe('features/back-button.js — Telegram BackButton for section navigation
     });
 
     it('exposes refresh() that recomputes visibility from currentTab', () => {
-        const { window, document, backButtonState, cleanup } = createEnv();
+        const { window, chevronVisible, cleanup } = createEnv();
         try {
             window.AppBackButton.setup();
             window.switchTab('bp');
-            // Simulate modal-history hiding the button when a modal opened and closed
-            // on a section view. refresh() should re-show it because currentTab is bp.
-            const showBefore = backButtonState.showCalls;
+            // Simulate modal-history hiding the chevron when a modal opened
+            // and closed on a section view. refresh() should re-show it
+            // because currentTab is bp.
+            window.MessengerAdapter.hideBack();
+            expect(chevronVisible()).toBe(false);
             window.AppBackButton.refresh();
-            expect(backButtonState.showCalls).toBeGreaterThan(showBefore);
+            expect(chevronVisible()).toBe(true);
 
             window.switchTab('today');
-            const hideBefore = backButtonState.hideCalls;
+            // Simulate a stale visible chevron; refresh() hides it on Today.
+            window.MessengerAdapter.showBack();
             window.AppBackButton.refresh();
-            expect(backButtonState.hideCalls).toBeGreaterThan(hideBefore);
+            expect(chevronVisible()).toBe(false);
         } finally {
             cleanup();
         }
     });
 
     it('refresh() is a no-op while a modal is open (modal-history owns visibility)', () => {
-        const { window, document, backButtonState, cleanup } = createEnv();
+        const { window, document, chevronVisible, cleanup } = createEnv();
         try {
             window.AppBackButton.setup();
             window.switchTab('bp');
             document.getElementById('modal-overlay').classList.remove('hidden');
-            const showBefore = backButtonState.showCalls;
-            const hideBefore = backButtonState.hideCalls;
 
             window.AppBackButton.refresh();
 
-            expect(backButtonState.showCalls).toBe(showBefore);
-            expect(backButtonState.hideCalls).toBe(hideBefore);
+            expect(chevronVisible()).toBe(true);
         } finally {
             cleanup();
         }
     });
 
     it('does not drive show/hide when a modal is open (modal-history owns visibility)', () => {
-        const { window, document, backButtonState, cleanup } = createEnv();
+        const { window, document, chevronVisible, cleanup } = createEnv();
         try {
             window.AppBackButton.setup();
             document.getElementById('modal-overlay').classList.remove('hidden');
-            const showBefore = backButtonState.showCalls;
-            const hideBefore = backButtonState.hideCalls;
 
             window.switchTab('bp');
 
-            expect(backButtonState.showCalls).toBe(showBefore);
-            expect(backButtonState.hideCalls).toBe(hideBefore);
+            expect(chevronVisible()).toBe(false);
         } finally {
             cleanup();
         }
     });
 
-    it('skips wiring entirely on unsupported Telegram WebApp versions', () => {
-        const { window, backButtonState, cleanup } = createEnv({ telegramVersion: '6.0' });
-        try {
-            window.AppBackButton.setup();
-            window.switchTab('bp');
-            expect(backButtonState.handlers.length).toBe(0);
-            expect(backButtonState.showCalls).toBe(0);
-            expect(backButtonState.hideCalls).toBe(0);
-        } finally {
-            cleanup();
-        }
-    });
-
-    // Regression for Task 3 of the messenger-adapter plan: back-button.js used
-    // to read window.Telegram.WebApp.BackButton directly. After migration,
-    // every BackButton interaction goes through window.MessengerAdapter
+    // Regression for the messenger-adapter plan: back-button.js reaches the
+    // back affordance only through window.MessengerAdapter
     // (onBack / showBack / hideBack). Spy on the adapter to lock in that the
-    // wiring delegates instead of reaching into Telegram.WebApp again.
-    it('routes BackButton calls through window.MessengerAdapter', () => {
+    // wiring delegates instead of touching a host SDK directly.
+    it('routes back-button calls through window.MessengerAdapter', () => {
         const { window, cleanup } = createEnv();
         try {
             const onBackSpy = vi.spyOn(window.MessengerAdapter, 'onBack');

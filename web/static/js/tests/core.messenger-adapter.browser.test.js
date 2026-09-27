@@ -1,7 +1,7 @@
-// BrowserAdapter coverage — verifies that when window.Telegram is absent at
-// script-eval time, window.MessengerAdapter selects the BrowserAdapter and
-// each method exercises its native fallback (window.alert / window.confirm /
-// URL-derived start param / popstate-driven back).
+// BrowserAdapter coverage — verifies window.MessengerAdapter is the
+// BrowserAdapter and each method exercises its native behavior
+// (window.alert / window.confirm / URL-derived start param /
+// popstate-driven back).
 import { describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,10 +13,6 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const ADAPTER_SRC = fs.readFileSync(
     path.join(REPO_ROOT, 'web/static/js/core/messenger-adapter.js'),
-    'utf8'
-);
-const CORE_API_SRC = fs.readFileSync(
-    path.join(REPO_ROOT, 'web/static/js/core/api.js'),
     'utf8'
 );
 
@@ -34,7 +30,7 @@ function loadWithoutTelegram({ url = 'https://example.test/' } = {}) {
 }
 
 describe('MessengerAdapter — Browser path', () => {
-    it('selects BrowserAdapter when window.Telegram is absent', () => {
+    it('exposes the BrowserAdapter (no host SDK)', () => {
         const { window, cleanup } = loadWithoutTelegram();
         try {
             expect(window.MessengerAdapter).toBeTruthy();
@@ -187,14 +183,4 @@ describe('MessengerAdapter — Browser path', () => {
         } finally { cleanup(); }
     });
 
-    it('auth-header helper omits the header when BrowserAdapter is active', () => {
-        const { window, cleanup } = loadWithoutTelegram();
-        try {
-            window.userInitData = 'leftover-token';
-            window.eval(`${CORE_API_SRC}\n//# sourceURL=file://core-api.js`);
-            const headers = window.makeAuthHeaders({ 'Content-Type': 'application/json' });
-            expect(headers).toEqual({ 'Content-Type': 'application/json' });
-            expect('X-Telegram-Init-Data' in headers).toBe(false);
-        } finally { cleanup(); }
-    });
 });

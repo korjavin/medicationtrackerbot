@@ -1,47 +1,23 @@
 // Core API client — direct fetch wrapper and offline-aware wrapper.
-// Loaded before app.js. Reads window.userInitData at call time (set by app.js
-// on load). Depends on window.offlineAwareApiCall (sync.js, optional) and
-// window.DataStore (data-store.js, for cursor advancement).
+// Loaded before app.js. No auth headers are attached — requests authenticate
+// via the session cookie. Depends on window.offlineAwareApiCall (sync.js,
+// optional) and window.DataStore (data-store.js, for cursor advancement).
 // safeAlert() is provided by core/utils.js, loaded before this file.
 
 
-// Builds the canonical headers object for a messenger-authenticated request.
-// The header name is sourced from window.MessengerAdapter.authHeaderName()
-// (TelegramAdapter → 'X-Telegram-Init-Data'; BrowserAdapter → null, header
-// omitted entirely for the cookie-only path). The token value still comes
-// from window.userInitData so SW-token updates and adapter-driven boot
-// (Task 3) share one mutable global. When no adapter has loaded — e.g. in
-// isolated unit tests — falls back to the legacy 'X-Telegram-Init-Data'
-// header so older test harnesses continue to work without modification.
-// Returns a fresh object every call; never mutates `extra`. Direct-fetch
-// callers (streaming, multipart, CSV exports) that cannot route through
-// apiCallDirect must use this helper.
-function makeAuthHeaders(extra) {
-    const headers = { ...(extra || {}) };
-    const adapter = window.MessengerAdapter;
-    const headerName = (adapter && typeof adapter.authHeaderName === 'function')
-        ? adapter.authHeaderName()
-        : 'X-Telegram-Init-Data';
-    if (headerName && window.userInitData) {
-        headers[headerName] = window.userInitData;
-    }
-    return headers;
-}
-window.makeAuthHeaders = makeAuthHeaders;
-
 // makeWriteHeaders builds the headers for a non-GET request that must travel
 // outside apiCallDirect (multipart/form-data uploads and other direct fetch
-// sites). It returns makeAuthHeaders(extra) augmented with X-Client-ID when
+// sites). It returns a fresh copy of `extra` augmented with X-Client-ID when
 // DataStore.getClientId() is available, so the backend's
 // notifyOnWriteMiddleware can attribute the resulting change_events to this
 // browser and the SSE subscribers can recognise their own echo via
 // source_client_id instead of relying on the 5s timing-window fallback.
 //
-// GET callers should keep using makeAuthHeaders directly — emitting
-// X-Client-ID on reads is wasteful and would let the value appear in
-// access-log query strings on routes that have no need for it.
+// GET callers must not use this — emitting X-Client-ID on reads is wasteful
+// and would let the value appear in access-log query strings on routes that
+// have no need for it.
 function makeWriteHeaders(extra) {
-    const headers = makeAuthHeaders(extra);
+    const headers = { ...(extra || {}) };
     try {
         if (window.DataStore && typeof window.DataStore.getClientId === 'function') {
             const cid = window.DataStore.getClientId();
@@ -72,7 +48,7 @@ async function apiCallDirect(endpoint, method = "GET", body = null, opts = {}) {
     // POSTs a gzipped JSON body (Content-Encoding via opts.headers) because the
     // plaintext runs to hundreds of MB. Everything else is JSON-encoded.
     const isRawBody = body instanceof Uint8Array || body instanceof Blob || body instanceof ArrayBuffer;
-    const headers = makeAuthHeaders(body ? { "Content-Type": "application/json" } : null);
+    const headers = { ...(body ? { "Content-Type": "application/json" } : null) };
     Object.assign(headers, extraHeaders || {});
 
     // Tag non-GET writes with the per-browser stable client id so the

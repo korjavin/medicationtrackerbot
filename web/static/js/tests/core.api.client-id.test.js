@@ -168,17 +168,15 @@ describe('apiCallDirect X-Client-ID header', () => {
         }
     });
 
-    it('keeps both X-Telegram-Init-Data and X-Client-ID on the same write', async () => {
+    it('keeps X-Client-ID alongside Content-Type on writes', async () => {
         const { window, cleanup } = loadEnv({ clientId: 'id-merge' });
         try {
-            window.userInitData = 'telegram-init';
             let seenHeaders = null;
             window.fetch = async (_url, opts) => {
                 seenHeaders = opts.headers;
                 return okResponse();
             };
             await window.apiCallDirect('/api/foo', 'POST', { a: 1 });
-            expect(seenHeaders['X-Telegram-Init-Data']).toBe('telegram-init');
             expect(seenHeaders['X-Client-ID']).toBe('id-merge');
             expect(seenHeaders['Content-Type']).toBe('application/json');
         } finally {

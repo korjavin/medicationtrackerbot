@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
-describe('safeConfirm — browser mode (no Telegram context)', () => {
+describe('safeConfirm — in-page modal', () => {
     let env;
 
     beforeEach(() => {

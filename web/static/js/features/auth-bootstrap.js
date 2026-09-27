@@ -339,14 +339,13 @@ window.AuthBootstrap = (function () {
     // Cold-start preflight: seed DataStore with the previous session's
     // medications list from Dexie so any view that mounts before /api/bootstrap
     // resolves (offline relaunch, slow first response) renders planned doses
-    // immediately. Gated on auth presence — Telegram initData OR a cached auth
-    // state from a prior session — so a fully unauthenticated cold start does
-    // not surface a former user's meds.
+    // immediately. Gated on a cached auth state from a prior session so a
+    // fully unauthenticated cold start does not surface a former user's meds.
     async function hydrateMedicationsFromDexie() {
         if (!window.DataStore?.hydrateFromDexie) return;
         if (!window.MedTrackerDB?.MedicationStore?.loadCache) return;
-        const hasAuthPresence = !!window.userInitData
-            || (typeof window.getCachedAuthState === 'function' && !!window.getCachedAuthState());
+        const hasAuthPresence = typeof window.getCachedAuthState === 'function'
+            && !!window.getCachedAuthState();
         if (!hasAuthPresence) return;
         try {
             const result = await window.DataStore.hydrateFromDexie(
@@ -384,8 +383,8 @@ window.AuthBootstrap = (function () {
         if (!window.DataStore?.hydrateFromDexie) return;
         const apiCache = window.MedTrackerDB?.ApiCache;
         if (!apiCache || typeof apiCache.getWithMeta !== 'function') return;
-        const hasAuthPresence = !!window.userInitData
-            || (typeof window.getCachedAuthState === 'function' && !!window.getCachedAuthState());
+        const hasAuthPresence = typeof window.getCachedAuthState === 'function'
+            && !!window.getCachedAuthState();
         if (!hasAuthPresence) return;
         // Each entry: { key, tags }. The Dexie loader is the same shape for every
         // entry — read the {data, timestamp} record by key from ApiCache. Tags

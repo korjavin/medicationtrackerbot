@@ -34,18 +34,17 @@
  * RULES:
  *   - No hardcoded hex colors outside :root — use tokens
  *   - No inline style assignments in JS — use CSS classes
- *   - Telegram theme vars (--tg-theme-*) are mirrored in :root with fallbacks
  */
 
 :root {
-    /* Telegram theme mirrors */
-    --bg-color: var(--tg-theme-bg-color, #fff);
-    --text-color: var(--tg-theme-text-color, #000);
-    --hint-color: var(--tg-theme-hint-color, #888);
-    --link-color: var(--tg-theme-link-color, #2481cc);
-    --button-color: var(--tg-theme-button-color, #2481cc);
-    --button-text-color: var(--tg-theme-button-text-color, #fff);
-    --secondary-bg-color: var(--tg-theme-secondary-bg-color, #f0f0f0);
+    /* Base surface/text palette */
+    --bg-color: #fff;
+    --text-color: #000;
+    --hint-color: #888;
+    --link-color: #2481cc;
+    --button-color: #2481cc;
+    --button-text-color: #fff;
+    --secondary-bg-color: #f0f0f0;
 
     /* Semantic colors */
     --color-success: #22c55e;
@@ -3558,9 +3557,9 @@ input:checked+.toggle-slider:before {
     gap: var(--space-sm);
 }
 
-/* In-page confirm dialog used by safeConfirm() when no Telegram WebApp
-   context is available. Shares the .wg-modal shell; adds a backdrop layer
-   and a message paragraph styled with shared design tokens. The buttons
+/* In-page confirm dialog used by safeConfirm(). Shares the .wg-modal shell
+   and adds a backdrop layer plus a message paragraph styled with shared
+   design tokens. The buttons
    reuse .wg-gloss / .wg-gloss--sun so no bespoke colours live here.
 
    Both the backdrop and the modal sit on the dedicated --z-confirm layer

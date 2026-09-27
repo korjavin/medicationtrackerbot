@@ -7,9 +7,8 @@
 // visible  → push history entry + show back button
 // hidden   → pop history entry + defer visibility to AppBackButton.refresh()
 //
-// All back-button toggling goes through window.MessengerAdapter so this file
-// behaves identically in the Telegram Mini App (forwards to the Telegram SDK
-// BackButton) and in the plain-browser path (in-app chevron + popstate).
+// All back-button toggling goes through window.MessengerAdapter
+// (in-app chevron + popstate in the browser PWA).
 //
 // Loaded after app.js so ModalManager is available.
 // The harness loads this file so modal-history tests can rely on it.
@@ -20,15 +19,10 @@
     // onOverlayClosed() and the resulting popstate is purely an echo of that
     // call. Without this, BrowserAdapter's section-back popstate listener
     // would fire on top of the in-app modal close and bounce the user to
-    // Today. No-op in TelegramAdapter mode (no popstate listener there).
+    // Today.
     let swallowNextPopstate = false;
-    // Resolve the adapter at use time, not at IIFE start. The Telegram SDK
-    // now loads asynchronously (see core/messenger-adapter.js), so the
-    // initial pick on a fresh Telegram Mini App open is BrowserAdapter;
-    // window.MessengerAdapter is swapped to TelegramAdapter once the SDK
-    // resolves. Caching a reference here would permanently route modal
-    // back-button toggling through the in-app chevron instead of Telegram's
-    // native BackButton.
+    // Resolve the adapter at use time, not at IIFE start, so a swapped
+    // window.MessengerAdapter is picked up by the overlay handlers.
     function isBackButtonSupported() {
         const a = window.MessengerAdapter;
         return !!(a && typeof a.isBackButtonSupported === 'function' && a.isBackButtonSupported());
@@ -87,8 +81,7 @@
         // BrowserAdapter.onBack also listens on popstate to drive section-back
         // (switchTab('today')). When we're consuming this event to close a
         // modal, stop it so that listener doesn't also fire and bounce the
-        // user back to Today on top of the modal close. No-op in TelegramAdapter
-        // mode because that adapter doesn't register a popstate listener.
+        // user back to Today on top of the modal close.
         if (event && typeof event.stopImmediatePropagation === 'function') {
             event.stopImmediatePropagation();
         }

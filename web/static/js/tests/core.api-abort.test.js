@@ -17,7 +17,6 @@ function loadApiEnv() {
     pretendToBeVisual: true
   });
   const { window } = dom;
-  window.userInitData = 'test-init';
   const source = fs.readFileSync(CORE_API_JS, 'utf8');
   window.eval(`${source}\n//# sourceURL=file://${CORE_API_JS}`);
   return { window, cleanup: () => dom.window.close() };

@@ -224,7 +224,7 @@ checkAuth().then(async authorized => {
             window.WGForecastCard.refresh();
         }
 
-        // Wire the Telegram BackButton to return-to-Today once the initial tab is active.
+        // Wire the in-app back chevron to return-to-Today once the initial tab is active.
         if (window.AppBackButton && typeof window.AppBackButton.setup === 'function') {
             window.AppBackButton.setup();
         }

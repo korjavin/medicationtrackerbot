@@ -41,7 +41,7 @@ const ALLOWLIST = [
     },
     {
         file: 'back-button.js',
-        reason: 'wires Telegram WebApp BackButton to section navigation — no API reads',
+        reason: 'wires the in-app back chevron to section navigation — no API reads',
     },
     {
         file: 'bootstrap.js',
