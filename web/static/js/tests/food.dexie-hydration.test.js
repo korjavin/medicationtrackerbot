@@ -3,8 +3,8 @@
 // `hydrateSectionsFromDexie` seeds today's `food_<date>_day` entry into the
 // in-memory cache at cold start so any caller using `DataStore.getCached(...)`
 // sees the warmed row. The Food screen itself reads vault-served data through
-// apiCall: opening it offline renders the served meal groups + "Offline · …"
-// stale chip, and the products picker resolves through the same seam.
+// apiCall: opening it offline renders the served meal groups, and the
+// products picker resolves through the same seam.
 // Conversely, a cold start where apiCall answers null shows the empty state
 // (daily log) and an empty product cache (picker).
 
@@ -162,14 +162,6 @@ describe('Food cold-start Dexie hydration (Task 5)', () => {
         expect(groupHeader).not.toBeNull();
         expect(groupHeader.textContent).toContain('Lunch');
 
-        // Offline chip with the fresh read timestamp.
-        const slot = document.getElementById('food-stale-badge');
-        expect(slot).not.toBeNull();
-        expect(slot.classList.contains('hidden')).toBe(false);
-        const badge = slot.querySelector('.wg-stale-badge');
-        expect(badge).not.toBeNull();
-        expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
-        expect(badge.textContent).toMatch(/^Offline · (just now|\d+m old)$/);
     });
 
     it('shows the empty state when Dexie is empty, offline, and apiCall returns null', async () => {

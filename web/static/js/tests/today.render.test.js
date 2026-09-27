@@ -462,28 +462,16 @@ describe('TodayDashboard.renderToday', () => {
         expect(root.querySelector('.today-settings-gear')).toBeNull();
     });
 
-    it('renders offline banner when state.__offline is set and not first-run', () => {
-        const root = env.document.getElementById('today-content');
-        const state = allPresentState(now);
-        state.__offline = true;
-        env.render(state, root, { now });
-
-        const banner = root.querySelector('.today-offline-banner');
-        expect(banner).not.toBeNull();
-        expect(banner.textContent).toMatch(/offline/i);
-    });
-
-    it('first-run while offline shows a single combined message, no separate banner', () => {
+    it('first-run shows the connect message with no banner', () => {
         const root = env.document.getElementById('today-content');
         const state = env.aggregate(null, null, now);
         state.__firstRun = true;
-        state.__offline = true;
         env.render(state, root, { now });
 
         expect(root.querySelector('.today-offline-banner')).toBeNull();
         const empty = root.querySelector('.today-empty-firstrun');
         expect(empty).not.toBeNull();
-        expect(empty.textContent.toLowerCase()).toMatch(/offline|reconnect/);
+        expect(empty.textContent).toBe('Connect to load your day');
     });
 
     // Gamification rings tile: "X of 3 closed" headline + the "your move"

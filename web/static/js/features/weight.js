@@ -376,9 +376,9 @@ async function handleWeightSubmit(event) {
     // unit than their saved preference, persist the new unit so the next open
     // (and other surfaces — Today tile, history) honors it. Stays best-effort:
     // if the PATCH fails the local write still succeeded. Skip entirely when
-    // offline — PATCH has no offline fallback in sync.js, so it would surface
-    // a confusing "needs internet" alert immediately after the weight POST
-    // succeeded via the offline-write path.
+    // offline — the PATCH has no offline path, so it would surface a
+    // confusing "needs internet" alert immediately after the weight POST
+    // succeeded.
     //
     // Route through window.setWeightUnitPreference (app.js) rather than issuing
     // an inline PATCH so this modal-side write shares the Settings serial queue.

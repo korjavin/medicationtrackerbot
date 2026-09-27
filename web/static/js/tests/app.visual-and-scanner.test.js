@@ -157,7 +157,7 @@ describe('app.js charts, scanner and visualization helpers', () => {
 
       const readings = [
         { id: 1, measured_at: isoDaysAgo(2), systolic: 118, diastolic: 76, pulse: 60 },
-        { id: 2, measured_at: isoDaysAgo(1), systolic: 128, diastolic: 84, pulse: 64, isLocal: true, localId: 55 },
+        { id: 2, measured_at: isoDaysAgo(1), systolic: 128, diastolic: 84, pulse: 64 },
         { id: 3, measured_at: isoDaysAgo(0), systolic: 145, diastolic: 95, pulse: 72 }
       ];
       window.renderBPChart(readings, { systolic_target: 130, diastolic_target: 85 });
@@ -194,18 +194,9 @@ describe('app.js charts, scanner and visualization helpers', () => {
       const bpListHtml = document.getElementById('bp-list').innerHTML;
       expect(bpListHtml).toContain('Today');
       expect(bpListHtml).toContain('Yesterday');
-      expect(bpListHtml).toContain('Pending');
 
-      window.MedTrackerDB = {
-        BPStore: {
-          getPending: vi.fn().mockResolvedValue([
-            { localId: 99, measured_at: isoDaysAgo(0), systolic: 111, diastolic: 70, pulse: 55 }
-          ]),
-          getRejected: vi.fn().mockResolvedValue([])
-        }
-      };
       await window._renderBPData(readings, {}, { stats_14: { days: 7, systolic: 120, diastolic: 80 } });
-      expect(document.getElementById('bp-list').innerHTML).toContain('Pending');
+      expect(document.getElementById('bp-list').innerHTML).toContain('Today');
 
       const logs = [
         { measured_at: isoDaysAgo(10), weight: 83.4, weight_trend: 83.0 },

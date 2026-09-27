@@ -144,13 +144,6 @@ describe('Weight cold-start Dexie hydration (Task 2)', () => {
         const rows = list.querySelectorAll('li.wg-weight-history-row');
         expect(rows.length).toBeGreaterThanOrEqual(1);
 
-        const slot = document.getElementById('weight-stale-badge');
-        expect(slot).not.toBeNull();
-        const badge = slot.querySelector('.wg-stale-badge');
-        expect(badge).not.toBeNull();
-        expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
-        // 90m old offline → "Offline · 1h old" (formatAge truncates to whole hours).
-        expect(badge.textContent).toMatch(/^Offline · 1h old$/);
     });
 
     it('renders the weight goal card from hydrated cache when the cached payload includes a goal', async () => {

@@ -445,12 +445,12 @@ describe('Settings toggle disabled-state (Phase 9, Task 5)', () => {
 // Settings view extraction → features/settings.js (Plan 2026-06-10
 // finish-app-js-split, Task 2). These exercise the moved code path through the
 // frontend harness (which now loads features/settings.js after app.js):
-//   • warm-cache render — applyBundle paints toggles + macros + the stale chip
+//   • warm-cache render — applyBundle paints toggles + macros
 //   • feature-toggle flips nav visibility — rebuildCanonicalBottomNav re-mount
 //     + updateFeatureTabVisibility bounce to Today when the active section's
 //     feature is turned off
 //   • error/revert — apiCall null restores the toggle, skips the write side
-// (warm-cache + stale-badge are also pinned in settings.refresh-on-mount.test.js;
+// (warm-cache is also pinned in settings.refresh-on-mount.test.js;
 //  here we assert the DOM-level outcome of the extracted applyBundle.)
 // ----------------------------------------------------------------------------
 
@@ -472,10 +472,9 @@ function setOnline(window, online) {
 }
 
 describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Task 2)', () => {
-    it('loadSettings renders feature toggles, food macros, and the stale chip from a warm cache (offline)', async () => {
+    it('loadSettings renders feature toggles, food macros from a warm cache (offline)', async () => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();
-        delete window.__MEDTRACKER_CLOUD__; // bot-mode stale chip (cloud suppresses it)
         try {
             const bundle = {
                 featureSettings: { medication: true, workout: false, food: true, bp: true, weight: false, health: true },
@@ -509,10 +508,6 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             // Reminder toggles mirror the cached statuses.
             expect(document.getElementById('bp-reminders-toggle').checked).toBe(true);
             expect(document.getElementById('weight-reminders-toggle').checked).toBe(false);
-            // Stale chip mounted from the 90-min-old cache row, offline tone.
-            const badge = document.getElementById('settings-stale-badge').querySelector('.wg-stale-badge');
-            expect(badge).not.toBeNull();
-            expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
         } finally {
             cleanup();
         }

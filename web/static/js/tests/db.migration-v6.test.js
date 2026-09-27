@@ -1,23 +1,18 @@
-// Dexie v5 → v6 migration coverage.
-// Task 4 of the SW handler unification plan adds version 6 of MedTrackerDB
-// for the pending_sw_actions queue. Dexie's contract for additive
-// migrations is that every prior version's stores stay declared in the
-// new version's schema — leaving one out drops the table on the next
-// open (silent data loss).
+// Dexie v5 → v6 migration coverage (history guard).
+// Task 4 of the SW handler unification plan added version 6 of MedTrackerDB
+// for the pending_sw_actions queue. Versions 1-6 are preserved verbatim so
+// an upgrade from any older profile replays the full history; v7 drops the
+// bot-mode write queues (see db.migration-v7.test.js).
 //
 // This test parses db.js to:
-//   1. confirm the new version block exists and adds pending_sw_actions
+//   1. confirm the v6 version block exists and adds pending_sw_actions
 //   2. confirm every store named in version(5).stores({...}) is still
 //      present in version(6).stores({...})
-//   3. confirm MedTrackerDB exposes the new SwActionQueue surface
-//
-// See docs/plans/2026-05-13-sw-handler-unification.md, Task 4.
 
 import { describe, expect, it, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadDbEnv } from './helpers/db-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -100,48 +95,4 @@ describe('db.js v5 → v6 schema migration', () => {
         expect(missing).toEqual([]);
     });
 
-    it('MedTrackerDB exposes SwActionQueue with the methods sync.js consumes', () => {
-        const { window, cleanup } = loadDbEnv();
-        try {
-            const { SwActionQueue } = window.MedTrackerDB;
-            expect(SwActionQueue).toBeDefined();
-            for (const fn of ['save', 'getPending', 'markSynced', 'markError',
-                              'markRejected', 'getPendingCount', 'getRejectedCount']) {
-                expect(typeof SwActionQueue[fn]).toBe('function');
-            }
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('existing v5 stores still operate after db.js has declared v6', async () => {
-        const { window, cleanup } = loadDbEnv();
-        try {
-            const { BPStore, WeightStore, IntakeQueueStore, SwActionQueue }
-                = window.MedTrackerDB;
-
-            // Smoke test that the four queue-shaped stores still write/read.
-            await BPStore.save({
-                systolic: 120, diastolic: 80, measured_at: '2026-05-13T10:00:00Z'
-            });
-            await WeightStore.save({
-                weight: 80.0, measured_at: '2026-05-13T10:00:00Z'
-            });
-            await IntakeQueueStore.save({
-                medication_ids: [1], scheduled_at: '2026-05-13T10:00:00Z'
-            });
-            await SwActionQueue.save({
-                endpoint: '/api/medications/skip',
-                method: 'POST',
-                body: { intake_id: 1 },
-            });
-
-            expect(await BPStore.getPendingCount()).toBe(1);
-            expect(await WeightStore.getPendingCount()).toBe(1);
-            expect(await IntakeQueueStore.getPendingCount()).toBe(1);
-            expect(await SwActionQueue.getPendingCount()).toBe(1);
-        } finally {
-            cleanup();
-        }
-    });
 });

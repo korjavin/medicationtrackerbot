@@ -128,11 +128,10 @@ window.WeightUnitState = (function () {
             _state.lastCommitted = window.weightUnitPreference === 'lb' ? 'lb' : 'kg';
         }
         if (unit === window.weightUnitPreference) return true;
-        // PATCH has no offline-queue fallback in sync.js (offlineAwareApiCall
-        // only queues POST/PUT/DELETE), so an offline attempt would surface a
-        // "needs internet" alert via apiCall after a useless network round-
-        // trip. Treat offline clicks as a silent no-op: the UI stays on the
-        // committed unit, mirroring the modal-submit path.
+        // An offline PATCH attempt would surface a "needs internet" alert via
+        // apiCall after a useless network round-trip. Treat offline clicks as
+        // a silent no-op: the UI stays on the committed unit, mirroring the
+        // modal-submit path.
         if (window.SyncManager && window.SyncManager.isOnline === false) return false;
 
         // Optimistically commit so a fast follow-up click compares against

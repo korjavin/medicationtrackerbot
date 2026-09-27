@@ -1,9 +1,7 @@
 // Task 7 of the offline-sections-sweep plan — opening the Settings screen
 // should refresh the cached `settings_bundle` from the backend so toggles
 // reflect current backend state, not just whatever bootstrap last seeded.
-// When the user is offline, the cached bundle must stay visible and the
-// stale chip must surface freshness (or "Offline · no cache" when there is
-// nothing to show).
+// When the user is offline, the cached bundle must stay visible.
 //
 // Why this lives alongside settings.dexie-hydration.test.js: hydration is the
 // COLD-START primer (Task 6); this file pins the ON-MOUNT REFRESH behavior
@@ -227,39 +225,6 @@ describe('Settings on-mount refresh (Task 7)', () => {
         expect(window.WGForecastCard.refresh).toHaveBeenCalledTimes(1);
     });
 
-    it('mounts a wg-stale-badge into the Settings header pulling from the settings_bundle cache row', async () => {
-        allowConsoleNoise();
-        const { window, document } = env;
-        setAuthCache(window);
-        const cachedAt = Date.now() - 90 * 60 * 1000; // 90 min ago
-        const bundle = makeBundle();
-        installApiCacheMap(window, {
-            settings_bundle: { data: bundle, timestamp: cachedAt }
-        });
-        await window.hydrateSectionsFromDexie();
-
-        // Offline: badge must render with the offline-warning tone so the
-        // user sees the values come from cache, not a live backend response.
-        // apiCall throws (not just returns null) so the SWR fetcher errors
-        // out and the cached row's timestamp is NOT advanced — letting the
-        // badge surface the real 90-min-old age the user should see.
-        setOnline(window, false);
-        window.apiCall = vi.fn(async () => { throw new Error('offline'); });
-
-        await window.loadSettings();
-
-        const slot = document.getElementById('settings-stale-badge');
-        expect(slot).not.toBeNull();
-        const badge = slot.querySelector('.wg-stale-badge');
-        expect(badge).not.toBeNull();
-        expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
-        // 90-minute-old cache + offline must render the "X old" age string,
-        // not collapse to "Offline · just now" (which only fires when the
-        // timestamp is fresher than 60s).
-        expect(badge.textContent).toMatch(/Offline ·/);
-        expect(badge.textContent).not.toMatch(/just now/i);
-    });
-
     it('opening Settings offline with a cached bundle keeps the cached values rendered — no console error spam', async () => {
         allowConsoleNoise();
         const { window } = env;
@@ -398,60 +363,7 @@ describe('Settings on-mount refresh (Task 7)', () => {
         });
     });
 
-    it('mounts the stale badge from the onCached callback so cached values never appear without a freshness chip', async () => {
-        // Regression for codex review: previously the stale badge was mounted
-        // ONLY after loadSWR's awaited fetch returned. If the network was
-        // slow, users could see cached toggles painted without the "Offline
-        // · …" / "Updated …" chip. Mounting from onCached (in addition to the
-        // post-loadSWR safety-net call) ensures the badge appears on first
-        // paint of cached data, matching the BP / Weight / Workout pattern.
-        allowConsoleNoise();
-        const { window, document } = env;
-        setAuthCache(window);
-        const cachedAt = Date.now() - 2 * 60 * 60 * 1000; // 2 hours ago
-        const bundle = makeBundle();
-        installApiCacheMap(window, {
-            settings_bundle: { data: bundle, timestamp: cachedAt }
-        });
-        await window.hydrateSectionsFromDexie();
-        setOnline(window, false);
-
-        // The fetcher hangs forever — proves the badge mount does not depend
-        // on the awaited SWR fetch ever resolving.
-        let fetchResolve;
-        const fetcherPromise = new Promise((resolve) => { fetchResolve = resolve; });
-        window.apiCall = vi.fn(async () => fetcherPromise);
-
-        // Capture the badge state at the moment onCached returns — i.e.,
-        // before the awaited loadSWR call below has any chance to advance.
-        let badgeAtOnCached = null;
-        const origLoadSWR = window.DataStore.loadSWR.bind(window.DataStore);
-        window.DataStore.loadSWR = async (options) => {
-            const wrappedOnCached = options.onCached;
-            return origLoadSWR({
-                ...options,
-                onCached: async (cached) => {
-                    if (wrappedOnCached) await wrappedOnCached(cached);
-                    const slot = document.getElementById('settings-stale-badge');
-                    badgeAtOnCached = slot ? slot.querySelector('.wg-stale-badge') : null;
-                }
-            });
-        };
-
-        const settled = window.loadSettings();
-        // Let the cached path drain (onCached → mountStaleBadge) before
-        // resolving the fetcher.
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        fetchResolve(null);
-        await settled;
-
-        expect(badgeAtOnCached).not.toBeNull();
-        expect(badgeAtOnCached.classList.contains('wg-stale-badge--offline')).toBe(true);
-
-        window.DataStore.loadSWR = origLoadSWR;
-    });
-
-    it('a fresh on-mount refresh updates the cache timestamp so the stale chip flips from "Offline" to "Updated just now"', async () => {
+    it('a fresh on-mount refresh updates the cache timestamp', async () => {
         const { window } = env;
         setAuthCache(window);
         const staleCachedAt = Date.now() - 6 * 60 * 60 * 1000; // 6h ago

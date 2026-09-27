@@ -365,30 +365,26 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             expect(apiCallSpy.mock.calls[2][1]).toBe('POST');
         });
 
-        it('editing a local (pending) log purges IndexedDB instead of issuing a DELETE request', async () => {
+        it('editing a local (optimistic) log issues no DELETE request', async () => {
             const { window, document } = env;
             const apiCallSpy = vi.fn().mockResolvedValue({ id: 3 });
             window.apiCall = apiCallSpy;
             window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
             window.loadWeightLogs = vi.fn();
 
-            const confirmDeleteSpy = vi.fn().mockResolvedValue(undefined);
-            window.MedTrackerDB = { WeightStore: { confirmDelete: confirmDeleteSpy } };
-            window.SyncManager = { updateStatus: vi.fn() };
-
             window.editWeightLog({
-                id: 'local_42',
+                id: 'local_optimistic_42',
                 measured_at: '2026-04-20T08:00:00Z',
                 weight: 81.2,
                 notes: '',
-                isLocal: true,
             });
             document.getElementById('weight-datetime').value = '2026-04-22T08:15';
             document.getElementById('weight-value').value = '80.1';
 
             await window.handleWeightSubmit({ preventDefault() {} });
 
-            expect(confirmDeleteSpy).toHaveBeenCalledWith(42);
+            // Local-only ids never reach the server: one POST, no DELETE, and
+            // no ?replaces param (there is no server row being replaced).
             expect(apiCallSpy).toHaveBeenCalledTimes(1);
             const [postUrl, postMethod] = apiCallSpy.mock.calls[0];
             expect(postUrl).toBe('/api/weight');
@@ -515,26 +511,15 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             expect(parseFloat(input.value)).toBeCloseTo(75.0, 2);
         });
 
-        it('picks the newest weight across DataStore cache AND IndexedDB WeightStore (defect #3 follow-up)', async () => {
-            // An offline log lives only in WeightStore until sync; when the
-            // user opens the modal via the Today shortcut before sync lands,
-            // the seed must reflect the actual newest value — not the older
-            // server entry in the DataStore cache.
+        it('seeds the modal from the newest DataStore-cached weight (defect #3 follow-up)', async () => {
             const { window, document } = env;
             const cachedPayload = {
                 logsRes: [
                     { id: 9, measured_at: '2026-04-20T07:00:00Z', weight: 80.0 },
+                    { id: 10, measured_at: '2026-04-22T07:00:00Z', weight: 82.5 },
                 ]
             };
             window.DataStore.getCached = vi.fn(async (key) => key === 'weight' ? cachedPayload : null);
-            window.MedTrackerDB = {
-                WeightStore: {
-                    getAll: vi.fn(async () => [
-                        // Newer offline/pending entry, not yet synced.
-                        { localId: 1, measured_at: '2026-04-22T07:00:00Z', weight: 82.5, syncStatus: 'pending' },
-                    ]),
-                },
-            };
 
             window.showWeightModal();
             await new Promise((resolve) => setTimeout(resolve, 0));

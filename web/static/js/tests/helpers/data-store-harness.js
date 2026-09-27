@@ -17,7 +17,7 @@ function createApiCacheMock(initialCache = {}, initialMeta = {}) {
   // Per-key timestamp ledger that mirrors the {id, timestamp, data} row shape
   // of the real api_cache Dexie table. Keeps the simple `get(key)→data`
   // contract intact while letting tests exercise getWithMeta / setWithMeta
-  // (used by hydrateFromDexie + WGStaleBadge.mountFromKey).
+  // (used by hydrateFromDexie).
   const meta = new Map(Object.entries(initialMeta));
 
   return {

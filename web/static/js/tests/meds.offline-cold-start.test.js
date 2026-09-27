@@ -1,8 +1,8 @@
 // Task 3 of the offline-meds-resilience plan — `loadMeds()` must paint the
 // hydrated cache as the synchronous first paint. After the cold-start
 // hydration primer (Task 2) seeds DataStore.api_cache from Dexie, opening
-// the Meds screen offline should render planned-dose hour buckets and the
-// "Offline · …" stale chip — not a blank list. Conversely, a cold start
+// the Meds screen offline should render planned-dose hour buckets — not a
+// blank list. Conversely, a cold start
 // with neither a hydration nor a MedicationStore record must show the
 // explicit "No cached data" empty state.
 
@@ -123,13 +123,6 @@ describe('Meds cold-start offline resilience (Task 3)', () => {
 
         const rows = list.querySelectorAll('.wg-meds-row');
         expect(rows.length).toBe(3);
-
-        const slot = document.getElementById('meds-schedule-stale-badge');
-        expect(slot).not.toBeNull();
-        const badge = slot.querySelector('.wg-stale-badge');
-        expect(badge).not.toBeNull();
-        expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
-        expect(badge.textContent).toMatch(/^Offline · 1h old$/);
     });
 
     it('shows the explicit "No cached data" empty state when no Dexie hydration happened and we are offline', async () => {

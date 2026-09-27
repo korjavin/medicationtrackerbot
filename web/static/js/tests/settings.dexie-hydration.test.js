@@ -121,7 +121,7 @@ describe('Settings cold-start Dexie hydration (Task 6)', () => {
         expect(seeded).toEqual(bundle);
     });
 
-    it('hydration preserves the original cached timestamp on settings_bundle so a stale-badge would surface real age, not "Updated just now"', async () => {
+    it('hydration preserves the original cached timestamp on settings_bundle', async () => {
         const { window } = env;
         setAuthCache(window);
         const cachedAt = Date.now() - 4 * 60 * 60 * 1000; // 4 hours ago

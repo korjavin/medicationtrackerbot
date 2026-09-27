@@ -25,11 +25,10 @@ const JS_ROOT = path.join(REPO_ROOT, 'web/static/js');
 const ALLOWED_GLOBALS = new Set([
     // Infrastructure — stable, out of scope for frontend refactoring
     'window.MedTrackerDB',              // db.js — IndexedDB facade
-    'window.SyncManager',               // sync.js — offline sync manager
-    'window.offlineAwareApiCall',       // sync.js — public API entry point
+    'window.SyncManager',               // sync.js — online/offline UI shell (banner, toasts, status bar)
+    'window.offlineAwareApiCall',       // web/cloud/js/apishim.js — public API entry point installed by installApiShim (outside the scanned tree; entry kept so the seam stays documented)
     'window.isServerError',             // sync.js — canonical 5xx-as-offline detector exposed so cached-fetch.js can keep the policy defined in one place
     'window.SyncDebug',                 // sync.js — dev-mode diagnostics
-    'window.defineOfflineEntity',       // sync.js — factory shared by BP/weight/intake offline-write pipelines; exposed for tests and future entity additions
     'window.DataStore',                 // data-store.js — SWR cache layer
     'window.cachedFetch',               // cached-fetch.js — local-first read-through helper used by feature modules to render stale cache offline + power the freshness badge
     'window.OfflineNoCacheError',       // cached-fetch.js — typed error thrown when no cache exists and the network is unavailable; sections catch it to render an explicit empty state
@@ -73,7 +72,6 @@ const ALLOWED_GLOBALS = new Set([
     'window.WGStepsChart',              // components/wg-steps-chart.js — Wandergeek single-series steps bar chart for the Health Overview sub-tab; bar fill + rotated in-bar count label colour resolve via CSS classes on SVG children, never inline
     'window.WGVitalsChart',             // components/wg-vitals-chart.js — Wandergeek area+line vitals chart (HR / SpO2 / Stress) for the Health Overview sub-tab; parameterised by vital, line + area fill colour resolve via --wg-health-vitals-{vital}-* tokens on CSS classes, never inline
     'window.WGMacroBar',                // components/wg-macro-bar.js — Wandergeek Food-screen macro row (label + inset track + mono value/target); fill colour comes from .wg-macro-bar__fill--<variant> classes, fill width from a neutral --fill-pct custom property
-    'window.WGStaleBadge',              // components/wg-stale-badge.js — Wandergeek freshness badge mounted in section headers; renders "Updated Nm ago" / "Offline · Nh old" with neutral|warning tone classes for cachedFetch-driven local-first reads (Task 4 of the local-first read-resilience plan)
     'window.WGToggle',                  // components/wg-toggle.js — Wandergeek toggle primitive for the Settings screen (Phase 9); renders a pill + knob driven by a hidden <input type="checkbox"> so the existing id-based change-event wiring in app.js keeps binding unchanged
     'window.WGSettings',                // components/wg-settings.js — Wandergeek Settings-screen render helpers (Phase 9, Task 2): section() + row() + infoRow() DOM factories consumed by the Settings reskin to build sectioned cards, canonical left-title/right-control rows, and read-only timezone info rows
     'window.AppBackButton',             // features/back-button.js — wires the in-app back chevron to section → Today navigation
@@ -164,7 +162,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.FoodDB',                    // features/food/db.js — Food DB browse + paginate public API
 
     // Settings view — extracted from app.js (Plan 2026-06-10 finish-app-js-split, Task 2).
-    'window.SettingsView',              // features/settings.js — namespace mirroring the Settings tab view (loadSettings, renderSettingsStaleBadge, updateFeatureToggles, updateFoodTargetsVisibility, toggleFeatureSetting, updateFeatureTabVisibility). The bare function names remain the live call path (app.js switchTab/reloadCurrentTab → loadSettings; feature-toggle change handlers → toggleFeatureSetting; loadInitData/auth-bootstrap.js → updateFeatureTabVisibility); this object documents the public surface.
+    'window.SettingsView',              // features/settings.js — namespace mirroring the Settings tab view (loadSettings, updateFeatureToggles, updateFoodTargetsVisibility, toggleFeatureSetting, updateFeatureTabVisibility). The bare function names remain the live call path (app.js switchTab/reloadCurrentTab → loadSettings; feature-toggle change handlers → toggleFeatureSetting; loadInitData/auth-bootstrap.js → updateFeatureTabVisibility); this object documents the public surface.
 
     // Settings → Integrations section (local-only mode foundation, Task 3).
     'window.SettingsIntegrations',      // features/settings/integrations.js — load + save handlers for the Integrations card (OpenAI / Food / ElevenLabs credentials); routes the save through DataStore.applyOptimistic so the masked GET view repaints immediately on commit and rolls back on failure.

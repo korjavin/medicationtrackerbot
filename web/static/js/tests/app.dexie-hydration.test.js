@@ -70,8 +70,7 @@ describe('app.js cold-start Dexie hydration', () => {
       const seeded = await window.DataStore.getCached('medications');
       expect(seeded).toEqual(meds);
       expect(cacheMap.get('medications')).toEqual(meds);
-      // Dexie's original timestamp must survive into ApiCache so the stale
-      // badge can render an honest "Offline · 1h ago" chip instead of "now".
+      // Dexie's original timestamp must survive into ApiCache.
       expect(metaMap.get('medications')).toBe(dexieTs);
     } finally {
       cleanup();

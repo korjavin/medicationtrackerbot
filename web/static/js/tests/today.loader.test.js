@@ -24,7 +24,6 @@ const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
-const WG_STALE_BADGE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-stale-badge.js');
 const TODAY_JS = path.join(REPO_ROOT, 'web/static/js/features/today.js');
 const TODAY_LOADER_JS = path.join(REPO_ROOT, 'web/static/js/features/today-loader.js');
 
@@ -64,7 +63,6 @@ function loadLoaderEnv() {
     window.eval(fs.readFileSync(EMPTY_STATE_JS, 'utf8') + '\nwindow.createEmptyState = createEmptyState;');
     window.eval(fs.readFileSync(WG_ICONS_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_SPARKLINE_JS, 'utf8'));
-    window.eval(fs.readFileSync(WG_STALE_BADGE_JS, 'utf8'));
 
     // Globals the loader resolves by bare name (normally provided by app.js +
     // sibling feature modules). Stubbed to no-ops/defaults so each test can
@@ -101,7 +99,7 @@ describe('Today loader — features/today-loader.js', () => {
     afterEach(() => { env.cleanup(); });
 
     describe('loadToday renders from caches offline', () => {
-        it('paints the Today meds card from cached next_intake and mounts the offline stale chip', async () => {
+        it('paints the Today meds card from cached next_intake with no refetch', async () => {
             setOnline(window, false);
             const ts = Date.now() - 10 * 60 * 1000; // cached 10 min ago
             const scheduledAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
@@ -129,12 +127,6 @@ describe('Today loader — features/today-loader.js', () => {
             const names = Array.from(medsCard.querySelectorAll('.wg-today-meds__name')).map((n) => n.textContent);
             expect(names).toEqual(['Aspirin']);
 
-            // Offline + a finite oldest-cache timestamp ⇒ the worst-case freshness
-            // chip mounts with the offline tone.
-            const badge = root.querySelector('.today-stale-badge-row .wg-stale-badge');
-            expect(badge).not.toBeNull();
-            expect(badge.classList.contains('wg-stale-badge--offline')).toBe(true);
-
             // Offline short-circuits the refetch loop entirely.
             expect(window.DataStore.fetchFresh).not.toHaveBeenCalled();
             expect(window.apiCall).not.toHaveBeenCalled();
@@ -149,55 +141,14 @@ describe('Today loader — features/today-loader.js', () => {
             const root = env.document.getElementById('today-content');
             expect(root.querySelector('.today-empty-firstrun')).not.toBeNull();
             expect(root.querySelector('.wg-today-meds')).toBeNull();
-            // Bot mode: no cache + navigator offline is a real "we never fetched
-            // your day" situation, so the offline-framed first-run copy stands.
             expect(root.querySelector('.today-empty-firstrun').textContent)
-                .toBe('Offline — reconnect to load your day');
-        });
-
-        // med-eas.81 — `state.__offline` (offline AND the Today cache older than
-        // FRESHNESS_MS) is a BOT-MODE concept: data fetched from a server can
-        // genuinely go stale behind a dead network. In CLOUD mode reads are
-        // served from the local E2EE vault (web/cloud/js/apishim.js), which is
-        // authoritative and always current regardless of connectivity — so a
-        // flaky-wifi navigator.onLine=false must not make Today tell the user
-        // their own data is stale. today-loader.js gates the flag centrally on
-        // !window.__MEDTRACKER_CLOUD__, which transitively suppresses all three
-        // of today.js's offline-framed strings without today.js knowing about
-        // cloud mode at all. Sibling of med-eas.68 (the wg-stale-badge chip).
-        it('bot mode renders the offline banner and the "unavailable offline" kicker on a stale cache', async () => {
-            setOnline(window, false);
-            const ts = Date.now() - 2 * 60 * 60 * 1000; // 2h old ⇒ past FRESHNESS_MS (1h)
-            // settings_bundle present (so not firstRun) but next_intake missing
-            // ⇒ the meds cell is `missing` and takes the kicker's offline branch.
-            window.MedTrackerDB = makeApiCache({
-                settings_bundle: {
-                    data: {
-                        featureSettings: { ...FEATURES_MED_ONLY },
-                        foodTargets: { calories: 0, carbs: 0, protein: 0, fat: 0 },
-                        tabOrder: ['today', 'meds'],
-                        weightUnitPreference: 'kg'
-                    },
-                    timestamp: ts
-                }
-            });
-
-            await window.loadToday();
-
-            const root = env.document.getElementById('today-content');
-            expect(root.querySelector('.today-empty-firstrun')).toBeNull();
-            const banner = root.querySelector('.today-offline-banner');
-            expect(banner).not.toBeNull();
-            expect(banner.textContent).toBe('Offline — showing cached data');
-            const kicker = root.querySelector('.wg-today-meds .wg-next-action-card__kicker');
-            expect(kicker).not.toBeNull();
-            expect(kicker.textContent).toBe('Next dose data unavailable offline');
+                .toBe('Connect to load your day');
         });
 
         it('cloud mode suppresses the offline banner and the "unavailable offline" kicker on a stale cache', async () => {
             window.__MEDTRACKER_CLOUD__ = true;
             setOnline(window, false);
-            const ts = Date.now() - 2 * 60 * 60 * 1000; // same stale cache as the bot-mode case
+            const ts = Date.now() - 2 * 60 * 60 * 1000; // stale cache: banner/kicker stay in online copy
             window.MedTrackerDB = makeApiCache({
                 settings_bundle: {
                     data: {
