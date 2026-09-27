@@ -157,6 +157,7 @@ register themselves at script-load time and replace the stub.
 |---|---|---|
 | `window.MediaCapture` | Camera + photo picker | `getUserMedia` + `<input type=file>` |
 | `window.Barcode` | Barcode scanning | `BarcodeDetector` (Chrome) / ZXing fallback |
+| `window.Bluetooth` | Web Bluetooth heart rate (HR slice) | `navigator.bluetooth` GATT + 0x2A37 parse (med-byks.1) |
 
 **Capability probes** — where a capability may be absent, the check is exposed
 as a method so feature code never re-derives it:
@@ -165,6 +166,7 @@ as a method so feature code never re-derives it:
 |---|---|---|
 | `MediaCapture` | `openCameraStream({facingMode})` | `Promise<MediaStream>` via `getUserMedia` — the file's only `getUserMedia` call site (`takePhoto` reuses it) |
 | `Barcode` | `supportsLiveScan()` | `!!window.BarcodeDetector`, probed at call time |
+| `Bluetooth` | `isSupported()` | `!!navigator.bluetooth`, probed at call time — false on Safari/iOS/Firefox, where feature UI hides itself |
 
 `features/food/scanner.js` is the reference consumer: it asks
 `Barcode.supportsLiveScan()` whether the frame loop is viable and
@@ -175,7 +177,8 @@ cached bundle degrades gracefully.
 **Guard** — `web/static/js/tests/architecture.native-abstractions.test.js` enforces the
 boundary. It fails if any file under `web/static/js/` outside `native/` (and
 outside `tests/`, which legitimately stubs the seam) mentions
-`navigator.mediaDevices`, `getUserMedia`, or `BarcodeDetector` — no allowlist;
+`navigator.mediaDevices`, `getUserMedia`, `BarcodeDetector`,
+`navigator.bluetooth`, or `requestDevice` — no allowlist;
 `native/` owns device capabilities. It also fails on any reference to
 `window.Capacitor` / `isNativePlatform` anywhere in the frontend: the Capacitor
 Android shell was removed, so branching on it is dead code.

@@ -193,6 +193,8 @@ const ALLOWED_GLOBALS = new Set([
     // throw NotImplementedError; the native/web/* impls replace them.
     'window.MediaCapture',              // native/index.js — camera + photo picker abstraction (takePhoto, pickPhoto, openCameraStream, recordAudio); web impl wraps getUserMedia + <input type=file>
     'window.Barcode',                   // native/index.js — barcode scanner abstraction (scan, supportsLiveScan); web impl uses window.BarcodeDetector with a ZXing fallback
+    'window.Bluetooth',                 // native/index.js — Web Bluetooth abstraction, HR slice (isSupported, requestHeartRateDevice, subscribeHeartRate, unsubscribe); web impl owns the only navigator.bluetooth call site (med-byks.1, pulling med-byks.3 forward)
+    'window.LiveHR',                    // features/live-hr.js — experimental live-HR card on the Vitals screen (med-byks.1 POC): refresh() re-evaluates flag + Bluetooth support; talks to window.Bluetooth only, persists nothing
 ]);
 
 /**

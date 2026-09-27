@@ -741,6 +741,7 @@ function updateFeatureToggles() {
     document.getElementById('workout-feature-toggle').checked = !!flags.workout;
     document.getElementById('weekly-digest-feature-toggle').checked = !!flags.weekly_digest;
     document.getElementById('gamification-feature-toggle').checked = !!flags.gamification;
+    document.getElementById('live-hr-feature-toggle').checked = !!flags.live_hr;
     updateWeeklyDigestVisibility(flags);
 }
 

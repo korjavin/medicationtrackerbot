@@ -19,6 +19,7 @@ const NATIVE_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/native/index.js');
 const NATIVE_IMPL_FILES = [
     'web/static/js/native/web/media-capture.js',
     'web/static/js/native/web/barcode.js',
+    'web/static/js/native/web/bluetooth.js',
 ].map((rel) => path.join(REPO_ROOT, rel));
 
 function makeWindow() {
@@ -53,10 +54,11 @@ describe('native/index.js — foundation', () => {
     beforeEach(() => { env = null; });
     afterEach(() => { if (env) env.cleanup(); env = null; });
 
-    it('installs both window globals after script load', () => {
+    it('installs all window globals after script load', () => {
         env = loadFoundation();
         expect(typeof env.window.MediaCapture).toBe('object');
         expect(typeof env.window.Barcode).toBe('object');
+        expect(typeof env.window.Bluetooth).toBe('object');
     });
 
     it('every stub method throws NotImplementedError naming the capability and method', () => {
@@ -68,6 +70,10 @@ describe('native/index.js — foundation', () => {
             ['MediaCapture', 'recordAudio'],
             ['Barcode', 'scan'],
             ['Barcode', 'supportsLiveScan'],
+            ['Bluetooth', 'isSupported'],
+            ['Bluetooth', 'requestHeartRateDevice'],
+            ['Bluetooth', 'subscribeHeartRate'],
+            ['Bluetooth', 'unsubscribe'],
         ];
         for (const [capability, method] of cases) {
             const stub = env.window[capability];
@@ -127,6 +133,10 @@ describe('native/index.js — full module load wires real impls', () => {
             ['MediaCapture', 'recordAudio'],
             ['Barcode', 'scan'],
             ['Barcode', 'supportsLiveScan'],
+            ['Bluetooth', 'isSupported'],
+            ['Bluetooth', 'requestHeartRateDevice'],
+            ['Bluetooth', 'subscribeHeartRate'],
+            ['Bluetooth', 'unsubscribe'],
         ];
         for (const [capability, method] of checks) {
             const surface = env.window[capability];

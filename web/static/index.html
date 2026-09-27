@@ -521,6 +521,10 @@
                         description="Opt-in Sunday-evening bot summary of your week"
                         input-id="weekly-digest-feature-toggle"></mt-setting-toggle>
 
+                    <mt-setting-toggle title="Live Heart Rate (Experimental)"
+                        description="Show the experimental live-HR card on Vitals (Web Bluetooth)"
+                        input-id="live-hr-feature-toggle"></mt-setting-toggle>
+
                     <div class="wg-settings-row">
                         <div class="wg-settings-row__content">
                             <div class="wg-settings-row__title wg-mono-display">Re-run onboarding</div>
@@ -2466,6 +2470,7 @@
     <script src="/static/js/native/index.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/native/web/media-capture.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/native/web/barcode.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/native/web/bluetooth.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <!-- First-run guided setup (mobile Phase 2c). state.js attaches the
          sessionStorage step tracker onto window.WGFirstRun.state;
          index.js attaches the mount/dismiss/isActive surface. Either
@@ -2502,6 +2507,7 @@
     <script src="/static/js/features/bp.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/weight.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/health.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/live-hr.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/auth-flow.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/modal-history.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/back-button.js?v=TIMESTAMP_PLACEHOLDER"></script>

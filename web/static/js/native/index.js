@@ -1,7 +1,8 @@
 // Device-capability abstraction layer.
 //
-// Exposes two window globals — MediaCapture and Barcode — as the seam between
-// feature code (web/static/js/features/*) and browser device APIs. Each global
+// Exposes three window globals — MediaCapture, Barcode, and Bluetooth — as the
+// seam between feature code (web/static/js/features/*) and browser device APIs.
+// Each global
 // is initially populated with stubs that throw NotImplementedError so a caller
 // that loads before the impls is loud rather than silently no-op; the web/*
 // sibling files replace them via registerImpl().
@@ -61,9 +62,11 @@
 
     window.MediaCapture = makeStub('MediaCapture', ['takePhoto', 'pickPhoto', 'openCameraStream', 'recordAudio']);
     window.Barcode = makeStub('Barcode', ['scan', 'supportsLiveScan']);
+    window.Bluetooth = makeStub('Bluetooth', ['isSupported', 'requestHeartRateDevice', 'subscribeHeartRate', 'unsubscribe']);
 
     // Stash the foundation helpers under a namespaced property on each global
-    // so tests and impls can reach registerImpl without a third window global.
+    // so tests and impls can reach registerImpl without another window global.
     window.MediaCapture.__native = foundation;
     window.Barcode.__native = foundation;
+    window.Bluetooth.__native = foundation;
 })();
