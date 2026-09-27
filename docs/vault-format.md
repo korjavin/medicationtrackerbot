@@ -373,6 +373,39 @@ Absent when the export is taken with secrets off. Only the **hash** exists in th
 already-minted MCP/API token keep authenticating after a server move. Cloud mode has no
 API tokens and carries the array as a passthrough record.
 
+### `tombstones`
+
+```json
+"tombstones": [ { "recordType": "workoutsession", "recordId": "session-10-2026-07-09" } ]
+```
+
+Derived-slot suppression signals (bd med-jtaj). `intake-<medId>-<slot>` and
+`session-<groupId>-<date>` rows are lazily materialized by readers
+(`materializeDueDoses`, `getNext`) via `putIfAbsent`, which treats any raw row —
+tombstone included — as occupying the slot. A tombstone there means "deliberately
+deleted, do not re-materialize"; dropping it on export resurrects the day and its
+reminder on the next import. Every other type is delete-by-absence (a missing row
+stays missing after the replace-only import), so only `intake` and
+`workoutsession` tombstones are carried.
+
+- Only exact derived-slot ids are carried: `intake-<medId>-<unixSec>` (mirroring
+  medintake.js `slotId`) and `session-<groupId>-<YYYY-MM-DD>` (mirroring workout.js
+  `sessionRecordId`, the same shape the reminder horizon probes). Manually-keyed
+  rows (`intake-manual-…`, `session-adhoc-…`) and suffixed import ids
+  (`intake-<m>-<s>-tz_step`, which nothing looks up) delete-by-absence: their
+  tombstones are dropped on export. On import, entries for UNKNOWN record types are
+  skipped (forward-compat: an older app importing a newer backup must not choke
+  on slot types it doesn't know yet), while a KNOWN slot type with a non-matching
+  id shape fails the import with `Corrupt backup` before the wipe.
+- Each entry is identity-only (`recordType`, `recordId`); import re-stamps them as
+  bodyless `deleted` rows, exactly what `records.del` writes. No `clientTs` is
+  carried — the import clock stamps them.
+- The key is optional and omitted when empty: old files predate it and import
+  exactly as before (no tombstones). Absent and `[]` compare equal.
+- A tombstone colliding with a live row of the SAME type loses — the live row wins.
+  A tombstone sharing its recordId with a live row of ANOTHER type fails the import:
+  the record store is keyed by recordId alone, so it would overwrite that row.
+
 ## The secrets toggle
 
 `exportAll(records, {includeSecrets: false})` omits the two secret-bearing blocks —
@@ -427,6 +460,7 @@ only guard.
 | `miband_gps_tracks` | **Legacy bot exports carry it** nested under `workouts.miband[].gps`; **cloud import drops it** (`vaultToRecords`). It was 44% of a real vault (~77 MiB / 168 tracks) and no code renders a route, yet it rode in every cloud snapshot and was structured-cloned on every `records.list()`. Accepted loss: GPS tracks do not survive a cloud round-trip. |
 | `workout_schedule_snapshots` | **write-only table.** In the deleted Go store no reader ever consumed it — no handler, no MCP op, no frontend. Nothing can read the data, so carrying it would preserve nothing. |
 | cloud-only `voiceprovisioning` | plumbing with no `/api` route |
+| tombstones for non-derived-slot types | delete-by-absence: a missing row stays missing after the replace-only import, so only `intake` / `workoutsession` tombstones are carried (see [`tombstones`](#tombstones)) |
 
 Also never exported: **derived fields** recomputed on read — bp `category`, weight
 `weight_trend`, miband `start_time`/`end_time`, workout schedule materialization.
@@ -445,6 +479,8 @@ Export → import → export (and each single hop) must be
   export order is not significant.
 - **Absent vs null vs empty** — an absent domain key, an empty array, and (for optional
   scalar fields) absent vs `null` compare equal.
+- **Tombstones** — `data.tombstones` round-trips identity (sorted by `type:id`);
+  absent and empty compare equal, like every other optional block.
 - **Derived fields** — anything in the skip list's "derived" bullet is recomputed, not
   compared. A reader that re-adds `category`/`weight_trend` does not break equality.
 - **Deterministic re-minting** — cloud import re-mints scheduled-intake, scheduled-session,
@@ -472,7 +508,8 @@ Export → import → export (and each single hop) must be
 `tests/fixtures/vault-v1.json` is a small hand-curated vault exercising every domain,
 every deterministic-id case (scheduled + manual intake, tz transition plan, workout
 scheduled session + rotation), a vitals day-batch boundary (samples spanning two calendar
-days), and an integrations key. The Vitest cloud round-trip test pins this one file —
+days), an integrations key, and two derived-slot tombstones (a deleted workout day +
+a deleted dose, med-jtaj). The Vitest cloud round-trip test pins this one file —
 any field-name drift fails the pin. A second fixture,
 `tests/fixtures/vault-v1-botexport.json`, is FROZEN (its generator was deleted with
 the bot runtime): real legacy export output, kept to prove old exports remain

@@ -891,6 +891,16 @@ export async function readAllLiveRecords(ctx) {
   return (await readAllRecords()).filter((r) => !r.deleted);
 }
 
+// readAllRawRecords is readAllLiveRecords WITHOUT the tombstone filter — the
+// flat input a full-vault export needs: derived-slot tombstones (intake /
+// workoutsession) are suppression signals the vault must carry, or an
+// export→import resurrects a deliberately deleted day and its reminder
+// (bd med-jtaj). recordsToVault drops every other tombstone (delete-by-absence).
+export async function readAllRawRecords(ctx) {
+  await bootstrapIfNeeded(ctx);
+  return readAllRecords();
+}
+
 // True once bootstrap has established the account cursor. A full-vault import
 // MUST NOT wipe local records before this: with a null cursor forceSnapshot
 // no-ops (nothing propagates, no durable retry marker), and the next open's

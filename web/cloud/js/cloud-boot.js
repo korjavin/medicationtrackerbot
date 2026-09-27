@@ -154,8 +154,9 @@ window.MedTrackerCloudReady = (async function boot() {
 
     // C2e full-vault export/import (Settings → Import/Export, Task 6). Both
     // sides are entirely client-side against the unlocked vault — zero-knowledge
-    // forbids the server ever seeing plaintext. exportAll reads every live
-    // record (including the unmasked integrations keys, module-to-module, never
+    // forbids the server ever seeing plaintext. exportAll reads every record
+    // (live rows plus the derived-slot tombstones that suppress re-materialization;
+    // including the unmasked integrations keys, module-to-module, never
     // across the /api shim) and regroups via web/domain/vault.js; importAll
     // wipes+relays the whole record store (preserving device/crypto state the
     // vault never carries — nk, voice provisioning) and forces one snapshot upload
@@ -163,11 +164,11 @@ window.MedTrackerCloudReady = (async function boot() {
     // boot critical path.
     window.CloudVault = {
         async exportAll({ includeSecrets = true } = {}) {
-            const [{ readAllLiveRecords }, { recordsToVault }] = await Promise.all([
+            const [{ readAllRawRecords }, { recordsToVault }] = await Promise.all([
                 import('/js/sync.js'),
                 import('/domain/vault.js'),
             ]);
-            const records = await readAllLiveRecords(ctx);
+            const records = await readAllRawRecords(ctx);
             return JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);
         },
         async importAll(json) {

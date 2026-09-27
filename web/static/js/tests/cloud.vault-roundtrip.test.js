@@ -62,6 +62,9 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     const strip = (data) => {
       const d = dropGps(data);
       delete d.settings.med_reminder_pref;
+      // Tombstones are a cloud-only v1 addition (med-jtaj); a real bot export
+      // never carries them, so they canonicalize away like med_reminder_pref.
+      delete d.tombstones;
       // Equipment is cloud-only inventory (med-niix.1); a real bot export
       // never carries it, so it canonicalizes away here like med_reminder_pref.
       if (d.workouts) delete d.workouts.equipment;
@@ -328,5 +331,99 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     const ids = records.filter((r) => r.recordType === 'intake').map((r) => r.recordId);
     expect(new Set(ids).size).toBe(2);
     expect(ids).toContain(`intake-1-${Math.floor(Date.parse(slot) / 1000)}`);
+  });
+
+  it('round-trips derived-slot tombstones: a deleted day stays deleted (med-jtaj)', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    // The intermediate records carry bodyless suppression signals, exactly what
+    // records.del writes — no body for any reader to lean on.
+    const tombs = records.filter((r) => r.deleted);
+    expect(tombs.map((r) => `${r.recordType}:${r.recordId}`).sort()).toEqual([
+      'intake:intake-1-1783580400',
+      'workoutsession:session-10-2026-07-09',
+    ]);
+    for (const t of tombs) {
+      expect(Object.keys(t).sort()).toEqual(['clientTs', 'deleted', 'recordId', 'recordType']);
+    }
+    // ... and the re-export reproduces the tombstones block (also pinned by the
+    // identity test above; asserted here for the failure message).
+    const back = recordsToVault(records, { now: NOW });
+    expect(back.data.tombstones).toEqual(fixture.data.tombstones);
+  });
+
+  it('exports only derived-slot-shaped tombstones; old files without the key import as today', () => {
+    // A deleted note is delete-by-absence: absence already means deleted after
+    // a replace-only import, so its tombstone is correctly dropped on export —
+    // as are manually-keyed (`intake-manual-…`, `session-adhoc-…`) and suffixed
+    // (`intake-<m>-<s>-tz_step`, which nothing looks up) tombstones: only exact
+    // derived-slot shapes suppress re-materialization.
+    const records = vaultToRecords(fixture, { now: NOW });
+    const withExtra = [
+      ...records,
+      { recordType: 'note', recordId: '999', clientTs: NOW, deleted: true },
+      { recordType: 'intake', recordId: 'intake-manual-123-456', clientTs: NOW, deleted: true },
+      { recordType: 'intake', recordId: 'intake-1-1783580400-tz_step', clientTs: NOW, deleted: true },
+      { recordType: 'workoutsession', recordId: 'session-adhoc-5', clientTs: NOW, deleted: true },
+      { recordType: 'workoutsession', recordId: 'session-10-2026-07-11', clientTs: NOW, deleted: true },
+    ];
+    const out = recordsToVault(withExtra, { now: NOW });
+    expect(out.data.tombstones).toEqual([
+      { recordType: 'intake', recordId: 'intake-1-1783580400' },
+      { recordType: 'workoutsession', recordId: 'session-10-2026-07-09' },
+      { recordType: 'workoutsession', recordId: 'session-10-2026-07-11' },
+    ]);
+
+    // Old files (no tombstones key) import with zero tombstone records —
+    // exactly today's behavior — and export without the key.
+    const legacy = JSON.parse(JSON.stringify(fixture));
+    delete legacy.data.tombstones;
+    const legacyRecords = vaultToRecords(legacy, { now: NOW });
+    expect(legacyRecords.some((r) => r.deleted)).toBe(false);
+    expect(recordsToVault(legacyRecords, { now: NOW }).data.tombstones).toBeUndefined();
+  });
+
+  it('skips unknown tombstone types; rejects bad slot shapes and cross-type collisions (med-jtaj)', () => {
+    const bad = (tombstones) => ({ format: 'medtracker-vault', version: 1, data: { tombstones } });
+    // Unknown record types are SKIPPED (forward-compat: an older app importing
+    // a newer backup must not choke on slot types it doesn't know yet).
+    const future = vaultToRecords(bad([
+      { recordType: 'note', recordId: '999' },
+      { recordType: 'bogus', recordId: 'x' },
+    ]), { now: NOW });
+    expect(future.some((r) => r.deleted)).toBe(false);
+
+    // A KNOWN slot type with a non-matching id shape: Corrupt backup before
+    // the destructive replace — a hand-edited file must not tombstone arbitrary
+    // records (e.g. {intake, 'settings'} over the settings singleton).
+    for (const t of [
+      { recordType: 'intake' },
+      { recordType: 'intake', recordId: '' },
+      { recordType: 'intake', recordId: 'intake-manual-123-456' },
+      { recordType: 'intake', recordId: 'intake-1-1783580400-tz_step' },
+      { recordType: 'intake', recordId: 'settings' },
+      { recordType: 'workoutsession', recordId: 'session-adhoc-5' },
+    ]) {
+      expect(() => vaultToRecords(bad([t]), { now: NOW })).toThrow(/Corrupt backup/);
+    }
+
+    // Cross-type recordId collision: the store is keyed by recordId alone, so a
+    // tombstone sharing its id with another type's live row would overwrite it.
+    const clashType = {
+      format: 'medtracker-vault',
+      version: 1,
+      data: {
+        medications: { items: [{ id: 'session-10-2026-07-09', name: 'x' }] },
+        tombstones: [{ recordType: 'workoutsession', recordId: 'session-10-2026-07-09' }],
+      },
+    };
+    expect(() => vaultToRecords(clashType, { now: NOW })).toThrow(/Corrupt backup/);
+
+    // Same-type collision: the live row wins, a single live record out.
+    const clash = JSON.parse(JSON.stringify(fixture));
+    clash.data.tombstones.push({ recordType: 'workoutsession', recordId: 'session-10-2026-07-07' });
+    const slot = vaultToRecords(clash, { now: NOW })
+      .filter((r) => r.recordType === 'workoutsession' && r.recordId === 'session-10-2026-07-07');
+    expect(slot).toHaveLength(1);
+    expect(slot[0].deleted).toBe(false);
   });
 });
